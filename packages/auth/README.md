@@ -104,7 +104,7 @@ An installed app's window uses `createDesktopAccountAuth` from
 account request, and `open_home` to send the person to Settings to sign in.
 The grant's account id is the Account's `principalId` and the CLI's deployment
 is its `baseURL`. `Account.fetch` carries a request below `/api/` to the CLI
-with the resource the app names (`git` for Todos' `POST /api/git/connect`),
+with the resource the app names (`git` for Todos' `GET /api/repos`),
 and the CLI adds the token for it; `getProfile` reads `/api/session` with the
 `api` resource. A 401 publishes `reauth-required` on the same Account. A new
 grant, including the same person signing in again, opens a new Account, and a

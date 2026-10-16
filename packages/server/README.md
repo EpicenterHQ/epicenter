@@ -17,7 +17,7 @@ choice and any deployment policy.
 | --- | --- | --- |
 | `mountSessionApp` | `src/routes/session.ts` | The profile read: the account an access token acts for. |
 | `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads; deployment supplies local SQLite or S3 byte storage. |
-| `mountGitApp` | `src/routes/git.ts` | Hosted Git: a connect route that mints a repository token, and the Git smart-HTTP data plane; deployment supplies the repository store. |
+| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`, push-to-create, and `GET /api/repos`; the deployment supplies the store (`GitHost`). |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -59,33 +59,59 @@ conditional, and media response policy; the store provides metadata and bytes.
 
 ### Hosted Git
 
-`mountGitApp` serves a folder's Git repository over smart HTTP with a token
-(ADR-0521). ADR-0546 replaces the connect route and its repository tokens with
-`git.epicenter.so` access tokens; Todos' Connect still calls it, so it stays
-until then. `POST /api/git/connect` takes `{ "folder": "<id>" }` behind the
-deployment's guard, an access token for its Git audience with `folders:write`. The folder is a managed folder name: two or more
-lowercase dot-separated labels, at most 64 bytes. The store finds or creates
-the principal's repository for it and mints a write token for that repository
-alone. The response is `{ remote, token, expiresAt }` with
-`Cache-Control: no-store`, and `remote` is built on the configured public
-origin, never the inbound Host.
+`mountGitHost` serves a folder's remote, `<git audience>/<namespace>/<name>.git`
+(ADR-0546, ADR-0547), over smart HTTP, and `GET /api/repos` on the API. The Git
+audience is `https://git.epicenter.so` for the hosted cloud and `<origin>/git`
+elsewhere (`resolveOAuthAudiences`).
 
-The data plane is `GET /git/<name>.git/info/refs?service=git-upload-pack` (or
-`git-receive-pack`, with no other query), `POST /git/<name>.git/git-upload-pack`,
-and `POST /git/<name>.git/git-receive-pack`. Anything else under `/git/` is 404.
-It sits outside `/api/`, so the cookie-CSRF guard never refuses a terminal
-`git push`, and it checks no access token: the store's backend checks the token
-in `Authorization`. A request without one gets 401 before the store runs. The
-module forwards only `Authorization`, `Content-Type`, `Content-Encoding`,
-`Accept`, and `Git-Protocol`, streams both bodies, drops upstream `Set-Cookie`,
-and removes `WWW-Authenticate` when the request carried an `Origin`, so a
-browser sees a readable 401 instead of a login prompt. The global CORS
-middleware decorates every response and answers preflights without a token.
+| Request | Needs |
+| --- | --- |
+| `GET info/refs?service=git-upload-pack`, `POST git-upload-pack` | `folders:read`, the `read` role |
+| `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role |
+| `GET /api/repos` | `folders:read` on the API or Git audience |
 
-Failures answer `{ name, message }`: 400 `InvalidFolder`, 401 `MissingToken`,
-502 `GitStoreFailed` when the store throws, and 503 `GitUnavailable` when the
-deployment resolves no store. The Worker resolves Cloudflare Artifacts; the
-Bun entry resolves none yet. Hosted Git takes no billing policy.
+One statement decides each Git request (`authorizeResourceRequest`): the access
+token, given as a Bearer token or as the Basic password, its audience, scope,
+and grant target; the namespace membership and role; and `<namespace>/<name>`
+resolved through `repository`, then `repository_alias`. A repository that has
+moved is checked against the namespace it lives in now. Nothing is cached.
+
+The first receive-pack request to a name nobody holds, by a member whose role
+may push, creates the repository: its row (`createRepository`), then its
+storage (`GitHost.create`). A read of a missing name is 404 and creates
+nothing. Unrelated history pushed to an existing name is refused because the
+store refuses anything but a fast-forward.
+
+Refusals answer `{ error, error_description }`: 401 `invalid_token` with
+`WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for
+terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
+502 `store_failed`, 503 `git_unavailable` when the deployment has no store.
+Hosted Git takes no billing policy.
+
+`GitHost` is the replaceable part. It names a repository by its immutable id
+(`repository.id`), never by `<namespace>/<name>`, and receives only requests
+the route already authorized, never the client's credential:
+
+```ts
+type GitHost = {
+  serve(id: string, request: GitRequest): Promise<Response>;
+  create(id: string): Promise<void>;
+};
+```
+
+The route resolves names to ids and lists from Postgres, so the store takes
+an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
+or a move is a row update and an alias, with no storage call. `apps/api` binds
+Cloudflare Artifacts (`worker/git-repositories.ts`); the Bun entry binds
+`createDiskGitHost` from `@epicenter/server/bun` (`src/git-disk-store.ts`):
+bare repositories at `<root>/<repository id>.git`, served by
+`git http-backend` with no hook run, from the repository or anywhere else, a
+clean environment, and every non-fast-forward and branch deletion refused.
+
+`renameRepository`, `moveRepository`, and `changeRepository`
+(`src/repositories.ts`) are the `manage` role's rename and move, each leaving
+an alias for the old `<namespace>/<name>`; no route or screen mounts them yet.
+A move also needs `push` in the destination.
 
 ## The authorization server
 
@@ -125,8 +151,8 @@ on every Better Auth upgrade.
 A resource that acts on a namespace calls `authorizeResourceRequest` with its
 own audience, the scope the operation needs, and the namespace in its path,
 then decides the operation from the role with `roleAllows`
-(`src/namespace-roles.ts`); none is mounted yet (Git, LFS, and MCP are
-ADR-0546's and ADR-0550's). The mounted resources act on the account and sit
+(`src/namespace-roles.ts`); `mountGitHost` does (LFS and MCP are ADR-0544's
+and ADR-0550's). The other mounted resources act on the account and sit
 behind `requireAccessToken`, which runs `authorizeAccountRequest`. The
 deployment names each mount's audience and scope:
 
@@ -134,7 +160,8 @@ deployment names each mount's audience and scope:
 | --- | --- | --- |
 | `mountInferenceApp`, `mountTranscriptionApp` (`/v1/*`) | API | `ai` |
 | `mountSessionApp` (`/api/session`, the profile read) | API | `profile` |
-| `mountGitApp` (`POST /api/git/connect`) | Git | `folders:write` |
+| `mountGitHost` (Git requests) | Git | `folders:read` to fetch, `folders:write` to push |
+| `mountGitHost` (`GET /api/repos`) | API or Git | `folders:read` |
 | `mountPersonalAuthorityBlobs` | Git | `folders:read` to read a private object, `folders:write` to publish or delete |
 
 A missing, unknown, revoked, or other-audience token answers 401 and a missing

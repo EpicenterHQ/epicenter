@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Unbuilt:** membership checks on Git requests (the resource query joins membership, but no Git route runs it yet), and groups with invitations.
+- **Unbuilt:** groups with invitations, and the "Share…" move into a group in an app (the `manage` role's move exists as a server function). Membership checks on Git requests are built.
 
 ## Context
 

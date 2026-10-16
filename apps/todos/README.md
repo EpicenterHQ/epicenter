@@ -226,19 +226,20 @@ its own Git configuration; connecting then syncs once. Only Todos's own
 folder, `so.epicenter.todos`, offers Connect; the platform leaf says whether
 the folder it opened is that one (`OpenedTodosFolder.own`).
 
-- **Sync with Epicenter**, signed in: Todos asks the server this build signs in
-  to (`POST /api/git/connect { folder: "so.epicenter.todos" }`, ADR-0521) for
-  the account's repository, which it creates on first use, and a write token
-  for that repository alone. The remote is
-  `<server>/git/so.epicenter.todos.<account tag>.git`. Signed out, **Sign in to
-  Epicenter** leaves for sign-in and comes back with Connect open. On the
-  desktop the window uses the account Home signed in to.
-- **Another Git server**: its URL, and a token (and a username, if the server
-  asks for one) kept on this device for exactly that URL. With no token the
-  desktop's `git` signs in as the person's own Git does; a browser sends none.
-  A URL that carries a password is refused, since the folder's Git settings
-  would keep it; the desktop sends a token only to an `https` remote. A browser
-  reaches only servers whose Git routes allow its origin (ADR-0521).
+- **Sync with Epicenter**, signed in: Todos proposes a repository name from the
+  folder's directory (`so.epicenter.todos`; the person may change it), asks the
+  server for the account's personal namespace (`GET /api/repos`), and connects
+  to `<git origin>/<namespace>/<name>.git` (ADR-0546). The first sync creates
+  the repository. The desktop window runs `epicenter sync` with the desktop
+  grant, which makes the repository and signs `git` in; the browser makes it
+  with its own access token. Signed out, **Sign in to Epicenter** leaves for
+  sign-in and comes back with Connect open. On the desktop the window uses the
+  account Home signed in to.
+- **Another Git server**: its URL. The desktop's `git` signs in as the
+  person's own Git does; a browser sends no credential. The page holds no token
+  for it. A URL that carries a password is refused, since the folder's Git
+  settings would keep it. A browser reaches only servers whose Git routes allow
+  its origin.
 
 Either way:
 
@@ -252,14 +253,12 @@ Either way:
 Connect again to change the remote. In development, **Use the demo remote on
 this computer** connects to the loopback remote `bun dev:todos` starts instead.
 
-Credentials stay out of the folder (`src/lib/git-access.ts`). The folder asks
-for one right before each push and fetch, with the URL it is about to reach.
-Epicenter's token lives in memory, is renewed when less than five minutes
-remain by the server's clock, is forgotten when the account signs out or
-changes (it stays valid at the server until it expires), and is given only to
-the exact remote the server named; a transfer to it while signed out is
-refused with a request to sign in. Any other remote gets its pasted token or
-nothing. A refusal reaches Sync's message in words a person can act on.
+Credentials stay out of the folder and out of the page's storage
+(`src/lib/remote.ts`). The browser folder's Git transport (`httpFetch`) sends
+the build's own access token, for the Git audience, only to Epicenter's Git
+origin through the account, and everything else through plain `fetch`. The
+desktop page holds no token: `epicenter sync` mints one from the desktop grant
+for each run. A refusal reaches Sync's message in words a person can act on.
 
 A folder an earlier version kept under `Epicenter/local/` or
 `Epicenter/accounts/` is not opened, moved, or deleted; connect to the

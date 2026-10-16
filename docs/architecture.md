@@ -130,17 +130,15 @@ repository, such as `apps/todos`.
 A folder syncs over plain Git to the remote in its own Git configuration
 ([ADR-0521](adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
 On the desktop that can be any Git remote. Epicenter's hosted Git keeps
-repositories in Cloudflare Artifacts: today `POST /api/git/connect` in
-`packages/server/src/routes/git.ts` finds or creates a folder's repository
-and answers a short-lived write token for it.
+repositories in Cloudflare Artifacts (a disk store on the Bun entry), named by
+an immutable id, at `https://git.epicenter.so/<namespace>/<name>.git`. The
+first push creates a repository, and a request is allowed by the access token
+and the namespace membership
+([ADR-0546](adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md),
+[ADR-0547](adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
 
 Unbuilt, decided:
 
-- Hosted remotes at `https://git.epicenter.so/<namespace>/<name>.git`, where
-  Connect sets the remote and the first push creates the repository
-  ([ADR-0546](adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)).
-- One owner namespace per repository, with a person as a namespace of one
-  ([ADR-0547](adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
 - Blobs as files in the folder, with `.gitattributes` choosing LFS and
   Epicenter's blob storage serving as the LFS server
   ([ADR-0544](adr/0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)).
@@ -155,10 +153,7 @@ resource accepts only opaque access tokens from one OAuth 2.1 authorization
 server, and the Better Auth session cookie serves only that server's own pages
 ([ADR-0549](adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
 
-Unbuilt, decided: hosted Git at `git.epicenter.so` behind
-`epicenter auth git-credential`
-([ADR-0546](adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)),
-and an MCP server at `https://mcp.epicenter.so/mcp` reaches hosted folders
+Unbuilt, decided: an MCP server at `https://mcp.epicenter.so/mcp` reaches hosted folders
 through grants that target namespaces
 ([ADR-0550](adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)).
 

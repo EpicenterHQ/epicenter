@@ -184,7 +184,7 @@ client, `send`, and installing; ADR-0559 adds the Git operations.
   `git` it spawns. Typing never pays it: reads and saves stay the shell's
   `invoke` commands.
 - Todos keeps a pasted Git token in `localStorage`
-  (`apps/todos/src/lib/git-access.ts:85`), which contradicts "secrets stay in
+  (Todos' `git-access.ts:85`), which contradicts "secrets stay in
   the CLI" until ADR-0546's credential helper replaces it.
 - An agent with a terminal can run `epicenter app install --approve`. It could
   already write `approvals.json`; approval guards against remote code, not

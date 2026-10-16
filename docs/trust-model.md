@@ -44,9 +44,10 @@ Who that is depends on the remote you choose:
 | GitHub, GitLab, any other host | that host's operators |
 
 Epicenter's hosted Git passes every byte through Epicenter's Worker to
-Cloudflare Artifacts, which stores each folder as a repository. The token
-`/api/git/connect` returns reaches that one repository, for writing, and
-expires after an hour. Epicenter runs no relay to GitHub or any other host: a
+Cloudflare Artifacts, which stores each folder as a repository. The Worker
+checks your access token and your namespace membership on every request, then
+reaches Artifacts with its own 24-hour token for that one repository; your
+token never reaches Artifacts. Epicenter runs no relay to GitHub or any other host: a
 desktop app talks to such a remote directly with your own Git credentials, and
 Epicenter sees nothing.
 

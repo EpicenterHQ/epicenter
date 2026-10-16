@@ -6,10 +6,11 @@ This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and 
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See [Stack and priorities](#stack-and-priorities) for self-hosting and the trust model below.
 
-Runs on Cloudflare Workers. Folder data syncs over plain Git with a token to a
-server the person chooses (ADR-0521). This Worker is Epicenter's hosted choice:
-it mounts `mountGitApp` from `@epicenter/server` over Cloudflare Artifacts
-(`worker/git-repositories.ts`). See [Hosted Git](#hosted-git).
+Runs on Cloudflare Workers. Folder data syncs over plain Git to a server the
+person chooses. This Worker is Epicenter's hosted choice: it mounts
+`mountGitHost` from `@epicenter/server` over Cloudflare Artifacts
+(`worker/git-repositories.ts`), at `git.epicenter.so/<namespace>/<name>.git`
+(ADR-0546). See [Hosted Git](#hosted-git).
 
 The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
 the GitHub connector that relayed a browser's Git to GitHub. Their Durable
@@ -39,8 +40,9 @@ sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
 Postgres and S3 on every pull request. ADR-0549 records how auth will work
 there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
 deletion is a hosted resource sweep, and billing needs the Autumn secret and the
-after-response drain. Hosted Git is mounted there with no repository store, so
-it answers 503 `GitUnavailable`. `runtime-profile.test.ts` is where that
+after-response drain. Hosted Git is mounted there over bare repositories on
+disk when `GIT_STORE_ROOT` names a directory, and answers 503
+`git_unavailable` when it does not. `runtime-profile.test.ts` is where that
 divergence is declared and checked against both entries.
 
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
@@ -53,7 +55,8 @@ This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
 takes the API audience and `ai`, `/api/session` the API audience and
-`profile`, `POST /api/git/connect` the Git audience and `folders:write`, and
+`profile`, Git requests the Git audience with `folders:read` or
+`folders:write` and a namespace role, `GET /api/repos` `folders:read`, and
 personal blobs the Git audience with `folders:read` or `folders:write`. Browser
 apps get a token by authorization code with PKCE as their own client; the
 desktop app's pages reach the API through `epicenter send`, which holds the
@@ -107,13 +110,13 @@ Cloudflare Workers
 │   ├── /device                device approval, with the folder picker
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/session           the principal projection
-│   ├── /api/git/connect       find or create a folder's repository, mint its token
-│   ├── /git/:name.git/*       Git smart HTTP, forwarded to Artifacts
+│   ├── /api/repos             the caller's repositories, by namespace
+│   ├── git audience /:namespace/:name.git/*  Git smart HTTP, forwarded to Artifacts
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-└── Artifacts (ARTIFACTS binding): one Git repository per principal and folder
+└── Artifacts (ARTIFACTS binding): one namespace per environment, one Git repository per repository id
 ```
 
 API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.
@@ -252,16 +255,26 @@ local connection string. `bun run test` runs each test file isolated
 
 ### Hosted Git
 
-`mountGitApp` serves two planes over one repository store.
-`POST /api/git/connect` with `{ "folder": "so.epicenter.todos" }` and an
-access token for the Git audience with `folders:write` answers `{ remote, token, expiresAt }`. The remote is
-`https://api.epicenter.so/git/<folder>.<tag>.git`, where `tag` is the first 16
-hex characters of SHA-256 over the principal ID, and the token is a one-hour
-Artifacts write token for that repository alone. The data plane,
-`/git/<name>.git/{info/refs,git-upload-pack,git-receive-pack}`, holds no
-session: Artifacts checks the token, and the Worker forwards each request to
-`https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<name>.git`
-without a binding lookup. Hosted Git is unmetered.
+`mountGitHost` serves `<git audience>/<namespace>/<name>.git` and
+`GET /api/repos` ([ADR-0546](../../docs/adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md),
+[ADR-0547](../../docs/adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
+The route authorizes each request from the access token and the namespace
+membership, and creates a repository on its first push; `packages/server`'s
+README has the routes and refusals. Tables `repository` and
+`repository_alias` (migration `0005_hosted_repositories`) hold names, ids,
+and the aliases a rename or a move leaves.
+
+The Worker stores each repository in the Artifacts namespace of its
+environment (`epicenter-production`; `ARTIFACTS_NAMESPACE`), named by its
+immutable id, so a rename or a move never reaches Artifacts and no URL shows
+an id. It reaches
+`https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
+with a token it mints and caches per repository and scope: 24 hours, renewed an
+hour early, `read` for a fetch and `write` for a push. The client's token never
+reaches Artifacts. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
+(`<root>/<id>.git`, served by `git http-backend`); without it Git answers 503.
+Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
+to this Worker; that is a deploy step, not in this repository's config.
 
 Deploying needs the production-only `ARTIFACTS_ACCOUNT_ID` secret and an account
 on the Workers Paid plan, and, once, deleting the existing `api` Worker first:
@@ -270,8 +283,9 @@ Cloudflare Workers secret sync copies it to the `api` Worker. Artifacts has no
 local simulator, so `bun dev:api` removes the `ARTIFACTS` binding, namespace
 variable, and required account secret from its local config. Hosted Git answers
 503 locally. The [Artifacts integration checks in ADR-0521](../../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)
-used a separate Worker and namespace. The local launcher does not enable that
-integration path.
+used a separate Worker and namespace, and have not been repeated for the
+per-id store; run them before the first deploy of ADR-0546. The local launcher
+does not enable that integration path.
 
 ### Local blob storage
 

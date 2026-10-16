@@ -27,10 +27,10 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 | `epicenter status <dir>` | built | `runHistory` in `@epicenter/folder/bun` |
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
-| `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | built but `--to` | `runHistory` |
+| `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | built | `runHistory`, `src/repository-commands.ts` |
 | `epicenter merge-driver <dir>` | built | `src/merge-driver.ts`, over `mergeForGit` in `@epicenter/folder/bun` |
-| `epicenter clone <namespace>/<name> \| <url> [<dir>]` | not built | |
-| `epicenter repos` | not built | |
+| `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
+| `epicenter repos` | built | `src/repository-commands.ts` |
 | `epicenter open <dir> [--app <id>]` | not built | |
 | `epicenter app list [--repository <url>]` | built | `src/installed-apps.ts` |
 | `epicenter app install <url> [--folder <path>] [--approve]` | built | `src/installed-apps.ts` |
@@ -50,6 +50,35 @@ A command not built yet parses its arguments, shows in `--help` marked
 `save-version`, `install-command`, `auth login --loopback`,
 `app update --commit`, and `sync`'s `--remote`, `--allow-unrelated`, and
 `--credential-stdin` are left out of `--help`: the desktop app runs them.
+
+## Hosted repositories
+
+A hosted folder's remote is `<git origin>/<namespace>/<name>.git`
+(ADR-0546), where the git origin is `https://git.epicenter.so` for the hosted
+cloud and `<origin>/git` for any other deployment, and `<namespace>` is the
+owner's 12-character id (`epicenter repos` lists them).
+
+- `epicenter sync <dir> --to <namespace>/<name>` sets `remote.origin.url`,
+  registers this binary as Git's credential helper for the git origin, sets the
+  merge driver, and syncs. The first request of the first push is the
+  receive-pack advertisement, which creates the repository; because a sync
+  fetches first, the command makes that request itself before syncing, so
+  the fetch finds an empty repository, not a missing one. Any sync whose remote
+  is one of the deployment's hosted repositories carries the grant's token to
+  `git` as a header (an `https` remote only; an `http` one, as a local
+  server, uses the helper). `--to` and `--remote` are one choice, not two.
+- `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>`, by default
+  `~/Epicenter/<name>`, and configures the merge driver. A URL is cloned as
+  given.
+- `epicenter repos` lists the repositories of every namespace the sign-in may
+  reach, the personal one first. With `--json`:
+  `{"namespaces": [{"id", "title", "personal", "role", "repositories":
+  [{"id", "name", "url"}]}]}`.
+
+`hosted-git.postgres.test.ts` runs these against the real server, with Git
+signing in through `epicenter auth git-credential`; it seeds the processes'
+in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s
+`$auth` member.
 
 ## Folder history
 
@@ -210,7 +239,7 @@ text by line. It writes two things, neither committed:
                        merge.epicenter.driver = '<this binary>' merge-driver -- %O %A %B %P
 ```
 
-A sync that connects a remote (`--remote`) writes the same. A clone does not
+A sync that connects a remote (`--remote` or `--to`) writes the same, and `clone` does after cloning. A plain `git clone` does not
 carry it: Git reads a driver only from the repository's own configuration,
 and a committed `merge=` attribute is one the folder engine refuses. Without
 it, Git merges these files as text, which loses nothing.
@@ -274,6 +303,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
 | `src/install-command.ts` | `install-command`. |
+| `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names, the credential helper, and the repository's first creation. |
 | `src/merge-driver.ts` | `merge-driver`: Git's merge driver, and the repository configuration that names it. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
