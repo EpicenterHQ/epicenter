@@ -3,7 +3,7 @@
  *
  * A setting is an intent, not a document. `set('theme', 'dark')` means "the
  * theme is dark", whatever the file held a moment ago: a set changes one key
- * of the file as read at the set and saves it with `saveFile`, which merges
+ * of the file as read at the set and saves it with `saveKv`, which merges
  * by key with whatever another writer saved since (ADR-0551). Two windows
  * setting different keys both stick, and no one is asked to resolve
  * anything. A value that must change together with another
@@ -15,7 +15,7 @@
  * default without hiding the others. Only text that is not a file a folder
  * can hold (not one strict JSON object, or a key that appears twice at any
  * depth) is
- * `InvalidKv`, repaired as text with `files.save(error, text)`.
+ * `InvalidKv`, repaired as text with `folder.write(path, error.text, text)`.
  *
  * `kv.json` text belongs to `kv-merge.ts`: a set writes exactly the format a
  * Git merge writes, and keeps every key it does not change as its raw text.
@@ -30,7 +30,7 @@ import {
 import { type Node, parseTree } from 'jsonc-parser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import { fileCapture } from './capture.js';
+import { hashBytes } from './capture.js';
 import {
 	FileError,
 	type KvReadError,
@@ -38,9 +38,9 @@ import {
 	TableError,
 } from './errors.js';
 import { formatKvMembers, readKvMembers } from './kv-merge.js';
+import { merge, type Overridden } from './merge-file.js';
 import type { Issue, Issues } from './row-text.js';
-import { saveFile } from './save-file.js';
-import { createFile } from './storage.js';
+import { confirmedPut, logOverwrite, WRITE_ATTEMPTS } from './save-file.js';
 
 export const KV_PATH = 'kv.json';
 
@@ -301,6 +301,75 @@ export function settingText(
 }
 
 /** The `kv.json` handle. `schemas` are the prepared definition's `kv` fields. */
+/**
+ * Save `edit` over `base`, the settings as read at the set: it lands only
+ * over the bytes read, and when another writer saved first it merges by key
+ * with their file, at most `WRITE_ATTEMPTS` times, then `KeptChanging`. A
+ * merge that does not read as settings is refused, never written. `kv.json`
+ * keeps this loop of its own until settings are a table (ADR-0576).
+ */
+async function saveKv(
+	storage: Pick<FolderStorage, 'put' | 'read'>,
+	schemas: FieldMap,
+	base: { readonly text: string; readonly sha256: string },
+	edit: Uint8Array,
+): Promise<
+	Result<{ readonly bytes: Uint8Array; readonly sha256: string }, KvWriteError>
+> {
+	const kind = { kind: 'kv', schemas } as const;
+	const baseBytes = encoder.encode(base.text);
+	let expected = base.sha256;
+	let attempt = edit;
+	let overwrote: readonly Overridden[] = [];
+	for (let merges = 0; ; merges++) {
+		const sha256 = await hashBytes(attempt);
+		const { data: put, error: putError } = await confirmedPut(
+			storage,
+			KV_PATH,
+			attempt,
+			expected,
+			sha256,
+		);
+		if (putError !== null) return Err(putError);
+		if (put === 'landed') {
+			logOverwrite(KV_PATH, overwrote);
+			return Ok({ bytes: attempt, sha256 });
+		}
+		const { data: current, error: readError } = await storage.read(KV_PATH);
+		if (merges === WRITE_ATTEMPTS)
+			return TableError.KeptChanging({
+				path: KV_PATH,
+				attempts: WRITE_ATTEMPTS,
+			});
+		if (readError !== null) return Err(readError);
+		const merged = await merge(kind, {
+			base: baseBytes,
+			ours: edit,
+			theirs: current.bytes,
+		});
+		// The edit is present, so the merge never settles to no file.
+		const bytes =
+			typeof merged.content === 'string'
+				? encoder.encode(merged.content)
+				: (merged.content as Uint8Array);
+		const text = decode(bytes) ?? '';
+		if (readKvMembers(text) === undefined) {
+			const theirs = decode(current.bytes) ?? '';
+			return readKvMembers(theirs) === undefined
+				? TableError.InvalidKv({
+						path: KV_PATH,
+						sha256: current.sha256,
+						text: theirs,
+						issues: kvRefusal(theirs),
+					})
+				: TableError.InvalidValues({ issues: kvRefusal(text) });
+		}
+		overwrote = merged.overridden;
+		attempt = bytes;
+		expected = current.sha256;
+	}
+}
+
 export function createKv<TValues>(
 	{ storage }: { storage: FolderStorage },
 	schemas: FieldMap,
@@ -360,28 +429,30 @@ export function createKv<TValues>(
 				else members.set(key, raw);
 			const bytes = encoder.encode(formatKvMembers(members));
 			if (current === undefined) {
-				const { data: created, error } = await createFile(
+				const sha256 = await hashBytes(bytes);
+				const { data: put, error } = await confirmedPut(
 					storage,
 					KV_PATH,
 					bytes,
+					null,
+					sha256,
 				);
-				if (error === null) return written(bytes, created.sha256);
+				if (put === 'landed') return written(bytes, sha256);
 				// Another writer created it first, or the reply was lost: read
 				// again and save over what is there.
-				if (
-					(error.name === 'Exists' || error.name === 'Unconfirmed') &&
-					reads === 0
-				)
+				if (reads === 0 && (put === 'stale' || error?.name === 'Unconfirmed'))
 					continue;
-				return Err(error);
+				return error === null
+					? TableError.KeptChanging({ path: KV_PATH, attempts: 2 })
+					: Err(error);
 			}
-			const { data: saved, error } = await saveFile(
+			const { data: saved, error } = await saveKv(
 				storage,
-				{ kind: 'kv', schemas },
-				{ ...fileCapture(KV_PATH, current.sha256), text: current.text },
+				schemas,
+				current,
 				bytes,
 			);
-			if (error !== null) return Err(error as KvWriteError);
+			if (error !== null) return Err(error);
 			return written(saved.bytes, saved.sha256);
 		}
 	}
