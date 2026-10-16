@@ -20,18 +20,18 @@ import type { Result } from 'wellcrafted/result';
 
 /**
  * The folder a recording is written into: its ID, which names the scope the
- * desktop shell granted this window, and the files a browser writes through.
- * A handle from `@epicenter/folder` supplies `files`; its ID is the one it was
+ * desktop shell granted this window, and the write a browser writes through.
+ * A handle from `@epicenter/folder` supplies `write`, the folder's one write,
+ * which places a recording as a write from no file; its ID is the one it was
  * opened with.
  */
 export type RecordingFolder = {
 	readonly id: string;
-	readonly files: {
-		create(
-			path: string,
-			content: Uint8Array,
-		): Promise<Result<unknown, { readonly message: string }>>;
-	};
+	write(
+		path: string,
+		from: null,
+		to: Uint8Array,
+	): Promise<Result<unknown, { readonly message: string }>>;
 };
 
 /** A microphone the person chose, asked for by its ID. */

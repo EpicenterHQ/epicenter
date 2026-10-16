@@ -924,7 +924,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** The folder a capture writes its audio into. */
 	const recordingFolder = (): RecordingFolder => ({
 		id: workspace.folderId,
-		files: folder.files,
+		write: folder.write,
 	});
 
 	/** One write of a recording, through a debug shell's armed failure when there is one. */

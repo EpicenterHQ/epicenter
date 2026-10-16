@@ -3,7 +3,7 @@
  *
  * A page has no native side, so the audio is held in memory while it records
  * and written to the folder as `<path>.<extension>` on stop, through the
- * folder's own `files.create`. A refresh or a closed tab loses the recording
+ * folder's own write, from no file. A refresh or a closed tab loses the recording
  * in progress; the folder then shows a row without audio. `recoverRecordings`
  * has nothing to repair.
  *
@@ -318,7 +318,7 @@ export function createBrowserRecorder(
 				release(stream);
 				if (error !== null) return Err(error);
 				if (bytes.byteLength === 0) return RecorderError.Empty();
-				const { error: writeError } = await folder.files.create(file, bytes);
+				const { error: writeError } = await folder.write(file, null, bytes);
 				if (writeError !== null)
 					return RecorderError.Refused({ reason: writeError.message });
 				return Ok({ path: file, durationMs });

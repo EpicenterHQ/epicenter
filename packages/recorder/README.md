@@ -25,7 +25,7 @@ contract.
 ```ts
 import { recoverRecordings, startRecording } from '@epicenter/recorder/browser'; // or /tauri
 
-const folder = { id: 'so.epicenter.whispering', files: opened.files };
+const folder = { id: 'so.epicenter.whispering', write: opened.write };
 await recoverRecordings({ folder, under: 'recordings' });
 const { data: recording, error } = await startRecording({
 	folder,
@@ -37,14 +37,14 @@ const { data: stopped } = await recording.stop(); // { path, durationMs }, or re
 ```
 
 `folder` is the folder's ID, which names the scope the desktop shell granted
-the window, and its `files`, through which a browser writes. A handle from
+the window, and its `write`, through which a browser writes. A handle from
 `@epicenter/folder` supplies both.
 
 | | Desktop | Browser |
 | --- | --- | --- |
 | `recording.path` | `<path>.wav`, already in the folder | `<path>.webm`, or `.mp4` or `.ogg` where the browser records those, written on stop |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
-| `stop` | Finalizes the WAV | Writes the file with `files.create` |
+| `stop` | Finalizes the WAV | Writes the file with `write`, from no file |
 | `cancel` | Deletes the WAV | Writes nothing |
 | Quit, crash, closed window | Audio kept up to the cut | Lost |
 | `recoverRecordings` | Rewrites the header of any WAV a quit cut off | Answers `[]` |
