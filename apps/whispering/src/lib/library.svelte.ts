@@ -124,12 +124,12 @@ import {
 } from './deletion.js';
 import { describeError, nameProblem } from './files.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
-import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import {
 	type RecipeRow,
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
+import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
 import { createTerminalSession } from './terminal.svelte.js';
 import type {
