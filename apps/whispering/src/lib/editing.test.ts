@@ -4,20 +4,20 @@
  * Drives the real library and its TanStack Query cache against a real browser
  * folder over an in-memory OPFS stand-in, with a fixture capture device and
  * stubbed endpoints. Views are stood in for as they behave: an editor sends a
- * changed field as an update of the file as it is now, and a changed body
- * or text as a draft the library holds and saves over the version it
- * started from.
+ * changed field as a set of the file as it is now, and a changed body or
+ * text as an edit the library holds and saves as the change from where it
+ * started.
  *
  * Key behaviors:
- * - An update is saved; the listing takes the saved row
+ * - A set is saved; the listing takes the saved row
  * - A body typed while its save runs is saved next, from the version it
  *   wrote, so typing never conflicts with itself
  * - A read of the folder never touches a body typed: an outside change read
  *   while it is unsaved is merged with it when it saves
- * - An update over a change made elsewhere sets its field and keeps theirs
+ * - A set over a change made elsewhere sets its field and keeps theirs
  * - A body save that fails keeps the body, and the next change saves it
- * - A recording deleted elsewhere stays deleted: its save fails, the text
- *   typed is reported, and nothing creates it again
+ * - A recording deleted elsewhere stays deleted: its save finds it gone, the
+ *   text typed is reported, and nothing creates it again
  * - A row that is not valid is named for repair, edited as its text, and
  *   edited as fields once it reads
  * - A deletion runs after the edits are written and removes what they saved;

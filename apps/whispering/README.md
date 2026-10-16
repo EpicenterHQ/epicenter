@@ -551,7 +551,7 @@ afplay /tmp/whispering-restore/recordings/<recording-id>.wav
 This build writes each change to its file a second after you stop typing,
 or when you leave the field, holding only what is not in the file yet; a
 choice or a button writes at once. A field you change is set on the file as
-it is now, so it never undoes another writer's other fields (ADR-0554).
+it is now, so it never undoes another writer's other fields (ADR-0576).
 These promises of the earlier build changed:
 
 - A change made elsewhere merges on save without asking. The earlier build

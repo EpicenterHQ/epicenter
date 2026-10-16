@@ -144,7 +144,11 @@ test('a save whose reply was lost is reported and keeps the edit, which saves ag
 	type(session, 'Tidy it.\n');
 	await settle(library);
 	expect(notices).toMatchObject([
-		{ kind: 'failed', error: { name: 'Unconfirmed' }, lost: undefined },
+		{
+			kind: 'failed',
+			error: { name: 'Io', cause: { name: 'Unconfirmed' } },
+			lost: undefined,
+		},
 	]);
 	expect(await shell.text(PATH)).toContain('Tidy it.');
 	expect(library.unsaved).toBe(true);

@@ -21,6 +21,8 @@
  *   runs again from the row's own fields into the same row
  * - An answer whose write fails is written again while the page lives; a row
  *   filled or deleted meanwhile is not written
+ * - A body someone fills between an answer's read and its write stays beside
+ *   the answer; the same text is in the body once
  * - What is sent is read from the folder when asked: an outside edit is sent,
  *   a deleted or malformed transcript or a deleted recording refuses
  * - A recording cannot be deleted while a request for it runs, including work
@@ -740,7 +742,7 @@ test('an answer whose write fails is written again while the page lives', async 
 	expect(filesLine(library).tone).toBe('good');
 });
 
-test('an answer for a row someone filled or deleted meanwhile writes nothing', async () => {
+test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
 	const answers = [
 		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>(),
 		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>(),
@@ -761,7 +763,11 @@ test('an answer for a row someone filled or deleted meanwhile writes nothing', a
 	);
 	answers[0]!.resolve(Ok({ text: 'from the endpoint' }));
 	await first;
-	expect(await readFile(path, 'utf8')).toEndWith('Typed by hand.\n');
+	const filled = await readFile(path, 'utf8');
+	expect(filled).toContain('---\nTyped by hand.\n');
+	expect(filled.indexOf('from the endpoint')).toBeGreaterThan(
+		filled.indexOf('Typed by hand.'),
+	);
 
 	const second = library.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 2);
@@ -777,7 +783,11 @@ test('an answer for a row someone filled or deleted meanwhile writes nothing', a
 	expect(library.unwrittenAnswers).toBe(0);
 });
 
-test('an answer never writes over a body someone filled between its read and its write', async () => {
+/**
+ * Run a transformation whose result row someone fills by hand with `typed`
+ * right after the fill reads it empty. Answers the file afterwards.
+ */
+async function fillRace(typed: string) {
 	const answer =
 		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
 	const { library, root, workspace, transformed } = await open({
@@ -789,15 +799,14 @@ test('an answer never writes over a body someone filled between its read and its
 	await eventually(() => transformed.length === 1);
 	const { output } = newestResult(library, transcript.stem);
 	const path = join(root, output.path);
-	// The fill reads the row empty; right after that read, someone fills it.
 	const table = workspace.folder.tables.transformation_runs;
 	const get = table.get;
-	let theirs: string | undefined;
+	let filled = false;
 	(table as { get: typeof get }).get = async (stem) => {
 		const read = await get(stem);
-		if (stem === output.stem && theirs === undefined) {
-			theirs = `${await readFile(path, 'utf8')}Typed by hand.\n`;
-			await writeFile(path, theirs);
+		if (stem === output.stem && !filled) {
+			filled = true;
+			await writeFile(path, `${await readFile(path, 'utf8')}${typed}`);
 		}
 		return read;
 	};
@@ -806,12 +815,25 @@ test('an answer never writes over a body someone filled between its read and its
 	await running;
 	await settle(library);
 
-	expect(theirs).toBeDefined();
-	expect(await readFile(path, 'utf8')).toBe(theirs as string);
+	expect(filled).toBe(true);
 	expect(library.unwrittenAnswers).toBe(0);
-	expect(library.outputsFor(transcript.stem)[0]?.row.body).toBe(
-		'Typed by hand.\n',
-	);
+	return {
+		text: await readFile(path, 'utf8'),
+		shown: library.outputsFor(transcript.stem)[0]?.row.body,
+	};
+}
+
+test('an answer and a different body someone filled between its read and its write both stay', async () => {
+	const { text, shown } = await fillRace('Typed by hand.\n');
+	expect(text).toContain('Typed by hand.\n');
+	expect(text).toContain('from the endpoint\n');
+	expect(shown).toContain('Typed by hand.\n');
+	expect(shown).toContain('from the endpoint\n');
+});
+
+test('an answer that someone filled with the same text between its read and its write is in the body once', async () => {
+	const { shown } = await fillRace('from the endpoint\n');
+	expect(shown).toBe('from the endpoint\n');
 });
 
 // ============================================================================
