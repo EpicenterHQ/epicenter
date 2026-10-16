@@ -273,7 +273,7 @@ function ownBase(
  * issues.
  */
 function unreadable(
-	kind: Exclude<FileKind, { kind: 'file' }>,
+	kind: Exclude<FileKind, { kind: 'file' | 'declaration' }>,
 	path: string,
 	current: { bytes: Uint8Array; sha256: string },
 	merged: Uint8Array,
@@ -305,7 +305,7 @@ function unreadable(
 
 /** Whether `bytes` read as `kind`. */
 function readsAs(kind: FileKind, bytes: Uint8Array): boolean {
-	if (kind.kind === 'file') return true;
+	if (kind.kind === 'file' || kind.kind === 'declaration') return true;
 	let text: string;
 	try {
 		text = strict.decode(bytes);
@@ -369,7 +369,11 @@ export async function saveFile(
 		});
 		// The edit is present, so the merge never settles to no file.
 		const bytes = toBytes(merged.content) as Uint8Array;
-		if (strictEdit && kind.kind !== 'file' && !readsAs(kind, bytes))
+		if (
+			strictEdit &&
+			(kind.kind === 'kv' || kind.kind === 'row') &&
+			!readsAs(kind, bytes)
+		)
 			return Err(unreadable(kind, path, current, bytes));
 		overwrote = merged.overridden;
 		attempt = bytes;

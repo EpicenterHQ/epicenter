@@ -12,7 +12,9 @@
  *   losing head
  * - A rename on one side carries the other side's edit to the new path
  * - A file against a directory stands beside it as `~local` or `~remote`
- * - `epicenter.json` merges whole, and local paths are in no merge
+ * - `epicenter.json` merges whole but for `local`, which lists every
+ *   pattern either side keeps; local paths are in no merge
+ * - A file moved beside a directory never takes a name another file holds
  * - `mergeMessage` writes one `Overrode:` trailer per lost unit
  */
 import { expect, test } from 'bun:test';
@@ -278,5 +280,78 @@ test('epicenter.json merges whole, and local paths are in no merge', async () =>
 				losing: theirs,
 			},
 		]);
+	});
+});
+
+test("epicenter.json's local lists every pattern either side keeps local", async () => {
+	const withObjects = await objects();
+	await withObjects(async (access) => {
+		const declaration = (title: string, local: string[]) =>
+			`${JSON.stringify({ title, local, kv: { type: 'object', properties: {} } }, null, 2)}\n`;
+		const base = await commitOf(
+			access,
+			{ 'epicenter.json': declaration('Base', ['audio/']) },
+			[],
+			100,
+		);
+		const ours = await commitOf(
+			access,
+			{ 'epicenter.json': declaration('Mine', ['audio/', 'cache/']) },
+			[base],
+			200,
+		);
+		const theirs = await commitOf(
+			access,
+			{ 'epicenter.json': declaration('Theirs', ['video/', 'audio/']) },
+			[base],
+			200,
+		);
+		const merged = await mergeHistories(access, {
+			base,
+			ours,
+			theirs,
+			kindOf: (path) => fileKindOf(undefined, path),
+			isLocal: () => false,
+		});
+		// This device's file, with the patterns of both.
+		expect(
+			JSON.parse((await treeText(access, merged.tree))['epicenter.json']!),
+		).toEqual({
+			title: 'Mine',
+			local: ['audio/', 'cache/', 'video/'],
+			kv: { type: 'object', properties: {} },
+		});
+	});
+});
+
+test('a file moved beside a directory takes a name nothing else holds', async () => {
+	const withObjects = await objects();
+	await withObjects(async (access) => {
+		const base = await commitOf(access, { keep: 'k\n' }, [], 100);
+		const ours = await commitOf(
+			access,
+			{ keep: 'k\n', a: 'mine\n', 'a~local': 'already here\n' },
+			[base],
+			200,
+		);
+		const theirs = await commitOf(
+			access,
+			{ keep: 'k\n', 'a/b': 'dir\n' },
+			[base],
+			200,
+		);
+		const merged = await mergeHistories(access, {
+			base,
+			ours,
+			theirs,
+			kindOf: plain,
+			isLocal: () => false,
+		});
+		expect(await treeText(access, merged.tree)).toEqual({
+			keep: 'k\n',
+			'a/b': 'dir\n',
+			'a~local': 'already here\n',
+			'a~local-2': 'mine\n',
+		});
 	});
 });

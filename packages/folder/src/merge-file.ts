@@ -40,7 +40,7 @@ import { mergeLines, type SettledRegion } from './git/merge-lines.js';
 import { KV_PATH, settingText } from './kv.js';
 import { reconcileKv } from './kv-merge.js';
 import { frameRowText } from './markdown.js';
-import { ROW_EXTENSION } from './paths.js';
+import { DECLARATION_PATH, ROW_EXTENSION } from './paths.js';
 import { type AnyRow, mergeRows, sameValue, setField } from './row-merge.js';
 import { parseRow, writeRow } from './row-text.js';
 
@@ -48,6 +48,8 @@ import { parseRow, writeRow } from './row-text.js';
 export type FileKind =
 	| { readonly kind: 'kv'; readonly schemas: FieldMap }
 	| { readonly kind: 'row'; readonly table: PreparedFolderTable }
+	/** `epicenter.json`, which merges whole but for the union of `local`. */
+	| { readonly kind: 'declaration' }
 	| { readonly kind: 'file' };
 
 /** A file's content as a merge reads it: text, or bytes that may be text. */
@@ -137,6 +139,7 @@ export function fileKindOf(
 	definition: FolderDefinition | undefined,
 	path: string,
 ): FileKind {
+	if (path === DECLARATION_PATH) return { kind: 'declaration' };
 	if (definition === undefined) return { kind: 'file' };
 	if (path === KV_PATH) return { kind: 'kv', schemas: definition.kv };
 	const table = tableAt(definition, path);
@@ -483,6 +486,57 @@ export function wholeFile(
 		: { content: theirs, overridden: [{ kind: 'file', lost: 'ours' }] };
 }
 
+/** The patterns a declaration's `local` lists, or `undefined` when it is no declaration. */
+function localPatterns(content: FileContent | null): string[] | undefined {
+	const text = content === null ? undefined : textOf(content);
+	if (text === undefined || text === null) return undefined;
+	try {
+		const value: unknown = JSON.parse(text);
+		if (typeof value !== 'object' || value === null || Array.isArray(value))
+			return undefined;
+		const local = (value as { local?: unknown }).local;
+		if (local === undefined) return [];
+		if (!Array.isArray(local) || local.some((item) => typeof item !== 'string'))
+			return undefined;
+		return local as string[];
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * `epicenter.json` (ADR-0576, ADR-0577): the writer's whole file, with
+ * `local` listing every pattern either side lists, sorted, so a path one
+ * device keeps local is never committed because another device's
+ * declaration won. A side that does not read as a declaration keeps the
+ * whole-file result as it is.
+ */
+function declarationWins(versions: FileVersions, winner: Winner): Merged {
+	const won = wholeFile(versions, winner);
+	if (won.content === null) return won;
+	const sides = [localPatterns(versions.ours), localPatterns(versions.theirs)];
+	if (sides.some((side) => side === undefined)) return won;
+	const local = [...new Set(sides.flat() as string[])].sort();
+	const text = textOf(won.content) as string;
+	const value = JSON.parse(text) as Record<string, unknown>;
+	const current = (value.local as string[] | undefined) ?? [];
+	if (
+		current.length === local.length &&
+		current.every((pattern, index) => pattern === local[index])
+	)
+		return won;
+	const { title, local: _local, ...rest } = value;
+	const joined = {
+		...(title === undefined ? {} : { title }),
+		...(local.length === 0 ? {} : { local }),
+		...rest,
+	};
+	return {
+		content: `${JSON.stringify(joined, null, 2)}\n`,
+		overridden: won.overridden,
+	};
+}
+
 /**
  * The side whose change stands on a unit both changed differently: the
  * writer acting, `ours`, everywhere but the Git merge driver, which also
@@ -658,6 +712,7 @@ export async function merge(
 	versions: FileVersions,
 	{ winner = 'ours' }: { readonly winner?: Winner } = {},
 ): Promise<Merged> {
+	if (kind.kind === 'declaration') return declarationWins(versions, winner);
 	const [base, ours, theirs] = [
 		textOf(versions.base),
 		textOf(versions.ours),

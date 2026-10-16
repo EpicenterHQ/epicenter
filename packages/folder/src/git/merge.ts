@@ -10,7 +10,8 @@
  * same side created elsewhere with the deleted path's blob at the base, the
  * only such pair: the other side's version, and the base's, move to the new
  * path first, so its edit merges there. A file against a directory at one
- * path keeps the directory, and the file beside it as `<path>~<side>`.
+ * path keeps the directory, and the file beside it as `<path>~<side>`,
+ * or `<path>~<side>-2` and on when that name is taken.
  *
  * A path the folder keeps local is in no merge commit (ADR-0577).
  */
@@ -21,7 +22,6 @@ import {
 	type Overridden,
 	wholeFile,
 } from '../merge-file.js';
-import { DECLARATION_PATH } from '../paths.js';
 import {
 	commitTree,
 	EMPTY_TREE,
@@ -169,10 +169,9 @@ export async function mergeHistories(
 			const plain = [atBase, mine, yours].every(
 				(entry) => entry === undefined || entry.mode === PLAIN,
 			);
-			const merged =
-				!plain || path === DECLARATION_PATH
-					? wholeFile(versions)
-					: await merge(kindOf(path), versions);
+			const merged = !plain
+				? wholeFile(versions)
+				: await merge(kindOf(path), versions);
 			for (const unit of merged.overridden)
 				overrides.push({
 					path,
@@ -198,16 +197,20 @@ export async function mergeHistories(
 		}
 		if (settled !== undefined) result.set(path, settled);
 	}
-	// A file where the other side made a directory stands beside it.
+	// A file where the other side made a directory stands beside it, under
+	// the first name nothing else takes.
+	const taken = (name: string) =>
+		result.has(name) ||
+		[...result.keys()].some((other) => other.startsWith(`${name}/`));
 	for (const path of [...result.keys()]) {
 		if (![...result.keys()].some((other) => other.startsWith(`${path}/`)))
 			continue;
 		const entry = result.get(path)!;
 		result.delete(path);
-		result.set(
-			`${path}~${same(entry, o.get(path)) ? 'local' : 'remote'}`,
-			entry,
-		);
+		const beside = `${path}~${same(entry, o.get(path)) ? 'local' : 'remote'}`;
+		let name = beside;
+		for (let next = 2; taken(name); next++) name = `${beside}-${next}`;
+		result.set(name, entry);
 	}
 	return {
 		tree: await writeTreeFiles(access, result),
