@@ -11,8 +11,8 @@
 
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
-	 * edited in place, each change an update of the file as it is now
-	 * (ADR-0554), and, for an `openai-compatible` connection, the endpoint and
+	 * edited in place, each change setting its field on the file as it is now
+	 * (ADR-0576), and, for an `openai-compatible` connection, the endpoint and
 	 * key this computer keeps for it in the keychain (ADR-0557). The page
 	 * hands a key to the keychain and never reads one back. The list keys
 	 * each editor by its stem.
@@ -29,8 +29,8 @@
 	const stem = stored.stem;
 	const fields = $derived(stored.row.fields);
 	const client = useQueryClient();
-	const update = createMutation(() => options.update.mutationOptions());
-	const remove = createMutation(() => options.delete.mutationOptions());
+	const setConnection = createMutation(() => options.set.mutationOptions());
+	const deleteConnection = createMutation(() => options.delete.mutationOptions());
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(stem),
@@ -48,7 +48,7 @@
 	let savingKey = $state(false);
 
 	async function save(field: 'title' | 'model', text: string) {
-		await update.mutateAsync({ stem, set: { [field]: text.trim() } });
+		await setConnection.mutateAsync({ stem, fields: { [field]: text.trim() } });
 	}
 
 	async function saveKey() {
@@ -81,7 +81,7 @@
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		remove.mutate(stored);
+		deleteConnection.mutate(stem);
 	}
 </script>
 
@@ -99,7 +99,7 @@
 			save={(text) => save('model', text)}
 		/>
 	</div>
-	{#if update.error}<p role="alert" class="text-destructive">{update.error.message}</p>{/if}
+	{#if setConnection.error}<p role="alert" class="text-destructive">{setConnection.error.message}</p>{/if}
 
 	{#if fields.kind === 'openai-compatible'}
 		{#if keyState.isPending}
@@ -136,7 +136,7 @@
 		<p class="text-muted-foreground">Runs on this computer with the local transcription model chosen below. Nothing is sent.</p>
 	{/if}
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
-	{#if remove.error}<p role="alert" class="text-destructive">{remove.error.message}</p>{/if}
+	{#if deleteConnection.error}<p role="alert" class="text-destructive">{deleteConnection.error.message}</p>{/if}
 	<div>
 		<Button variant="ghost" size="sm" onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>

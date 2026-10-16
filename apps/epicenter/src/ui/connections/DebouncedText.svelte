@@ -5,7 +5,7 @@
 
 	/**
 	 * A text field that saves what is typed a second after the last keystroke,
-	 * when it loses focus, and when it goes away (ADR-0554). Until the person
+	 * when it loses focus, and when it goes away (ADR-0576). Until the person
 	 * types, and once the save of what was typed lands, it shows the stored
 	 * value. Escape puts the stored value back.
 	 */

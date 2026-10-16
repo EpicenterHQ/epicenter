@@ -12,9 +12,9 @@
 	 * One table of an opened folder: a grid of its rows, one column per
 	 * declared field, and a side panel for the selected row with its body.
 	 * The rows are the cache's (`list`), which the folder's change channel
-	 * keeps fresh. Each field editor sends its own updates of the row's file
-	 * as it is now; the body is a draft saved over the version it started
-	 * from (ADR-0554).
+	 * keeps fresh. Each field editor sets its field on the row's file as it
+	 * is now; the body is saved as the change from the row it started from
+	 * (ADR-0576).
 	 */
 	let {
 		name,
@@ -150,7 +150,7 @@
 						</div>
 					{/each}
 					{#key selected.stem}
-						<RowBody {stored} {options} />
+						<RowBody stem={selected.stem} {stored} {options} />
 					{/key}
 				</div>
 			{:else if selected.result.error.name === 'InvalidRow'}

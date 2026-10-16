@@ -11,16 +11,15 @@
 		type FieldChange,
 		type FieldColumn,
 		failureText,
-		fieldUpdate,
+		fieldSet,
 		type TextKind,
 		textOf,
 	} from './field-input';
 
 	/**
-	 * One field's editor in one row, chosen by its kind, with its own update
-	 * mutation (ADR-0554). Each change is an update of the row's file as it is
-	 * now: it sets or unsets this field and keeps every field another window
-	 * changed. A checkbox, a select, and a multi-select send at the click. A
+	 * One field's editor in one row, chosen by its kind, with its own set
+	 * mutation (ADR-0576). Each change sets this field on the row's file as it
+	 * is now, or removes it, and keeps every field another window changed. A checkbox, a select, and a multi-select send at the click. A
 	 * text editor holds what is typed and sends it a second after the last
 	 * keystroke, on Enter or when it loses focus, and when it goes away;
 	 * Escape puts back the stored value. Until the person types, and once the
@@ -36,7 +35,7 @@
 		column: FieldColumn;
 		/** The row this editor edits. The grid keys each editor by it. */
 		stem: string;
-		/** The table's query options; this editor sends through its `update`. */
+		/** The table's query options; this editor sends through its `set`. */
 		options: TableOptions<Record<string, unknown>>;
 		/** The stored value; `undefined` when the row leaves the field out. */
 		value: unknown;
@@ -51,7 +50,7 @@
 	// svelte-ignore state_referenced_locally
 	const field = column.name;
 	const editor = $derived(column.editor);
-	const update = createMutation(() => options.update.mutationOptions());
+	const setRow = createMutation(() => options.set.mutationOptions());
 
 	/** Why what is typed is not saved: it does not parse, or its save failed. */
 	let problem = $state<string | undefined>(undefined);
@@ -60,8 +59,8 @@
 
 	/** Send `change` to this field, as the file is now. */
 	function send(change: FieldChange, onSuccess?: () => void) {
-		update.mutate(
-			{ stem: row, ...fieldUpdate(field, change) },
+		setRow.mutate(
+			{ stem: row, fields: fieldSet(field, change) },
 			{
 				onSuccess: () => {
 					problem = undefined;

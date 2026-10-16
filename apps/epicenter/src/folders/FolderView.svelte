@@ -25,8 +25,8 @@
 	 * declares no tables, and Save version. Everything shown is read through
 	 * `folder$`, the folder's query options, whose cache the app root keeps
 	 * fresh from `folder.onFilesChanged`; this view has no refresh of its own.
-	 * Each field editor sends its own updates, and a row's body is a draft
-	 * (`TableGrid`, ADR-0554).
+	 * Each field editor sets its own field, and a row's body is saved as a
+	 * change from the row it started from (`TableGrid`, ADR-0576).
 	 *
 	 * `declarationChanged` is called once the folder's `epicenter.json` reads
 	 * as other bytes than when this view first read it, after every write to

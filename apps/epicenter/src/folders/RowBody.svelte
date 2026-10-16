@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { StoredRow } from '@epicenter/folder';
+	import type { StoredRow, TableListing } from '@epicenter/folder';
 	import type { TableOptions } from '@epicenter/folder/query';
 	import { createBodyEditor } from '@epicenter/folder/svelte';
-	import { createMutation } from '@tanstack/svelte-query';
+	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
 	import { failureText } from './field-input';
@@ -10,28 +10,49 @@
 	type Fields = Record<string, unknown>;
 
 	/**
-	 * One row's body, its notes. A body is a document, so what is typed is a
-	 * draft that keeps the version it started from (ADR-0554): it is saved a
-	 * second after the last keystroke, when the box loses focus, and when the
-	 * panel goes away, over that version, merged by line with whatever another
-	 * window changed since. Where both changed the same lines the typing wins,
-	 * with no notice (ADR-0575).
+	 * One row's body, its notes. A body is a document, so what is typed is
+	 * held with the row it started from (ADR-0576): it is saved a second
+	 * after the last keystroke, when the box loses focus, and when the panel
+	 * goes away, as the change from that row, merged by line with whatever
+	 * another window changed since. Where both changed the same lines the
+	 * typing wins, with no notice.
 	 * The grid keys this view by the row.
 	 */
 	let {
+		stem,
 		stored,
 		options,
 	}: {
+		/** The row this panel edits. */
+		stem: string;
 		/** The row as the cache holds it now. */
 		stored: StoredRow<Fields>;
 		options: TableOptions<Fields>;
 	} = $props();
 
-	const save = createMutation(() => options.setBody.mutationOptions());
-	/** The body, opened with the version it started from (ADR-0575). */
+	// The grid keys this view by its row: while it replaces one, the prop may
+	// already read the next row, so a save sent as it goes away uses this.
+	// svelte-ignore state_referenced_locally
+	const row = stem;
+	const client = useQueryClient();
+	/**
+	 * The row as the listing holds it now, `undefined` once it is gone or no
+	 * longer reads as a row. The panel goes away when that happens, and the
+	 * save it sends as it goes must not make the row again.
+	 */
+	function current(): StoredRow<Fields> | undefined {
+		// Read the prop so a new version from the grid wakes the editor.
+		void stored;
+		const item = client
+			.getQueryData<TableListing<Fields>>(options.list.queryKey())
+			?.find((entry) => entry.stem === row);
+		return item?.result.error === null ? item.result.data : undefined;
+	}
+
+	const writeRow = createMutation(() => options.write.mutationOptions());
 	const body = createBodyEditor<Fields>({
-		row: () => stored,
-		save: (variables) => save.mutateAsync(variables),
+		row: current,
+		write: (change) => writeRow.mutateAsync({ stem: row, ...change }),
 	});
 	const saveLater = useDebounce(() => body.save(), 1000);
 	// runed's timer outlives the panel; save now instead.
@@ -49,9 +70,9 @@
 		}}
 		onblur={() => void saveLater.runScheduledNow()}
 	></textarea>
-	{#if body.typed !== undefined && !body.saving && !saveLater.pending && save.error}
+	{#if body.typed !== undefined && !body.saving && !saveLater.pending && writeRow.error}
 		<span class="text-xs text-destructive" role="status">
-			{failureText(save.error)}
+			{failureText(writeRow.error)}
 			<button type="button" class="underline" onclick={() => void body.save()}>Try again</button>
 		</span>
 	{:else}
