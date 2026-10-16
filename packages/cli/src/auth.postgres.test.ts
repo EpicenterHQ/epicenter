@@ -114,16 +114,16 @@ beforeAll(async () => {
 	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
+		resolveAudiences: resolveOAuthAudiences,
 	});
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			connect: async () => ({ db, close: async () => {} }),
 			afterResponse: () => {},
 			resolveAuthSecrets: () => ({ BETTER_AUTH_SECRET: secret }),
-			resolveOAuthServer: () => ({ audiences }),
+			oauthServer: {},
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
-		resolveAudiences: () => audiences,
 	});
 	client = new OAuthTestClient(origin, sql, secret, async (url, init) =>
 		app.fetch(new Request(url, init)),

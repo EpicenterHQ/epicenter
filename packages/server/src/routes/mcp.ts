@@ -484,17 +484,15 @@ export function mountMcpServer(
 	app: Hono<CloudEnv>,
 	{
 		setup,
-		resolveAudiences,
 		resolveHost,
 	}: {
 		setup: MiddlewareHandler<CloudEnv>;
-		resolveAudiences: (c: Context<CloudEnv>) => OAuthAudiences;
 		/** `null` answers 503 `mcp_unavailable`: the server has no folders to reach. */
 		resolveHost: (env: CloudEnv['Bindings']) => GitHost | null;
 	},
 ): void {
 	const serve = createMiddleware<CloudEnv>(async (c) => {
-		const audiences = resolveAudiences(c);
+		const { audiences } = c.var;
 		const host = resolveHost(c.env);
 		if (host === null)
 			return refuse(
@@ -568,8 +566,7 @@ export function mountMcpServer(
 	});
 	const handleMcp = every(setup, serve);
 	app.use('*', async (c, next) => {
-		if (!isMcpEndpoint(new URL(c.req.url), resolveAudiences(c).mcp))
-			return next();
+		if (!isMcpEndpoint(new URL(c.req.url), c.var.audiences.mcp)) return next();
 		if (c.req.method !== 'POST') {
 			const response = refuse(
 				c,

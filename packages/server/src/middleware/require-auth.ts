@@ -9,9 +9,9 @@
  */
 import { asPrincipalId } from '@epicenter/principal';
 import type { Session, User } from 'better-auth';
-import type { Context, MiddlewareHandler } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
-import type { OAuthScope } from '../auth/oauth-policy.js';
+import type { OAuthAudiences, OAuthScope } from '../auth/oauth-policy.js';
 import {
 	authorizeAccountRequest,
 	readAccessToken,
@@ -32,8 +32,11 @@ export function requireAccessToken({
 	audience,
 	scope,
 }: {
-	/** This resource's identifier, which the deployment names (ADR-0326). */
-	audience: (c: Context<CloudEnv>) => string;
+	/**
+	 * Which of this deployment's audiences the resource is. Its identifier is
+	 * `c.var.audiences[audience]`, which the deployment names (ADR-0326).
+	 */
+	audience: keyof OAuthAudiences;
 	scope: OAuthScope;
 }): MiddlewareHandler<CloudEnv> {
 	return createMiddleware<CloudEnv>(async (c, next) => {
@@ -41,7 +44,7 @@ export function requireAccessToken({
 		try {
 			decided = await authorizeAccountRequest(c.var.db, {
 				token: readAccessToken(c.req.header('authorization')),
-				audience: audience(c),
+				audience: c.var.audiences[audience],
 				scope,
 			});
 		} catch {

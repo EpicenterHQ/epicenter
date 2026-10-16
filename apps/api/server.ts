@@ -191,6 +191,7 @@ export async function startBunApiServer(): Promise<void> {
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
+		resolveAudiences: () => audiences,
 	});
 
 	const ui = uiPages(env.API_UI_DIR ?? resolve(import.meta.dir, 'ui', 'build'));
@@ -208,25 +209,18 @@ export async function startBunApiServer(): Promise<void> {
 	const cloudContext = createCloudContextMiddleware(cloudContextOptions);
 	const authServerContext = createCloudContextMiddleware({
 		...cloudContextOptions,
-		resolveOAuthServer: () => ({
-			audiences,
-			clientMetadataFetch: nodeClientMetadataFetch,
-		}),
+		oauthServer: { clientMetadataFetch: nodeClientMetadataFetch },
 	});
 	// Public auth shells bypass setup. Database-backed endpoints and resource
 	// guards explicitly install the context middleware, just like the Worker.
 	mountAuthRoutes(app, {
 		setup: authServerContext,
 		serveAuthUiShell: ui.shell,
-		resolveAudiences: () => audiences,
 	});
 	// Every resource takes only an access token for its audience and the scope
 	// its operation needs (ADR-0549).
 	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
-		every(
-			cloudContext,
-			requireAccessToken({ audience: () => audiences[audience], scope }),
-		);
+		every(cloudContext, requireAccessToken({ audience, scope }));
 	// Hosted Git (ADR-0546) keeps bare repositories on disk under
 	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
 	// the shared profile and answer 503 `git_unavailable`.
@@ -235,14 +229,12 @@ export async function startBunApiServer(): Promise<void> {
 		: null;
 	mountGitHost(app, {
 		setup: cloudContext,
-		resolveAudiences: () => audiences,
 		resolveHost: () => gitHost,
 	});
 	// The folder MCP server at `<origin>/mcp` (ADR-0550) reads and commits
 	// through the same store; without one it answers 503.
 	mountMcpServer(app, {
 		setup: cloudContext,
-		resolveAudiences: () => audiences,
 		resolveHost: () => gitHost,
 	});
 	mountInferenceApp(app, { auth: resource('api', 'ai') });

@@ -118,6 +118,7 @@ beforeAll(async () => {
 	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
+		resolveAudiences: resolveOAuthAudiences,
 	});
 	const context = {
 		connect: async () => ({ db, close: async () => {} }),
@@ -127,17 +128,16 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			resolveOAuthServer: () => ({ audiences }),
+			oauthServer: {},
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
-		resolveAudiences: () => audiences,
 	});
 	// The inference gateway's guard, in front of a route that answers as a
 	// transcription would.
 	app.post(
 		'/v1/*',
 		createCloudContextMiddleware(context),
-		requireAccessToken({ audience: () => audiences.api, scope: 'ai' }),
+		requireAccessToken({ audience: 'api', scope: 'ai' }),
 		async (c) => {
 			reached.push({
 				path: new URL(c.req.url).pathname,

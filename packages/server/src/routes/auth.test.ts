@@ -14,14 +14,14 @@ function setup() {
 	const app = new Hono<CloudEnv>();
 	app.use(async (c, next) => {
 		c.set('authBaseURL', origin);
-		await next();
-	});
-	mountAuthRoutes(app, {
-		resolveAudiences: () => ({
+		c.set('audiences', {
 			api: origin,
 			git: 'https://git.example.test',
 			mcp: `${origin}/mcp`,
-		}),
+		});
+		await next();
+	});
+	mountAuthRoutes(app, {
 		serveAuthUiShell: () => new Response('sign-in shell'),
 		setup: async (c, next) => {
 			c.set('auth', {

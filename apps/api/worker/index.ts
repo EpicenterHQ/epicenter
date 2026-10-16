@@ -65,6 +65,9 @@ const app = createServerApp<CloudEnv>({
 	// to this deployment's own `Cloudflare.Env` is the honest edge (ADR-0066).
 	resolveOrigin: resolveApiOrigin,
 	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
+	// The hosted origin's audiences live on their own hosts (`git.epicenter.so`,
+	// `mcp.epicenter.so`); any other origin's sit under it (ADR-0326).
+	resolveAudiences: resolveOAuthAudiences,
 });
 
 // The cloud UI (apps/api/ui) is one root-based SvelteKit SPA whose fallback
@@ -115,10 +118,7 @@ const cloudContext = createCloudContextMiddleware(cloudContextOptions);
 // The `/auth/*` routes add the OAuth 2.1 authorization server (ADR-0549).
 const authServerContext = createCloudContextMiddleware({
 	...cloudContextOptions,
-	resolveOAuthServer: (c) => ({
-		audiences: resolveOAuthAudiences(c.var.authBaseURL),
-		clientMetadataFetch: workerClientMetadataFetch,
-	}),
+	oauthServer: { clientMetadataFetch: workerClientMetadataFetch },
 });
 
 // The first-party clients and resources are rows this code declares
@@ -132,7 +132,7 @@ const registerClientsOnce = createMiddleware<CloudEnv>(async (c, next) => {
 	if (!firstPartyClientsRegistered) {
 		await c.var.auth.$context;
 		await registerFirstPartyClients(c.var.db, {
-			audiences: resolveOAuthAudiences(c.var.authBaseURL),
+			audiences: c.var.audiences,
 			clients: buildFirstPartyClients(c.var.authBaseURL),
 		});
 		firstPartyClientsRegistered = true;
@@ -146,7 +146,6 @@ const registerClientsOnce = createMiddleware<CloudEnv>(async (c, next) => {
 mountAuthRoutes(app, {
 	setup: every(authServerContext, registerClientsOnce),
 	serveAuthUiShell: serveUiShell,
-	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
 });
 
 // Every resource takes only an access token for its audience and the scope
@@ -154,13 +153,7 @@ mountAuthRoutes(app, {
 // server's own pages takes only its session cookie: billing here, and sign-in
 // methods and account deletion through Better Auth under `/auth/*`.
 const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
-	every(
-		cloudContext,
-		requireAccessToken({
-			audience: (c) => resolveOAuthAudiences(c.var.authBaseURL)[audience],
-			scope,
-		}),
-	);
+	every(cloudContext, requireAccessToken({ audience, scope }));
 const accountSession = every(cloudContext, requireSessionCookie());
 
 // Hosted Git at git.epicenter.so/<namespace>/<name>.git over Cloudflare
@@ -181,7 +174,6 @@ const resolveGitHost = (env: ServerBindings) => {
 };
 mountGitHost(app, {
 	setup: cloudContext,
-	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
 	resolveHost: resolveGitHost,
 });
 // The folder MCP server at mcp.epicenter.so/mcp (ADR-0550) reads and commits
@@ -189,7 +181,6 @@ mountGitHost(app, {
 // Unverified against Artifacts, and that host is not yet routed here.
 mountMcpServer(app, {
 	setup: cloudContext,
-	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
 	resolveHost: resolveGitHost,
 });
 // Owner-addressed hosted blobs are currently unmetered. Autumn's check()

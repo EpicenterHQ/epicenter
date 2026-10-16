@@ -35,8 +35,6 @@ export function mountAuthRoutes(
 		/** Builds the request's Better Auth instance with the authorization server. */
 		setup: MiddlewareHandler<CloudEnv>;
 		serveAuthUiShell: (c: Context<CloudEnv>) => Response | Promise<Response>;
-		/** This deployment's token audiences; the same ones `setup` composes. */
-		resolveAudiences: (c: Context<CloudEnv>) => OAuthAudiences;
 	},
 ): void {
 	app.on('GET', AUTH_PAGES, async (c) => {
@@ -67,7 +65,7 @@ export function mountAuthRoutes(
 	function protectedResource(c: Context<CloudEnv>) {
 		const requested = new URL(c.req.url);
 		const issuer = `${new URL(c.var.authBaseURL).origin}/auth`;
-		const audiences = opts.resolveAudiences(c);
+		const { audiences } = c.var;
 		for (const kind of Object.keys(audiences) as (keyof OAuthAudiences)[]) {
 			const metadataUrl = new URL(
 				protectedResourceMetadataUrl(audiences[kind]),

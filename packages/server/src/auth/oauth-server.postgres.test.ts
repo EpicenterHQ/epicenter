@@ -200,6 +200,7 @@ beforeAll(async () => {
 	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
+		resolveAudiences: () => audiences,
 	});
 	const context = {
 		connect: async () => ({ db, close: async () => {} }),
@@ -209,25 +210,17 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			resolveOAuthServer: () => ({
-				audiences,
-				clientMetadataFetch: testMetadataFetch,
-			}),
+			oauthServer: { clientMetadataFetch: testMetadataFetch },
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
-		resolveAudiences: () => audiences,
 	});
 	// The real protected mounts, guarded the way both deployments guard them.
 	const resourceContext = createCloudContextMiddleware(context);
 	const resource = (audience: keyof typeof audiences, scope: OAuthScope) =>
-		every(
-			resourceContext,
-			requireAccessToken({ audience: () => audiences[audience], scope }),
-		);
+		every(resourceContext, requireAccessToken({ audience, scope }));
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	mountGitHost(app, {
 		setup: resourceContext,
-		resolveAudiences: () => audiences,
 		resolveHost: () => recordingHost,
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
