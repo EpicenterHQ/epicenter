@@ -96,8 +96,6 @@ export type CommitOutcome =
 	| { readonly status: 'failed'; readonly error: string }
 	/** The host did not acknowledge the operation; inspect history before retrying. */
 	| { readonly status: 'unconfirmed'; readonly error: string }
-	/** The caller's signal aborted; the pass may still complete. */
-	| { readonly status: 'stoppedWaiting' }
 	| { readonly status: 'closed' };
 
 /** What Sync's push of one commit did. */

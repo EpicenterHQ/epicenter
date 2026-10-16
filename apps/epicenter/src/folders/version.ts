@@ -46,8 +46,6 @@ export function versionMessage(outcome: CommitOutcome): VersionLine {
 				text: `The version may not have been saved: ${outcome.error}`,
 				problem: true,
 			};
-		case 'stoppedWaiting':
-			return { text: 'The version may still be saving.', problem: false };
 		case 'closed':
 			return { text: 'This folder was closed.', problem: false };
 	}

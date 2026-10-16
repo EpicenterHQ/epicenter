@@ -128,8 +128,6 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 				detail: `${outcome.error}\nYour files are still saved.`,
 				tone: 'error',
 			};
-		case 'stoppedWaiting':
-			return { label: 'Version may still be saving', tone: 'neutral' };
 		case 'unconfirmed':
 			return {
 				label: 'Version reply was lost',

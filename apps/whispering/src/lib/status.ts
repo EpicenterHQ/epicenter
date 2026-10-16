@@ -154,8 +154,6 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 				detail: outcome.error,
 				tone: 'warning',
 			};
-		case 'stoppedWaiting':
-			return { label: 'Commit may still be running', tone: 'neutral' };
 		case 'closed':
 			return { label: 'Closed', tone: 'neutral' };
 	}
