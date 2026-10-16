@@ -18,16 +18,16 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   earlier Yjs-backed Honeycrisp. There are no users to carry forward.
 - Opening or listing a note must not write its file. Only an edit writes.
 - Opening an initialized folder changes no saved file, commit, or ref,
-  even when its repository has no commit yet. Only missing layout/defaults
-  are initialized. Do not request a commit because a folder has no head.
+  even when its repository has no commit yet. Only missing layout is
+  initialized. Do not request a commit because a folder has no head.
 - Epicenter's shell writes nothing inside the notes directory. A missing
   layout of Honeycrisp's own folder is created by the page through the
   granted folder, after the shell's grant takes the folder's lock, in
-  `src/lib/platform/first-open.ts`: look first, write `kv.json` only when a
-  read confirmed it absent and only if it is still absent, and never retry an
-  outcome that is unknown. Table directories come from the declaration. A
-  folder Epicenter hands the window that is not Honeycrisp's own is opened
-  through Honeycrisp's shape and never set up.
+  `src/lib/platform/first-open.ts`: look first, make only the table
+  directories the listing lacks, and never retry a refusal. Table directories
+  come from the declaration; no other file is written. A folder Epicenter
+  hands the window that is not Honeycrisp's own is opened through
+  Honeycrisp's shape and never set up.
 - The query cache holds what the files held when they were read (ADR-0528,
   ADR-0548). The note and folder listings, the file listing, each file
   opened as text, and Git status are queries from the folder's options
