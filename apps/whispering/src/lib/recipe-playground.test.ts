@@ -173,11 +173,17 @@ test('the resolver uses the text connection and lets a recipe name its model', (
 	// the text connection goes.
 	expect(
 		resolveRecipe(
-			reading({ title: 'Earlier', model: null, endpoint: 'https://elsewhere.example/v1' }),
+			reading({
+				title: 'Earlier',
+				model: null,
+				endpoint: 'https://elsewhere.example/v1',
+			}),
 			TEXT,
 		),
 	).toMatchObject({ kind: 'ready', connection: 'Test text' });
-	expect(resolveRecipe(reading({ title: 'New', model: null }), undefined)).toEqual({
+	expect(
+		resolveRecipe(reading({ title: 'New', model: null }), undefined),
+	).toEqual({
 		kind: 'blocked',
 		fix: 'connection',
 		reason: 'Choose a text connection in Settings to run this.',
@@ -185,11 +191,20 @@ test('the resolver uses the text connection and lets a recipe name its model', (
 	expect(
 		resolveRecipe(reading({ title: 'New', model: null }), {
 			...TEXT,
-			unusable: 'Test text runs on this computer’s local transcription model, which only transcribes.',
+			unusable:
+				'Test text runs on this computer’s local transcription model, which only transcribes.',
 		}),
-	).toMatchObject({ kind: 'blocked', fix: 'connection', reason: expect.stringContaining('only transcribes') });
+	).toMatchObject({
+		kind: 'blocked',
+		fix: 'connection',
+		reason: expect.stringContaining('only transcribes'),
+	});
 	expect(
-		resolveRecipe(reading({ title: 'New', model: null }), undefined, 'disk refused'),
+		resolveRecipe(
+			reading({ title: 'New', model: null }),
+			undefined,
+			'disk refused',
+		),
 	).toMatchObject({
 		kind: 'blocked',
 		reason: expect.stringContaining('disk refused'),
@@ -295,8 +310,7 @@ function newestText(library: Library, stem: string) {
 }
 
 test('a recipe runs on pasted text with no recordings; its row is written to text_runs/ when it starts and filled when the answer arrives, with no Save', async () => {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const { library, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -353,8 +367,7 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 });
 
 test('what is written is what was sent: edits to the recipe or the connection while it runs change nothing', async () => {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const { library, transformed, device } = await open({
 		transform: () => answer.promise,
 	});
@@ -395,8 +408,7 @@ test('what is written is what was sent: edits to the recipe or the connection wh
 });
 
 test('a second ask on pasted text while one runs sends nothing; another recipe, and a later ask, are each their own row', async () => {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const { library, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -420,8 +432,7 @@ test('a second ask on pasted text while one runs sends nothing; another recipe, 
 });
 
 test('discarding a result on pasted text deletes its row, even while its request runs; the late answer writes nothing', async () => {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const { library, root, transformed } = await open({
 		transform: () => answer.promise,
 	});
@@ -444,7 +455,9 @@ test('a failed run runs again over the connection its row names, only to the end
 	let refuse = true;
 	const { library, root, transformed, device } = await open({
 		transform: async ({ input }) =>
-			refuse ? Err({ message: 'down' }) : Ok({ text: `Again: ${input.trim()}` }),
+			refuse
+				? Err({ message: 'down' })
+				: Ok({ text: `Again: ${input.trim()}` }),
 	});
 	const path = await recipe(library);
 	const stem = selectedStem(library);
@@ -455,7 +468,11 @@ test('a failed run runs again over the connection its row names, only to the end
 
 	// The connection's saved endpoint moved: send.ts refuses, and nothing goes out.
 	expectOk(
-		await device.keys.save(TEST_CONNECTION_IDS.text, 'http://127.0.0.1:11434/v1', ''),
+		await device.keys.save(
+			TEST_CONNECTION_IDS.text,
+			'http://127.0.0.1:11434/v1',
+			'',
+		),
 	);
 	expect(await library.runAgain(output.path)).toBeUndefined();
 	expect(newestText(library, stem).state).toMatchObject({
@@ -478,8 +495,11 @@ test('a failed run runs again over the connection its row names, only to the end
 test('running again uses the row’s connection, not the one chosen now, even at the same endpoint', async () => {
 	let refuse = true;
 	const { library, transformed } = await open({
-		others: { work: { title: 'Work', model: 'connection-model', key: 'work-key' } },
-		transform: async () => (refuse ? Err({ message: 'down' }) : Ok({ text: 'ok' })),
+		others: {
+			work: { title: 'Work', model: 'connection-model', key: 'work-key' },
+		},
+		transform: async () =>
+			refuse ? Err({ message: 'down' }) : Ok({ text: 'ok' }),
 	});
 	const path = await recipe(library);
 	const stem = selectedStem(library);
@@ -498,14 +518,17 @@ test('running again uses the row’s connection, not the one chosen now, even at
 test('a failed run whose connection is gone, or that names none, is not sent again', async () => {
 	let refuse = true;
 	const { library, root, transformed, device } = await open({
-		transform: async () => (refuse ? Err({ message: 'down' }) : Ok({ text: 'ok' })),
+		transform: async () =>
+			refuse ? Err({ message: 'down' }) : Ok({ text: 'ok' }),
 	});
 	const { transcript } = await transcribed(library);
 	const path = await recipe(library);
 	await library.transform(transcript.path, path);
 	const failed = library.outputsFor(transcript.stem)[0]!;
 	refuse = false;
-	expectOk(await device.folder.tables.connections.delete(TEST_CONNECTION_IDS.text));
+	expectOk(
+		await device.folder.tables.connections.delete(TEST_CONNECTION_IDS.text),
+	);
 
 	expect(await library.runAgain(failed.path)).toContain(
 		'The connection this was run over is gone',

@@ -7,6 +7,14 @@
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
  */
+
+import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+import type {
+	ConnectionKind,
+	SendRequest,
+	SendTarget,
+} from '@epicenter/ai/send';
+import type { ConnectionKeys } from '@epicenter/ai/ui';
 import type {
 	Folder,
 	FolderDefinition,
@@ -16,13 +24,6 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import manifest from '../../../epicenter.app.json';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
-import type { epicenterDefinition } from '@epicenter/ai/connection-table';
-import type {
-	ConnectionKind,
-	SendRequest,
-	SendTarget,
-} from '@epicenter/ai/send';
-import type { ConnectionKeys } from '@epicenter/ai/ui';
 import type { whisperingDefinition } from '../definition.js';
 import type { LocalTranscription } from './local-transcription.js';
 

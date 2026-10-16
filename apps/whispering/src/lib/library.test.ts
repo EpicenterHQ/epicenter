@@ -52,6 +52,7 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { loadAudio } from './audio-source.js';
 import { createFixtureDevice, toneWav } from './capture.js';
+import type { Operation } from './connection-routes.js';
 import { recordingAudioStem } from './definition.js';
 import { describeDeletion } from './deletion.js';
 import { openText, settle } from './edits.test-support.js';
@@ -63,7 +64,6 @@ import {
 	summaryLine,
 	uncommittedLine,
 } from './status.js';
-import type { Operation } from './connection-routes.js';
 import { WHISPERING_FOLDER_ID, type Workspace } from './workspace/types.js';
 import {
 	eventually,
@@ -646,8 +646,7 @@ function newest(library: Library, recording: string) {
 }
 
 test('a transcript row is written with an empty body before the request goes out, and filled when the answer arrives', async () => {
-	const answer =
-		Promise.withResolvers<StubAnswer>();
+	const answer = Promise.withResolvers<StubAnswer>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -785,8 +784,7 @@ test('after a reload, a row whose answer was never written is unfinished, and ru
 });
 
 test('a running transcription cannot be asked for again; deleting its row discards it, and its answer writes nothing', async () => {
-	const answer =
-		Promise.withResolvers<StubAnswer>();
+	const answer = Promise.withResolvers<StubAnswer>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});

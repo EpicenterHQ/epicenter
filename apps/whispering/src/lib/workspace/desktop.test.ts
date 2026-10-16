@@ -37,8 +37,8 @@ import { isStoredRow } from '@epicenter/folder';
 import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
-import { toneWav } from '../capture.js';
 import { audioMimeTypeOf } from '../audio-format.js';
+import { toneWav } from '../capture.js';
 import {
 	type Route,
 	transcribeOver,

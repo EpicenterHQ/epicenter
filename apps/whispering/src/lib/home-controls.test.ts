@@ -181,7 +181,9 @@ test('choosing a connection writes only the choice to kv.json and asks no endpoi
 	});
 	expect(library.connections.transcription).toBeUndefined();
 
-	expect(await library.chooseConnection('transcription', 'groq')).toBeUndefined();
+	expect(
+		await library.chooseConnection('transcription', 'groq'),
+	).toBeUndefined();
 
 	expect(library.connections.transcription).toMatchObject({
 		connection: 'groq',
@@ -190,7 +192,10 @@ test('choosing a connection writes only the choice to kv.json and asks no endpoi
 		unusable: undefined,
 	});
 	const kv = JSON.parse(await readFile(join(root, 'kv.json'), 'utf8'));
-	expect(kv).toEqual({ textConnection: 'test-text', transcriptionConnection: 'groq' });
+	expect(kv).toEqual({
+		textConnection: 'test-text',
+		transcriptionConnection: 'groq',
+	});
 	// A key never reaches the folder.
 	expect(JSON.stringify(kv)).not.toContain('gsk');
 	expect(transcribed).toEqual([]);
@@ -203,6 +208,7 @@ test('a local connection can transcribe on the desktop, and is never the text co
 	});
 	expect(library.connections.text).toMatchObject({
 		kind: 'local',
-		unusable: 'This computer runs on this computer’s local transcription model, which only transcribes.',
+		unusable:
+			'This computer runs on this computer’s local transcription model, which only transcribes.',
 	});
 });

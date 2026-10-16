@@ -17,7 +17,9 @@ import type { commands as shellCommands } from '../tauri/bindings.gen.js';
 /** The commands this uses, as the generated bindings type them. */
 export type LocalTranscriptionCommands = Pick<
 	typeof shellCommands,
-	'getLocalTranscriptionReadiness' | 'listInferenceModels' | 'transcribeAudioBytes'
+	| 'getLocalTranscriptionReadiness'
+	| 'listInferenceModels'
+	| 'transcribeAudioBytes'
 >;
 
 /**
@@ -98,8 +100,9 @@ export function createLocalTranscription({
 							? `${error.message} ${CHOOSE}`
 							: `Transcription on this computer failed: ${error.message}`,
 				});
-			return Ok({ text: outcome.outcome === 'empty-audio' ? '' : outcome.text });
+			return Ok({
+				text: outcome.outcome === 'empty-audio' ? '' : outcome.text,
+			});
 		},
-
 	};
 }

@@ -33,7 +33,10 @@ const audio = { bytes: toneWav(), filename: 'a.wav', mimeType: 'audio/wav' };
 
 /** One transcription request, sent as a connection sends it, answered by `send`. */
 async function transcribe(
-	send: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+	send: (
+		input: string | URL | Request,
+		init?: RequestInit,
+	) => Promise<Response>,
 	key = KEY,
 ) {
 	const { data: response, error } = await sendToEndpoint(

@@ -113,9 +113,7 @@ export async function routeOf(
 	model?: string,
 ): Promise<Result<Route, string>> {
 	if (!connection)
-		return Err(
-			`No ${operation} connection is chosen. Choose one in Settings.`,
-		);
+		return Err(`No ${operation} connection is chosen. Choose one in Settings.`);
 	const { data: row, error } = await readRow(ports, connection);
 	if (error !== null) return Err(error);
 	if (row === undefined)

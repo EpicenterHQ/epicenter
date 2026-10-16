@@ -195,7 +195,14 @@ test('a browser keeps a connection’s endpoint and key under its row’s id, ne
 	const opened = expectOk(await connections.open());
 	expectOk(
 		await opened.tables.connections.create(
-			{ fields: { kind: 'openai-compatible', title: 'Groq', model: 'chat-model' }, body: '' },
+			{
+				fields: {
+					kind: 'openai-compatible',
+					title: 'Groq',
+					model: 'chat-model',
+				},
+				body: '',
+			},
 			{ stem: 'groq' },
 		),
 	);
@@ -235,7 +242,10 @@ test('a browser keeps a connection’s endpoint and key under its row’s id, ne
 
 test('nothing an earlier build kept in this browser is read, moved, or removed', async () => {
 	const earlier = new Map([
-		['whispering.connections', '{"text": {"baseUrl": "http://127.0.0.1:18080/v1", "model": "m", "apiKey": "old"}}'],
+		[
+			'whispering.connections',
+			'{"text": {"baseUrl": "http://127.0.0.1:18080/v1", "model": "m", "apiKey": "old"}}',
+		],
 		['whispering.transcriptionApiKey', 'earlier-key'],
 	]);
 	const stored = new Map(earlier);

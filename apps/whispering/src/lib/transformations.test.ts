@@ -472,8 +472,7 @@ function newestResult(library: Library, transcriptionId: string) {
 }
 
 test('a recording cannot be deleted while a transformation of it runs, including one started after confirming', async () => {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const started = deferred<void>();
 	const { library, root } = await open({
 		transform: () => {
@@ -518,8 +517,7 @@ test('a recording cannot be deleted while a transformation of it runs, including
 
 test('a failed run does not block deletion, and its row goes with the recording', async () => {
 	const { library, root, transformed } = await open({
-		transform: async () =>
-			Err({ message: 'down' }),
+		transform: async () => Err({ message: 'down' }),
 	});
 	const { recording, transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
@@ -604,8 +602,7 @@ test('deleting a recording removes the results made from its transcripts', async
 // ============================================================================
 
 test('a run’s row is in the folder from its start with every field and no body, and holds nothing in the window', async () => {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const started = deferred<void>();
 	const { library, root } = await open({
 		transform: () => {
@@ -643,8 +640,7 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 	const { library, root, transformed } = await open({
 		transform: async ({ input }) => {
 			attempts += 1;
-			if (attempts === 1)
-				return new Response('slow down', { status: 429 });
+			if (attempts === 1) return new Response('slow down', { status: 429 });
 			if (attempts === 2) throw new Error('the folder host went away');
 			return Ok({ text: `Third try: ${input.trim()}` });
 		},
@@ -683,9 +679,7 @@ test('running again sends what the row holds, not what the transcript holds now'
 	let refuse = true;
 	const { library, root, transformed } = await open({
 		transform: async ({ input }) =>
-			refuse
-				? Err({ message: 'down' })
-				: Ok({ text: input }),
+			refuse ? Err({ message: 'down' }) : Ok({ text: input }),
 	});
 	const { transcript, transcriptText } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
@@ -736,10 +730,7 @@ test('an answer whose write fails is written again while the page lives', async 
 });
 
 test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
-	const answers = [
-		deferred<StubAnswer>(),
-		deferred<StubAnswer>(),
-	];
+	const answers = [deferred<StubAnswer>(), deferred<StubAnswer>()];
 	const { library, root, transformed } = await open({
 		transform: () => answers[transformed.length - 1]!.promise,
 	});
@@ -781,8 +772,7 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
  * right after the fill reads it empty. Answers the file afterwards.
  */
 async function fillRace(typed: string) {
-	const answer =
-		deferred<StubAnswer>();
+	const answer = deferred<StubAnswer>();
 	const { library, root, workspace, transformed } = await open({
 		transform: () => answer.promise,
 	});

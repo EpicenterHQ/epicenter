@@ -382,7 +382,10 @@ export function createRuns({
 			if (problem !== undefined)
 				return `Nothing was sent: the result’s file could not be written. ${problem}`;
 			await send(target, () =>
-				routing.transform(route, { prompt: fields.prompt, input: fields.input }),
+				routing.transform(route, {
+					prompt: fields.prompt,
+					input: fields.input,
+				}),
 			);
 			return undefined;
 		} finally {
@@ -443,7 +446,10 @@ export function createRuns({
 		return Ok({
 			target: { table, stem, recording },
 			request: () =>
-				routing.transform(route, { prompt: fields.prompt, input: fields.input }),
+				routing.transform(route, {
+					prompt: fields.prompt,
+					input: fields.input,
+				}),
 		});
 	}
 

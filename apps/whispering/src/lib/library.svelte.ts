@@ -42,6 +42,8 @@
  * goes out, and its body when the answer arrives (`runs.svelte.ts`).
  */
 
+import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+import type { ConnectionFields } from '@epicenter/ai/ui';
 import { InstantString } from '@epicenter/definition';
 import type {
 	CommitOutcome,
@@ -99,10 +101,8 @@ import { useDebounce } from 'runed';
 import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { ActiveCapture } from './capture.js';
-import type { epicenterDefinition } from '@epicenter/ai/connection-table';
-import type { ConnectionFields } from '@epicenter/ai/ui';
 import { audioMimeTypeOf } from './audio-format.js';
+import type { ActiveCapture } from './capture.js';
 import {
 	type ChosenConnection,
 	createRouting,
@@ -111,7 +111,6 @@ import {
 } from './connection-routes.js';
 import {
 	audioPathIn,
-	type WhisperingSettings,
 	RECORDINGS,
 	type RecordingFields,
 	recordingAudioStem,
@@ -123,6 +122,7 @@ import {
 	type TranscriptionFields,
 	type TransformationFields,
 	type TransformationRunFields,
+	type WhisperingSettings,
 	whisperingDefinition,
 } from './definition.js';
 import {
@@ -876,9 +876,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	function connectionListing() {
 		trackQueries();
 		if (connections === undefined) return undefined;
-		const listing = queryClient.getQueryData<
-			TableListing<ConnectionFields>
-		>(connections.options.tables.connections.list.queryKey());
+		const listing = queryClient.getQueryData<TableListing<ConnectionFields>>(
+			connections.options.tables.connections.list.queryKey(),
+		);
 		if (listing === undefined) return undefined;
 		return {
 			rows: listing.flatMap(({ stem, result }) =>
@@ -921,7 +921,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const listing = connectionListing();
 		if (listing === undefined)
 			return absent(
-				connectionsProblem() ?? 'This device’s connections are still being read.',
+				connectionsProblem() ??
+					'This device’s connections are still being read.',
 			);
 		const unreadable = listing.unreadable.get(id);
 		if (unreadable !== undefined)
@@ -940,7 +941,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			unusable:
 				unusable({ workspace }, operation, row.kind, title) ??
 				// A transformation may name its own model; a transcription cannot.
-				(operation === 'transcription' && row.kind !== 'local' && !row.model.trim()
+				(operation === 'transcription' &&
+				row.kind !== 'local' &&
+				!row.model.trim()
 					? `${title} names no model. Add one in Settings.`
 					: undefined),
 		};

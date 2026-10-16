@@ -124,7 +124,9 @@ export async function testConnections({
 	const rows = [
 		...(['transcription', 'text'] as const).flatMap((operation) => {
 			const connection = connections[operation];
-			return connection ? [[TEST_CONNECTION_IDS[operation], connection] as const] : [];
+			return connection
+				? [[TEST_CONNECTION_IDS[operation], connection] as const]
+				: [];
 		}),
 		...Object.entries(others),
 	];
@@ -133,7 +135,11 @@ export async function testConnections({
 		expectOk(
 			await folder.tables.connections.create(
 				{
-					fields: { kind, title: connection.title ?? id, model: connection.model },
+					fields: {
+						kind,
+						title: connection.title ?? id,
+						model: connection.model,
+					},
 					body: '',
 				},
 				{ stem: id },

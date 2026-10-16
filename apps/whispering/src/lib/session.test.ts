@@ -67,8 +67,7 @@ test('a session opens the folder once and releases it once', async () => {
 });
 
 test('internal navigation is allowed while unloading is blocked only by a write in flight', async () => {
-	const answer =
-		deferred<Result<{ text: string }, { message: string }>>();
+	const answer = deferred<Result<{ text: string }, { message: string }>>();
 	const { session, library } = await open({ transcribe: () => answer.promise });
 	expect(session.blocksNavigation(INTERNAL)).toBe(false);
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
