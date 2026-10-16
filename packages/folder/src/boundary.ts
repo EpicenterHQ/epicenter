@@ -116,8 +116,13 @@ export const PRIVATE_DIRECTORY = '.git';
  */
 export const SCRATCH_DIRECTORY = `${PRIVATE_DIRECTORY}/epicenter/scratch`;
 
-/** This process's id in the names it stages under, so two never pick one name. */
-const ENGINE = crypto.randomUUID().replaceAll('-', '');
+/**
+ * This process's id in the names it stages under, so two never pick one
+ * name. Made at the first stage, not at import: an insecure origin has no
+ * `crypto.randomUUID`, and opening there answers `NoFileSystem` rather than
+ * failing to load.
+ */
+let engine: string | undefined;
 let staged = 0;
 
 /**
@@ -125,8 +130,10 @@ let staged = 0;
  * base 36, around this process's engine id. Only ASCII letters, digits, and
  * `-`, which the desktop shell admits.
  */
-export const scratchName = () =>
-	`${Date.now().toString(36)}-${ENGINE}-${(staged++).toString(36)}`;
+export const scratchName = () => {
+	engine ??= crypto.randomUUID().replaceAll('-', '');
+	return `${Date.now().toString(36)}-${engine}-${(staged++).toString(36)}`;
+};
 
 /**
  * How old a staged file must be before a host removes it. A write moves its
