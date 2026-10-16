@@ -100,7 +100,7 @@ export class GitMissingError extends Error {
 }
 
 /** How this computer gets a `git`. */
-export function gitInstall(): GitInstall {
+function gitInstall(): GitInstall {
 	if (process.platform === 'darwin') return 'command-line-tools';
 	if (process.platform === 'win32') return 'git-for-windows';
 	return 'package-manager';

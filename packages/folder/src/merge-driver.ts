@@ -32,7 +32,7 @@ export type GitMerge =
 	| { readonly kind: 'git'; readonly reason: string };
 
 /** The labels the driver's conflict markers carry. */
-export const CONFLICT_LABELS = { ours: 'ours', theirs: 'theirs' } as const;
+const CONFLICT_LABELS = { ours: 'ours', theirs: 'theirs' } as const;
 
 const encoder = new TextEncoder();
 const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });

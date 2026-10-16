@@ -80,7 +80,6 @@ export {
 	type CheckedTable,
 	checkFolder,
 	DECLARATION_SOURCE_PATH,
-	excludedFiles,
 	type Finding,
 	type FolderCheck,
 	hasDeclarationSource,
@@ -96,8 +95,6 @@ export {
 	createGitRunner,
 	endGitCommands,
 	GitMissingError,
-	gitInstall,
-	isNetworkUrl,
 	locateGit,
 	runGit,
 } from './git/native-host.js';
@@ -111,7 +108,6 @@ export {
 	type HistoryState,
 } from './history-wire.js';
 export {
-	CONFLICT_LABELS,
 	type GitMerge,
 	gitMergeKind,
 	mergeForGit,
