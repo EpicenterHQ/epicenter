@@ -1,19 +1,31 @@
 <script lang="ts">
-	import type { ConnectionKind } from '@epicenter/ai/send';
 	import type { TableOptions } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { commands } from '../bindings.gen';
+	import type { ConnectionKind } from '../send.js';
 	import ConnectionEditor from './ConnectionEditor.svelte';
-	import { type ConnectionFields, connectionId, failureText, KIND_LABELS, OFFERED_KINDS } from './connections';
+	import { type ConnectionFields, type ConnectionKeys, connectionId, KIND_LABELS } from './connection-keys.js';
 
 	/**
 	 * Every AI connection in `so.epicenter`, each with its editor, and a form
 	 * that adds one: its row, then, for an endpoint, its endpoint and key in
-	 * this computer's keychain.
+	 * `keys`. `kinds` are the kinds this page can send over, in the order the
+	 * form offers them; `epicenterNote` says where an Epicenter connection's
+	 * sign-in comes from.
 	 */
-	let { options }: { options: TableOptions<ConnectionFields> } = $props();
+	let {
+		options,
+		keys,
+		kinds = ['openai-compatible', 'epicenter'],
+		epicenterNote = 'Sends to your Epicenter account with your sign-in.',
+	}: {
+		options: TableOptions<ConnectionFields>;
+		keys: ConnectionKeys;
+		kinds?: readonly ConnectionKind[];
+		epicenterNote?: string;
+	} = $props();
+	const here = $derived(keys.place === 'computer' ? 'this computer' : 'this browser');
 
 	const list = createQuery(() => options.list.queryOptions());
 	const create = createMutation(() => options.create.mutationOptions());
@@ -25,7 +37,8 @@
 	);
 	const unreadable = $derived((list.data ?? []).filter(({ result }) => result.error !== null));
 
-	let kind = $state<ConnectionKind>('openai-compatible');
+	// svelte-ignore state_referenced_locally
+	let kind = $state<ConnectionKind>(kinds[0] ?? 'openai-compatible');
 	let title = $state('');
 	let model = $state('');
 	let endpoint = $state('');
@@ -49,9 +62,9 @@
 				);
 			if (!saved) return;
 			if (kind === 'openai-compatible') {
-				const { error } = await commands.aiKeySet(stem, endpoint, key);
+				const { error } = await keys.save(stem, endpoint, key);
 				if (error !== null) {
-					problem = `The connection was added, but its endpoint and key were not saved on this computer: ${failureText(error)}`;
+					problem = `The connection was added, but its endpoint and key were not saved in ${here}: ${error}`;
 					return;
 				}
 			}
@@ -71,11 +84,15 @@
 	<p class="text-muted-foreground">Reading…</p>
 {:else}
 	{#if rows.length === 0}
-		<p class="text-muted-foreground">No AI connections yet. Each one is a file in so.epicenter/connections, so it follows you to every computer where that folder syncs.</p>
+		<p class="text-muted-foreground">
+			{keys.place === 'computer'
+				? 'No AI connections yet. Each one is a file in so.epicenter/connections, so it follows you to every computer where that folder syncs.'
+				: 'No connections yet. Add an OpenAI-compatible endpoint below, such as a local Ollama at http://localhost:11434/v1.'}
+		</p>
 	{/if}
 	<ul class="grid gap-2">
 		{#each rows as stored (stored.stem)}
-			<ConnectionEditor {stored} {options} />
+			<ConnectionEditor {stored} {options} {keys} {epicenterNote} />
 		{/each}
 	</ul>
 	{#each unreadable as { stem, result } (stem)}
@@ -97,7 +114,7 @@
 			aria-label="Kind"
 			class="h-9 rounded-md border border-input bg-transparent px-2 dark:bg-input/30"
 		>
-			{#each OFFERED_KINDS as option (option)}
+			{#each kinds as option (option)}
 				<option value={option}>{KIND_LABELS[option]}</option>
 			{/each}
 		</select>
@@ -110,7 +127,10 @@
 			<Input bind:value={key} type="password" placeholder="Key, or empty for none" aria-label="Key" autocomplete="off" />
 		</div>
 	{:else if kind === 'epicenter'}
-		<p class="text-muted-foreground">Sends to your Epicenter account with this app's sign-in, under Account above.</p>
+		<p class="text-muted-foreground">{epicenterNote}</p>
+	{/if}
+	{#if kind === 'openai-compatible' && keys.place === 'browser'}
+		<p class="text-muted-foreground">This key is saved in this browser. Code running on this site can read it.</p>
 	{/if}
 	<div><Button type="submit" disabled={adding}>Add</Button></div>
 	{#if problem}<p role="alert" class="text-destructive">{problem}</p>{/if}

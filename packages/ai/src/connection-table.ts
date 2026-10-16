@@ -7,9 +7,10 @@
  * (`send.ts`), so an edit synced from elsewhere cannot send a key somewhere
  * new.
  *
- * `so.epicenter`'s declaration (`epicenterDefinition` in
- * `packages/cli/src/epicenter-folder.ts`) includes this table. An installed app that uses connections opens
- * `so.epicenter` through {@link connectionsLens}.
+ * {@link epicenterDefinition} is `so.epicenter`'s whole declaration. The CLI
+ * publishes it on the desktop (`packages/cli/src/epicenter-folder.ts`) and a
+ * browser page opens its origin's `so.epicenter` with it (ADR-0581), so the
+ * two never publish different bytes.
  */
 
 import { defineFolder, defineTable, field } from '@epicenter/folder';
@@ -27,9 +28,25 @@ export const connectionsTable = defineTable({
 	},
 });
 
-/** `so.epicenter` seen through its `connections` table alone. */
-export const connectionsLens = defineFolder({
+/** `so.epicenter`'s declaration: today, its `connections` table alone. */
+export const epicenterDefinition = defineFolder({
 	title: 'Epicenter',
 	kv: {},
 	tables: { connections: connectionsTable },
 });
+
+/**
+ * A new connection's id, which is its row's stem and its saved key's name:
+ * the title in lowercase letters, digits, and hyphens, numbered when taken.
+ */
+export function connectionId(title: string, taken: ReadonlySet<string>) {
+	const base =
+		title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 60) || 'connection';
+	let id = base;
+	for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+	return id;
+}

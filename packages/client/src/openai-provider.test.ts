@@ -191,6 +191,52 @@ describe('createOpenAiAgentEngine', () => {
 		expect('tools' in (calls[0] ?? {})).toBe(false);
 	});
 
+	test('a refused request names its reason, and a turn whose data fails says why', async () => {
+		const refusing = (async () => {
+			throw new Error(
+				"Groq's saved endpoint changed; this request was not sent.",
+			);
+		}) as unknown as typeof globalThis.fetch;
+		const request = {
+			messages: [{ role: 'user' as const, content: 'hi' }],
+			tools: [],
+		};
+		const refused = await drain(
+			createOpenAiAgentEngine({
+				data: () => ({
+					client: new OpenAI({
+						fetch: refusing,
+						baseURL: GATEWAY,
+						apiKey: 'test',
+						maxRetries: 0,
+					}),
+					model: 'm',
+					systemPrompts: [],
+				}),
+			})(request, new AbortController().signal),
+		);
+		expect(refused).toContainEqual(
+			expect.objectContaining({
+				type: 'run-error',
+				message: "Groq's saved endpoint changed; this request was not sent.",
+			}),
+		);
+
+		const unrouted = await drain(
+			createOpenAiAgentEngine({
+				data: async () => {
+					throw new Error('Choose a connection for the tutor.');
+				},
+			})(request, new AbortController().signal),
+		);
+		expect(unrouted).toContainEqual(
+			expect.objectContaining({
+				type: 'run-error',
+				message: 'Choose a connection for the tutor.',
+			}),
+		);
+	});
+
 	test('streams text deltas in order', async () => {
 		const chunks = await drainFrames([
 			{ choices: [{ delta: { content: 'Hello' }, finish_reason: null }] },

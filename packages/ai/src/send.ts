@@ -19,8 +19,9 @@
  *   {@link responseEvents} as NDJSON. The desktop shell runs it for a page
  *   (`ai_send`), and the page reads the lines back into a `Response` with
  *   {@link createResponseReader}.
- * - A browser tab has no keychain; it keeps its key in the page's storage
- *   and sends with {@link sendToEndpoint} over its own `fetch`.
+ * - A browser page has no keychain; it keeps each key in `localStorage`
+ *   and sends with {@link sendRequest} over its own `fetch`
+ *   (`browser-connections.ts`, ADR-0581).
  *
  * This module imports nothing but `wellcrafted`, so the compiled CLI carries
  * no UI code.
@@ -367,6 +368,12 @@ export async function removeKey(
 	return Ok({ removed });
 }
 
+/** What sends a request: a page's `fetch`, or an account's, which adds its token. */
+export type Fetch = (
+	input: string | URL | Request,
+	init?: RequestInit,
+) => Promise<Response>;
+
 /** Headers a caller may not set: the key is added here, and nothing ambient is carried. */
 const REFUSED_HEADERS = new Set([
 	'authorization',
@@ -414,7 +421,7 @@ export async function sendToEndpoint(
 	{
 		fetch: send = globalThis.fetch.bind(globalThis),
 		signal,
-	}: { fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {},
+	}: { fetch?: Fetch; signal?: AbortSignal } = {},
 ): Promise<Result<Response, SendError>> {
 	const { data: url, error: urlError } = requestUrl(endpoint, request.path);
 	if (urlError !== null) return Err(urlError);
@@ -446,9 +453,13 @@ export async function sendToEndpoint(
 /**
  * Where an Epicenter connection sends: the deployment's API origin plus
  * `/v1`, and the access token `epicenter send` reads for it, or why there is
- * none.
+ * none. A browser page has no token to hand over: its access carries the
+ * account's own `fetch`, which adds the token and sends only to the
+ * account's origins, and an empty key.
  */
-export type EpicenterAccess = () => Promise<Result<KeyEntry, string>>;
+export type EpicenterAccess = () => Promise<
+	Result<KeyEntry & { readonly fetch?: Fetch }, string>
+>;
 
 /**
  * Where an account request sends: the deployment's origin, and an access
@@ -467,7 +478,7 @@ async function sendToAccount(
 	audience: AccountAudience,
 	request: SendRequest,
 	access: AccountAccess | undefined,
-	options: { fetch?: typeof globalThis.fetch; signal?: AbortSignal },
+	options: { fetch?: Fetch; signal?: AbortSignal },
 ): Promise<Result<Response, SendError>> {
 	const refusePath = SendError.InvalidRequest({
 		reason: `'${request.path}' is not an account path: one below ${ACCOUNT_PATH_PREFIX}, or a GET of ${USERINFO_PATH}`,
@@ -519,7 +530,7 @@ export async function sendRequest({
 	epicenter?: EpicenterAccess;
 	/** Absent where nothing signs in, which refuses an account request. */
 	account?: AccountAccess;
-	fetch?: typeof globalThis.fetch;
+	fetch?: Fetch;
 	signal?: AbortSignal;
 }): Promise<Result<Response, SendError>> {
 	if (target.kind === 'account')
@@ -538,7 +549,10 @@ export async function sendRequest({
 					connection: target.connection,
 					reason: error,
 				});
-			return sendToEndpoint(access, request, { fetch, signal });
+			return sendToEndpoint(access, request, {
+				fetch: access.fetch ?? fetch,
+				signal,
+			});
 		}
 		case 'local':
 			return SendError.LocalNotSent({ connection: target.connection });

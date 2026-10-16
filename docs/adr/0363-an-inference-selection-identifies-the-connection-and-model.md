@@ -4,6 +4,7 @@
 - **Date:** 2026-09-08
 - **Revised:** 2026-09-20
 - **Amends:** [ADR-0059](0059-an-inference-connection-is-a-capability-orthogonal-device-endpoint.md) and [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) at model resolution: explicit device-local selections replace discovery-based, custom-first routing.
+- **Replaced in code (2026-10-16):** by [ADR-0581](0581-a-browser-keeps-ai-connections-as-rows-of-its-own-so-epicenter.md). A connection row names its one model, an app's choice is a connection id in its own folder, and `InferenceTarget`, `InferenceSelections`, and the inference picker are deleted.
 
 ## Context
 

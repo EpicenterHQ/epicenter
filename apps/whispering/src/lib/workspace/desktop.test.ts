@@ -11,7 +11,7 @@
  * WebView.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, opened
- * through `connectionsLens`. The AI commands are scripted with the code the
+ * through `epicenterDefinition`. The AI commands are scripted with the code the
  * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
  * a stubbed endpoint, so a test about a key or a request runs against what
  * the CLI really checks and sends.
@@ -23,7 +23,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connectionsLens } from '@epicenter/ai/connection-table';
+import { epicenterDefinition } from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -256,7 +256,7 @@ async function epicenter() {
 		open: () =>
 			openBunFolder({
 				root,
-				definition: connectionsLens,
+				definition: epicenterDefinition,
 				git: { author: { name: 'Test', email: 'test@localhost' } },
 			}),
 		lose(next: boolean) {

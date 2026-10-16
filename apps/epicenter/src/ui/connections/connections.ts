@@ -1,53 +1,10 @@
 /**
- * What Settings' AI connections share: the row's fields, how each kind is
- * named, the query key of a connection's keychain state, and a new
- * connection's id.
+ * Settings' AI connections reach their endpoints and keys through this
+ * computer's keychain, by the `epicenter` CLI's key commands (ADR-0557).
  */
 
-import type { ConnectionKind } from '@epicenter/ai/send';
-import type { CliError } from '../bindings.gen';
-
-/** A `connections` row's fields, as `so.epicenter`'s declaration reads them. */
-export type ConnectionFields = {
-	kind: ConnectionKind;
-	title: string;
-	model: string;
-};
-
-export const KIND_LABELS: Record<ConnectionKind, string> = {
-	'openai-compatible': 'OpenAI-compatible endpoint',
-	epicenter: 'Epicenter account',
-	local: 'This computer',
-};
-
-/**
- * The kinds a new connection may have. `local` stays a kind a row may hold,
- * and `epicenter send` refuses it (`LocalNotSent`), but no app sends over it
- * yet, so it is not offered.
- */
-export const OFFERED_KINDS = [
-	'openai-compatible',
-	'epicenter',
-] as const satisfies readonly ConnectionKind[];
-
-/** The query key of what the keychain holds for `stem`. */
-export const keyStateKey = (stem: string) => ['ai-key-state', stem] as const;
-
-/**
- * A new connection's id, which is its row's stem and its keychain name: the
- * title in lowercase letters, digits, and hyphens, numbered when taken.
- */
-export function connectionId(title: string, taken: ReadonlySet<string>) {
-	const base =
-		title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '')
-			.slice(0, 60) || 'connection';
-	let id = base;
-	for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
-	return id;
-}
+import type { ConnectionKeys } from '@epicenter/ai/ui';
+import { type CliError, commands } from '../bindings.gen';
 
 /** What a person is told when a key command did not run or was refused. */
 export function failureText(error: CliError) {
@@ -55,3 +12,20 @@ export function failureText(error: CliError) {
 		? 'This window was not granted the folder.'
 		: error.message;
 }
+
+const readable = <T>(
+	result: { data: T; error: null } | { data: null; error: CliError },
+) =>
+	result.error === null
+		? result
+		: { data: null, error: failureText(result.error) };
+
+/** The keychain, as the shared connection editor reaches it. */
+export const keychainKeys: ConnectionKeys = {
+	place: 'computer',
+	state: async (connection) => readable(await commands.aiKeyState(connection)),
+	save: async (connection, endpoint, key) =>
+		readable(await commands.aiKeySet(connection, endpoint, key)),
+	remove: async (connection) =>
+		readable(await commands.aiKeyRemove(connection)),
+};

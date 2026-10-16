@@ -21,6 +21,7 @@ import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
 import OpenAI from 'openai';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from '../data.js';
 import {
@@ -29,6 +30,7 @@ import {
 	tableFiles,
 } from '../folder.test-support.js';
 import { createQueryClient } from '../query.test-support.js';
+import type { TutorRoute } from '../tutor.js';
 import {
 	createChatMessageStore,
 	type MessageWrite,
@@ -37,8 +39,6 @@ import {
 
 const { createVocabChat } = await import('./session.svelte.js');
 const { createVocab } = await import('../vocab.svelte.ts');
-
-type ChatOptions = Parameters<typeof createVocabChat>[0];
 
 const welcome: AgentMessage = {
 	id: 'welcome',
@@ -121,22 +121,15 @@ async function setup() {
 	const open = (
 		target: Pick<VocabFolder, 'tables' | 'files'> = gatedFolder,
 		write?: MessageWrite,
+		route: () => Promise<Result<TutorRoute, string>> = async () =>
+			Ok({ client, model: 'test-model' }),
 	) =>
 		createVocabChat({
 			folder: target,
 			write,
 			chatId,
 			focus: [{ text: 'lucid' }],
-			catalog: {
-				accountId: 'account',
-				ready: Promise.resolve(),
-				resolve: () => ({ source: 'account', client, model: 'test-model' }),
-			} as unknown as ChatOptions['catalog'],
-			selections: {
-				get: () => undefined,
-				set: () => {},
-				onChange: () => () => {},
-			} as unknown as ChatOptions['selections'],
+			tutor: { canServe: true, route },
 		});
 	return {
 		browser,
@@ -582,4 +575,25 @@ test('a tutor reply is written by a mutation scoped to its chat, and close waits
 	await closing;
 	expect(chat.unsaved).toEqual([]);
 	expect(await context.savedRoles()).toEqual(['assistant']);
+});
+
+test('a turn with no route shows why, sends nothing, and keeps the learner message', async () => {
+	await using context = await setup();
+	await context.seed(welcome);
+	using chat = await ready(
+		context.open(undefined, undefined, async () =>
+			Err(
+				'Groq has no endpoint saved in this browser. Add one in Connections.',
+			),
+		),
+	);
+
+	chat.inputValue = 'It was a lucid talk.';
+	await chat.sendMessage();
+	await settle(chat);
+	expect(chat.visibleError?.message).toBe(
+		'Groq has no endpoint saved in this browser. Add one in Connections.',
+	);
+	expect(context.tutor.requests).toBe(0);
+	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
 });

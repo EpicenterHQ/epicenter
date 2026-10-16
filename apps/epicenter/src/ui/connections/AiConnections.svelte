@@ -1,13 +1,11 @@
 <script lang="ts">
+	import { ConnectionList } from '@epicenter/ai/ui';
 	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 	import { openFolder } from '@epicenter/folder/tauri';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
-	import {
-		EPICENTER_FOLDER_ID,
-		epicenterDefinition,
-	} from '@epicenter/cli/epicenter-folder';
-	import ConnectionList from './ConnectionList.svelte';
+	import { CONNECTIONS_FOLDER_ID, epicenterDefinition } from '@epicenter/ai/connection-table';
+	import { keychainKeys } from './connections';
 
 	/**
 	 * Settings' AI connections (ADR-0557): the `connections` table of
@@ -27,7 +25,7 @@
 		let release: (() => Promise<void>) | undefined;
 		void (async () => {
 			const { data: folder, error } = await openFolder({
-				id: EPICENTER_FOLDER_ID,
+				id: CONNECTIONS_FOLDER_ID,
 				definition: epicenterDefinition,
 			});
 			if (closed) {
@@ -60,7 +58,11 @@
 	{#if problem}
 		<p role="alert" class="text-destructive">Epicenter's folder did not open: {problem}</p>
 	{:else if options}
-		<ConnectionList options={options.tables.connections} />
+		<ConnectionList
+			options={options.tables.connections}
+			keys={keychainKeys}
+			epicenterNote="Sends to your Epicenter account with this app's sign-in, under Account above."
+		/>
 	{:else}
 		<p class="text-muted-foreground">Opening…</p>
 	{/if}

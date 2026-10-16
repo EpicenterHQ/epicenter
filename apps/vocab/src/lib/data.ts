@@ -24,8 +24,8 @@ import { Type } from 'typebox';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
 
 /**
- * The initial model for this device's tutor workflow. The learner may choose
- * another model through the inference picker; messages do not store that choice.
+ * Epicenter's hosted model the tutor uses when the learner is signed in and
+ * has chosen no connection. Messages do not store which model answered.
  */
 export const VOCAB_MODEL = 'gemini-3.5-flash' satisfies ServableModel;
 
@@ -121,7 +121,13 @@ const messagesTable = defineTable({
 
 export const vocabFolder = defineFolder({
 	title: 'Vocab',
-	kv: {},
+	kv: {
+		/**
+		 * The id of the `so.epicenter` connection the tutor uses (ADR-0581).
+		 * Unset, a signed-in learner gets Epicenter's hosted `VOCAB_MODEL`.
+		 */
+		tutorConnection: field.string(),
+	},
 	tables: {
 		entries: entriesTable,
 		chats: chatsTable,

@@ -20,27 +20,11 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	CONNECTIONS_FOLDER_ID,
-	connectionsTable,
+	epicenterDefinition,
 } from '@epicenter/ai/connection-table';
-import { defineFolder, type Folder } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder';
 import { resolveAppPaths } from './app-paths.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
-
-/**
- * The folder's id, its directory's name under the Epicenter folder root:
- * `@epicenter/ai`'s `CONNECTIONS_FOLDER_ID`, under the name the desktop
- * app's Settings imports from this subpath.
- */
-export const EPICENTER_FOLDER_ID = CONNECTIONS_FOLDER_ID;
-
-export const epicenterDefinition = defineFolder({
-	title: 'Epicenter',
-	kv: {},
-	tables: {
-		/** One row per AI connection, at `connections/<id>.md`. */
-		connections: connectionsTable,
-	},
-});
 
 /**
  * Make the handle's first write, which publishes its declaration first: the

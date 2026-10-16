@@ -30,7 +30,7 @@ const apiUrl = APP_URLS.API; // dev: http://localhost:8787 · prod: https://api.
 
 ### `@epicenter/constants/ai-providers`
 
-The sellable-model catalog (`AI_MODELS`) and its derivations (`AiProvider`, `MODELS_BY_ID`, `providerLabel`, `toHostedCatalog`). Shared by the server inference gateway (routing), the billing layer (pricing), and the chat apps (model pickers).
+The sellable-model catalog (`AI_MODELS`) and its derivations (`AiProvider`, `MODELS_BY_ID`, `providerLabel`). Shared by the server inference gateway (routing), the billing layer (pricing), and the chat apps (hosted model labels).
 
 ## Adding a new app
 

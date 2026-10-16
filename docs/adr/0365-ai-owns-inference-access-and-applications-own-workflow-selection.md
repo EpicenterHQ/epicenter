@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Amends:** [ADR-0398](0398-every-transcription-destination-speaks-the-openai-wire.md) at client ownership: independent inference handles replace the App lifetime; SDK operations and wire compatibility remain.
-- **Unbuilt:** Metadata-only catalog reads, explicit saved-access acquisition, direct runtime transcription, and page/operation consumer migration. Independent network constructors and native endpoint routing already exist.
+- **Replaced in code (2026-10-16):** by [ADR-0581](0581-a-browser-keeps-ai-connections-as-rows-of-its-own-so-epicenter.md). `InferenceSources`, the connection catalog, `openEpicenterInference`, `openRuntimeTranscriber`, and the `@epicenter/ai` root, `/connections`, `/selections`, and `/target` exports are deleted; a browser page sends over `so.epicenter` rows with `sendRequest`.
 
 ## Context
 

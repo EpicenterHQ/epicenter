@@ -1,7 +1,10 @@
 <script lang="ts">
-	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
-	import { createInferenceCatalog } from '@epicenter/ai/picker';
-	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+	import { openBrowserConnections } from '@epicenter/ai/browser';
+	import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+	import { MODELS_BY_ID } from '@epicenter/constants/ai-providers';
+	import type { Folder } from '@epicenter/folder';
+	import { Err, Ok, type Result } from 'wellcrafted/result';
+	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
@@ -11,9 +14,9 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { auth } from '$lib/auth.svelte.js';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
-	import { openVocabInference } from '$lib/inference.js';
+	import { tutorRoute } from '$lib/tutor.js';
 	import type { Vocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
@@ -27,15 +30,59 @@
 	const words = createQuery(() => entries.entriesQuery());
 	const chatList = createQuery(() => chats.chatsQuery());
 
-	// The account adds hosted models and nothing else. It is read once:
-	// sign-in and sign-out replace this page, and a change made in another tab
-	// is offered as a reload below. The folder, the endpoints connected on this
-	// device, and the chosen model are the same either way.
+	// The account adds Epicenter's hosted models and nothing else. It is read
+	// once: sign-in and sign-out replace this page, and a change made in
+	// another tab is offered as a reload below. The folder, this browser's
+	// connections, and the tutor's choice are the same either way.
 	const account = auth.getState().account;
-	const departure = new AbortController();
-	const sources = openVocabInference(account);
-	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
-	const selections = createBrowserInferenceSelections('vocab');
+
+	// This browser's connections are rows of its own `so.epicenter` (ADR-0581).
+	let connections = $state.raw<{ folder: Folder<typeof epicenterDefinition>; options: FolderOptions<typeof epicenterDefinition> } | null>(null);
+	let connectionsProblem = $state<string | null>(null);
+	let departed = false;
+	let opened: Folder<typeof epicenterDefinition> | undefined;
+	let stopConnections: (() => void) | undefined;
+	void (async () => {
+		const { data, error } = await openBrowserConnections();
+		if (error !== null) return void (connectionsProblem = error.message);
+		opened = data;
+		if (departed) return void data.close();
+		const options = folderOptions(data);
+		stopConnections = options.invalidateOnChange(vocab.queryClient);
+		connections = { folder: data, options };
+	})().catch((cause: unknown) => (connectionsProblem = cause instanceof Error ? cause.message : String(cause)));
+
+	const settings = createQuery(() => vocab.folder$.kv.get.queryOptions());
+	const setSetting = createMutation(() => vocab.folder$.kv.set.mutationOptions());
+	// Not read yet, or not readable, is never "nothing chosen": that would send
+	// a learner who chose their own endpoint to the hosted model.
+	const choice = $derived<Result<string | undefined, string>>(
+		settings.data !== undefined
+			? Ok(settings.data?.values.tutorConnection)
+			: settings.error
+				? Err(`Vocab's settings did not read: ${settings.error.message}`)
+				: Err('Vocab is still reading its settings. Try again in a moment.'),
+	);
+	// Until `so.epicenter` opens there are no rows to list.
+	const rowList = createQuery(() =>
+		connections
+			? connections.options.tables.connections.list.queryOptions()
+			: { queryKey: ['so.epicenter', 'unopened'], queryFn: () => [], enabled: false },
+	);
+	const rows = $derived(
+		(rowList.data ?? [])
+			.flatMap(({ stem, result }) => (result.error === null ? [{ stem, ...result.data.row.fields }] : []))
+			.filter((row) => row.kind !== 'local')
+			.sort((a, b) => (a.title || a.stem).localeCompare(b.title || b.stem)),
+	);
+	const tutor = {
+		get canServe() {
+			if (choice.error !== null) return false;
+			return choice.data ? rows.some((row) => row.stem === choice.data) : account !== undefined;
+		},
+		route: () => tutorRoute({ choice, connections: connections?.folder ?? null, account }),
+	};
+	const hostedLabel = `Epicenter · ${MODELS_BY_ID[VOCAB_MODEL].label}`;
 	const accountChanged = $derived(auth.state.account?.principalId !== account?.principalId || auth.state.account?.authorityId !== account?.authorityId);
 
 	const VIEWS = [
@@ -84,9 +131,9 @@
 		view = 'chat';
 	}
 	onDestroy(() => {
-		departure.abort();
-		selections[Symbol.dispose]();
-		void sources.then(({ account, connections }) => Promise.allSettled([account?.close(), connections?.close()]));
+		departed = true;
+		stopConnections?.();
+		void opened?.close();
 	});
 
 	// A write or another action still running lives only in this page.
@@ -166,7 +213,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {folder} write={chats.messageWriter(selectedChatId)} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {folder} write={chats.messageWriter(selectedChatId)} {tutor} connections={connections?.options ?? null} {rows} {connectionsProblem} choice={choice.data ?? undefined} {hostedLabel} onChoose={(next) => setSetting.mutate({ key: 'tutorConnection', value: next })} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

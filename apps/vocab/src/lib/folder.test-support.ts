@@ -6,7 +6,11 @@
  * gated table is the real table with one refusal or delay put in front of it,
  * the way a full or slow browser store answers.
  */
-import { FileError, type FolderFiles } from '@epicenter/folder';
+import {
+	CONNECTIONS_FOLDER_ID,
+	epicenterDefinition,
+} from '@epicenter/ai/connection-table';
+import { FileError, type Folder, type FolderFiles } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -61,7 +65,7 @@ export function createBrowser(
 ) {
 	const tree = createTestStorage(options);
 	const storage = browserStorage(tree);
-	const opened: VocabFolder[] = [];
+	const opened: { close(): Promise<void> }[] = [];
 	const opfs = opfsOf(tree);
 	/** The stand-in's path for a folder path. */
 	const located = (path: string) => {
@@ -92,6 +96,18 @@ export function createBrowser(
 				await openFolder({
 					id: VOCAB_FOLDER_ID,
 					definition: vocabFolder,
+					browser: { ...storage },
+				}),
+			);
+			opened.push(folder);
+			return folder;
+		},
+		/** Open this browser's `so.epicenter`, where its AI connections are rows (ADR-0581). */
+		async openConnections(): Promise<Folder<typeof epicenterDefinition>> {
+			const folder = expectOk(
+				await openFolder({
+					id: CONNECTIONS_FOLDER_ID,
+					definition: epicenterDefinition,
 					browser: { ...storage },
 				}),
 			);
