@@ -17,7 +17,7 @@
  */
 
 import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
 	CONNECTIONS_FOLDER_ID,
 	connectionsTable,
@@ -64,7 +64,7 @@ export async function declareEpicenterFolder(
 	json: boolean,
 	paths = resolveAppPaths(),
 ): Promise<number> {
-	const root = join(dirname(paths.appsDir), CONNECTIONS_FOLDER_ID);
+	const root = join(paths.folderDir, CONNECTIONS_FOLDER_ID);
 	await mkdir(root, { recursive: true });
 	const { openFolder } = await import('@epicenter/folder/bun');
 	const { data: folder, error } = await openFolder({

@@ -54,7 +54,7 @@ export async function isApplicationFolder(
 ): Promise<boolean> {
 	const [resolved, folderRoot] = await Promise.all([
 		realpath(dir).catch(() => undefined),
-		realpath(dirname(paths.appsDir)).catch(() => undefined),
+		realpath(paths.folderDir).catch(() => undefined),
 	]);
 	if (resolved === undefined || dirname(resolved) !== folderRoot) return false;
 	const name = basename(resolved);

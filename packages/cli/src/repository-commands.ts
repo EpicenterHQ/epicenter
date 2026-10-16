@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readdirSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
 	parseRepositoryPath,
 	parseRepositoryUrl,
@@ -152,7 +152,7 @@ export async function clone(
 		name = hosted?.name ?? basename(new URL(url).pathname, '.git');
 	}
 	if (name === '') return fail(`'${source}' names no repository`, json);
-	const dir = resolve(target ?? join(dirname(resolveAppPaths().appsDir), name));
+	const dir = resolve(target ?? join(resolveAppPaths().folderDir, name));
 	if (existsSync(dir) && readdirSync(dir).length > 0)
 		return fail(`${dir} already exists and is not empty`, json);
 	let cloned: Awaited<ReturnType<typeof runGit>>;
