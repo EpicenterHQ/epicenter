@@ -150,41 +150,65 @@ makes one merge commit, computed by Epicenter on every host through the Git
 object port (read blobs and trees; write blobs, trees, and commits;
 compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
 
-1. It records saved files in a checkpoint commit (ADR-0529), so the local
-   head is `L`, and fetches the remote head `R`.
-2. When `R` descends from `L`, it fast-forwards. When `L` descends from `R`,
-   it pushes. Otherwise the base `B` is the merge base of `L` and `R`. Where
-   hand-run merges left several, `B` is the one with the newest committer
-   time, and on a tie the smallest object ID, so every host picks the same.
-3. Each path that changed between `B` and either head merges once, net:
-   `merge(kind, { base: B, ours: L, theirs: R })`, with this device as the
-   writer acting. A delete beats an edit it never saw. A path deleted on one
-   side and created on the other with the content the deleted path had at
-   `B` is a rename: the created path takes `merge(base: P at B, ours, theirs)`
-   of both sides' versions. A file against a directory at one path keeps the
-   directory and the file beside it as `<path>~<side>`, to repair.
-4. The tree becomes a commit with the parents `[L, R]`. Its message lists one
-   `Overrode:` trailer per unit this device's side won or lost: the path, the
-   unit (`field`, `setting`, `lines` with its part, line, and count, or
-   `file`), and the losing parent's object ID, so the lost value can be
-   restored. Every version a merge overrode stays reachable as a parent.
-5. Before publishing, Sync writes a journal under `.git/epicenter` naming `L`
-   and the merge commit. Each changed file is then published with `merge` and
-   `put`: `merge(kind, { base: L, ours: liveFile, theirs: merged })`, put
+1. It finishes any publish a journal names (step 5), then records saved files
+   in a checkpoint commit (ADR-0529), so the local head is `L`, and fetches
+   the remote head `R`.
+2. When `R` descends from `L`, it publishes `R` (step 5). When `L` descends
+   from `R`, it pushes. Otherwise the base `B` is the merge base of `L` and
+   `R`. Where hand-run merges left several, `B` is the one with the newest
+   committer time, and on a tie the smallest object ID, so every host picks
+   the same; that base can be a worse one, which only hand-run Git causes.
+3. Each path that changed between `B` and either head is settled once, net.
+   A path only one side changed, or both changed alike, takes that blob as it
+   is. A path both changed differently takes `merge(kind, { base: B, ours: L,
+   theirs: R })`, with this device as the writer acting. A delete beats an
+   edit it never saw. A path one side deleted and the same side created
+   elsewhere, holding the deleted path's blob at `B`, the only such pair, is a
+   rename: the new path takes the merge of `P` at `B`, that side's version,
+   and the other side's version of `P`. A file against a directory at one
+   path keeps the directory and the file beside it as `<path>~<side>`, to
+   repair.
+4. The tree becomes a commit `M` with the parents `[L, R]`, written as
+   objects only, with nothing local moved. Its message holds one trailer per
+   unit that lost, fixed fields first and the path last, quoted:
+   `Overrode: <losing-oid> field="title" "todos/buy milk.md"`,
+   `Overrode: <losing-oid> lines=body:12+3 "<path>"`, or
+   `Overrode: <losing-oid> file "<path>"`. Every version a merge overrode
+   stays reachable as a parent.
+5. It pushes `M` with an ordinary push, which lands only while the remote is
+   still `R`. A push that lost the race leaves nothing local changed: Sync
+   fetches and merges again from `L` against the new `R`, never merging its
+   own merge, a bounded number of times, then `KeptChanging`. A reply that is
+   lost is settled by the next fetch. A push that failed for another reason,
+   such as no network or a remote that refuses this device, still publishes
+   `M` here, so the device keeps receiving, and answers that it saved without
+   syncing.
+6. Publishing a tree `T` over the files, for a merge or a fast-forward: Sync
+   writes a journal, `.git/epicenter/sync-journal.json`, holding
+   `{ "version": 1, "branch": "main", "from": "<L>", "to": "<T>" }`, before
+   the first put. Each path in the difference of `L` and `T` is then put: a
+   live file that still equals `L`'s takes `T`'s blob; one that changed since
+   takes `merge(kind, { base: L, ours: liveFile, theirs: T })`. Every put is
    guarded by the live file's hash and done again when it is stale, so text
-   typed while Sync runs, which no commit holds, stands. Then the branch moves
-   by compare-and-swap, it pushes guarded by the remote still being `R`, and
-   the journal is removed. An open that finds a journal finishes its publish,
-   from `L`, before any checkpoint, so a crash halfway does not make arrived
-   values look like this device's edits.
-6. A push that lost a race discards the unpushed merge commit, fetches, and
-   merges again from `L` against the new `R`, never merging its own merge, a
-   bounded number of times, then `KeptChanging`. So history Sync makes has
-   one merge base, and no criss-cross.
+   typed while Sync runs, which no commit holds, stands. Then the index is set
+   to `T`, the branch moves from `L` to `T` by compare-and-swap, and the
+   journal is removed, if it still names `T`. A journal is finished before
+   every checkpoint, Save version, and Sync: with the branch at `from`, it
+   publishes again; at `to`, it sets the index and removes the journal; at
+   anything else, Sync stops and names both. So a crash or a reload partway
+   never makes arrived values look like this device's edits, which a later
+   Sync would then win with.
+
+Sync stops only for what it cannot represent or must not decide: a
+repository in the middle of a merge or a rebase, or with a detached head; a
+file Git cannot hold as an ordinary one, or two paths only their case tells
+apart; histories with no common commit; a file that kept changing; and a
+journal it cannot finish. It never stops because units compete.
 
 "The writer acting" in Sync is the device syncing now, even with an edit a
 week old: the last device to sync wins every unit both changed. Paths the
-opened definition declares local never enter a commit (ADR-0577).
+opened definition declares local never enter a commit (ADR-0577), and a
+publish neither reads nor writes one.
 
 `epicenter.json` merges as one whole file, never by line. When a row version
 does not read and merges as text, insertions at one place inside its
@@ -233,9 +257,14 @@ its stems are named by concern, such as `settings/display.md` and
 
 - One write and one error type replace five verbs and five error unions, and
   every app's controls write the same way.
-- Sync always finishes. What it overrode is in its commit message and in
-  history, so nothing is lost that a version held; an override of work in no
-  version is gone, as with any save (ADR-0529).
+- Sync finishes whenever units compete; it stops only for the states named
+  above. What it overrode is in its commit message and in history, so
+  nothing is lost that a version held; an override of work in no version is
+  gone, as with any save (ADR-0529), including text saved after the
+  checkpoint into a file another device deleted.
+- A Sync interrupted partway is finished by the next whole-folder operation
+  from its journal, so arrived values are never recorded as this device's
+  edits.
 - Two writers who add different text at one place both keep it, so a body
   can hold both versions of an addition. A writer that fills a body once,
   such as Whispering's answers, needs no guard against another fill:
