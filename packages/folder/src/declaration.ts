@@ -31,9 +31,17 @@
  * ```
  *
  * `required` is the one optionality marker in the file; in memory it is
- * `field.optional`. The two convert here and nowhere else. A top-level
- * `$schema` lets an editor offer completion and is not interpreted. Anything
- * else is refused, so a misspelled key never reads as an empty declaration.
+ * `field.optional`. The two convert here and nowhere else.
+ *
+ * A folder whose definition keeps files on the machine that wrote them adds
+ * `"local": ["audio/"]`, its `.gitignore` patterns (ADR-0577). The folder's
+ * own file is what every host reads, the `epicenter` CLI included, so each
+ * one leaves the same paths out of every commit. A declaration without
+ * `local` keeps nothing local.
+ *
+ * A top-level `$schema` lets an editor offer completion and is not
+ * interpreted. Anything else is refused, so a misspelled key never reads as
+ * an empty declaration.
  */
 
 import { type FieldMap, field, isOptional } from '@epicenter/definition';
@@ -62,6 +70,7 @@ export function formatDeclaration(definition: FolderDefinition): string {
 	return `${JSON.stringify(
 		{
 			...(definition.title === undefined ? {} : { title: definition.title }),
+			...(definition.local === undefined ? {} : { local: definition.local }),
 			kv: { type: 'object', properties: definition.kv },
 			tables,
 		},
@@ -88,11 +97,25 @@ export function parseDeclaration(
 		);
 	}
 	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
-	const unknown = unknownKeys(declared, ['$schema', 'title', 'kv', 'tables']);
+	const unknown = unknownKeys(declared, [
+		'$schema',
+		'title',
+		'local',
+		'kv',
+		'tables',
+	]);
 	if (unknown !== undefined)
 		return refuse(
-			`unknown top-level key ${unknown}; expected title, kv, tables, or $schema`,
+			`unknown top-level key ${unknown}; expected title, local, kv, tables, or $schema`,
 		);
+	// The patterns themselves are checked when the result is prepared.
+	const { local } = declared;
+	if (
+		local !== undefined &&
+		(!Array.isArray(local) ||
+			local.some((pattern) => typeof pattern !== 'string'))
+	)
+		return refuse("'local' must list .gitignore patterns as strings");
 
 	const missing = (['kv', 'tables'] as const).filter(
 		(key) => declared[key] === undefined,
@@ -131,6 +154,7 @@ export function parseDeclaration(
 		...(declared.title === undefined
 			? {}
 			: { title: declared.title as string }),
+		...(local === undefined ? {} : { local: local as string[] }),
 		kv: kv.data,
 		tables,
 	} as FolderDefinition);
