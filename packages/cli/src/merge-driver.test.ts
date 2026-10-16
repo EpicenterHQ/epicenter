@@ -12,29 +12,42 @@
  * - A binary file and a file in no data folder merge as Git's default does
  * - A driver path that points nowhere is an ordinary conflict, not an abort
  * - Epicenter's own sync, which never runs `git merge`, is unaffected
+ * - The driver Git runs is the per-user link, which a moved app re-points
  *
  * They run `src/bin.ts` under Bun, or the compiled binary `EPICENTER_BIN`
  * names.
  */
-import { afterEach, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	readlink,
 	realpath,
+	rename,
 	rm,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { gitCommand } from './install-command.ts';
+import { configureMergeDriver } from './merge-driver.ts';
 
 const binary = process.env.EPICENTER_BIN;
 const command = binary
 	? [resolve(binary)]
 	: [process.execPath, '--no-install', resolve(import.meta.dir, 'bin.ts')];
 
+// A compiled binary makes its per-user link here, not in this machine's own.
+const DATA_DIR = realpathSync(
+	mkdtempSync(join(tmpdir(), 'epicenter-merge-driver-data-')),
+);
+afterAll(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+
 const ENV = {
 	...process.env,
+	EPICENTER_DATA_DIR: DATA_DIR,
 	GIT_CONFIG_GLOBAL: '/dev/null',
 	GIT_CONFIG_NOSYSTEM: '1',
 	GIT_AUTHOR_NAME: 'Test',
@@ -343,3 +356,60 @@ test('a sync that connects a remote configures the driver', async () => {
 		' merge-driver -- %O %A %B %P',
 	);
 });
+
+test('Git runs the driver through the per-user link, which a moved app re-points', async () => {
+	const { dir, repo } = await repository({
+		'epicenter.json': DECLARATION,
+		'posts/x.md': row('Base', false),
+	});
+	// Stands in for the bundled binary: this CLI, run from wherever it is.
+	await mkdir(join(dir, 'Epicenter.app'));
+	const bundled = join(dir, 'Epicenter.app', 'epicenter-cli');
+	await writeFile(
+		bundled,
+		`#!/bin/sh\nexec ${command.map((word) => `'${word}'`).join(' ')} "$@"\n`,
+		{ mode: 0o755 },
+	);
+	const link = join(
+		dir,
+		'Application Support',
+		'so.epicenter',
+		'bin',
+		'epicenter',
+	);
+	const configured = await configureMergeDriver(
+		repo,
+		gitCommand({ binary: bundled, link, env: {} }),
+	);
+	const driver = `'${link}' merge-driver -- %O %A %B %P`;
+	expect(configured.driver).toBe(driver);
+
+	// The app moves; its next launch re-points the link and touches no repository.
+	await rename(join(dir, 'Epicenter.app'), join(dir, 'Moved.app'));
+	const moved = join(dir, 'Moved.app', 'epicenter-cli');
+	gitCommand({ binary: moved, link, env: {} });
+	expect(await readlink(link)).toBe(moved);
+	expect(await git(repo, 'config', '--get', 'merge.epicenter.driver')).toBe(
+		driver,
+	);
+
+	const merged = await mergeBranches(
+		repo,
+		{ 'posts/x.md': row('Base', true) },
+		{ 'posts/x.md': row('Theirs', false) },
+	);
+	expect(merged.exitCode).toBe(0);
+	expect(await read(repo, 'posts/x.md')).toBe(row('Theirs', true));
+});
+
+test.if(binary !== undefined)(
+	'the compiled binary configures its per-user link',
+	async () => {
+		const { repo } = await repository({ 'epicenter.json': DECLARATION });
+		const link = join(DATA_DIR, 'bin', 'epicenter');
+		expect(await git(repo, 'config', '--get', 'merge.epicenter.driver')).toBe(
+			`'${link}' merge-driver -- %O %A %B %P`,
+		);
+		expect(await readlink(link)).toBe(await realpath(binary as string));
+	},
+);

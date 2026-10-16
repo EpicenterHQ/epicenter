@@ -28,8 +28,8 @@ import {
 	authContext,
 	configureGitHelper,
 	type GrantKind,
-	selfCommand,
 } from './auth.ts';
+import { gitCommand } from './install-command.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 /** `git` with a clean environment but the person's own configuration, for the commands that touch only a path they name. */
@@ -106,11 +106,12 @@ async function refusal(response: Response, url: string): Promise<string> {
 }
 
 /**
- * Register this binary as Git's credential helper for the deployment's Git
- * origin, so a plain `git` in this folder signs in too.
+ * Register this binary, through its per-user link, as Git's credential
+ * helper for the deployment's Git origin, so a plain `git` in this folder
+ * signs in too.
  */
 export async function registerHelper(ctx: AuthContext) {
-	const configured = await configureGitHelper(ctx, selfCommand());
+	const configured = await configureGitHelper(ctx, gitCommand());
 	if (configured.error !== null)
 		writeErr(`Plain git will not sign in to Epicenter: ${configured.error}`);
 }

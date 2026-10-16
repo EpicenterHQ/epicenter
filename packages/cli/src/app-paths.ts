@@ -8,6 +8,7 @@
  * <folderDir>/Apps/<app-id>/                 a full clone of the app's repository
  * <dataDir>/approvals.json                   { [appId]: { commit, approvedAt } }
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
+ * <dataDir>/bin/epicenter                    the link Git's configuration runs (install-command.ts)
  * <cacheDir>/builds/<app-id>/<commit>/       the built bundle the app window loads
  * ```
  *
@@ -35,8 +36,13 @@ export type AppPaths = {
 	readonly buildsDir: string;
 	/** Which app commits may run on this machine. */
 	readonly approvalsFile: string;
-	/** Machine state worth keeping: approvals and the sign-in locks. */
+	/** Machine state worth keeping: approvals, the sign-in locks, and `commandLink`. */
 	readonly dataDir: string;
+	/**
+	 * The `epicenter` every Git configuration Epicenter writes runs, on macOS
+	 * and Linux: a link to the binary the app bundles, or an AppImage's copy.
+	 */
+	readonly commandLink: string;
 	/** Disposable machine state: builds, the work lock, and the `bun` link. */
 	readonly cacheDir: string;
 };
@@ -93,6 +99,7 @@ export function resolveAppPaths(
 		buildsDir: join(cacheDir, 'builds'),
 		approvalsFile: join(dataDir, 'approvals.json'),
 		dataDir,
+		commandLink: join(dataDir, 'bin', 'epicenter'),
 		cacheDir,
 	};
 }

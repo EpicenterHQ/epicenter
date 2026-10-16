@@ -113,6 +113,7 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./install-command.ts')).installCommand({
 			json,
 			dryRun: options['dry-run'] === true,
+			userOnly: options['user-only'] === true,
 		}),
 };
 
