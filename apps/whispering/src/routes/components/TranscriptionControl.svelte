@@ -9,9 +9,9 @@
 
 	/**
 	 * The transcription connection in use, beside the recorder. It opens the
-	 * transcription part of the header's settings, over the same draft. The
-	 * model is typed, not picked from a list: an endpoint is never asked what
-	 * it serves. The recorder owns which option popover is open.
+	 * choice of it from the header's Settings. The model is the connection's:
+	 * an endpoint is never asked what it serves. The recorder owns which
+	 * option popover is open.
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let trigger = $state<HTMLElement | null>(null);
@@ -22,7 +22,7 @@
 	const summary = $derived(
 		connection?.unusable ??
 			(connection
-				? `Transcribes with ${connection.model || 'the active local model'} over ${connection.title}`
+				? `Transcribes with ${connection.kind === 'local' && !connection.model ? 'the active local model' : connection.model} over ${connection.title}`
 				: 'Transcription is not set up. Choose its connection to transcribe.'),
 	);
 	let hinting = $state(false);

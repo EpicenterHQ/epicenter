@@ -130,10 +130,10 @@ export async function routeOf(
 	const route = { connection, kind: row.kind, title: name };
 	if (row.kind === 'local') {
 		if (named) return Ok({ ...route, model: named, endpoint: '' });
+		if (localTranscription === undefined)
+			return Err(`${name} needs a computer’s local transcription model.`);
 		const { data: active, error: modelError } =
-			// `unusable` refused `local` where there is no local transcription.
-			await (localTranscription as NonNullable<typeof localTranscription>)
-				.activeModel();
+			await localTranscription.activeModel();
 		if (modelError !== null) return Err(modelError);
 		return Ok({ ...route, model: active, endpoint: '' });
 	}
@@ -181,6 +181,12 @@ export async function recordedRoute(
 	const name = row.title || connection;
 	const why = unusable(ports, operation, row.kind, name);
 	if (why !== undefined) return Err(why);
+	// A local run records no endpoint and any other records one: a row that
+	// changed between the two since is not the connection this ran over.
+	if ((row.kind === 'local') !== (endpoint === ''))
+		return Err(
+			`${name} is no longer the kind of connection this was run over, so it was not sent again. Delete it and run it anew.`,
+		);
 	if (row.kind === 'epicenter') {
 		const { data: now, error: accountError } =
 			await ports.workspace.connections.epicenterEndpoint();
@@ -244,4 +250,39 @@ export async function transformOver(
 	);
 	if (error !== null) return Err(error);
 	return readTransformation(response);
+}
+
+/**
+ * The routing a library hands its runs: each operation's choice read from
+ * `kv.json` when a request is sent, and the rows of this device's
+ * `so.epicenter`, or why they are not open.
+ */
+export function createRouting({
+	workspace,
+	rows,
+	choice,
+	readAudio,
+}: {
+	workspace: RoutePorts['workspace'];
+	rows: () => Result<RoutePorts['rows'], string>;
+	choice: (operation: Operation) => Promise<Result<string | undefined, string>>;
+	readAudio: (path: string) => Promise<Result<TranscriptionAudio, string>>;
+}): Routing {
+	return {
+		async route(operation, model) {
+			const { data: table, error } = rows();
+			if (error !== null) return Err(error);
+			const { data: chosen, error: choiceError } = await choice(operation);
+			if (choiceError !== null) return Err(choiceError);
+			return routeOf({ workspace, rows: table }, operation, chosen, model);
+		},
+		async recorded(operation, fields) {
+			const { data: table, error } = rows();
+			if (error !== null) return Err(error);
+			return recordedRoute({ workspace, rows: table }, operation, fields);
+		},
+		transcribe: (route, audioPath) =>
+			transcribeOver({ workspace }, route, audioPath, readAudio),
+		transform: (route, request) => transformOver({ workspace }, route, request),
+	};
 }

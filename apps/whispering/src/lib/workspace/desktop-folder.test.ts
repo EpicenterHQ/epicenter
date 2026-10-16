@@ -72,7 +72,6 @@ const noCommands: LocalTranscriptionCommands = {
 	getLocalTranscriptionReadiness: unexpected,
 	listInferenceModels: unexpected,
 	transcribeAudioBytes: unexpected,
-	openHome: unexpected,
 };
 
 const open = () => openDesktopWorkspace({ commands: noCommands });

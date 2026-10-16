@@ -25,7 +25,10 @@ export type ResolvedRecipe =
 			readonly kind: 'ready';
 			readonly title: string;
 			readonly prompt: string;
+			/** The model it would use, as last listed. */
 			readonly model: string;
+			/** The model the recipe names for itself, which a run sends instead of the connection's. */
+			readonly ownModel: string | undefined;
 			/** The text connection's name: where the request goes. */
 			readonly connection: string;
 	  }
@@ -85,7 +88,8 @@ export function resolveRecipe(
 		};
 	if (text.unusable !== undefined)
 		return { kind: 'blocked', fix: 'connection', reason: text.unusable };
-	const model = recipeModel(recipe.fields) ?? given(text.model);
+	const ownModel = recipeModel(recipe.fields);
+	const model = ownModel ?? given(text.model);
 	if (model === undefined)
 		return {
 			kind: 'blocked',
@@ -97,6 +101,7 @@ export function resolveRecipe(
 		title: recipe.fields.title,
 		prompt: recipe.body,
 		model,
+		ownModel,
 		connection: text.title,
 	};
 }

@@ -25,9 +25,12 @@
 		},
 	};
 
-	async function choose(operation: Operation, connection: string) {
-		const problem = await library.chooseConnection(operation, connection || undefined);
-		if (problem) toast.error(`Could not choose the ${operation} connection`, { description: problem });
+	async function choose(operation: Operation, select: HTMLSelectElement) {
+		const problem = await library.chooseConnection(operation, select.value || undefined);
+		if (!problem) return;
+		// Shown as it is saved, not as it was picked.
+		select.value = library.connections[operation]?.connection ?? '';
+		toast.error(`Could not choose the ${operation} connection`, { description: problem });
 	}
 </script>
 
@@ -46,7 +49,7 @@
 				id="{operation}-connection"
 				class="h-8 rounded-md border border-input bg-transparent px-2 text-sm dark:bg-input/30"
 				value={chosen?.connection ?? ''}
-				onchange={(event) => void choose(operation, event.currentTarget.value)}
+				onchange={(event) => void choose(operation, event.currentTarget)}
 			>
 				<option value="">None</option>
 				{#each library.connectionRows as row (row.stem)}
@@ -56,7 +59,7 @@
 					</option>
 				{/each}
 				{#if chosen && chosen.kind === undefined}
-					<option value={chosen.connection} disabled>A connection that is gone</option>
+					<option value={chosen.connection} disabled>{chosen.title} (unavailable)</option>
 				{/if}
 			</select>
 			<p class="text-xs text-muted-foreground">{LABELS[operation].detail}</p>

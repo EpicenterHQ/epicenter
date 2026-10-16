@@ -17,15 +17,8 @@ import type { commands as shellCommands } from '../tauri/bindings.gen.js';
 /** The commands this uses, as the generated bindings type them. */
 export type LocalTranscriptionCommands = Pick<
 	typeof shellCommands,
-	| 'getLocalTranscriptionReadiness'
-	| 'listInferenceModels'
-	| 'transcribeAudioBytes'
-	| 'openHome'
+	'getLocalTranscriptionReadiness' | 'listInferenceModels' | 'transcribeAudioBytes'
 >;
-
-export type LocalTranscriptionReadiness =
-	| { readonly ready: true }
-	| { readonly ready: false; readonly message: string };
 
 /**
  * Transcription on this computer, reached through a `local` connection
@@ -33,8 +26,6 @@ export type LocalTranscriptionReadiness =
  * the row's result records exactly (ADR-0180).
  */
 export type LocalTranscription = {
-	/** Whether the active model can run now. Advisory: transcribing checks again. */
-	readiness(): Promise<LocalTranscriptionReadiness>;
 	/** The active model's exact id, or why there is none. */
 	activeModel(): Promise<Result<string, string>>;
 	/**
@@ -45,8 +36,6 @@ export type LocalTranscription = {
 		audioPath: string,
 		model: string,
 	): Promise<Result<{ text: string }, { message: string }>>;
-	/** Open Epicenter's Settings where the local model is chosen. */
-	openSettings(): Promise<void>;
 };
 
 const describe = (cause: unknown) =>
@@ -63,13 +52,6 @@ export function createLocalTranscription({
 	readAudio: (path: string) => Promise<Result<Uint8Array, string>>;
 }): LocalTranscription {
 	return {
-		async readiness() {
-			const readiness = await commands.getLocalTranscriptionReadiness();
-			return readiness.status === 'ready'
-				? { ready: true }
-				: { ready: false, message: readiness.message };
-		},
-
 		async activeModel() {
 			try {
 				const model = (await commands.listInferenceModels()).find(
@@ -119,6 +101,5 @@ export function createLocalTranscription({
 			return Ok({ text: outcome.outcome === 'empty-audio' ? '' : outcome.text });
 		},
 
-		openSettings: () => commands.openHome('transcription'),
 	};
 }

@@ -524,10 +524,19 @@ export function createRuns({
 			const running: TranscriptionRun = { kind: 'running' };
 			transcriptions.set(id, running);
 			try {
-				const { data: route, error: routeError } =
-					await routing.route('transcription');
-				if (routeError !== null)
-					return fail(`Nothing was sent: ${routeError}`);
+				// Folder work closing waits for, as a recipe run's reads are.
+				const routed = await track(() =>
+					routing
+						.route('transcription')
+						.catch((cause: unknown) =>
+							Err(`the connection could not be read: ${describe(cause)}`),
+						),
+				);
+				if (routed.error !== null)
+					return fail(`Nothing was sent: ${routed.error}`);
+				const route = routed.data;
+				const late = refused();
+				if (late !== undefined) return fail(late);
 				const at = new Date();
 				const target: Target = {
 					table: TRANSCRIPTIONS,
@@ -583,7 +592,7 @@ export function createRuns({
 					if (resolved.kind !== 'ready') return resolved.reason;
 					const { data: route, error: routeError } = await routing.route(
 						'text',
-						resolved.model,
+						resolved.ownModel,
 					);
 					if (routeError !== null) return `Nothing was sent: ${routeError}`;
 					const { data: source, error: sourceError } =
@@ -643,7 +652,7 @@ export function createRuns({
 					if (resolved.kind !== 'ready') return resolved.reason;
 					const { data: route, error: routeError } = await routing.route(
 						'text',
-						resolved.model,
+						resolved.ownModel,
 					);
 					if (routeError !== null) return `Nothing was sent: ${routeError}`;
 					const late = refused();

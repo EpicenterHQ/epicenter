@@ -159,6 +159,7 @@ test('the resolver uses the text connection and lets a recipe name its model', (
 		title: 'New',
 		prompt: 'Fix it.\n',
 		model: 'connection-model',
+		ownModel: undefined,
 		connection: 'Test text',
 	});
 	// Blank is the same as null: an earlier build wrote '' for "no model yet".

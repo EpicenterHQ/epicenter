@@ -286,7 +286,8 @@
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
 							{#if library.connections?.transcription}
-								{library.connections.transcription.model || 'the active local model'} · {library.connections.transcription.title}
+								{@const chosen = library.connections.transcription}
+								{chosen.kind === 'local' && !chosen.model ? 'the active local model' : chosen.model} · {chosen.title}
 							{:else}
 								Not set up
 							{/if}

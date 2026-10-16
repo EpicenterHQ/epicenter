@@ -105,12 +105,8 @@ import type { ConnectionFields } from '@epicenter/ai/ui';
 import { audioMimeTypeOf } from './audio-format.js';
 import {
 	type ChosenConnection,
+	createRouting,
 	type Operation,
-	type Routing,
-	recordedRoute,
-	routeOf,
-	transcribeOver,
-	transformOver,
 	unusable,
 } from './connection-routes.js';
 import {
@@ -833,45 +829,74 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	>();
 	let connectionsError = $state<string | undefined>();
 
-	/** Open `so.epicenter` and observe its connections, or record why it did not open. */
-	async function openConnections() {
-		if (connections !== undefined) return;
-		const { data: opened, error } = await workspace.connections.open();
-		if (error !== null) {
-			connectionsError = error;
-			return;
-		}
-		const options = folderOptions(opened);
-		const stopChanges = options.invalidateOnChange(queryClient);
-		// Listed before it is shown, so a chosen connection is never taken for gone.
-		await queryClient
-			.fetchQuery(options.tables.connections.list.queryOptions())
-			.catch(() => undefined);
-		const stopObserving = new QueryObserver(
-			queryClient,
-			options.tables.connections.list.queryOptions() as QueryOptions,
-		).subscribe(() => {});
-		connections = {
-			folder: opened,
-			options,
-			stop: () => {
+	/**
+	 * Open `so.epicenter` and observe its connections, or record why it did not
+	 * open. Once open, it reads the connections again, as after a failed
+	 * listing. Calls while one is under way share it.
+	 */
+	let opening: Promise<void> | undefined;
+	function openConnections(): Promise<void> {
+		if (connections !== undefined)
+			return queryClient
+				.refetchQueries({
+					queryKey: connections.options.tables.connections.list.queryKey(),
+				})
+				.catch(() => undefined);
+		opening ??= (async () => {
+			const { data: opened, error } = await workspace.connections.open();
+			if (error !== null) {
+				connectionsError = error;
+				return;
+			}
+			const options = folderOptions(opened);
+			const stopChanges = options.invalidateOnChange(queryClient);
+			// Listed before it is shown, so a chosen connection is never taken for gone.
+			await queryClient
+				.fetchQuery(options.tables.connections.list.queryOptions())
+				.catch(() => undefined);
+			const stopObserving = new QueryObserver(
+				queryClient,
+				options.tables.connections.list.queryOptions() as QueryOptions,
+			).subscribe(() => {});
+			const stop = () => {
 				stopObserving();
 				stopChanges();
-			},
-		};
-		connectionsError = undefined;
+			};
+			// The window closed while this opened: nothing observes it any more.
+			if (closing) return stop();
+			connections = { folder: opened, options, stop };
+			connectionsError = undefined;
+		})().finally(() => {
+			opening = undefined;
+		});
+		return opening;
 	}
 
-	/** The connection rows that read, by id, as last listed. */
-	function connectionRows() {
+	/** The connection rows as last listed, each that reads, and why each other does not. */
+	function connectionListing() {
 		trackQueries();
 		if (connections === undefined) return undefined;
 		const listing = queryClient.getQueryData<
 			TableListing<ConnectionFields>
 		>(connections.options.tables.connections.list.queryKey());
-		return listing?.flatMap(({ stem, result }) =>
-			result.error === null ? [{ stem, ...result.data.row.fields }] : [],
-		);
+		if (listing === undefined) return undefined;
+		return {
+			rows: listing.flatMap(({ stem, result }) =>
+				result.error === null ? [{ stem, ...result.data.row.fields }] : [],
+			),
+			unreadable: new Map(
+				listing.flatMap(({ stem, result }) =>
+					result.error === null ? [] : [[stem, result.error.message] as const],
+				),
+			),
+		};
+	}
+
+	/** Why this device's connections could not be opened or listed. */
+	function connectionsProblem() {
+		if (connectionsError !== undefined) return connectionsError;
+		if (connections === undefined) return undefined;
+		return readError(connections.options.tables.connections.list.queryKey());
 	}
 
 	const CHOICE_KEYS = {
@@ -879,74 +904,74 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		text: 'textConnection',
 	} as const satisfies Record<Operation, keyof WhisperingSettings>;
 
-	/** The connection `operation` names, as the screen shows it. Advisory. */
+	/**
+	 * The connection `operation` names, as the screen shows it, with why it
+	 * cannot be used now. Advisory: a request reads it again when it is sent.
+	 */
 	function chosen(operation: Operation): ChosenConnection | undefined {
 		const id = kvReading()?.values[CHOICE_KEYS[operation]];
 		if (!id) return undefined;
-		const rows = connectionRows();
-		const row = rows?.find((candidate) => candidate.stem === id);
+		const absent = (unusable: string): ChosenConnection => ({
+			connection: id,
+			title: id,
+			kind: undefined,
+			model: '',
+			unusable,
+		});
+		const listing = connectionListing();
+		if (listing === undefined)
+			return absent(
+				connectionsProblem() ?? 'This device’s connections are still being read.',
+			);
+		const unreadable = listing.unreadable.get(id);
+		if (unreadable !== undefined)
+			return absent(`connections/${id}.md does not read: ${unreadable}`);
+		const row = listing.rows.find((candidate) => candidate.stem === id);
 		if (row === undefined)
-			return {
-				connection: id,
-				title: id,
-				kind: undefined,
-				model: '',
-				// Not listed yet is not gone.
-				unusable:
-					rows === undefined
-						? undefined
-						: `The ${operation} connection is gone. Choose another in Settings.`,
-			};
+			return absent(
+				`The ${operation} connection is gone. Choose another in Settings.`,
+			);
 		const title = row.title || id;
 		return {
 			connection: id,
 			title,
 			kind: row.kind,
 			model: row.model,
-			unusable: unusable({ workspace }, operation, row.kind, title),
+			unusable:
+				unusable({ workspace }, operation, row.kind, title) ??
+				// A transformation may name its own model; a transcription cannot.
+				(operation === 'transcription' && row.kind !== 'local' && !row.model.trim()
+					? `${title} names no model. Add one in Settings.`
+					: undefined),
 		};
 	}
 
 	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
-		return resolveRecipe(recipe, chosen('text'), connectionsError);
+		return resolveRecipe(recipe, chosen('text'), connectionsProblem());
 	}
 
 	/** What each request is read from when it is sent: the saved choice and the row, now. */
-	const routing: Routing = {
-		async route(operation, model) {
-			if (connections === undefined)
-				return Err(connectionsError ?? 'Epicenter’s folder is still opening.');
+	const routing = createRouting({
+		workspace,
+		rows: () =>
+			connections === undefined
+				? Err(connectionsError ?? 'Epicenter’s folder is still opening.')
+				: Ok(connections.folder.tables.connections),
+		async choice(operation) {
 			const { data: settings, error } = await folder.kv.get();
-			if (error !== null)
-				return Err(`kv.json does not read: ${error.message}`);
-			return routeOf(
-				{ workspace, rows: connections.folder.tables.connections },
-				operation,
-				settings?.values[CHOICE_KEYS[operation]],
-				model,
-			);
+			if (error !== null) return Err(`kv.json does not read: ${error.message}`);
+			return Ok(settings?.values[CHOICE_KEYS[operation]]);
 		},
-		async recorded(operation, fields) {
-			if (connections === undefined)
-				return Err(connectionsError ?? 'Epicenter’s folder is still opening.');
-			return recordedRoute(
-				{ workspace, rows: connections.folder.tables.connections },
-				operation,
-				fields,
-			);
+		async readAudio(path) {
+			const { data: audio, error } = await folder.files.read(path);
+			if (error !== null) return Err(error.message);
+			return Ok({
+				bytes: audio.bytes,
+				filename: path.slice(path.lastIndexOf('/') + 1),
+				mimeType: audioMimeTypeOf(path) ?? 'application/octet-stream',
+			});
 		},
-		transcribe: (route, audioPath) =>
-			transcribeOver({ workspace }, route, audioPath, async (path) => {
-				const { data: audio, error } = await folder.files.read(path);
-				if (error !== null) return Err(error.message);
-				return Ok({
-					bytes: audio.bytes,
-					filename: path.slice(path.lastIndexOf('/') + 1),
-					mimeType: audioMimeTypeOf(path) ?? 'application/octet-stream',
-				});
-			}),
-		transform: (route, request) => transformOver({ workspace }, route, request),
-	};
+	});
 
 	let selectedPath = $state<string | undefined>();
 	let selectedTransformationPath = $state<string | undefined>();
@@ -1202,9 +1227,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** Why this device's connections could not be opened or listed. */
 		get connectionsProblem() {
-			if (connectionsError !== undefined) return connectionsError;
-			if (connections === undefined) return undefined;
-			return readError(connections.options.tables.connections.list.queryKey());
+			return connectionsProblem();
 		},
 		/** This device's connections, for the shared editor; undefined until they open. */
 		get connectionTable() {
@@ -1212,7 +1235,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** The connection rows that read, for choosing one. */
 		get connectionRows() {
-			return connectionRows() ?? [];
+			return connectionListing()?.rows ?? [];
 		},
 		/**
 		 * Whether a recipe can run now, and with what: the one decision the Run

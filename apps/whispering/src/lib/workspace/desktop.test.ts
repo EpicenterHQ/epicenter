@@ -39,7 +39,11 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
 import { toneWav } from '../capture.js';
 import { audioMimeTypeOf } from '../audio-format.js';
-import { type Route, transcribeOver, transformOver } from '../connection-routes.js';
+import {
+	type Route,
+	transcribeOver,
+	transformOver,
+} from '../connection-routes.js';
 import type { ConnectionCommands } from './desktop.js';
 import {
 	createGrantedShell,
@@ -145,7 +149,6 @@ const noCommands: LocalTranscriptionCommands = {
 	getLocalTranscriptionReadiness: unexpected,
 	listInferenceModels: unexpected,
 	transcribeAudioBytes: unexpected,
-	openHome: unexpected,
 };
 
 /** A provider's request, as the stubbed endpoint received it. */
@@ -543,18 +546,31 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	const host = await epicenter();
 	const workspace = expectOk(await openWith(host));
 	const { connections } = workspace;
-	expect(connections.kinds).toEqual(['openai-compatible', 'epicenter', 'local']);
+	expect(connections.kinds).toEqual([
+		'openai-compatible',
+		'epicenter',
+		'local',
+	]);
 	expect(connections.keys.place).toBe('computer');
 
 	const folder = expectOk(await connections.open());
 	expectOk(
 		await folder.tables.connections.create(
-			{ fields: { kind: 'openai-compatible', title: 'Groq', model: 'chat-model' }, body: '' },
+			{
+				fields: {
+					kind: 'openai-compatible',
+					title: 'Groq',
+					model: 'chat-model',
+				},
+				body: '',
+			},
 			{ stem: 'groq' },
 		),
 	);
 	expect(
-		expectOk(await connections.keys.save('groq', `${ENDPOINT}/`, 'device-secret-key')),
+		expectOk(
+			await connections.keys.save('groq', `${ENDPOINT}/`, 'device-secret-key'),
+		),
 	).toEqual({ state: 'saved', endpoint: ENDPOINT, hasKey: true });
 	expect(expectOk(await connections.keys.state('groq'))).toEqual({
 		state: 'saved',
@@ -586,7 +602,11 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	const host = await epicenter();
 	const workspace = expectOk(await openWith(host));
 	expectOk(
-		await workspace.connections.keys.save('groq', ENDPOINT, 'transcription-key'),
+		await workspace.connections.keys.save(
+			'groq',
+			ENDPOINT,
+			'transcription-key',
+		),
 	);
 	const transcribe = (route: Route, path = 'audio/take.wav') =>
 		transcribeOver({ workspace }, route, path, audioOf(workspace));
@@ -621,9 +641,34 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	});
 	expect(changed?.message).toContain(`saved for ${ENDPOINT}`);
 	// Audio that cannot be read is certain: nothing is sent.
-	const { error: unreadable } = await transcribe(routeOver('groq'), 'audio/gone.wav');
+	const { error: unreadable } = await transcribe(
+		routeOver('groq'),
+		'audio/gone.wav',
+	);
 	expect(unreadable?.message).toContain('could not be read');
 	expect(host.provider).toHaveLength(1);
+	await workspace.close();
+});
+
+test('a refusal Epicenter names before sending reads as that refusal, never as an unknown outcome', async () => {
+	setup();
+	await granted();
+	const host = await epicenter();
+	const workspace = expectOk(await openWith(host));
+
+	// No key is saved for this connection: Epicenter refuses, and sends nothing.
+	const { error } = await transformOver(
+		{ workspace },
+		routeOver('unsaved', 'model'),
+		{
+			prompt: 'Fix it.',
+			input: 'text',
+		},
+	);
+	expect(error?.message).toBe(
+		"No endpoint or key is saved on this computer for the connection 'unsaved'. Add your key on this computer.",
+	);
+	expect(host.provider).toEqual([]);
 	await workspace.close();
 });
 
@@ -708,7 +753,6 @@ function localModel({
 	outcome?: LocalOutcome;
 }) {
 	const asked: { modelId: string; bytes: number[] }[] = [];
-	const opened: unknown[] = [];
 	const commands = {
 		getLocalTranscriptionReadiness: async () =>
 			active === undefined
@@ -739,11 +783,8 @@ function localModel({
 				error: null,
 			};
 		},
-		openHome: async (section: unknown) => {
-			opened.push(section);
-		},
 	} as unknown as LocalTranscriptionCommands;
-	return { commands, asked, opened };
+	return { commands, asked };
 }
 
 test('a recording is transcribed on this computer with Epicenter’s active model, from the bytes its row names', async () => {
@@ -756,10 +797,13 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	);
 	const transcriber = workspace.localTranscription!;
 
-	expect(await transcriber.readiness()).toEqual({ ready: true });
-	expect(expectOk(await transcriber.activeModel())).toBe('parakeet-tdt-0.6b-v3');
+	expect(expectOk(await transcriber.activeModel())).toBe(
+		'parakeet-tdt-0.6b-v3',
+	);
 	expect(
-		expectOk(await transcriber.transcribe('audio/take.wav', 'parakeet-tdt-0.6b-v3')),
+		expectOk(
+			await transcriber.transcribe('audio/take.wav', 'parakeet-tdt-0.6b-v3'),
+		),
 	).toEqual({ text: 'a local tone' });
 	// The active model, never another installed one, and exactly the file's bytes.
 	expect(local.asked).toEqual([
@@ -774,8 +818,6 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	expect(unreadable?.message).toContain('could not be read');
 	expect(local.asked).toHaveLength(1);
 
-	await transcriber.openSettings();
-	expect(local.opened).toEqual(['transcription']);
 	await workspace.close();
 });
 
@@ -789,12 +831,10 @@ test('with no active local model nothing is transcribed, and the reason names Se
 	);
 	const transcriber = workspace.localTranscription!;
 
-	expect(await transcriber.readiness()).toEqual({
-		ready: false,
-		message: 'No local transcription model is chosen on this device.',
-	});
 	const { error } = await transcriber.activeModel();
-	expect(error).toContain('Epicenter’s Settings');
+	expect(error).toBe(
+		'No local transcription model is chosen on this device. Choose a model in Epicenter’s Settings.',
+	);
 	expect(local.asked).toEqual([]);
 	await workspace.close();
 });

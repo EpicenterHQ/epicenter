@@ -4,9 +4,10 @@
  * completion that runs a recipe's instructions over a text.
  *
  * A request names a path below its connection's endpoint and nothing about
- * where it goes or with which key. `send` in `connection-routes.ts` sends it
- * over a connection (ADR-0557): the key is added there, a redirect is
- * refused, and a request goes only to the endpoint its row was made with.
+ * where it goes or with which key. `transcribeOver` and `transformOver` in
+ * `connection-routes.ts` send it over a connection (ADR-0557): the key is
+ * added there, a redirect is refused, and a request goes only to the
+ * endpoint its row was made with.
  */
 import type { SendRequest } from '@epicenter/ai/send';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
