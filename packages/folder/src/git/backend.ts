@@ -13,10 +13,6 @@ import type { DeclaredAttribute } from './attributes.js';
 import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
 
 /**
- * The folder's remote: Git configuration's `remote.origin.url`, and the
- * remote branch, which is always the local branch.
- */
-/**
  * How a remote names its refusal to move a branch that moved after it
  * advertised it, or that a push is not a fast-forward of: Git's
  * `non-fast-forward` and `fetch first`, receive-pack's `failed to update
@@ -26,6 +22,10 @@ import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
 export const REMOTE_MOVED =
 	/non-fast-forward|fetch first|failed to update ref|incorrect old value provided|reference already exists|reference does not exist/i;
 
+/**
+ * The folder's remote: Git configuration's `remote.origin.url`, and the
+ * remote branch, which is always the local branch.
+ */
 export type GitRemote = {
 	readonly url: string;
 	readonly branch: string;
