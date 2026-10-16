@@ -41,9 +41,9 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing, FolderStorage } from './boundary.js';
-import { hashBytes } from './capture.js';
 import { isStaleScratch } from './directory-primitives.js';
 import { FileError, UnconfirmedWrite } from './errors.js';
+import { hashBytes } from './hash.js';
 import { ancestors, basename, pathProblem } from './paths.js';
 
 /** A snapshot of a stored file. */

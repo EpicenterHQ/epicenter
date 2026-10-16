@@ -60,9 +60,10 @@ was out.
 (`@epicenter/definition`): five tables. `@epicenter/folder` turns that into
 Markdown rows at `<table>/<stem>.md`. A table owns exactly
 one Markdown file per row; any other file is an ordinary file reached through
-`folder.files`. The package's [README](../../packages/folder/README.md) is the
-contract for entries, captures, conditional saves, source-preserving patches,
-one-file-per-save publication and its outcomes, and history.
+`folder.files` and written with `folder.write`. The package's
+[README](../../packages/folder/README.md) is the contract for entries, the one
+write and its merge, one-file-per-save publication and its outcomes, and
+history.
 
 What Whispering adds on top:
 
@@ -469,10 +470,10 @@ its audio: an ordinary file the table
 does not own, which Files can delete. What goes is read from
 the folder then, never taken from a listing; a result file that does not read
 refuses the deletion, since it might be this recording's. It must not race
-the work that writes those rows. `deletionFor` and `remove`
+the work that writes those rows. `deletionFor` and `delete`
 both refuse while a transcription or transformation of that recording is
-running or one of its rows is being written, and `remove` also refuses when
-a result was written after the person was asked. While `remove` runs, no request
+running or one of its rows is being written, and `delete` also refuses when
+a result was written after the person was asked. While `delete` runs, no request
 starts for that recording. A failed run holds nothing; it is dropped with the
 recording. Results on pasted text name no recording, so they are neither
 deleted with one nor in the way of deleting one, readable or not.
@@ -480,14 +481,16 @@ deleted with one nor in the way of deleting one, readable or not.
 What a deletion of a recording or transformation path removes is decided by
 its file as read after the edits being written have landed, not by the last
 listing. The dialog says when the files have changes that are in no saved
-version. Removing is a mutation in the file's queue, after its recording's
-lifecycle work; it writes the edits first, then deletes the rows. A row that reads is deleted as above. A file that
-is there and does not read as a row (bytes that are not text, say) is removed
-alone, conditional on the exact bytes read, and the person is told its
-results are kept: nothing in the file says which results are its own, so
-none is deleted with it. For a recording, the same guards hold by its name:
-the capture and the confirmation both refuse while work for that recording
-is running, and nothing new starts for it while it is removed.
+version. Deleting is a mutation in the file's queue, after its recording's
+lifecycle work; it writes the edits first, then deletes the rows. A row that
+reads is deleted as above. A file that is there and does not read as a row
+(bytes that are not text, say) is deleted alone, whatever it holds by then,
+and the person is told its results are kept: nothing in the file says which
+results are its own, so none is deleted with it. Any other file is deleted the
+same way, with the folder's one write to no file. For a recording, the same
+guards hold by its name: the capture and the confirmation both refuse while
+work for that recording is running, and nothing new starts for it while it
+is deleted.
 
 ## Editing through the query cache
 
@@ -524,12 +527,13 @@ text too; its fields open again once the text reads.
   changed the same lines the typing wins, with no notice (ADR-0575).
 - **Writes to one file** run one at a time, in the order made, whichever
   control made them.
-- **Text** edited as a whole file has no merge: its write is `files.replace`
-  guarded by the version the edit started from, one at a time. A file changed
-  elsewhere refuses it; the typed text is dropped and the shell shows a toast
-  that can copy it, and the file is read again.
-- **A failed save** keeps the draft, or the field typed in its view; it is
-  saved again with the next change, and a draft before anything that reads
+- **Text** edited as a whole file holds the text it started from in a text
+  editor (`createTextEditor`), saved the same way with the folder's `write`
+  mutation and merged by line with whatever changed since (ADR-0576). A
+  failed write, or a file deleted elsewhere, drops the typed text; the shell
+  shows a toast that can copy it, and the file is read again.
+- **A failed body save** keeps what is typed, or the field typed in its view;
+  it is saved again with the next change, and a body before anything that reads
   files (a run, a rename, a deletion, Save version, closing). A recording or
   transcript deleted elsewhere stays deleted: its save writes nothing, the
   listing reads it gone, and what was typed is handed to a notice that
@@ -636,9 +640,9 @@ obstacle in that write's way so the folder itself fails it
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held as drafts and their saves, selections, the live recording, settings, and every action as a mutation. |
+| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held in text editors and their saves, selections, the live recording, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
-| `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
+| `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |

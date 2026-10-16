@@ -1,15 +1,13 @@
 /**
  * What every folder builds on its storage (`boundary.ts`): content-save
- * accounting, the close fence, and the reads and file verbs that are only
- * `read` and `put` composed.
+ * accounting, the close fence, and the reads that are only `read` and
+ * `list` composed. The one write and the move are in `write.ts`.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { CapturedFiles, FileRead, FolderStorage } from './boundary.js';
-import { type FileCapture, fileCapture, hashBytes } from './capture.js';
-import { FileError, MoveError } from './errors.js';
+import { FileError } from './errors.js';
 import type { History } from './git/history.js';
 import { isPortablePath } from './paths.js';
-import { confirmedPut } from './save-file.js';
 
 /**
  * Every folder records its local saves here: each one that may have changed
@@ -102,88 +100,4 @@ export async function captureFiles(
 			unreadable.push({ path, error: read.error });
 	}
 	return Ok({ files, unreadable });
-}
-
-/** The SHA-256 at `path` now, for a refusal that names it. */
-async function actualAt(storage: Pick<FolderStorage, 'read'>, path: string) {
-	const read = await storage.read(path);
-	return read.error === null ? read.data.sha256 : undefined;
-}
-
-/** Create `path` holding `bytes`, only where no file is: `Exists` otherwise. */
-export async function createFile(
-	storage: Pick<FolderStorage, 'put' | 'read'>,
-	path: string,
-	bytes: Uint8Array,
-): Promise<Result<FileCapture, FileError>> {
-	const sha256 = await hashBytes(bytes);
-	const { data: put, error } = await confirmedPut(
-		storage,
-		path,
-		bytes,
-		null,
-		sha256,
-	);
-	if (error !== null) return Err(error);
-	if (put === 'stale') return FileError.Exists({ path });
-	return Ok(fileCapture(path, sha256));
-}
-
-/** Remove the captured file, only while it holds the captured bytes. */
-export async function removeFile(
-	storage: Pick<FolderStorage, 'put' | 'read'>,
-	file: FileCapture,
-): Promise<Result<undefined, FileError>> {
-	const { data: put, error } = await confirmedPut(
-		storage,
-		file.path,
-		null,
-		file.sha256,
-		null,
-	);
-	if (error !== null) return Err(error);
-	if (put === 'stale') {
-		const actualSha256 = await actualAt(storage, file.path);
-		return actualSha256 === undefined
-			? FileError.NotFound({ path: file.path })
-			: FileError.Conflict({
-					path: file.path,
-					expectedSha256: file.sha256,
-					actualSha256,
-				});
-	}
-	return Ok(undefined);
-}
-
-/**
- * Move the captured file to `to`, where no file is: its bytes land at `to`,
- * then `from` is removed while it still holds them. Two changes, so a crash
- * or a refused removal between them leaves both paths holding the file
- * (`MoveError.SourceNotRemoved`), which a person can see and repair
- * (ADR-0503).
- */
-export async function moveFile(
-	storage: Pick<FolderStorage, 'put' | 'read'>,
-	file: FileCapture,
-	to: string,
-): Promise<Result<FileCapture, FileError | MoveError>> {
-	const { data: read, error: readError } = await storage.read(file.path);
-	if (readError !== null) return Err(readError);
-	if (read.sha256 !== file.sha256)
-		return FileError.Conflict({
-			path: file.path,
-			expectedSha256: file.sha256,
-			actualSha256: read.sha256,
-		});
-	const created = await createFile(storage, to, read.bytes);
-	if (created.error !== null) return created;
-	const removed = await removeFile(storage, file);
-	if (removed.error !== null)
-		return MoveError.SourceNotRemoved({
-			from: file.path,
-			to,
-			moved: created.data,
-			cause: removed.error,
-		});
-	return created;
 }

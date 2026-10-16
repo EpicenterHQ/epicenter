@@ -10,13 +10,11 @@ import { defineFolder, type Folder, openFolder } from '../../src/browser.js';
 
 export type PeerRequest =
 	| { readonly kind: 'open'; readonly id: string }
-	| { readonly kind: 'create'; readonly path: string; readonly content: string }
-	/** Save over the version `sha256` names, whose text is `base`, without merging. */
+	/** The folder's one write: the change from `from`, `null` for no file, to `content`. */
 	| {
-			readonly kind: 'save';
+			readonly kind: 'write';
 			readonly path: string;
-			readonly sha256: string;
-			readonly base: string;
+			readonly from: string | null;
 			readonly content: string;
 	  }
 	/** Read `path` repeatedly for `ms` and report every SHA-256 seen. */
@@ -28,6 +26,8 @@ export type PeerReply = {
 	readonly ok: boolean;
 	readonly error?: string;
 	readonly sha256?: string;
+	/** How many units the write overrode. */
+	readonly overridden?: number;
 	readonly seen?: readonly string[];
 	readonly hints?: readonly string[];
 	readonly failures?: number;
@@ -51,24 +51,19 @@ async function handle(request: PeerRequest): Promise<PeerReply> {
 	}
 	if (folder === undefined) return { ok: false, error: 'not open' };
 	switch (request.kind) {
-		case 'create': {
-			const { data: saved, error: saveError } = await folder.files.create(
+		case 'write': {
+			const { data: written, error: writeError } = await folder.write(
 				request.path,
+				request.from,
 				request.content,
 			);
-			return saveError !== null
-				? { ok: false, error: saveError.name }
-				: { ok: true, sha256: saved.sha256 };
-		}
-		case 'save': {
-			const { data: saved, error: saveError } = await folder.files.save(
-				{ path: request.path, sha256: request.sha256, text: request.base },
-				request.content,
-				{ merge: false },
-			);
-			return saveError !== null
-				? { ok: false, error: saveError.name }
-				: { ok: true, sha256: saved.stored.sha256 };
+			return writeError !== null
+				? { ok: false, error: writeError.name }
+				: {
+						ok: true,
+						sha256: written.file?.sha256,
+						overridden: written.overridden.length,
+					};
 		}
 		case 'readFor': {
 			const seen = new Set<string>();

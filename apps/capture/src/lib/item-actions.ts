@@ -24,7 +24,7 @@ export async function confirmDelete(captures: Captures, stem: string) {
 		description: `${named}and its thoughts are deleted from the folder.${unversioned}`,
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const { error } = await captures.remove(deletion);
+			const { error } = await captures.delete(deletion);
 			if (error !== null)
 				toast.error('The capture was not deleted', {
 					description: describeError(error),

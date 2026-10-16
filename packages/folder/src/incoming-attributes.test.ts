@@ -273,7 +273,7 @@ describe.each([
 		// In the folder the audio is declared plain; upstream declares a filter.
 		const masked = await incoming(kind);
 		expectOk(
-			await masked.folder.files.create('.gitattributes', '*.wav -filter\n'),
+			await masked.folder.write('.gitattributes', null, '*.wav -filter\n'),
 		);
 		// Ignored by the committed `.gitignore`, and the declaration this first
 		// write published matches the committed one, so the folder is still clean.

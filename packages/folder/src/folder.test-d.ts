@@ -11,13 +11,11 @@ import * as bun from './bun.js';
 import type * as contract from './contract.js';
 import * as root from './index.js';
 import {
-	type CapturedFile,
 	type CreateRowOf,
 	defineFolder,
 	defineTable,
-	type FileCapture,
-	type FileError,
-	type FileSaveError,
+	type FileContent,
+	type FileRead,
 	type FileTable,
 	type Folder,
 	type FolderDefinition,
@@ -27,7 +25,6 @@ import {
 	formatRow,
 	type Issue,
 	type Issues,
-	type MoveError,
 	type OpenDataFolder,
 	type OpenDataFolderOptions,
 	type OpenFolder,
@@ -37,11 +34,11 @@ import {
 	parseRow,
 	type Row,
 	type RowReadError,
-	type SavedFile,
 	type StoredRow,
 	type TableEnumerationError,
 	type TableListing,
 	type WriteError,
+	type Written,
 	type WrittenRow,
 } from './index.js';
 import * as tauri from './tauri.js';
@@ -373,33 +370,35 @@ async function typedValues(folder: Opened, instant: InstantString) {
 	// @ts-expect-error Only declared tables exist.
 	folder.tables.lists;
 
-	// Captures are plain values; a read also carries detached bytes, the base
-	// a save merges from.
+	// A read is the file's detached bytes and the SHA-256 that names them.
 	const { data: file, error: readError } = await folder.files.read('a.md');
 	if (readError !== null) return;
-	expectTypeOf(file).toEqualTypeOf<CapturedFile>();
-	const { data: saved, error: saveFileError } = await folder.files.save(
-		file,
+	expectTypeOf(file).toEqualTypeOf<FileRead>();
+	// A file's content changes through the one write, from the content it
+	// started from, and a file moves through the one move; each answers the
+	// file as it left it, and fails as one `WriteError`.
+	const { data: saved, error: writeFileError } = await folder.write(
+		'a.md',
+		file.bytes,
 		'next',
 	);
-	if (saveFileError !== null) {
-		expectTypeOf(saveFileError).toEqualTypeOf<FileSaveError>();
+	if (writeFileError !== null) {
+		expectTypeOf(writeFileError).toEqualTypeOf<WriteError>();
 		return;
 	}
-	expectTypeOf(saved).toEqualTypeOf<SavedFile>();
-	expectTypeOf(saved.stored).toEqualTypeOf<CapturedFile>();
-	expectTypeOf(saved.merged).toEqualTypeOf<boolean>();
-	expectTypeOf(await folder.files.remove(saved.stored)).toEqualTypeOf<
-		Awaited<ReturnType<Opened['files']['remove']>>
+	expectTypeOf(saved).toEqualTypeOf<Written>();
+	expectTypeOf(saved.file).toEqualTypeOf<FileRead | null>();
+	expectTypeOf(folder.write).parameter(1).toEqualTypeOf<FileContent | null>();
+	expectTypeOf(await folder.move('a.md', 'b.md')).toEqualTypeOf<
+		Result<Written, WriteError>
 	>();
-	// A stored row is a capture of its row file with the row it holds.
+	// A stored row is its row file's path, hash, and text, with the row it holds.
 	const entry = await folder.tables.todos.get('milk');
 	type Fields = CreateRowOf<typeof definition.tables.todos>;
 	if (entry.error === null) {
 		expectTypeOf(entry.data).toEqualTypeOf<StoredRow<Fields> | undefined>();
 	} else expectTypeOf(entry.error).toEqualTypeOf<RowReadError>();
 	if (entry.data) {
-		expectTypeOf(entry.data).toExtend<FileCapture>();
 		expectTypeOf<keyof StoredRow<Fields>>().toEqualTypeOf<
 			'path' | 'sha256' | 'text' | 'row'
 		>();
@@ -409,14 +408,14 @@ async function typedValues(folder: Opened, instant: InstantString) {
 			due: InstantString | null;
 		}>();
 		expectTypeOf(entry.data.row.body).toEqualTypeOf<string>();
-		// @ts-expect-error A capture keeps its path.
+		// @ts-expect-error A stored row keeps its path.
 		entry.data.path = '';
 		// @ts-expect-error A valid row carries no diagnostics.
 		entry.data.issues;
 	}
-	// Text that is not a valid row is an error that keeps the text and its capture.
+	// Text that is not a valid row is an error that keeps the text and its hash.
 	if (entry.error?.name === 'InvalidRow') {
-		expectTypeOf(entry.error).toExtend<FileCapture>();
+		expectTypeOf(entry.error.sha256).toEqualTypeOf<string>();
 		expectTypeOf(entry.error.text).toEqualTypeOf<string>();
 		expectTypeOf(entry.error.issues).toEqualTypeOf<Issues>();
 		expectTypeOf<keyof Issue>().toEqualTypeOf<'message' | 'line' | 'field'>();
@@ -505,38 +504,16 @@ async function typedValues(folder: Opened, instant: InstantString) {
 			Result<undefined, WriteError>
 		>();
 	}
-	// @ts-expect-error A captured hash is required for removal.
-	folder.files.remove({ path: 'a.md' });
-	folder.files.save(
-		// @ts-expect-error Captures carry a flat hash, not a version wrapper.
-		{ path: 'a.md', version: { sha256: 'a'.repeat(64) }, text: '' },
-		'next',
-	);
-	// @ts-expect-error A path alone is not a base.
-	folder.files.save('a.md', 'next');
-	// @ts-expect-error Nor is a capture without the content it names.
-	folder.files.save({ path: 'a.md', sha256: 'a'.repeat(64) }, 'next');
+	// @ts-expect-error The file verbs are gone: every change is the one write.
+	folder.files.save;
+	// @ts-expect-error A delete is a write to no file, never `remove`.
+	folder.files.remove;
+	// @ts-expect-error A file moves through the one move.
+	folder.files.move;
+	// @ts-expect-error A create is a write from no file.
+	folder.files.create;
 	// @ts-expect-error There is no unguarded write.
 	folder.files.overwrite('a.md', 'next');
-	// @ts-expect-error The old single write verb is gone.
-	folder.files.write('a.md', 'next', { expected: 'any' });
-
-	// Each write is one file change: a failure is that file's, and only a
-	// move names the two paths it touched.
-	const { error: fileCreateError } = await folder.files.create('a.md', 'a');
-	if (fileCreateError !== null)
-		expectTypeOf(fileCreateError).toEqualTypeOf<FileError>();
-	const { error: moveError } = await folder.files.move(saved.stored, 'b.md');
-	// A file move is always guarded, so a kept source names the moved capture.
-	if (moveError !== null) {
-		expectTypeOf(moveError).toEqualTypeOf<FileError | MoveError>();
-		if (moveError.name === 'SourceNotRemoved')
-			expectTypeOf(moveError.moved).toEqualTypeOf<FileCapture>();
-	}
-	// Every move is guarded, so a kept source always names the moved capture.
-	expectTypeOf<
-		Extract<MoveError, { name: 'SourceNotRemoved' }>['moved']
-	>().toEqualTypeOf<FileCapture>();
 	// @ts-expect-error Several changes are several calls; there is no batch.
 	folder.batch;
 

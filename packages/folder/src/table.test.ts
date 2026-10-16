@@ -38,13 +38,13 @@ import { expect, spyOn, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field, parseRow } from './contract.js';
+import { hashBytes } from './hash.js';
 import { overwrite } from './put.test-support.js';
 import type { Row } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
-import { WRITE_ATTEMPTS } from './save-file.js';
 import { createTable } from './table.js';
+import { WRITE_ATTEMPTS } from './write.js';
 
 const definition = defineFolder({
 	tables: {

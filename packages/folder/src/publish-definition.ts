@@ -13,15 +13,18 @@
  */
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import type { FolderStorage } from './boundary.js';
-import { hashBytes, ownBytes } from './capture.js';
+import type { FileRead, FolderStorage } from './boundary.js';
 import { formatDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
-import { createFiles, type FolderFiles } from './files.js';
+import { hashBytes } from './hash.js';
 import { localPatterns } from './merge-file.js';
 import { DECLARATION_PATH } from './paths.js';
+import { confirmedPut } from './write.js';
 
 const log = createLogger('folder/definition');
+const encoder = new TextEncoder();
+/** What a publication reads and writes: the storage port's read and put, not a handle's writes. */
+type Publisher = Pick<FolderStorage, 'read' | 'put'>;
 /** The folder's root `.gitignore`, where `local` patterns are written. */
 const GITIGNORE_PATH = '.gitignore';
 const PublicationError = defineErrors({
@@ -54,47 +57,70 @@ function keepingLocal(
 }
 
 /**
+ * Put `bytes` at `path` only while it holds what was read (`current`, or no
+ * file), never merged: `'stale'` when another writer landed first, and
+ * nothing changed.
+ */
+async function putOver(
+	storage: Publisher,
+	path: string,
+	current: FileRead | null,
+	bytes: Uint8Array,
+) {
+	return confirmedPut(
+		storage,
+		path,
+		bytes,
+		current?.sha256 ?? null,
+		await hashBytes(bytes),
+	);
+}
+
+/** Why a publication gave up after reading again: another writer kept landing first. */
+const KEPT_CHANGING = 'another writer changed the file on every attempt';
+
+/**
  * Await one publication, skipped when the file already holds the
  * declaration's bytes. `epicenter.json` is never merged (ADR-0551) but for
- * `local`, which keeps every pattern the file already lists: a
- * missing file is created, reading once more when another writer created it
- * first, and a present one is saved over as read with `{ merge: false }`,
- * reading once more when another writer saved first. A failure is logged and
- * never refuses the write it precedes.
+ * `local`, which keeps every pattern the file already lists: the declaration
+ * is put over the file as read, or where none is, and read once more when
+ * another writer landed first. A failure is logged and never refuses the
+ * write it precedes.
  */
 export async function publishDefinition(
 	prepared: FolderDefinition,
-	files: Pick<FolderFiles, 'read' | 'create' | 'save'>,
+	storage: Publisher,
 ): Promise<void> {
-	let failure: unknown;
+	let failure: unknown = KEPT_CHANGING;
 	try {
 		for (let reads = 0; reads < 2; reads++) {
-			const { data: current, error: readError } =
-				await files.read(DECLARATION_PATH);
-			if (readError !== null && readError.name !== 'NotFound') {
-				failure = readError;
+			const read = await storage.read(DECLARATION_PATH);
+			if (read.error !== null && read.error.name !== 'NotFound') {
+				failure = read.error;
 				break;
 			}
-			const declaration = ownBytes(
+			const current = read.error === null ? read.data : null;
+			const declaration = encoder.encode(
 				formatDeclaration(
 					keepingLocal(
 						prepared,
-						readError === null ? localPatterns(current.bytes) : undefined,
+						current === null ? undefined : localPatterns(current.bytes),
 					),
 				),
 			);
-			if (
-				readError === null &&
-				current.sha256 === (await hashBytes(declaration))
-			)
+			if (current !== null && current.sha256 === (await hashBytes(declaration)))
 				return;
-			const { error } =
-				readError === null
-					? await files.save(current, declaration, { merge: false })
-					: await files.create(DECLARATION_PATH, declaration);
-			if (error === null) return;
-			failure = error;
-			if (error.name !== 'Conflict' && error.name !== 'Exists') break;
+			const { data: put, error } = await putOver(
+				storage,
+				DECLARATION_PATH,
+				current,
+				declaration,
+			);
+			if (error !== null) {
+				failure = error;
+				break;
+			}
+			if (put === 'landed') return;
 		}
 	} catch (cause) {
 		// A thrown write can also have landed. Retain the cause without claiming
@@ -111,38 +137,42 @@ export async function publishDefinition(
  * pattern, skipped when every pattern is already one of its lines. A missing
  * file is created holding the patterns. A present one gains the missing
  * patterns as lines at its end; nothing in it is reordered, rewritten, or
- * removed, so a person's own lines stay. The save never merges: when another
- * writer saved first, the file is read once more. A failure is logged and
+ * removed, so a person's own lines stay. The put never merges: when another
+ * writer landed first, the file is read once more. A failure is logged and
  * never refuses the write it precedes.
  */
 export async function publishLocalPatterns(
 	local: readonly string[],
-	files: Pick<FolderFiles, 'read' | 'create' | 'save'>,
+	storage: Publisher,
 ): Promise<void> {
 	if (local.length === 0) return;
-	let failure: unknown;
+	let failure: unknown = KEPT_CHANGING;
 	try {
 		for (let reads = 0; reads < 2; reads++) {
-			const { data: current, error: readError } =
-				await files.read(GITIGNORE_PATH);
-			if (readError !== null && readError.name !== 'NotFound') {
-				failure = readError;
+			const read = await storage.read(GITIGNORE_PATH);
+			if (read.error !== null && read.error.name !== 'NotFound') {
+				failure = read.error;
 				break;
 			}
+			const current = read.error === null ? read.data : null;
 			const text =
-				readError === null ? new TextDecoder().decode(current.bytes) : '';
+				current === null ? '' : new TextDecoder().decode(current.bytes);
 			const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
 			const missing = local.filter((pattern) => !lines.has(pattern));
 			if (missing.length === 0) return;
 			const separator = text === '' || text.endsWith('\n') ? '' : '\n';
 			const next = `${text}${separator}${missing.join('\n')}\n`;
-			const { error } =
-				readError === null
-					? await files.save(current, next, { merge: false })
-					: await files.create(GITIGNORE_PATH, next);
-			if (error === null) return;
-			failure = error;
-			if (error.name !== 'Conflict' && error.name !== 'Exists') break;
+			const { data: put, error } = await putOver(
+				storage,
+				GITIGNORE_PATH,
+				current,
+				encoder.encode(next),
+			);
+			if (error !== null) {
+				failure = error;
+				break;
+			}
+			if (put === 'landed') return;
 		}
 	} catch (cause) {
 		failure = cause;
@@ -161,10 +191,9 @@ export function declaring(
 	prepared: FolderDefinition,
 ): FolderStorage {
 	let published: Promise<void> | undefined;
-	const files = createFiles({ storage });
 	const first = () => {
-		published ??= publishDefinition(prepared, files).then(() =>
-			publishLocalPatterns(prepared.local ?? [], files),
+		published ??= publishDefinition(prepared, storage).then(() =>
+			publishLocalPatterns(prepared.local ?? [], storage),
 		);
 		return published;
 	};

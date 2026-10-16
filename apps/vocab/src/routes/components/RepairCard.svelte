@@ -22,7 +22,7 @@
 	// runed's timer outlives the card; save now instead.
 	onDestroy(() => void saveLater.runScheduledNow());
 	/** The typed text not yet written, or the file's text as last read. */
-	const text = $derived(opened.data?.kind === 'text' ? (entries.repairText ?? opened.data.file.text) : undefined);
+	const text = $derived(opened.data?.kind === 'text' ? (entries.repairText ?? opened.data.text) : undefined);
 	/** Why the text is not a word yet, read live from what is typed. */
 	const issues = $derived(text === undefined ? undefined : (parseRow(vocabFolder.tables.entries, text).error ?? undefined));
 </script>

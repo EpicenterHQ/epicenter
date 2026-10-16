@@ -11,7 +11,6 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
@@ -367,9 +366,8 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test('a write another writer overtakes after its check merges; a create or a remove is refused where it publishes', async () => {
+	test('a write another writer overtakes after its check merges; a create is refused where it publishes, and a delete reads again and wins', async () => {
 		const root = await scratch('directory-folder-overtaken-');
-		const sha256 = (text: string) => hashBytes(new TextEncoder().encode(text));
 		// Another writer, sharing no lock with this folder, lands these bytes
 		// on a path after this folder checked it and before it publishes.
 		const overtaken = new Map<string, string>();
@@ -406,25 +404,24 @@ describe('a folder over an ordinary directory', () => {
 
 		const note = join(root, 'todos/a.md');
 		overtaken.set(note, 'theirs\n');
-		const made = await folder.files.create('todos/a.md', 'mine\n');
-		expect(made.error?.name).toBe('Exists');
+		// A create lands only where no file is.
+		const made = await folder.write('todos/a.md', null, 'mine\n');
+		expect(made.error?.name).toBe('InvalidPath');
 		expect(await readFile(note, 'utf8')).toBe('theirs\n');
 
-		const captured = expectOk(await folder.files.read('todos/a.md'));
+		// A delete reads again, and the deleter wins over what landed meanwhile.
 		overtaken.set(note, 'theirs again\n');
-		const removed = await folder.files.remove(captured);
-		expect(removed.error).toMatchObject({
-			name: 'Conflict',
-			expectedSha256: captured.sha256,
-			actualSha256: await sha256('theirs again\n'),
-		});
-		expect(await readFile(note, 'utf8')).toBe('theirs again\n');
+		const deleted = expectOk(
+			await folder.write('todos/a.md', 'theirs\n', null),
+		);
+		expect(deleted.file).toBeNull();
+		expect(await Bun.file(note).exists()).toBe(false);
 
-		// A save merges with whatever is there, and wins the lines both changed.
-		const again = expectOk(await folder.files.read('todos/a.md'));
+		// A write merges with whatever is there, and wins the lines both changed.
+		expectOk(await folder.write('todos/a.md', null, 'base\n'));
 		overtaken.set(note, 'theirs once more\n');
-		const mine = expectOk(await folder.files.save(again, 'mine\n'));
-		expect(mine.merged).toBe(true);
+		const mine = expectOk(await folder.write('todos/a.md', 'base\n', 'mine\n'));
+		expect(mine.overridden).not.toEqual([]);
 		expect(await readFile(note, 'utf8')).toBe('mine\n');
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await folder.close();

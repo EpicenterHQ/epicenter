@@ -81,9 +81,9 @@ export function cached(
 export function cachedText(captures: Captures, path: string): string {
 	const file = captures.queryClient.getQueryData<{
 		kind: string;
-		file?: { text: string };
+		text?: string;
 	}>(captures.folder$.files.text.queryKey(path));
-	if (file?.kind !== 'text' || file.file === undefined)
+	if (file?.kind !== 'text' || file.text === undefined)
 		throw new Error(`No text for ${path} in the cache`);
-	return file.file.text;
+	return file.text;
 }

@@ -9,7 +9,7 @@
 
 ADR-0554 made a field edit `table.update` and kept `table.save` with a
 starting version for a whole body, and `createBodyDraftState`
-(`packages/folder/src/svelte/draft.svelte.ts`) holds a body's draft. Each app
+(in `@epicenter/folder/svelte`) holds a body's draft. Each app
 wired the body by hand: it created the table's save mutation, passed
 `createBodyDraftState` a `save` that built `{ fields: base.row.fields, body:
 content }`, passed the cached row to `change`, and picked between the draft's

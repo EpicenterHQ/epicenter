@@ -78,16 +78,14 @@ function fakeFolder(refuse?: string) {
 	const written: { path: string; bytes: Uint8Array }[] = [];
 	const folder: RecordingFolder = {
 		id: 'so.epicenter.test',
-		files: {
-			async create(path, bytes) {
-				if (refuse !== undefined)
-					return { data: null, error: { message: refuse } } as Result<
-						unknown,
-						{ message: string }
-					>;
-				written.push({ path, bytes });
-				return Ok(undefined);
-			},
+		async write(path, _from, bytes) {
+			if (refuse !== undefined)
+				return { data: null, error: { message: refuse } } as Result<
+					unknown,
+					{ message: string }
+				>;
+			written.push({ path, bytes });
+			return Ok(undefined);
 		},
 	};
 	return { folder, written };

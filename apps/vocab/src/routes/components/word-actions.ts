@@ -7,7 +7,7 @@ import { describeError, type Entries } from '$lib/entries.svelte.js';
 
 /**
  * Ask before deleting `entry`. The delete waits for the word's save still
- * under way, so it removes what this page saved last.
+ * under way, so what this page saved last goes with it.
  */
 export function confirmDelete(entries: Entries, entry: Entry) {
 	confirmationDialog.open({
@@ -15,7 +15,7 @@ export function confirmDelete(entries: Entries, entry: Entry) {
 		description: 'Its note and stage are deleted with it.',
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const { error } = await entries.remove(entry);
+			const { error } = await entries.delete(entry);
 			if (error !== null)
 				toast.error(`Could not delete “${entry.text}”`, {
 					description: describeError(error),

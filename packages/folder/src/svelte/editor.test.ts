@@ -1,14 +1,19 @@
 /**
- * Text Draft State Tests
+ * Text Editor Tests
  *
- * `createTextDraftState` is a file's text draft read reactively, with the
- * one save loop every document editor needs (ADR-0548). `createBodyEditor`
- * opens a row's body over the table's one write (ADR-0576).
+ * `createTextEditor` opens one document's text for a control, holding
+ * `from` and `typed` with the one save loop every editor needs, over the
+ * folder's one write (ADR-0576). A file's exact text is its plain case, and
+ * `createBodyEditor` its row case.
  *
  * Key behaviors:
- * - A component re-reads the draft's text on each change
- * - Text typed while a save runs is sent next, from the version it wrote
- * - A failed save keeps the draft, and the next save sends it again
+ * - A component re-reads the typed text on each change
+ * - A file's text is sent as the change from the text at the first change;
+ *   text typed while a save runs is sent next, from what that save sent
+ * - A failed save keeps what is typed, from the same text
+ * - A save that finds the file deleted keeps what is typed, marked gone
+ * - Over a real folder, another writer's lines merged between two saves
+ *   stay, and text typed after the first save appears once
  * - A body editor shows the file's body until something is typed, sends the
  *   change from the row it started from to that row with the typed body,
  *   and shows the file again once its save lands with nothing typed since
@@ -21,30 +26,16 @@
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
-import type { CapturedFile } from '../capture.js';
 import { defineFolder, defineTable, field } from '../contract.js';
-import type { SaveTextVariables } from '../draft.js';
 import type { Row } from '../row-text.js';
-import type { SavedFile } from '../save-file.js';
 import { createTable, isStoredRow, type StoredRow } from '../table.js';
+import { writeFile } from '../write.js';
 
 const { flushSync } = await import('svelte');
-const { createBodyEditor, createTextDraftState } = await import(
-	'./draft.svelte.js'
+const { createBodyEditor, createTextEditor } = await import(
+	'./editor.svelte.js'
 );
 const { track } = await import('./fixtures/track.svelte.js');
-
-const file = (sha: string, text: string): CapturedFile =>
-	Object.freeze({
-		path: 'notes.txt',
-		sha256: sha.repeat(64),
-		bytes: new TextEncoder().encode(text),
-	});
-
-const landed = (stored: CapturedFile): SavedFile => ({
-	stored,
-	merged: false,
-});
 
 /** A save whose results the test hands out, one call at a time. */
 function heldSaves<TSent, TSaved>() {
@@ -60,71 +51,135 @@ function heldSaves<TSent, TSaved>() {
 	return { calls, save };
 }
 
-test("a component re-reads the draft's text on each change", () => {
-	const draft = createTextDraftState({
-		save: heldSaves<SaveTextVariables, SavedFile>().save,
+type TextSent = { readonly from: string; readonly to: string };
+type Landed = 'landed' | 'gone';
+
+test("a component re-reads the editor's typed text on each change", () => {
+	const text = createTextEditor({
+		current: () => 'one\n',
+		write: heldSaves<TextSent, Landed>().save,
 	});
-	const texts = track(() => draft.text);
+	const typed = track(() => text.typed);
 	flushSync();
 
-	draft.change(file('a', 'one\n'), 'mine\n');
+	text.change('mine\n');
 	flushSync();
-	draft.discard();
+	text.discard();
 	flushSync();
 
-	expect(texts.seen).toEqual([undefined, 'mine\n', undefined]);
-	texts.stop();
+	expect(typed.seen).toEqual([undefined, 'mine\n', undefined]);
+	typed.stop();
 });
 
-test('text typed while a save runs is sent next, from the version it wrote', async () => {
-	const { calls, save } = heldSaves<SaveTextVariables, SavedFile>();
-	const draft = createTextDraftState({ save });
-	const first = file('a', 'one\n');
+test('a file text is sent from the text at the first change, and text typed during a save is sent next from what it sent', async () => {
+	let cached = 'one\n';
+	const { calls, save: write } = heldSaves<TextSent, Landed>();
+	const text = createTextEditor({ current: () => cached, write });
+	expect(text.text).toBe('one\n');
 
-	await draft.save();
+	await text.save();
 	expect(calls).toHaveLength(0);
 
-	draft.change(first, 'ONE\n');
-	const done = draft.save();
-	expect(draft.saving).toBe(true);
-	draft.change(first, 'ONE\ntwo\n');
+	text.change('ONE\n');
+	// Another writer's change lands in the cache; the edit keeps its start.
+	cached = 'one\ntheirs\n';
+	const done = text.save();
+	expect(text.saving).toBe(true);
+	text.change('ONE\ntwo\n');
 	// A second call joins the running loop.
-	expect(draft.save()).toBe(done);
+	expect(text.save()).toBe(done);
 	expect(calls).toHaveLength(1);
-	expect(calls[0]?.sent).toEqual({ base: first, content: 'ONE\n' });
+	expect(calls[0]?.sent).toEqual({ from: 'one\n', to: 'ONE\n' });
 
-	const written = file('b', 'ONE\n');
-	calls[0]?.land(landed(written));
+	calls[0]?.land('landed');
 	await Bun.sleep(0);
 	expect(calls).toHaveLength(2);
-	expect(calls[1]?.sent).toEqual({ base: written, content: 'ONE\ntwo\n' });
+	expect(calls[1]?.sent).toEqual({ from: 'ONE\n', to: 'ONE\ntwo\n' });
 
-	const last = file('c', 'ONE\ntwo\n');
-	calls[1]?.land(landed(last));
+	calls[1]?.land('landed');
 	await done;
-	expect(draft.saving).toBe(false);
-	expect(draft.text).toBeUndefined();
-	expect(draft.base).toBeUndefined();
+	cached = 'ONE\ntheirs\ntwo\n';
+	expect(text.saving).toBe(false);
+	expect(text.typed).toBeUndefined();
+	expect(text.text).toBe('ONE\ntheirs\ntwo\n');
 });
 
-test('a failed save keeps the draft, and the next save sends it again', async () => {
-	const { calls, save } = heldSaves<SaveTextVariables, SavedFile>();
-	const draft = createTextDraftState({ save });
-	const first = file('a', 'one\n');
-	draft.change(first, 'mine\n');
+test('a failed file save keeps what is typed, and the next save sends it again from the same text', async () => {
+	const { calls, save: write } = heldSaves<TextSent, Landed>();
+	const text = createTextEditor({ current: () => 'one\n', write });
+	text.change('mine\n');
 
-	const failing = draft.save();
+	const failing = text.save();
 	calls[0]?.fail(new Error('disk full'));
 	await failing;
-	expect(draft.saving).toBe(false);
-	expect(draft.text).toBe('mine\n');
-	expect(draft.base).toBe(first);
+	expect(text.saving).toBe(false);
+	expect(text.typed).toBe('mine\n');
 
-	const retry = draft.save();
-	expect(calls[1]?.sent.base).toBe(first);
-	calls[1]?.land(landed(file('b', 'mine\n')));
+	const retry = text.save();
+	expect(calls[1]?.sent).toEqual({ from: 'one\n', to: 'mine\n' });
+	calls[1]?.land('landed');
 	await retry;
-	expect(draft.text).toBeUndefined();
+	expect(text.typed).toBeUndefined();
+});
+
+test('a file save that finds the file deleted keeps what is typed and marks it gone', async () => {
+	let cached: string | undefined = 'one\n';
+	const { calls, save: write } = heldSaves<TextSent, Landed>();
+	const text = createTextEditor({ current: () => cached, write });
+	text.change('mine\n');
+	const saving = text.save();
+	calls[0]?.land('gone');
+	await saving;
+	expect(text.typed).toBe('mine\n');
+	expect(text.gone).toBe(true);
+	await text.save();
+	expect(calls).toHaveLength(1);
+	text.discard();
+	expect(text.gone).toBe(false);
+	// The cache saying the file is gone marks typed text gone too.
+	text.change('again\n');
+	cached = undefined;
+	expect(text.gone).toBe(true);
+	expect(text.text).toBe('again\n');
+});
+
+test("another writer's lines merged between two file saves stay, and typing after a save appears once", async () => {
+	const { boundary } = await rawBrowserFolder({ id: 'editor.file' });
+	const kind = { kind: 'file' } as const;
+	const read = async () =>
+		new TextDecoder().decode(
+			(await boundary.read('notes.txt')).data?.bytes ?? new Uint8Array(),
+		);
+	await writeFile(boundary, kind, 'notes.txt', null, 'Hello\n');
+	let cached = await read();
+	const text = createTextEditor({
+		current: () => cached,
+		write: async ({ from, to }) => {
+			const { data, error } = await writeFile(
+				boundary,
+				kind,
+				'notes.txt',
+				from,
+				to,
+			);
+			if (error !== null) throw error;
+			cached = await read();
+			return data.file === null ? 'gone' : 'landed';
+		},
+	});
+
+	text.change('Hello\nthere\n');
+	const saving = text.save();
+	text.change('Hello\nthere, friend\n');
+	await saving;
+	// Another writer appends after the saves landed, before the cache
+	// hears of it.
+	await writeFile(boundary, kind, 'notes.txt', cached, `${cached}Agent note\n`);
+	text.change('Hello\nthere, friend!\n');
+	await text.save();
+
+	expect(await read()).toBe('Hello\nthere, friend!\nAgent note\n');
+	expect(text.typed).toBeUndefined();
 });
 
 type Note = { title: string };
@@ -172,8 +227,7 @@ test('typing during a save makes the next save start from what that one sent', a
 	const done = body.save();
 	body.change("one\nX'\n");
 	calls[0]?.land(cached ?? null);
-	await Promise.resolve();
-	await Promise.resolve();
+	await Bun.sleep(0);
 	expect(calls[1]?.sent).toEqual({
 		from: { fields: { title: 'One' }, body: 'one\nX\n' },
 		to: { fields: { title: 'One' }, body: "one\nX'\n" },

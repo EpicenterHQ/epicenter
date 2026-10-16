@@ -97,9 +97,10 @@ type Options = {
 	/** Replace the stubbed transcription answer. */
 	transcribe?: Workspace['transcribe'];
 	root?: string;
+	/** Runs before each write of the folder from no file: a create. */
 	beforeFileCreate?: () => Promise<void>;
-	/** Runs before each `files.read` of the folder. */
-	beforeFileRead?: (path: string) => Promise<void>;
+	/** Runs before each move of the folder, with the path it moves. */
+	beforeFileMove?: (path: string) => Promise<void>;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
 };
@@ -110,7 +111,7 @@ async function open({
 	failAnswerWrites = 0,
 	transcribe,
 	beforeFileCreate,
-	beforeFileRead,
+	beforeFileMove,
 	root,
 	connections,
 }: Options = {}) {
@@ -135,16 +136,13 @@ async function open({
 		folder: {
 			...folder,
 			tables,
-			files: {
-				...folder.files,
-				async create(path, content) {
-					await beforeFileCreate?.();
-					return folder.files.create(path, content);
-				},
-				async read(path) {
-					await beforeFileRead?.(path);
-					return folder.files.read(path);
-				},
+			async write(path, from, to) {
+				if (from === null) await beforeFileCreate?.();
+				return folder.write(path, from, to);
+			},
+			async move(path, next) {
+				await beforeFileMove?.(path);
+				return folder.move(path, next);
 			},
 		} as Workspace['folder'],
 		folderId: WHISPERING_FOLDER_ID,
@@ -745,7 +743,7 @@ test('a running transcription cannot be asked for again; deleting its row discar
 	expect(await library.runAgain(transcript.path)).toContain('already running');
 
 	const deletion = expectOk(await library.deletionFor(transcript.path));
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	answer.resolve(Ok({ text: 'too late' }));
 	await transcribing;
 
@@ -772,7 +770,7 @@ test('deleting a recording removes its row and results, keeps its audio, and say
 		`This deletes ${entry.path}, 1 result from the folder.`,
 	);
 	expect(asked).toContain(`Its audio ${audioPath} is not deleted`);
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 
 	expect(library.entries).toHaveLength(0);
 	expect(await transcripts(root)).toEqual([]);
@@ -785,8 +783,8 @@ test('deleting a recording removes its row and results, keeps its audio, and say
 	// The audio is deleted as the file it is, from Files, with its own question.
 	expect(library.recordingNaming(audioPath)).toBeUndefined();
 	const file = expectOk(await library.deletionFor(audioPath));
-	expect(file).toMatchObject({ kind: 'file', file: { path: audioPath } });
-	expect(await library.remove(file)).toBeUndefined();
+	expect(file).toMatchObject({ kind: 'file', path: audioPath });
+	expect(await library.delete(file)).toBeUndefined();
 	expect(await recordingFiles(root)).toEqual([]);
 });
 
@@ -803,7 +801,7 @@ test('deleting the audio a recording names keeps the recording, and the missing 
 	expect(describeDeletion(deletion).description).toContain(
 		'names it as its audio and is kept',
 	);
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 
 	expect(await recordingFiles(root)).toEqual([`${entry.stem}.md`]);
 	expect(library.entries[0]!.row.fields.audioPath).toBe(audioPath);
@@ -834,11 +832,11 @@ test('a recording is not deleted while a result cannot say which recording it be
 	const confirmed = expectOk(await library.deletionFor(entry.path));
 	await mkdir(join(root, 'transformation_runs'), { recursive: true });
 	await writeFile(join(root, 'transformation_runs/odd.md'), 'no fence\n');
-	expect(await library.remove(confirmed)).toContain('cannot be told apart');
+	expect(await library.delete(confirmed)).toContain('cannot be told apart');
 	expect(await recordingFiles(root)).toHaveLength(2);
 
 	await rm(join(root, 'transformation_runs/odd.md'));
-	expect(await library.remove(confirmed)).toBeUndefined();
+	expect(await library.delete(confirmed)).toBeUndefined();
 	expect(library.entries).toEqual([]);
 });
 
@@ -855,17 +853,17 @@ test('a recording cannot be deleted while its transcription runs, including one 
 	expect((await library.deletionFor(entry.path)).error).toContain(
 		'still running',
 	);
-	expect(await library.remove(confirmed)).toContain('still running');
+	expect(await library.delete(confirmed)).toContain('still running');
 
 	await eventually(() => answer !== undefined);
 	answer(Ok({ text: 'arrived late' }));
 	await transcribing;
 
 	// The transcript saved since was never named to the person, so they are asked again.
-	expect(await library.remove(confirmed)).toContain('after you were asked');
+	expect(await library.delete(confirmed)).toContain('after you were asked');
 	expect(await transcripts(root)).toHaveLength(1);
 	const again = expectOk(await library.deletionFor(entry.path));
-	expect(await library.remove(again)).toBeUndefined();
+	expect(await library.delete(again)).toBeUndefined();
 	expect(await recordingFiles(root)).toEqual([`${entry.stem}.wav`]);
 	expect(await transcripts(root)).toEqual([]);
 });
@@ -884,7 +882,7 @@ test('a recording file that does not read is deleted alone, as the bytes it hold
 	expect(describeDeletion(deletion).description).toContain(
 		'deletes only that file',
 	);
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	expect(await recordingFiles(root)).toEqual([`${entry.stem}.wav`]);
 	expect(await transcripts(root)).toHaveLength(1);
 });
@@ -962,11 +960,11 @@ test('close drains accepted commands and refuses a new command', async () => {
 	expect(await readFile(join(root, 'first.txt'), 'utf8')).toBe('');
 });
 
-test('close waits for a rename whose read is still held, and the rename finishes before the folder closes', async () => {
+test('close waits for a rename whose move is still held, and the rename finishes before the folder closes', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();
 	const { library, root } = await open({
-		beforeFileRead: async (path) => {
+		beforeFileMove: async (path) => {
 			if (path !== 'notes.md') return;
 			reached.resolve();
 			await release.promise;

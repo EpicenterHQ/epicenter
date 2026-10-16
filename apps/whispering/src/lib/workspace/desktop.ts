@@ -106,7 +106,7 @@ export async function openDesktopWorkspace({
 	// Repair the recordings a quit or a crash cut off, before anything reads
 	// them. A failure keeps the folder open and is shown beside the recorder.
 	const { error: recoverError } = await recoverRecordings({
-		folder: { id: folderId, files: folder.files },
+		folder: { id: folderId, write: folder.write },
 		under: AUDIO,
 	});
 	const captureNotice =

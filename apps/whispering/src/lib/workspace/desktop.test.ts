@@ -399,8 +399,8 @@ test('saves and history go through the shell', async () => {
 	);
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	expectOk(await workspace.folder.files.create('audio/a.wav', audio));
-	expectOk(await workspace.folder.files.create('notes.md', 'hello'));
+	expectOk(await workspace.folder.write('audio/a.wav', null, audio));
+	expectOk(await workspace.folder.write('notes.md', null, 'hello'));
 	expect((await workspace.folder.git.commit()).status).toBe('committed');
 	const { error: readError } = await workspace.folder.files.read('missing.md');
 	expect(readError?.name).toBe('NotFound');
@@ -423,7 +423,7 @@ test('a version is recorded as the person Git’s configuration names, and as Ep
 	setup();
 	const { root } = await granted();
 	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
-	expectOk(await first.folder.files.create('notes.md', 'first'));
+	expectOk(await first.folder.write('notes.md', null, 'first'));
 	expect((await first.folder.git.commit()).status).toBe('committed');
 	await first.close();
 	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
@@ -434,7 +434,7 @@ test('a version is recorded as the person Git’s configuration names, and as Ep
 	await git(root, 'config', 'user.name', 'Someone');
 	await git(root, 'config', 'user.email', 'someone@example.test');
 	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
-	expectOk(await second.folder.files.create('notes-2.md', 'second'));
+	expectOk(await second.folder.write('notes-2.md', null, 'second'));
 	expect((await second.folder.git.commit()).status).toBe('committed');
 	await second.close();
 	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(

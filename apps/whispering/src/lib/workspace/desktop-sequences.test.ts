@@ -223,7 +223,7 @@ test('a deletion waits for the save of the row, then removes what it saved', asy
 	save.release();
 	const deletion = expectOk(await capturing);
 
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	expect(shell.kinds).toEqual(['write', 'remove']);
 	expect(await shell.text(PATH)).toBeUndefined();
 	expect(library.selectedTransformation).toBeUndefined();
@@ -236,7 +236,7 @@ test('a deletion whose reply was lost is confirmed by reading back, and recreate
 	shell.control.loseReplies = 1;
 
 	// The file is gone, so the removal landed after all.
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	expect(await shell.text(PATH)).toBeUndefined();
 	expect(shell.kinds).toEqual(['remove']);
 });

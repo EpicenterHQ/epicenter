@@ -24,7 +24,7 @@
 		type RecordingSort,
 		type RecordingSortKey,
 		type RecordingStatus,
-		removeCaptured,
+		deleteCaptured,
 		selectionIn,
 		shownRows,
 		STATUS_LABELS,
@@ -175,12 +175,12 @@
 			async onConfirm() {
 				view.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
 				try {
-					const { removed, problems } = await removeCaptured(library, captured.deletions);
+					const { deleted, problems } = await deleteCaptured(library, captured.deletions);
 					if (problems.length > 0)
-						toast.error(`${several(removed, 'recording', 'recordings')} deleted, ${problems.length} not`, {
+						toast.error(`${several(deleted, 'recording', 'recordings')} deleted, ${problems.length} not`, {
 							description: reasons(problems),
 						});
-					else toast.success(`${several(removed, 'recording', 'recordings')} deleted`);
+					else toast.success(`${several(deleted, 'recording', 'recordings')} deleted`);
 				} finally {
 					view.recordingBulk = undefined;
 				}

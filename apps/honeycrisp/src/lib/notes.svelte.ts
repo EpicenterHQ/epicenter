@@ -18,27 +18,26 @@
  * one per note, which keeps the row it started from and is saved a second
  * after the last change, or at once when the view leaves it, merged by line
  * with whatever changed since. A file open as its exact text has a text
- * draft of its own (`createTextDraftState`), saved the same way (ADR-0551).
- * Writes to one file run one at a time, in the order made. A body save that
- * fails keeps the body on screen and reports the failure. A delete beats
- * an edit that never saw it: a body whose note was deleted elsewhere
- * writes nothing, and is dropped with its text offered. Where a save meets another
- * writer's change to the same lines, the save wins (ADR-0576).
+ * editor of its own (`createTextEditor`), saved the same way with the
+ * folder's write. Writes to one file run one at a time, in the order made. A
+ * body save that fails keeps the body on screen and reports the failure. A
+ * delete beats an edit that never saw it: a body or a text whose file was
+ * deleted elsewhere writes nothing, and is dropped with its text offered.
+ * Where a save meets another writer's change to the same lines, the save
+ * wins (ADR-0576).
  *
- * Every other action is a mutation: create, rename, delete, deleting a
- * folder, and Save version. Closing the notes fences new input, then waits
+ * Every other action is a mutation: create, rename (`folder.move` for a file
+ * that is not a row), delete (a write to no file, whatever the file holds
+ * by then), deleting a folder, and Save version. Closing the notes fences new input, then waits
  * until every save and action settled before it releases the folder. Saves never commit (ADR-0529); a version is recorded only by
  * Save version.
  */
 import { InstantString } from '@epicenter/definition';
 import {
 	type CommitOutcome,
-	type FileCapture,
-	type FileError,
+	FileError,
 	type FileListing,
-	type FileSaveError,
 	type GitError,
-	type MoveError,
 	type Row,
 	type RowReadError,
 	rowPath,
@@ -47,6 +46,7 @@ import {
 	type TableError,
 	type TableListing,
 	type WriteError,
+	type Written,
 	type WrittenRow,
 } from '@epicenter/folder';
 import {
@@ -64,10 +64,9 @@ import {
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	type BodyEditor,
 	createBodyEditor,
-	createTextDraftState,
-	type TextDraftState,
+	createTextEditor,
+	type TextEditor,
 } from '@epicenter/folder/svelte';
 import {
 	hashKey,
@@ -128,8 +127,6 @@ export type Deletion =
 			readonly path: string;
 			/** The note's name, when the file is a note that reads as one. */
 			readonly title: string | undefined;
-			/** The file as it was when the person was asked, for a file no view holds. */
-			readonly capture: FileCapture;
 			/**
 			 * Whether the file has changes that are in no saved version, as Git
 			 * status last checked; `undefined` when the check failed.
@@ -142,7 +139,7 @@ export type WriteFailure = {
 	readonly path: string;
 	readonly error:
 		| WriteError
-		| FileSaveError
+		| Extract<FileError, { name: 'NotFound' }>
 		| Extract<NotesError, { name: 'NoteDeleted' }>;
 	/** The text of the edit the file does not hold. */
 	readonly unsaved: string;
@@ -176,33 +173,24 @@ const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
 export const notesKeys = defineKeys({
 	all: ['honeycrisp'],
 	move: (path: string) => ['honeycrisp', 'move', path] as const,
-	remove: (path: string) => ['honeycrisp', 'remove', path] as const,
+	delete: (path: string) => ['honeycrisp', 'delete', path] as const,
 	saveVersion: ['honeycrisp', 'save-version'],
 });
 
 /**
  * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, a move that kept its source left both
- * files, and a lost reply leaves the outcome unknown.
+ * on. A refusal changed nothing, and a lost reply leaves the outcome unknown.
  */
 export function describeError(
-	error: FileError | MoveError | TableError | NotesError | GitError,
+	error: FileError | TableError | NotesError | GitError,
 ): string {
 	switch (error.name) {
 		case 'NotStarted':
 			return error.reason;
-		case 'Exists':
-			return `"${basename(error.path)}" already exists here.`;
-		case 'Conflict':
-			return error.actualSha256 === undefined
-				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Its current version is shown.';
 		case 'KeptChanging':
 			return 'The file kept changing elsewhere while it was saved, so the edit is not saved yet.';
 		case 'DirectoryNotEmpty':
 			return 'The folder is not empty, so nothing was deleted.';
-		case 'SourceNotRemoved':
-			return `The file was copied to ${error.to}, but ${error.from} could not be removed, so the folder now has both. Delete whichever you do not want.`;
 		case 'Unconfirmed':
 			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
 		case 'InvalidValues':
@@ -337,7 +325,7 @@ export function createNotes(
 	const moving = (path: string) =>
 		queryClient.isMutating({ mutationKey: notesKeys.move(path), exact: true }) +
 			queryClient.isMutating({
-				mutationKey: notesKeys.remove(path),
+				mutationKey: notesKeys.delete(path),
 				exact: true,
 			}) >
 		0;
@@ -426,13 +414,6 @@ export function createNotes(
 			setRow,
 			refusalAt,
 			set,
-			/** The capture the cache holds for `stem`: a row's, or a row that does not read's own bytes. */
-			capture(stem: string): FileCapture | undefined {
-				const result = listing()?.find((entry) => entry.stem === stem)?.result;
-				if (result?.error === null) return result.data;
-				if (result?.error.name === 'InvalidRow') return result.error;
-				return undefined;
-			},
 		};
 	}
 
@@ -484,7 +465,7 @@ export function createNotes(
 	 * and at once when the view leaves it (`saveBody`). It saves nothing
 	 * while the list does not hold its note.
 	 */
-	const bodies = new SvelteMap<string, Typed<BodyEditor>>();
+	const bodies = new SvelteMap<string, Typed<TextEditor>>();
 
 	const writeNote = {
 		...folder$.notes.write.mutationOptions(),
@@ -602,36 +583,59 @@ export function createNotes(
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
-	/** Text edits in progress, by path. */
-	const textDrafts = new SvelteMap<string, Typed<TextDraftState>>();
+	/** The text of `path` as the cache holds it, when it opens as text. */
+	const shownText = (path: string) => {
+		const opened = textData(path);
+		return opened?.kind === 'text' ? opened.text : undefined;
+	};
 
-	const writeText = {
-		...folder$.files.write.mutationOptions(),
-		// The save merges with a change made elsewhere, so this is a failure
-		// that saved nothing: the view takes the file as it is now, read
-		// again, and the person is offered what they typed.
-		onError: (error, { path, content }) => {
-			textDrafts.get(path)?.draft.discard();
-			textDrafts.delete(path);
-			onWriteFailed({
-				path,
-				error,
-				unsaved: typeof content === 'string' ? content : '',
-				kept: false,
-			});
-		},
-	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
+	/** Text edits in progress, by path. */
+	const textDrafts = new SvelteMap<string, Typed<TextEditor>>();
+
+	/**
+	 * Let go of the text typed into `path` and offer it: its write failed, or
+	 * found the file deleted. The view takes the file as it is now, read
+	 * again.
+	 */
+	function dropText(
+		path: string,
+		error: WriteFailure['error'],
+		sent: string,
+	): void {
+		const held = textDrafts.get(path);
+		const unsaved = held?.typed() ?? sent;
+		held?.draft.discard();
+		textDrafts.delete(path);
+		onWriteFailed({ path, error, unsaved, kept: false });
+	}
+
+	const writeText = folder$.write.mutationOptions();
 
 	/** An edit of one file's exact text, saved one write at a time after a pause. */
 	function textDraftOf(path: string) {
 		const known = textDrafts.get(path);
 		if (known !== undefined) return known;
-		const draft = createTextDraftState({
-			save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
+		const draft = createTextEditor({
+			current: () => shownText(path),
+			write: async (change) => {
+				const written = await runMutation(queryClient, writeText, {
+					path,
+					...change,
+				}).catch((error: WriteError) => {
+					// The write merges with a change made elsewhere, so this is a
+					// failure that saved nothing.
+					dropText(path, error, change.to);
+					throw error;
+				});
+				if (written.file !== null) return 'landed';
+				// A delete beats an edit it never saw.
+				dropText(path, FileError.NotFound({ path }).error, change.to);
+				return 'gone';
+			},
 		});
 		const typed = {
 			draft,
-			typed: () => draft.text,
+			typed: () => draft.typed,
 			later: useDebounce(() => saveTyped(textDrafts, path), 1000),
 		};
 		textDrafts.set(path, typed);
@@ -696,30 +700,6 @@ export function createNotes(
 
 	/** Whether edits to `path` are refused now: closing, or a rename or delete runs. */
 	const lockedAt = (path: string) => fenced || moving(path);
-
-	/** The same file as captured now, for a file no view holds. */
-	async function captureNow(
-		path: string,
-	): Promise<Result<FileCapture, FileError>> {
-		const { data: read, error } = await folder.files.read(path);
-		if (error !== null) return Err(error);
-		return Ok({ path: read.path, sha256: read.sha256 });
-	}
-
-	/**
-	 * The capture a rename or delete of `path` acts on, read when it runs,
-	 * after the file's saves landed: the version the cache holds for what the
-	 * app edits, if it holds one.
-	 */
-	function heldCapture(path: string): FileCapture | undefined {
-		const at = rowAt(path);
-		if (at !== undefined && !asText(path)) {
-			const capture = at.rows.capture(at.stem);
-			if (capture !== undefined) return capture;
-		}
-		const opened = textData(path);
-		return opened?.kind === 'text' ? opened.file : undefined;
-	}
 
 	/** Drop what is typed for `path`: its file was renamed or deleted. */
 	function forget(path: string) {
@@ -827,10 +807,22 @@ export function createNotes(
 		}: {
 			directory: string;
 			name: string;
-		}): Promise<Result<FileCapture, FileError | NotesError>> => {
+		}): Promise<Result<Written, WriteError | NotesError>> => {
 			const why = refused() ?? nameProblem(directory, name);
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
-			return folder.files.create(joinPath(directory, name), '');
+			const path = joinPath(directory, name);
+			const listing = queryClient.getQueryData<FileListing>(
+				folder$.files.list.queryKey(),
+			);
+			if (
+				listing?.directories.includes(path) ||
+				listing?.files.some((file) => file.path === path)
+			)
+				return NotesError.NotStarted({
+					reason: `"${name}" already exists here.`,
+				});
+			// A write from no file places it only where none is.
+			return folder.write(path, null, '');
 		},
 		onSuccess: async (created) => {
 			await changed(created.path);
@@ -880,7 +872,7 @@ export function createNotes(
 	 */
 	function deleteFolder(entry: FolderEntry) {
 		return defineMutation({
-			mutationKey: notesKeys.remove(entry.path),
+			mutationKey: notesKeys.delete(entry.path),
 			mutationFn: async (): Promise<
 				Result<undefined, WriteError | FileError | NotesError>
 			> => {
@@ -948,8 +940,8 @@ export function createNotes(
 			mutationKey: notesKeys.move(path),
 			mutationFn: async (): Promise<
 				Result<
-					FileCapture | WrittenRow<unknown> | undefined,
-					FileError | MoveError | WriteError | NotesError
+					Written | WrittenRow<unknown> | undefined,
+					WriteError | NotesError
 				>
 			> => {
 				const why = refused() ?? nameProblem(directory, name);
@@ -970,15 +962,9 @@ export function createNotes(
 						return NotesError.NotStarted({ reason: late });
 					return at.rows.table.rename(at.stem, nextStem);
 				}
-				let capture = heldCapture(path);
-				if (capture === undefined) {
-					const { data, error } = await captureNow(path);
-					if (error !== null) return Err(error);
-					capture = data;
-				}
 				const late = refused();
 				if (late !== undefined) return NotesError.NotStarted({ reason: late });
-				return folder.files.move(capture, to);
+				return folder.move(path, to);
 			},
 			onSuccess: async (renamed) => {
 				if (renamed === undefined) return;
@@ -991,22 +977,21 @@ export function createNotes(
 
 	/**
 	 * Delete what was confirmed. It waits for the file's saves to land, so
-	 * it removes what this app saved last; a file another program changed
-	 * since is refused.
+	 * what this app saved last goes with it, and deletes the file whatever
+	 * another program changed in it since: the deleter wins (ADR-0576).
 	 */
-	function remove(deletion: Deletion) {
+	function deleteConfirmed(deletion: Deletion) {
 		return defineMutation({
-			mutationKey: notesKeys.remove(deletion.path),
+			mutationKey: notesKeys.delete(deletion.path),
 			mutationFn: async (): Promise<
-				Result<undefined, FileError | NotesError>
+				Result<unknown, FileError | WriteError | NotesError>
 			> => {
 				const why = refused();
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
 				if (deletion.kind === 'folder')
 					return folder.files.rmdir(deletion.path);
 				await settledAt(deletion.path);
-				const capture = heldCapture(deletion.path) ?? deletion.capture;
-				return folder.files.remove(capture);
+				return folder.write(deletion.path, null, null);
 			},
 			onSuccess: () => {
 				deleted(deletion.path);
@@ -1207,7 +1192,7 @@ export function createNotes(
 		},
 		/** The text typed into `path` and not yet written, read reactively. */
 		typedText(path: string): string | undefined {
-			return textDrafts.get(path)?.draft.text;
+			return textDrafts.get(path)?.draft.typed;
 		},
 		/**
 		 * Type `text` as the whole text of `path`; it is written a second after
@@ -1216,10 +1201,9 @@ export function createNotes(
 		 */
 		editText(path: string, text: string): boolean {
 			if (refused() !== undefined || moving(path)) return false;
-			const opened = textData(path);
-			if (opened?.kind !== 'text') return false;
+			if (shownText(path) === undefined) return false;
 			const typed = textDraftOf(path);
-			typed.draft.change(opened.file, text);
+			typed.draft.change(text);
 			void typed.later();
 			return true;
 		},
@@ -1265,7 +1249,7 @@ export function createNotes(
 					);
 				return Ok({ kind: 'folder', path });
 			}
-			const { data: capture, error } = await captureNow(path);
+			const { error } = await folder.files.read(path);
 			if (error !== null) return Err(describeError(error));
 			const status = await queryClient
 				.fetchQuery(folder$.history.status.queryOptions())
@@ -1279,11 +1263,11 @@ export function createNotes(
 				kind: 'file',
 				path,
 				title: row && displayTitle(row.fields.title, row.body),
-				capture,
 				unversioned: status?.changes.some((change) => change.path === path),
 			});
 		},
-		remove: async (deletion: Deletion) => problem(await remove(deletion)),
+		delete: async (deletion: Deletion) =>
+			problem(await deleteConfirmed(deletion)),
 		/**
 		 * Record a version: commit the saved files (ADR-0529). Saves still
 		 * running land first.

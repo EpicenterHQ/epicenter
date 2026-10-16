@@ -156,8 +156,9 @@ function scriptedMicrophone(
 				startedAt: performance.now(),
 				async stop() {
 					release();
-					const { error } = await options.folder.files.create(
+					const { error } = await options.folder.write(
 						audioPath,
+						null,
 						toneWav(),
 					);
 					if (error !== null)
@@ -620,19 +621,16 @@ test('closing releases the microphone at once, while a file command that was acc
 		const microphone = scriptedMicrophone();
 		const test = await openTestWorkspace();
 		const writing = deferred<void>();
-		const files = test.workspace.folder.files;
+		const { folder } = test.workspace;
 		const library = createLibrary(
 			{
 				...test.workspace,
 				capture: microphone.device,
 				folder: {
-					...test.workspace.folder,
-					files: {
-						...files,
-						async create(path, content) {
-							await writing.promise;
-							return files.create(path, content);
-						},
+					...folder,
+					async write(path, from, to) {
+						await writing.promise;
+						return folder.write(path, from, to);
 					},
 				} as Workspace['folder'],
 			},

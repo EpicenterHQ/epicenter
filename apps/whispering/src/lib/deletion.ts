@@ -1,14 +1,12 @@
 /**
  * Deleting from the folder: capture what a deletion removes from fresh reads,
- * tell the person exactly that, and remove only what was captured.
+ * tell the person exactly that, and delete those files.
  *
- * A row is deleted whatever it holds when the deletion runs: a delete beats
- * edits that never saw it (ADR-0576). Any other file is removed guarded by
- * the bytes captured, so one changed by another program after the person
- * was asked is refused and kept. Edits being written land first, and a
- * removal runs after the file's queued writes: it deletes what this window
- * saved last. The person is told when a file has changes that are in no
- * saved version.
+ * A file is deleted whatever it holds when the deletion runs, a row or not:
+ * a delete beats edits that never saw it (ADR-0576). Edits being written land
+ * first, and a deletion runs after the file's queued writes, so what this
+ * window saved last goes with it. The person is told when a file has changes
+ * that are in no saved version.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -18,7 +16,6 @@
  * recording and is never part of one.
  */
 import {
-	type FileCapture,
 	type FileListing,
 	type FileTable,
 	rowPath,
@@ -42,25 +39,26 @@ export type Deletion =
 			readonly kind: 'recording';
 			readonly id: string;
 			readonly title: string;
-			readonly row: FileCapture;
+			/** The recording's row file. */
+			readonly path: string;
 			/** Whether its files have changes in no saved version; undefined when the check failed. */
 			readonly unversioned: boolean | undefined;
 			/** The audio the row names. It is not deleted: it stays as an ordinary file. */
 			readonly audioPath: string | undefined;
-			/** Its transcripts, then the results made from them. */
-			readonly results: readonly FileCapture[];
+			/** Its transcripts, then the results made from them, by path. */
+			readonly results: readonly string[];
 	  }
 	| {
 			readonly kind: 'transformation';
 			readonly title: string;
-			readonly file: FileCapture;
+			readonly path: string;
 			readonly unversioned: boolean | undefined;
 			/** How many saved results name it. They are kept. */
 			readonly results: number;
 	  }
 	| {
 			readonly kind: 'file';
-			readonly file: FileCapture;
+			readonly path: string;
 			readonly unversioned: boolean | undefined;
 			/** Why a recording or transformation file does not read as one; only it goes. */
 			readonly problem?: string;
@@ -76,8 +74,6 @@ export type DeletionContext = {
 	readonly listing: FileListing | undefined;
 	/** Resolves once the edits being written have landed. */
 	writesSettled(): Promise<void>;
-	/** The newest capture this window confirmed for `path`, if it holds one. */
-	held(path: string): FileCapture | undefined;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
 	/** The title of the recording that names `path` as its audio, if one does. */
@@ -109,19 +105,16 @@ async function unversionedOf(
 	return status.changes.some((change) => paths.includes(change.path));
 }
 
-/** The file at `path` as it is now, by a fresh read. */
-async function captureNow(
+/** Whether a file is at `path` now, by a fresh read; why not, if not. */
+async function presentNow(
 	{ folder }: DeletionContext,
 	path: string,
-): Promise<Result<FileCapture, string>> {
-	const { data: read, error: readError } = await folder.files.read(path);
-	if (readError !== null)
-		return Err(
-			readError.name === 'NotFound'
-				? `${basename(path)} is no longer in the folder.`
-				: readError.message,
-		);
-	return Ok({ path: read.path, sha256: read.sha256 });
+): Promise<string | undefined> {
+	const { error: readError } = await folder.files.read(path);
+	if (readError === null) return undefined;
+	return readError.name === 'NotFound'
+		? `${basename(path)} is no longer in the folder.`
+		: readError.message;
 }
 
 /**
@@ -132,14 +125,14 @@ async function captureNow(
 async function resultsOf(
 	{ folder }: DeletionContext,
 	id: string,
-): Promise<Result<FileCapture[], string>> {
+): Promise<Result<string[], string>> {
 	const [transcripts, outputs] = await Promise.all([
 		folder.tables.transcriptions.list(),
 		folder.tables.transformation_runs.list(),
 	]);
 	if (transcripts.error !== null) return Err(transcripts.error.message);
 	if (outputs.error !== null) return Err(outputs.error.message);
-	const found: FileCapture[] = [];
+	const found: string[] = [];
 	const unknown: string[] = [];
 	for (const [table, listed] of [
 		[TRANSCRIPTIONS, transcripts.data],
@@ -148,7 +141,7 @@ async function resultsOf(
 		for (const { stem, result } of listed) {
 			if (result.error !== null) unknown.push(rowPath(table, stem));
 			else if (result.data.row.fields.recordingId === id)
-				found.push({ path: result.data.path, sha256: result.data.sha256 });
+				found.push(result.data.path);
 		}
 	if (unknown.length > 0)
 		return Err(
@@ -191,7 +184,7 @@ export async function captureDeletion(
 		if (readError?.name === 'InvalidRow' || readError?.name === 'InvalidUtf8')
 			return Ok({
 				kind: 'file',
-				file: { path: readError.path, sha256: readError.sha256 },
+				path,
 				unversioned: await unversionedOf(context, [path]),
 				recordingId,
 				problem:
@@ -211,11 +204,8 @@ export async function captureDeletion(
 			kind: 'recording',
 			id: recordingId,
 			title: recordingTitle({ ...stored, stem: recordingId }),
-			row: { path: stored.path, sha256: stored.sha256 },
-			unversioned: await unversionedOf(context, [
-				stored.path,
-				...results.map((result) => result.path),
-			]),
+			path: stored.path,
+			unversioned: await unversionedOf(context, [stored.path, ...results]),
 			audioPath: audioPathIn(stored.row.fields),
 			results,
 		});
@@ -233,7 +223,7 @@ export async function captureDeletion(
 		)
 			return Ok({
 				kind: 'file',
-				file: { path: stored.error.path, sha256: stored.error.sha256 },
+				path,
 				unversioned: await unversionedOf(context, [path]),
 				problem:
 					stored.error.name === 'InvalidRow'
@@ -251,55 +241,42 @@ export async function captureDeletion(
 		return Ok({
 			kind: 'transformation',
 			title: title.trim() === '' ? basename(path) : title,
-			file: { path: stored.data.path, sha256: stored.data.sha256 },
+			path: stored.data.path,
 			unversioned: await unversionedOf(context, [path]),
 			results,
 		});
 	}
 
-	const { data: file, error } = await captureNow(context, path);
-	if (error !== null) return Err(error);
+	const gone = await presentNow(context, path);
+	if (gone !== undefined) return Err(gone);
 	return Ok({
 		kind: 'file',
-		file,
+		path,
 		unversioned: await unversionedOf(context, [path]),
 		audioOf: context.audioOf(path),
 	});
 }
 
 /**
- * Delete the file at `capture.path`. A row is deleted whatever it holds
- * now: a delete beats edits that never saw it (ADR-0576). Any other file is
- * removed as captured; when this window saved it after the person was asked
- * (typing while the dialog was open), that is what is removed, and anything
- * else changed since is refused.
+ * Delete the file at `path`, whatever it holds now, through its table when
+ * it is a row: a delete beats edits that never saw it (ADR-0576).
  */
 async function deleteOne(
-	context: RemovalContext,
-	capture: FileCapture,
+	context: RunContext,
+	path: string,
 	table?: Pick<FileTable<unknown>, 'name' | 'delete'>,
 ): Promise<string | undefined> {
-	let problem: string | undefined;
-	const stem = table && rowStemOf(table.name, capture.path);
-	if (table !== undefined && stem !== undefined) {
-		const { error } = await table.delete(stem);
-		problem = error === null ? undefined : describeError(error);
-	} else {
-		const saved = context.held(capture.path);
-		let { error } = await context.folder.files.remove(capture);
-		if (
-			error?.name === 'Conflict' &&
-			saved !== undefined &&
-			saved.sha256 !== capture.sha256
-		)
-			({ error } = await context.folder.files.remove(saved));
-		problem = error === null ? undefined : describeError(error);
-	}
-	if (problem === undefined) context.deleted(capture.path);
-	return problem;
+	const stem = table && rowStemOf(table.name, path);
+	const { error } =
+		table !== undefined && stem !== undefined
+			? await table.delete(stem)
+			: await context.folder.write(path, null, null);
+	if (error !== null) return describeError(error);
+	context.deleted(path);
+	return undefined;
 }
 
-type RemovalContext = DeletionContext & {
+type RunContext = DeletionContext & {
 	/** Recordings whose deletion is under way. */
 	readonly deleting: Set<string>;
 	dropFailed(recordingId: string): void;
@@ -309,10 +286,10 @@ type RemovalContext = DeletionContext & {
 
 /**
  * Delete exactly what was confirmed. `deleting` holds the recording while it
- * is removed, so nothing new starts for it.
+ * is deleted, so nothing new starts for it.
  */
-export async function removeDeletion(
-	context: RemovalContext,
+export async function runDeletion(
+	context: RunContext,
 	deletion: Deletion,
 ): Promise<string | undefined> {
 	const { folder } = context;
@@ -324,17 +301,17 @@ export async function removeDeletion(
 		case 'transformation':
 			return deleteOne(
 				context,
-				deletion.file,
+				deletion.path,
 				folder.tables.transformations as FileTable<unknown>,
 			);
 		case 'file': {
 			const id = deletion.recordingId;
-			if (id === undefined) return deleteOne(context, deletion.file);
+			if (id === undefined) return deleteOne(context, deletion.path);
 			const busy = context.busy(id);
 			if (busy !== undefined) return busy;
 			context.deleting.add(id);
 			try {
-				return await deleteOne(context, deletion.file);
+				return await deleteOne(context, deletion.path);
 			} finally {
 				context.deleting.delete(id);
 			}
@@ -346,14 +323,14 @@ export async function removeDeletion(
 			// A result saved since the person was asked was not confirmed.
 			const { data: now, error } = await resultsOf(context, id);
 			if (error !== null) return error;
-			const confirmed = new Set(deletion.results.map((result) => result.path));
-			if (now.some((result) => !confirmed.has(result.path)))
+			const confirmed = new Set(deletion.results);
+			if (now.some((result) => !confirmed.has(result)))
 				return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 			context.deleting.add(id);
 			try {
 				const refused = await deleteOne(
 					context,
-					deletion.row,
+					deletion.path,
 					folder.tables.recordings as FileTable<unknown>,
 				);
 				if (refused !== undefined) return refused;
@@ -365,11 +342,11 @@ export async function removeDeletion(
 					const problem = await deleteOne(
 						context,
 						result,
-						(rowStemOf(TRANSCRIPTIONS, result.path) !== undefined
+						(rowStemOf(TRANSCRIPTIONS, result) !== undefined
 							? folder.tables.transcriptions
 							: folder.tables.transformation_runs) as FileTable<unknown>,
 					);
-					if (problem !== undefined) leftovers.push(result.path);
+					if (problem !== undefined) leftovers.push(result);
 				}
 				return leftovers.length > 0
 					? `The recording was deleted, but these files could not be: ${leftovers.join(', ')}`
@@ -399,7 +376,7 @@ export function describeDeletion(deletion: Deletion): {
 	switch (deletion.kind) {
 		case 'recording': {
 			const removed = [
-				deletion.row.path,
+				deletion.path,
 				...(deletion.results.length > 0
 					? [count(deletion.results.length, 'result', 'results')]
 					: []),
@@ -417,14 +394,14 @@ export function describeDeletion(deletion: Deletion): {
 		case 'transformation':
 			return {
 				title: `Delete the transformation “${deletion.title}”?`,
-				description: `This deletes ${deletion.file.path} from the folder. ${
+				description: `This deletes ${deletion.path} from the folder. ${
 					deletion.results > 0
 						? `Its ${count(deletion.results, 'saved result stays', 'saved results stay')} in transformation_runs or text_runs, each with the prompt it used.`
 						: 'It has no saved results.'
 				} ${historyNote(deletion.unversioned)}`,
 			};
 		case 'file': {
-			const { path } = deletion.file;
+			const { path } = deletion;
 			const what = deletion.problem
 				? `${path} does not read as a ${
 						deletion.recordingId === undefined ? 'transformation' : 'recording'

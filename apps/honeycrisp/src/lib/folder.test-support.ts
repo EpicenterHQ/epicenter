@@ -94,7 +94,7 @@ export async function openNotesFolder() {
 		},
 		/** Write a file through the app's own folder, before the app reads it. */
 		async write(path: string, text: string) {
-			expectOk(await folder.files.create(path, text));
+			expectOk(await folder.write(path, null, text));
 		},
 		/** Every file of the folder now, outside its history, sorted. */
 		paths: () =>

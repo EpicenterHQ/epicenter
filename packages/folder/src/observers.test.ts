@@ -112,7 +112,7 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 
 		// The save marks the observation stale, which publishes a snapshot from
 		// inside the save.
-		expectOk(await folder.files.create('note.txt', 'submitted'));
+		expectOk(await folder.write('note.txt', null, 'submitted'));
 		expect(seen.length).toBeGreaterThan(before);
 
 		// A commit publishes its activity to the same subscribers.
@@ -221,7 +221,7 @@ describe('browser pages', () => {
 			throw new Error('broken observer');
 		});
 		const heard = await hear(reader, async () => {
-			expectOk(await writer.files.create('note.txt', 'submitted'));
+			expectOk(await writer.write('note.txt', null, 'submitted'));
 			expectOk(
 				await writer.tables.notes.create(
 					{ fields: { title: 'A' }, body: '' },
@@ -347,8 +347,8 @@ describe('browser channel', () => {
 				},
 			}),
 		);
-		expectOk(await folder.files.create('note.txt', 'submitted'));
-		expectOk(await folder.files.create('b.txt', 'b'));
+		expectOk(await folder.write('note.txt', null, 'submitted'));
+		expectOk(await folder.write('b.txt', null, 'b'));
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(expectOk(await folder.git.status()).changes).toEqual([]);
 		await folder.close();
@@ -366,7 +366,7 @@ describe('browser channel', () => {
 				},
 			}),
 		);
-		expectOk(await folder.files.create('note.txt', 'submitted'));
+		expectOk(await folder.write('note.txt', null, 'submitted'));
 		await folder.close();
 		expect(log.filter((entry) => entry === 'closed')).toHaveLength(1);
 	});
@@ -392,7 +392,7 @@ describe('browser channel', () => {
 
 		// The message is posted while the reader is open and delivered after it
 		// started closing.
-		const saving = writer.files.create('late.txt', 'late');
+		const saving = writer.write('late.txt', null, 'late');
 		const closing = reader.close();
 		expectOk(await saving);
 		await closing;
@@ -422,7 +422,7 @@ test('a cross-tab file hint marks history stale and makes no commit', async () =
 		if (change !== 'everything' && change.includes('first.txt'))
 			seeded.resolve();
 	});
-	expectOk(await writer.files.create('first.txt', 'first'));
+	expectOk(await writer.write('first.txt', null, 'first'));
 	await seeded.promise;
 	stopSeeded();
 	expect((await reader.git.commit()).status).toBe('committed');
@@ -435,9 +435,7 @@ test('a cross-tab file hint marks history stale and makes no commit', async () =
 	});
 	const heard = Promise.withResolvers<FilesChanged>();
 	reader.onFilesChanged(heard.resolve);
-	expectOk(
-		await writer.files.create('external.txt', 'saved by another handle'),
-	);
+	expectOk(await writer.write('external.txt', null, 'saved by another handle'));
 	expect(await heard.promise).toContain('external.txt');
 	expect(reader.git.snapshot.files).toMatchObject({
 		state: 'observed',

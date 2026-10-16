@@ -40,7 +40,7 @@ const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 const INTO: CaptureStart = {
 	folder: {
 		id: 'so.epicenter.test',
-		files: { create: async () => Ok(undefined) },
+		write: async () => Ok(undefined),
 	},
 	path: 'recordings/a',
 };

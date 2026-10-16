@@ -64,7 +64,7 @@
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(row?.fields.capturedAt));
 	/** Edits wait while closing and while this capture is deleted. */
-	const locked = $derived(captures.fenced || captures.isRemoving(path));
+	const locked = $derived(captures.fenced || captures.isDeleting(path));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	let newThoughtField = $state<HTMLTextAreaElement | null>(null);

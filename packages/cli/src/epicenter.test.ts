@@ -410,7 +410,8 @@ test('a directory named <stem>.md in a table is a file to fix, not skipped', asy
 
 test('query refuses statements that write, attach, or vacuum, and leaves the directory unchanged', async () => {
 	const { folder, run } = await setup();
-	const before = await readdir(folder, { recursive: true });
+	// Sorted: a recursive listing's order differs between file systems.
+	const before = (await readdir(folder, { recursive: true })).sort();
 	for (const sql of [
 		`UPDATE posts SET status = 'done'`,
 		`ATTACH 'copy.db' AS copy`,
@@ -421,7 +422,7 @@ test('query refuses statements that write, attach, or vacuum, and leaves the dir
 		expect(result.exitCode).toBe(2);
 		expect(result.stderr).toContain('query only reads');
 	}
-	expect(await readdir(folder, { recursive: true })).toEqual(before);
+	expect((await readdir(folder, { recursive: true })).sort()).toEqual(before);
 	expect(await readFile(join(folder, 'posts/reel.md'), 'utf8')).toContain(
 		'status: drafting',
 	);

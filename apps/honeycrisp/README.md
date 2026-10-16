@@ -301,13 +301,15 @@ store, shared by rich text and Source: it takes the cached row at the first
 change, keeps the body outside the cache, and sends the change from that row
 to the typed body with `tables.notes.write` a second after the last change or
 when the view leaves it, merging with whatever changed since. It sends nothing
-while the listing does not hold the note. A text edit is a text draft
-(`createTextDraftState`) saved the same way with `files.save`. Writes to one
-file run one at a time, and each puts its result in the cache. A new note
-or folder is `tables.<name>.create`; a new file is `files.create`. Rename and
-delete wait for the file's saves. A note or folder renames by stem
-(`tables.<name>.rename`), and a folder row is deleted by stem; any other file
-moves, and every file is deleted, guarded by the version the last save wrote.
+while the listing does not hold the note. A text edit is a text editor
+(`createTextEditor`) saved the same way with the folder's `write`. Writes to
+one file run one at a time, and each puts its result in the cache. A new
+note or folder is `tables.<name>.create`; a new file is a write from no file,
+`folder.write(path, null, '')`. Rename and delete wait for the file's saves.
+A note or folder renames by stem (`tables.<name>.rename`), and a folder row
+is deleted by stem; any other file moves with `folder.move`, and every file
+is deleted with a write to no file, whatever it holds by then: the deleter
+wins (ADR-0576).
 After its own actions the page makes what they changed stale, and after its
 saves it reads Git status again, since the folder does not report a page's
 own writes to it.
@@ -390,7 +392,7 @@ view and delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the sets fields are written with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
+| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the sets fields are written with, the body and text editors and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
 | `src/lib/platform/` | The `#platform/folder` seam and its two leaves: `folder.epicenter-host.ts`, the folder Epicenter hands the window, and `folder.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
@@ -405,7 +407,7 @@ since deleted; its terminal, reveal, and per-note history no longer exist.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the folder, its note and folder listings, field sets, merging saves, change reports, query options, and text drafts; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
+- `@epicenter/folder` for the folder, its note and folder listings, field sets, merging saves, change reports, query options, and text editors; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
 - Epicenter's [Tauri](https://tauri.app) shell on the desktop, with the `tauri-plugin-epicenter-folder` crate granting the directory, reading it, making changes, and running `git`
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 

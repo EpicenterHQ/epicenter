@@ -51,10 +51,6 @@ open no storage and change no files. Apps supply their editable-byte limit and
 keep their own file-name messages. Text classification preserves the file's
 byte-order mark; invalid UTF-8 and NUL bytes open as binary details.
 
-`submittedText(text)` from the main contract returns the bytes a save submits
-and the exact text of those bytes. Row writes and app text editors use the same
-encoding rule, including replacement of unpaired surrogates.
-
 ## Dataset names, definitions, and addresses
 
 A folder ID names a dataset. In a browser, `so.epicenter.todos` names the
@@ -199,8 +195,8 @@ folder ID.
 | `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
-| `@epicenter/folder/query` | Nothing: TanStack Query option factories and the text draft over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
-| `@epicenter/folder/svelte` | Nothing: `createBodyEditor`, a row's body opened over the table's write, and `createTextDraftState`, a file's text draft, each read reactively with its save loop ([Editing a row](#editing-a-row)). Loads `svelte/reactivity`, an optional peer. | A Svelte editor of a note body or a file's text. |
+| `@epicenter/folder/query` | Nothing: TanStack Query option factories over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
+| `@epicenter/folder/svelte` | Nothing: `createTextEditor`, one document's text opened over the folder's write, and `createBodyEditor`, its row case, each read reactively with its save loop ([Editing text](#editing-text)). Loads Svelte's runes only. | A Svelte editor of a note body or a file's text. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -407,15 +403,15 @@ empty. A browser that cannot move a file writes a new one in place.
 | What happened | Outcome |
 | --- | --- |
 | A write failed before its stream closed, or a new file's move failed | `Io`, and the path holds what it held. |
-| A replacing stream's close threw | Read back once: the bytes sent are the write landing; anything else is `Unconfirmed`. The path is posted to other pages and the history observation turns stale. |
-| A move landed its destination and could not remove its source | `SourceNotRemoved`: a move is a create at the destination, then a removal of the source guarded by its bytes, so both paths hold the file. The destination is posted to other pages. |
+| A replacing stream's close threw | Read back once: the bytes sent are the write landing; anything else is `Io` with `Unconfirmed` as its cause. The path is posted to other pages and the history observation turns stale. |
+| A move landed its destination and could not remove its source | `Io`: a move is a create at the destination, then a removal of the source guarded by its bytes, so both paths hold the file, to repair. The destination is posted to other pages. |
 
-Saves are ordered by the lock alone, not by when their methods were called.
-A save that hashes or waits longer can land after one asked for later, from
-the same page or another. Every write after a create names the bytes it
-started from, so none overwrites bytes its caller did not review: a save
-merges with them, and `remove`, `move`, and a save with `{ merge: false }`
-are refused as `Conflict`.
+Writes are ordered by the lock alone, not by when their methods were called.
+A write that hashes or waits longer can land after one asked for later, from
+the same page or another. Every put is guarded by the bytes its write read,
+so none lands over bytes its write did not merge: a stale put reads again
+and merges, a create onto a file that landed meanwhile is `InvalidPath`, and
+a delete reads again and still wins.
 
 ### A directory the desktop shell grants
 
@@ -608,8 +604,8 @@ rename holds the folder's save lock, an exclusive SQLite transaction on
 shell takes around its own checked renames
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
 So two concurrent saves of one file, from one script, two scripts, or a
-script and an open desktop window, cannot both pass the check; the second is
-`Conflict` and merges as any overtaken save does. A save waits up to ten
+script and an open desktop window, cannot both pass the check; the second's
+put is stale, and it reads again and merges as any overtaken write does. A save waits up to ten
 seconds for another process's, then fails and changes nothing. The system
 releases the lock when its process ends, however it ends; it is unreliable on
 some network filesystems, and a directory with no parent, such as `/`, cannot
@@ -685,65 +681,63 @@ its default export declares (ADR-0527).
 | Member | Contract |
 | --- | --- |
 | `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `write(stem, from, to)` merges the change from one row to another into the row as it is now, through the folder's one write; `set`, `create`, `delete`, and `rename` build that change. Each changes exactly one Markdown file, a rename two. See [Reading a row](#reading-a-row), [Writing a row](#writing-a-row), and [Editing a row](#editing-a-row). |
-| `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. See [One write](#one-write). |
-| `files` | Ordinary files at literal paths. See below. |
+| `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. A create is a write from `null`, a delete a write to `null`. See [One write](#one-write). |
+| `move(path, next)` | The one move (ADR-0576): the file's bytes land at `next` only where nothing is, then `path` is removed only while it holds them. See [Files](#files). |
+| `files` | Ordinary files at literal paths: reads, listings, and directories. See below. |
 | `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. |
 | `sync` | `run()` records saved files, fetches, merges both heads into one commit this device wins, and pushes; `connect(url)` sets the remote first. It asks nothing. See [Sync](#sync). |
 | `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, settings among them, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
-| `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own saves. Returns the function that stops listening. See [Changes](#changes). |
+| `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own writes. Returns the function that stops listening. See [Changes](#changes). |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
 
 ### Files
 
 ```ts
-const { data: take, error: createError } = await folder.files.create('audio/take.webm', bytes);
-if (createError !== null) return show(createError.message);         // refused if anything is there
+const { error: createError } = await folder.write('audio/take.webm', null, bytes);
+if (createError !== null) return show(createError.message);         // InvalidPath if a file is there
 const { data: file, error: readError } = await folder.files.read('notes/a.md');
-if (readError !== null) return show(readError.message);             // file is { path, sha256, bytes }
-const { data: saved, error: saveError } = await folder.files.save(file, 'new text');
-if (saveError !== null) return show(saveError.message);             // deleted, or kept changing
-const { data: moved, error: moveError } = await folder.files.move(saved.stored, 'notes/b.md');
-if (moveError !== null) return show(moveError.message);             // refused if either end changed
-const { error: removeError } = await folder.files.remove(moved);
-if (removeError !== null) return show(removeError.message);         // refused if it changed since
+if (readError !== null) return show(readError.message);             // file is { bytes, sha256 }
+const { data: written, error: writeError } = await folder.write('notes/a.md', file.bytes, 'new text');
+if (writeError !== null) return show(writeError.message);           // kept changing, say
+if (written.file === null) return show('It was deleted elsewhere'); // the edit wrote nothing
+const { error: moveError } = await folder.move('notes/a.md', 'notes/b.md');
+if (moveError !== null) return show(moveError.message);             // InvalidPath if b.md is there
+const { error: deleteError } = await folder.write('notes/b.md', null, null);
+if (deleteError !== null) return show(deleteError.message);         // the deleter wins
 ```
 
-The verb states the condition. `save`, `remove`, and `move` act on a
-**capture**: a plain, frozen `{ path, sha256 }`. The hash identifies the exact
-bytes captured; byte length remains inventory metadata. A capture holds nothing
-open, can be serialized, and never changes. A successful write returns a new
-capture; the one passed in stays what it was. A stored row and an
-`InvalidRow` are captures of their row file, and so is a `read` result.
+A file's content changes only through the one write, `folder.write(path,
+from, to)`, and a file moves only through `folder.move(path, next)`
+(ADR-0576). `from` is the content the change started from, `null` for no
+file: an editor keeps it apart from what it typed ([Editing
+text](#editing-text)). A read answers the file's detached bytes and the
+SHA-256 that names them.
 
-A save's base must also carry the content it names (ADR-0551): `read`,
-`create`, and `save` return the bytes with the capture, a `StoredRow` and an
-`InvalidRow` carry the text, and `{ path, sha256, text }` that crossed JSON
-works too. A base without content, or whose content no longer hashes to its
-`sha256` (bytes edited in place, say), is `UnknownBase`, and nothing is
-written. An editor keeps its base and its edited text apart.
-
-- Strings are saved as UTF-8 with nothing added or normalized. Byte arrays are
-  copied when the method is called, so reusing the array afterward changes
-  nothing.
-- A save's capture is computed from the bytes it wrote. Nothing is read back.
-  If another writer lands right behind the save, the capture still names what
-  this save wrote, and the next save from it merges with their change. Read
+- Strings are written as UTF-8 with nothing added or normalized. Byte arrays
+  are copied when the method is called, so reusing the array afterward
+  changes nothing.
+- A write's answer is the file as it left it, computed from the bytes it put
+  or found. Nothing is read back. If another writer lands right behind the
+  write, the next write from the same `from` merges with their change. Read
   the file to observe what is there now.
-- A moved file's capture is the captured hash at the new path. It is a
-  receipt conditioned on that baseline, never a read of the destination:
-  another program may write there afterward, and a directory's source check
-  is best effort against outside programs. Read the file to know what it
-  holds now.
-- `create` reports `Exists` for an occupied path even when the bytes are identical.
-- A stale capture is a `Conflict` for `remove` and `move`. A save merges
-  instead (see [One save](#one-save)), unless it is given `{ merge: false }`.
+- A create, a write from `null`, is placed only where no file is: a file
+  already there is `InvalidPath`, unless it holds the same bytes, which is
+  that create landed before.
+- A delete, a write to `null`, removes whatever the file holds now: the
+  deleter wins, and an edit of a file deleted since writes nothing and
+  answers `file: null`.
+- A move puts the bytes at `next` only where nothing is, so two moves onto
+  one path never fuse two files, then removes `path` only while it holds
+  them, carrying a write that lands there meanwhile. No file at `path`, or
+  one at `next`, is `InvalidPath`. A removal that failed leaves both paths
+  holding the file, to repair. The answer is the file as it stands at `next`.
 
-Internally every verb is `put(path, bytes | null, ifMatch)` on the storage
-port: `create` puts where `ifMatch` is `null`, so only where no file is;
-`remove` puts no file where the captured hash is; a move is a create at the
-destination, then a remove of the source. Browser OPFS, the Bun directory,
-and a desktop page's directory check `ifMatch` where the bytes land.
+Internally every write and move is `put(path, bytes | null, ifMatch)` on the
+storage port: a create puts where `ifMatch` is `null`, so only where no file
+is; every other put names the hash its write read. Browser OPFS, the Bun
+directory, and a desktop page's directory check `ifMatch` where the bytes
+land.
 
 A directory folder, in Bun or a desktop page, checks what a `put` expects
 at its path where it renames a staged copy over it. On the desktop the shell makes that check and the rename under one lock
@@ -753,7 +747,7 @@ program removes between the check and the rename comes back with the new
 bytes; it shows as an ordinary file and can be removed again (ADR-0533).
 A directory folder reads names literally: on a case-insensitive file system,
 `plan.md` does not reach `Plan.md`, and creating or moving to `plan.md`
-there is `Exists`. Browser folders are unaffected. OPFS opens the file without creating it
+there is `InvalidPath`. Browser folders are unaffected. OPFS opens the file without creating it
 and checks again once its writable stream holds the lock that, in Chromium,
 refuses removing the file or a directory above it; a Chrome 142 probe showed
 that, and other engines are unverified. Bytes another program writes in that
@@ -803,8 +797,7 @@ stored.row; // { fields, body }: complete, unknown keys included, yours to edit
 
 `row` belongs to the caller: it is mutable, shares nothing with another
 read, and keeps every frontmatter key, declared or not, so the complete row
-can be saved back. `path` and `sha256` describe the read and never change; a
-guarded write takes them as its capture.
+can be saved back. `path` and `sha256` describe the read and never change.
 
 `InvalidRow` is every way readable text fails to be a row: no fences,
 malformed YAML, a value with no exact JSON form, a declared field that is
@@ -1013,10 +1006,31 @@ offers the text until the person copies or discards it.
 ></textarea>
 ```
 
-An ordinary file's text drafts the same way over `files.save` with
-`createTextDraft()` in `@epicenter/folder/query`, or reactively with
-`createTextDraftState({ save })`: the draft captures the file at the first
-change and saves with it as the base.
+### Editing text
+
+The body editor is the row case of one text editor (ADR-0576).
+`createTextEditor({ current, write })` opens any document's text the same
+way: it holds `from`, the document at the first change, then what each save
+that landed sent, and `typed`, and sends each save to `write` as the change
+from `from` to `from` holding the typed text. It has no revision counter
+and no merge of its own: the folder's write merges every save into the
+file as it is now. A file's exact text is its plain case, written through
+`folder$.write`:
+
+```ts
+const opened = createQuery(() => folder$.files.text.queryOptions(path));
+const writeFile = createMutation(() => folder$.write.mutationOptions());
+const text = createTextEditor({
+  current: () => (opened.data?.kind === 'text' ? opened.data.text : undefined),
+  write: async (change) =>
+    (await writeFile.mutateAsync({ path, ...change })).file === null ? 'gone' : 'landed',
+});
+```
+
+`write` resolves `'gone'` when the write found no file, which stops the
+editor and marks what is typed `gone`, as for a row. A textarea reports
+`\n` line endings; `withFileNewlines` from `@epicenter/folder/file-browser`
+restores a file's own before the text is typed into the editor.
 
 ### One write
 
@@ -1027,7 +1041,7 @@ file; `to` is the new content, or `null` to delete the file.
 ```ts
 const { data: written, error } = await folder.write('notes/a.md', opened.text, edited);
 if (error !== null) return show(error.message); // KeptChanging, InvalidValues, Io, Closed, InvalidPath
-written.file;       // what the path holds now: { path, sha256, bytes }, or null
+written.file;       // what the path holds now: { bytes, sha256 }, or null
 written.overridden; // each unit this write won over another writer's change
 ```
 
@@ -1070,41 +1084,6 @@ browser, the desktop, and Bun share its one implementation: OPFS checks under
 the folder's Web Lock, and a directory checks where its staged file is
 renamed into place, under the save lock (ADR-0562).
 
-### One save
-
-Every save of `files.save` over an existing file is one save loop,
-`saveFile` (ADR-0551).
-
-1. The base's content must hash to its `sha256`; otherwise `UnknownBase`.
-   The save swaps on that hash.
-2. On `Conflict` it reads the current file. A missing file is `NotFound`: a
-   save never recreates a deleted file.
-3. It merges the base and the edit with the current file by the file's kind,
-   and settles every unit both changed with the edit's side.
-4. The result must read as its kind whenever the edit does; then it swaps on
-   the current hash. That repeats at most `WRITE_ATTEMPTS` times, then
-   `KeptChanging`. A reply lost as `Unconfirmed` is read back once: our bytes
-   mean done.
-
-Every round merges from the edit's own base. `{ merge: false }` stops at
-the first swap and answers `Conflict`: for a write that must land only over
-what it read.
-
-| Kind | Merges by | A competing unit |
-| --- | --- | --- |
-| a row of a declared table | field, and the body by line | one field; the body |
-| other UTF-8 text | line | the file's text |
-| binary, or a side absent | none | the whole file |
-
-A row version that does not read as a row merges as text. A saved JSON,
-YAML, or CSV file merges by line, so the result may not parse. Sync
-merges with the same rules (see [Sync](#sync)).
-
-Where both sides changed one unit, the edit wins (ADR-0575). The save
-returns no record of it for a person; each overwrite that lands is logged
-through `wellcrafted/logger` (`folder/save`) with the units it replaced. It
-merges with `merge`, as `folder.write` does, so two insertions at one place
-both survive here too.
 
 ### One file per save
 
@@ -1119,8 +1098,7 @@ them reads what landed before deciding what to save next.
 files may have changed (ADR-0548). `listener` receives
 `FilesChanged = readonly string[] | 'everything'`: the paths a change
 reached, or `'everything'` when the reporter cannot say. A change carries no
-content and is never a capture; read through the folder to learn what the
-files hold. Nothing records changes, so a missed one costs a delay, never
+content; read through the folder to learn what the files hold. Nothing records changes, so a missed one costs a delay, never
 data. Subscribe before the first read so nothing falls between them. Closing
 stops all listeners at once, including the ones still waiting in a dispatch
 that a listener closed the folder from.
@@ -1133,12 +1111,12 @@ Each host has exactly one detector of changes made outside the handle:
 | Desktop | The shell's watcher of the granted directory: the folder plugin's `epicenter-folder://changed` event, `{ scope, paths }`, sent to each permitted window and filtered by this folder's scope | The paths; `null` paths as `'everything'`; `.git` when history moved |
 | Bun | None; a script that needs one watches with `fs.watch` | Nothing from outside |
 
-A handle's own saves are not reported to it: whoever saved holds the result.
+A handle's own writes are not reported to it: whoever wrote holds the result.
 What its own Sync writes is reported on every host, since the page did not
 make those changes. Every report marks the history's observations stale.
 
 A listener runs inside the folder's work. What it throws is logged and goes
-no further: the save still returns its capture, and the other listeners
+no further: the write still returns what it wrote, and the other listeners
 still hear. The same holds for a `git.subscribe` subscriber.
 
 ### Queries
@@ -1186,8 +1164,10 @@ back.
 A write keeps the cache in step inside its own `mutationFn`, so a caller's
 `onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
 puts its result where it can: `set`, `create`, and `write` set the row's query and
-its entry in the listing, `delete` drops them, and `files.write` sets the
-file's `read` and `text`. The folder does not
+its entry in the listing, `delete` drops them, and `folder$.write` sets the
+file's `read` and `text`. `folder$.write` and `folder$.move` mirror the
+handle's `write` and `move` for any path, a row's included, so a row's query
+and listing are marked stale when they write one. The folder does not
 report a page's own writes to it, so the write marks stale the rest of what
 a change to its paths would, the history's status included. A read still
 running when the write lands may predate it, or a later change, so it is
@@ -1204,8 +1184,8 @@ changed path, and the history's status; a path in `.git` also matches the
 log, and `'everything'` matches every query of the folder. Invalidating
 reads again only what a view or observer holds; a store that reads with
 `getQueryData` observes what it shows. A table named like a member
-(`files`, `history`, `tables`, `pathFilter`, `key`, `query`) is under
-`folder$.tables` only.
+(`files`, `history`, `write`, `move`, `tables`, `pathFilter`, `key`,
+`query`) is under `folder$.tables` only.
 
 Every read is local and changes only when the folder's channel or the
 page's own write says so, so the options set `networkMode: 'always'`, no
@@ -1215,7 +1195,7 @@ these for the folder's queries.
 `runMutation(client, options, variables)` runs a write from outside a
 component, as `mutateAsync` does, through the client's mutation cache.
 `whenIdle(client, filters?)` resolves once nothing matching `filters` is
-mutating, counting a draft's next save that is about to start.
+mutating, counting an editor's next save that is about to start.
 
 ## History
 
@@ -1258,16 +1238,17 @@ folder ignores files of its own accord.
 
 `close()` fences new file work, stops change reports, refuses new Git requests, and
 cancels pushes and fetches. It does not await file helpers or publication
-replies. Await a save that must finish before closing:
+replies. Await a write that must finish before closing:
 
 ```ts
-const { error: saveError } = await folder.files.create('note.md', 'Saved before leaving');
-if (saveError !== null) return show(saveError.message);
+const { error: writeError } = await folder.write('note.md', null, 'Saved before leaving');
+if (writeError !== null) return show(writeError.message);
 await folder.close();
 ```
 
 A helper still reading or hashing can be refused at its next storage call. An
-already-started change returns its actual Result, including `Unconfirmed`. Closing never relabels that outcome. A browser write that
+already-started change returns its actual Result, including a lost reply
+(`Io` with `Unconfirmed` as its cause). Closing never relabels that outcome. A browser write that
 already holds the files lock can finish after close returns, although the
 paths it posts to other pages can be lost once the channel closes.
 
@@ -1429,13 +1410,14 @@ dangle.
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-history.ts`, and the directory folder only then. |
-| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
+| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds the typed row view over the one write. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
-| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createTextDraft`. |
+| `src/query.ts` | `@epicenter/folder/query`: `folderOptions`, with `folder$.write` and `folder$.move`. |
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
-| `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
-| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, `lock`), and what folders build on it: save accounting, the close fence, captures, and the file verbs. |
+| `src/svelte/` | `@epicenter/folder/svelte` (`editor.svelte.ts`: `createTextEditor` and `createBodyEditor`), its tests, and the Svelte boundary tests. |
+| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, `lock`), and what folders build on it: save accounting, the close fence, and the reads composed from `read` and `list`. |
+| `src/write.ts`, `hash.ts` | The one write (`writeFile`, `folder.write`) and the one move (`movePath`, `folder.move`), with the guarded put they share; and the SHA-256 that names a file's bytes. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-store.ts`, `directory-primitives.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: its storage over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
 | `src/git/merge.ts`, `git/history.ts` | Sync's one merge commit as objects, and the coordinator that checkpoints, fetches, pushes, and publishes. |
@@ -1492,13 +1474,14 @@ wraps it so each `put` that may have landed marks history stale, under the
 save lock too, so a domain method cannot write without that.
 
 ```ts
-createFiles({ storage, definition })
+createFiles({ storage })
 createTable({ storage }, name, definition.tables[name])
 ```
 
-`files.save` calls `saveFile` (`save-file.ts`), and every table helper calls `writeFile`
-with the file's kind, which merges through `merge` (`merge-file.ts`), the
-merge Sync and the merge driver use too.
+`folder.write` and every table helper call `writeFile` (`write.ts`) with the
+file's kind, which merges through `merge` (`merge-file.ts`), the merge Sync
+and the merge driver use too; `folder.move` and `table.rename` call
+`movePath`.
 
 Every opener wraps raw storage with publication accounting. Assembly fences
 the resulting storage with the handle's close signal. These wrappers retain
@@ -1506,6 +1489,6 @@ no file-operation collection.
 
 Git keeps raw storage because Sync's publish updates files and history
 under its own policy, each file under the save lock, and is not recorded
-as local saves. Saves are not
-ordered by when their methods were called; each names the bytes it started
-from, so a later one merges with or is refused by what landed first.
+as local saves. Writes are not
+ordered by when their methods were called; each puts guarded by the bytes
+it read, so a later one reads again and merges with what landed first.
