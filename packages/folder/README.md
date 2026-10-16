@@ -462,9 +462,8 @@ the folder the window was granted and answers one reply line
 | `sync.run()`, `sync.connect(url)` | `sync` | `epicenter sync <root> [--remote <url>] --json` |
 | `sync.resolve(attempt, choices)` | `settle_sync` | `epicenter sync <root> --resolve - --json` |
 
-The child runs the engine a Bun process runs (`runHistory` in
-`history-command.ts`), so the merge is the same TypeScript on every host
-(ADR-0551). A save version, a sync, and settling a sync hold the folder's
+The child runs the engine a Bun process runs (`runHistory` in `bun.ts`), so
+the merge is the same TypeScript on every host (ADR-0551). A save version, a sync, and settling a sync hold the folder's
 history lock, an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder (`holdingHistoryLock` in
 `bun.ts`), so two windows' children, or a window's and a terminal's, take
@@ -1537,7 +1536,7 @@ dangle.
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
 | `git/native-*.ts` | The `git` program a directory folder records history with, in Bun. |
-| `src/history-command.ts`, `history-wire.ts`, `tauri-history.ts` | A desktop page's history: what the `epicenter` CLI runs (`runHistory`), the reply line it prints, and the page's `folder.git` over the shell's history commands. |
+| `src/history-wire.ts`, `tauri-history.ts` | A desktop page's history: the reply line the `epicenter` CLI prints for what it runs (`runHistory` in `bun.ts`), and the page's `folder.git` over the shell's history commands. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
 | `fixtures/` | Vectors the tests read: `kv-merge.json` for `mergeKv`, and `commit-subjects.txt`, the subjects `commitSubject` writes (`bun run gen:vectors` rewrites it). |
 | `evidence/` | Tests that build real bundles and read real import closures; `evidence/opfs`, a page that runs the browser checks in a real browser. |

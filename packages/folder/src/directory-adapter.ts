@@ -45,6 +45,15 @@ export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
 	}) => Promise<(definition?: FolderDefinition) => THistory>;
 
 /**
+ * The lock a directory folder's file saves take turns under in one process.
+ * Its name comes from the directory alone, so every opener takes turns with
+ * the others, whatever ID it opened the directory by.
+ */
+export function directoryFilesLock(rootPath: string): string {
+	return `epicenter-folder-directory-files:${JSON.stringify(['directory', rootPath])}`;
+}
+
+/**
  * Open the folder in an ordinary directory a trusted host has already given
  * this page: the desktop app's shell decides the directory, takes the lock
  * that keeps other processes out of it, and grants the page access to it.
@@ -124,9 +133,6 @@ export async function openDirectoryFolder<
 		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
 		shape = prepared;
 	}
-	// The lock name comes from the directory alone, so every opener in this
-	// process takes turns with the others, whatever ID it opened it by.
-	const address = JSON.stringify(['directory', rootPath]);
 	// A write that stopped before its rename (a crash, a quit) leaves its
 	// staged bytes behind. Another handle or process may be writing the
 	// directory now, so only files staged long enough ago to be abandoned are
@@ -153,7 +159,7 @@ export async function openDirectoryFolder<
 					: createOpfsFileBoundary({
 							root,
 							locks,
-							filesLock: `epicenter-folder-directory-files:${address}`,
+							filesLock: directoryFilesLock(rootPath),
 							landed: relay,
 						});
 			return { boundary, history: await history({ boundary, landed }) };
