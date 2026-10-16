@@ -33,7 +33,7 @@ import {
 	type CaptureFields,
 	captureBody,
 } from '@epicenter/capture';
-import type { Row, StoredRow } from '@epicenter/folder';
+import type { Row, StoredRow, WrittenRow } from '@epicenter/folder';
 import { createBodyEditor } from '@epicenter/folder/svelte';
 
 /** One edit of a thought, from Edit until it is saved or cancelled. */
@@ -65,7 +65,7 @@ export function createCaptureForm(capture: {
 	write(change: {
 		readonly from: Row<CaptureFields>;
 		readonly to: Row<CaptureFields>;
-	}): Promise<StoredRow<CaptureFields> | null>;
+	}): Promise<WrittenRow<CaptureFields>>;
 	/** The capture is gone with `typed` not saved; the edit leaves the form. */
 	gone(typed: string): void;
 	/** Whether input is refused now: closing, or deleting. */

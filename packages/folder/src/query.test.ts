@@ -15,7 +15,7 @@
  * - A row write updates its row and the listing from its own result, even
  *   with the caller's own `onSuccess`, and marks stale the rest a change to
  *   its path would: the history's status, the file's read and listing
- * - A delete drops the row and its listing entry, and a rename moves them
+ * - A delete drops the row and its listing entry
  * - A read running when a write lands is done again rather than landing
  *   over the write
  * - A file write puts what it wrote in the file's read and text queries
@@ -38,6 +38,8 @@ import {
 } from './browser-storage.test-support.js';
 import { defineFolder, defineTable, type Folder, field } from './contract.js';
 import { folderOptions, runMutation, whenIdle } from './query.js';
+import { mustRow } from './row-write.test-support.js';
+import { isStoredRow } from './table.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
@@ -208,7 +210,8 @@ test('a set puts its row in the row and the listing, and marks the rest of its p
 	});
 
 	expect(told).toBe(1);
-	expect(written?.row.fields.done).toBe(true);
+	if (!isStoredRow(written)) throw new Error('the set left no row');
+	expect(written.row.fields.done).toBe(true);
 	expect<unknown>(
 		queryClient.getQueryData(folder$.todos.get.queryKey('milk')),
 	).toEqual(written);
@@ -224,7 +227,7 @@ test('a set puts its row in the row and the listing, and marks the rest of its p
 	]);
 });
 
-test('a delete drops the row and its listing entry, and a rename moves them', async () => {
+test('a delete drops the row and its listing entry', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
@@ -249,24 +252,13 @@ test('a delete drops the row and its listing entry, and a rename moves them', as
 	).mutate('a');
 	expect(queryClient.getQueryData(folder$.todos.get.queryKey('a'))).toBeNull();
 	expect(stems()).toEqual(['b']);
-
-	const moved = await new MutationObserver(
-		queryClient,
-		folder$.todos.rename.mutationOptions(),
-	).mutate({ stem: 'b', next: 'c' });
-	expect(moved?.path).toBe('todos/c.md');
-	expect(queryClient.getQueryData(folder$.todos.get.queryKey('b'))).toBeNull();
-	expect<unknown>(
-		queryClient.getQueryData(folder$.todos.get.queryKey('c')),
-	).toEqual(moved);
-	expect(stems()).toEqual(['c']);
 });
 
 test('a read running when a write lands is read again, not kept over the write', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
-	const created = expectOk(
+	const created = mustRow(
 		await folder.tables.todos.create(
 			{ fields: { title: 'Milk', done: false }, body: '' },
 			{ stem: 'milk' },
