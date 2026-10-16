@@ -8,18 +8,16 @@ import type {
 	QueryObserverOptions,
 } from '@tanstack/query-core';
 import {
-	type ContentCapture,
 	defineFolder,
 	defineTable,
 	type Folder,
 	field,
 	type Row,
 	type RowReadError,
-	type SavedRow,
 	type StoredRow,
 	type TableListing,
-	type TableSaveError,
-	type TableUpdateError,
+	type WriteError,
+	type WrittenRow,
 } from './contract.js';
 import { folderOptions } from './query.js';
 
@@ -66,14 +64,19 @@ expectTypeOf<QueryData<Settings>>().toEqualTypeOf<NonNullable<
 	Awaited<ReturnType<typeof folder.kv.get>>['data']
 > | null>();
 
-// A save sends the base it started from, with its content, and the edited row.
-type Save = ReturnType<typeof folder$.todos.save.mutationOptions>;
-expectTypeOf<Variables<Save>>().toEqualTypeOf<{
-	readonly base: ContentCapture;
-	readonly row: Row<Todo>;
+// A row write sends the change from one row to another, either one absent.
+type Write = ReturnType<typeof folder$.todos.write.mutationOptions>;
+expectTypeOf<Variables<Write>>().toEqualTypeOf<{
+	readonly stem: string;
+	readonly from: Row<Todo> | null;
+	readonly to: Row<Todo> | null;
 }>();
-expectTypeOf<MutationData<Save>>().toEqualTypeOf<SavedRow<Todo>>();
-expectTypeOf<MutationError<Save>>().toEqualTypeOf<TableSaveError>();
+expectTypeOf<MutationData<Write>>().toEqualTypeOf<WrittenRow<Todo>>();
+expectTypeOf<MutationError<Write>>().toEqualTypeOf<WriteError>();
+// A delete sends the stem it deletes.
+type Delete = ReturnType<typeof folder$.todos.delete.mutationOptions>;
+expectTypeOf<Variables<Delete>>().toEqualTypeOf<string>();
+expectTypeOf<MutationError<Delete>>().toEqualTypeOf<WriteError>();
 // A table's rows are its own.
 type Create = Variables<
 	ReturnType<typeof folder$.todos.create.mutationOptions>
@@ -93,16 +96,16 @@ expectTypeOf(folder$.files.read.queryKey).toEqualTypeOf<
 	(path: string) => readonly unknown[]
 >();
 
-// An update of one row sends a change to its fields as they are now.
-type Update = ReturnType<typeof folder$.todos.update.mutationOptions>;
-expectTypeOf<{ stem: 'milk'; set: { done: true } }>().toExtend<
-	Variables<Update>
+// A set of one row sends the fields it sets, as the row holds them now.
+type SetRow = ReturnType<typeof folder$.todos.set.mutationOptions>;
+expectTypeOf<{ stem: 'milk'; fields: { done: true } }>().toExtend<
+	Variables<SetRow>
 >();
-expectTypeOf<{ stem: 'milk'; set: { done: 'yes' } }>().not.toExtend<
-	Variables<Update>
+expectTypeOf<{ stem: 'milk'; fields: { done: 'yes' } }>().not.toExtend<
+	Variables<SetRow>
 >();
-expectTypeOf<MutationData<Update>>().toEqualTypeOf<SavedRow<Todo>>();
-expectTypeOf<MutationError<Update>>().toEqualTypeOf<TableUpdateError>();
+expectTypeOf<MutationData<SetRow>>().toEqualTypeOf<WrittenRow<Todo>>();
+expectTypeOf<MutationError<SetRow>>().toEqualTypeOf<WriteError>();
 
 // The definition is inferred from the folder, with no settings declared too.
 const plain = defineFolder({

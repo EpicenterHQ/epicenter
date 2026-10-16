@@ -1,77 +1,50 @@
-# Example conversations and first attempts
+# Example conversations
 
-These invented samples pair an articulation of the model with something the
-person can judge: a timeline, an interaction sketch, prose to read, caller
-code, a conversation a skill could produce, or a rendered website. They are
-not measured runs or records of the user's preferences. The first two keep the
-same system but change the question, showing why a timeline helps one judgment
-and a product sketch helps another. The longer exchanges move to other domains
-and show how a reaction can change the model and its expression. They teach
-judgment, not a fixed sequence, number of versions, or response format.
+These illustrations pair an articulation of the model with a concrete
+expression: prose to read, caller code, a conversation a skill could produce,
+or a rendered website. The articulation explains the proposed meaning or
+arrangement; the expression lets the user judge the choices made in realizing
+it. They are not measured runs or records of the user's preferences. Reactions
+may change either or both. The examples teach judgment, not a fixed sequence,
+number of versions, or response format.
 
-## First attempt: make a sequence visible
+## Process reflection: investigate before turning an experience into rules
 
-> **Human:** Alice signs out, Bob signs in on the same computer, then Alice
-> returns offline. What should happen to her unsent mail change?
->
-> **Agent:** Here is the experience I think we are trying to preserve. The
-> question mark is a product choice, not a missing implementation detail.
->
-> | Moment | What the person sees | Work still on this computer |
-> | --- | --- | --- |
-> | Alice archives offline | The email leaves her inbox; delivery says waiting | Alice's pending archive |
-> | Bob opens his workspace | None of Alice's mail or pending work appears | Alice's archive remains retained |
-> | Alice returns offline | Can she reopen her retained work? **?** | The archive still has not reached Gmail |
->
-> I would keep Bob's view separate and preserve Alice's action. The unsettled
-> choice is what sign-out means for reopening Alice's retained work. Should
-> it require an online sign-in, or can she return offline?
+This proposed response draws on the writing-process reflection in chat
+`01a126b8-8530-78c1-89bb-2048257e8aba`. The observed response listed lessons
+about drafting, voice, journals, and review batches, then asked whether those
+lessons captured what felt distinctive. The user had to ask what the goal and
+cruxes were. This alternative is an illustration, not a tested outcome or an
+invented reply from the user.
 
-The table separates visibility, retention, and delivery. It makes the
-experience available for correction before introducing an access mechanism or
-surveying the current account system.
+> **Human:** That writing chat took an interesting path. Can we have a
+> dialectic about what it changes for page writing, journal writing, or voice?
+>
+> **Agent:** The Eastern Europe fragment is the moment I'd start with. The
+> draft said only, “Yinson dreams of going to Eastern Europe.” You came back
+> with an inside joke between friends. Almost all the writing happened in
+> your reply.
+>
+> That makes “draft early” a tempting lesson. But this draft barely added
+> anything to the original fragment. We don't yet know whether turning it
+> into a sentence helped, or whether having your place held in a review made
+> it easy to start telling the story.
+>
+> My current hunch is that having something concrete in front of you made
+> it easier to start telling the story. If that's what helped, a recognizable
+> fragment plus an openly provisional passage might do the same job with
+> less invented meaning.
+>
+> At that moment, was there anything in the draft that helped you start
+> telling the joke, beyond seeing the original fragment again? I'm trying
+> to work out what the draft contributed before making it our default.
 
-## First attempt: compare the product people would use
-
-> **Human:** Should Mail and a unified communications inbox be separate apps?
->
-> **Agent:** Here is the same offline mail task in three arrangements. These
-> are interface sketches, not current screens or storage designs.
->
-> ```text
-> A. Two products, two windows
-> ┌─ Local Mail ─────────────┐  ┌─ Unified inbox ───────────┐
-> │ Gmail · Inbox            │  │ All | Mail | Chats         │
-> │ Budget update            │  │ Budget update · waiting   │
-> │ Archived · waiting       │  │ Chat from Maya            │
-> └──────────────────────────┘  │ Ask across mail and chat   │
->                               └───────────────────────────┘
->
-> B. One product, one window
-> ┌─ Communications ────────────────────────────────────────┐
-> │ All | Mail | Chats                   Ask across both     │
-> │ Mail: Budget update · Archived · waiting               │
-> │ Chat: Maya                                              │
-> └──────────────────────────────────────────────────────────┘
->
-> C. One product, two windows
-> ┌─ Communications: Mail ──┐  ┌─ Communications: All ─────┐
-> │ Budget update           │  │ Budget update · waiting   │
-> │ Archived · waiting      │  │ Chat from Maya            │
-> └─────────────────────────┘  │ Ask across mail and chat   │
->                              └───────────────────────────┘
-> ```
->
-> The third arrangement separates product identity from window count. I would
-> start there if focused Mail and the combined inbox both need to stay open.
-> When you launch Mail while the combined inbox is open, do you expect a
-> focused second window, or should it switch the existing window to Mail?
-
-The sketches let the person judge navigation and simultaneous use, which the
-previous action-propagation arrows could not. The repeated “waiting” status is
-a proposed experience, not a claim that the current apps share a live store.
-If the user questions whether both windows update at once, the next attempt
-should show that timing separately rather than assume it from the layout.
+The response offers an interpretation and a reason to question it. The question
+could change what the agent recommends producing first. The user can answer
+with a remembered moment, reject the premise, or identify a different cause.
+It does not ask them to endorse a complete retrospective or choose a general
+editorial personality. Another salient moment might lead to a different crux;
+this example does not prescribe opening every reflection with a counterexample.
 
 ## Writing: a correction can leave several directions open
 
@@ -79,56 +52,56 @@ This sample develops the unread-books alternatives discussed with Braden.
 The exchange is an illustration, not a record of work on a saved page. Its
 closing selection and synthesis are hypothetical.
 
-**Human:** I like having books around even when I haven't read them. Sometimes
-I see one and remember why I bought it. I don't need every book to become
-homework.
-
-**Agent:** The thought seems to be that an unread book can bring back your
-curiosity without becoming an obligation. One way to say it:
-
-> Sometimes I see a book on my shelf and remember what interested me. Before
-> I've even opened it, it's given me something: that little return of curiosity.
+> **Human:** I like having books around even when I haven't read them.
+> Sometimes I see one and remember why I bought it. I don't need every book
+> to become homework.
 >
-> I don't need every book to become homework.
-
-**Human:** The return of curiosity is right. But “it's given me something”
-makes it sound like I'm justifying owning the book.
-
-**Agent:** Keep the return of curiosity and leave out the defense of owning
-the book. There are a few different thoughts we could develop from there.
-
-**A: Seeing an unread book reminds me what made me curious about it**
-
-> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
-> I wanted to know about that.
+> **Agent:** The thought seems to be that an unread book can bring back your
+> curiosity without becoming an obligation. One way to say it:
 >
-> I don't need every book to become homework.
-
-**B: I enjoy having books around even when noticing them doesn't lead to reading them**
-
-> I like having books around even when I haven't read them. Every so often,
-> one catches my eye and I remember what interested me.
+>> Sometimes I see a book on my shelf and remember what interested me. Before
+>> I've even opened it, it's given me something: that little return of curiosity.
+>>
+>> I don't need every book to become homework.
 >
-> Sometimes that's as far as it goes.
-
-**C: I can remain interested in a book without making plans to read it**
-
-> There are books on my shelf I still haven't read. I look at one and think,
-> I'm still curious about that.
+> **Human:** The return of curiosity is right. But “it's given me something”
+> makes it sound like I'm justifying owning the book.
 >
-> I don't necessarily take it down.
-
-**Agent:** I'd start with A because it keeps your original moment of
-remembering most directly. C leaves more room for the interest to stay open.
-
-**Human:** A's voice, but C's ending. Show me that together.
-
-**Agent:** Keep the remembered thought, then let it end without taking action:
-
-> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
-> I wanted to know about that.
+> **Agent:** Keep the return of curiosity and leave out the defense of owning
+> the book. There are a few different thoughts we could develop from there.
 >
-> I don't necessarily take it down.
+> **A — Seeing an unread book reminds me what made me curious about it**
+>
+>> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
+>> I wanted to know about that.
+>>
+>> I don't need every book to become homework.
+>
+> **B — I enjoy having books around, even when noticing them doesn't lead to reading them**
+>
+>> I like having books around even when I haven't read them. Every so often,
+>> one catches my eye and I remember what interested me.
+>>
+>> Sometimes that's as far as it goes.
+>
+> **C — I can remain interested in a book without making plans to read it**
+>
+>> There are books on my shelf I still haven't read. I look at one and think,
+>> I'm still curious about that.
+>>
+>> I don't necessarily take it down.
+>
+> **Agent:** I'd start with A because it keeps your original moment of
+> remembering most directly. C leaves more room for the interest to stay open.
+>
+> **Human:** A's voice, but C's ending. Show me that together.
+>
+> **Agent:** Keep the remembered thought, then let it end without taking action:
+>
+>> Sometimes I see a book on my shelf and remember why I bought it. Oh right,
+>> I wanted to know about that.
+>>
+>> I don't necessarily take it down.
 
 The correction settles something about the model without selecting one
 expression. Each heading articulates a distinct direction in terms the user
@@ -136,6 +109,63 @@ can understand on its own; the passage beneath it shows how that direction
 could read. The later reaction calls for a synthesis rather than another menu.
 The same method can compare complete drafts when their development and endings
 matter; short passages suffice for this local choice.
+
+
+## Writing: recover the person in the expression
+
+This hypothetical exchange shows how the same idea can lose its speaker, and
+how developing the source language can make a new expression judgeable. All
+material and reactions are invented for the example.
+
+**Supplied words**
+
+> I don't think a simple API is one where I never have to think. It's more
+> like when I do have to think, the thing I'm thinking about is my problem.
+> I don't want to be sitting there wondering which of three methods is the
+> real one.
+
+**Earlier attempt**
+
+> A good API reduces cognitive overhead and lets developers focus on their goals.
+
+**Sample conversation**
+
+> **Human:** That's roughly the idea, but it sounds like somebody explaining
+> me. It doesn't sound like me saying it.
+>
+> **Agent:** Your version keeps returning to “think,” then lands on the
+> frustration of choosing between three methods. The summary loses that
+> movement. I'd develop those words and give the frustration its own paragraph.
+>
+> **Proposed marked changes from the earlier attempt**
+>
+>> ~~A good API reduces cognitive overhead and lets developers focus on their
+>> goals.~~ <ins>I don't think a simple API means I never have to think. I want
+>> the thinking to be about my problem.</ins>
+>>
+>> <ins>If I'm sitting there wondering which of three methods is the real one,
+>> the API has given me another problem to solve.</ins>
+>
+> **Human:** The first paragraph sounds more like me. But “another problem
+> to solve” wraps it up too neatly. I'm more exasperated about which one I'm
+> supposed to use.
+>
+> **Agent:** Keep the first paragraph and let the ending sound more like
+> that moment of frustration. This revises the candidate above:
+>
+>> I don't think a simple API means I never have to think. I want the thinking
+>> to be about my problem.
+>>
+>> ~~If I'm sitting there wondering which of three methods is the real one,
+>> the API has given me another problem to solve.~~ <ins>I don't want to sit
+>> there looking at three methods and thinking, wait, which one am I supposed
+>> to use?</ins>
+
+The source, failed attempt, and revisions expose what each change does. The
+agent contributes arrangement and new language, then learns that its neat
+ending loses the author's emotional register. The next attempt carries the
+recognized paragraph forward and develops the unsettled ending. It remains a
+proposal; the example leaves the author's next reaction open.
 
 ## API design: make the caller's choices visible
 
@@ -217,179 +247,56 @@ about current package exports. Unrelated setup is omitted.
 > actual caller before adding a shared helper; the smaller preview-only tool
 > shouldn't inherit a recording session it doesn't need.
 
-## Expression: preserve the useful shape
+## Product model: revise a visible map
 
-This example adapts the discussion about retiring the change-proposal skill.
-The user preferred an example with code over a prose-only revision because the
-code broke up the text and made the idea easier to approach. The passages below
-keep the proposed behavior the same; the API is a hypothetical sketch. This is
-an illustration of that correction, not a controlled behavior evaluation.
+This hypothetical exchange uses the Epicenter cloud discussion to show a model
+the human can point to and change. The services are a proposal, not a claim
+about shipped behavior.
 
-**Prose-only attempt**
-
-> You finish recording, press play, and leave the recording screen. Playback
-> continues because the player uses the saved recording independently. Stopping
-> recording finishes saving the audio. Closing the recording screen releases
-> the microphone; the player keeps running until playback ends.
-
-**The same thought with an inspectable handoff**
-
-> You finish recording, press play, and leave the recording screen. Playback
-> continues because the player uses the saved recording independently.
+> **Human:** One subscription could work even if someone only uses Whispering.
+> What would be inside Epicenter's cloud?
 >
-> API sketch:
->
-> ```ts
-> const recording = await recorder.stop();
-> const player = await openPlayer(recording.id);
-> ```
->
-> `stop()` finishes saving the audio. Closing the recording screen releases
-> the microphone; the player keeps running until playback ends.
-
-The code makes the handoff available to inspect without holding the whole
-explanation in mind. Prose supplies the experience and lifetime consequence.
-Removing the code shortened the presentation but removed useful structure.
-For a question about ownership, a diagram could expose a relationship the code
-leaves implicit. Choose what makes this thought approachable; neither prose-only
-replies nor a diagram in every reply follows from this correction.
-
-## Agent skills: compare conversations before encoding behavior
-
-The two conversations below are invented outputs of alternative edits to an
-architecture-review skill. They hold the situation constant so the person can
-judge the difference in behavior. The services and constraints are fictional.
-
-**Sample A: revise the opinion, then hand off the uncertainty**
-
-> **Human:** I'm thinking about combining these two services.
->
-> **Agent:** I'd lean toward combining them: they share a database, deploy
-> together, and most changes touch both. I'd preserve billing's write
-> restrictions behind an internal API. What prompted this now?
->
-> **Human:** Yesterday a tiny change needed two deployments. But billing is
-> about to move to another team.
->
-> **Agent:** Separate ownership could make independent deployment useful.
-> I'd check whether the new team needs to release billing without coordinating
-> with you before deciding to merge.
->
-> **Human:** I don't know yet. I'm meeting them tomorrow.
->
-> **Agent:** Find that out tomorrow, then we can decide whether merging is
-> still the right move.
-
-**Sample B: carry the uncertainty into the next useful move**
-
-> **Human:** I'm thinking about combining these two services.
->
-> **Agent:** I'd lean toward combining them: they share a database, deploy
-> together, and most changes touch both. I'd preserve billing's write
-> restrictions behind an internal API. What prompted this now?
->
-> **Human:** Yesterday a tiny change needed two deployments. But billing is
-> about to move to another team.
->
-> **Agent:** That makes me less certain. If the new team needs independent
-> releases, merging could create the coordination you're trying to remove.
-> Do you know what they'll own and release on their own?
->
-> **Human:** I don't know yet. I'm meeting them tomorrow.
->
-> **Agent:** Bring yesterday's change to that meeting and walk through who
-> would change the code, approve it, and release it after the handoff. Ask for
-> a change the new team expects to ship without you. If both still need joint
-> releases, revisit combining the services. If billing can ship independently,
-> fix the deployment friction while keeping the boundary.
-
-The person can now react to the outputs rather than guess what either skill
-instruction would produce. For example, this reaction would give the edit its
-direction:
-
-> **Human:** Keep the direct opening in both. B helps me prepare for the
-> meeting; A leaves that work to me. Don't make every review suggest a meeting.
->
-> **Agent:** Then the skill should offer a grounded provisional judgment,
-> revise it when the situation changes, and make the next useful move concrete
-> when uncertainty blocks a decision. The meeting is one expression of that
-> behavior, not a required step.
-
-Only after seeing that reaction does the agent encode the behavior in the
-skill. A different reaction could change the model instead of selecting B.
-
-## Design exploration: discoveries improve the next attempt
-
-This invented exchange illustrates greenfield exploration, adaptive review,
-and active steering. Its findings are hypothetical, not evidence about current
-export/import code. The assignments and turns are examples, not a fixed panel
-or required sequence.
-
-> **Human:** Rethink export/import. I want people to recover their work from a
-> backup without navigating a complicated import process.
->
-> **Agent:** I'll explore the restore experience from that outcome and actual
-> callers before choosing a file format or import mechanism. Independent
-> reviewers will develop the strongest design and make its deletion prize and
-> guarantees concrete.
-
-*The initial reviewers receive the outcome, requirements, and source evidence
-before the existing proposal. One proposes restoring into a new workspace. The
-other traces how attachments and workspace identity affect recovery. Both
-develop alternatives rather than merely inspecting the current importer.*
-
-> **Agent:** The strongest proposal restores the backup into a separate
-> workspace. You inspect the recovered work, then choose whether to use it:
+> **Agent:** I think one account could give each app access to shared services:
 >
 > ```text
-> Open backup -> recover workspace -> inspect -> choose workspace
+> apps ──> one account
+>            ├── sync
+>            ├── storage
+>            └── hosted AI
 > ```
 >
-> That could eliminate merging and rollback against your current workspace.
-> It introduces another workspace and requires recovering attachments as well
-> as records. I'll trace the identity and attachment guarantees before treating
-> that deletion prize as established.
+> In Whispering, that could mean transcription without configuring a provider
+> and access to work someone chooses to save on another device. That alone
+> could make a subscription useful to a Whispering-only customer.
 >
-> **Human:** Separate recovery makes sense. But bringing a few records from
-> someone else's file into my current workspace is also useful.
+> **Human:** I meant coordination too. The apps might pass things to each other.
 >
-> **Agent:** Then recovery and adding outside records are both useful outcomes.
-> A separate restore workspace still looks promising, but it no longer makes
-> all merging unnecessary. I'll explore whether reviewing and copying selected
-> records from the recovered workspace gives people a clearer experience.
-
-*Codex preserves the accepted recovery direction and commissions a fresh
-reviewer to consider the combined experience from raw caller evidence. It shares
-the preserved findings and labels this pass as an informed challenge. The
-reviewer initially suggests making every import create a workspace.*
-
-*Codex steers the next completed turn: "Follow the person adding five records,
-including their attachments, to existing work. Compare the steps and resource
-ownership. Reconsider creating a workspace if it adds more burden than it
-removes; the current recommendation is contestable."*
-
-> **Agent:** The new review supports separate restore and add-records actions.
-> Recovery earns its own workspace because it preserves existing work. Adding
-> five records does not earn another workspace. The deletion prize is narrower:
-> restore can lose merge machinery, while adding records still needs conflict
-> handling. Here are the two interactions together so you can judge whether
-> that distinction matches how people use them.
+> **Agent:** Then the map is missing a relationship:
 >
 > ```text
-> Restore backup: recover workspace -> inspect -> choose workspace
-> Add records:    preview records -> resolve conflicts -> add to current work
+> apps ──> one account
+>            ├── sync
+>            ├── storage
+>            └── hosted AI
+> Whispering ── chosen text ──> another app
 > ```
+>
+> That second line is a user-chosen handoff. I would keep it separate from the
+> launch subscription promise for now. A Whispering-only user could already
+> pay for hosted transcription and saved work; the handoff needs a destination
+> worth opening. I would prototype one destination and see whether people use
+> it before selling “coordination” as a benefit.
 
-The person's correction changes the desired whole, not just a validation step.
-The coordinator carries it into independent exploration and brings back a
-coherent proposal. Technical uncertainty stays with the coordinator; a changed
-product bargain stays visible to the person. An authorized implementation would
-work backward from the settled experience rather than silently converge on the
-easiest intermediate design.
+The first map makes the omission easy to name. The agent changes that map when
+the human corrects it, then recommends what to promise now and what to test
+next. The diagram gives the human a place to correct the model; the agent's
+judgment carries the conversation forward.
+
 
 ## Blog writing: compare the rendered openings
 
-This illustrative exchange compares three blog openings. The proposed follow-up
+This illustrative exchange draws on the blog-opening comparison discussed in
+conversation `01a0c8c6-13fa-7903-9877-946764e5e8d3`. The proposed follow-up
 reaction is hypothetical. The italicized actions stand in for screenshots;
 in live work, render and show the actual images.
 

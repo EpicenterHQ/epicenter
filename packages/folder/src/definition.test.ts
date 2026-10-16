@@ -214,11 +214,11 @@ test('one prepared definition opens two folders that stay apart, and another def
 	// Keys the narrower definition does not declare are still on the row.
 	expect<object>(milk.row.fields).toEqual({ title: 'Milk', done: false });
 	expectOk(
-		await reopened.tables.todos.save(milk, {
+		await reopened.tables.todos.write('milk', milk.row, {
 			...milk.row,
 			fields: { ...milk.row.fields, title: 'Oat milk' },
 		}),
-	).stored;
+	);
 	expect(text(expectOk(await reopened.files.read('todos/milk.md')).bytes)).toBe(
 		made.replace('Milk', 'Oat milk'),
 	);
@@ -247,7 +247,7 @@ test('tables named like Object.prototype members, and one table under two names,
 			{ stem: 'a' },
 		),
 	);
-	expect(made.path).toBe('constructor/a.md');
+	expect(made?.path).toBe('constructor/a.md');
 	expectOk(
 		await folder.tables.toString.create(
 			{ fields: { title: 'Text' }, body: '' },
@@ -316,7 +316,7 @@ test('a schema edited after defineFolder changes nothing the folder accepts, and
 		expectErr(await older.tables.todos.create(row, { stem: 'a' })).name,
 	).toBe('InvalidValues');
 	const made = expectOk(await newer.tables.todos.create(row, { stem: 'a' }));
-	const saved = text(expectOk(await newer.files.read(made.path)).bytes);
+	const saved = text(expectOk(await newer.files.read(made!.path)).bytes);
 	expect(expectOk(parseRow(second.tables.todos, saved))).toEqual(row);
 	expect(expectErr(parseRow(first.tables.todos, saved))).toHaveLength(1);
 });

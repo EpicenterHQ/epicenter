@@ -45,6 +45,13 @@ export function describeError(
 			return `"${basename(known.to)}" was written, but "${basename(known.from)}" could not be removed, so both are in the folder now.`;
 		case 'Unconfirmed':
 			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${known.message}`;
+		case 'Io': {
+			// A row write reports a lost reply as `Io` with the storage failure as its cause.
+			const cause = known.cause as FileError | undefined;
+			return cause?.name === 'Unconfirmed'
+				? describeError(cause)
+				: known.message;
+		}
 		case 'InvalidValues':
 			return known.issues.map((issue) => issue.message).join(' ');
 		default:

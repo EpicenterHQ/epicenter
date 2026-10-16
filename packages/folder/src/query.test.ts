@@ -12,14 +12,15 @@
  *   changed file and the file listing, and the history's status; a change
  *   inside `.git` also covers the log; `'everything'` covers every query of
  *   the folder and none of another's
- * - A save updates its row and the listing from its own result, even with
- *   the caller's own `onSuccess`, and marks stale the rest a change to its
- *   path would: the history's status, the file's read and listing
- * - A read running when a save lands is done again rather than landing
- *   over the save
+ * - A row write updates its row and the listing from its own result, even
+ *   with the caller's own `onSuccess`, and marks stale the rest a change to
+ *   its path would: the history's status, the file's read and listing
+ * - A delete drops the row and its listing entry, and a rename moves them
+ * - A read running when a write lands is done again rather than landing
+ *   over the write
  * - A file write puts what it wrote in the file's read and text queries
- * - A failed save reads its path again
- * - Two controls' updates of one row run one at a time, in the order made,
+ * - A failed write reads its path again
+ * - Two controls' sets of one row run one at a time, in the order made,
  *   each over the row the one before wrote, and keep the cache
  * - `runMutation` runs a write through the cache; `whenIdle` waits for it
  * - A change another page made, wired from `onFilesChanged` to
@@ -178,11 +179,11 @@ const invalidatedIn = (queryClient: QueryClient) =>
 		.filter((query) => query.state.isInvalidated)
 		.map((query) => query.queryKey);
 
-test('a save sets its row and the listing, and marks the rest of its path stale', async () => {
+test('a set puts its row in the row and the listing, and marks the rest of its path stale', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
-	const created = expectOk(
+	expectOk(
 		await folder.tables.todos.create(
 			{ fields: { title: 'Milk', done: false }, body: '' },
 			{ stem: 'milk' },
@@ -194,27 +195,28 @@ test('a save sets its row and the listing, and marks the rest of its path stale'
 	queryClient.setQueryData(folder$.files.text.queryKey('todos/milk.md'), 1);
 	let told = 0;
 
-	// The caller's own `onSuccess` adds to the save; the cache is still kept.
-	const save = new MutationObserver(queryClient, {
-		...folder$.todos.save.mutationOptions(),
+	// The caller's own `onSuccess` adds to the set; the cache is still kept.
+	const setTodo = new MutationObserver(queryClient, {
+		...folder$.todos.set.mutationOptions(),
 		onSuccess: () => {
 			told++;
 		},
 	});
-	const saved = await save.mutate({
-		base: created,
-		row: { fields: { title: 'Milk', done: true }, body: '' },
+	const written = await setTodo.mutate({
+		stem: 'milk',
+		fields: { done: true },
 	});
 
 	expect(told).toBe(1);
+	expect(written?.row.fields.done).toBe(true);
 	expect<unknown>(
 		queryClient.getQueryData(folder$.todos.get.queryKey('milk')),
-	).toEqual(saved.stored);
+	).toEqual(written);
 	const listing = queryClient.getQueryData<
 		Awaited<ReturnType<typeof folder.tables.todos.list>>['data']
 	>(folder$.todos.list.queryKey());
-	expect(listing?.map((item) => item.result.data)).toEqual([saved.stored]);
-	// The folder does not report the page's own save to it: the save marks
+	expect(listing?.map((item) => item.result.data)).toEqual([written]);
+	// The folder does not report the page's own write to it: the write marks
 	// what else a change to its file makes stale.
 	expect(invalidatedIn(queryClient)).toEqual([
 		folder$.history.status.queryKey(),
@@ -222,7 +224,45 @@ test('a save sets its row and the listing, and marks the rest of its path stale'
 	]);
 });
 
-test('a read running when a save lands is read again, not kept over the save', async () => {
+test('a delete drops the row and its listing entry, and a rename moves them', async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	for (const stem of ['a', 'b'])
+		expectOk(
+			await folder.tables.todos.create(
+				{ fields: { title: stem, done: false }, body: '' },
+				{ stem },
+			),
+		);
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+	await queryClient.fetchQuery(folder$.todos.get.queryOptions('a'));
+	const stems = () =>
+		queryClient
+			.getQueryData<{ stem: string }[]>(folder$.todos.list.queryKey())
+			?.map((item) => item.stem)
+			.sort();
+
+	await new MutationObserver(
+		queryClient,
+		folder$.todos.delete.mutationOptions(),
+	).mutate('a');
+	expect(queryClient.getQueryData(folder$.todos.get.queryKey('a'))).toBeNull();
+	expect(stems()).toEqual(['b']);
+
+	const moved = await new MutationObserver(
+		queryClient,
+		folder$.todos.rename.mutationOptions(),
+	).mutate({ stem: 'b', next: 'c' });
+	expect(moved?.path).toBe('todos/c.md');
+	expect(queryClient.getQueryData(folder$.todos.get.queryKey('b'))).toBeNull();
+	expect<unknown>(
+		queryClient.getQueryData(folder$.todos.get.queryKey('c')),
+	).toEqual(moved);
+	expect(stems()).toEqual(['c']);
+});
+
+test('a read running when a write lands is read again, not kept over the write', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
@@ -236,18 +276,15 @@ test('a read running when a save lands is read again, not kept over the save', a
 	let answer = () => {};
 	const late = queryClient.fetchQuery({
 		...folder$.todos.get.queryOptions('milk'),
-		queryFn: () =>
-			new Promise<typeof created>((resolve) => {
+		queryFn: (): Promise<typeof created> =>
+			new Promise((resolve) => {
 				answer = () => resolve(created);
 			}),
 	});
 	await new MutationObserver(
 		queryClient,
-		folder$.todos.save.mutationOptions(),
-	).mutate({
-		base: created,
-		row: { fields: { title: 'Milk', done: true }, body: '' },
-	});
+		folder$.todos.set.mutationOptions(),
+	).mutate({ stem: 'milk', fields: { done: true } });
 	answer();
 	await late.catch(() => undefined);
 
@@ -290,36 +327,32 @@ test('a file write puts what it wrote in the file read and text, reading nothing
 	expect(invalidatedIn(queryClient)).toEqual([]);
 });
 
-test('a failed save reads its path again', async () => {
+test('a failed write reads its path again', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
-	const created = expectOk(
+	expectOk(
 		await folder.tables.todos.create(
 			{ fields: { title: 'Milk', done: false }, body: '' },
 			{ stem: 'milk' },
 		),
 	);
 	await queryClient.fetchQuery(folder$.todos.get.queryOptions('milk'));
-	expectOk(await folder.tables.todos.delete(created));
 
-	const save = new MutationObserver(
+	const setTodo = new MutationObserver(
 		queryClient,
-		folder$.todos.save.mutationOptions(),
+		folder$.todos.set.mutationOptions(),
 	);
-	const failed = await save
-		.mutate({
-			base: created,
-			row: { fields: { title: 'Milk', done: true }, body: '' },
-		})
+	const failed = await setTodo
+		.mutate({ stem: 'milk', fields: { done: 'maybe' as never } })
 		.catch((error: { name: string }) => error);
-	expect(failed).toMatchObject({ name: 'NotFound' });
+	expect(failed).toMatchObject({ name: 'InvalidValues' });
 	expect(invalidatedIn(queryClient)).toEqual([
 		folder$.todos.get.queryKey('milk'),
 	]);
 });
 
-test("two controls' updates of one row run in the order made, each over the last one's write", async () => {
+test("two controls' sets of one row run in the order made, each over the last one's write", async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
@@ -332,11 +365,11 @@ test("two controls' updates of one row run in the order made, each over the last
 	// Two controls of one row, each with its own mutation.
 	const title = new MutationObserver(
 		queryClient,
-		folder$.todos.update.mutationOptions(),
+		folder$.todos.set.mutationOptions(),
 	);
 	const done = new MutationObserver(
 		queryClient,
-		folder$.todos.update.mutationOptions(),
+		folder$.todos.set.mutationOptions(),
 	);
 	const read = folder.tables.todos.get;
 	const titlesRead: string[] = [];
@@ -346,11 +379,11 @@ test("two controls' updates of one row run in the order made, each over the last
 		return result;
 	};
 
-	const first = title.mutate({ stem: 'milk', set: { title: 'Oat milk' } });
-	const second = done.mutate({ stem: 'milk', set: { done: true } });
+	const first = title.mutate({ stem: 'milk', fields: { title: 'Oat milk' } });
+	const second = done.mutate({ stem: 'milk', fields: { done: true } });
 	await Promise.all([first, second]);
 
-	// The second update waited for the first: it read the title it wrote.
+	// The second set waited for the first: it read the title it wrote.
 	expect(titlesRead).toEqual(['Milk', 'Oat milk']);
 	const cached = queryClient.getQueryData<{ row: { fields: unknown } }>(
 		folder$.todos.get.queryKey('milk'),
@@ -383,13 +416,7 @@ test("another page's change, wired from onFilesChanged, invalidates exactly what
 
 	// The app root's one line.
 	reader$.invalidateOnChange(queryClient);
-	const a = expectOk(await writer.tables.todos.get('a'))!;
-	expectOk(
-		await writer.tables.todos.save(a, {
-			fields: { title: 'A, edited', done: false },
-			body: '',
-		}),
-	);
+	expectOk(await writer.tables.todos.set('a', { title: 'A, edited' }));
 	const invalidated = () =>
 		queryClient
 			.getQueryCache()
@@ -419,13 +446,13 @@ test('runMutation runs a write through the cache, and whenIdle waits for it', as
 	expect(queryClient.isMutating()).toBe(1);
 	await whenIdle(queryClient);
 	expect(queryClient.isMutating()).toBe(0);
-	expect((await running).path).toBe('todos/milk.md');
+	expect((await running)?.path).toBe('todos/milk.md');
 	await expect(
 		runMutation(queryClient, folder$.todos.create.mutationOptions(), {
-			row: { fields: { title: 'Milk', done: false }, body: '' },
-			stem: 'milk',
+			row: { fields: { title: 'Milk', done: 'maybe' as never }, body: '' },
+			stem: 'other',
 		}),
-	).rejects.toMatchObject({ name: 'Exists' });
+	).rejects.toMatchObject({ name: 'InvalidValues' });
 });
 
 // Commits need the shared lock; this runtime has none of its own.

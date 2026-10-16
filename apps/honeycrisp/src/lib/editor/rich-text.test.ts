@@ -573,7 +573,7 @@ describe('the editor follows the note', () => {
 		const tab = await folder.otherTab();
 		const theirs = await tab.tables.notes.get('a');
 		if (theirs.data == null) throw new Error('No note a');
-		await tab.tables.notes.save(theirs.data, {
+		await tab.tables.notes.write('a', theirs.data.row, {
 			...theirs.data.row,
 			body: 'theirs\n',
 		});

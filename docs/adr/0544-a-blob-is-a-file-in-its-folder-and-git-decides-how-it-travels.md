@@ -85,6 +85,7 @@ Deleted:
   `encode_recording_for_upload`). None had a caller.
 - With the LFS wave: `@epicenter/blobs`, which by then holds only the Personal
   hosted URL grammar; the public Personal blob routes
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
   (`mountPersonalAuthorityBlobs`, `packages/server/src/routes/authority-blobs.ts`);
   and `createPersonalHostedBlobs` in `@epicenter/client`. `s3-blob-store.ts`
   stays only if it presigns `lfs/<repo>/<oid>`.

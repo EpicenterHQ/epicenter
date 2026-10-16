@@ -458,9 +458,13 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 	// The shell writes, and its reply never reaches the page. The page reads
 	// the file back, finds exactly what it wrote, and the write is confirmed.
 	granting.control.loseReplies = 1;
-	const { stored: confirmed } = expectOk(
-		await table.save(stored, { ...stored.row, body: 'Tidy it.\n' }),
+	const confirmed = expectOk(
+		await table.write('clean', stored.row, {
+			...stored.row,
+			body: 'Tidy it.\n',
+		}),
 	);
+	if (confirmed === null) throw new Error('Expected the row to be there');
 	expect(confirmed.row.body).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
 
@@ -471,13 +475,16 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 		granting.control.beforeChange = undefined;
 		granting.control.failReads.add(PATH);
 	};
-	const lost = await table.save(confirmed, {
+	const lost = await table.write('clean', confirmed.row, {
 		...confirmed.row,
 		body: 'Tidy it again.\n',
 	});
 	expect(lost.error).toMatchObject({
-		name: 'Unconfirmed',
-		message: expect.stringContaining('the reply never reached the window'),
+		name: 'Io',
+		cause: {
+			name: 'Unconfirmed',
+			message: expect.stringContaining('the reply never reached the window'),
+		},
 	});
 	expect(granting.kinds).toEqual(['write', 'write']);
 

@@ -15,11 +15,14 @@
 
 	/**
 	 * A write failed; say so. An edit still on screen can be saved again; a
-	 * message that is not, offers the text it held.
+	 * text that is not, such as a note typed into a word deleted elsewhere,
+	 * is offered until the learner copies it or dismisses the notice.
 	 */
 	function writeFailed({ path, error, lost, retry }: WriteFailure) {
 		toast.error(`Could not save ${path}`, {
 			description: describeError(error),
+			duration:
+				retry === undefined && lost !== '' ? Number.POSITIVE_INFINITY : undefined,
 			action:
 				retry !== undefined
 					? { label: 'Save again', onClick: retry }

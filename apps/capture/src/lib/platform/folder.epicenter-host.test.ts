@@ -97,8 +97,13 @@ async function put(path: string, source: string) {
 const SAVED =
 	'---\ncapturedAt: 2026-10-01T10:30:00+08:00\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n';
 const PATH = 'captures/one.md';
-/** SAVED with its text replaced: a body write keeps the frontmatter as written (ADR-0575). */
-const withText = (body: string) => SAVED.replace('\nText\n', `\n${body}\n`);
+/** SAVED as a write leaves it: the row's standard form (ADR-0576). */
+const STANDARD = SAVED.replace(
+	'capturedAt: 2026-10-01T10:30:00+08:00',
+	'capturedAt: "2026-10-01T10:30:00+08:00"',
+);
+/** SAVED with its text replaced, as a body write leaves it. */
+const withText = (body: string) => STANDARD.replace('\nText\n', `\n${body}\n`);
 const LOST = 'the webview lost its IPC connection';
 
 async function opened() {
@@ -270,7 +275,7 @@ test('a write saves the row on disk and keeps undeclared metadata', async () => 
 	await quiet(captures);
 
 	expect(failures).toEqual([]);
-	expect(await text(PATH)).toBe(`${SAVED}- second\n`);
+	expect(await text(PATH)).toBe(`${STANDARD}- second\n`);
 	await captures.close();
 	await folder.close();
 });

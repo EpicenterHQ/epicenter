@@ -8,8 +8,8 @@
  * Key behaviors:
  * - Every content verb copies the caller's array before any await, so saved
  *   bytes and the returned capture match what was passed
- * - Rename and delete change exactly one Markdown file, guarded by the
- *   captured sha256; a stale capture is a `Conflict`
+ * - Rename and delete change exactly one Markdown file, the row as it is
+ *   now, and leave a sibling that shares its stem
  * - A stem is one literal segment; `todos/a/b.md` is not a row, while an
  *   externally written row with an invalid stem stays listable
  * - An empty directory lists and removes
@@ -130,34 +130,31 @@ describe('byte ownership', () => {
 });
 
 describe('row files', () => {
-	test('a stale capture is refused by its own sha256, and nothing else decides', async () => {
+	test('rename and delete move and remove the row as it is now, and only its file', async () => {
 		const folder = await open();
-		const row = expectOk(
+		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Row', done: false }, body: '' },
 				{ stem: 'row' },
 			),
 		);
-		expectOk(
-			await folder.tables.todos.save(row, {
-				fields: { title: 'Row', done: true },
-				body: '',
-			}),
-		).stored;
-		expect(expectErr(await folder.tables.todos.rename(row, 'next')).name).toBe(
-			'Conflict',
-		);
-		expect(expectErr(await folder.tables.todos.delete(row)).name).toBe(
-			'Conflict',
-		);
+		expectOk(await folder.files.create('todos/row.txt', 'beside'));
+		expectOk(await folder.tables.todos.set('row', { done: true }));
+		const moved = expectOk(await folder.tables.todos.rename('row', 'next'));
+		expect(moved?.row.fields).toEqual({ title: 'Row', done: true });
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
-			'row.md',
+			'next.md',
+			'row.txt',
+		]);
+		expectOk(await folder.tables.todos.delete('next'));
+		expect(expectOk(await folder.files.children('todos')).files).toEqual([
+			'row.txt',
 		]);
 	});
 
 	test('stems are one literal segment; nested paths are not rows', async () => {
 		const folder = await open();
-		const nested = expectOk(
+		expectOk(
 			await folder.files.create(
 				'todos/a/b.md',
 				'---\ntitle: Nested\ndone: false\n---\n',
@@ -168,7 +165,7 @@ describe('row files', () => {
 		);
 		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
 
-		const real = expectOk(
+		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Real', done: false }, body: '' },
 				{ stem: 'real' },
@@ -176,21 +173,21 @@ describe('row files', () => {
 		);
 		expect(
 			expectErr(
-				await folder.tables.todos.save(nested, {
+				await folder.tables.todos.write('a/b', null, {
 					fields: { title: 'X', done: true },
 					body: '',
 				}),
 			).name,
 		).toBe('InvalidPath');
-		expect(expectErr(await folder.tables.todos.delete(nested)).name).toBe(
+		expect(expectErr(await folder.tables.todos.delete('a/b')).name).toBe(
 			'InvalidPath',
 		);
-		expect(expectErr(await folder.tables.todos.rename(nested, 'c')).name).toBe(
+		expect(expectErr(await folder.tables.todos.rename('a/b', 'c')).name).toBe(
 			'InvalidPath',
 		);
-		expect(expectErr(await folder.tables.todos.rename(real, 'a/b')).name).toBe(
-			'InvalidPath',
-		);
+		expect(
+			expectErr(await folder.tables.todos.rename('real', 'a/b')).name,
+		).toBe('InvalidPath');
 
 		// An externally written row with an unusual name is an ordinary row.
 		await folder.files.create(

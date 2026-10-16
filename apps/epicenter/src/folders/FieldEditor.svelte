@@ -11,20 +11,21 @@
 		type FieldChange,
 		type FieldColumn,
 		failureText,
-		fieldUpdate,
+		fieldSet,
 		type TextKind,
 		textOf,
 	} from './field-input';
 
 	/**
-	 * One field's editor in one row, chosen by its kind, with its own update
-	 * mutation (ADR-0554). Each change is an update of the row's file as it is
-	 * now: it sets or unsets this field and keeps every field another window
-	 * changed. A checkbox, a select, and a multi-select send at the click. A
+	 * One field's editor in one row, chosen by its kind, with its own set
+	 * mutation (ADR-0576). Each change sets this field on the row's file as it
+	 * is now, or removes it, and keeps every field another window changed. A checkbox, a select, and a multi-select send at the click. A
 	 * text editor holds what is typed and sends it a second after the last
 	 * keystroke, on Enter or when it loses focus, and when it goes away;
 	 * Escape puts back the stored value. Until the person types, and once the
-	 * save of what was typed lands, the box shows the stored value.
+	 * save of what was typed lands, the box shows the stored value. A row
+	 * another window deleted takes no set (ADR-0576): the editor says so, and
+	 * typed text goes to `onlost`, which offers it.
 	 */
 	let {
 		column,
@@ -32,16 +33,19 @@
 		options,
 		value,
 		multiline = false,
+		onlost,
 	}: {
 		column: FieldColumn;
 		/** The row this editor edits. The grid keys each editor by it. */
 		stem: string;
-		/** The table's query options; this editor sends through its `update`. */
+		/** The table's query options; this editor sends through its `set`. */
 		options: TableOptions<Record<string, unknown>>;
 		/** The stored value; `undefined` when the row leaves the field out. */
 		value: unknown;
 		/** Edit JSON in a tall box, as the row panel does. */
 		multiline?: boolean;
+		/** Keep text typed into a row deleted elsewhere, for the person to copy. */
+		onlost: (where: string, text: string) => void;
 	} = $props();
 
 	// The grid keys each editor by its row: while it replaces one, the prop
@@ -50,20 +54,27 @@
 	const row = stem;
 	// svelte-ignore state_referenced_locally
 	const field = column.name;
+	// svelte-ignore state_referenced_locally
+	const lose = onlost;
 	const editor = $derived(column.editor);
-	const update = createMutation(() => options.update.mutationOptions());
+	const setRow = createMutation(() => options.set.mutationOptions());
 
 	/** Why what is typed is not saved: it does not parse, or its save failed. */
 	let problem = $state<string | undefined>(undefined);
 	/** The text typed and not yet saved; `undefined` shows the stored value. */
 	let typed = $state<string>();
 
-	/** Send `change` to this field, as the file is now. */
-	function send(change: FieldChange, onSuccess?: () => void) {
-		update.mutate(
-			{ stem: row, ...fieldUpdate(field, change) },
+	/** Send `change` to this field, as the file is now; `text` is what was typed for it. */
+	function send(change: FieldChange, text?: string, onSuccess?: () => void) {
+		setRow.mutate(
+			{ stem: row, fields: fieldSet(field, change) },
 			{
-				onSuccess: () => {
+				onSuccess: (written) => {
+					if (written === null) {
+						problem = 'This row was deleted elsewhere, so your edit was not saved.';
+						if (text !== undefined) lose(`${field} of ${row}`, text);
+						return;
+					}
 					problem = undefined;
 					onSuccess?.();
 				},
@@ -89,7 +100,7 @@
 				return;
 			case 'remove':
 			case 'set':
-				send(outcome, () => {
+				send(outcome, sent, () => {
 					if (typed === sent) typed = undefined;
 				});
 		}

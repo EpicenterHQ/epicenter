@@ -65,12 +65,13 @@ const AT = '2026-10-01T10:30:00+08:00';
 /** A capture file written by hand, with metadata Capture does not declare. */
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n`;
 const PATH = 'captures/one.md';
+/** HAND as a write leaves it: the row's standard form (ADR-0576). */
+const STANDARD = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 
 /** How many saves of a capture are running. */
 const savesRunning = ({ captures }: Opened) =>
 	captures.queryClient.isMutating({
-		mutationKey:
-			captures.folder$.captures.setBody.mutationOptions().mutationKey,
+		mutationKey: captures.folder$.captures.write.mutationOptions().mutationKey,
 	});
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */
@@ -168,7 +169,7 @@ function typeFile(captures: Captures, path: string, text: string) {
 // Edits and writes
 // ============================================================================
 
-test('an edit is shown at once and saved to the file, keeping metadata Capture does not declare', async () => {
+test('an edit is shown at once and saved to the file, keeping metadata Capture does not declare in the standard form', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	captures.open('one', 'capture');
@@ -178,8 +179,9 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	typeText(form, 'Edited');
 	expect(form.body).toContain('\nEdited\n');
 	await quiet(captures);
+	// A row is written in its standard form (ADR-0576).
 	expect(await harness.text(PATH)).toBe(
-		`${HAND.replace('\nText\n', '\nEdited\n')}- second\n`,
+		`${STANDARD.replace('\nText\n', '\nEdited\n')}- second\n`,
 	);
 	// The saves landed: the edit is done, and the cache holds what they wrote.
 	expect(form.body).toBeUndefined();
@@ -189,16 +191,14 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	expect(harness.failures).toEqual([]);
 });
 
-test('a body write to a CRLF capture keeps its frontmatter and writes the body with LF, and half a character as U+FFFD', async () => {
+test('a body write to a CRLF capture writes the row in its standard form with LF, and half a character as U+FFFD', async () => {
 	const harness = await open({ [PATH]: HAND.replace(/\n/g, '\r\n') });
 	const { captures } = harness;
 	const form = captures.formOf('one');
 	form.inputNewThought('half \uD800 a character');
 	expect(form.addThought()).toBe(true);
 	await quiet(captures);
-	expect(await harness.text(PATH)).toBe(
-		`---\r\ncapturedAt: ${AT}\r\ncustom: kept\r\n---\r\n\nText\n\n## Thoughts\n\n- first\n  nested line\n- half � a character\n`,
-	);
+	expect(await harness.text(PATH)).toBe(`${STANDARD}- half � a character\n`);
 	expect(harness.failures).toEqual([]);
 });
 
@@ -291,13 +291,35 @@ test('a save that fails keeps the edit and reports it, and the next change sends
 	expect(await harness.text(PATH)).toContain('\nSecond\n');
 });
 
-test('a save to a file deleted elsewhere drops the edit, reports its text, and the capture is gone', async () => {
+test('a save to a file deleted elsewhere writes nothing, drops the edit, and reports its text', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	captures.open('one', 'capture');
 	await harness.deleteElsewhere(PATH);
 	const form = captures.formOf('one');
 	typeText(form, 'Mine');
+	await quiet(captures);
+	// A delete beats an edit that never saw it (ADR-0576).
+	expect(harness.failures).toMatchObject([
+		{
+			path: PATH,
+			error: { name: 'NotFound' },
+			text: expect.stringContaining('\nMine\n'),
+		},
+	]);
+	expect(form.body).toBeUndefined();
+	expect(await harness.text(PATH)).toBeUndefined();
+});
+
+test('an edit held when its capture is deleted elsewhere is dropped, reports its text, and writes nothing', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	captures.open('one', 'capture');
+	const form = captures.formOf('one');
+	form.inputText('Mine');
+	await harness.deleteElsewhere(PATH);
+	await harness.reportChange(PATH);
+	await form.flush();
 	await quiet(captures);
 	expect(harness.failures).toMatchObject([
 		{
@@ -307,7 +329,7 @@ test('a save to a file deleted elsewhere drops the edit, reports its text, and t
 		},
 	]);
 	expect(form.body).toBeUndefined();
-	// A save never recreates a deleted file.
+	// A save never makes a file this window knows is deleted.
 	expect(await harness.text(PATH)).toBeUndefined();
 	expect(listing(captures)).toEqual([]);
 });
@@ -486,16 +508,18 @@ test('a delete runs after the edit is saved and removes what it saved', async ()
 	expect(listing(captures)).toEqual([]);
 });
 
-test('a capture changed elsewhere is not deleted, and the timeline shows it as it is now', async () => {
+test('a delete removes a capture changed elsewhere since it was confirmed', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	const deletion = expectOk(await captures.deletionFor('one'));
-	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
-	await harness.writeElsewhere(PATH, theirs);
-	expect(expectErr(await captures.remove(deletion)).name).toBe('Conflict');
+	await harness.writeElsewhere(
+		PATH,
+		`---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`,
+	);
+	expectOk(await captures.remove(deletion));
 	await quiet(captures);
-	expect(await harness.text(PATH)).toBe(theirs);
-	expect(timelineOf(listing(captures)).rows[0]?.preview).toBe('Theirs');
+	expect(await harness.text(PATH)).toBeUndefined();
+	expect(listing(captures)).toEqual([]);
 });
 
 // ============================================================================

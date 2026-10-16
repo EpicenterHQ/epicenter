@@ -77,7 +77,7 @@ Every component reads and writes through `getFolder()`:
 ```ts
 const folder = getFolder();
 const book = createQuery(() => folder.books.get.queryOptions(stem));
-const update = createMutation(() => folder.books.update.mutationOptions());
+const setBook = createMutation(() => folder.books.set.mutationOptions());
 ```
 
 Input that is not yet committed is local `$state` bound with `bind:value`: a

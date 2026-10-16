@@ -15,7 +15,9 @@ force push, so leaving audio out of history is a protection that has to hold,
 not a convention a person can repair later (ADR-0503).
 
 Beside Git, `apps/api` mounted owner-addressed blob routes
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
 (`mountPersonalAuthorityBlobs`, `packages/server/src/routes/authority-blobs.ts`)
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
 over an S3 store (`packages/server/src/s3-blob-store.ts`, `BLOBS_S3_*`), with
 their URL grammar in `@epicenter/blobs`. Nothing in the product called them;
 ADR-0438, which proposed them, is withdrawn.

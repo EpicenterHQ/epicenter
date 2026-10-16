@@ -36,8 +36,8 @@ the repository root. It starts the app and nothing else.
 - **More** holds Copy capture text, Download file, and **Delete capture**.
   Deleting asks first, and says when the capture has changes that are in no
   saved version. It waits for your edit to be saved and deletes the file
-  this window wrote last. If the file changed elsewhere since, nothing is deleted
-  and the timeline shows the file as it is now.
+  this window wrote last, along with anything another program wrote to it
+  since: a delete beats edits that never saw it (ADR-0576).
 - **Save version** in the header records every saved capture in the folder's
   Git history. Nothing else records a version.
 
@@ -55,7 +55,7 @@ are not UTF-8 text are listed apart and not opened.
 
 - A capture's text and thoughts are its document, so an edit holds the
   version of the file it started from, taken at your first change, and the
-  body you typed (ADR-0548, ADR-0554). What the window reads from the
+  body you typed (ADR-0548, ADR-0576). What the window reads from the
   folder never replaces it. A thought you add, edit, delete, or move is
   saved at once. The capture text, and a file edited as text, is saved a
   second after you stop typing, when you leave the text box, and when you
@@ -69,20 +69,20 @@ are not UTF-8 text are listed apart and not opened.
 - When the file changed elsewhere since the edit started, the save merges
   with it: what only the other writer changed stays, and where you both
   changed the same field or line, your edit wins, with no notice
-  (ADR-0575). Text edited as text merges the same way, by line. When the file was deleted, the save is refused: the
-  capture leaves the list, and a notice says your change was not saved and
-  offers **Copy your text**.
+  (ADR-0576). Text edited as text merges the same way, by line. When the
+  file was deleted elsewhere, the edit writes nothing: the capture leaves
+  the list, and a notice says your change was not saved and offers **Copy
+  your text** until you dismiss it.
 - A save that fails for another reason keeps your edit on screen, the
   capture says Not saved, and the notice names the failure and offers your
   text to copy. Your next change saves it again. A save whose reply was lost
   is one of these failures: the notice says the change may or may not have
   happened.
-- An edit of a capture replaces only its body (`table.setBody`, ADR-0575):
-  the frontmatter stays byte for byte as written, comments, quoting, line
-  endings, and keys Capture does not declare included.
-- A capture's body is written with line feeds (ADR-0572): a body written
-  with `\r\n` gets `\n` on its first save from the capture view, while the
-  frontmatter keeps its own line endings. Half a character (a lone
+- A save from the capture view writes the row in its standard form
+  (ADR-0576): keys Capture does not declare stay, while comments, quoting,
+  and line endings in the frontmatter take the standard spelling.
+- A capture's body is written with line feeds (ADR-0572): a file written
+  with `\r\n` gets `\n` on its first save from the capture view. Half a character (a lone
   surrogate) is written as U+FFFD, so it shows as `�` once the save lands.
   Otherwise the body is written exactly.
 - Edit as text writes exactly what is typed, valid or not, and keeps the
@@ -223,9 +223,9 @@ other environment. `installedAppViteConfig` (from `@epicenter/vite-config`)
 points the bare `@epicenter/folder` specifier, which `@epicenter/capture`
 imports, at the same entry, so a build emits one adapter.
 
-Capture uses the folder's captures table (`list`, `create`, `save`, and
-`delete`, each write guarded by the version it replaces, `save` merging
-with a newer one), its files for editing a capture as text (`read`
+Capture uses the folder's captures table (`list`, `create`, `write`, and
+`delete`; a write merges with whatever changed since and writes nothing
+to a file deleted since, and a delete removes whatever is there), its files for editing a capture as text (`read`
 and `write`), the Git snapshot, `status`,
 and `commit`, and `onFilesChanged`. Reads and saves go through the folder's
 query options (`folderOptions` from `@epicenter/folder/query`), so every
@@ -322,8 +322,11 @@ before it:
 
 - There is no review with Your edit and Saved elsewhere. A write that meets
   a change made elsewhere merges with it, and your edit wins where you both
-  changed the same lines. A write to a file deleted elsewhere is refused and
-  never creates it again; a notice offers the text that was lost to copy.
+  changed the same lines. A write to a file deleted elsewhere writes
+  nothing and never creates it again; a notice offers the text that was
+  lost to copy.
+- A delete no longer refuses a file changed elsewhere since you confirmed
+  it: it removes the file as it is then (ADR-0576).
 - A failed save keeps your edit on screen without Try again or Save again
   buttons: your next change saves it again, and the notice offers your
   text. A failed write in Edit as text shows the file, and the notice

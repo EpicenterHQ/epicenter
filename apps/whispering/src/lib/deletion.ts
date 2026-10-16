@@ -2,11 +2,13 @@
  * Deleting from the folder: capture what a deletion removes from fresh reads,
  * tell the person exactly that, and remove only what was captured.
  *
- * Every removal is guarded by the bytes captured, so a file changed by
- * another program after the person was asked is refused and kept. Edits
- * being written land first, and a removal runs after the file's queued
- * writes: it deletes what this window saved last. The person is told when a
- * file has changes that are in no saved version.
+ * A row is deleted whatever it holds when the deletion runs: a delete beats
+ * edits that never saw it (ADR-0576). Any other file is removed guarded by
+ * the bytes captured, so one changed by another program after the person
+ * was asked is refused and kept. Edits being written land first, and a
+ * removal runs after the file's queued writes: it deletes what this window
+ * saved last. The person is told when a file has changes that are in no
+ * saved version.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -18,6 +20,7 @@
 import {
 	type FileCapture,
 	type FileListing,
+	type FileTable,
 	rowPath,
 	rowStemOf,
 } from '@epicenter/folder';
@@ -265,30 +268,35 @@ export async function captureDeletion(
 }
 
 /**
- * Delete the file at `capture.path` as captured. When this window saved the
- * file after the person was asked (typing while the dialog was open), that
- * is what is deleted. Anything else changed since is refused.
+ * Delete the file at `capture.path`. A row is deleted whatever it holds
+ * now: a delete beats edits that never saw it (ADR-0576). Any other file is
+ * removed as captured; when this window saved it after the person was asked
+ * (typing while the dialog was open), that is what is removed, and anything
+ * else changed since is refused.
  */
 async function deleteOne(
 	context: RemovalContext,
 	capture: FileCapture,
-	remove: (
-		file: FileCapture,
-	) => Promise<Result<undefined, { name: string; message: string }>>,
+	table?: Pick<FileTable<unknown>, 'name' | 'delete'>,
 ): Promise<string | undefined> {
-	const saved = context.held(capture.path);
-	let { error } = await remove(capture);
-	if (
-		error?.name === 'Conflict' &&
-		saved !== undefined &&
-		saved.sha256 !== capture.sha256
-	)
-		({ error } = await remove(saved));
-	if (error === null) {
-		context.deleted(capture.path);
-		return undefined;
+	let problem: string | undefined;
+	const stem = table && rowStemOf(table.name, capture.path);
+	if (table !== undefined && stem !== undefined) {
+		const { error } = await table.delete(stem);
+		problem = error === null ? undefined : describeError(error);
+	} else {
+		const saved = context.held(capture.path);
+		let { error } = await context.folder.files.remove(capture);
+		if (
+			error?.name === 'Conflict' &&
+			saved !== undefined &&
+			saved.sha256 !== capture.sha256
+		)
+			({ error } = await context.folder.files.remove(saved));
+		problem = error === null ? undefined : describeError(error);
 	}
-	return describeError(error);
+	if (problem === undefined) context.deleted(capture.path);
+	return problem;
 }
 
 type RemovalContext = DeletionContext & {
@@ -314,22 +322,19 @@ export async function removeDeletion(
 			return error === null ? undefined : describeError(error);
 		}
 		case 'transformation':
-			return deleteOne(context, deletion.file, (file) =>
-				folder.tables.transformations.delete(file),
+			return deleteOne(
+				context,
+				deletion.file,
+				folder.tables.transformations as FileTable<unknown>,
 			);
 		case 'file': {
 			const id = deletion.recordingId;
-			if (id === undefined)
-				return deleteOne(context, deletion.file, (file) =>
-					folder.files.remove(file),
-				);
+			if (id === undefined) return deleteOne(context, deletion.file);
 			const busy = context.busy(id);
 			if (busy !== undefined) return busy;
 			context.deleting.add(id);
 			try {
-				return await deleteOne(context, deletion.file, (file) =>
-					folder.files.remove(file),
-				);
+				return await deleteOne(context, deletion.file);
 			} finally {
 				context.deleting.delete(id);
 			}
@@ -346,8 +351,10 @@ export async function removeDeletion(
 				return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 			context.deleting.add(id);
 			try {
-				const refused = await deleteOne(context, deletion.row, (file) =>
-					folder.tables.recordings.delete(file),
+				const refused = await deleteOne(
+					context,
+					deletion.row,
+					folder.tables.recordings as FileTable<unknown>,
 				);
 				if (refused !== undefined) return refused;
 				context.dropFailed(id);
@@ -355,10 +362,12 @@ export async function removeDeletion(
 				// deleted before it stays deleted.
 				const leftovers: string[] = [];
 				for (const result of deletion.results) {
-					const problem = await deleteOne(context, result, (file) =>
-						rowStemOf(TRANSCRIPTIONS, file.path) !== undefined
-							? folder.tables.transcriptions.delete(file)
-							: folder.tables.transformation_runs.delete(file),
+					const problem = await deleteOne(
+						context,
+						result,
+						(rowStemOf(TRANSCRIPTIONS, result.path) !== undefined
+							? folder.tables.transcriptions
+							: folder.tables.transformation_runs) as FileTable<unknown>,
 					);
 					if (problem !== undefined) leftovers.push(result.path);
 				}

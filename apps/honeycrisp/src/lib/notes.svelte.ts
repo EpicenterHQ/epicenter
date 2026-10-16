@@ -10,19 +10,20 @@
  * writes put their result in the cache, or make what they changed stale.
  * Nothing rereads on focus.
  *
- * A field edit is an update of the file as it is now (ADR-0554): a note's
- * title, folder, and pin, a list action on any note, and a folder's name
- * each set their fields and keep every field another writer changed. The
- * open note holds a title typed and not yet sent. A note's body, from rich
- * text or Source, is a document: a body editor (`createBodyEditor`), one
- * per note, which keeps the version it started from and is saved a second
+ * A field edit sets fields of the file as it is now (`set`, ADR-0576): a
+ * note's title, folder, and pin, a list action on any note, and a folder's
+ * name each set their fields and keep every field another writer changed.
+ * The open note holds a title typed and not yet sent. A note's body, from
+ * rich text or Source, is a document: a body editor (`createBodyEditor`),
+ * one per note, which keeps the row it started from and is saved a second
  * after the last change, or at once when the view leaves it, merged by line
  * with whatever changed since. A file open as its exact text has a text
  * draft of its own (`createTextDraftState`), saved the same way (ADR-0551).
  * Writes to one file run one at a time, in the order made. A body save that
- * fails keeps the body on screen and reports the failure; a note deleted
- * elsewhere drops it. Where a save meets another writer's change to the
- * same lines, the save wins (ADR-0575).
+ * fails keeps the body on screen and reports the failure. A delete beats
+ * an edit that never saw it: a body whose note was deleted elsewhere
+ * writes nothing, and is dropped with its text offered. Where a save meets another
+ * writer's change to the same lines, the save wins (ADR-0576).
  *
  * Every other action is a mutation: create, rename, delete, deleting a
  * folder, and Save version. Closing the notes fences new input, then waits
@@ -43,9 +44,10 @@ import {
 	rowPath,
 	rowStemOf,
 	type StoredRow,
-	type TableCreateError,
 	type TableError,
 	type TableListing,
+	type WriteError,
+	type WrittenRow,
 } from '@epicenter/folder';
 import {
 	ancestorsOf,
@@ -67,10 +69,11 @@ import {
 	createTextDraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
-import type {
-	Mutation,
-	MutationFilters,
-	QueryClient,
+import {
+	hashKey,
+	type Mutation,
+	type MutationFilters,
+	type QueryClient,
 } from '@tanstack/svelte-query';
 import { useDebounce } from 'runed';
 import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -137,7 +140,10 @@ export type Deletion =
 /** A save that failed. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError | FileSaveError;
+	readonly error:
+		| WriteError
+		| FileSaveError
+		| Extract<NotesError, { name: 'NoteDeleted' }>;
 	/** The text of the edit the file does not hold. */
 	readonly unsaved: string;
 	/**
@@ -150,6 +156,11 @@ export type WriteFailure = {
 /** Why an action did not start, or stopped before it changed anything. */
 export const NotesError = defineErrors({
 	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
+	/** A body was typed into a note that another program deleted. */
+	NoteDeleted: ({ path }: { path: string }) => ({
+		message: 'This note was deleted elsewhere, so your edit was not saved.',
+		path,
+	}),
 });
 export type NotesError = InferErrors<typeof NotesError>;
 
@@ -336,18 +347,19 @@ export function createNotes(
 		selected?.path === path && selected.as === 'text';
 
 	/**
-	 * The path a folder write is to: a row save's base, a row update's stem
-	 * in its table, or a file write's path.
+	 * The path a folder write is to: a body write's or field set's stem in
+	 * its table, or a file write's path.
 	 */
 	function writePath(mutation: Pick<Mutation, 'state' | 'options'>) {
 		const sent = mutation.state.variables as
-			| { stem?: string; base?: FileCapture; path?: string }
+			| { stem?: string; path?: string }
 			| undefined;
-		if (sent?.base !== undefined) return sent.base.path;
 		if (sent?.path !== undefined) return sent.path;
 		const key = mutation.options.mutationKey;
-		if (sent?.stem === undefined || key?.at(-1) !== 'update') return undefined;
-		return rowPath(String(key.at(-2)), sent.stem);
+		const verb = key?.at(-1);
+		if (sent?.stem === undefined || (verb !== 'write' && verb !== 'set'))
+			return undefined;
+		return rowPath(String(key?.at(-2)), sent.stem);
 	}
 	const writing = (path?: string) =>
 		queryClient.isMutating({
@@ -358,8 +370,8 @@ export function createNotes(
 		}) > 0;
 
 	/**
-	 * One table's rows: the listing in the cache, and the update that sets a
-	 * row's fields as its file is now (ADR-0554).
+	 * One table's rows: the listing in the cache, and the set of a row's
+	 * fields as its file is now (ADR-0576).
 	 */
 	function rowTable<TFields>(name: TableName, options: TableOptions<TFields>) {
 		const listing = () =>
@@ -371,21 +383,20 @@ export function createNotes(
 			return result?.error === null ? result.data : undefined;
 		}
 
-		const update = {
-			...options.update.mutationOptions(),
-			// A row deleted elsewhere is not written back; anything else leaves
-			// what was typed on screen, to be sent again.
+		const setRow = {
+			...options.set.mutationOptions(),
+			// What was typed stays on screen, to be sent again.
 			onError: (error, { stem }) =>
 				onWriteFailed({
 					path: rowPath(name, stem),
 					error,
 					unsaved: '',
-					kept: error.name !== 'NotFound',
+					kept: true,
 				}),
-		} satisfies ReturnType<TableOptions<TFields>['update']['mutationOptions']>;
+		} satisfies ReturnType<TableOptions<TFields>['set']['mutationOptions']>;
 
 		/**
-		 * Why fields of the row at `stem` take no update now, if they do not:
+		 * Why fields of the row at `stem` take no set now, if they do not:
 		 * closing, a rename or delete of the file, the file open as text, or a
 		 * row the list does not hold.
 		 */
@@ -403,9 +414,7 @@ export function createNotes(
 		function set(stem: string, fields: Partial<TFields>): string | undefined {
 			const why = refusalAt(stem);
 			if (why !== undefined) return why;
-			void runMutation(queryClient, update, { stem, set: fields }).catch(
-				() => {},
-			);
+			void runMutation(queryClient, setRow, { stem, fields }).catch(() => {});
 			return undefined;
 		}
 
@@ -414,7 +423,7 @@ export function createNotes(
 			table: folder.tables[name],
 			listing,
 			storedOf,
-			update,
+			setRow,
 			refusalAt,
 			set,
 			/** The capture the cache holds for `stem`: a row's, or a row that does not read's own bytes. */
@@ -469,40 +478,96 @@ export function createNotes(
 	}
 
 	/**
-	 * Note bodies being typed, by stem (ADR-0575). A body is opened: its
-	 * editor keeps the version it started from, and its save merges by line
+	 * Note bodies being typed, by stem (ADR-0576). A body is opened: its
+	 * editor keeps the row it started from, and its save merges by line
 	 * with whatever changed since. It saves a second after the last change,
-	 * and at once when the view leaves it (`saveBody`).
+	 * and at once when the view leaves it (`saveBody`). It saves nothing
+	 * while the list does not hold its note.
 	 */
 	const bodies = new SvelteMap<string, Typed<BodyEditor>>();
 
-	const saveNote = {
-		...folder$.notes.setBody.mutationOptions(),
-		onError: (error, { base, text }) => {
-			const stem = noteIdOf(base.path);
-			// A note deleted elsewhere is not written back: its body leaves the
-			// screen, the lists, read again, let it go, and the person is
-			// offered its text.
-			const gone = error.name === 'NotFound';
-			if (gone && stem !== undefined) {
-				bodies.get(stem)?.draft.discard();
-				bodies.delete(stem);
-			}
-			onWriteFailed({ path: base.path, error, unsaved: text, kept: !gone });
-		},
-	} satisfies ReturnType<typeof folder$.notes.setBody.mutationOptions>;
+	const writeNote = {
+		...folder$.notes.write.mutationOptions(),
+		// What was typed stays on screen, to be sent again.
+		onError: (error, { stem, to }) =>
+			onWriteFailed({
+				path: rowPath(NOTES, stem),
+				error,
+				unsaved: to?.body ?? '',
+				kept: true,
+			}),
+	} satisfies ReturnType<typeof folder$.notes.write.mutationOptions>;
+
+	/** Stems whose body save found the note deleted, so it wrote nothing. */
+	const savedOverDelete = new Set<string>();
+
+	/**
+	 * Let go of the body held for `stem` and offer its text once, as a failed
+	 * save, when its note was deleted elsewhere: a save found it gone, or the
+	 * listing no longer holds it. A delete beats an edit that never saw it
+	 * (ADR-0576), so nothing writes the note again. A body whose save is
+	 * running is left to it.
+	 */
+	function dropIfDeleted(stem: string) {
+		const typed = bodies.get(stem);
+		if (typed === undefined || typed.draft.saving) return;
+		const listed = noteRows.listing();
+		const deleted =
+			savedOverDelete.has(stem) ||
+			(listed !== undefined && !listed.some((entry) => entry.stem === stem));
+		if (!deleted) return;
+		savedOverDelete.delete(stem);
+		const unsaved = typed.typed();
+		if (unsaved === undefined) return;
+		// A save scheduled after a pause still runs, and finds no body.
+		typed.draft.discard();
+		bodies.delete(stem);
+		const path = rowPath(NOTES, stem);
+		onWriteFailed({
+			path,
+			error: NotesError.NoteDeleted({ path }).error,
+			unsaved,
+			kept: false,
+		});
+	}
+
+	function dropDeletedBodies() {
+		for (const stem of [...bodies.keys()]) dropIfDeleted(stem);
+	}
+
+	/** Save the body of `stem` now, as leaving it does; a note deleted since lets it go. */
+	async function saveBodyOf(stem: string) {
+		await saveTyped(bodies, stem);
+		dropIfDeleted(stem);
+	}
+	const noteListHash = hashKey(folder$.notes.list.queryKey());
+	const stopDeletedBodies = queryClient.getQueryCache().subscribe((event) => {
+		if (
+			event.type === 'updated' &&
+			event.action.type === 'success' &&
+			event.query.queryHash === noteListHash
+		)
+			dropDeletedBodies();
+	});
 
 	function bodyOf(stem: string) {
 		const known = bodies.get(stem);
 		if (known !== undefined) return known;
 		const draft = createBodyEditor<NoteFields>({
 			row: () => noteRows.storedOf(stem),
-			save: (variables) => runMutation(queryClient, saveNote, variables),
+			write: async (change) => {
+				const written = await runMutation(queryClient, writeNote, {
+					stem,
+					...change,
+				});
+				if (written === null) savedOverDelete.add(stem);
+				return written;
+			},
 		});
 		const typed = {
 			draft,
 			typed: () => draft.typed,
-			later: useDebounce(() => saveTyped(bodies, stem), 1000),
+			later: useDebounce(() => saveBodyOf(stem), 1000),
 		};
 		bodies.set(stem, typed);
 		return typed;
@@ -600,7 +665,7 @@ export function createNotes(
 	async function writesSettled() {
 		for (;;) {
 			await Promise.all([
-				...[...bodies.keys()].map((stem) => saveTyped(bodies, stem)),
+				...[...bodies.keys()].map((stem) => saveBodyOf(stem)),
 				...[...textDrafts.keys()].map((path) => saveTyped(textDrafts, path)),
 			]);
 			await whenIdle(queryClient, {
@@ -614,7 +679,7 @@ export function createNotes(
 	async function settledAt(path: string) {
 		const stem = noteIdOf(path);
 		await Promise.all([
-			stem === undefined ? undefined : saveTyped(bodies, stem),
+			stem === undefined ? undefined : saveBodyOf(stem),
 			saveTyped(textDrafts, path),
 		]);
 		await whenIdle(queryClient, {
@@ -662,6 +727,7 @@ export function createNotes(
 		if (stem !== undefined) {
 			bodies.get(stem)?.draft.discard();
 			bodies.delete(stem);
+			savedOverDelete.delete(stem);
 		}
 		textDrafts.get(path)?.draft.discard();
 		textDrafts.delete(path);
@@ -708,9 +774,9 @@ export function createNotes(
 
 	const createNote = defineMutation({
 		mutationKey: ['honeycrisp', 'create-note'],
-		mutationFn: async (): Promise<
-			Result<StoredRow<NoteFields>, TableCreateError | NotesError>
-		> => {
+		mutationFn: async (
+			stem: string,
+		): Promise<Result<WrittenRow<NoteFields>, WriteError | NotesError>> => {
 			const why = refused();
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
 			return folder.tables.notes.create(
@@ -724,30 +790,33 @@ export function createNotes(
 					},
 					body: '',
 				},
-				{ stem: newId() },
+				{ stem },
 			);
 		},
-		onSuccess: async (created) => {
-			await changed(created.path);
-			open(created.path, 'note');
+		onSuccess: async (_, stem) => {
+			const path = rowPath(NOTES, stem);
+			await changed(path);
+			open(path, 'note');
 		},
 	});
 
 	const createFolder = defineMutation({
 		mutationKey: ['honeycrisp', 'create-folder'],
-		mutationFn: async (
-			name: string,
-		): Promise<
-			Result<StoredRow<FolderFields>, TableCreateError | NotesError>
-		> => {
+		mutationFn: async ({
+			stem,
+			name,
+		}: {
+			stem: string;
+			name: string;
+		}): Promise<Result<WrittenRow<FolderFields>, WriteError | NotesError>> => {
 			const why = refused();
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
 			return folder.tables.folders.create(
 				{ fields: { name, icon: null }, body: '' },
-				{ stem: newId() },
+				{ stem },
 			);
 		},
-		onSuccess: (created) => changed(created.path),
+		onSuccess: (_, { stem }) => changed(rowPath(FOLDERS, stem)),
 	});
 
 	const createFile = defineMutation({
@@ -802,7 +871,7 @@ export function createNotes(
 	/**
 	 * Delete a folder after moving its notes out. Refused while any note
 	 * cannot say which folder it is in. Writes running land first; each note
-	 * then moves out by an update, like any list action; once every write
+	 * then moves out by a set, like any list action; once every write
 	 * landed, the notes are read again, and
 	 * the folder's file goes only when none is still in it. Not one atomic
 	 * step: a note already moved out stays moved out if the delete stops,
@@ -813,7 +882,7 @@ export function createNotes(
 		return defineMutation({
 			mutationKey: notesKeys.remove(entry.path),
 			mutationFn: async (): Promise<
-				Result<undefined, TableError | FileError | NotesError>
+				Result<undefined, WriteError | FileError | NotesError>
 			> => {
 				const why = refused();
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
@@ -856,7 +925,7 @@ export function createNotes(
 							.map((note) => basename(note.path))
 							.join(', ')}), so it was kept. Delete it again to move them out.`,
 					});
-				return folder.tables.folders.delete(heldCapture(entry.path) ?? entry);
+				return folder.tables.folders.delete(entry.stem);
 			},
 			onSuccess: () => {
 				deleted(entry.path);
@@ -867,10 +936,10 @@ export function createNotes(
 	}
 
 	/**
-	 * Rename a file within its folder. A row renames through its table,
-	 * unless it is open as text; any other file moves as exact bytes. It
-	 * waits for the file's saves to land and moves what the last one wrote.
-	 * Edits of the file wait meanwhile.
+	 * Rename a file within its folder. A row renames through its table by
+	 * stem, unless it is open as text; any other file moves as exact bytes.
+	 * It waits for the file's saves to land and moves what the file holds
+	 * then. Edits of the file wait meanwhile.
 	 */
 	function rename(path: string, name: string) {
 		const directory = dirname(path);
@@ -879,8 +948,8 @@ export function createNotes(
 			mutationKey: notesKeys.move(path),
 			mutationFn: async (): Promise<
 				Result<
-					FileCapture | undefined,
-					FileError | MoveError | NotesError | TableError
+					FileCapture | WrittenRow<unknown> | undefined,
+					FileError | MoveError | WriteError | NotesError
 				>
 			> => {
 				const why = refused() ?? nameProblem(directory, name);
@@ -894,18 +963,22 @@ export function createNotes(
 						reason: `A ${at.rows.name === NOTES ? 'note' : 'folder'} file keeps its .md extension.`,
 					});
 				await settledAt(path);
+				// A close that began meanwhile stops the move.
+				if (at !== undefined && nextStem !== undefined && !asText(path)) {
+					const late = refused();
+					if (late !== undefined)
+						return NotesError.NotStarted({ reason: late });
+					return at.rows.table.rename(at.stem, nextStem);
+				}
 				let capture = heldCapture(path);
 				if (capture === undefined) {
 					const { data, error } = await captureNow(path);
 					if (error !== null) return Err(error);
 					capture = data;
 				}
-				// A close that began meanwhile stops the move.
 				const late = refused();
 				if (late !== undefined) return NotesError.NotStarted({ reason: late });
-				return at !== undefined && nextStem !== undefined && !asText(path)
-					? at.rows.table.rename(capture, nextStem)
-					: folder.files.move(capture, to);
+				return folder.files.move(capture, to);
 			},
 			onSuccess: async (renamed) => {
 				if (renamed === undefined) return;
@@ -925,7 +998,7 @@ export function createNotes(
 		return defineMutation({
 			mutationKey: notesKeys.remove(deletion.path),
 			mutationFn: async (): Promise<
-				Result<undefined, FileError | TableError | NotesError>
+				Result<undefined, FileError | NotesError>
 			> => {
 				const why = refused();
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
@@ -1067,11 +1140,11 @@ export function createNotes(
 		// ------------------------------------------------------------------
 
 		/**
-		 * The update a view sends a field typed into a note with: `{ stem, set }`,
+		 * The set a view sends a field typed into a note with: `{ stem, fields }`,
 		 * set on the note as its file is now. Ask `refusalAt` first.
 		 */
-		noteUpdate: noteRows.update,
-		/** Why the note at `path` takes no update or body now, if it does not. */
+		setNote: noteRows.setRow,
+		/** Why the note at `path` takes no set or body now, if it does not. */
 		refusalAt(path: string): string | undefined {
 			const stem = noteIdOf(path);
 			return stem === undefined ? NOT_LISTED : noteRows.refusalAt(stem);
@@ -1084,7 +1157,7 @@ export function createNotes(
 		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
 		saveBody(path: string): Promise<void> {
 			const stem = noteIdOf(path);
-			return stem === undefined ? Promise.resolve() : saveTyped(bodies, stem);
+			return stem === undefined ? Promise.resolve() : saveBodyOf(stem);
 		},
 		/**
 		 * The note at `path` as the rich-text editor uses it: the row shown
@@ -1158,8 +1231,9 @@ export function createNotes(
 		// ------------------------------------------------------------------
 
 		/** Create a note in the folder being shown and open it. */
-		createNote: async () => problem(await createNote()),
-		createFolder: async (name: string) => problem(await createFolder(name)),
+		createNote: async () => problem(await createNote(newId())),
+		createFolder: async (name: string) =>
+			problem(await createFolder({ stem: newId(), name })),
 		/** A new empty text file, opened; it never replaces an existing one. */
 		createFile: async (directory: string, name: string) =>
 			problem(await createFile({ directory, name })),
@@ -1243,6 +1317,7 @@ export function createNotes(
 				await whenIdle(queryClient);
 				released = true;
 				stopChanges();
+				stopDeletedBodies();
 				await queryClient.cancelQueries({ queryKey: folder$.key });
 				await folder.close();
 			})();

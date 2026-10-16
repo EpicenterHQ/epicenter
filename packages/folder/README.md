@@ -19,16 +19,13 @@ if (openError !== null) return show(openError.message);
 
 const stop = folder.onFilesChanged(() => refresh());   // subscribe, then read
 const listed = await folder.tables.todos.list();       // one { stem, result } per row file
-const { data: created, error: createError } = await folder.tables.todos.create({
-  fields: { title: 'Milk', done: false },
-  body: '',
-});
+const { error: createError } = await folder.tables.todos.create(
+  { fields: { title: 'Milk', done: false }, body: '' },
+  { stem: 'milk' },
+);
 if (createError !== null) show(createError.message);
-else {
-  const edited = { ...created.row, fields: { ...created.row.fields, done: true } };
-  const { data: saved, error: saveError } = await folder.tables.todos.save(created, edited);
-  if (saveError !== null) show(saveError.message);     // deleted, invalid, or kept changing
-}
+const { error: setError } = await folder.tables.todos.set('milk', { done: true });
+if (setError !== null) show(setError.message);         // invalid values, or kept changing
 await folder.close();                                  // closed either way
 ```
 
@@ -167,7 +164,7 @@ folder ID.
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 | `@epicenter/folder/query` | Nothing: TanStack Query option factories and the text draft over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
-| `@epicenter/folder/svelte` | Nothing: `createTextDraftState` and `createBodyDraftState`, a document's draft a Svelte component reads reactively, with its save loop ([Editing a row](#editing-a-row)). Loads `svelte/reactivity`, an optional peer. | A Svelte editor of a note body or a file's text. |
+| `@epicenter/folder/svelte` | Nothing: `createBodyEditor`, a row's body opened over the table's write, and `createTextDraftState`, a file's text draft, each read reactively with its save loop ([Editing a row](#editing-a-row)). Loads `svelte/reactivity`, an optional peer. | A Svelte editor of a note body or a file's text. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -263,9 +260,7 @@ const board = defineFolder({
 
 const { data: folder, error } = await openDataFolder({ id: 'so.epicenter.todos', lens: board });
 if (error?.name === 'ShapeMismatch') return show(error.problems); // every problem, listed
-const { data: stored } = await folder.tables.todos.get('milk');
-stored.row.fields.status = 'done';                  // fields the lens does not name stay on the row
-await folder.tables.todos.save(stored, stored.row);
+await folder.tables.todos.set('milk', { status: 'done' }); // fields the lens does not name stay on the row
 ```
 
 The folder contains the lens when, for every table of the lens, it declares a
@@ -286,9 +281,9 @@ problem with the reason, and the app widens its lens. A folder without
 | --- | --- |
 | A folder that does not contain the lens | `ShapeMismatch` with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
 | `tables` | the lens's tables alone, typed by it; the folder's other tables are not on the handle |
-| A row read | every field the file holds, the ones the lens does not name included, so a `save` of the row read keeps them |
-| A write | checked against the folder's own declaration, every field of it, a merged row included: the lens cannot save a value the folder refuses |
-| `create` | `canCreate` is false, and `create` is `CannotCreate` naming the fields, when the folder requires a field the lens does not declare; rows can still be edited |
+| A row read | every field the file holds, the ones the lens does not name included, so a write of the row read keeps them |
+| A write | checked against the folder's own declaration, every field of it, a merged row included: the lens cannot write a value the folder refuses |
+| `create` | `canCreate` is false, and `create` is `InvalidValues` naming the fields, when the folder requires a field the lens does not declare; rows can still be edited |
 | `definition` | the folder's own prepared declaration, as without a lens |
 | `epicenter.json` | never written |
 
@@ -658,7 +653,7 @@ its default export declares (ADR-0527).
 
 | Member | Contract |
 | --- | --- |
-| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `save(base, row, options?)` writes an edit over the version it started from, merging with another writer's newer file. `rename` and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
+| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `write(stem, from, to)` merges the change from one row to another into the row as it is now, through the folder's one write; `set`, `create`, `delete`, and `rename` build that change. Each changes exactly one Markdown file, a rename two. See [Reading a row](#reading-a-row), [Writing a row](#writing-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` changes one key of the file as read at the set, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and saves with the one save loop, merging by key with another writer's save. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. See [One write](#one-write). |
 | `files` | Ordinary files at literal paths. See below. |
@@ -900,139 +895,108 @@ any case. The desktop shell applies the same rule, and both are held to
 `fixtures/path-rules.json` in `tauri-plugin-epicenter-folder`. Whether two
 spellings are one file is the backing storage's answer. Browser storage keeps names exactly, so `Plan` and
 `plan` are two rows. A directory on a filesystem that holds one file for both
-refuses the second with `Exists`. Incoming history has its own rule and may
+refuses the second as `InvalidPath`. Incoming history has its own rule and may
 refuse paths a filesystem could not hold apart; see Incoming changes.
 
-### Saving a row
+### Writing a row
 
-`create` is the one unconditional write. Every other write names the version
-it started from with a capture, `{ path, sha256 }`: a `StoredRow`, an
-`InvalidRow`, or a listed row passes as it is.
+A table is a typed view over the folder's one write (ADR-0576). Every row
+write is `write(stem, from, to)`: the change from the row `from` to the row
+`to`, merged into the file as it is now, field by field and the body by
+line, and written in the standard form. The helpers build the change:
 
 ```ts
-const created = await todos.create({ fields, body: '' }, { stem: 'milk' }); // Exists if taken
-const saved = await todos.save(stored, edited); // { stored, merged }
-const body = await todos.setBody(stored, 'New notes\n'); // only the body, on the file as it is now
-const updated = await todos.update('milk', { set: { done: true } }); // over the row as it is now
-const moved = await todos.rename(stored, 'groceries'); // the capture at the new path
-await todos.delete(stored);
+await todos.set('milk', { done: true });               // from: the row as it is now
+await todos.create({ fields, body: '' }, { stem: 'milk' }); // from: no file
+await todos.delete('milk');                            // no base: the deleter wins
+await todos.rename('milk', 'groceries');               // a create at the new stem, then a delete
+await todos.write('milk', opened.row, { ...opened.row, body: 'New notes\n' }); // what a body editor sends
 ```
 
-`save(base, row, options?)` is the one way an app, a script, or an agent
-writes an edit of a row: one save over the row's kind (see
-[One save](#one-save)). A field only one side changed keeps that side's value;
-body lines only one side changed keep that side's lines, and edits to
-neighboring lines both stay. Where both changed one field, or the same body
-lines, the edit wins; nothing is returned to show a person, and the folder
-logs the overwrite (ADR-0575). A merged row is written in the standard form.
+Each resolves with the row the write left at the stem, or `null` when no
+row stands there: the write deleted it, or merged with a file that does not
+read as a row, which is left to repair. Every failure is one `WriteError`:
+`InvalidValues` for a row that cannot be written (nothing is written),
+`KeptChanging` when the file changed on every attempt, `Io`, `Closed`, or
+`InvalidPath`.
 
-`setBody(base, text, options?)` replaces only the body (ADR-0575): it reads
-the file as it is now, keeps every byte before its body, merges `text` by
-line from `base.row.body` with whatever changed since, the text winning
-lines both changed, and writes the body with `\n` line endings. With
-`{ ifUnchanged: true }` a body another writer changed is `Conflict`, and a
-change to the fields does not block it. A file with no closed frontmatter
-is `InvalidRow`, and a deleted file is `NotFound`.
+- `set(stem, fields)` reads the row, puts `fields` over its fields, and
+  writes that with the row it read as `from`. A field set to `undefined` is
+  removed; a required one so removed is `InvalidValues`. Every field it does
+  not name keeps another writer's value, even one that landed between its
+  read and its write, and a field it names wins. A row that is not there is
+  not made: `null`, and nothing is written. A file that is not a row has no
+  fields to set, and is `InvalidValues`.
+- `create(row, { stem? })` writes at `stem`, or a generated one, from no
+  file. A row already at the stem merges with it, the created row winning
+  each field both set; generated stems make that a non-event. A lens that
+  cannot supply a field the folder requires is `InvalidValues`, and
+  `canCreate` says so beforehand.
+- `delete(stem)` removes whatever is at the stem, row or not.
+- `rename(stem, next)` moves the file, row or not, as it is. Its bytes land
+  at `next` only where nothing is, so two renames onto one stem never fuse
+  two rows, and `stem` goes only while it holds what moved: a write that
+  lands there meanwhile is carried to `next` first. No file at `stem`, or a
+  file at `next`, is `InvalidPath`. A rename that placed `next` but could
+  not remove `stem` leaves both.
+- A delete beats an edit it never saw. A write over a row deleted since its
+  `from` writes nothing and resolves `null`; only `create`, from no file,
+  brings a row into existence. So an autosave, a retried fill, or a stale
+  click never brings a deleted row back, with no check of its own.
 
-The merge base is the row the base's text holds, never its `row`, which is the
-caller's to edit. A base whose text is not a row, such as an `InvalidRow`
-being repaired, merges by line.
-
-A save fails, writing nothing, only when its base carries no content
-(`UnknownBase`), the row does not conform or cannot be written
-(`InvalidValues`), the file was deleted (`NotFound`: a save never recreates a
-row), another writer left text that is not a row and does not merge into one
-(`InvalidRow`), or the file kept changing (`KeptChanging`). With
-`{ merge: false }`, a file another writer changed is `Conflict` instead.
-
-`rename` and `delete` are refused as `Conflict` when the file no longer holds
-the captured bytes, and nothing retries. A rename to the stem it already has
-is `InvalidPath`; a rename onto an occupied stem is `Exists`. A move that
-landed its destination but could not remove its source is
-`MoveError.SourceNotRemoved`; its `moved` capture names the destination, so
-the application can continue from there and remove the leftover source under
-its own guard.
-
-A host that loses a reply reports `Unconfirmed`: the change may or may not
-have landed. Present it as uncertainty, never as a definite failure.
+A row that is not valid is repaired as text through the folder's write:
+`folder.write(invalid.path, invalid.text, repaired)`.
 
 ### Editing a row
 
-The folder keeps no draft and no save queue (ADR-0554). A person editing a
-field means "the title is Milk", not "here is the row as I last saw it", so
-a field edit is an update of the file as it is now:
+A person editing a field means "the title is Milk", not "here is the row as
+I last saw it", so a field edit is a `set` of the row as it is now. A
+component holds what a person typed in its own state until it is sent, and
+sends it through the table's `set` mutation after a pause and when the
+person leaves the field (see [Queries](#queries)). A checkbox or a select
+sends its set at once. A relative change (`count + 1`) is not a set: a
+script reads the row and writes the change from it.
 
-```ts
-await todos.update('milk', { set: { title: 'Oat milk' }, unset: ['due'] });
-```
-
-`update(stem, { set, unset })` reads the row, puts `set` over its fields,
-removes each field in `unset`, and saves that over what it read with the
-body unchanged and no merge. When another writer saved in between, the save
-is `Conflict`, and the update tries again from their row, up to
-`WRITE_ATTEMPTS` times, then answers `KeptChanging`. So every field it did
-not name keeps their value, and a field it set wins. `unset` takes only optional fields, since `null` may be a field's
-real value. An update of a missing row is `NotFound`; a value a field does
-not admit is `InvalidValues`. A relative change (`count + 1`) is not an
-update: a script reads the row and `save`s it.
-
-A component holds what a person typed in its own state until it is sent,
-and sends it through the `update` mutation of `folderOptions` after a pause
-and when the person leaves the field (see [Queries](#queries)). A checkbox
-or a select sends its update at once.
-
-A document cannot be a field change: a note body, a transcript, or a file's
-text is a whole text, and setting it would replace another writer's lines.
-Its edit holds its own starting version: `createTextDraft()` in
-`@epicenter/folder/query` captures the version at the first change, keeps
-the typed text outside any cache, and saves with that version as the base,
-so the save merges by line with whatever changed since.
-
-```ts
-const draft = createTextDraft();
-draft.change(openedFile, 'one\ntwo\n'); // base captured here, once
-const sent = draft.toSave();              // { base, content, revision }
-// after files.save(sent.base, sent.content) lands as `saved`:
-await draft.saved(sent, writtenFile(saved)); // done, or later typing continues from it
-```
-
-When the save merged another writer's lines, text typed while it ran is
-merged onto the written text, so the next save does not undo them. A row's
-body drafts the same way over a `StoredRow`, written with `table.setBody`
-and read back with `writtenBody`.
-
-A Svelte component holds one with `createTextDraftState({ save })` or
-`createBodyDraftState({ save })` from `@epicenter/folder/svelte`: the same
-draft, read reactively, and a `save()` that runs one save at a time and
-sends text typed meanwhile from the version the last save wrote. A failed
-save keeps the draft; the error is the save mutation's. A control opens a
-row's body with `createBodyEditor({ row, save })`, which wraps the body
-draft over the row as the cache holds it and the table's `setBody`
-mutation.
+A body is a whole text, so setting it would replace another writer's lines.
+`createBodyEditor({ row, write })` from `@epicenter/folder/svelte` opens it.
+It holds `from`, the row as the cache held it at the first keystroke, and
+`typed`, and sends each save to the table's `write` mutation as the change
+from `from` to `from` with the typed body, with `\n` line endings and
+well-formed text. A save that lands with nothing typed since clears both. A
+save that lands while typing continued makes `from` the row it sent, so the
+next save changes only what was typed since; one that stayed at the first
+keystroke would make a later edit of saved text a second insertion beside
+it. A failed save keeps both. Saves of one file run one at a time. A save
+that finds the row deleted writes nothing, and nothing is sent while the row
+is gone from the cache: what is typed stays, `gone` is true, and the control
+offers the text until the person copies or discards it.
 
 ```svelte
 <script lang="ts">
-  const setBody = createMutation(() => folder$.notes.setBody.mutationOptions());
-  const body = createBodyDraftState<Note>({
-    save: ({ base, content }) => setBody.mutateAsync({ base, text: content }),
-  });
   const note = createQuery(() => folder$.notes.get.queryOptions(stem));
+  const writeNote = createMutation(() => folder$.notes.write.mutationOptions());
+  const body = createBodyEditor({
+    row: () => note.data ?? undefined,
+    write: (change) => writeNote.mutateAsync({ stem, ...change }),
+  });
   const send = useDebounce(() => body.save(), 1000);
 </script>
 <textarea
-  value={body.text ?? note.data?.row.body}
-  oninput={(e) => { body.change(note.data!, e.currentTarget.value); void send(); }}
+  value={body.text}
+  oninput={(e) => { body.change(e.currentTarget.value); void send(); }}
   onblur={() => void send.runScheduledNow()}
 ></textarea>
 ```
 
-A row that is not valid is repaired as text: `files.save(invalidRow, text)`
-saves over the `InvalidRow` the read returned, which carries its text.
+An ordinary file's text drafts the same way over `files.save` with
+`createTextDraft()` in `@epicenter/folder/query`, or reactively with
+`createTextDraftState({ save })`: the draft captures the file at the first
+change and saves with it as the base.
 
 ### One write
 
-`folder.write(path, from, to)` is the write every other verb is moving onto
-(ADR-0576). `from` is the content the change started from, or `null` for no
+`folder.write(path, from, to)` is the folder's one write (ADR-0576); every
+table helper calls it. `from` is the content the change started from, or `null` for no
 file; `to` is the new content, or `null` to delete the file.
 
 ```ts
@@ -1059,8 +1023,7 @@ written.overridden; // each unit this write won over another writer's change
 
 - Units only one side changed all survive. On a unit both changed, the
   writer wins, and `overridden` names it (`field`, `setting`, `lines` with
-  its `line` and `count`, or `file` with whether the other side `changed` or
-  `deleted` it). Each overwrite is logged through `wellcrafted/logger`
+  its `line` and `count`, or `file` with the side whose edit did not stand). Each overwrite is logged through `wellcrafted/logger`
   (`folder/save`); nothing is shown to a person.
 - Two insertions at one place both survive, the file's first, then the
   writer's. Identical ones are one, and an insertion that holds the other at
@@ -1072,7 +1035,10 @@ written.overridden; // each unit this write won over another writer's change
 - A version that does not read as its kind merges as text, and any `to` is
   written: a raw edit of a row can leave a row to repair (ADR-0503). A typed
   table view refuses a row it cannot write before it writes (`InvalidValues`).
-- A delete needs no base: `to` of `null` removes whatever is there.
+- A delete needs no base: `to` of `null` removes whatever is there. A delete
+  beats an edit it never saw: an edit of a file deleted since its `from`
+  writes nothing and answers `file: null`, and only a write from `null`
+  creates a file.
 
 Storage's `put` lands only while the path holds `ifMatch`, the SHA-256 there
 or `null` for no file, and answers `'stale'` otherwise, changing nothing. The
@@ -1082,9 +1048,8 @@ renamed into place, under the save lock (ADR-0562).
 
 ### One save
 
-Every save over an existing file by the earlier verbs is one save loop,
-`saveFile` (ADR-0551):
-`table.save`, `kv.set`, and `files.save` are thin calls over it.
+Every save of `files.save` and `kv.set` over an existing file is one save
+loop, `saveFile` (ADR-0551).
 
 1. The base's content must hash to its `sha256`; otherwise `UnknownBase`.
    The save swaps on that hash.
@@ -1250,8 +1215,8 @@ import { folderOptions } from '@epicenter/folder/query';
 const folder$ = folderOptions(folder);
 createQuery(() => folder$.todos.list.queryOptions());
 createQuery(() => folder$.todos.get.queryOptions('milk')); // StoredRow | null
-const done = createMutation(() => folder$.todos.update.mutationOptions());
-done.mutate({ stem: 'milk', set: { done: true } });
+const setTodo = createMutation(() => folder$.todos.set.mutationOptions());
+setTodo.mutate({ stem: 'milk', fields: { done: true } });
 
 // The app root, once: changes the page did not make mark what they name stale.
 const stopChanges = folder$.invalidateOnChange(queryClient);
@@ -1259,7 +1224,7 @@ const stopChanges = folder$.invalidateOnChange(queryClient);
 
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
-| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `create`, `save({ base, row })`, `update({ stem, set?, unset? })`, `rename`, `delete` |
+| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `rename({ stem, next })`, `delete(stem)` |
 | `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
 | `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
@@ -1269,17 +1234,22 @@ the files at `paths`, each a file or a directory: cached like the reads
 above, and stale whenever a change reaches one of `paths`. A list derived
 from two tables names both directories.
 
+Each helper is its own mutation, and there is no shared one, so each
+control owns its pending and error state. A query is named for its data and
+a mutation for its verb and noun: `const todo`, `const setTodo`,
+`const deleteTodo`, never `remove` for `.delete`.
+
 Writes to one file run one at a time, in the order made, whichever
-control or options object made them, so a checkbox's update reads the row
-a title's update wrote. The options keep that order themselves, not in a
+control or options object made them, so a checkbox's set reads the row
+a title's set wrote. The options keep that order themselves, not in a
 TanStack mutation scope: a scoped mutation waiting its turn resumes only
 while the window has focus, and a save must not wait for the person to come
 back.
 
 A write keeps the cache in step inside its own `mutationFn`, so a caller's
 `onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
-puts its result where it can: `save`, `update`, and `create` set the row's query and
-its entry in the listing, `delete` drops them, `kv.set` sets the reading,
+puts its result where it can: `set`, `create`, and `write` set the row's query and
+its entry in the listing, `delete` drops them, `rename` does both, `kv.set` sets the reading,
 and `files.write` sets the file's `read` and `text`. The folder does not
 report a page's own writes to it, so the write marks stale the rest of what
 a change to its paths would, the history's status included. A read still
@@ -1673,7 +1643,7 @@ createTable({ storage }, name, definition.tables[name])
 createKv({ storage }, definition.kv)
 ```
 
-`files.save`, `table.save`, and `kv.set` each call `saveFile` (`save-file.ts`)
+`files.save` and `kv.set` each call `saveFile` (`save-file.ts`), and every table helper calls `writeFile`
 with the file's kind, which merges through `mergeFile` (`merge-file.ts`), the
 merge Sync uses too.
 

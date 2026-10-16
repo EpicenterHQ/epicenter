@@ -767,12 +767,8 @@ async function rowRepair(id: string) {
 				`untitled read as ${JSON.stringify(untitled)}`,
 			);
 			const repaired = '---\ntitle: Repaired\n---\n';
-			ok(
-				await folder.tables.rows.save(broken, {
-					fields: { title: 'Repaired' },
-					body: '',
-				}),
-			);
+			// A row that does not read is repaired as text, over the text it holds.
+			ok(await folder.write(broken.path, broken.text, repaired));
 			const stored = decoder.decode(await rawRead(id, 'rows/broken.md'));
 			assert(stored === repaired, `stored ${JSON.stringify(stored)}`);
 			const reread = ok(await folder.tables.rows.get('broken'));

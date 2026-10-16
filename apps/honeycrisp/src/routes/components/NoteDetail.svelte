@@ -2,8 +2,8 @@
 	One open note. The view reads the note listing narrowed to this note, so it
 	never disagrees with the list. Its folder and pin are sent at once, and its
 	title a second after the last keystroke, when the person leaves it, and
-	when the view goes away: each an update of the file as it is now
-	(ADR-0554). Its rich text and Source type the note's body draft, which the
+	when the view goes away: each a set of the file as it is now
+	(ADR-0576). Its rich text and Source type the note's body draft, which the
 	store saves after a pause and this view sends when it goes away. The rich-text view
 	stays mounted while the note is open, a rename included, so its undo
 	history survives saves; it starts over only when the note's text changes
@@ -70,7 +70,7 @@
 		own = path;
 	});
 
-	const saveTitle = createMutation(() => notes.noteUpdate);
+	const setNote = createMutation(() => notes.setNote);
 	/** The title typed and not yet saved; `undefined` shows the file. */
 	let title = $state<string>();
 	function sendTitle() {
@@ -79,8 +79,8 @@
 		const at = noteIdOf(own);
 		if (why !== undefined || at === undefined) return refusal(why);
 		const sent = title;
-		saveTitle.mutate(
-			{ stem: at, set: { title: sent } },
+		setNote.mutate(
+			{ stem: at, fields: { title: sent } },
 			{
 				onSuccess: () => {
 					if (title === sent) title = undefined;
@@ -98,7 +98,7 @@
 
 	/** Whether typing here did not save: the title, or the body. */
 	const unsaved = $derived(
-		notes.isUnsaved(path) || (title !== undefined && saveTitle.isError && !saveTitle.isPending),
+		notes.isUnsaved(path) || (title !== undefined && setNote.isError && !setNote.isPending),
 	);
 	function saveAgain() {
 		sendTitle();
@@ -106,7 +106,7 @@
 	}
 
 	/** Type the Source's text as the note's body, as the textarea reports it. */
-	const setBody = (value: string) => refusal(notes.editBody(path, value));
+	const typeBody = (value: string) => refusal(notes.editBody(path, value));
 
 	async function report(action: string, problem: string | undefined) {
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
@@ -187,7 +187,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => row.body, setBody}
+						bind:value={() => row.body, typeBody}
 						onblur={() => void notes.saveBody(path)}
 						disabled={locked}
 						aria-label="Markdown source"
@@ -199,7 +199,7 @@
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			<span role="status" data-testid="write-status">
-				{notes.isWriting(path) || saveTitle.isPending || (sendTitleLater.pending && title !== undefined)
+				{notes.isWriting(path) || setNote.isPending || (sendTitleLater.pending && title !== undefined)
 					? 'Saving…'
 					: unsaved
 						? 'Not saved to'

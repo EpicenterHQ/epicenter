@@ -1,8 +1,8 @@
 /**
  * How the Folders window edits one declared field: which editor its schema
  * gets (`fieldEditorOf`), how an editor's text becomes the value saved, the
- * update a change sends (`fieldUpdate`), and what a person is told when it
- * was not saved (`failureText`).
+ * fields a change sets (`fieldSet`), and what a person is told when it was
+ * not saved (`failureText`).
  *
  * The editor follows the field's `x-field` hint where the schema has that
  * widget's shape. A field with no hint at all, as a hand-written plain JSON
@@ -22,7 +22,7 @@ import {
 	fieldEditorOf,
 	isOptional,
 } from '@epicenter/definition';
-import type { PreparedFolderTable, TableUpdateError } from '@epicenter/folder';
+import type { PreparedFolderTable, WriteError } from '@epicenter/folder';
 
 /** One declared field as a grid column. */
 export type FieldColumn = {
@@ -125,38 +125,34 @@ export type FieldChange =
 	| { readonly kind: 'remove' };
 
 /**
- * The update `change` to `field` sends (ADR-0554): set its value, or unset
- * it. The value is set by definition, so any field name is an own key.
+ * The fields `change` to `field` sets on the row as it is now (`table.set`,
+ * ADR-0576): its value, or `undefined` to remove it. The field is defined as
+ * an own key, so any field name is one.
  */
-export function fieldUpdate(
+export function fieldSet(
 	field: string,
 	change: FieldChange,
-): { readonly set?: Record<string, unknown>; readonly unset?: string[] } {
-	if (change.kind === 'remove') return { unset: [field] };
-	const set: Record<string, unknown> = {};
-	Object.defineProperty(set, field, {
-		value: change.value,
+): Record<string, unknown> {
+	const fields: Record<string, unknown> = {};
+	Object.defineProperty(fields, field, {
+		value: change.kind === 'remove' ? undefined : change.value,
 		enumerable: true,
 		writable: true,
 		configurable: true,
 	});
-	return { set };
+	return fields;
 }
 
 /**
  * Why a write wrote nothing, for a person. A write mutation rejects with
- * the table's error; anything else that threw is said as its message.
+ * the folder's `WriteError`; anything else that threw is said as its message.
  */
 export function failureText(error: unknown): string {
-	if (!isTableError(error))
+	if (!isWriteError(error))
 		return `Not saved: ${error instanceof Error ? error.message : String(error)}`;
 	switch (error.name) {
 		case 'InvalidValues':
 			return `Not saved: ${error.issues.map((issue) => issue.message).join('; ')}`;
-		case 'NotFound':
-			return 'Another window deleted this row, so your edit was not saved.';
-		case 'InvalidRow':
-			return 'Another window saved this row in a form that does not read as a row, so your edit was not saved.';
 		case 'KeptChanging':
 			return 'This row kept changing in another window, so your edit was not saved.';
 		default:
@@ -164,7 +160,7 @@ export function failureText(error: unknown): string {
 	}
 }
 
-function isTableError(error: unknown): error is TableUpdateError {
+function isWriteError(error: unknown): error is WriteError {
 	return (
 		typeof error === 'object' &&
 		error !== null &&

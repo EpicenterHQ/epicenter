@@ -104,11 +104,10 @@ in another program, another window, or by an agent shows while you work
   checked immediately before the file is replaced, so an edit that lands in
   that instant is overwritten. It is not an operating-system compare-and-swap,
   and nothing merges on a write.
-- A delete of a todo changes one file, its Markdown file. It carries the
-  version the editor showed when you asked. It runs after the
-  file's writes, and only on that version or one Todos itself wrote from it
-  since; a file changed elsewhere is refused, whether or not Todos has read
-  the change yet. A failure is reported as it happened: a
+- A delete of a todo changes one file, its Markdown file. It runs after the
+  file's writes and deletes what the file holds then: a delete beats edits
+  that never saw it, including a change made elsewhere after you asked
+  (ADR-0576). A failure is reported as it happened: a
   refusal wrote nothing, and a reply that never arrived says the change may
   have landed, with the folder's own detail. Nothing is retried or rolled
   back.
@@ -316,12 +315,12 @@ time, and switching never waits or asks.
   you stop typing, and at once when you leave the field or open another
   todo; what you typed stays on screen until it is written, whatever is
   read meanwhile. Quitting loses at most the last second of typing.
-- A title or done is a change to the todo as its file is now (ADR-0554):
+- A title or done is a change to the todo as its file is now (ADR-0576):
   what another writer changed in another field stays, and where you both
   changed the title, yours wins. The notes keep the version they started
   from and merge by line with whatever changed since: lines only the other
   writer changed stay, and where you both changed the same lines, yours win,
-  with no message (ADR-0575).
+  with no message (ADR-0576).
 - A save that fails, or whose reply is lost, keeps what you typed in the
   editor, which says it is not saved and offers **Try again**; a message
   about notes offers **Copy your text**. A checkbox that did not save shows
@@ -329,14 +328,16 @@ time, and switching never waits or asks.
 - Inputs hold only values a todo can hold. A title or notes with a lone
   surrogate is written with U+FFFD in its place, as shown. The folder still
   refuses a value it cannot hold, which is reported the same way.
-- Delete runs after the file's writes. It carries the version shown when
-  the confirmation opened, or one Todos wrote from it since, so a delete you
-  confirmed while your last edit was still being written removes that
-  edit's file. A file changed elsewhere since is refused, and so is a todo
-  Todos no longer lists. Typing into that file waits while it runs.
-- The first write of a file written by hand rewrites it in Todos' standard
-  form: plain YAML frontmatter, declared keys first, unknown keys kept.
-  Comments and custom quoting in the frontmatter are not kept.
+- Delete runs after the file's writes, so a delete you confirmed while your
+  last edit was still being written removes that edit's file. It deletes
+  what the file holds when it runs, including a change made elsewhere
+  meanwhile. Typing into that file waits while it runs.
+- An edit of a todo deleted since, here or elsewhere, writes nothing: a
+  delete beats edits that never saw it. Notes typed into it are reported
+  as not saved, with **Copy your text**.
+- Every write of a file, notes included, writes it in Todos' standard form:
+  plain YAML frontmatter with line feeds, declared keys first, unknown keys
+  kept. Comments and custom quoting in the frontmatter are not kept.
 
 ### When an incoming update stops partway
 
@@ -369,8 +370,8 @@ has an `origin`.
    Deleting changes that one Markdown file: a file with the same stem, such
    as an image or a recording, stays where it is. Delete always asks
    first, naming what it removes and whether its latest changes are in no
-   saved version. A file changed elsewhere after the confirmation opened is
-   refused.
+   saved version. A change made elsewhere after the confirmation opened is
+   deleted with the file.
 4. In the native checkout printed at startup:
 
    ```sh
@@ -429,7 +430,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528, ADR-0548): its own TanStack `QueryClient` with every rule (never stale, no retry, no focus refetch), the one line that wires `folder.onFilesChanged` to the cache, the browser leave check, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |
-| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `update` options each field sends with, the `saveNotes` options the notes draft saves with, `create`, `shown`, and `remove`. Views ask TanStack's `useIsMutating` whether a save or delete runs. |
+| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `set` options each field sends with, the `write` options the notes' body editor writes with, `create`, `listed`, `delete`, and `notesGone`, which reports notes typed into a deleted todo. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
@@ -458,14 +459,15 @@ cache entry, each with `select`: the list reads `todos.rows.todos` and
 `todos.rows.repairs`, and `TodoDetail` reads `todos.rows.entry(stem)`, so
 they cannot disagree.
 
-A field edit is an update of the file as it is now (`todos.rows.update`,
-`table.update` underneath, ADR-0554). `TodoDetail` holds the typed title in
+A field edit is a set of fields on the file as it is now (`todos.rows.set`,
+`table.set` underneath, ADR-0576). `TodoDetail` holds the typed title in
 its own state and sends it a second after the last keystroke, on blur, and
 when it goes away; each `TodoRow` checkbox, and the detail's, sends at once.
 The notes are the body, opened with `createBodyEditor` from
-`@epicenter/folder/svelte` (ADR-0575): it keeps the version it started from
-and saves with `todos.rows.saveNotes` on the same pause, merged by line by
-`table.save`. Bodies read and write with `\n` line endings (ADR-0572), so
+`@epicenter/folder/svelte` (ADR-0576): it keeps the row it started from and
+sends the change from that row to the typed body with `todos.rows.write` on
+the same pause, merged by line by `table.write`. Bodies read and write with
+`\n` line endings (ADR-0572), so
 the textarea's value is sent as it is. The page keys `TodoDetail` by the todo, and the view keeps the
 stem it was created with, so a save sent as it goes away lands on the todo
 it was typed into. Writes to one file run one at a time in the order made,
@@ -475,12 +477,13 @@ does not report a page's own saves to it, so the last save to settle reads
 Git status again. Saves never wait for the page to be visible. Todos does
 not write a file that does not read as a todo; another editor repairs it,
 and the folder's report shows the result. Todos does not rename files.
-Delete carries the version the person confirmed: `TodoDetail` sends what is
-typed, and `todos.rows.shown(stem)` waits for running saves to land, then
-reads it, so nothing the app does changes the file while the person decides
-(`remove(stem, shown)`). When it runs, the cached hash
-must still be that version; otherwise it refuses with `NotStarted`, and the
-folder's guard still refuses a change Todos has not read. The URL holds which todo is open; the new todo's title lives in the
+Before the delete confirmation opens, `TodoDetail` sends what is typed and
+`todos.rows.listed(stem)` waits for running saves to land. `delete(stem)`
+waits for them again and deletes what the file holds then; it checks no
+version (ADR-0576). A write to a todo deleted since writes nothing and
+resolves with `null`; the body editor then keeps the typed notes and sets
+`gone`, and `TodoDetail` hands them to `todos.rows.notesGone`, which reports
+them as a failed write with the notes as text. The URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()` and never touch its query
 client.
 
@@ -497,8 +500,14 @@ share SvelteKit's output directory, so run them one after the other.
 
 ## Changed promises
 
-This version sends a field as a change to the file as it is now
-(ADR-0554). A title is written a second after you stop typing or when you
+This version writes every row through the folder's one write (ADR-0576).
+A body write rewrites the frontmatter in the standard form, so a CRLF or
+hand-quoted file is no longer kept byte for byte. A delete no longer
+refuses a file changed since you confirmed it, and an edit of a deleted
+todo no longer writes it again.
+
+Before that, this version sent a field as a change to the file as it is
+now (ADR-0554). A title is written a second after you stop typing or when you
 leave the field, not on every keystroke, and the editor no longer says
 "Changed elsewhere": a title or done never undoes another writer's other
 fields, and only the notes keep a starting version.

@@ -10,9 +10,9 @@
  *
  * The helpers stand in for what the views do: a screen that shows a query
  * observes it, and a control that edits a todo sends each change through its
- * own update mutation.
+ * own set mutation.
  */
-import type { FileCapture, StoredRow } from '@epicenter/folder';
+import type { StoredRow } from '@epicenter/folder';
 import { MutationObserver, QueryObserver } from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
 import type { TodoListing } from './todo-listing.js';
@@ -22,28 +22,29 @@ export { QueryObserver };
 
 /**
  * What a view's control of the todo at `stem` does with each change: send
- * it through the control's own update mutation, a change to the todo's
- * fields as its file holds them then. Each call resolves once its update
+ * it through the control's own set mutation, a change to the todo's
+ * fields as its file holds them then. Each call resolves once its set
  * landed or failed; a failure is the store's to report.
  */
 export function rowEditor(todos: Todos, stem: string) {
-	const update = new MutationObserver(todos.queryClient, todos.rows.update);
-	return (set: Partial<TodoFields>) =>
-		update.mutate({ stem, set }).then(
+	const setTodo = new MutationObserver(todos.queryClient, todos.rows.set);
+	return (fields: Partial<TodoFields>) =>
+		setTodo.mutate({ stem, fields }).then(
 			() => undefined,
 			() => undefined,
 		);
 }
 
 /**
- * What the detail's notes do once a pause in typing sends them: replace the
- * body of the row the cache holds with `body`, through the notes' mutation.
+ * What the detail's notes do once a pause in typing sends them: write the
+ * change from the row the cache holds to that row with `body`, through the
+ * notes' mutation.
  */
 export function notesEditor(todos: Todos, stem: string) {
-	const save = new MutationObserver(todos.queryClient, todos.rows.saveNotes);
+	const writeNotes = new MutationObserver(todos.queryClient, todos.rows.write);
 	return (body: string) => {
-		const base = cached(todos, stem);
-		return save.mutate({ base, text: body }).then(
+		const from = cached(todos, stem).row;
+		return writeNotes.mutate({ stem, from, to: { ...from, body } }).then(
 			() => undefined,
 			() => undefined,
 		);
@@ -88,19 +89,4 @@ export function cached(todos: Todos, stem: string): StoredRow<TodoFields> {
 	if (result?.error !== null || result === undefined)
 		throw new Error(`No valid row for ${stem} in the cache`);
 	return result.data;
-}
-
-/**
- * The bytes the cache holds for `stem`, a row's or an `InvalidRow`'s, as a
- * view shows them when the person asks to delete it.
- */
-export function shown(todos: Todos, stem: string): FileCapture {
-	const result = listing(todos).find((entry) => entry.stem === stem)?.result;
-	if (result === undefined)
-		throw new Error(`No entry for ${stem} in the cache`);
-	if (result.error === null)
-		return { path: result.data.path, sha256: result.data.sha256 };
-	if (result.error.name !== 'InvalidRow')
-		throw new Error(`${stem} could not be read: ${result.error.message}`);
-	return { path: result.error.path, sha256: result.error.sha256 };
 }

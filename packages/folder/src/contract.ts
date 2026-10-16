@@ -48,16 +48,9 @@ export {
 	MoveError,
 	OpenFolderError,
 	type RowReadError,
-	type TableCreateError,
-	type TableDeleteError,
 	type TableEnumerationError,
 	TableError,
 	type TableReadError,
-	type TableRenameError,
-	type TableSaveError,
-	type TableSetBodyError,
-	type TableUpdateError,
-	type TableWriteError,
 	WriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
@@ -162,11 +155,9 @@ export {
 } from './save-file.js';
 export type {
 	FileTable,
-	RowUpdate,
-	SavedRow,
-	SetBodyOptions,
 	StoredRow,
 	TableListing,
+	WrittenRow,
 } from './table.js';
 
 /**

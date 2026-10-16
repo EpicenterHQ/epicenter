@@ -43,15 +43,12 @@ import {
 	parseRow,
 	type Row,
 	type RowReadError,
-	type RowUpdate,
 	type SavedFile,
 	type StoredRow,
-	type TableCreateError,
-	type TableDeleteError,
 	type TableEnumerationError,
 	type TableListing,
-	type TableRenameError,
-	type TableSaveError,
+	type WriteError,
+	type WrittenRow,
 } from './index.js';
 import * as tauri from './tauri.js';
 
@@ -160,14 +157,14 @@ async function nestedValues(
 	stored.sha256 = 'changed';
 	// @ts-expect-error Nor does the row it read.
 	stored.row = { fields: stored.row.fields, body: '' };
-	notes.save(stored, stored.row);
+	notes.write('a', stored.row, stored.row);
 	notes.create({
 		fields: { tags: ['a'], at: instant, meta: { a: [1] } },
 		body: '',
 	});
 	// @ts-expect-error A row is complete: it names its body.
 	notes.create({ fields: { tags: ['a'], at: instant, meta: null } });
-	notes.save(stored, {
+	notes.write('a', stored.row, {
 		...stored.row,
 		// @ts-expect-error An unvalidated string still does not carry the brand.
 		fields: { ...stored.row.fields, at: '2026-10-01T00:00:00.000Z' },
@@ -216,13 +213,13 @@ async function tupleValues(folder: Folder<typeof tuples>) {
 	expectTypeOf(span[1]).toEqualTypeOf<number | undefined>();
 
 	// What was read goes back in, and input keeps the head it requires.
-	rows.save(stored, { fields: { span }, body: '' });
-	rows.save(stored, { fields: { span: ['a', 1, 2] }, body: '' });
+	rows.write('a', stored.row, { fields: { span }, body: '' });
+	rows.set('a', { span: ['a', 1, 2] });
 	rows.create({ fields: { span: ['a'] }, body: '' });
 	// @ts-expect-error The head is a string.
-	rows.save(stored, { fields: { span: [1, 'a'] }, body: '' });
+	rows.set('a', { span: [1, 'a'] });
 	// @ts-expect-error The head is required.
-	rows.save(stored, { fields: { span: [] }, body: '' });
+	rows.set('a', { span: [] });
 	// @ts-expect-error The rest are numbers.
 	rows.create({ fields: { span: ['a', 'b'] }, body: '' });
 
@@ -343,8 +340,9 @@ async function lensedRows() {
 		fields: { title: 'Milk', status: 'todo' },
 		body: '',
 	});
-	if (created.error?.name === 'CannotCreate')
-		expectTypeOf(created.error.fields).toEqualTypeOf<readonly string[]>();
+	// A lens that cannot supply a field the folder requires adds nothing.
+	if (created.error?.name === 'InvalidValues')
+		expectTypeOf(created.error.issues).toEqualTypeOf<readonly Issue[]>();
 	folder.tables.todos.create({
 		// @ts-expect-error A lens field keeps its declared type.
 		fields: { title: 'Milk', status: 'blocked' },
@@ -525,9 +523,9 @@ async function typedValues(
 		expectTypeOf<keyof Issue>().toEqualTypeOf<'message' | 'line' | 'field'>();
 		// @ts-expect-error Issues cannot be changed in place.
 		entry.error.issues.push({ message: '' });
-		// A repair is a guarded raw save, or a guarded delete.
-		folder.files.save(entry.error, entry.error.text);
-		folder.tables.todos.delete(entry.error);
+		// A repair is a write of its text, or a delete.
+		folder.write(entry.error.path, entry.error.text, '---\n---\n');
+		folder.tables.todos.delete('milk');
 	}
 	// One synchronous reader and one writer for saved text and for drafts, on
 	// the definition rather than an open table.
@@ -567,12 +565,9 @@ async function typedValues(
 		body: '',
 	});
 	if (createError !== null) {
-		expectTypeOf(createError).toEqualTypeOf<TableCreateError>();
-		// An occupied destination is the files' error, with the files' shape.
-		if (createError.name === 'Exists')
-			expectTypeOf(createError).toEqualTypeOf<
-				Extract<FileError, { name: 'Exists' }>
-			>();
+		expectTypeOf(createError).toEqualTypeOf<WriteError>();
+		// @ts-expect-error A create at an occupied stem merges; nothing refuses it.
+		createError.name === 'Exists';
 		if (createError.name === 'InvalidValues')
 			expectTypeOf(createError.issues).toEqualTypeOf<readonly Issue[]>();
 		// @ts-expect-error A table has no naming rule of its own.
@@ -582,40 +577,33 @@ async function typedValues(
 		// @ts-expect-error Text is decoded only by reads.
 		createError.name === 'InvalidUtf8';
 	}
-	// An update sets declared fields, each to its declared type.
-	void folder.tables.todos.update('milk', { set: { title: 'Milk' } });
+	// A set sets declared fields of the row as it is now, each to its declared type.
+	void folder.tables.todos.set('milk', { title: 'Milk' });
 	// @ts-expect-error A field holds its declared type.
-	void folder.tables.todos.update('milk', { set: { title: 1 } });
-	// @ts-expect-error A required field cannot be unset.
-	void folder.tables.todos.update('milk', { unset: ['title'] });
-	// @ts-expect-error Nor an unguarded write: every change after create names a capture.
+	void folder.tables.todos.set('milk', { title: 1 });
+	// A delete names only the stem: the deleter wins.
 	folder.tables.todos.delete('milk');
-	// @ts-expect-error The options-object guard is gone.
+	// @ts-expect-error There is no guard to pass.
 	folder.tables.todos.delete('milk', { expectedSha256: 'a'.repeat(64) });
 	if (entry.data) {
-		// Every change after create names the bytes it replaces.
-		const { data: savedRow, error: saveError } = await folder.tables.todos.save(
-			entry.data,
-			entry.data.row,
-		);
-		if (saveError === null) {
-			expectTypeOf(savedRow.stored).toEqualTypeOf<StoredRow<Fields>>();
-			expectTypeOf(savedRow.merged).toEqualTypeOf<boolean>();
-		} else {
-			expectTypeOf(saveError).toEqualTypeOf<TableSaveError>();
-			// @ts-expect-error A table never saves text it cannot read back.
-			saveError.name === 'Unparsed';
+		// A write names the row the change started from and the row it ends at.
+		const { data: written, error: writeError } =
+			await folder.tables.todos.write('milk', entry.data.row, entry.data.row);
+		if (writeError === null)
+			expectTypeOf(written).toEqualTypeOf<WrittenRow<Fields>>();
+		else {
+			expectTypeOf(writeError).toEqualTypeOf<WriteError>();
+			// @ts-expect-error A write fails in five ways, and this is none.
+			writeError.name === 'Conflict';
 		}
-		// @ts-expect-error A table saves a row; complete text is an ordinary file.
-		folder.tables.todos.save(entry.data, '---\n---\n');
-		folder.files.save(entry.data, '---\n---\n');
-		// @ts-expect-error A stem is not a capture.
-		folder.tables.todos.save('milk', entry.data.row);
+		// @ts-expect-error A table writes a row; complete text is the folder's write.
+		folder.tables.todos.write('milk', entry.data.row, '---\n---\n');
+		folder.write(entry.data.path, entry.data.text, '---\n---\n');
 		expectTypeOf(
-			await folder.tables.todos.rename(entry.data, 'next'),
-		).toEqualTypeOf<Result<FileCapture, TableRenameError>>();
-		expectTypeOf(await folder.tables.todos.delete(entry.data)).toEqualTypeOf<
-			Result<undefined, TableDeleteError>
+			await folder.tables.todos.rename('milk', 'next'),
+		).toEqualTypeOf<Result<WrittenRow<Fields>, WriteError>>();
+		expectTypeOf(await folder.tables.todos.delete('milk')).toEqualTypeOf<
+			Result<undefined, WriteError>
 		>();
 	}
 	// @ts-expect-error A captured hash is required for removal.
@@ -647,7 +635,6 @@ async function typedValues(
 			expectTypeOf(moveError.moved).toEqualTypeOf<FileCapture>();
 	}
 	// Every move is guarded, so a kept source always names the moved capture.
-	expectTypeOf<TableRenameError>().toEqualTypeOf<FileError | MoveError>();
 	expectTypeOf<
 		Extract<MoveError, { name: 'SourceNotRemoved' }>['moved']
 	>().toEqualTypeOf<FileCapture>();
@@ -689,10 +676,7 @@ defineFolder({
 	},
 });
 
-// `unset` takes the optional fields and refuses a required one.
+// A set takes any declared fields, each at its declared type.
 type Errand = { title: string; note?: string; due?: string | null };
-expectTypeOf<{ unset: ['note', 'due'] }>().toExtend<RowUpdate<Errand>>();
-expectTypeOf<{ unset: ['title'] }>().not.toExtend<RowUpdate<Errand>>();
-expectTypeOf<{ set: { title: 'Milk'; due: null } }>().toExtend<
-	RowUpdate<Errand>
->();
+expectTypeOf<{ due: null; note: 'x' }>().toExtend<Partial<Errand>>();
+expectTypeOf<{ title: 1 }>().not.toExtend<Partial<Errand>>();

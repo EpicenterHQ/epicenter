@@ -81,18 +81,18 @@ shows the newest notes first, by `createdAt`, grouped under labels such as
 Folders are logical: a note belongs to one through `folderId`, so moving a note
 between folders changes one field and never moves or renames its file.
 
-Editing a note's text replaces only its body (`table.setBody`, ADR-0575):
-the frontmatter stays byte for byte as written. The body is read and written
-with line feeds, so a body written with CRLF line endings gets line feeds on
-its next save (ADR-0572). Changing a field (its title, folder, or pin) writes
-the frontmatter as plain YAML: its declared fields first, then any keys
+Editing a note's text changes only its body, merged by line with whatever
+changed since (ADR-0576). The body is read and written with line feeds, so a
+body written with CRLF line endings gets line feeds on its next save
+(ADR-0572). Every save, of the text or of a field (its title, folder, or pin),
+writes the frontmatter as plain YAML: its declared fields first, then any keys
 Honeycrisp does not know, which are kept; comments and custom quoting are
 not. Opening or listing a note writes nothing. To change a key Honeycrisp does not show, use
 **Edit as file**: it saves exactly what you type.
 
 An action from the note list or the folder list (pin, move to a folder, move to
 Recently Deleted, restore, rename a folder), and a folder or pin chosen in the
-open note, is saved at once as a change to the file as it is now (ADR-0554): it
+open note, is saved at once as a change to the file as it is now (ADR-0576): it
 sets that field and keeps whatever another writer changed in the others. A
 title is saved a second after you stop typing, when you leave it, and when you
 open something else. The note's text, in rich text or Source, is saved the
@@ -191,14 +191,14 @@ shows directly.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another program or window changed a file | The lists and the open note show the new version. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another program changed the file while you were typing | What you typed stays on screen, and a read never replaces it. A title or other field you set wins that field and keeps every field they changed. The note's text holds the version it started from, and its save merges with their change by line (ADR-0548): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0575). |
-| Another program deleted the file, and you edit it | The save is refused, and the note leaves the list. A message offers **Copy your text**, which copies the note's text as you had it. |
+| Another program changed the file while you were typing | What you typed stays on screen, and a read never replaces it. A title or other field you set wins that field and keeps every field they changed. The note's text holds the version it started from, and its save merges with their change by line (ADR-0548): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0576). |
+| Another program deleted the file, and you edit it | The note leaves the list once the delete is reported, and edits to it are refused. Text typed and not yet saved is dropped, and a message offers **Copy your text**, which copies it. A save sent before then writes the note again: the save wins, as it does for any change made elsewhere (ADR-0576). |
 | You typed while a save was running | The newer typing saves next, on top of the save before it. |
 | A save failed, for example on a full disk | What you typed stays on screen, the note shows **Not saved**, and the message offers the note's text to copy. It saves again with your next change, or with **Save again**. |
 | A save got no reply | The same as a failed save: the message says the save may or may not have happened, and the next save merges with whatever the file holds. |
 | A value is not valid for a note | Inputs only change notes to valid values. A value the folder still refuses is reported the same way. |
-| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0575). |
-| You rename or delete the open item | Its saves finish first, and the rename or delete acts on what it saved last. Typing is paused while a rename or delete runs. A file changed elsewhere since is refused. |
+| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0576). |
+| You rename or delete the open item | Its saves finish first. Typing is paused while a rename or delete runs. A note or folder renames as its file is then; a delete, or a rename of any other file, acts on what it saved last, and a file changed elsewhere since is refused. |
 
 What a failed save held stays on screen until it saves; what a failed text
 save held is offered to copy. Opening another note never asks. Reloading the
@@ -294,18 +294,21 @@ over its bytes, cached under the folder's read of that file. `createNotes`
 wires the folder's change reports to the cache in one line, so a report makes
 exactly the queries it names stale; the query client's focus refetch is off.
 
-A field edit of a note or folder is `tables.<name>.update`, which sets the
-fields on the file as it is now (ADR-0554); `NoteDetail` holds a typed title in
+A field edit of a note or folder is `tables.<name>.set`, which sets the
+fields on the file as it is now (ADR-0576); `NoteDetail` holds a typed title in
 its own state until it is sent. A note's body is opened with a body editor
-(`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0575), one per note
-in the store, shared by rich text and Source: it captures the cached row and
-its version at the first change, keeps the body outside the cache, and saves
-the body alone with `tables.notes.setBody` a second after the last change or when
-the view leaves it, merging with whatever changed since. A text edit is a text draft
+(`createBodyEditor` from `@epicenter/folder/svelte`), one per note in the
+store, shared by rich text and Source: it takes the cached row at the first
+change, keeps the body outside the cache, and sends the change from that row
+to the typed body with `tables.notes.write` a second after the last change or
+when the view leaves it, merging with whatever changed since. It sends nothing
+while the listing does not hold the note. A text edit is a text draft
 (`createTextDraftState`) saved the same way with `files.save`. Writes to one
 file run one at a time, and each puts its result in the cache. A new note
-or folder is `tables.<name>.create`; a new file is `files.create`; rename and
-delete wait for the file's saves and act on the version the last one wrote.
+or folder is `tables.<name>.create`; a new file is `files.create`. Rename and
+delete wait for the file's saves. A note or folder renames by stem
+(`tables.<name>.rename`), and a folder row is deleted by stem; any other file
+moves, and every file is deleted, guarded by the version the last save wrote.
 After its own actions the page makes what they changed stale, and after its
 saves it reads Git status again, since the folder does not report a page's
 own writes to it.
@@ -389,7 +392,7 @@ view and delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the updates fields are set with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
+| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the sets fields are written with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
 | `src/lib/platform/` | The `#platform/folder` seam and its two leaves: `folder.epicenter-host.ts`, the folder Epicenter hands the window, and `folder.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
@@ -404,7 +407,7 @@ since deleted; its terminal, reveal, and per-note history no longer exist.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the folder, its note and folder listings, updates, merging saves, change reports, query options, and text drafts; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
+- `@epicenter/folder` for the folder, its note and folder listings, field sets, merging saves, change reports, query options, and text drafts; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
 - Epicenter's [Tauri](https://tauri.app) shell on the desktop, with the `tauri-plugin-epicenter-folder` crate granting the directory, reading it, making changes, and running `git`
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 

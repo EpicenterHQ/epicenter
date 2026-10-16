@@ -425,13 +425,13 @@ Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
    recording's write queue (or its own, for pasted text), before the request
    goes out. A row that cannot be created refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
-3. The answer is written into the row: the row is read again, and only an
-   empty body is filled, with `table.setBody` and `{ ifUnchanged: true }`
-   (ADR-0575), which replaces the body on the file as it is now and keeps its
-   frontmatter. A body someone filled between the read and the write is a
-   `Conflict`, which stops the fill, so their fill stands. A row that is gone
-   was discarded and a row that has a body was filled already; neither is
-   written. A write that
+3. The answer is written into the row with `table.write`, as the change
+   from the row with the empty body the run wrote to the row with the
+   answer (ADR-0576), merged by line into the file as it is now. Text
+   someone put in the body meanwhile, by hand or by another fill, stays
+   before the answer, and the same answer is written once. A row that is
+   gone was discarded and is not written: a write over a row deleted since
+   writes nothing (ADR-0576). A write that
    fails is tried again after a wait that doubles from half a second to thirty
    seconds, for as long as the window is open.
 
@@ -461,8 +461,9 @@ A listing of `text_runs/` that fails keeps the last list and reports why; a
 file there that does not read is listed apart.
 
 Deleting a recording (`src/lib/deletion.ts`) deletes its row, its
-transcripts, and the results made from them, each guarded by the bytes read
-when the person was asked, and keeps its audio: an ordinary file the table
+transcripts, and the results made from them, whatever each holds when the
+deletion runs (a delete beats edits that never saw it, ADR-0576), and keeps
+its audio: an ordinary file the table
 does not own, which Files can delete. What goes is read from
 the folder then, never taken from a listing; a result file that does not read
 refuses the deletion, since it might be this recording's. It must not race
@@ -478,8 +479,7 @@ What a deletion of a recording or transformation path removes is decided by
 its file as read after the edits being written have landed, not by the last
 listing. The dialog says when the files have changes that are in no saved
 version. Removing is a mutation in the file's queue, after its recording's
-lifecycle work; it writes the edits first and deletes what was confirmed, or
-what this window last wrote when that changed after the person was asked. A row that reads is deleted as above. A file that
+lifecycle work; it writes the edits first, then deletes the rows. A row that reads is deleted as above. A file that
 is there and does not read as a row (bytes that are not text, say) is removed
 alone, conditional on the exact bytes read, and the person is told its
 results are kept: nothing in the file says which results are its own, so
@@ -506,19 +506,19 @@ text too; its fields open again once the text reads.
   nothing goes stale on its own. The page's own saves are not reported to it:
   a save puts its row in the cache, and Git status is read again after it.
 - **A field edit** (a title, a model, removing an endpoint) is the table's
-  `update` mutation: it sets the field on the file as it is now and keeps
-  every field another writer changed (ADR-0554). A view holds a field typed
+  `set` mutation: it sets the field on the file as it is now and keeps
+  every field another writer changed (ADR-0576). A view holds a field typed
   in its own state and sends it a second after the last keystroke, when the
   person leaves it, and when the view goes away; Run sends it first.
 - **A body edit** (a recording's notes, a transcript, a transformation's
-  instructions) holds its own starting version, outside the cache: a body
-  draft per row file (`createBodyDraftState` from
-  `@epicenter/folder/svelte`), held by the library so it outlives the view
-  it was typed in, and saved a second after the last change or when the view
-  leaves it. A read never touches it; the detail shows the draft. Its save is
-  the table's `save` mutation, over the version it started from, one at a
-  time per file; text typed while one runs is sent next, from the version it
-  wrote. A file changed since is merged by line in the engine: where both
+  instructions) holds the row it started from, outside the cache: a body
+  editor per row file (`createBodyEditor` from `@epicenter/folder/svelte`),
+  held by the library so it outlives the view it was typed in, and saved a
+  second after the last change or when the view leaves it. A read never
+  touches what is typed; the detail shows it. Its save is the table's
+  `write` mutation, the change from the row it started from, one at a time
+  per file; text typed while one runs is sent next, from what the last one
+  sent. A save over a row deleted since writes nothing (ADR-0576). A file changed since is merged by line in the engine: where both
   changed the same lines the typing wins, with no notice (ADR-0575).
 - **Writes to one file** run one at a time, in the order made, whichever
   control made them.
@@ -529,9 +529,9 @@ text too; its fields open again once the text reads.
 - **A failed save** keeps the draft, or the field typed in its view; it is
   saved again with the next change, and a draft before anything that reads
   files (a run, a rename, a deletion, Save version, closing). A recording or
-  transcript deleted elsewhere stays deleted: its save fails with
-  `NotFound`, the draft is dropped and offered to copy, and the listing reads
-  it gone.
+  transcript deleted elsewhere stays deleted: its save writes nothing, the
+  listing reads it gone, and what was typed is handed to a notice that
+  offers to copy it until the person dismisses it.
 - **A value the schema refuses** is never written: the folder refuses it as
   `InvalidValues`. Text typed into a field or a body is sent as typed; the
   folder writes a lone surrogate as U+FFFD, and a body reads and writes with

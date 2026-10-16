@@ -12,9 +12,10 @@
  * What lives only in this window is what is happening: a request under way,
  * why one failed, and an answer whose write failed. Such an answer is written
  * again while the page lives; a reload drops it and its row stays unfinished.
- * Filling writes only into an empty body: a row that is gone was discarded,
- * and a row with a body was filled already, here or elsewhere, so neither is
- * written.
+ * A fill writes the answer as an insertion into the empty body the run
+ * started with (ADR-0576): the same answer filled elsewhere stands once, and
+ * a different one, or text a person typed there, stays beside it. A row that
+ * is gone was discarded, and is not written.
  */
 import {
 	type FileTable,
@@ -224,28 +225,27 @@ export function createRuns({
 	}
 
 	/**
-	 * Fill the row's empty body, and only an empty one. A row that is gone or
-	 * already has a body is left as it is.
-	 *
-	 * The body is written with `table.setBody` (ADR-0575) and
-	 * `{ ifUnchanged: true }`, so it lands only while the body is still
-	 * empty. A body another writer filled between the read and the write is a
-	 * `Conflict`, and a row deleted meanwhile is `NotFound`: either stops the
-	 * fill, and their fill or deletion stands.
+	 * Fill the row's body with the answer: the change from the row with the
+	 * empty body the run wrote to the row with the answer (ADR-0576), merged
+	 * by line with whatever changed since. A fill elsewhere with the same
+	 * text is written once, and one with different text stays beside this
+	 * one. Each attempt reads the row for its fields. A row deleted meanwhile
+	 * stays deleted: a write over it writes nothing, and their deletion
+	 * stands.
 	 */
 	async function fill(target: Target, body: string) {
 		const table = tableOf(target.table);
 		try {
 			const { data: stored, error } = await table.get(target.stem);
 			if (error !== null) return describeError(error);
-			if (stored === undefined || stored.row.body !== '') return undefined;
-			const { error: bodyError } = await table.setBody(stored, body, {
-				ifUnchanged: true,
-			});
-			if (bodyError === null) return undefined;
-			return bodyError.name === 'Conflict' || bodyError.name === 'NotFound'
-				? undefined
-				: describeError(bodyError);
+			if (stored === undefined) return undefined;
+			const { fields } = stored.row;
+			const { error: writeError } = await table.write(
+				target.stem,
+				{ fields, body: '' },
+				{ fields, body },
+			);
+			return writeError === null ? undefined : describeError(writeError);
 		} catch (cause) {
 			return describe(cause);
 		}

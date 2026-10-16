@@ -58,6 +58,7 @@ What stays, and who uses it:
 
 ## Consequences
 
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
 Deleted: `mountMcpServer` and `packages/server/src/routes/mcp.ts`,
 `hosted-repository.ts`, their tests, the `workers/` harness with its
 `test:workers` script and `vitest`, `@cloudflare/vitest-pool-workers`, and

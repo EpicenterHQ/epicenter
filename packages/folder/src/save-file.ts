@@ -9,8 +9,7 @@
  * `WRITE_ATTEMPTS` times, then `KeptChanging`. A `put` whose reply was lost
  * is read back once: the bytes it sent, or no file for a delete, mean done.
  *
- * `saveFile` is the save loop `table.save`, `kv.set`, and `files.save` still
- * run: it swaps first on the base's own hash, refuses a base without content
+ * `saveFile` is the save loop `kv.set` and `files.save` still run: it swaps first on the base's own hash, refuses a base without content
  * (`UnknownBase`) and a deleted file (`NotFound`), and merges the same way.
  *
  * Where both sides changed one unit, the writer wins. Nothing is returned to
@@ -111,7 +110,7 @@ const toBytes = (content: FileContent | null) =>
  * `storage.put`, with a lost reply read back once: the bytes it sent, or no
  * file for a removal, are this put landing after all.
  */
-async function confirmedPut(
+export async function confirmedPut(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
 	path: string,
 	bytes: Uint8Array | null,
@@ -129,7 +128,7 @@ async function confirmedPut(
 }
 
 /** A storage failure as a write reports it. */
-function writeFailure(path: string, error: FileError): WriteError {
+export function writeFailure(path: string, error: FileError): WriteError {
 	if (error.name === 'Closed' || error.name === 'InvalidPath') return error;
 	if (error.name === 'NotAFile' || error.name === 'NotADirectory')
 		return FileError.InvalidPath({ path, reason: error.message }).error;
@@ -144,7 +143,10 @@ function writeFailure(path: string, error: FileError): WriteError {
  * file. `to` is the content, or `null` to delete the file. A delete needs no
  * base, since the deleter wins: its `from` only names the file as
  * overridden when another writer changed it since, and `null` names
- * nothing. Both are owned before anything is awaited.
+ * nothing. An edit, from a version that existed, of a file deleted since
+ * writes nothing and answers `file: null`: a delete beats an edit it never
+ * saw, and only a write from no file creates one. Both are owned before
+ * anything is awaited.
  *
  * Any `to` is written, whether or not it reads as its kind: a typed view
  * refuses a row it cannot write before it gets here (`InvalidValues`), and
@@ -175,11 +177,17 @@ export async function writeFile(
 						content: null,
 						overridden:
 							theirs !== null && base !== null && !sameContent(theirs, base)
-								? [{ kind: 'file', theirs: 'changed' } as const]
+								? [{ kind: 'file', lost: 'theirs' } as const]
 								: [],
 					}
 				: await merge(kind, { base, ours, theirs });
 		const bytes = toBytes(merged.content);
+		if (
+			merged.overridden.some(
+				(unit) => unit.kind === 'file' && unit.lost === 'ours',
+			)
+		)
+			log.info(`Wrote nothing to ${path}: it was deleted since`, { path });
 		if (sameContent(bytes, theirs))
 			return Ok(
 				Object.freeze({

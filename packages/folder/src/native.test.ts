@@ -39,6 +39,13 @@ import { createOpfsFileBoundary } from './opfs-store.js';
 import { parseRow } from './row-text.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
+/** The row a write left, which these writes always leave. */
+function must<T>(result: { data: T | null; error: unknown }): T {
+	const written = expectOk(result as never) as T | null;
+	if (written === null) throw new Error('the write left no row');
+	return written;
+}
+
 const openNativeFolder = async <const TDefinition extends FolderDefinition>(
 	options: DirectoryFolderOptions<TDefinition>,
 ) => expectOk(await openFolder(options));
@@ -135,10 +142,7 @@ describe('native folder', () => {
 		);
 		const current = expectOk(await folder.tables.todos.get('walk'))!;
 		expect(current.row.fields.title).toBe('Run');
-		current.row.fields.done = true;
-		const done = expectOk(
-			await folder.tables.todos.save(current, current.row),
-		).stored;
+		const done = must(await folder.tables.todos.set('walk', { done: true }));
 
 		expect(done.row.fields).toEqual({ title: 'Run', done: true });
 		// The helper trims the leading space of the unstaged column.
@@ -240,14 +244,13 @@ describe('native folder', () => {
 			{ fields: { title: 'Q', done: false }, body: '' },
 			{ stem: 'plan' },
 		);
-		const plan = expectOk(await folder.tables.todos.get('Plan'))!;
-		const moved = await folder.tables.todos.rename(plan, 'PLAN');
+		const moved = await folder.tables.todos.rename('Plan', 'PLAN');
 		if (oneFile) {
 			expect(expectErr(other)).toMatchObject({
-				name: 'Exists',
+				name: 'InvalidPath',
 				path: 'todos/plan.md',
 			});
-			expect(expectErr(moved).name).toBe('Exists');
+			expect(expectErr(moved).name).toBe('InvalidPath');
 			expect(await readdir(join(root, 'todos'))).toEqual(['Plan.md']);
 			expect(await readFile(join(root, 'todos/Plan.md'), 'utf8')).toBe(
 				'---\ntitle: P\ndone: false\n---\n',
@@ -281,7 +284,7 @@ describe('native folder', () => {
 			).not.toBeNull();
 		const stems = ['', '.hidden', 'trailing ', 'naïve 日本'];
 		for (const stem of stems) {
-			const created = expectOk(
+			const created = must(
 				await folder.tables.todos.create(
 					{ fields: { title: stem, done: false }, body: '' },
 					{ stem },
@@ -291,10 +294,7 @@ describe('native folder', () => {
 			const bytes = await readFile(join(root, 'todos', `${stem}.md`));
 			expect(await hashBytes(bytes)).toBe(created.sha256);
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(created);
-			created.row.fields.done = true;
-			const updated = expectOk(
-				await folder.tables.todos.save(created, created.row),
-			).stored;
+			const updated = must(await folder.tables.todos.set(stem, { done: true }));
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(updated);
 		}
 		// An uppercase extension is an ordinary file, not a row.
@@ -311,9 +311,8 @@ describe('native folder', () => {
 			expectErr(withBinary.find((item) => item.stem === 'binary')!.result).name,
 		).toBe('InvalidUtf8');
 
-		const empty = expectOk(await folder.tables.todos.get(''))!;
-		const named = expectOk(await folder.tables.todos.rename(empty, 'named'));
-		expectOk(await folder.tables.todos.delete(named));
+		expectOk(await folder.tables.todos.rename('', 'named'));
+		expectOk(await folder.tables.todos.delete('named'));
 		expect(await readdir(join(root, 'todos'))).not.toContain('.md');
 		await folder.close();
 	});
@@ -328,13 +327,13 @@ describe('native folder', () => {
 		// Audio recorded under the old model sits beside the row it was saved with.
 		const audio = new Uint8Array([1, 2, 3]);
 		expectOk(await folder.files.create('todos/take.opus', audio));
-		const created = expectOk(
+		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Take', done: false }, body: '' },
 				{ stem: 'take' },
 			),
 		);
-		const take2 = expectOk(await folder.tables.todos.rename(created, 'take2'));
+		expectOk(await folder.tables.todos.rename('take', 'take2'));
 		expect((await readdir(join(root, 'todos'))).sort()).toEqual([
 			'take.opus',
 			'take2.md',
@@ -342,11 +341,11 @@ describe('native folder', () => {
 
 		// The audio disappears outside the app. The row does not depend on it.
 		await rm(join(root, 'todos/take.opus'));
-		const take3 = expectOk(await folder.tables.todos.rename(take2, 'take3'));
+		expectOk(await folder.tables.todos.rename('take2', 'take3'));
 		await writeFile(join(root, 'todos/take3.opus'), audio);
 		await writeFile(join(root, 'todos/take3.wav'), audio);
 
-		expectOk(await folder.tables.todos.delete(take3));
+		expectOk(await folder.tables.todos.delete('take3'));
 		expect((await readdir(join(root, 'todos'))).sort()).toEqual([
 			'take3.opus',
 			'take3.wav',
@@ -405,7 +404,7 @@ describe('native folder', () => {
 		await history.close();
 	});
 
-	test('saves within one process take turns: of two saves from one capture the second merges over the first, and different rows both land', async () => {
+	test('writes within one process take turns: two writes from one capture both land, the later winning the field both changed, and different rows both land', async () => {
 		const root = await scratch('native-turns-');
 		const folder = await openNativeFolder({
 			root,
@@ -423,28 +422,27 @@ describe('native folder', () => {
 			const a = expectOk(await folder.tables.todos.get('a'))!;
 			const results = await Promise.all(
 				['First', 'Second'].map((title) =>
-					folder.tables.todos.save(a, {
+					folder.tables.todos.write('a', a.row, {
 						...a.row,
 						fields: { ...a.row.fields, title },
 					}),
 				),
 			);
-			const saved = results.map((result) => expectOk(result));
-			// Both changed the title: the one that merged wins.
-			const merged = saved.filter((outcome) => outcome.merged);
-			expect(merged).toHaveLength(1);
-			const [last] = merged;
-			const first = saved.find((outcome) => !outcome.merged)!;
-			expect(last!.stored.row.fields.title).not.toBe(
-				first.stored.row.fields.title,
-			);
+			// Both changed the title: each wins it as it lands, so the file
+			// holds the one that landed last.
+			const written = results.map(must);
+			expect(written.map((row) => row.row.fields.title)).toEqual([
+				'First',
+				'Second',
+			]);
 			const kept = expectOk(await folder.tables.todos.get('a'))!;
-			expect(kept.row.fields.title).toBe(last!.stored.row.fields.title);
+			const last = written.find((row) => row.sha256 === kept.sha256);
+			expect(kept.row.fields.title).toBe(last!.row.fields.title);
 
 			const [one, two] = await Promise.all(
 				(['a', 'b'] as const).map(async (stem) => {
 					const current = expectOk(await folder.tables.todos.get(stem))!;
-					return folder.tables.todos.save(current, {
+					return folder.tables.todos.write(stem, current.row, {
 						...current.row,
 						fields: { ...current.row.fields, done: true },
 					});
@@ -538,10 +536,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		const nativeEntry = expectOk(await native.tables.todos.get('first'))!;
 		expect(nativeEntry.row.fields.title).toBe('First');
 
-		nativeEntry.row.fields.done = true;
-		const nativeDone = expectOk(
-			await native.tables.todos.save(nativeEntry, nativeEntry.row),
-		).stored;
+		expectOk(await native.tables.todos.set('first', { done: true }));
 		expect((await native.git.commit()).status).toBe('committed');
 		expect(native.git.snapshot.lastPush).toBeUndefined();
 		expect((await native.git.push()).status).toBe('pushed');
@@ -559,8 +554,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		expect((await browser.git.paths()).data).toEqual([]);
 
 		// A dirty folder refuses the next fast-forward before writing anything.
-		nativeDone.row.fields.title = 'Native edit';
-		expectOk(await native.tables.todos.save(nativeDone, nativeDone.row)).stored;
+		expectOk(await native.tables.todos.set('first', { title: 'Native edit' }));
 		expect((await native.git.commit()).status).toBe('committed');
 		expect((await native.git.push()).status).toBe('pushed');
 		// Another writer publishes without a save request on this handle.

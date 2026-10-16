@@ -28,7 +28,7 @@ import {
 	commitText,
 	editorOf,
 	failureText,
-	fieldUpdate,
+	fieldSet,
 	textOf,
 } from './field-input';
 
@@ -175,21 +175,28 @@ test('a hint that is present wins over the plain type, even a JSON one', () => {
 	expect(editorOf({ enum: [1, 2] } as never)).toEqual({ kind: 'json' });
 });
 
-test('a change sends an update that sets the field, any name as an own key, or unsets it', () => {
-	expect(fieldUpdate('title', { kind: 'set', value: 'Milk' })).toEqual({
-		set: { title: 'Milk' },
+test('a change sets the field, any name as an own key, or removes it', () => {
+	expect(fieldSet('title', { kind: 'set', value: 'Milk' })).toEqual({
+		title: 'Milk',
 	});
-	const proto = fieldUpdate('__proto__', { kind: 'set', value: 1 });
-	expect(Object.hasOwn(proto.set ?? {}, '__proto__')).toBe(true);
-	expect(fieldUpdate('price', { kind: 'remove' })).toEqual({
-		unset: ['price'],
-	});
+	const proto = fieldSet('__proto__', { kind: 'set', value: 1 });
+	expect(Object.hasOwn(proto, '__proto__')).toBe(true);
+	const removed = fieldSet('price', { kind: 'remove' });
+	expect(Object.hasOwn(removed, 'price')).toBe(true);
+	expect(removed.price).toBeUndefined();
 });
 
 test('a write that failed says why in words a person reads', () => {
 	expect(
-		failureText({ name: 'NotFound', message: 'gone', path: 'notes/a.md' }),
-	).toBe('Another window deleted this row, so your edit was not saved.');
+		failureText({
+			name: 'KeptChanging',
+			message: 'kept changing',
+			path: 'notes/a.md',
+			attempts: 3,
+		}),
+	).toBe(
+		'This row kept changing in another window, so your edit was not saved.',
+	);
 	expect(
 		failureText({
 			name: 'InvalidValues',

@@ -4,14 +4,16 @@
  * thoughts into a new body.
  *
  * A capture's body is a document, so the form opens it with
- * `createBodyEditor` (ADR-0575): a body draft that holds the version it
- * started from and the body typed, outside the cache, so reading the folder
- * again never replaces it, and the folder merges each save by line with
- * whatever changed since that version.
+ * `createBodyEditor` (ADR-0576): it holds the row the edit started from and
+ * the body typed, outside the cache, so reading the folder again never
+ * replaces it, and each save is the change from that row, which the folder
+ * merges by line with whatever changed since.
  * A thought added, edited, deleted, or moved saves at once; the capture
  * text is saved by the view after a pause in typing, or when the person
  * leaves it (`flush`). Saves run one at a time; text typed while one runs
- * goes in the next. A failed save keeps the draft.
+ * goes in the next. A failed save keeps the draft. An edit of a capture
+ * deleted elsewhere writes nothing (a delete beats an edit it never saw,
+ * ADR-0576): it leaves the form and is handed to `gone`, which offers it.
  *
  * Every structured change reads the body the form shows now (the typed
  * body, or the cache's), composes the complete `{ text, thoughts }`, encodes it
@@ -31,7 +33,7 @@ import {
 	type CaptureFields,
 	captureBody,
 } from '@epicenter/capture';
-import type { SavedRow, StoredRow } from '@epicenter/folder';
+import type { Row, StoredRow } from '@epicenter/folder';
 import { createBodyEditor } from '@epicenter/folder/svelte';
 
 /** One edit of a thought, from Edit until it is saved or cancelled. */
@@ -57,19 +59,21 @@ export function createCaptureForm(capture: {
 	/** The capture as the cache holds it now, if it reads as a row. */
 	row(): StoredRow<CaptureFields> | undefined;
 	/**
-	 * Replace the body of the row the edit started from (`base`) with
-	 * `text`: the table's `setBody` mutation, rejecting on failure.
+	 * Write the change from the row the edit started from to the row with
+	 * the typed body: the table's `write` mutation, rejecting on failure.
 	 */
-	save(variables: {
-		readonly base: StoredRow<CaptureFields>;
-		readonly text: string;
-	}): Promise<SavedRow<CaptureFields>>;
+	write(change: {
+		readonly from: Row<CaptureFields>;
+		readonly to: Row<CaptureFields>;
+	}): Promise<StoredRow<CaptureFields> | null>;
+	/** The capture is gone with `typed` not saved; the edit leaves the form. */
+	gone(typed: string): void;
 	/** Whether input is refused now: closing, or deleting. */
 	locked(): boolean;
 }) {
 	const draft = createBodyEditor<CaptureFields>({
 		row: capture.row,
-		save: capture.save,
+		write: capture.write,
 	});
 	let newThought = $state('');
 	let editing = $state.raw<ThoughtEdit | undefined>();
@@ -80,13 +84,25 @@ export function createCaptureForm(capture: {
 	const shown = () => draft.text;
 
 	/**
+	 * Save what the draft holds. An edit whose capture is gone, as the cache
+	 * says or a save found, leaves the form and is handed to `gone`.
+	 */
+	async function save() {
+		await draft.save();
+		const typed = draft.typed;
+		if (typed === undefined || draft.saving || !draft.gone) return;
+		draft.discard();
+		capture.gone(typed);
+	}
+
+	/**
 	 * Put `body` in the draft, and save it unless `later`, when the view
 	 * saves it after a pause; answers whether the change was taken.
 	 */
 	function edit(body: string, { later = false } = {}): boolean {
 		if (capture.locked() || capture.row() === undefined) return false;
 		draft.change(body);
-		if (!later) void draft.save();
+		if (!later) void save();
 		return true;
 	}
 
@@ -122,9 +138,7 @@ export function createCaptureForm(capture: {
 			return draft.saving;
 		},
 		/** Save what the draft holds; resolves once no save of it runs. */
-		flush: () => draft.save(),
-		/** Drop the edit, as when its file is gone. */
-		discard: () => draft.discard(),
+		flush: save,
 		get refusal() {
 			return refusal;
 		},

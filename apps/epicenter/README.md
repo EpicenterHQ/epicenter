@@ -338,27 +338,29 @@ always wins. Clearing an optional field removes it from the row.
 
 ### Saves and merges
 
-Each field editor sends its own updates (ADR-0554): `table.update` through
-the table's update mutation, which sets or unsets that field on the file as it
-is now and keeps every field another window changed. A checkbox, menu, or
+Each field editor sends its own writes (ADR-0576): `table.set` through the
+table's `set` mutation, which sets or removes that field on the file as it is
+now and keeps every field another window changed. A checkbox, menu, or
 toggle sends at the click. A text field holds what is typed, shows it whatever
 is read meanwhile, and sends it a second after the last keystroke, on Enter,
 when it loses focus, and when it goes away; Escape puts back the stored value.
 Text that does not parse as the field's value is not sent, and says why.
-Writes to one row run one at a time, in the order made. A field update that
+Writes to one row run one at a time, in the order made. A field write that
 fails says why beside the field and keeps the typed text.
 
 A row's body is a document, so the side panel's Notes box holds a body editor
 (`createBodyEditor` from `@epicenter/folder/svelte`, in
-`src/folders/RowBody.svelte`) that captures the row and its version at the
-first keystroke, and saves with `table.setBody` over that version a second
-after the last keystroke, when the box loses focus, and when the panel goes
-away. The engine merges by line with whatever changed since (ADR-0548): lines
-only one side changed keep that side's change. Where both changed the same
-lines, the typing wins, with no notice (ADR-0575). A row another window deleted, or saved in a form that does not
-read as a row, is not overwritten. An edit not yet sent when Epicenter quits
-is lost, at most the last second of typing (see
-[Quitting Epicenter](#quitting-epicenter)).
+`src/folders/RowBody.svelte`) that keeps the row as it was at the first
+keystroke, and sends the change from that row to the typed body through the
+table's `write` mutation a second after the last keystroke, when the box
+loses focus, and when the panel goes away. The engine merges it by line with
+whatever changed since: lines only one side changed keep that side's change.
+Where both changed the same lines, the typing wins, with no notice. An edit
+of a row another window deleted writes nothing, since a delete beats an edit
+that never saw it (ADR-0576): the table shows the text typed, for a field or
+the notes, with **Copy your text** until you dismiss it. A row saved in a
+form that does not read as a row is not written. An edit not yet sent when Epicenter quits is lost, at most
+the last second of typing (see [Quitting Epicenter](#quitting-epicenter)).
 
 "Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`
 (ADR-0529), and reports a version saved, nothing new to save, or why none was

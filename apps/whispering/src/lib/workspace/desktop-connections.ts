@@ -266,8 +266,9 @@ export function createDesktopConnections({
 								},
 								{ stem: id },
 							)
-						: await table.update(id, {
-								set: { kind: 'openai-compatible', model: next.model },
+						: await table.set(id, {
+								kind: 'openai-compatible',
+								model: next.model,
 							});
 				if (writeError !== null) return Err(writeError.message);
 				return Ok(await read());

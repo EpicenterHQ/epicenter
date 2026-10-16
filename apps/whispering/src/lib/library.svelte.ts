@@ -11,19 +11,21 @@
  * the queries they name stale. Rows that read are listed to edit; the rest
  * are named, with why, for repair as text.
  *
- * A field edit is an update of the file as it is now (ADR-0554): it sets the
+ * A field edit is a `set` of the file as it is now (ADR-0576): it sets the
  * field and keeps every field another writer changed; a view holds a field
  * typed until it is sent. A row's body (a recording's notes, a transcript, a
  * transformation's instructions) and a file edited as its exact text are
- * documents: each is a draft that holds its own starting version, outside
- * the cache (`createBodyDraftState`, `createTextDraftState`), saved a second
- * after the last change, or when the view leaves it, over the version it
- * started from and merged by line with whatever changed since (ADR-0551). A
- * read never touches a draft. Writes to one file run one at a time. Where
- * another writer changed the same lines, the save wins, with no notice
- * (ADR-0575). A text save that fails is reported with the text that was not written. A
- * row deleted elsewhere stays deleted: its save fails, and nothing creates
- * it again.
+ * documents, held outside the cache: a body editor (`createBodyEditor`)
+ * holds the row the edit started from and the body typed, and a text draft
+ * (`createTextDraftState`) the version the edit started from. Each is saved
+ * a second after the last change, or when the view leaves it, as the change
+ * from where it started, merged by line with whatever changed since
+ * (ADR-0551, ADR-0576). A read never touches what is typed. Writes to one
+ * file run one at a time. Where another writer changed the same lines, the
+ * save wins, with no notice (ADR-0575). A text save that fails is reported
+ * with the text that was not written. A row deleted elsewhere stays deleted:
+ * a delete beats an edit that never saw it (ADR-0576), so nothing typed into
+ * it is written, and what was typed is offered to copy.
  *
  * Every other action is a mutation: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
@@ -44,7 +46,6 @@ import { InstantString } from '@epicenter/definition';
 import type {
 	CommitOutcome,
 	FileCapture,
-	FileError,
 	FileListing,
 	FileSaveError,
 	FileTable,
@@ -52,13 +53,12 @@ import type {
 	MoveError,
 	Row,
 	RowReadError,
-	SavedRow,
 	StoredRow,
-	TableError,
 	TableListing,
-	TableSetBodyError,
+	WriteError,
+	WrittenRow,
 } from '@epicenter/folder';
-import { parseRow, rowPath, rowStemOf } from '@epicenter/folder';
+import { FileError, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import {
 	ancestorsOf,
 	dirname,
@@ -68,12 +68,13 @@ import {
 import {
 	folderOptions,
 	runMutation,
-	type SetBodyVariables,
 	type TableOptions,
+	type WriteRowVariables,
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	createBodyDraftState,
+	type BodyEditor,
+	createBodyEditor,
 	createTextDraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
@@ -81,7 +82,7 @@ import type { RecordingFolder } from '@epicenter/recorder';
 import {
 	hashKey,
 	type Mutation,
-	type MutationObserverOptions,
+	type MutationOptions,
 	type QueryClient,
 	type QueryFunctionContext,
 	QueryObserver,
@@ -205,7 +206,7 @@ export type Selection = {
 export type WriteNotice = {
 	readonly kind: 'failed';
 	readonly path: string;
-	readonly error: TableError | FileError | FileSaveError;
+	readonly error: WriteError | FileSaveError;
 	readonly lost: string | undefined;
 };
 
@@ -544,33 +545,32 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	type Fields = Record<string, unknown>;
 
 	/**
-	 * Set fields of a row as its file is now (ADR-0554). A failure is
+	 * Set fields of a row as its file is now (ADR-0576). A failure is
 	 * reported; a field typed stays in its view, to be sent again.
 	 */
-	const updateOf = <T extends RowTable>(table: T) =>
+	const setOf = <T extends RowTable>(table: T) =>
 		({
-			...optionsOf(table).update.mutationOptions(),
-			onError: (error: TableError | FileError, { stem }: { stem: string }) =>
+			...optionsOf(table).set.mutationOptions(),
+			onError: (error: WriteError, { stem }: { stem: string }) =>
 				notify({
 					kind: 'failed',
 					path: rowPath(table, stem),
 					error,
 					lost: undefined,
 				}),
-		}) satisfies ReturnType<
-			TableOptions<Tables[T]>['update']['mutationOptions']
-		>;
+		}) satisfies ReturnType<TableOptions<Tables[T]>['set']['mutationOptions']>;
 
-	/** The path a folder write is to: a row save's base, a row update's stem in its table, or a file write's path. */
+	/** The path a folder write is to: a row set's or body write's stem in its table, or a file write's path. */
 	function writePath(mutation: Pick<Mutation, 'state' | 'options'>) {
 		const sent = mutation.state.variables as
-			| { stem?: string; base?: FileCapture; path?: string }
+			| { stem?: string; path?: string }
 			| undefined;
-		if (sent?.base !== undefined) return sent.base.path;
 		if (sent?.path !== undefined) return sent.path;
 		const key = mutation.options.mutationKey;
-		if (sent?.stem === undefined || key?.at(-1) !== 'update') return undefined;
-		return rowPath(String(key.at(-2)), sent.stem);
+		const verb = key?.at(-1);
+		if (sent?.stem === undefined || (verb !== 'set' && verb !== 'write'))
+			return undefined;
+		return rowPath(String(key?.at(-2)), sent.stem);
 	}
 	/** Whether a folder write of `path`, or of any file, runs or waits. */
 	const writing = (path?: string) =>
@@ -580,10 +580,11 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				path === undefined || writePath(mutation) === path,
 		}) > 0;
 
-	/** A document being typed: its draft, and the save that runs after a pause. */
+	/** A document being typed: its draft, the save that runs after a pause, and what is typed and not in the file. */
 	type Typed<TDraft> = {
 		readonly draft: TDraft;
 		readonly later: ReturnType<typeof useDebounce<[], Promise<void>>>;
+		unsent(): string | undefined;
 	};
 
 	/**
@@ -591,18 +592,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	 * change is left; then a draft with nothing left is let go.
 	 */
 	async function saveTyped<
-		TDraft extends {
-			readonly text: string | undefined;
-			readonly saving: boolean;
-			save(): Promise<void>;
-		},
+		TDraft extends { readonly saving: boolean; save(): Promise<void> },
 	>(held: SvelteMap<string, Typed<TDraft>>, path: string): Promise<void> {
 		const typed = held.get(path);
 		if (typed === undefined) return;
 		if (typed.later.pending) void typed.later.runScheduledNow();
 		await typed.draft.save();
 		if (
-			typed.draft.text === undefined &&
+			typed.unsent() === undefined &&
 			!typed.draft.saving &&
 			held.get(path) === typed
 		)
@@ -611,57 +608,72 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	/**
 	 * Each row's body being typed, by path: a recording's notes, a transcript,
-	 * a transformation's instructions. A body is a document, so its draft keeps
-	 * the version it started from, and its save merges by line with whatever
-	 * changed since. Held here rather than by a view, so it outlives the view
-	 * it was typed in, and saved a second after the last change.
+	 * a transformation's instructions. A body is a document, so its editor
+	 * keeps the row it started from, and its save merges by line with
+	 * whatever changed since. Held here rather than by a view, so it outlives
+	 * the view it was typed in, and saved a second after the last change.
 	 */
-	const bodies = new SvelteMap<
-		string,
-		Typed<TextDraftState<StoredRow<Fields>>>
-	>();
+	const bodies = new SvelteMap<string, Typed<BodyEditor>>();
 
-	function bodyOf(table: RowTable, path: string) {
+	function bodyOf(table: RowTable, stem: string) {
+		const path = rowPath(table, stem);
 		const held = bodies.get(path);
 		if (held !== undefined) return held;
-		const save = optionsOf(
-			table,
-		).setBody.mutationOptions() as unknown as MutationObserverOptions<
-			SavedRow<Fields>,
-			TableSetBodyError,
-			SetBodyVariables<Fields>
+		const write = optionsOf(table).write.mutationOptions() as MutationOptions<
+			WrittenRow<Fields>,
+			WriteError,
+			WriteRowVariables<Fields>
 		>;
-		const draft = createBodyDraftState<Fields>({
-			save: ({ base, content }) =>
-				runMutation(queryClient, save, { base, text: content }).catch(
-					(error: TableSetBodyError) => {
-						bodySaveFailed(path, error);
+		const draft = createBodyEditor<Fields>({
+			row: () => rowOf(table, stem) as StoredRow<Fields> | undefined,
+			// A row deleted since writes nothing and resolves `null`: the
+			// editor says it is gone, and `saveBody` offers what was typed.
+			write: (change) =>
+				runMutation(queryClient, write, { stem, ...change }).catch(
+					(error: WriteError) => {
+						// Kept for the next save.
+						notify({ kind: 'failed', path, error, lost: undefined });
 						throw error;
 					},
 				),
 		});
 		const typed = {
 			draft,
-			later: useDebounce(() => saveTyped(bodies, path), 1000),
+			later: useDebounce(() => saveBody(path), 1000),
+			unsent: () => draft.typed,
 		};
 		bodies.set(path, typed);
 		return typed;
 	}
 
 	/**
-	 * A body's save failed. It is kept for the next save, unless the file is
-	 * gone: a save never recreates a row, so that body is dropped.
+	 * Save the body typed into the row at `stem`, as leaving it does. A delete
+	 * beats an edit that never saw it (ADR-0576): a body typed into a row
+	 * deleted elsewhere is never written, and is offered to copy instead.
 	 */
-	function bodySaveFailed(path: string, error: TableSetBodyError) {
-		if (error.name !== 'NotFound') {
-			notify({ kind: 'failed', path, error, lost: undefined });
-			return;
-		}
+	async function saveBody(path: string) {
+		await saveTyped(bodies, path);
+		offerIfGone(path);
+	}
+
+	/**
+	 * The row at `path` is gone with a body typed into it: the body is
+	 * handed to the person with the notice, which keeps it to copy until
+	 * they dismiss it, and the editor lets it go.
+	 */
+	function offerIfGone(path: string) {
 		const typed = bodies.get(path);
-		const lost = typed?.draft.text;
-		typed?.draft.discard();
+		if (typed === undefined || typed.draft.saving || !typed.draft.gone) return;
+		const lost = typed.unsent();
+		typed.draft.discard();
 		bodies.delete(path);
-		notify({ kind: 'failed', path, error, lost });
+		if (lost !== undefined)
+			notify({
+				kind: 'failed',
+				path,
+				error: FileError.NotFound({ path }).error,
+				lost,
+			});
 	}
 
 	/** Each file's text edit, by path: the version it started from and the text typed. */
@@ -691,6 +703,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const typed = {
 			draft,
 			later: useDebounce(() => saveTyped(textEdits, path), 1000),
+			unsent: () => draft.text,
 		};
 		textEdits.set(path, typed);
 		return typed;
@@ -702,13 +715,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const pendingSave = ({
 		draft,
 		later,
-	}: Typed<{ readonly text: string | undefined; readonly saving: boolean }>) =>
-		draft.saving || (later.pending && draft.text !== undefined);
+		unsent,
+	}: Typed<{ readonly saving: boolean }>) =>
+		draft.saving || (later.pending && unsent() !== undefined);
 
 	/** Resolves once every document typed is sent, and every folder write landed, or failed. */
 	async function writesSettled() {
 		await Promise.all([
-			...[...bodies.keys()].map((path) => saveTyped(bodies, path)),
+			...[...bodies.keys()].map(saveBody),
 			...[...textEdits.keys()].map((path) => saveTyped(textEdits, path)),
 		]);
 		await whenIdle(queryClient, { mutationKey: folder$.key });
@@ -944,12 +958,12 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return;
 		}
 		const lengthError = await track(async () => {
-			// A field edit: set the length on the file as it is now (ADR-0575).
-			const { error } = await tableOf(RECORDINGS).update(id, {
-				set: { durationMs: stopped.durationMs },
+			// A field edit: set the length on the file as it is now (ADR-0576).
+			// A row deleted meanwhile stays deleted: the set writes nothing.
+			const { error } = await tableOf(RECORDINGS).set(id, {
+				durationMs: stopped.durationMs,
 			});
-			if (error === null || error.name === 'NotFound') return undefined;
-			return describeError(error);
+			return error === null ? undefined : describeError(error);
 		}, path);
 		if (lengthError !== undefined)
 			recorderError = `The recording is saved, but its length could not be written: ${lengthError}`;
@@ -1154,7 +1168,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				(entry) => entry.stem === stem,
 			)?.result;
 			if (result?.error !== null || result === undefined) return undefined;
-			const body = bodies.get(path)?.draft.text;
+			const body = bodies.get(path)?.draft.typed;
 			return body === undefined
 				? result.data.row
 				: { fields: result.data.row.fields, body };
@@ -1168,10 +1182,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return showsText(path);
 		},
 		/**
-		 * The update a view sends a field typed into a row of `table` with,
-		 * `{ stem, set }`: set on the file as it is now. Ask `canEdit` first.
+		 * The mutation a view sends a field typed into a row of `table` with,
+		 * `{ stem, fields }`: set on the file as it is now. Ask `canEdit` first.
 		 */
-		fieldUpdate: updateOf,
+		fieldSet: setOf,
 		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
 		canEdit: (path: string) => refused() === undefined && !moving(path),
 		/**
@@ -1188,32 +1202,28 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const path = rowPath(table, stem);
 			if (refused() !== undefined || moving(path)) return;
 			if (rowOf(table, stem) === undefined) return;
-			void runMutation(queryClient, updateOf(table), { stem, set }).catch(
+			void runMutation(queryClient, setOf(table), { stem, fields: set }).catch(
 				() => {},
 			);
 		},
 		/**
 		 * Type `body` as the body of the row at `stem`. The first change
-		 * captures the row the cache holds as the version the body started
-		 * from; it is saved over it a second after the last change, or at
-		 * once with `saveBody`, merged by line with whatever changed since.
+		 * takes the row the cache holds as the row the body started from; it
+		 * is saved as the change from it a second after the last change, or
+		 * at once with `saveBody`, merged by line with whatever changed since.
 		 * Refused, changing nothing, while closing, and while a rename or
 		 * delete of the file runs.
 		 */
 		editBody<T extends RowTable>(table: T, stem: string, body: string): void {
 			const path = rowPath(table, stem);
 			if (refused() !== undefined || moving(path)) return;
-			const held = bodies.get(path);
-			const current =
-				(rowOf(table, stem) as StoredRow<Fields> | undefined) ??
-				held?.draft.base;
-			if (current === undefined) return;
-			const typed = held ?? bodyOf(table, path);
-			typed.draft.change(current, body);
+			if (!bodies.has(path) && rowOf(table, stem) === undefined) return;
+			const typed = bodyOf(table, stem);
+			typed.draft.change(body);
 			void typed.later();
 		},
 		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
-		saveBody: (path: string) => saveTyped(bodies, path),
+		saveBody: (path: string) => saveBody(path),
 		/**
 		 * Replace the text of `path`, over the version the edit started from;
 		 * it is written a second after the last change, or at once with
@@ -1256,7 +1266,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		get unsaved() {
 			trackMutations();
 			return (
-				writing() || typedDrafts().some(({ draft }) => draft.text !== undefined)
+				writing() || typedDrafts().some(({ unsent }) => unsent() !== undefined)
 			);
 		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
@@ -1568,11 +1578,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			await capture.cancel();
 			capturing.delete(id);
 			await track(
-				async () => {
-					const { data: stored } = await tableOf(RECORDINGS).get(id);
-					if (stored !== undefined && stored !== null)
-						await tableOf(RECORDINGS).delete(stored);
-				},
+				() => tableOf(RECORDINGS).delete(id),
 				rowPath(RECORDINGS, id),
 			);
 			deleted(rowPath(RECORDINGS, id));
@@ -1613,6 +1619,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 					body: prompt,
 				});
 				if (error !== null) return describeError(error);
+				// A new stem holds no other file, so the write leaves this row.
+				if (created === null) return undefined;
 				const stem = rowStemOf(TRANSFORMATIONS, created.path);
 				if (stem !== undefined)
 					queryClient.setQueryData<TableListing<TransformationFields>>(
@@ -1626,7 +1634,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		deleteTransformationResult: action(
 			'delete-result',
 			async (entry: TransformationRunEntry) => {
-				const { error } = await tableOf(TRANSFORMATION_RUNS).delete(entry);
+				const { error } = await tableOf(TRANSFORMATION_RUNS).delete(entry.stem);
 				if (error !== null) return describeError(error);
 				deleted(entry.path);
 				return undefined;
@@ -1635,7 +1643,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		deleteTextResult: action(
 			'delete-text-result',
 			async (entry: TextRunEntry) => {
-				const { error } = await tableOf(TEXT_RUNS).delete(entry);
+				const { error } = await tableOf(TEXT_RUNS).delete(entry.stem);
 				if (error !== null) return describeError(error);
 				deleted(entry.path);
 				return undefined;
@@ -1690,18 +1698,18 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				mutationKey: keys.move(path),
 				scope: { id: path },
 				mutationFn: async (): Promise<
-					Result<FileCapture, FileError | MoveError | TableError | string>
+					Result<unknown, FileError | MoveError | WriteError | string>
 				> => {
 					await writesSettled();
+					if (stem !== undefined && nextStem !== undefined)
+						return tableOf(TRANSCRIPTIONS).rename(stem, nextStem);
 					let capture = heldCapture(path);
 					if (capture === undefined) {
 						const { data: read, error } = await folder.files.read(path);
 						if (error !== null) return Err(error);
 						capture = { path: read.path, sha256: read.sha256 };
 					}
-					return stem !== undefined && nextStem !== undefined
-						? tableOf(TRANSCRIPTIONS).rename(capture, nextStem)
-						: folder.files.move(capture, to);
+					return folder.files.move(capture, to);
 				},
 				onSuccess: () => moved(path, to),
 				onSettled: () => invalidate(),
@@ -1759,9 +1767,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return captureDeletion(deletionContext(), path);
 		},
 		/**
-		 * Delete exactly what was confirmed, after the edits being written
-		 * land: what this window saved since goes with it, and a file another
-		 * program changed since is refused.
+		 * Delete what was confirmed, after the edits being written land: what
+		 * this window saved since goes with it. A row goes whatever another
+		 * program changed in it since (ADR-0576); any other file changed since
+		 * is refused.
 		 */
 		async remove(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();

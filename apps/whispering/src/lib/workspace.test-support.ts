@@ -239,7 +239,7 @@ const refusedResult = (path: string, operation: 'create' | 'write') =>
  * A result table whose next creates fail before writing, as many times as
  * `failures.starts` says, and whose next answers fail the same way, as many
  * times as `failures.answers` says. An answer fills its row through
- * `setBody`. A test may arm more after opening.
+ * `write`. A test may arm more after opening.
  */
 export function withResultFailures<TFields>(
 	table: FileTable<TFields>,
@@ -252,10 +252,10 @@ export function withResultFailures<TFields>(
 			failures.starts -= 1;
 			return refusedResult(`${table.name}/${options?.stem}.md`, 'create');
 		},
-		async setBody(base, text, options) {
-			if (failures.answers === 0) return table.setBody(base, text, options);
+		async write(stem, from, to) {
+			if (failures.answers === 0) return table.write(stem, from, to);
 			failures.answers -= 1;
-			return refusedResult(base.path, 'write');
+			return refusedResult(`${table.name}/${stem}.md`, 'write');
 		},
 	};
 }

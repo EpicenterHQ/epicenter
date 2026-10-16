@@ -22,6 +22,8 @@
  * - Opening another todo while a save is pending writes the pending text to
  *   the todo it was typed into, and to no other
  * - A failed save keeps the typed text, and Try again sends it
+ * - Notes typed into a todo deleted elsewhere are not written; they are
+ *   offered as text
  * - The checkbox sends at once and never undoes a title typed meanwhile
  * - A title saved over a change made elsewhere keeps the other fields; the
  *   typed title wins where both changed
@@ -33,7 +35,7 @@
  * - The open todo follows the URL, and opening one from the list sets it
  * - A title input keeps its value well formed, so what is written is what
  *   is shown
- * - Notes show LF and keep the file's CRLF
+ * - Notes show LF, and a body write writes the file in the standard form
  * - Completion from the list and the detail keep notes and undeclared keys
  *
  * jsdom implements no layout, focus, selection, IME, or `inert`. Toasts,
@@ -382,6 +384,25 @@ test('a failed save keeps the typed text, and Try again sends it', async () => {
 	expect(get('[data-testid="write-status"]').textContent).toContain('Saved to');
 });
 
+test('notes typed into a todo deleted elsewhere are not written and are offered as text', async () => {
+	const { todos, target, get, failures, text } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get(NOTES), 'From the shop.\n');
+	// Another writer deletes the file before the notes are sent; the cache
+	// still holds the row.
+	expectOk(
+		await todos.folder.files.remove(
+			expectOk(await todos.folder.files.read(path)),
+		),
+	);
+	blur(get(NOTES));
+	await settle(todos);
+	expect(await text(path)).toBeUndefined();
+	expect(failures).toMatchObject([
+		{ path, unsaved: 'From the shop.\n', error: { name: 'NotStarted' } },
+	]);
+});
+
 test('the checkbox sends at once and does not undo a title typed meanwhile', async () => {
 	const { todos, target, get, reading } = await setup();
 	const path = await addTodo(todos, target, 'Milk');
@@ -454,7 +475,7 @@ test('a title input keeps its value well formed, so what is written is what is s
 	expect((await reading(path)).fields.title).toBe('Oat �');
 });
 
-test('notes from a CRLF file show LF; typing in them writes an LF body and keeps the frontmatter byte for byte', async () => {
+test('notes from a CRLF file show LF; typing in them writes the file in the standard form with LF', async () => {
 	const { todos, target, get, reading } = await setup();
 	const crlf =
 		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\r\nTwo\r\n';
@@ -467,8 +488,8 @@ test('notes from a CRLF file show LF; typing in them writes an LF body and keeps
 	type(notes, 'One\nTwo\nThree\n');
 	blur(notes);
 	await settle(todos);
-	// A body write keeps every byte before the body (ADR-0575) and writes the
-	// body with LF (ADR-0572).
+	// A body write writes the frontmatter in the standard form (ADR-0576)
+	// and the body with LF (ADR-0572).
 	expect(await reading('todos/crlf.md')).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'sam' },
 		body: 'One\nTwo\nThree\n',
@@ -477,9 +498,7 @@ test('notes from a CRLF file show LF; typing in them writes an LF body and keeps
 		new TextDecoder().decode(
 			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
 		),
-	).toBe(
-		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\nTwo\nThree\n',
-	);
+	).toBe('---\ntitle: Milk\ndone: false\nowner: sam\n---\nOne\nTwo\nThree\n');
 });
 
 test('completion from the list and from the detail keeps notes and undeclared keys', async () => {
@@ -498,7 +517,7 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 
 	press(completion());
 	await settle(todos);
-	// Both show the file once the update lands.
+	// Both show the file once the set lands.
 	expect(completion().getAttribute('aria-checked')).toBe('true');
 	expect(get<HTMLButtonElement>(DONE).getAttribute('aria-checked')).toBe(
 		'true',

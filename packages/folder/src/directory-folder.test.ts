@@ -163,13 +163,18 @@ const earlierStagedName = (offset: number) =>
 type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
 
 async function addTodo(folder: OpenedFolder, title: string) {
-	return expectOk(
+	const created = expectOk(
 		await folder.tables.todos.create({
 			fields: { title, done: false },
 			body: '',
 		}),
 	);
+	if (created === null) throw new Error('the create left no row');
+	return created;
 }
+
+/** The stem of a row path in `todos`. */
+const stemOf = (path: string) => path.slice('todos/'.length, -'.md'.length);
 
 /** A repository native Git made, with one committed file. */
 async function nativeRepository(prefix: string) {
@@ -341,24 +346,25 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test('a save merges with a file another program changed', async () => {
+	test('a write merges with a file another program changed', async () => {
 		const root = await scratch('directory-folder-guard-');
 		const folder = expectOk(await open(root));
 		const created = await addTodo(folder, 'Mine');
 		const path = join(root, created.path);
 		await writeFile(path, '---\ntitle: Mine\ndone: true\n---\n');
-		created.row.fields.title = 'Mine, edited';
-		const saved = expectOk(
-			await folder.tables.todos.save(created, created.row),
+		expectOk(
+			await folder.tables.todos.write(stemOf(created.path), created.row, {
+				...created.row,
+				fields: { ...created.row.fields, title: 'Mine, edited' },
+			}),
 		);
-		expect(saved.merged).toBe(true);
 		expect(await readFile(path, 'utf8')).toBe(
 			'---\ntitle: Mine, edited\ndone: true\n---\n',
 		);
 		await folder.close();
 	});
 
-	test('a save another writer overtakes after its check merges; a create or a remove is refused where it publishes', async () => {
+	test('a write another writer overtakes after its check merges; a create or a remove is refused where it publishes', async () => {
 		const root = await scratch('directory-folder-overtaken-');
 		const sha256 = (text: string) => hashBytes(new TextEncoder().encode(text));
 		// Another writer, sharing no lock with this folder, lands these bytes
@@ -387,11 +393,12 @@ describe('a folder over an ordinary directory', () => {
 		const path = join(root, created.path);
 		const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
 		overtaken.set(path, theirs);
-		created.row.fields.title = 'Mine, edited';
-		const saved = expectOk(
-			await folder.tables.todos.save(created, created.row),
+		expectOk(
+			await folder.tables.todos.write(stemOf(created.path), created.row, {
+				...created.row,
+				fields: { ...created.row.fields, title: 'Mine, edited' },
+			}),
 		);
-		expect(saved.merged).toBe(true);
 		expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 
 		const note = join(root, 'todos/a.md');

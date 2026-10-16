@@ -2,9 +2,9 @@
 	One transformation: its instructions, model, results, and a place to try
 	it. The fields come from the transformations listing in the cache, and
 	Source from the file's own text query. The title and model are held here
-	while typed and sent after a pause, as updates of the file as it is now
-	(ADR-0554); the instructions are the file's body, a draft saved over the
-	version it started from. Run sends what is typed first.
+	while typed and sent after a pause, as sets of the file as it is now
+	(ADR-0576); the instructions are the file's body, saved as the change from
+	the row it started from. Run sends what is typed first.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -84,18 +84,18 @@
 
 	/**
 	 * A field typed here and not yet saved, sent a second after the last
-	 * keystroke, when the person leaves it, and when the view goes away, as an
-	 * update of the file as it is now (ADR-0554). `undefined` shows the file.
+	 * keystroke, when the person leaves it, and when the view goes away, as a
+	 * set of the file as it is now (ADR-0576). `undefined` shows the file.
 	 */
-	const saveTitle = createMutation(() => library.fieldUpdate(TRANSFORMATIONS));
-	const saveModel = createMutation(() => library.fieldUpdate(TRANSFORMATIONS));
+	const setTitle = createMutation(() => library.fieldSet(TRANSFORMATIONS));
+	const setModel = createMutation(() => library.fieldSet(TRANSFORMATIONS));
 	let typedTitle = $state<string>();
 	let typedModel = $state<string | null>();
 	function sendTitle() {
 		if (typedTitle === undefined || !library.canEdit(own)) return;
 		const sent = typedTitle;
-		saveTitle.mutate(
-			{ stem: ownId, set: { title: sent } },
+		setTitle.mutate(
+			{ stem: ownId, fields: { title: sent } },
 			{
 				onSuccess: () => {
 					if (typedTitle === sent) typedTitle = undefined;
@@ -106,8 +106,8 @@
 	function sendModel() {
 		if (typedModel === undefined || !library.canEdit(own)) return;
 		const sent = typedModel;
-		saveModel.mutate(
-			{ stem: ownId, set: { model: sent } },
+		setModel.mutate(
+			{ stem: ownId, fields: { model: sent } },
 			{
 				onSuccess: () => {
 					if (typedModel === sent) typedModel = undefined;
@@ -128,12 +128,12 @@
 	onDestroy(flush);
 	/** Whether a field typed here did not save. */
 	const fieldFailed = $derived(
-		(typedTitle !== undefined && saveTitle.isError && !saveTitle.isPending) ||
-			(typedModel !== undefined && saveModel.isError && !saveModel.isPending),
+		(typedTitle !== undefined && setTitle.isError && !setTitle.isPending) ||
+			(typedModel !== undefined && setModel.isError && !setModel.isPending),
 	);
 	const fieldsPending = $derived(
-		saveTitle.isPending ||
-			saveModel.isPending ||
+		setTitle.isPending ||
+			setModel.isPending ||
 			(sendTitleLater.pending && typedTitle !== undefined) ||
 			(sendModelLater.pending && typedModel !== undefined),
 	);

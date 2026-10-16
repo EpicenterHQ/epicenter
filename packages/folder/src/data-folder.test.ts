@@ -8,7 +8,7 @@
  * - The handle's tables are the declaration's, and `definition` is the
  *   prepared declaration
  * - The handle never writes `epicenter.json`: a hand-formatted declaration
- *   stays byte for byte through creates, replacements, settings, and commits
+ *   stays byte for byte through creates, writes, settings, and commits
  * - A folder without `epicenter.json` opens with no tables and no settings;
  *   files and history work
  * - An `epicenter.json` that cannot be used is `InvalidDeclaration`, and a
@@ -89,13 +89,14 @@ test('opens with its own declaration and never writes it', async () => {
 	});
 	const created = expectOk(
 		await todos.create({ fields: { title: 'Two', done: false }, body: '' }),
-	);
+	)!;
+	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	expectOk(
-		await todos.save(created, {
+		await todos.write(stem, created.row, {
 			fields: { title: 'Two', done: true },
 			body: 'Done.\n',
 		}),
-	).stored;
+	);
 	// A row the declaration refuses is refused before anything is written.
 	expect(
 		expectErr(await todos.create({ fields: { title: 3 }, body: '' })).name,
@@ -246,11 +247,11 @@ test("sync merges rows by the folder's own declaration", async () => {
 	const one = expectOk(await todos.get('one'));
 	expect(one).toBeDefined();
 	expectOk(
-		await todos.save(one!, {
+		await todos.write('one', one!.row, {
 			fields: { title: 'One', done: true },
 			body: '',
 		}),
-	).stored;
+	);
 
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(

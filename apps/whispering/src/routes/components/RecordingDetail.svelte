@@ -3,11 +3,11 @@
 	from the recordings listing in the cache, so this view never disagrees
 	with the table. The title is held here while typed and sent a second
 	after the last keystroke, when the person leaves it, and when the view
-	goes away, as an update of the file as it is now (ADR-0554). The notes
-	are the file's body: a draft that keeps the version it started from,
-	saved on the same pause and merged with whatever changed since. A
-	recording deleted elsewhere is never written again: its save fails, and
-	the view closes.
+	goes away, as a set of the file as it is now (ADR-0576). The notes
+	are the file's body: an edit that keeps the row it started from, saved
+	on the same pause and merged with whatever changed since. A recording
+	deleted elsewhere is never written again: what was typed is reported as
+	not saved, and the view closes.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -81,14 +81,14 @@
 	const own = path;
 	const ownId = rowStemOf(RECORDINGS, own) ?? own;
 
-	const saveTitle = createMutation(() => library.fieldUpdate(RECORDINGS));
+	const setTitle = createMutation(() => library.fieldSet(RECORDINGS));
 	/** The title typed and not yet saved; `undefined` shows the file. */
 	let typedTitle = $state<string>();
 	function sendTitle() {
 		if (typedTitle === undefined || !library.canEdit(own)) return;
 		const sent = typedTitle;
-		saveTitle.mutate(
-			{ stem: ownId, set: { title: sent } },
+		setTitle.mutate(
+			{ stem: ownId, fields: { title: sent } },
 			{
 				onSuccess: () => {
 					if (typedTitle === sent) typedTitle = undefined;
@@ -158,12 +158,12 @@
 	</div>
 
 	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-		{saving || saveTitle.isPending || (sendTitleLater.pending && typedTitle !== undefined)
+		{saving || setTitle.isPending || (sendTitleLater.pending && typedTitle !== undefined)
 			? 'Saving…'
-			: typedTitle !== undefined && saveTitle.isError
+			: typedTitle !== undefined && setTitle.isError
 				? 'Not saved'
 				: `Saved to ${path}`}
-		{#if typedTitle !== undefined && saveTitle.isError && !saveTitle.isPending}
+		{#if typedTitle !== undefined && setTitle.isError && !setTitle.isPending}
 			<Button variant="link" size="xs" class="h-auto p-0" onclick={sendTitle}>Try again</Button>
 		{/if}
 	</p>

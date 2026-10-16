@@ -1,13 +1,12 @@
 /**
- * An edit of a document's text that holds its own starting version
- * (ADR-0548, ADR-0551, ADR-0554).
+ * An edit of a file's text that holds its own starting version (ADR-0548,
+ * ADR-0551).
  *
- * A field edit is a change `table.update` applies to the file as it is now,
- * so it holds no version. A document cannot be applied that way: a note
- * body, a transcript, or a file's text is a whole text, and setting it would
- * replace another writer's lines. Its edit is a text draft: the text typed
- * and the version it started from, saved over that version, so the save
- * merges by line with whatever changed since.
+ * A file's text is a whole text, and setting it would replace another
+ * writer's lines. Its edit is a text draft: the text typed and the version
+ * it started from, saved over that version with `files.save`, so the save
+ * merges by line with whatever changed since. A row's body is opened with
+ * `createBodyEditor` instead (`@epicenter/folder/svelte`).
  *
  * A draft captures the version at the first change, not when an editor
  * gains focus, and keeps the text outside the cache. A refetch updates the
@@ -15,8 +14,7 @@
  * when the save merged another writer's lines, text typed while it ran is
  * merged onto the written text, so the next save does not undo them.
  *
- * The base is a file's capture (`files.save`) or a row's (`table.save` of
- * its body); `writtenFile` and `writtenBody` read what either save wrote.
+ * The base is a file's capture; `writtenFile` reads what a save wrote.
  *
  * Plain TypeScript with no framework: a Svelte wrapper keeps a draft in
  * `$state` and calls these.
@@ -25,7 +23,6 @@ import type { CapturedFile, ContentCapture } from './capture.js';
 import { mergeLines } from './git/merge-lines.js';
 import type { FileContent } from './merge-file.js';
 import type { SavedFile } from './save-file.js';
-import type { SavedRow, StoredRow } from './table.js';
 
 /**
  * What a file save sends: the version the edit started from, and the
@@ -82,17 +79,6 @@ export function writtenFile(saved: SavedFile): WrittenText<CapturedFile> {
 	return {
 		base: saved.stored,
 		text: utf8.decode(saved.stored.bytes),
-		merged: saved.merged,
-	};
-}
-
-/** What a row save wrote, as a draft of the row's body reads it. */
-export function writtenBody<TFields>(
-	saved: SavedRow<TFields>,
-): WrittenText<StoredRow<TFields>> {
-	return {
-		base: saved.stored,
-		text: saved.stored.row.body,
 		merged: saved.merged,
 	};
 }
