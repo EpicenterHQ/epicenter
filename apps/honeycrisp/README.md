@@ -394,7 +394,7 @@ view and delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the sets fields are written with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
+| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the sets fields are written with, the body and text editors and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
 | `src/lib/platform/` | The `#platform/folder` seam and its two leaves: `folder.epicenter-host.ts`, the folder Epicenter hands the window, and `folder.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
@@ -409,7 +409,7 @@ since deleted; its terminal, reveal, and per-note history no longer exist.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the folder, its note and folder listings, field sets, merging saves, change reports, query options, and text drafts; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
+- `@epicenter/folder` for the folder, its note and folder listings, field sets, merging saves, change reports, query options, and text editors; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
 - Epicenter's [Tauri](https://tauri.app) shell on the desktop, with the `tauri-plugin-epicenter-folder` crate granting the directory, reading it, making changes, and running `git`
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
