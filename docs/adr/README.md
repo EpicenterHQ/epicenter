@@ -805,3 +805,4 @@ When you add an ADR, add its row here.
 | [0578](0578-epicenter-hosts-no-mcp-server.md) | Epicenter hosts no MCP server | Accepted (supersedes 0550; amends 0549 and 0565) |
 | [0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md) | Epicenter never deletes a model from the shared Hugging Face cache | Proposed (amends 0180 and 0539) |
 | [0580](0580-a-local-model-is-pinned-by-commit-and-content-hash-under-a-frozen-id.md) | A local model is pinned by commit and content hash under a frozen id | Proposed |
+| [0581](0581-a-browser-keeps-ai-connections-as-rows-of-its-own-so-epicenter.md) | A browser keeps AI connections as rows of its own so.epicenter | Proposed (amends 0557) |
