@@ -318,10 +318,10 @@ test('a message file that cannot be read is reported and left as it is, and two 
 	const wrongShape = '---\nchat: chat-a\nmessage:\n  id: broken\n---\n';
 	const unparsed = 'not a row\n';
 	expectOk(
-		await folder.files.create('messages/chat-a.wrong-shape.md', wrongShape),
+		await folder.write('messages/chat-a.wrong-shape.md', null, wrongShape),
 	);
 	// An earlier file, named by message ID alone, names no chat it can be read for.
-	expectOk(await folder.files.create('messages/unparsed.md', unparsed));
+	expectOk(await folder.write('messages/unparsed.md', null, unparsed));
 
 	expectOk(await store.load());
 	expect([...store.entries()]).toEqual([{ key: question.id, val: question }]);

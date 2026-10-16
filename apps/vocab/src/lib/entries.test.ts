@@ -114,10 +114,12 @@ async function setup() {
 		/** Another program writes the file over whatever is there. */
 		async writeElsewhere(path: string, content: string) {
 			const current = await folder.files.read(path);
-			if (current.error?.name === 'NotFound')
-				return void expectOk(await folder.files.create(path, content));
 			expectOk(
-				await folder.files.save(expectOk(current), content, { merge: false }),
+				await folder.write(
+					path,
+					current.error === null ? current.data.bytes : null,
+					content,
+				),
 			);
 		},
 		/** The words a reload would list, from the folder opened again. */
@@ -274,7 +276,7 @@ test('a word another tab removed is saved again instead of being called present'
 	await context.add('resilient');
 	const otherTab = await openVocab(await browser.open());
 	expectOk(
-		await otherTab.vocab.entries.remove(cached(otherTab.vocab, 'resilient')),
+		await otherTab.vocab.entries.delete(cached(otherTab.vocab, 'resilient')),
 	);
 	expect(expectOk(await entries.add('resilient'))).toBe('added');
 	expect(await tableFiles(folder, 'entries')).toHaveLength(1);
@@ -303,7 +305,7 @@ test('a note set on a word deleted elsewhere writes nothing and is offered to co
 	const { vocab, folder, entries, failures } = context;
 	const entry = await context.add('lucid');
 	const path = entry.stored.path;
-	expectOk(await folder.files.remove(expectOk(await folder.files.read(path))));
+	expectOk(await folder.write(path, null, null));
 	expect(entries.setNote(entry.id, 'typed after the delete')).toBe(true);
 	await quiet(vocab);
 	// A delete beats an edit that never saw it (ADR-0576).
@@ -493,12 +495,12 @@ test('a delete waits for the set under way and removes what it saved; edits wait
 	const { held, release } = context.holdNextWrite();
 	entries.setNote(entry.id, 'typed while asked');
 	await held;
-	const removing = entries.remove(entry);
+	const deleting = entries.delete(entry);
 	await Bun.sleep(5);
 	expect(entries.isLocked(entry.id)).toBe(true);
 	expect(entries.setNote(entry.id, 'typed during the delete')).toBe(false);
 	release();
-	expectOk(await removing);
+	expectOk(await deleting);
 	await quiet(vocab);
 	expect(failures).toEqual([]);
 	expect(await context.text(path)).toBeUndefined();
@@ -513,7 +515,7 @@ test('a delete removes the word even when it changed elsewhere', async () => {
 		entry.stored.path,
 		wordText('lucid', 'theirs', 'usable'),
 	);
-	expectOk(await entries.remove(entry));
+	expectOk(await entries.delete(entry));
 	await quiet(vocab);
 	expect(await context.text(entry.stored.path)).toBeUndefined();
 	expect(wordsOf(listing(vocab))).toEqual([]);
@@ -555,6 +557,6 @@ test('after close begins, edits and actions change nothing', async () => {
 	void vocab.close();
 	expect(entries.setNote(entry.id, 'late')).toBe(false);
 	expect(expectErr(await entries.add('another')).name).toBe('NotStarted');
-	expect(expectErr(await entries.remove(entry)).name).toBe('NotStarted');
+	expect(expectErr(await entries.delete(entry)).name).toBe('NotStarted');
 	expect(saved).toContain('note: ""');
 });

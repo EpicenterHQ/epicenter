@@ -18,7 +18,7 @@ export const vocabKeys = defineKeys({
 	/** Every action Vocab defines itself. */
 	all: ['vocab'],
 	add: ['vocab', 'add'],
-	remove: (path: string) => ['vocab', 'remove', path] as const,
+	delete: (path: string) => ['vocab', 'delete', path] as const,
 	startChat: ['vocab', 'start-chat'],
 	/** Every message write of one chat. */
 	message: (chatId: string) => ['vocab', 'message', chatId] as const,
