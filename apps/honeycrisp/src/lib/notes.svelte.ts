@@ -64,10 +64,10 @@ import {
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	type BodyEditor,
 	createBodyEditor,
 	createTextDraftState,
 	type TextDraftState,
+	type TextEditor,
 } from '@epicenter/folder/svelte';
 import {
 	hashKey,
@@ -484,7 +484,7 @@ export function createNotes(
 	 * and at once when the view leaves it (`saveBody`). It saves nothing
 	 * while the list does not hold its note.
 	 */
-	const bodies = new SvelteMap<string, Typed<BodyEditor>>();
+	const bodies = new SvelteMap<string, Typed<TextEditor>>();
 
 	const writeNote = {
 		...folder$.notes.write.mutationOptions(),

@@ -79,10 +79,10 @@ import {
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	type BodyEditor,
 	createBodyEditor,
 	createTextDraftState,
 	type TextDraftState,
+	type TextEditor,
 } from '@epicenter/folder/svelte';
 import type { RecordingFolder } from '@epicenter/recorder';
 import {
@@ -619,7 +619,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	 * whatever changed since. Held here rather than by a view, so it outlives
 	 * the view it was typed in, and saved a second after the last change.
 	 */
-	const bodies = new SvelteMap<string, Typed<BodyEditor>>();
+	const bodies = new SvelteMap<string, Typed<TextEditor>>();
 
 	function bodyOf(table: RowTable, stem: string) {
 		const path = rowPath(table, stem);

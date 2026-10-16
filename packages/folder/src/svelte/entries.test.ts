@@ -56,7 +56,7 @@ test('the Svelte entry loads the draft and its line merge, and no platform', asy
 	const { files, outside } = await reached(manifest.exports['./svelte']);
 	// No host, storage backend, or Git beyond the line merge.
 	expect(files.map((file) => file.slice(packageRoot.length + 1))).toEqual([
-		'src/svelte/draft.svelte.ts',
+		'src/svelte/editor.svelte.ts',
 		'src/draft.ts',
 		'src/git/merge-lines.ts',
 	]);

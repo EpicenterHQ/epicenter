@@ -11,7 +11,7 @@
 		"./bun": "./src/bun.ts",
 		"./file-browser": "./src/file-browser.ts",
 		"./query": "./src/query.ts",
-		"./svelte": "./src/svelte/draft.svelte.ts"
+		"./svelte": "./src/svelte/editor.svelte.ts"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
