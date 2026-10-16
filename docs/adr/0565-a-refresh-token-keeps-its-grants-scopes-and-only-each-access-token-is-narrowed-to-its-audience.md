@@ -2,57 +2,103 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A refresh family is one grant's lineage", which named reuse detection and revocation but not what a refresh stores or what revoking a live refresh token ends: a refresh token keeps the grant's scopes, revoking a live one ends its lineage, and a row without a lineage answers 500; at the `so.epicenter.cli` row, whose grant includes `openid`; and at "Its issuer and resources are its own origin", which is `<origin>`, `<origin>/git`, and `<origin>/mcp`, resolved by `resolveOAuthAudiences`.
+- **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A refresh family is one grant's lineage": a refresh family is every grant of one client for one person, a replay after 60 seconds ends all of them, and the desktop and the CLI are separate families; the vendored patch and "A refresh row without a lineage is an error" are withdrawn; at the consequences "No other installation is affected", which becomes "every installation of that client signs in again", and "The patch is re-verified on every Better Auth upgrade", which is withdrawn; at the resource table, where `api` and `git` accept every first-party scope and only `mcp` limits scopes; at the Unbuilt item "sending the lineage patch upstream", which is withdrawn; at the `so.epicenter.cli` row, whose grant includes `openid`; and at "Its issuer and resources are its own origin", which is `<origin>`, `<origin>/git`, and `<origin>/mcp`, resolved by `resolveOAuthAudiences`.
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "`epicenter auth login` sets `credential.https://git.epicenter.so.helper=!epicenter auth git-credential`": the key is `credential.<the deployment's Git audience>.helper`, its value is `!'<absolute path to the CLI>' auth git-credential`, and an empty value is written before it.
-- **Relates:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) (the Git audience a folder syncs to), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment names the authority).
-- **Unbuilt:** sending `patches/@better-auth%2Foauth-provider@1.7.9.patch` upstream; `epicenter auth status` reporting a grant as signed in after its sign-in has ended (a refresh answered `invalid_grant` twice) until `epicenter auth logout`; a development build's auth lock files, which land in the release data directory because Rust does not pass `EPICENTER_DATA_DIR` to the auth commands.
+- **Relates:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) (the Git audience a folder syncs to), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment names the authority), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (a window's children end with the window).
+- **Unbuilt:** moving from Better Auth `1.8.0-beta.0` to 1.8 stable before the first deploy; `epicenter auth status` reporting a grant as signed in after its sign-in has ended (a refresh answered `invalid_grant` twice) until `epicenter auth logout`; a development build's auth lock files, which land in the release data directory because Rust does not pass `EPICENTER_DATA_DIR` to the auth commands.
 
 ## Context
 
-ADR-0549 gives each first-party grant every audience its client may reach:
-`api`, `git`, and `mcp`. The `epicenter` CLI asks for all of them at sign-in
-and names one `resource` on each refresh, so the server can narrow that access
-token to the audience's `allowedScopes`. Git's token gets `folders:read` and
-`folders:write`; the API's gets `ai`, `profile`, and `folders:read`.
+ADR-0549 gives each first-party grant every audience its client may reach,
+`api` and `git`. The `epicenter` CLI asks for both at sign-in and names one
+`resource` on each refresh, so each access token is bound to one audience.
 
-`@better-auth/oauth-provider` 1.7.9 computes the narrowed scopes once and
-stores them on both tokens. The first refresh for `git.epicenter.so` therefore
-writes a refresh token holding only the folder scopes, and the next refresh for
-the API cannot get `ai` back. One Git fetch would end a grant's inference for
-good: the refresh succeeds, and the next AI request answers 403
-`insufficient_scope`.
+`@better-auth/oauth-provider` intersects a refresh's scopes with the named
+resource's `allowedScopes`, and stores the result on the new refresh token
+as well as the access token. ADR-0549's resource table gave the API `ai`,
+`profile`, and `folders:read`, and Git `folders:read` and `folders:write`.
+The first refresh for Git therefore wrote a refresh token holding only the
+folder scopes, and the next refresh for the API could not get `ai` back. One
+Git fetch ended a grant's inference for good.
 
-The same library, on revocation of a live refresh token, deletes only the
-access tokens that row issued. Access tokens issued under earlier rotations of
-the same grant stay valid for up to eight hours. ADR-0549 keyed reuse detection
-and revocation on lineage but did not say what an explicit revocation reaches.
+ADR-0549 also keyed the refresh family on grant lineage, so one replay would
+end one installation. The library keys it on `(clientId, userId)`, and
+neither behavior has an option. Epicenter carried both changes, and a third
+that ended a whole lineage on revocation, as a Bun patch of the library's
+content-hashed `dist` chunks.
 
-The build also settled details ADR-0549 and ADR-0558 left open or named
-loosely: the status code for a refresh row without a lineage, whether the CLI
-client may ask for `openid`, the exact Git configuration `auth login` writes,
-and the audiences of a deployment that is not the hosted one.
+Better Auth 1.8 (better-auth#11610) approves a device code through the
+provider's own consent flow and copies the consent's `referenceId` onto the
+device grant's tokens. Until then, a device grant's target came from a hook
+that found the device's tokens through the patch's `device:<id>` lineage, so
+the patch could not be dropped on 1.7.
 
 ## Decision
 
-**A refresh token keeps its grant's full scopes, and only each access token is
-narrowed to the audience its request names.** RFC 8707 restricts the access
-token to its resource; the grant is not a resource. The vendored patch
-`patches/@better-auth%2Foauth-provider@1.7.9.patch`, listed in the root
-`package.json` `patchedDependencies`, passes the grant's scopes, not the
-intersected ones, to `createRefreshToken`. One grant serves every audience it
-was approved for, in any order of refreshes.
+**Every first-party resource allows the same scopes, so a refresh never
+narrows the grant, and each access token stays bound to its audience.** The
+`api` and `git` resources allow every scope Epicenter grants (`openid`,
+`offline_access`, `profile`, `ai`, `folders:read`, `folders:write`); the
+intersection a refresh computes is then the grant itself. The audience, not
+the scope list, keeps a Git token out of inference: the resource query checks
+`t.resources ? $2` before `t.scopes ? $3`. `mcp` keeps `folders:read` and
+`folders:write`, plus `openid` and `offline_access`, as the ceiling for
+third-party clients, whose only audience it is. A first-party client's
+registration is its only scope ceiling.
+
+Epicenter runs Better Auth unpatched, pinned exactly in the root catalog,
+and fits its own behavior to the library's:
+
+| ADR-0549 said | Now |
+| --- | --- |
+| A refresh family is one grant's lineage | A refresh family is every grant of one client for one person. A replay inside 60 seconds gets the cached answer; a later replay ends every grant of that client for that person, with every access token they issued. `so.epicenter` (the desktop) and `so.epicenter.cli` (terminals and agents) are separate families. |
+| A refresh row without a lineage is an error | Withdrawn; there is no lineage. |
+| A device grant's tokens receive the target from the approval | The device page sends a code to `/auth/oauth2/authorize?user_code=<code>`. The provider signs the person in and shows the consent page, whose answer approves the code with the chosen target, which the provider copies onto every token of the grant. |
+| `api` allows `ai`, `profile`, `folders:read`; `git` allows `folders:read`, `folders:write` | Both allow every first-party scope. `GET /.well-known/oauth-protected-resource` still lists the scopes each audience's routes check. |
 
 ## Consequences
 
-- **Revoking a live refresh token ends its whole lineage** (RFC 7009 section
-  2.1). The patch makes `revokeRefreshToken` call `invalidateRefreshFamily`
-  with the row's `authorizationCodeId`, which deletes every refresh row in
-  that lineage and every access token they issued, including those from
-  earlier rotations. Other grants of the same client and person are untouched.
-- **A refresh row with no lineage is a server error.** `invalidateRefreshFamily`
-  answers 500 `server_error` ("refresh token has no grant lineage") and
-  revokes nothing. It never falls back to the `(clientId, userId)` family,
-  which would sign the person out of every installation of that client.
+- **`epicenter auth logout` revokes the refresh token and every cached
+  access token.** Revoking a live refresh token ends only the access tokens
+  of its latest rotation, and the cached `api` and `git` tokens usually come
+  from different rotations, so `logout` names each one to `/oauth2/revoke`.
+- **Access tokens discarded at rotation expire within eight hours.** Only
+  a thief holds one. A replay ends them early; nothing else does until an
+  account page can end one client's grants by `(clientId, userId)`.
+- **A replay after 60 seconds signs every installation of that client out.**
+  Every terminal and agent of `so.epicenter.cli`, or every Mac of
+  `so.epicenter`, asks for a new sign-in, and a headless agent waits for a
+  person to approve a new device code. The legitimate paths to a replay:
+  - the process exits after the server rotates the token and before the
+    keychain write lands;
+  - both sends of one refresh lose their answer;
+  - the keychain write fails after a rotation;
+  - a cloned keychain (Migration Assistant, a restore) gives two machines
+    one refresh token;
+  - `epicenter auth logout` revokes a refresh token already rotated, which
+    the library also treats as a replay.
+- **The CLI and the shell narrow the first path.** The CLI finishes a
+  refresh it has sent before it exits: a stop signal waits for the keychain
+  write, at most two seconds (`REFRESH_EXIT_GRACE_MS` in
+  `packages/cli/src/auth.ts`), and a history command's own stop handler
+  waits for it too. The shell stops a CLI child with SIGTERM to its process
+  group and kills it only after three seconds (`STOP_GRACE` in
+  `apps/epicenter/src-tauri/src/cli.rs`), both when a window's page ends
+  (ADR-0559's rule stands: a window's children end with the window) and when
+  a run is dropped or its listener stops. A history command still kills its
+  own `git` children at once, so a credential helper refreshing under one of
+  them is not covered.
+- **A Git token lists `ai` and `profile`, and an API token lists
+  `folders:write`.** Both are inert at their audience: inference requires the
+  `api` audience, and no API route checks `folders:write`. Least privilege
+  inside one audience is what this record gives up.
+- **The device grant needs Better Auth 1.8.** Its `deviceCode` table gains
+  `reference_id`, `auth_time`, `acr`, and `amr`; `oauth_client` gains
+  `sector_identifier` and the front-channel logout columns; and
+  `oauth_refresh_token` gains `acr` and `amr` (migration
+  `0006_better_auth_1_8`). The same migration gives `api` and `git` every
+  first-party scope, by the resources `so.epicenter.cli` links to, so it
+  covers every deployment's rows.
 - **`so.epicenter.cli` includes `openid`.** Its registration in
   `apps/api/worker/oauth-registrations.ts` lists `openid` beside
   `offline_access`, `profile`, `ai`, `folders:read`, and `folders:write`, and
@@ -83,23 +129,37 @@ was approved for, in any order of refreshes.
   | Hosted (`https://api.epicenter.so`) | `https://api.epicenter.so` | `https://git.epicenter.so` | `https://mcp.epicenter.so/mcp` |
   | Any other origin (local, self-host) | `<origin>` | `<origin>/git` | `<origin>/mcp` |
 
-- The patch carries the refresh scopes and the lineage revocation beside
-  ADR-0549's lineage keying, and all of it is re-verified on every Better Auth
-  upgrade until upstream takes it.
-
 ## Considered alternatives
 
+- **The vendored patch of `@better-auth/oauth-provider`.** It keyed the
+  refresh family on grant lineage (`device:<id>` for a device grant), ended a
+  whole lineage when a live refresh token was revoked, and kept a refresh
+  token's scopes whole while each access token was narrowed. It kept
+  ADR-0549's guarantee that one replay ends one installation, and its scope
+  hunk follows RFC 6749 section 6. Its cost: it edited content-hashed `dist`
+  chunks, so every Better Auth release, 1.7.10 included, failed `bun install`
+  until the patch was rewritten; 1.8's device rework meant rewriting its
+  device hunk; and its family deletion kept the fail-open order of
+  better-auth#11704 (delete without first marking revoked). Fitting
+  Epicenter to the library deleted it, and the device half of
+  `grant-target.ts` with it.
 - **A refresh for every audience at once, with no `resource`.** The access
   token would carry every scope and every audience, so a Git token could call
   inference; audience binding would bind nothing.
-- **One grant per audience.** Three device approvals for one sign-in, and three
+- **One audience for every first-party resource.** A Git or MCP token would
+  then be accepted at inference and Git alike, scope would be the only
+  separation, and the MCP rule that a server accepts no token issued for
+  another resource would break. Uniform scope lists already stop the
+  narrowing.
+- **One grant per audience.** Two device approvals for one sign-in, and two
   refresh tokens to keep and rotate.
 - **Re-requesting the lost scopes with `scope` on refresh.** OAuth lets a
   refresh only narrow, never widen, and ADR-0549 already refuses narrowing
   `scope` on refresh because it narrows the stored grant.
-- **Revoking only the presented refresh row's access tokens, as the library
-  does.** A revoked grant keeps working for up to eight hours through access
-  tokens from earlier rotations.
+- **A one-hour access token, to bound tokens discarded at rotation.** The
+  lifetime is per resource, and browser apps use the `api` audience, so every
+  browser app would redirect every hour and lose a recording held only in
+  memory, which ADR-0549 refused.
 - **A plain `credential.<git audience>.helper` entry with no reset.** Git calls
   `store` on every helper in its list after a successful request, so the token
   would be copied into whatever broader helper the machine configures.
