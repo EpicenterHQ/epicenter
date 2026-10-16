@@ -17,6 +17,7 @@
 //! any other HF tool) is reused. Rust never stores a path; it resolves the
 //! coordinate to a cache path at point of use.
 
+use super::error::error_chain_message;
 use crate::download::{DownloadManager, DownloadProgress};
 use hf_hub::api::tokio::{ApiBuilder, Progress};
 use hf_hub::{Cache, Repo, RepoType};
@@ -320,7 +321,10 @@ pub async fn download_model(
         .with_progress(false)
         .build()
         .map_err(|e| CatalogError::DownloadFailed {
-            message: format!("Failed to initialize Hugging Face API: {e}"),
+            message: format!(
+                "Failed to initialize Hugging Face API: {}",
+                error_chain_message(&e)
+            ),
         })?;
     let repo = api.repo(entry.repo());
     let filename = entry.coord.filename.to_string();
@@ -338,7 +342,7 @@ pub async fn download_model(
         .map_err(|e| CatalogError::DownloadFailed { message: e })?
         .map(|_path| ())
         .map_err(|e| CatalogError::DownloadFailed {
-            message: format!("Failed to download model: {e}"),
+            message: format!("Failed to download model: {}", error_chain_message(&e)),
         })
 }
 

@@ -1,5 +1,5 @@
 use super::catalog::{describe, installed_model_path};
-use super::error::TranscriptionError;
+use super::error::{error_chain_message, TranscriptionError};
 use super::settings::{LocalTranscriptionSettings, UnloadPolicy};
 use super::{
     AppliedHints, LocalTranscriptionReadiness, TranscriptionHints, TranscriptionOutcome,
@@ -403,8 +403,13 @@ fn load_gguf_model(model_path: &Path) -> Result<Model, String> {
         backend: default_backend(),
         gpu_device: 0,
     };
-    Model::load_with(model_path, &options)
-        .map_err(|e| format!("Failed to load GGUF model {}: {}", model_path.display(), e))
+    Model::load_with(model_path, &options).map_err(|e| {
+        format!(
+            "Failed to load GGUF model {}: {}",
+            model_path.display(),
+            error_chain_message(&e)
+        )
+    })
 }
 
 /// Open a session on the resident model and run one batch transcription. Whisper
@@ -456,7 +461,10 @@ fn run_gguf(
     let mut session = model
         .session()
         .map_err(|e| TranscriptionError::ModelLoadError {
-            message: format!("Failed to create transcription session: {e}"),
+            message: format!(
+                "Failed to create transcription session: {}",
+                error_chain_message(&e)
+            ),
         })?;
 
     let accepts_prompt = session.model().supports(Feature::InitialPrompt);
@@ -489,7 +497,7 @@ fn run_gguf(
         .run(samples, &run_options)
         .map(|transcript| (transcript.text.trim().to_string(), applied))
         .map_err(|e| TranscriptionError::TranscriptionError {
-            message: e.to_string(),
+            message: error_chain_message(&e),
         })
 }
 

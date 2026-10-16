@@ -218,7 +218,10 @@ pub async fn prewarm_model(model_cache: State<'_, ModelCache>) -> Result<(), Tra
 /// panics or is cancelled.
 fn join_err(e: tauri::Error) -> TranscriptionError {
     TranscriptionError::TranscriptionError {
-        message: format!("Background transcription task failed: {}", e),
+        message: format!(
+            "Background transcription task failed: {}",
+            error::error_chain_message(&e)
+        ),
     }
 }
 
