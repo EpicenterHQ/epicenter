@@ -798,10 +798,13 @@ const { data: saved, error: issue } = formatRow(definition.tables.todos, row);
 
 `formatRow` writes one fixed text for a row: declared keys first in declared
 order, then other keys in UTF-16 code unit order, nested keys in that order
-too, and the body byte for byte. It checks representation, not the schema:
-`NaN`, a `Date`, a class instance, a cycle, or a lone surrogate is refused,
-and `undefined` in a mapping is an absent key. Text it writes always reads
-back through `parseRow` as the same row.
+too, and the body with `\n` line endings. It checks representation, not the
+schema: `NaN`, a `Date`, a class instance, or a cycle is refused, each
+unpaired surrogate in a string is written as U+FFFD, and `undefined` in a
+mapping is an absent key. Text it writes always reads back through
+`parseRow` as the row it stored. `parseRow` reads a body's `\r\n` and lone
+`\r` as `\n`, so an editor shows and sends a body as a `<textarea>` reports
+it ([ADR-0570](../../docs/adr/0570-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md)).
 
 The frontmatter is block-style YAML that a YAML 1.2 reader and a YAML 1.1
 reader (PyYAML, Ruby's Psych, Go's `yaml.v2`) read identically:
