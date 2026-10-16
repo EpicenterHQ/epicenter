@@ -8,16 +8,17 @@
  * side changed takes that side's lines, and a region both sides changed
  * identically takes those lines once.
  *
- * Two different insertions at the same place both survive: the two blocks
- * stand one after the other, the one that sorts first by UTF-16 code units
- * first. The order depends on neither side, so two writers who merge the
- * same pair of insertions, each as `ours`, write the same text. Any other
- * region both changed differently competes.
+ * Two different insertions at the same place both survive, theirs first:
+ * the file as it was already written, then what the writer acting adds.
+ * Where one block holds the other at its start or end, the longer stands
+ * alone, so an insertion sent again after it landed, or extended since, is
+ * not doubled. Any other region both changed differently competes.
  *
- * Lines compare without their line feeds, and whether the text ends with one
- * merges on its own, so appending to a text with no line feed at its end is
- * an insertion after its last line, not a change of it. A lone carriage
- * return, U+2028, and U+2029 stay inside their line.
+ * Lines compare without their line feeds, so appending to a text with no
+ * line feed at its end is an insertion after its last line, not a change of
+ * it. A result ends with a line feed as the version its last line came from
+ * ends there. A lone carriage return, U+2028, and U+2029 stay inside their
+ * line.
  *
  * One pass answers both sides of the merge: `ours` is the merged text with
  * ours winning every competing region, `theirs` the merged text with theirs
@@ -40,6 +41,9 @@ function join(lines: readonly string[], eol: boolean): string {
 	if (lines.length === 0) return '';
 	return lines.join('\n') + (eol ? '\n' : '');
 }
+
+/** A run of one version's lines, and whether a line feed ends its last line there. */
+type Segment = { readonly lines: readonly string[]; readonly eol: boolean };
 
 /** Lines as region text: each with its line feed. */
 const block = (lines: readonly string[]) =>
@@ -124,8 +128,24 @@ export async function mergeLines({
 		(left, right) =>
 			left.baseStart - right.baseStart || left.baseEnd - right.baseEnd,
 	);
+	/**
+	 * Whether a line feed ends base line `end - 1` in the merge. Before the
+	 * last line it always does; the last line both sides kept ends as the
+	 * sides decide, where one changing it wins, and a side with no text
+	 * says nothing about it.
+	 */
+	const baseEnding = (end: number) => {
+		if (end < b.lines.length) return true;
+		const [ourEol, theirEol] = [o, t].map((side) =>
+			side.lines.length === 0 ? b.eol : side.eol,
+		) as [boolean, boolean];
+		return ourEol === theirEol || theirEol === b.eol ? ourEol : theirEol;
+	};
 	const mine: string[] = [];
 	const yours: string[] = [];
+	// Whether a line feed ends each result: as it ends the side its last line came from.
+	let mineEol = false;
+	let yoursEol = false;
 	const regions: SettledRegion[] = [];
 	let cursor = 0;
 	for (let index = 0; index < all.length; ) {
@@ -142,45 +162,86 @@ export async function mergeLines({
 			group.push(all[index++]!);
 		}
 		const unchanged = b.lines.slice(cursor, start);
-		mine.push(...unchanged);
-		yours.push(...unchanged);
+		if (unchanged.length > 0) {
+			mine.push(...unchanged);
+			yours.push(...unchanged);
+			mineEol = yoursEol = baseEnding(start);
+		}
 		cursor = end;
-		/** The side's lines standing where the base has `start` to `end`. */
-		const across = (side: Hunk['side']) => {
+		/**
+		 * The side's lines standing where the base has `start` to `end`, and
+		 * whether a line feed ends the last of them in that side.
+		 */
+		const across = (side: Hunk['side']): Segment => {
 			const own = group.filter((hunk) => hunk.side === side);
-			if (own.length === 0) return b.lines.slice(start, end);
+			if (own.length === 0)
+				return { lines: b.lines.slice(start, end), eol: baseEnding(end) };
 			const first = own[0]!;
 			const last = own[own.length - 1]!;
-			return (side === 'ours' ? o : t).lines.slice(
-				first.sideStart - (first.baseStart - start),
-				last.sideEnd + (end - last.baseEnd),
-			);
+			const version = side === 'ours' ? o : t;
+			const stop = last.sideEnd + (end - last.baseEnd);
+			return {
+				lines: version.lines.slice(
+					first.sideStart - (first.baseStart - start),
+					stop,
+				),
+				eol: stop === version.lines.length ? version.eol : true,
+			};
 		};
 		const [left, right] = [across('ours'), across('theirs')];
-		const [leftText, rightText] = [block(left), block(right)];
-		let settled: readonly string[] | undefined;
-		if (leftText === rightText || group.every((hunk) => hunk.side === 'ours'))
-			settled = left;
-		else if (group.every((hunk) => hunk.side === 'theirs')) settled = right;
-		// Both inserted different lines here, replacing nothing: keep both.
+		const [leftText, rightText] = [block(left.lines), block(right.lines)];
+		let settled: readonly Segment[] | undefined;
+		if (leftText === rightText)
+			settled = [{ ...left, eol: left.eol === right.eol ? left.eol : true }];
+		else if (group.every((hunk) => hunk.side === 'ours')) settled = [left];
+		else if (group.every((hunk) => hunk.side === 'theirs')) settled = [right];
+		// Both inserted different lines here, replacing nothing: keep both,
+		// theirs first as what landed first, or the longer where one extends
+		// the other, so a resent insertion is not doubled.
 		else if (start === end)
-			settled =
-				leftText < rightText ? [...left, ...right] : [...right, ...left];
+			settled = extendsLines(right.lines, left.lines)
+				? [right]
+				: extendsLines(left.lines, right.lines)
+					? [left]
+					: [right, left];
 		if (settled !== undefined) {
-			mine.push(...settled);
-			yours.push(...settled);
+			for (const segment of settled) {
+				if (segment.lines.length === 0) continue;
+				mine.push(...segment.lines);
+				yours.push(...segment.lines);
+				mineEol = yoursEol = segment.eol;
+			}
 			continue;
 		}
 		regions.push({ line: mine.length, kept: leftText, theirs: rightText });
-		mine.push(...left);
-		yours.push(...right);
+		if (left.lines.length > 0) {
+			mine.push(...left.lines);
+			mineEol = left.eol;
+		}
+		if (right.lines.length > 0) {
+			yours.push(...right.lines);
+			yoursEol = right.eol;
+		}
 	}
 	const rest = b.lines.slice(cursor);
-	mine.push(...rest);
-	yours.push(...rest);
-	// A final line feed never competes: where the sides differ, one kept the base's.
-	const eol = o.eol === t.eol || t.eol === b.eol ? o.eol : t.eol;
-	return { ours: join(mine, eol), theirs: join(yours, eol), regions };
+	if (rest.length > 0) {
+		mine.push(...rest);
+		yours.push(...rest);
+		mineEol = yoursEol = baseEnding(b.lines.length);
+	}
+	return {
+		ours: join(mine, mineEol),
+		theirs: join(yours, yoursEol),
+		regions,
+	};
+}
+
+/** Whether `longer` holds every line of `shorter` at its start or its end. */
+function extendsLines(longer: readonly string[], shorter: readonly string[]) {
+	if (longer.length <= shorter.length) return false;
+	const at = (offset: number) =>
+		shorter.every((line, index) => line === longer[offset + index]);
+	return at(0) || at(longer.length - shorter.length);
 }
 
 /**

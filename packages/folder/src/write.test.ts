@@ -20,7 +20,7 @@
  * - A write that loses a race reads and merges again, and gives up as
  *   `KeptChanging` after `WRITE_ATTEMPTS`
  * - A write that changes nothing puts nothing
- * - A delete needs no `from`; a closed folder is `Closed`; a path no file
+ * - A delete needs no base; a closed folder is `Closed`; a path no file
  *   can be at is `InvalidPath`
  */
 import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
@@ -86,7 +86,7 @@ test('competing body lines name where the writer’s lines stand', async () => {
 	});
 	expect(merged).toEqual({
 		content: note('Walk', 'one\nTWO (ours)\nthree\n'),
-		overridden: [{ kind: 'lines', part: 'body', line: 2 }],
+		overridden: [{ kind: 'lines', part: 'body', line: 2, count: 1 }],
 	});
 });
 
@@ -97,7 +97,7 @@ test('two appends to one body both survive, and two identical fills are one', as
 			ours: note('Walk', 'Notes\nmine'),
 			theirs: note('Walk', 'Notes\nyours'),
 		}),
-	).toEqual({ content: note('Walk', 'Notes\nmine\nyours'), overridden: [] });
+	).toEqual({ content: note('Walk', 'Notes\nyours\nmine'), overridden: [] });
 	expect(
 		await merge(ROW, {
 			base: note('Walk'),
@@ -136,14 +136,17 @@ test('a delete and an edit are the whole file, and the writer acting wins either
 			ours: null,
 			theirs: note('Run'),
 		}),
-	).toEqual({ content: null, overridden: [{ kind: 'file' }] });
+	).toEqual({ content: null, overridden: [{ kind: 'file', theirs: 'changed' }] });
 	expect(
 		await merge(ROW, {
 			base: note('Walk'),
 			ours: note('Run'),
 			theirs: null,
 		}),
-	).toEqual({ content: note('Run'), overridden: [{ kind: 'file' }] });
+	).toEqual({
+		content: note('Run'),
+		overridden: [{ kind: 'file', theirs: 'deleted' }],
+	});
 	// A delete nobody competed with stands.
 	expect(
 		await merge(ROW, { base: note('Walk'), ours: note('Walk'), theirs: null }),
@@ -162,7 +165,10 @@ test('a version that does not read as a row merges as text, and binary is the wh
 	const bytes = (...values: number[]) => new Uint8Array([0, ...values]);
 	expect(
 		await merge(TEXT, { base: bytes(1), ours: bytes(2), theirs: bytes(3) }),
-	).toEqual({ content: bytes(2), overridden: [{ kind: 'file' }] });
+	).toEqual({
+		content: bytes(2),
+		overridden: [{ kind: 'file', theirs: 'changed' }],
+	});
 });
 
 test('kv.json merges by key, the writer winning a key both set', async () => {
@@ -312,6 +318,9 @@ test('a create makes the file and its directory, and a second create merges by u
 		logged.mockRestore();
 	}
 	expect(await onDisk('notes/a.md')).toBe(note('Run', 'mine\nyours\n'));
+	// The same insertion sent again is not doubled.
+	expectOk(await folder.write('notes/a.md', null, note('Run', 'yours\n')));
+	expect(await onDisk('notes/a.md')).toBe(note('Run', 'mine\nyours\n'));
 	await folder.close();
 });
 
@@ -329,7 +338,7 @@ test('a write over a file another writer changed merges with them', async () => 
 		),
 	);
 	expect(await onDisk('notes/a.md')).toBe(
-		note('Walk', 'one\nmine\ntheirs\n', true),
+		note('Walk', 'one\ntheirs\nmine\n', true),
 	);
 	await folder.close();
 });
@@ -352,14 +361,19 @@ test('a write that changes nothing puts nothing', async () => {
 	expect(decoder.decode(written.file?.bytes)).toBe('same\n');
 });
 
-test('a delete needs no from, and the deleter wins', async () => {
+test('a delete needs no base, and the deleter wins', async () => {
 	const { root, folder } = await directory();
 	await writeFile(join(root, 'a.txt'), 'theirs\n');
-	expect(expectOk(await folder.write('a.txt', undefined, null))).toEqual({
+	expect(expectOk(await folder.write('a.txt', null, null))).toEqual({
 		path: 'a.txt',
 		file: null,
 		overridden: [],
 	});
+	// A delete that names its base reports a change it removed.
+	await writeFile(join(root, 'b.txt'), 'theirs\n');
+	expect(
+		expectOk(await folder.write('b.txt', 'mine\n', null)).overridden,
+	).toEqual([{ kind: 'file', theirs: 'changed' }]);
 	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
 	// Deleting what is already gone is done.
 	expectOk(await folder.write('a.txt', 'theirs\n', null));

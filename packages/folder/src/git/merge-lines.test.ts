@@ -6,8 +6,8 @@
  * answers both sides: `ours` wins every region both sides changed
  * differently, `theirs` wins them, and each keeps every other change of both.
  * Changes to neighboring lines do not compete, and both are kept. Two
- * different insertions at one place both survive, in an order neither side
- * decides; identical ones are one.
+ * different insertions at one place both survive, theirs first; identical
+ * ones, and one that extends the other, are one.
  */
 import { expect, test } from 'bun:test';
 import { mergeLines } from './merge-lines.js';
@@ -81,12 +81,38 @@ test('changes to neighboring lines do not compete: both are kept', async () => {
 	).toBe('one\nTHREE (theirs)\nadded\nfour\nfive\n');
 });
 
-test('two insertions at one place both survive, ordered by their text whichever side is ours', async () => {
-	const ours = 'one\nzebra\ntwo\nthree\nfour\nfive\n';
-	const theirs = 'one\napple\ntwo\nthree\nfour\nfive\n';
-	const both = 'one\napple\nzebra\ntwo\nthree\nfour\nfive\n';
-	expect(await clean({ base: BASE, ours, theirs })).toBe(both);
-	expect(await clean({ base: BASE, ours: theirs, theirs: ours })).toBe(both);
+test('two insertions at one place both survive, theirs first', async () => {
+	expect(
+		await clean({
+			base: BASE,
+			ours: 'one\napple\ntwo\nthree\nfour\nfive\n',
+			theirs: 'one\nzebra\ntwo\nthree\nfour\nfive\n',
+		}),
+	).toBe('one\nzebra\napple\ntwo\nthree\nfour\nfive\n');
+});
+
+test('an insertion that extends the other at one place stands alone', async () => {
+	for (const [ours, theirs, merged] of [
+		['a\nx\n', 'a\nx\ny\n', 'a\nx\ny\n'],
+		['a\nx\ny\n', 'a\nx\n', 'a\nx\ny\n'],
+		['a\nx\n', 'a\nw\nx\n', 'a\nw\nx\n'],
+		['a\nx\n', 'a\nx\nx\n', 'a\nx\nx\n'],
+	] as const)
+		expect(await clean({ base: 'a\n', ours, theirs })).toBe(merged);
+});
+
+test('a result ends with a line feed as the version its last line came from', async () => {
+	// A side cleared to no text says nothing about the line feed.
+	expect(await clean({ base: 'a\n', ours: '', theirs: 'a\nb\n' })).toBe(
+		'b\n',
+	);
+	// Text typed with no line feed yet does not take the other side's away.
+	expect(
+		await clean({ base: 'A\n', ours: 'A\nHel', theirs: 'A\nX\n' }),
+	).toBe('A\nX\nHel');
+	expect(
+		await clean({ base: 'A\n', ours: 'A\nX\n', theirs: 'A\nHel' }),
+	).toBe('A\nHel\nX\n');
 });
 
 test('identical insertions at one place are one', async () => {
@@ -102,10 +128,10 @@ test('identical insertions at one place are one', async () => {
 test('appends to a text with no line feed at its end both survive', async () => {
 	expect(
 		await clean({ base: 'hello', ours: 'hello\nmine', theirs: 'hello\nyours' }),
-	).toBe('hello\nmine\nyours');
-	// A line feed one side added is kept beside the other side's edit.
+	).toBe('hello\nyours\nmine');
+	// The final line feed is the last line's: replacing that line replaces it.
 	expect(await clean({ base: 'a\nb', ours: 'a\nb\n', theirs: 'a\nB' })).toBe(
-		'a\nB\n',
+		'a\nB',
 	);
 });
 

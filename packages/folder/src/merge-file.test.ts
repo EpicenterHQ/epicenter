@@ -192,7 +192,7 @@ test('two added rows with no base agree only where equal, and both bodies stay',
 	});
 	expect(merged.units.map((unit) => unit.kind)).toEqual(['field']);
 	expect(expectOk(merged.settle(() => ours))).toBe(
-		row(['title: Walk', 'done: false'], 'Mine\nTheirs\n'),
+		row(['title: Walk', 'done: false'], 'Theirs\nMine\n'),
 	);
 });
 

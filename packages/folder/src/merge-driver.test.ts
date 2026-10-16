@@ -116,7 +116,7 @@ test('rows added on both sides merge by field from an empty base', async () => {
 	expect(merged.kind).toBe('merged');
 	if (merged.kind === 'merged')
 		expect(text(merged.content)).toBe(
-			'---\ntitle: Same\ndone: true\n---\nbody\nother body\n',
+			'---\ntitle: Same\ndone: true\n---\nother body\nbody\n',
 		);
 });
 

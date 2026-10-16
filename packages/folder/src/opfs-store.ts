@@ -1017,7 +1017,8 @@ export function createOpfsFileBoundary({
 			let change: FileChange;
 			if (bytes === null) {
 				if (ifMatch === null) {
-					// Nothing to remove, so long as nothing is there.
+					// Nothing to remove, so long as nothing is there. This only
+					// reports, so it needs no lock.
 					const found = await readOne(path);
 					if (found.error === null) return Ok('stale');
 					return found.error.name === 'NotFound'
@@ -1050,11 +1051,17 @@ export function createOpfsFileBoundary({
 					operation: 'publishing',
 					cause: error,
 				});
-			const moved =
-				error.name === 'Conflict' ||
-				error.name === 'Exists' ||
-				(error.name === 'NotFound' && ifMatch !== null);
-			return moved ? Ok('stale') : Err(error);
+			if (error.name === 'Conflict') return Ok('stale');
+			if (error.name === 'NotFound' && ifMatch !== null) return Ok('stale');
+			if (error.name !== 'Exists') return Err(error);
+			// A file landed first, unless what is there is no file of this
+			// name, such as another spelling on a disk that ignores case.
+			const found = await readOne(path);
+			if (found.error === null) return Ok('stale');
+			return FileError.InvalidPath({
+				path,
+				reason: 'another entry occupies this name',
+			});
 		},
 		async apply(changes) {
 			for (const path of changes.flatMap(changePaths)) {

@@ -413,10 +413,12 @@ export async function mergeFile(
  *
  * - `field`: one frontmatter field of a row.
  * - `setting`: one root key of `kv.json`.
- * - `lines`: one region of a row's body or a text file; `line` is where the
- *   writer's lines stand in the result, 1-based within the body or the file.
+ * - `lines`: one region of a row's body or a text file. The writer's `count`
+ *   lines stand there from `line`, 1-based within the body or the file; a
+ *   `count` of 0 is a removal at that place.
  * - `file`: the whole file, because a side has none or a version is not
- *   UTF-8 text.
+ *   UTF-8 text. `theirs` says whether the other writer had `changed` the
+ *   file or `deleted` it.
  *
  * It names the unit, never the content that lost: the other version is
  * still in whatever held it, such as a commit.
@@ -428,8 +430,9 @@ export type Overridden =
 			readonly kind: 'lines';
 			readonly part: 'body' | 'text';
 			readonly line: number;
+			readonly count: number;
 	  }
-	| { readonly kind: 'file' };
+	| { readonly kind: 'file'; readonly theirs: 'changed' | 'deleted' };
 
 /** A merge's result: the file, `null` for no file, and what the writer acting overrode. */
 export type Merged = {
@@ -438,15 +441,15 @@ export type Merged = {
 	readonly overridden: readonly Overridden[];
 };
 
-const encoderOfMerge = new TextEncoder();
+const encoder = new TextEncoder();
 
 /** Whether two versions hold the same bytes; `null` is no file. */
-function sameContent(left: FileContent | null, right: FileContent | null) {
+export function sameContent(left: FileContent | null, right: FileContent | null) {
 	if (left === null || right === null) return left === right;
 	if (typeof left === 'string' && typeof right === 'string')
 		return left === right;
 	const [a, b] = [left, right].map((side) =>
-		typeof side === 'string' ? encoderOfMerge.encode(side) : side,
+		typeof side === 'string' ? encoder.encode(side) : side,
 	) as [Uint8Array, Uint8Array];
 	return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
@@ -456,8 +459,24 @@ function wholeFile({ base, ours, theirs }: FileVersions): Merged {
 	if (sameContent(ours, theirs) || sameContent(theirs, base))
 		return { content: ours, overridden: [] };
 	if (sameContent(ours, base)) return { content: theirs, overridden: [] };
-	return { content: ours, overridden: [{ kind: 'file' }] };
+	return {
+		content: ours,
+		overridden: [
+			{ kind: 'file', theirs: theirs === null ? 'deleted' : 'changed' },
+		],
+	};
 }
+
+/** A competing region the writer's lines won, as `overridden` names it. */
+export const linesOf = (
+	part: 'body' | 'text',
+	region: SettledRegion,
+): Overridden => ({
+	kind: 'lines',
+	part,
+	line: region.line + 1,
+	count: region.kept.split('\n').length - 1,
+});
 
 /** Three texts by line, ours winning each competing region. */
 async function textWins(
@@ -468,11 +487,7 @@ async function textWins(
 	const merged = await mergeLines({ base: base ?? '', ours, theirs });
 	return {
 		content: merged.ours,
-		overridden: merged.regions.map((region) => ({
-			kind: 'lines',
-			part: 'text',
-			line: region.line + 1,
-		})),
+		overridden: merged.regions.map((region) => linesOf('text', region)),
 	};
 }
 
@@ -546,13 +561,7 @@ async function rowWins(
 			...merged.conflicts.map(
 				(unit): Overridden => ({ kind: 'field', field: unit.field }),
 			),
-			...merged.body.regions.map(
-				(region): Overridden => ({
-					kind: 'lines',
-					part: 'body',
-					line: region.line + 1,
-				}),
-			),
+			...merged.body.regions.map((region) => linesOf('body', region)),
 		],
 	};
 }

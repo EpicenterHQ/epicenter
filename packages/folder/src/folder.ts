@@ -220,13 +220,14 @@ export type FolderAccess<TDefinition extends FolderDefinition> = {
 	 * refused for it.
 	 *
 	 * `from` is the content the change started from, or `null` for no file
-	 * (a create). Without it (`undefined`), `to` stands whole. `to` is the
-	 * new content, or `null` to delete the file, which the deleter wins.
-	 * Strings are written as UTF-8; byte arrays are copied when it is called.
+	 * (a create). `to` is the new content, or `null` to delete the file,
+	 * which the deleter wins whatever `from` is. Any `to` is written, read
+	 * as its kind or not. Strings are written as UTF-8; byte arrays are
+	 * copied when it is called.
 	 */
 	write(
 		path: string,
-		from: FileContent | null | undefined,
+		from: FileContent | null,
 		to: FileContent | null,
 	): Promise<Result<Written, WriteError>>;
 };
@@ -460,7 +461,7 @@ export function assembleFolder<
 		kv: createKv({ storage }, prepared.kv) as Folder<TDefinition>['kv'],
 		files,
 		git,
-		write: (path: string, from: FileContent | null | undefined, to: FileContent | null) =>
+		write: (path: string, from: FileContent | null, to: FileContent | null) =>
 			writeFile(storage, fileKindOf(prepared, path), path, from, to),
 		location: Object.freeze(location),
 		sync: history.sync,

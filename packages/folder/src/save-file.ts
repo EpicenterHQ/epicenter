@@ -40,6 +40,7 @@ import {
 	type FileKind,
 	merge,
 	type Overridden,
+	sameContent,
 } from './merge-file.js';
 import { parseRow } from './row-text.js';
 
@@ -106,15 +107,6 @@ export function logOverwrite(path: string, overridden: readonly Overridden[]) {
 const toBytes = (content: FileContent | null) =>
 	typeof content === 'string' ? encoder.encode(content) : content;
 
-/** Whether two versions hold the same bytes; `null` is no file. */
-function sameBytes(left: Uint8Array | null, right: Uint8Array | null) {
-	if (left === null || right === null) return left === right;
-	return (
-		left.length === right.length &&
-		left.every((byte, index) => byte === right[index])
-	);
-}
-
 /**
  * `storage.put`, with a lost reply read back once: the bytes it sent, or no
  * file for a removal, are this put landing after all.
@@ -149,24 +141,27 @@ function writeFailure(path: string, error: FileError): WriteError {
  * now, by `kind` (ADR-0576).
  *
  * `from` is the version the change started from: content, or `null` for no
- * file. Without one (`undefined`), the change starts from whatever the file
- * holds, so `to` stands whole. `to` is the content, or `null` to delete the
- * file: a delete needs no `from`, since the deleter wins; one that names its
- * `from` reports the file as overridden when another writer changed it
- * since. Both are owned before anything is awaited.
+ * file. `to` is the content, or `null` to delete the file. A delete needs no
+ * base, since the deleter wins: its `from` only names the file as
+ * overridden when another writer changed it since, and `null` names
+ * nothing. Both are owned before anything is awaited.
+ *
+ * Any `to` is written, whether or not it reads as its kind: a typed view
+ * refuses a row it cannot write before it gets here (`InvalidValues`), and
+ * a raw edit of a row may be a repair in progress (ADR-0503).
  */
 export async function writeFile(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
 	kind: FileKind,
 	path: string,
-	from: FileContent | null | undefined,
+	from: FileContent | null,
 	to: FileContent | null,
 ): Promise<Result<Written, WriteError>> {
 	const own = (content: FileContent | null) =>
 		typeof content === 'string' || content === null
 			? content
 			: new Uint8Array(content);
-	const base = from === undefined ? undefined : own(from);
+	const base = own(from);
 	const ours = own(to);
 	for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 		const read = await storage.read(path);
@@ -179,19 +174,13 @@ export async function writeFile(
 				? {
 						content: null,
 						overridden:
-							theirs !== null &&
-							base !== undefined &&
-							!sameBytes(theirs, toBytes(base))
-								? [{ kind: 'file' } as const]
+							theirs !== null && base !== null && !sameContent(theirs, base)
+								? [{ kind: 'file', theirs: 'changed' } as const]
 								: [],
 					}
-				: await merge(kind, {
-						base: base === undefined ? theirs : base,
-						ours,
-						theirs,
-					});
+				: await merge(kind, { base, ours, theirs });
 		const bytes = toBytes(merged.content);
-		if (sameBytes(bytes, theirs))
+		if (sameContent(bytes, theirs))
 			return Ok(
 				Object.freeze({
 					path,

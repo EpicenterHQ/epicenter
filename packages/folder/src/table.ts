@@ -50,6 +50,7 @@ import {
 } from './errors.js';
 import { mergeLines } from './git/merge-lines.js';
 import { frameRowText } from './markdown.js';
+import { linesOf } from './merge-file.js';
 import {
 	ROW_EXTENSION,
 	rowAddressProblem,
@@ -480,11 +481,9 @@ export function createTable<TFields>(
 						theirs: current.row.body,
 					});
 					body = merge.ours;
-					overwrote = merge.regions.map((region) => ({
-						kind: 'lines',
-						part: 'body',
-						line: region.line + 1,
-					}));
+					overwrote = merge.regions.map((region) =>
+						linesOf('body', region),
+					);
 				}
 				if (body === current.row.body)
 					return Ok(Object.freeze({ stored: current, merged }));
