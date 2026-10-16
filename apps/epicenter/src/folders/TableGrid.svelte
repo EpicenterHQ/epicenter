@@ -14,7 +14,8 @@
 	 * The rows are the cache's (`list`), which the folder's change channel
 	 * keeps fresh. Each field editor sets its field on the row's file as it
 	 * is now; the body is saved as the change from the row it started from
-	 * (ADR-0576).
+	 * (ADR-0576). An edit of a row another window deleted writes nothing, so
+	 * its text is kept here, to copy, until the person dismisses it.
 	 */
 	let {
 		name,
@@ -37,6 +38,15 @@
 	let selectedStem = $state<string | undefined>(undefined);
 	const selected = $derived(rows?.find((item) => item.stem === selectedStem));
 
+	/** Text typed into rows deleted elsewhere, which no file holds. */
+	let lost = $state<{ readonly id: number; readonly where: string; readonly text: string }[]>([]);
+	let lostCount = 0;
+	/** Keep `text`, typed into `where` of a row deleted elsewhere, for the person to copy. */
+	function keepLost(where: string, text: string) {
+		lost = [...lost, { id: ++lostCount, where, text }];
+	}
+	const dismiss = (id: number) => (lost = lost.filter((item) => item.id !== id));
+
 </script>
 
 {#if listing.error}
@@ -46,6 +56,20 @@
 		</Alert.Root>
 	</div>
 {/if}
+{#each lost as item (item.id)}
+	<div class="border-b px-4 py-2">
+		<Alert.Root variant="destructive">
+			<Alert.Title>This row was deleted or no longer reads as a row, so your edit to {item.where} was not saved.</Alert.Title>
+			<Alert.Description>
+				<pre class="max-h-32 w-full overflow-auto font-mono text-xs whitespace-pre-wrap">{item.text}</pre>
+				<div class="flex gap-2">
+					<Button size="xs" variant="outline" onclick={() => void navigator.clipboard.writeText(item.text).catch(() => {})}>Copy your text</Button>
+					<Button size="xs" variant="ghost" onclick={() => dismiss(item.id)}>Dismiss</Button>
+				</div>
+			</Alert.Description>
+		</Alert.Root>
+	</div>
+{/each}
 <div class="flex min-h-0 flex-1">
 	<div class="min-h-0 flex-1 overflow-auto">
 		{#if rows === undefined}
@@ -90,6 +114,7 @@
 												{column}
 												stem={item.stem}
 												{options}
+												onlost={keepLost}
 												value={Object.hasOwn(stored.row.fields, column.name)
 													? stored.row.fields[column.name]
 													: undefined}
@@ -135,6 +160,7 @@
 									{column}
 									stem={selected.stem}
 									{options}
+									onlost={keepLost}
 									multiline
 									value={Object.hasOwn(stored.row.fields, column.name)
 										? stored.row.fields[column.name]
@@ -150,7 +176,7 @@
 						</div>
 					{/each}
 					{#key selected.stem}
-						<RowBody stem={selected.stem} {stored} {options} />
+						<RowBody stem={selected.stem} {stored} {options} onlost={keepLost} />
 					{/key}
 				</div>
 			{:else if selected.result.error.name === 'InvalidRow'}

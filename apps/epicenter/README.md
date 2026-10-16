@@ -355,9 +355,11 @@ keystroke, and sends the change from that row to the typed body through the
 table's `write` mutation a second after the last keystroke, when the box
 loses focus, and when the panel goes away. The engine merges it by line with
 whatever changed since: lines only one side changed keep that side's change.
-Where both changed the same lines, the typing wins, with no notice. A row
-another window deleted, or saved in a form that does not read as a row, is
-not written again. An edit not yet sent when Epicenter quits is lost, at most
+Where both changed the same lines, the typing wins, with no notice. An edit
+of a row another window deleted writes nothing, since a delete beats an edit
+that never saw it (ADR-0576): the table shows the text typed, for a field or
+the notes, with **Copy your text** until you dismiss it. A row saved in a
+form that does not read as a row is not written. An edit not yet sent when Epicenter quits is lost, at most
 the last second of typing (see [Quitting Epicenter](#quitting-epicenter)).
 
 "Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`

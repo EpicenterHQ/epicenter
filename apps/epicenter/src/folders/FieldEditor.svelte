@@ -23,7 +23,9 @@
 	 * text editor holds what is typed and sends it a second after the last
 	 * keystroke, on Enter or when it loses focus, and when it goes away;
 	 * Escape puts back the stored value. Until the person types, and once the
-	 * save of what was typed lands, the box shows the stored value.
+	 * save of what was typed lands, the box shows the stored value. A row
+	 * another window deleted takes no set (ADR-0576): the editor says so, and
+	 * typed text goes to `onlost`, which offers it.
 	 */
 	let {
 		column,
@@ -31,6 +33,7 @@
 		options,
 		value,
 		multiline = false,
+		onlost,
 	}: {
 		column: FieldColumn;
 		/** The row this editor edits. The grid keys each editor by it. */
@@ -41,6 +44,8 @@
 		value: unknown;
 		/** Edit JSON in a tall box, as the row panel does. */
 		multiline?: boolean;
+		/** Keep text typed into a row deleted elsewhere, for the person to copy. */
+		onlost: (where: string, text: string) => void;
 	} = $props();
 
 	// The grid keys each editor by its row: while it replaces one, the prop
@@ -49,6 +54,8 @@
 	const row = stem;
 	// svelte-ignore state_referenced_locally
 	const field = column.name;
+	// svelte-ignore state_referenced_locally
+	const lose = onlost;
 	const editor = $derived(column.editor);
 	const setRow = createMutation(() => options.set.mutationOptions());
 
@@ -57,12 +64,17 @@
 	/** The text typed and not yet saved; `undefined` shows the stored value. */
 	let typed = $state<string>();
 
-	/** Send `change` to this field, as the file is now. */
-	function send(change: FieldChange, onSuccess?: () => void) {
+	/** Send `change` to this field, as the file is now; `text` is what was typed for it. */
+	function send(change: FieldChange, text?: string, onSuccess?: () => void) {
 		setRow.mutate(
 			{ stem: row, fields: fieldSet(field, change) },
 			{
-				onSuccess: () => {
+				onSuccess: (written) => {
+					if (written === null) {
+						problem = 'This row was deleted elsewhere, so your edit was not saved.';
+						if (text !== undefined) lose(`${field} of ${row}`, text);
+						return;
+					}
 					problem = undefined;
 					onSuccess?.();
 				},
@@ -88,7 +100,7 @@
 				return;
 			case 'remove':
 			case 'set':
-				send(outcome, () => {
+				send(outcome, sent, () => {
 					if (typed === sent) typed = undefined;
 				});
 		}

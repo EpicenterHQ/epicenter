@@ -15,19 +15,23 @@
 	 * after the last keystroke, when the box loses focus, and when the panel
 	 * goes away, as the change from that row, merged by line with whatever
 	 * another window changed since. Where both changed the same lines the
-	 * typing wins, with no notice.
+	 * typing wins, with no notice. A row another window deleted takes no
+	 * save: what was typed goes to `onlost`, which offers it.
 	 * The grid keys this view by the row.
 	 */
 	let {
 		stem,
 		stored,
 		options,
+		onlost,
 	}: {
 		/** The row this panel edits. */
 		stem: string;
 		/** The row as the cache holds it now. */
 		stored: StoredRow<Fields>;
 		options: TableOptions<Fields>;
+		/** Keep text typed into a row deleted elsewhere, for the person to copy. */
+		onlost: (where: string, text: string) => void;
 	} = $props();
 
 	// The grid keys this view by its row: while it replaces one, the prop may
@@ -55,8 +59,24 @@
 		write: (change) => writeRow.mutateAsync({ stem: row, ...change }),
 	});
 	const saveLater = useDebounce(() => body.save(), 1000);
+	// svelte-ignore state_referenced_locally
+	const lose = onlost;
+	/** Hand what is typed to `onlost` once the row is gone. */
+	function handOff() {
+		const typed = body.typed;
+		if (!body.gone || typed === undefined) return;
+		body.discard();
+		lose(`the notes of ${row}`, typed);
+	}
+	$effect(handOff);
 	// runed's timer outlives the panel; save now instead.
-	onDestroy(() => void saveLater.runScheduledNow());
+	onDestroy(
+		() =>
+			void saveLater
+				.runScheduledNow()
+				.then(() => body.save())
+				.then(handOff),
+	);
 </script>
 
 <label class="flex flex-col gap-1">
