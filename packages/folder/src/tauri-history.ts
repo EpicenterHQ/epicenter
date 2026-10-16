@@ -157,7 +157,6 @@ function createCliHistory({
 			},
 			lastCommit: state.lastCommit,
 			lastPush: state.lastPush,
-			lastFetch: undefined,
 			closed: closing.signal.aborted,
 		});
 		for (const listener of [...listeners])

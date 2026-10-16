@@ -68,7 +68,6 @@ export type {
 	Activity,
 	Attempt,
 	CommitOutcome,
-	FetchOutcome,
 	FilesObservation,
 	GitSnapshot,
 	Observation,

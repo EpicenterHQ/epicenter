@@ -104,12 +104,6 @@ export type PushOutcome =
 	| { readonly status: 'failed'; readonly oid: string; readonly error: string }
 	| { readonly status: 'cancelled'; readonly oid: string };
 
-export type FetchOutcome = {
-	readonly status: 'fetched';
-	/** The remote branch head, or undefined when the remote has no such branch. */
-	readonly oid: string | undefined;
-};
-
 export type Observation<T> =
 	| { readonly state: 'unknown'; readonly error: string | undefined }
 	| {
@@ -153,9 +147,6 @@ export type GitSnapshot = {
 	};
 	readonly lastCommit: Attempt<CommitOutcome> | undefined;
 	readonly lastPush: Attempt<PushOutcome> | undefined;
-	readonly lastFetch:
-		| Attempt<{ readonly result: Result<FetchOutcome, GitError> }>
-		| undefined;
 	readonly closed: boolean;
 };
 
@@ -201,8 +192,6 @@ export function createHistory({
 	};
 	let lastCommit: GitSnapshot['lastCommit'];
 	let lastPush: GitSnapshot['lastPush'];
-	let lastFetch: GitSnapshot['lastFetch'];
-	let remoteSeq = 0;
 	/** Git work of this handle, other than runner passes, that close waits for. */
 	const admittedWork = new Set<Promise<unknown>>();
 	const listeners = new Set<(snapshot: GitSnapshot) => void>();
@@ -223,7 +212,6 @@ export function createHistory({
 			},
 			lastCommit,
 			lastPush,
-			lastFetch,
 			closed: closing.signal.aborted,
 		});
 		// A snapshot is published from inside saves and passes. A subscriber
@@ -609,19 +597,24 @@ export function createHistory({
 		});
 	}
 
-	const fetchRunner = createPassRunner<void, Result<FetchOutcome, GitError>>({
+	/**
+	 * Sync's fetches, one at a time: the remote branch head, or `undefined`
+	 * when the remote has no such branch.
+	 */
+	const fetchRunner = createPassRunner<
+		void,
+		Result<string | undefined, GitError>
+	>({
 		async run(_input, signal) {
 			if ((await backend.refreshRemote()) === undefined)
 				return GitError.NoRemote();
-			const sequence = ++remoteSeq;
-			let result: Result<FetchOutcome, GitError>;
+			let result: Result<string | undefined, GitError>;
 			try {
-				result = Ok({ status: 'fetched', oid: await backend.fetch(signal) });
+				result = Ok(await backend.fetch(signal));
 			} catch (cause) {
 				result = GitError.Failed({ operation: 'fetch', cause });
 			}
-			if (sequence === remoteSeq) await refreshSync();
-			lastFetch = { result, at: Date.now() };
+			await refreshSync();
 			emit();
 			return result;
 		},
@@ -1135,13 +1128,11 @@ export function createHistory({
 			// `null` before any rejection; `undefined` names a remote with no branch.
 			let rejectedAt: string | null | undefined = null;
 			for (let attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
-				const { data: fetched, error: fetchError } =
-					await fetchRunner.request();
+				const { data: theirs, error: fetchError } = await fetchRunner.request();
 				if (fetchError !== null)
 					return fetchError.name === 'Closed' || closing.signal.aborted
 						? SyncError.Closed()
 						: SyncError.Fetch({ error: fetchError });
-				const theirs = fetched.oid;
 				if (rejectedAt !== null && theirs === rejectedAt)
 					return SyncError.Failed({
 						cause: new Error(
