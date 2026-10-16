@@ -229,10 +229,11 @@ the folder it opened is that one (`OpenedTodosFolder.own`).
 - **Sync with Epicenter**, signed in: Todos proposes a repository name from the
   folder's directory (`so.epicenter.todos`; the person may change it), asks the
   server for the account's personal namespace (`GET /api/repos`), and connects
-  to `<git origin>/<namespace>/<name>.git` (ADR-0546). The first sync creates
-  the repository. The desktop window runs `epicenter sync` with the desktop
-  grant, which makes the repository and signs `git` in; the browser makes it
-  with its own access token. Signed out, **Sign in to Epicenter** leaves for
+  to `<git origin>/<namespace>/<name>.git` (ADR-0546). The first sync's push
+  creates the repository; until then the server answers the name as an empty
+  repository. The desktop window runs `epicenter sync` with the desktop grant,
+  which signs `git` in; the browser pushes with its own access token. Signed
+  out, **Sign in to Epicenter** leaves for
   sign-in and comes back with Connect open. On the desktop the window uses the
   account Home signed in to.
 - **Another Git server**: its URL. The desktop's `git` signs in as the

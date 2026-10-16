@@ -5,10 +5,8 @@
  *
  * - Connect proposes `proposedName` from the folder's directory, looks up the
  *   account's personal namespace (`GET /api/repos`), and answers the remote
- *   URL. Where the page can reach Git (`pageReachesGit`: the browser), it
- *   also makes the repository exist, since the first sync fetches before it
- *   pushes. On the desktop, `epicenter sync` does that, with the desktop
- *   grant.
+ *   URL. It creates nothing: the server answers a name nobody holds as an
+ *   empty repository, and the first sync's push creates it.
  * - `httpFetch` is the browser folder's Git transport. It sends this build's
  *   own access token to Epicenter's Git origin through the account, and
  *   everything else through plain `fetch`, so no other server sees it.
@@ -24,7 +22,7 @@ import {
 import type { HttpFetch } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { auth, pageReachesGit } from '#platform/auth';
+import { auth } from '#platform/auth';
 import { TODOS_FOLDER_ID } from './platform/types.js';
 
 export const RemoteError = defineErrors({
@@ -89,10 +87,7 @@ async function refused(response: Response): Promise<RemoteError> {
 	}).error;
 }
 
-/**
- * The remote URL for repository `name` in the signed-in account's personal
- * namespace, with the repository made when the page can reach Git.
- */
+/** The remote URL for repository `name` in the signed-in account's personal namespace. */
 export async function connectEpicenter(
 	name: string,
 ): Promise<Result<string, RemoteError>> {
@@ -113,14 +108,6 @@ export async function connectEpicenter(
 		);
 		if (personal === undefined) return RemoteError.Malformed();
 		url = repositoryUrl(gitAudience, { namespace: personal.id, name });
-		if (pageReachesGit) {
-			// The first request of a push creates the repository.
-			const created = await current.fetch(
-				`${url}/info/refs?service=git-receive-pack`,
-			);
-			await created.body?.cancel();
-			if (!created.ok) return Err(await refused(created));
-		}
 	} catch (cause) {
 		return RemoteError.Unreachable({ cause });
 	}
