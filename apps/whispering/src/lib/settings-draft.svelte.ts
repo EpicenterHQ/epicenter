@@ -44,13 +44,12 @@ function createConnectionDraft(library: Library, operation: Operation) {
 		library.connections?.[operation],
 	);
 	const defaults = library.workspace.connections.defaults[operation];
-	/** Where an unconfigured form starts: an earlier build's folder settings, then the defaults. */
+	/** Where an unconfigured form starts: what an earlier build saved, then the defaults. */
 	const start = $derived.by(() => {
 		if (operation === 'transcription')
 			return {
-				baseUrl:
-					library.legacySettings.transcriptionBaseUrl ?? defaults.baseUrl,
-				model: library.legacySettings.transcriptionModel ?? defaults.model,
+				baseUrl: library.earlierTranscription.baseUrl ?? defaults.baseUrl,
+				model: library.earlierTranscription.model ?? defaults.model,
 			};
 		// Text often goes to the same provider as transcription.
 		return {
