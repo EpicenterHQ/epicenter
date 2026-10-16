@@ -16,11 +16,14 @@ import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
  * How a remote names its refusal to move a branch that moved after it
  * advertised it, or that a push is not a fast-forward of: Git's
  * `non-fast-forward` and `fetch first`, receive-pack's `failed to update
- * ref`, and the reasons Git 2.49 and later give for a ref update whose old
- * value no longer holds. A push refused for one of these is `'rejected'`.
+ * ref` and `cannot lock ref`, and the reasons Git 2.49 and later give for a
+ * ref update whose old value no longer holds. A push refused for one of
+ * these is `'rejected'`, and Sync fetches again; a remote that refused one
+ * without moving is then a failure. A race worded otherwise is a failed
+ * push, whose merge the next Sync merges again.
  */
 export const REMOTE_MOVED =
-	/non-fast-forward|fetch first|failed to update ref|incorrect old value provided|reference already exists|reference does not exist/i;
+	/non-fast-forward|fetch first|failed to update ref|cannot lock ref|incorrect old value provided|reference already exists|reference does not exist/i;
 
 /**
  * The folder's remote: Git configuration's `remote.origin.url`, and the
