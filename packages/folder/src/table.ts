@@ -481,9 +481,7 @@ export function createTable<TFields>(
 						theirs: current.row.body,
 					});
 					body = merge.ours;
-					overwrote = merge.regions.map((region) =>
-						linesOf('body', region),
-					);
+					overwrote = merge.regions.map((region) => linesOf('body', region));
 				}
 				if (body === current.row.body)
 					return Ok(Object.freeze({ stored: current, merged }));

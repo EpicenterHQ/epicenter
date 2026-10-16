@@ -103,16 +103,14 @@ test('an insertion that extends the other at one place stands alone', async () =
 
 test('a result ends with a line feed as the version its last line came from', async () => {
 	// A side cleared to no text says nothing about the line feed.
-	expect(await clean({ base: 'a\n', ours: '', theirs: 'a\nb\n' })).toBe(
-		'b\n',
-	);
+	expect(await clean({ base: 'a\n', ours: '', theirs: 'a\nb\n' })).toBe('b\n');
 	// Text typed with no line feed yet does not take the other side's away.
-	expect(
-		await clean({ base: 'A\n', ours: 'A\nHel', theirs: 'A\nX\n' }),
-	).toBe('A\nX\nHel');
-	expect(
-		await clean({ base: 'A\n', ours: 'A\nX\n', theirs: 'A\nHel' }),
-	).toBe('A\nHel\nX\n');
+	expect(await clean({ base: 'A\n', ours: 'A\nHel', theirs: 'A\nX\n' })).toBe(
+		'A\nX\nHel',
+	);
+	expect(await clean({ base: 'A\n', ours: 'A\nX\n', theirs: 'A\nHel' })).toBe(
+		'A\nHel\nX\n',
+	);
 });
 
 test('identical insertions at one place are one', async () => {

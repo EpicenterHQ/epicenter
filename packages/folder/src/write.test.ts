@@ -108,11 +108,7 @@ test('two appends to one body both survive, and two identical fills are one', as
 });
 
 test('a merged row is written canonically, and a row the writer left alone keeps the other spelling', async () => {
-	const handWritten = row([
-		'# a comment',
-		"title: 'Walk'",
-		'done: false',
-	]);
+	const handWritten = row(['# a comment', "title: 'Walk'", 'done: false']);
 	expect(
 		await merge(ROW, {
 			base: handWritten,
@@ -136,7 +132,10 @@ test('a delete and an edit are the whole file, and the writer acting wins either
 			ours: null,
 			theirs: note('Run'),
 		}),
-	).toEqual({ content: null, overridden: [{ kind: 'file', theirs: 'changed' }] });
+	).toEqual({
+		content: null,
+		overridden: [{ kind: 'file', theirs: 'changed' }],
+	});
 	expect(
 		await merge(ROW, {
 			base: note('Walk'),
@@ -209,7 +208,9 @@ test('put lands only while the path holds ifMatch, and changes nothing when stal
 
 test('a write that loses a race reads and merges again', async () => {
 	const { boundary } = await rawBrowserFolder({ id: 'write.race' });
-	expectOk(await boundary.put('notes/a.md', encoder.encode(note('Walk')), null));
+	expectOk(
+		await boundary.put('notes/a.md', encoder.encode(note('Walk')), null),
+	);
 	let raced = false;
 	const storage = {
 		...boundary,
@@ -252,11 +253,7 @@ test('a file that changes on every attempt is KeptChanging, and nothing of the w
 		async put(...args: Parameters<typeof boundary.put>) {
 			const now = expectOk(await boundary.read('n.txt'));
 			expectOk(
-				await boundary.put(
-					'n.txt',
-					encoder.encode(`${++count}\n`),
-					now.sha256,
-				),
+				await boundary.put('n.txt', encoder.encode(`${++count}\n`), now.sha256),
 			);
 			return boundary.put(...args);
 		},
@@ -264,7 +261,10 @@ test('a file that changes on every attempt is KeptChanging, and nothing of the w
 	const error = expectErr(
 		await writeFolderFile(storage, TEXT, 'n.txt', '0\n', '0\nmine\n'),
 	);
-	expect(error).toMatchObject({ name: 'KeptChanging', attempts: WRITE_ATTEMPTS });
+	expect(error).toMatchObject({
+		name: 'KeptChanging',
+		attempts: WRITE_ATTEMPTS,
+	});
 	expect(decoder.decode(expectOk(await boundary.read('n.txt')).bytes)).toBe(
 		`${WRITE_ATTEMPTS}\n`,
 	);
@@ -390,7 +390,5 @@ test('a path no file can be at is InvalidPath, and a closed folder is Closed', a
 		'InvalidPath',
 	);
 	await folder.close();
-	expect(expectErr(await folder.write('a.txt', null, 'x')).name).toBe(
-		'Closed',
-	);
+	expect(expectErr(await folder.write('a.txt', null, 'x')).name).toBe('Closed');
 });

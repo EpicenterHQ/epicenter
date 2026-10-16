@@ -444,7 +444,10 @@ export type Merged = {
 const encoder = new TextEncoder();
 
 /** Whether two versions hold the same bytes; `null` is no file. */
-export function sameContent(left: FileContent | null, right: FileContent | null) {
+export function sameContent(
+	left: FileContent | null,
+	right: FileContent | null,
+) {
 	if (left === null || right === null) return left === right;
 	if (typeof left === 'string' && typeof right === 'string')
 		return left === right;
