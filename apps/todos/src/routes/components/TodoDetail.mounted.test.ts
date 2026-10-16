@@ -428,7 +428,8 @@ test('a malformed todo shows under "Needs repair"; shown, its issues and text ar
 	);
 	expect(find(TITLE)).toBeNull();
 	expect(find(`${DETAIL} textarea`)).toBeNull();
-	expect(get(BROKEN).textContent).toBe(broken.replace(/\r\n/g, '\n'));
+	// The repair view shows the file's exact text.
+	expect(get(BROKEN).textContent).toBe(broken);
 	expect(leave()).toBe(false);
 
 	// Another editor fixes it; reading again shows it.
@@ -453,7 +454,7 @@ test('a title input keeps its value well formed, so what is written is what is s
 	expect((await reading(path)).fields.title).toBe('Oat �');
 });
 
-test("notes show LF, and typing in them keeps the file's CRLF and undeclared keys", async () => {
+test('notes from a CRLF file show LF, and typing in them writes LF and keeps undeclared keys (ADR-0570)', async () => {
 	const { todos, target, get, reading } = await setup();
 	const crlf =
 		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\r\nTwo\r\n';
@@ -466,11 +467,16 @@ test("notes show LF, and typing in them keeps the file's CRLF and undeclared key
 	type(notes, 'One\nTwo\nThree\n');
 	blur(notes);
 	await settle(todos);
-	// The body keeps the file's CRLF; the frontmatter is written canonically.
+	// The file is written with LF throughout, and the undeclared key stays.
 	expect(await reading('todos/crlf.md')).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'sam' },
-		body: 'One\r\nTwo\r\nThree\r\n',
+		body: 'One\nTwo\nThree\n',
 	});
+	expect(
+		new TextDecoder().decode(
+			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
+		),
+	).not.toContain('\r');
 });
 
 test('completion from the list and from the detail keeps notes and undeclared keys', async () => {

@@ -311,16 +311,25 @@ test('an update that fails is reported and writes nothing; the next one sends', 
 	expect(await text(todos, path)).toContain('title: Second');
 });
 
-test('the folder refuses a value it cannot hold; the cache keeps the file', async () => {
+test('the folder refuses a value the schema does not accept; the cache keeps the file', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
 	// Inputs commit only values the schema accepts; this bypasses them.
-	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));
+	rowEditor(todos, stem)({ done: 'yes' as unknown as boolean });
 	await quiet(todos);
 	expect(failures).toMatchObject([{ path, error: { name: 'InvalidValues' } }]);
 	expect(await text(todos, path)).toBe(saved);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk');
+	expect(cached(todos, stem).row.fields.done).toBe(false);
+});
+
+test('half a character typed into a title is saved as U+FFFD (ADR-0570)', async () => {
+	const { todos, failures } = await open();
+	const { stem } = await addTodo(todos, 'Milk');
+	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));
+	await quiet(todos);
+	expect(failures).toEqual([]);
+	expect(cached(todos, stem).row.fields.title).toBe('Lone � surrogate');
 });
 
 // ============================================================================
