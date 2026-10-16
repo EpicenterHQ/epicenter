@@ -75,61 +75,31 @@ pub enum SettingsError {
 /// made either survives a restart or fails loudly at the moment they made it.
 pub struct LocalTranscriptionSettings {
     path: PathBuf,
-    state: RwLock<State>,
-}
-
-#[derive(Clone)]
-struct State {
-    stored: Stored,
-    /// The file exists but could not be read. It is left as it is, so whatever
-    /// it holds stays there to repair, and changes are refused until it reads
-    /// again or is removed (ADR-0503).
-    unreadable: bool,
-}
-
-/// What a settings file on disk holds.
-enum OnDisk {
-    Missing,
-    Read(Stored),
-    Unreadable(String),
-}
-
-fn read_file(path: &Path) -> OnDisk {
-    match std::fs::read_to_string(path) {
-        Ok(contents) => match serde_json::from_str(&contents) {
-            Ok(stored) => OnDisk::Read(stored),
-            Err(error) => OnDisk::Unreadable(error.to_string()),
-        },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => OnDisk::Missing,
-        Err(error) => OnDisk::Unreadable(error.to_string()),
-    }
+    state: RwLock<Stored>,
 }
 
 impl LocalTranscriptionSettings {
     /// Load the settings file, falling back to the defaults (no active model,
-    /// default unload policy) when it is missing or unreadable. An unreadable
-    /// file is a warning, not a startup failure, and it is never overwritten:
-    /// changes are refused, naming the file, until it is fixed or removed.
+    /// default unload policy) when it is missing or unreadable. A corrupt file
+    /// is a warning, not a startup failure: the user re-picks in Home, and the
+    /// next successful write replaces it.
     pub fn load(path: PathBuf) -> Self {
-        let state = match read_file(&path) {
-            OnDisk::Read(stored) => State {
-                stored,
-                unreadable: false,
-            },
-            OnDisk::Unreadable(error) => {
+        let state = match std::fs::read_to_string(&path) {
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|error| {
                 warn!(
-                    "[Transcription] cannot read settings at {}; leaving the file as it is and refusing changes until it is fixed or removed: {error}",
+                    "[Transcription] unreadable settings at {}, starting from defaults: {error}",
                     path.display()
                 );
-                State {
-                    stored: Stored::default(),
-                    unreadable: true,
-                }
+                Stored::default()
+            }),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Stored::default(),
+            Err(error) => {
+                warn!(
+                    "[Transcription] could not read settings at {}: {error}",
+                    path.display()
+                );
+                Stored::default()
             }
-            OnDisk::Missing => State {
-                stored: Stored::default(),
-                unreadable: false,
-            },
         };
         Self {
             path,
@@ -140,7 +110,7 @@ impl LocalTranscriptionSettings {
     /// The active model's catalog id, or `None` when nobody has chosen one.
     /// Read at the point of use by every transcribe and prewarm.
     pub fn active_model_id(&self) -> Option<String> {
-        self.read().stored.active_model_id
+        self.read().active_model_id
     }
 
     /// Make `model_id` the active model, or clear the choice with `None`.
@@ -159,31 +129,18 @@ impl LocalTranscriptionSettings {
 
     /// When the host drops the resident model.
     pub fn unload_policy(&self) -> UnloadPolicy {
-        self.read().stored.unload_policy
+        self.read().unload_policy
     }
 
     pub fn set_unload_policy(&self, policy: UnloadPolicy) -> Result<(), SettingsError> {
         self.update(|stored| stored.unload_policy = policy)
     }
 
-    /// While the file is unreadable, each read looks again, so fixing the file
-    /// by hand takes effect without a restart.
-    fn read(&self) -> State {
-        let state = self
-            .state
+    fn read(&self) -> Stored {
+        self.state
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        if !state.unreadable {
-            return state;
-        }
-        match read_file(&self.path) {
-            OnDisk::Read(stored) => State {
-                stored,
-                unreadable: false,
-            },
-            _ => state,
-        }
+            .clone()
     }
 
     /// Apply `change` and flush. The lock is held across the write so two
@@ -194,25 +151,9 @@ impl LocalTranscriptionSettings {
             .state
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if guard.unreadable {
-            // Read again: the file may have been fixed or removed since.
-            match read_file(&self.path) {
-                OnDisk::Read(stored) => guard.stored = stored,
-                OnDisk::Missing => {}
-                OnDisk::Unreadable(error) => {
-                    return Err(SettingsError::SaveFailed {
-                        message: format!(
-                            "{} cannot be read ({error}). Fix or remove it, then try again.",
-                            self.path.display()
-                        ),
-                    })
-                }
-            }
-            guard.unreadable = false;
-        }
         let previous = guard.clone();
-        change(&mut guard.stored);
-        persist(&self.path, &guard.stored).map_err(|error| {
+        change(&mut guard);
+        persist(&self.path, &guard).map_err(|error| {
             // Roll back so the in-memory value never claims a choice the disk
             // does not hold.
             *guard = previous;
@@ -377,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn a_corrupt_file_reads_as_defaults_and_is_never_overwritten() {
+    fn a_corrupt_file_falls_back_to_defaults() {
         let path = temp_path("corrupt");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"{ not json").unwrap();
@@ -385,40 +326,6 @@ mod tests {
         let settings = LocalTranscriptionSettings::load(path.clone());
         assert_eq!(settings.active_model_id(), None);
         assert_eq!(settings.unload_policy(), UnloadPolicy::default());
-        let error = settings
-            .set_unload_policy(UnloadPolicy::Never)
-            .expect_err("a file Epicenter cannot read is not replaced");
-        let SettingsError::SaveFailed { message } = error else {
-            panic!("expected SaveFailed, got {error:?}");
-        };
-        assert!(message.contains(&path.display().to_string()), "{message}");
-        assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
-
-        // Once the file is fixed, reads see it, and the next change goes
-        // through on top of it.
-        std::fs::write(&path, br#"{ "unloadPolicy": "immediately" }"#).unwrap();
-        assert_eq!(settings.unload_policy(), UnloadPolicy::Immediately);
-        settings
-            .set_active_model_id(Some(a_catalog_model_id()))
-            .unwrap();
-        let reloaded = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(reloaded.unload_policy(), UnloadPolicy::Immediately);
-        assert_eq!(reloaded.active_model_id(), Some(a_catalog_model_id()));
-
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn a_corrupt_file_that_is_removed_takes_the_next_change() {
-        let path = temp_path("corrupt-removed");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"{ not json").unwrap();
-
-        let settings = LocalTranscriptionSettings::load(path.clone());
-        std::fs::remove_file(&path).unwrap();
-        settings.set_unload_policy(UnloadPolicy::Never).unwrap();
-        let reloaded = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(reloaded.unload_policy(), UnloadPolicy::Never);
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
