@@ -86,7 +86,7 @@ You can still contribute to the API schema without Infisical access. From `apps/
 
 Write the migration, push it locally, open a PR. A maintainer with Infisical prod access applies it via `bun run db:migrate:remote`.
 
-To run the repo's fresh-clone-safe smoke checks, run `bun run smoke:local` from the repo root. Today that boots the Bun API port with dev auth and fake local-only env values, runs the runtime-parity smoke, and skips the blob leg when no local S3 store is configured.
+To check the API without Infisical, run `bun run --cwd apps/api test` with PostgreSQL's `initdb` and `pg_ctl` on `PATH`. It boots both API entries against disposable Postgres clusters with fixture secrets and drives them with real access tokens; the Bun entry also round-trips a personal blob when `BLOBS_S3_*` names a local S3 store.
 
 The convention in one line: `:local` works on a fresh clone, `:remote` wraps with `infisical run --env=prod` and is admin-only. See [`docs/articles/local-remote-script-convention.md`](docs/articles/local-remote-script-convention.md) for the full story.
 

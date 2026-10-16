@@ -27,6 +27,7 @@ import {
 	mountPersonalAuthorityBlobs,
 	mountTranscriptionApp,
 	type OAuthScope,
+	registerFirstPartyClients,
 	requireAccessToken,
 	requireSessionCookie,
 	resolveDeploymentBlobStore,
@@ -35,14 +36,15 @@ import {
 } from '@epicenter/server';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
+import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
-import { mountAccountDeletionApi } from './account/routes.js';
 import {
 	chargeOpenAiCreditsWithAutumn,
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
 import { createArtifactsGitHost } from './git-repositories.js';
+import { buildFirstPartyClients } from './oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
 // Compile-time proof that this worker's generated Env provides every
@@ -113,18 +115,38 @@ const authServerContext = createCloudContextMiddleware({
 	}),
 });
 
+// The first-party clients and resources are rows this code declares
+// (ADR-0549). Each isolate writes them before its first authorization-server
+// request, over that request's own connection; the write is idempotent, so
+// isolates that start together converge. Only `/auth/*` reads them. The
+// instance's initialization, which seeds the resources on the same
+// connection, finishes first.
+let firstPartyClientsRegistered = false;
+const registerClientsOnce = createMiddleware<CloudEnv>(async (c, next) => {
+	if (!firstPartyClientsRegistered) {
+		await c.var.auth.$context;
+		await registerFirstPartyClients(c.var.db, {
+			audiences: resolveOAuthAudiences(c.var.authBaseURL),
+			clients: buildFirstPartyClients(c.var.authBaseURL),
+		});
+		firstPartyClientsRegistered = true;
+	}
+	await next();
+});
+
 // Public auth shells bypass setup. Better Auth endpoints install it directly;
 // protected resource mounts below compose it before their own auth guards.
 // Cloud secrets stay at this deployment edge, outside ServerBindings.
 mountAuthRoutes(app, {
-	setup: authServerContext,
+	setup: every(authServerContext, registerClientsOnce),
 	serveAuthUiShell: serveUiShell,
 	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
 });
 
 // Every resource takes only an access token for its audience and the scope
 // its operation needs (ADR-0549). Account management on the authorization
-// server's own pages takes only its session cookie.
+// server's own pages takes only its session cookie: billing here, and sign-in
+// methods and account deletion through Better Auth under `/auth/*`.
 const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 	every(
 		cloudContext,
@@ -135,11 +157,10 @@ const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 	);
 const accountSession = every(cloudContext, requireSessionCookie());
 
-// The profile read.
 // Hosted Git at git.epicenter.so/<namespace>/<name>.git over Cloudflare
-// Artifacts (ADR-0546), and `GET /api/repos`. Both decide each request from
+// Artifacts (ADR-0546), and `GET /api/repos`. Git decides each request from
 // the access token and the namespace membership (`authorizeResourceRequest`),
-// so they take no guard here. Unmetered like hosted blobs. The local dev
+// and the listing from a Git-audience token, so they take no guard here. Unmetered like hosted blobs. The local dev
 // launcher removes the Artifacts binding and required account secret, so the
 // store resolves to null and hosted Git answers 503.
 const resolveGitHost = (env: ServerBindings) => {
@@ -192,12 +213,6 @@ mountTranscriptionApp(app, {
 // (ADR-0549). Auth is bundled into the mount so the dashboard endpoints can't
 // be mounted without it.
 mountBillingApi(app, { auth: accountSession });
-
-// Hosted account deletion currently refuses before destructive work because
-// historical storage ownership and write retirement are not yet established.
-// The mount preserves fresh-session and principal-binding checks on the
-// session cookie.
-mountAccountDeletionApi(app, { setup: cloudContext });
 
 // Dashboard SPA: serve the cloud UI shell for the dashboard URLs. The hosted
 // auth browser surfaces use the same shell through `mountAuthRoutes` above.

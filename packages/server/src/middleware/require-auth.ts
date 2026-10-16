@@ -6,22 +6,17 @@
  * - {@link requireSessionCookie}: an account-management route on the
  *   authorization server's own pages. Only the Better Auth session cookie,
  *   from the server's own origin, reaches it; no access token does.
- * - {@link requireBearerPrincipal}: the seam a dev-only entry closes over its
- *   own resolver for the runtime-parity smoke. No production route uses it.
  */
 import { asPrincipalId } from '@epicenter/principal';
 import type { Session, User } from 'better-auth';
 import type { Context, MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
-import { OAuthError } from '../auth/oauth-errors.js';
 import type { OAuthScope } from '../auth/oauth-policy.js';
-import { createOAuthUnauthorizedResourceResponse } from '../auth/oauth-resource.js';
-import { parseBearer } from '../auth/parse-bearer.js';
 import {
 	authorizeAccountRequest,
 	readAccessToken,
 } from '../auth/resource-access.js';
-import type { CloudEnv, Env, ResolveBearerPrincipal } from '../types.js';
+import type { CloudEnv } from '../types.js';
 import { RequestGuardError } from './request-guard-errors.js';
 
 /**
@@ -50,10 +45,8 @@ export function requireAccessToken({
 				scope,
 			});
 		} catch {
-			return createOAuthUnauthorizedResourceResponse(
-				c,
-				OAuthError.ServerError().error,
-			);
+			const refused = RequestGuardError.TokenCheckUnavailable();
+			return c.json(refused, refused.error.status);
 		}
 		const { data: access, error } = decided;
 		if (error)
@@ -74,24 +67,29 @@ export function requireAccessToken({
  * `x-epicenter-principal` when it names one. A request whose `Origin` is another
  * origin is refused even when the browser attaches the cookie, since every
  * Epicenter app shares the site and so receives the `SameSite=Lax` cookie on
- * its own requests here. An `Authorization` header is never read, so no
- * access token reaches account management (ADR-0549).
+ * its own requests here; a request that changes state must name its origin.
+ * An `Authorization` header is never read, so no access token reaches account
+ * management (ADR-0549). A refusal is this guard's own JSON, with no bearer
+ * challenge: no bearer is ever accepted here.
  *
  * Needs the cloud context (`c.var.auth`) installed before it.
  */
 export function requireSessionCookie(): MiddlewareHandler<CloudEnv> {
 	return createMiddleware<CloudEnv>(async (c, next) => {
-		const origin = c.req.header('origin');
-		if (origin !== undefined && origin !== new URL(c.var.authBaseURL).origin) {
+		// A read without `Origin` is a same-origin navigation or fetch; a
+		// request that changes state must name its origin.
+		const ownOrigin = new URL(c.var.authBaseURL).origin;
+		const readOnly = c.req.method === 'GET' || c.req.method === 'HEAD';
+		const origin = c.req.header('origin') ?? (readOnly ? ownOrigin : null);
+		if (origin !== ownOrigin) {
 			const refused = RequestGuardError.ForbiddenOrigin();
 			return c.json(refused, refused.error.status);
 		}
 		const cookie = c.req.header('cookie');
-		if (!cookie)
-			return createOAuthUnauthorizedResourceResponse(
-				c,
-				OAuthError.InvalidToken().error,
-			);
+		if (!cookie) {
+			const refused = RequestGuardError.SessionRequired();
+			return c.json(refused, refused.error.status);
+		}
 		let session: { session: Session; user: User } | null;
 		try {
 			session = await c.var.auth.api.getSession({
@@ -99,16 +97,13 @@ export function requireSessionCookie(): MiddlewareHandler<CloudEnv> {
 				query: { disableCookieCache: true },
 			});
 		} catch {
-			return createOAuthUnauthorizedResourceResponse(
-				c,
-				OAuthError.ServerError().error,
-			);
+			const refused = RequestGuardError.SessionUnavailable();
+			return c.json(refused, refused.error.status);
 		}
-		if (!session || session.session.expiresAt.getTime() <= Date.now())
-			return createOAuthUnauthorizedResourceResponse(
-				c,
-				OAuthError.InvalidToken().error,
-			);
+		if (!session || session.session.expiresAt.getTime() <= Date.now()) {
+			const refused = RequestGuardError.SessionRequired();
+			return c.json(refused, refused.error.status);
+		}
 		// A page opened for one account names it; a cookie that another tab
 		// replaced with another account's must not answer for the first.
 		const expected = c.req.header('x-epicenter-principal');
@@ -120,25 +115,6 @@ export function requireSessionCookie(): MiddlewareHandler<CloudEnv> {
 			id: asPrincipalId(session.user.id),
 			email: session.user.email,
 		});
-		await next();
-	});
-}
-
-/**
- * Admit a bearer the deployment's own resolver accepts. Only the dev entry
- * (`apps/api/server.dev.ts`) composes it, with its `dev:<principalId>`
- * resolver; production routes use {@link requireAccessToken}.
- */
-export function requireBearerPrincipal<E extends Env = Env>(
-	resolveBearerPrincipal: ResolveBearerPrincipal<E>,
-): MiddlewareHandler<E> {
-	return createMiddleware<E>(async (c, next) => {
-		const bearer = parseBearer(c.req.header('authorization') ?? null);
-		const { data: principal, error } = bearer
-			? await resolveBearerPrincipal(c, bearer)
-			: OAuthError.InvalidToken();
-		if (error) return createOAuthUnauthorizedResourceResponse(c, error);
-		c.set('principal', principal);
 		await next();
 	});
 }

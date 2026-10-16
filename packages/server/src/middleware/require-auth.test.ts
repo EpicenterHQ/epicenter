@@ -2,7 +2,8 @@
  * The session-cookie guard for account management (ADR-0549) through a mounted
  * route over a real Better Auth instance: the cookie selects the account, an
  * access token or session token in `Authorization` does not, another origin
- * is refused, and an unreadable database is a retryable 503.
+ * and a state change that names no origin are refused, and an unreadable
+ * database is a retryable 503. No refusal carries a bearer challenge.
  */
 import { expect, test } from 'bun:test';
 import { betterAuth } from 'better-auth';
@@ -55,11 +56,14 @@ async function setup() {
 		c.set('auth', auth as unknown as CloudEnv['Variables']['auth']);
 		await next();
 	});
-	app.get('/api/billing/overview', requireSessionCookie(), (c) =>
-		c.json(c.var.principal),
+	app.on(
+		['GET', 'POST'],
+		'/api/billing/overview',
+		requireSessionCookie(),
+		(c) => c.json(c.var.principal),
 	);
-	const request = (headers: HeadersInit = {}) =>
-		app.request('/api/billing/overview', { headers });
+	const request = (headers: HeadersInit = {}, method = 'GET') =>
+		app.request('/api/billing/overview', { headers, method });
 	return { alice, bob, request, ctx };
 }
 
@@ -85,9 +89,10 @@ test('a session token or access token without the cookie is refused', async () =
 	]) {
 		const response = await request({ authorization });
 		expect(response.status).toBe(401);
-		expect(response.headers.get('www-authenticate')).toBe(
-			'Bearer error="invalid_token"',
-		);
+		expect(response.headers.get('www-authenticate')).toBeNull();
+		expect(await response.json()).toMatchObject({
+			error: { name: 'SessionRequired' },
+		});
 	}
 });
 
@@ -100,6 +105,20 @@ test('another origin is refused even when the browser sends the cookie', async (
 	expect(
 		(await request({ cookie: alice.cookie, origin: baseURL })).status,
 	).toBe(200);
+});
+
+test('a state change must name this origin; a read need not', async () => {
+	const { alice, request } = await setup();
+	const cookie = alice.cookie;
+	// A bearer beside the cookie does not excuse a missing origin.
+	const originless: Record<string, string>[] = [
+		{ cookie },
+		{ cookie, authorization: 'Bearer ep_at_access-token' },
+	];
+	for (const headers of originless)
+		expect((await request(headers, 'POST')).status).toBe(403);
+	expect((await request({ cookie, origin: baseURL }, 'POST')).status).toBe(200);
+	expect((await request({ cookie })).status).toBe(200);
 });
 
 test('a revoked session is refused while another stays usable', async () => {

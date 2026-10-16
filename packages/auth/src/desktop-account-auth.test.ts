@@ -90,17 +90,22 @@ test('Account.fetch sends through the app audience and getProfile through api, w
 	const { auth, sent } = harness(signedIn(), (audience) =>
 		audience === 'api'
 			? Response.json({ sub: 'alice', email: 'alice@example.test' })
-			: Response.json({ remote: 'x' }),
+			: Response.json({ url: 'x' }, { status: 201 }),
 	);
 	await auth.refresh();
 	const account = auth.getState().account!;
-	await account.fetch(new URL('/api/git/connect', account.baseURL), {
-		method: 'POST',
-		headers: { authorization: 'Bearer page' },
-		body: '{}',
-	});
+	await account.fetch(
+		new URL('/api/blobs/personal/alice/private', account.baseURL),
+		{
+			method: 'POST',
+			headers: { authorization: 'Bearer page' },
+			body: 'blob',
+		},
+	);
 	expect(sent[0]?.audience).toBe('git');
-	expect(sent[0]?.request.url).toBe(`${origin}/api/git/connect`);
+	expect(sent[0]?.request.url).toBe(
+		`${origin}/api/blobs/personal/alice/private`,
+	);
 	expect(sent[0]?.request.method).toBe('POST');
 	expect(sent[0]?.request.headers.get('authorization')).toBeNull();
 	expect(await account.getProfile()).toEqual({
@@ -110,9 +115,9 @@ test('Account.fetch sends through the app audience and getProfile through api, w
 	expect(sent[1]?.audience).toBe('api');
 	expect(sent[1]?.request.url).toBe(`${origin}/auth/oauth2/userinfo`);
 	expect(sent[1]?.request.headers.get('authorization')).toBeNull();
-	expect(
-		account.fetch('https://elsewhere.example/api/git/connect'),
-	).rejects.toThrow('their own server');
+	expect(account.fetch('https://elsewhere.example/api/repos')).rejects.toThrow(
+		'their own server',
+	);
 	expect(sent.length).toBe(2);
 });
 
@@ -123,7 +128,7 @@ test('a 401 asks for sign-in again on the same account', async () => {
 	);
 	await auth.refresh();
 	const account = auth.getState().account;
-	await account?.fetch('/api/git/connect', { method: 'POST' });
+	await account?.fetch('/api/repos');
 	expect(auth.getState().status).toBe('reauth-required');
 	expect(auth.getState().account).toBe(account);
 	expect(states).toEqual(['signed-in', 'reauth-required']);
@@ -145,12 +150,12 @@ test('signing in again from Settings opens a new account; signing out retires th
 	await h.auth.refresh();
 	const second = h.auth.getState().account!;
 	expect(second).not.toBe(first);
-	expect(first.fetch('/api/git/connect')).rejects.toThrow();
+	expect(first.fetch('/api/repos')).rejects.toThrow();
 
 	h.set({ origin, grant: null });
 	await h.auth.refresh();
 	expect(h.auth.getState().status).toBe('signed-out');
-	expect(second.fetch('/api/git/connect')).rejects.toThrow();
+	expect(second.fetch('/api/repos')).rejects.toThrow();
 	expect(h.states).toEqual(['signed-in', 'signed-in', 'signed-out']);
 });
 
@@ -174,7 +179,7 @@ test('a grant that ended reads the status again', async () => {
 	h.auth.onStateChange((state) => {
 		if (state.status === 'signed-out') ended = true;
 	});
-	expect(h.auth.getState().account!.fetch('/api/git/connect')).rejects.toThrow(
+	expect(h.auth.getState().account!.fetch('/api/repos')).rejects.toThrow(
 		'sign in again',
 	);
 	await Bun.sleep(0);

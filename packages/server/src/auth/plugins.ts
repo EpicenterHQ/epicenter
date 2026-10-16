@@ -70,11 +70,13 @@ export function oauthServerPlugins({
 			consentPage: '/consent',
 			scopes: [...OAUTH_SCOPES],
 			grantTypes: ['authorization_code', 'refresh_token'],
-			// First-party clients are seeded by migration; third parties identify
-			// themselves with a client ID metadata document.
+			// First-party clients are rows the deployment registers
+			// (`registerFirstPartyClients`); third parties identify themselves
+			// with a client ID metadata document.
 			allowDynamicClientRegistration: false,
 			resources: oauthResourceInputs(audiences),
-			// Migrations seed the rows; a boot never rewrites one.
+			// An existing row is never rewritten, as `registerFirstPartyClients`
+			// leaves it.
 			resourceSeedMode: 'insertOnly',
 			// A client discovered by its metadata document reaches only MCP.
 			clientRegistrationDefaultResources: [audiences.mcp],
@@ -104,8 +106,8 @@ export function oauthServerPlugins({
 /**
  * Passkeys for signing in to the authorization server's own pages.
  * `createAuth` composes them with {@link oauthServerPlugins}. A session is no
- * resource credential (ADR-0549), so there is no `bearer()` and no session
- * handoff: clients hold access tokens the authorization server issues.
+ * resource credential (ADR-0549), so there is no `bearer()`: clients hold
+ * access tokens the authorization server issues.
  */
 export function authPlugins(apiBaseURL: string) {
 	const origin = apiBaseURL.replace(/\/$/, '');

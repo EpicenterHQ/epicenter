@@ -1,6 +1,8 @@
 /**
- * Real management routes enforce the session cookie, the expected principal,
- * and ten-minute freshness. An `Authorization` header is never a credential here.
+ * Real management routes enforce this origin, the session cookie, the expected
+ * principal, and ten-minute freshness. An `Authorization` header is never a
+ * credential here. Account deletion passes the same checks and then refuses
+ * before any destructive work.
  * Explicit callbacks retain their protected target after sign-out/replacement;
  * implicit linking follows verified email. Only upstream token exchange and
  * user-info responses are stubbed; these tests make no live provider claims.
@@ -16,11 +18,14 @@ import { requireAccountSession } from './session-policy.js';
 
 const baseURL = 'http://localhost:47878';
 const secret = 'test-secret-test-secret-test-secret';
+/** Each management route, its body, and its status once every check passes. */
 const routes = [
-	['/unlink-account', { accountId: 'alice-github' }],
-	['/passkey/generate-register-options', undefined],
-	['/passkey/delete-passkey', { id: 'alice-passkey' }],
-	['/link-social', { provider: 'google', callbackURL: baseURL }],
+	['/unlink-account', { accountId: 'alice-github' }, 200],
+	['/passkey/generate-register-options', undefined, 200],
+	['/passkey/delete-passkey', { id: 'alice-passkey' }, 200],
+	['/link-social', { provider: 'google', callbackURL: baseURL }, 200],
+	// Hosted erasure is not yet complete (ADR-0360), so deletion refuses.
+	['/delete-user', {}, 503],
 ] as const;
 
 async function setup() {
@@ -164,14 +169,26 @@ async function setup() {
 }
 
 // Management route credential selection and freshness.
-for (const [path, body] of routes) {
+for (const [path, body, admitted] of routes) {
 	test(`${path} accepts a fresh cookie with its expected principal`, async () => {
 		const { alice, request } = await setup();
 		const response = await request(path, body, {
 			cookie: alice.cookie,
 			'x-epicenter-principal': alice.user.id,
 		});
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(admitted);
+	});
+	test(`${path} refuses another origin even with the cookie`, async () => {
+		const { db, alice, request } = await setup();
+		const before = structuredClone(db);
+		const response = await request(path, body, {
+			cookie: alice.cookie,
+			origin: 'https://todos.example.test',
+			'x-epicenter-principal': alice.user.id,
+		});
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({ code: 'FORBIDDEN_ORIGIN' });
+		expect(db).toEqual(before);
 	});
 	for (const age of [599_999, 600_000, 600_001]) {
 		test(`${path} ${age < 600_000 ? 'accepts' : 'refuses'} a session aged ${age}ms`, async () => {
@@ -189,7 +206,7 @@ for (const [path, body] of routes) {
 					cookie: alice.cookie,
 					'x-epicenter-principal': alice.user.id,
 				});
-				expect(response.status).toBe(age < 600_000 ? 200 : 403);
+				expect(response.status).toBe(age < 600_000 ? admitted : 403);
 				if (age >= 600_000) {
 					expect(await response.json()).toMatchObject({
 						code: 'SESSION_NOT_FRESH',
@@ -240,8 +257,15 @@ for (const [path, body] of routes) {
 			cookie: alice.cookie,
 			'x-epicenter-principal': alice.user.id,
 		});
-		expect(response.status).toBe(200);
-		if (path === '/unlink-account') {
+		expect(response.status).toBe(admitted);
+		if (path === '/delete-user') {
+			expect(await response.json()).toMatchObject({
+				code: 'ACCOUNT_DELETION_UNAVAILABLE',
+			});
+			// No deletion started: the account and its session remain.
+			expect(db.user!.map((row) => row.id)).toContain(alice.user.id);
+			expect(db.session!.map((row) => row.userId)).toContain(alice.user.id);
+		} else if (path === '/unlink-account') {
 			expect(
 				db
 					.account!.filter((row) => row.userId === alice.user.id)

@@ -1,6 +1,6 @@
 /**
- * Tests that need `workerd`: the hosted account-deletion route against a
- * Worker runtime. Each test builds its own app.
+ * Tests that need `workerd`: the folder MCP server's code against a Worker
+ * runtime. Each test builds its own app.
  */
 import { createRequire } from 'node:module';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';

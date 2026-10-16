@@ -151,7 +151,6 @@
 		"dev:vocab:ui": "bun run --cwd apps/vocab dev",
 		"dev:whispering": "bun run --cwd apps/whispering dev",
 		"dev:whispering:ui": "bun run --cwd apps/whispering dev:ui",
-		"smoke:local": "bun run --cwd apps/api smoke:local",
 		"format": "biome check --write --linter-enabled=false",
 		"format:check": "biome ci --linter-enabled=false",
 		"lint": "biome lint --write",

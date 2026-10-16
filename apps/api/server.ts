@@ -19,14 +19,6 @@
  * auth layer, the inference/blobs mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
- * The wiring lives in {@link startBunApiServer} so `server.dev.ts` can boot the
- * SAME server with a dev `resolveBearerPrincipal` injected (the parity smoke's credential)
- * without duplicating it. The bottom of this file runs production only when this
- * file IS the entrypoint (`import.meta.main`), so `server.dev.ts` importing the
- * builder does not also start a second listener. Production passes no
- * `resolveBearerPrincipal` and keeps the real session resolver; this file never imports the
- * dev bypass.
- *
  * Runtime skew is fenced by design: a DO-only behavior (hibernation restore,
  * alarm timing, edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
@@ -36,12 +28,11 @@
  * for those URLs and its `/_app/*` files ({@link uiPages}), so sign-in
  * completes on a self-hosted server.
  *
- * Four surfaces the Worker serves are intentionally absent here, and
+ * Two surfaces the Worker serves are intentionally absent here, and
  * `runtime-profile.test.ts` is where that list is declared and checked against
- * both entries: the dashboard SPA and the account-deletion route need Worker-only
- * bindings (`ASSETS`, `STORE_AUTHORITY`), and billing is the hosted Worker's
- * concern. Everything the shared library can mount on both runtimes is mounted
- * on both.
+ * both entries: the dashboard SPA needs the Worker-only `ASSETS` binding, and
+ * billing is the hosted Worker's concern. Everything the shared library can
+ * mount on both runtimes is mounted on both.
  * Because this runtime cannot resolve the hosted storage allowance, first
  * contact is allowed only for workspaces already registered by the hosted
  * Worker. Existing current-state replicas in this runtime's own backend may
@@ -70,10 +61,8 @@ import {
 	mountTranscriptionApp,
 	nodeClientMetadataFetch,
 	type OAuthScope,
-	type ResolveBearerPrincipal,
 	registerFirstPartyClients,
 	requireAccessToken,
-	requireBearerPrincipal,
 	resolveDeploymentBlobStore,
 	ServerBindings,
 } from '@epicenter/server/bun';
@@ -171,17 +160,10 @@ function uiPages(dir: string) {
 }
 
 /**
- * Boot the apps/api Bun server, optionally with an injected principal resolver.
- *
- * Production (`server.ts` as the entrypoint) passes nothing, so every
- * resource takes OAuth access tokens (ADR-0549). `server.dev.ts` passes a dev
- * `Bearer dev:<principalId>` resolver, which then guards every resource in
- * their place, so the parity smoke needs no interactive login. Everything else (env validation, pool, mounts, `Bun.serve`) is
- * identical across the two, so they cannot drift.
+ * Boot the apps/api Bun server: every resource takes OAuth access tokens
+ * (ADR-0549). `runtime-profile.test.ts` boots it in process.
  */
-export async function startBunApiServer(
-	opts: { resolveBearerPrincipal?: ResolveBearerPrincipal<CloudEnv> } = {},
-): Promise<void> {
+export async function startBunApiServer(): Promise<void> {
 	// Validate this Bun host's environment once, at boot. The validated result IS
 	// the typed env handed to the Hono app: no `as`-cast over `process.env`, no
 	// lie (ADR-0066). A misconfiguration gets ONE descriptive error naming every
@@ -203,9 +185,9 @@ export async function startBunApiServer(
 	const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
 	const db = createDb(pool);
 
-	// The migrations seed the hosted cloud's clients. This process serves its
-	// own origin, so it writes the first-party clients and resources for that
-	// origin once, at boot (ADR-0549, ADR-0326).
+	// This process serves its own origin, so it writes the first-party clients
+	// and resources for that origin once, at boot (ADR-0549, ADR-0326). The
+	// Worker writes the hosted ones once per isolate.
 	const audiences = resolveOAuthAudiences(origin);
 	await registerFirstPartyClients(db, {
 		audiences,
@@ -245,15 +227,11 @@ export async function startBunApiServer(
 		resolveAudiences: () => audiences,
 	});
 	// Every resource takes only an access token for its audience and the scope
-	// its operation needs (ADR-0549). The dev entry's resolver replaces that
-	// guard for the parity smoke.
-	const devBearer = opts.resolveBearerPrincipal;
+	// its operation needs (ADR-0549).
 	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 		every(
 			cloudContext,
-			devBearer
-				? requireBearerPrincipal(devBearer)
-				: requireAccessToken({ audience: () => audiences[audience], scope }),
+			requireAccessToken({ audience: () => audiences[audience], scope }),
 		);
 	// Hosted Git (ADR-0546) keeps bare repositories on disk under
 	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
@@ -309,7 +287,5 @@ export async function startBunApiServer(
 	console.log(`apps/api (Bun) listening on ${origin}`);
 }
 
-// Run production only when this file is the entrypoint. `server.dev.ts` imports
-// `startBunApiServer` to boot the dev variant, and must not trigger a second
-// listener here.
+// Listen only when this file is the entrypoint, not when a test imports it.
 if (import.meta.main) await startBunApiServer();

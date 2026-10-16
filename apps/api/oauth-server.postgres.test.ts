@@ -8,10 +8,15 @@
  *   Hyperdrive's local connection string (the spike's check 2, plus 1, 3, 5).
  *
  * The resource check runs in this process against the same database, the way
- * every resource will run it. The migrations' hosted registrations are also
- * checked against `worker/oauth-registrations.ts`, so the two cannot drift.
- * Requires initdb and pg_ctl on PATH; never connects to a configured database
- * and never deploys.
+ * every resource will run it, and a real access token reaches each entry's own
+ * resources over HTTP: the repository listing, and on the Bun entry a personal
+ * blob round trip when `BLOBS_S3_*` names a store (CI's runtime-parity job runs
+ * one). The Worker fetches only public addresses (`global_fetch_strictly_public`),
+ * so it gets no local store and answers 503 for storage. Each
+ * entry writes its own first-party registrations: the Bun entry at boot, the
+ * Worker before its first authorization-server request, and concurrent writes
+ * agree. Requires initdb and pg_ctl on PATH; never connects to a configured
+ * database and never deploys.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -19,9 +24,14 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+	parsePersonalBlobUrl,
+	personalBlobCollectionUrl,
+} from '@epicenter/blobs';
+import {
 	PRODUCTION_API_URL,
 	resolveOAuthAudiences,
 } from '@epicenter/constants/apps';
+import type { RepositoryListing } from '@epicenter/constants/repositories';
 import {
 	authorizeResourceRequest,
 	createDb,
@@ -53,6 +63,23 @@ const apiRoot = import.meta.dir;
 const bytewise = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const secret = 'oauth-entries-postgres-secret-0123456789';
 let cluster: DisposablePostgres;
+
+/**
+ * The object store the Bun entry publishes personal blobs to, when this
+ * process names one. Without it, the entry answers 503 and the round trip
+ * checks only that.
+ */
+const blobStore = Object.fromEntries(
+	Object.entries(process.env).filter(
+		(entry): entry is [string, string] =>
+			entry[0].startsWith('BLOBS_S3_') && entry[1] !== undefined,
+	),
+);
+const blobStoreConfigured = Boolean(
+	blobStore.BLOBS_S3_ENDPOINT &&
+		blobStore.BLOBS_S3_ACCESS_KEY_ID &&
+		blobStore.BLOBS_S3_SECRET_ACCESS_KEY,
+);
 
 async function freePort() {
 	const listener = createServer();
@@ -186,13 +213,99 @@ function checks(
 			() => checkSilentReauthorization(harness()),
 			60_000,
 		);
+		test(
+			'a real access token reaches its resources over HTTP',
+			() =>
+				checkResourcesOverHttp(
+					harness(),
+					runtime === 'bun' && blobStoreConfigured,
+				),
+			60_000,
+		);
 	});
+}
+
+/**
+ * One person's Git-audience token lists their repositories and round-trips a
+ * private blob through the entry; an API-audience token is refused by both,
+ * since each is the Git audience's.
+ */
+async function checkResourcesOverHttp(h: OAuthHarness, blobs: boolean) {
+	const { client } = h;
+	const person = await client.person('http');
+	const git = await client.codeGrant({
+		...h.desktop,
+		cookie: person.cookie,
+		resource: [h.audiences.git],
+	});
+	const api = await client.codeGrant({
+		...h.desktop,
+		cookie: person.cookie,
+		scope: 'ai folders:read folders:write',
+		resource: [h.audiences.api],
+	});
+	const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+
+	const listing = await fetch(`${client.origin}/api/repos`, {
+		headers: bearer(git.access_token),
+	});
+	expect(listing.status).toBe(200);
+	expect(
+		((await listing.json()) as RepositoryListing).namespaces.map((n) => n.id),
+	).toEqual([person.personal]);
+	const wrongAudience = await fetch(`${client.origin}/api/repos`, {
+		headers: bearer(api.access_token),
+	});
+	expect(wrongAudience.status).toBe(401);
+
+	const collection = personalBlobCollectionUrl(
+		client.origin,
+		person.id,
+		'private',
+	);
+	const payload = new TextEncoder().encode(`blob ${crypto.randomUUID()}\n`);
+	const refused = await fetch(collection, {
+		method: 'POST',
+		headers: { ...bearer(api.access_token), 'content-type': 'text/plain' },
+		body: payload,
+	});
+	expect(refused.status).toBe(401);
+	const upload = await fetch(collection, {
+		method: 'POST',
+		headers: { ...bearer(git.access_token), 'content-type': 'text/plain' },
+		body: payload,
+	});
+	if (!blobs) {
+		expect(upload.status).toBe(503);
+		await upload.body?.cancel();
+		return;
+	}
+	expect(upload.status).toBe(201);
+	const { url } = (await upload.json()) as { url: string };
+	expect(parsePersonalBlobUrl(url, client.origin)).toMatchObject({
+		principalId: person.id,
+		visibility: 'private',
+	});
+	const read = await fetch(url, {
+		headers: bearer(git.access_token),
+		redirect: 'error',
+	});
+	expect(read.status).toBe(200);
+	expect(new Uint8Array(await read.arrayBuffer())).toEqual(payload);
+	const deleted = await fetch(url, {
+		method: 'DELETE',
+		headers: bearer(git.access_token),
+		redirect: 'error',
+	});
+	expect(deleted.ok).toBe(true);
+	await deleted.body?.cancel();
 }
 
 const running: { stop: () => Promise<void> }[] = [];
 let bun: OAuthHarness;
 let worker: OAuthHarness;
-let hostedClient: Client;
+/** The client ids the Worker wrote before its first authorization response. */
+let workerRegisteredClients: string[];
 const scratch = await mkdtemp(join(tmpdir(), 'epicenter-oauth-entries-'));
 
 beforeAll(async () => {
@@ -217,7 +330,9 @@ beforeAll(async () => {
 			cwd: apiRoot,
 			env: {
 				PATH: process.env.PATH,
-				TZ: process.env.TZ,
+				// East of UTC by more than a token's lifetime, so a clock
+				// comparison made in local time refuses every token.
+				TZ: 'Asia/Tokyo',
 				DATABASE_URL: url,
 				PORT: String(port),
 				API_PUBLIC_ORIGIN: origin,
@@ -228,6 +343,7 @@ beforeAll(async () => {
 				GITHUB_CLIENT_SECRET: 'fixture',
 				MICROSOFT_CLIENT_ID: 'fixture',
 				MICROSOFT_CLIENT_SECRET: 'fixture',
+				...blobStore,
 			},
 			stdout: 'pipe',
 			stderr: 'pipe',
@@ -307,16 +423,26 @@ beforeAll(async () => {
 				await client.end();
 			},
 		});
-		await waitFor(entry, /Ready on/, 90_000);
+		const output = await waitFor(entry, /Ready on/, 90_000);
+		const metadata = await fetch(
+			`${origin}/.well-known/oauth-authorization-server/auth`,
+		);
+		if (metadata.status !== 200)
+			throw new Error(
+				`the Worker's first authorization response was ${metadata.status}:\n${output.join('')}`,
+			);
+		await metadata.body?.cancel();
+		workerRegisteredClients = (
+			await client.query<{ client_id: string }>(
+				'select client_id from oauth_client order by client_id',
+			)
+		).rows.map((row) => row.client_id);
 		worker = await harnessFor(origin, client);
 	}
-
-	hostedClient = (await database('hosted')).client;
 }, 180_000);
 
 afterAll(async () => {
 	for (const entry of running) await entry.stop();
-	await hostedClient?.end();
 	await cluster?.stop();
 	await rm(scratch, { recursive: true, force: true });
 }, 60_000);
@@ -349,60 +475,92 @@ checks(
 	() => worker,
 );
 
-test('the migrations seed exactly the hosted registrations the deployment declares', async () => {
-	const audiences = resolveOAuthAudiences(PRODUCTION_API_URL);
-	const clients = buildFirstPartyClients(PRODUCTION_API_URL);
-	const resources = await hostedClient.query(
-		'select identifier, access_token_ttl, allowed_scopes from oauth_resource order by identifier',
-	);
-	expect(resources.rows).toEqual(
-		oauthResourceInputs(audiences)
-			.map((resource) => ({
-				identifier: resource.identifier,
-				access_token_ttl: resource.accessTokenTtl,
-				allowed_scopes: resource.allowedScopes,
-			}))
-			.sort((a, b) => bytewise(a.identifier, b.identifier)),
-	);
-	const rows = await hostedClient.query(
-		`select id, client_id, name, redirect_uris, grant_types, response_types, scopes,
-		        skip_consent, application_type, token_endpoint_auth_method, require_pkce, disabled
-		 from oauth_client order by client_id`,
-	);
-	expect(rows.rows).toEqual(
-		clients
-			.map(firstPartyClientRow)
-			.map((row) => ({
-				id: row.id,
-				client_id: row.clientId,
-				name: row.name,
-				redirect_uris: row.redirectUris,
-				grant_types: row.grantTypes,
-				response_types: row.responseTypes,
-				scopes: row.scopes,
-				skip_consent: row.skipConsent,
-				application_type: row.applicationType,
-				token_endpoint_auth_method: row.tokenEndpointAuthMethod,
-				require_pkce: row.requirePKCE,
-				disabled: row.disabled,
-			}))
-			.sort((a, b) => bytewise(a.client_id, b.client_id)),
-	);
-	const links = await hostedClient.query(
-		'select client_id, resource_id from oauth_client_resource order by client_id, resource_id',
-	);
-	expect(links.rows).toEqual(
-		clients
-			.flatMap((client) =>
-				client.resources.map((resource_id) => ({
-					client_id: client.clientId,
-					resource_id,
-				})),
-			)
-			.sort(
-				(a, b) =>
-					bytewise(a.client_id, b.client_id) ||
-					bytewise(a.resource_id, b.resource_id),
-			),
+test('the Worker writes its first-party clients before its first authorization response', () => {
+	const origin = worker.client.origin;
+	expect(workerRegisteredClients).toEqual(
+		buildFirstPartyClients(origin)
+			.map((client) => client.clientId)
+			.sort(bytewise),
 	);
 });
+
+test('concurrent registrations of the hosted clients on a fresh database all succeed and agree', async () => {
+	const { url, client: first } = await database('hosted_race');
+	const others = await Promise.all(
+		[1, 2, 3].map(async () => {
+			const other = new Client({ connectionString: url });
+			await other.connect();
+			return other;
+		}),
+	);
+	const connections = [first, ...others];
+	try {
+		const audiences = resolveOAuthAudiences(PRODUCTION_API_URL);
+		const clients = buildFirstPartyClients(PRODUCTION_API_URL);
+		// Isolates that start together, then the same isolates restarting.
+		for (let round = 0; round < 3; round++)
+			await Promise.all(
+				connections.map((connection) =>
+					registerFirstPartyClients(createDb(connection), {
+						audiences,
+						clients,
+					}),
+				),
+			);
+		const resources = await first.query(
+			'select identifier, access_token_ttl, allowed_scopes from oauth_resource order by identifier',
+		);
+		expect(resources.rows).toEqual(
+			oauthResourceInputs(audiences)
+				.map((resource) => ({
+					identifier: resource.identifier,
+					access_token_ttl: resource.accessTokenTtl,
+					allowed_scopes: resource.allowedScopes,
+				}))
+				.sort((a, b) => bytewise(a.identifier, b.identifier)),
+		);
+		const rows = await first.query(
+			`select id, client_id, name, redirect_uris, grant_types, response_types, scopes,
+			        skip_consent, application_type, token_endpoint_auth_method, require_pkce, disabled
+			 from oauth_client order by client_id`,
+		);
+		expect(rows.rows).toEqual(
+			clients
+				.map(firstPartyClientRow)
+				.map((row) => ({
+					id: row.id,
+					client_id: row.clientId,
+					name: row.name,
+					redirect_uris: row.redirectUris,
+					grant_types: row.grantTypes,
+					response_types: row.responseTypes,
+					scopes: row.scopes,
+					skip_consent: row.skipConsent,
+					application_type: row.applicationType,
+					token_endpoint_auth_method: row.tokenEndpointAuthMethod,
+					require_pkce: row.requirePKCE,
+					disabled: row.disabled,
+				}))
+				.sort((a, b) => bytewise(a.client_id, b.client_id)),
+		);
+		const links = await first.query(
+			'select client_id, resource_id from oauth_client_resource order by client_id, resource_id',
+		);
+		expect(links.rows).toEqual(
+			clients
+				.flatMap((client) =>
+					client.resources.map((resource_id) => ({
+						client_id: client.clientId,
+						resource_id,
+					})),
+				)
+				.sort(
+					(a, b) =>
+						bytewise(a.client_id, b.client_id) ||
+						bytewise(a.resource_id, b.resource_id),
+				),
+		);
+	} finally {
+		await Promise.all(connections.map((connection) => connection.end()));
+	}
+}, 60_000);

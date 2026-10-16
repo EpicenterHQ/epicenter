@@ -33,22 +33,15 @@
 		{
 			"idx": 4,
 			"version": "7",
-			"when": 1792093904052,
-			"tag": "0004_hosted_oauth_registrations",
+			"when": 1792099966057,
+			"tag": "0004_hosted_repositories",
 			"breakpoints": true
 		},
 		{
 			"idx": 5,
 			"version": "7",
-			"when": 1792099966057,
-			"tag": "0005_hosted_repositories",
-			"breakpoints": true
-		},
-		{
-			"idx": 6,
-			"version": "7",
 			"when": 1792117504649,
-			"tag": "0006_better_auth_1_8",
+			"tag": "0005_better_auth_1_8",
 			"breakpoints": true
 		}
 	]

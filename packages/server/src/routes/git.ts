@@ -6,7 +6,7 @@
  * <git>/<namespace>/<name>.git/info/refs?service=…   GET    folders:read, read  (receive-pack: folders:write, push)
  * <git>/<namespace>/<name>.git/git-upload-pack       POST   folders:read, read
  * <git>/<namespace>/<name>.git/git-receive-pack      POST   folders:write, push; the first creates it
- * <api>/api/repos                                    GET    folders:read: the caller's repositories by namespace
+ * <api>/api/repos                                    GET    folders:read on the Git audience: the caller's repositories by namespace
  * ```
  *
  * The Git audience is `https://git.epicenter.so` for the hosted cloud and
@@ -258,7 +258,8 @@ function refuse(
 }
 
 /**
- * Mount hosted Git on its audience and `GET /api/repos` on the API.
+ * Mount hosted Git on its audience, and `GET /api/repos` on the API's origin
+ * for a Git-audience token.
  * `setup` installs the database (`c.var.db`), which every request reads.
  */
 export function mountGitHost(
@@ -439,11 +440,11 @@ export function mountGitHost(
 			const audiences = resolveAudiences(c);
 			let decided: Awaited<ReturnType<typeof authorizeAccountRequest>>;
 			try {
-				// A browser app holds one token, for the Git audience it pushes
-				// to, so the listing takes that audience as well as the API's.
+				// The listing is folder metadata, so it takes the token a client
+				// already holds for the folders themselves: the Git audience's.
 				decided = await authorizeAccountRequest(c.var.db, {
 					token: readAccessToken(c.req.header('authorization')),
-					audience: [audiences.api, audiences.git],
+					audience: audiences.git,
 					scope: 'folders:read',
 				});
 			} catch (cause) {

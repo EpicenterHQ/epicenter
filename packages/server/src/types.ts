@@ -7,26 +7,9 @@
 
 import type { Principal } from '@epicenter/auth';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import type { Context } from 'hono';
-import type { Result } from 'wellcrafted/result';
 import type { createAuth } from './auth/create-auth.js';
-import type { OAuthError } from './auth/oauth-errors.js';
 import type * as schema from './db/schema/index.js';
 import type { ServerBindings } from './server-bindings.js';
-
-/**
- * How a dev-only entry resolves its own bearer to a principal, for
- * `requireBearerPrincipal`. The wrapper extracts the `Authorization` header
- * and hands the resolver the bare token. `apps/api/server.dev.ts` closes it
- * over a `dev:<principalId>` resolver so the runtime-parity smoke needs no
- * interactive login; production routes take OAuth access tokens through
- * `requireAccessToken` instead (ADR-0549), so this seam is never compiled
- * into a production guard.
- */
-export type ResolveBearerPrincipal<E extends Env = Env> = (
-	c: Context<E>,
-	bearer: string,
-) => Promise<Result<Principal, OAuthError>>;
 
 /**
  * The PORTABLE Hono context, shared by every library sub-app and BOTH
@@ -52,8 +35,8 @@ export type Env = {
 	Variables: {
 		authBaseURL: string;
 		/**
-		 * Origins this deployment trusts for CORS, cookie-mutation CSRF, and
-		 * Better Auth's redirect allow-list. Supplied by the deployment
+		 * Origins this deployment trusts for CORS and Better Auth's origin and
+		 * redirect allow-list. Supplied by the deployment
 		 * (`createServerApp`'s `resolveTrustedOrigins`), never hardcoded in the
 		 * library.
 		 */

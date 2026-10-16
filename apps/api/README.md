@@ -57,9 +57,9 @@ This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
 takes the API audience and `ai`, Git requests the Git audience with
-`folders:read` or `folders:write` and a namespace role, `GET /api/repos`
-`folders:read`, and personal blobs the Git audience with `folders:read` or
-`folders:write`. An app reads who signed in from Better Auth's
+`folders:read` or `folders:write` and a namespace role, `GET /api/repos` the
+Git audience with `folders:read`, and personal blobs the Git audience with
+`folders:read` or `folders:write`. An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
 apps get a token by authorization code with PKCE as their own client; the
@@ -203,16 +203,16 @@ There are three layers, each with a different URL source:
 
 ```bash
 bun dev              # Local dev server (uses local Postgres)
-bun run smoke:local  # Runtime-parity smoke with dev auth and fake local env
 bun deploy           # Deploy to Cloudflare Workers
 bun run typecheck    # Type check
 bun run test         # Run tests, each file isolated
 ```
 
-`smoke:local` is the no-Infisical verification path. It starts `server.dev.ts`,
-runs `apps/api/scripts/smoke.ts`, keeps its server log and data directory under a
-temporary directory, and skips the blob leg unless `BLOBS_S3_*` points at a
-local S3-compatible store.
+`bun run test` is also the no-Infisical verification path: with initdb and
+pg_ctl on `PATH`, `oauth-server.postgres.test.ts` boots both entries against
+disposable Postgres clusters and drives them with real access tokens. Set
+`BLOBS_S3_*` to a local S3-compatible store (`docker compose up -d` here) and
+the Bun entry also round-trips a personal blob.
 
 ### Authorization server
 
@@ -233,18 +233,17 @@ names what is deployment-specific:
   and `openid`, so `epicenter auth login` can read who approved it from
   userinfo.
 
-Migration `0004_hosted_oauth_registrations` seeds the hosted rows, and
-`oauth-server.postgres.test.ts` fails if it drifts from
-`buildFirstPartyClients(PRODUCTION_API_URL)`. The Bun entry serves its own
-origin, so it writes its registrations at boot with
-`registerFirstPartyClients`. `bun dev:api` (local `wrangler dev`) writes none:
-run the Bun entry, or call `registerFirstPartyClients` for the local origin,
-to sign a client in locally.
+Both entries write the registrations for the origin they serve with
+`registerFirstPartyClients`, so no migration seeds a client: the Bun entry at
+boot, and the Worker, local `wrangler dev` included, once per isolate before
+its first `/auth/*` request. The write is idempotent without a transaction, so
+isolates that start together converge; `oauth-server.postgres.test.ts` runs
+concurrent writers against a fresh database.
 
 Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
 device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
 consent page approves it with its folder choice. Migration
-`0006_better_auth_1_8` adds the 1.8 columns and gives `api` and `git` every
+`0005_better_auth_1_8` adds the 1.8 columns. `api` and `git` allow every
 first-party scope, so a refresh never narrows the grant (ADR-0565).
 
 `oauth-server.postgres.test.ts` runs the spike's checks (refresh family, grant
@@ -262,7 +261,7 @@ local connection string. `bun run test` runs each test file isolated
 The route authorizes each request from the access token and the namespace
 membership, and creates a repository on its first push; `packages/server`'s
 README has the routes and refusals. Tables `repository` and
-`repository_alias` (migration `0005_hosted_repositories`) hold names, ids,
+`repository_alias` (migration `0004_hosted_repositories`) hold names, ids,
 and the aliases a rename or a move leaves.
 
 The Worker stores each repository in the Artifacts namespace of its
@@ -320,8 +319,8 @@ The server runs the same portable S3 client against versitygw, Garage, AWS S3, o
 R2; the store is endpoint-as-config, so swapping it is a config change, never a
 code change. There is no filesystem blob backend in the codebase by design: the
 self-host story is "run the server next to an S3-compatible service," exactly as
-the hosted Worker runs next to R2. `apps/api/scripts/smoke.ts` exercises the full
-blob round-trip against whichever store the server points at.
+the hosted Worker runs next to R2. `oauth-server.postgres.test.ts` round-trips a
+personal blob through the Bun entry against whichever store `BLOBS_S3_*` names.
 
 ### Database commands
 

@@ -1,13 +1,12 @@
 /**
  * First-party clients and resources are rows, not admin-session API calls
- * (ADR-0549). The hosted cloud's rows are seeded by a migration in
- * `apps/api/drizzle`; a deployment that serves another origin (the Bun entry:
- * local dev and self-host) writes its own at boot with
- * {@link registerFirstPartyClients}. Resources are insert-only, matching the
+ * (ADR-0549), and {@link registerFirstPartyClients} is their one writer: the
+ * Bun entry calls it at boot, and the Worker once per isolate before its first
+ * authorization-server request. Resources are insert-only, matching the
  * provider's `resourceSeedMode`; a first-party client is rewritten to its
  * declaration, because its redirects follow the deployment's origin.
  */
-import { inArray, sql } from 'drizzle-orm';
+import { and, inArray, notInArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/create-db.js';
 import {
 	oauthClient,
@@ -61,7 +60,15 @@ export function firstPartyClientRow(client: FirstPartyClient) {
 	};
 }
 
-/** Insert missing resources and write every first-party client and its links. */
+/**
+ * Insert missing resources, write every first-party client to its
+ * declaration, and make each client's resource links exactly the declared
+ * ones. Each statement is idempotent on its own, so writers that run at once
+ * (two Worker isolates starting together) converge, and a write cut short is
+ * finished by the next one. There is no transaction, so the write can share
+ * a connection with other queries, such as the provider seeding its resources
+ * as a Better Auth instance initializes.
+ */
 export async function registerFirstPartyClients(
 	db: Db,
 	{
@@ -70,43 +77,50 @@ export async function registerFirstPartyClients(
 	}: { audiences: OAuthAudiences; clients: FirstPartyClient[] },
 ): Promise<void> {
 	const now = new Date();
-	await db.transaction(async (tx) => {
-		await tx
-			.insert(oauthResource)
-			.values(
-				oauthResourceInputs(audiences).map((resource) => ({
-					id: resource.identifier,
-					identifier: resource.identifier,
-					name: resource.identifier,
-					accessTokenTtl: resource.accessTokenTtl,
-					allowedScopes: resource.allowedScopes,
-					createdAt: now,
-					updatedAt: now,
-				})),
-			)
-			.onConflictDoNothing({ target: oauthResource.identifier });
-		for (const client of clients) {
-			const row = firstPartyClientRow(client);
-			await tx
-				.insert(oauthClient)
-				.values({ ...row, createdAt: now, updatedAt: now })
-				.onConflictDoUpdate({
-					target: oauthClient.clientId,
-					set: { ...row, id: sql`${oauthClient.id}`, updatedAt: now },
-				});
-		}
-		const clientIds = clients.map((client) => client.clientId);
-		await tx
-			.delete(oauthClientResource)
-			.where(inArray(oauthClientResource.clientId, clientIds));
-		const links = clients.flatMap((client) =>
-			client.resources.map((resourceId) => ({
-				id: `${client.clientId} ${resourceId}`,
-				clientId: client.clientId,
-				resourceId,
+	await db
+		.insert(oauthResource)
+		.values(
+			oauthResourceInputs(audiences).map((resource) => ({
+				id: resource.identifier,
+				identifier: resource.identifier,
+				name: resource.identifier,
+				accessTokenTtl: resource.accessTokenTtl,
+				allowedScopes: resource.allowedScopes,
 				createdAt: now,
+				updatedAt: now,
 			})),
-		);
-		if (links.length) await tx.insert(oauthClientResource).values(links);
-	});
+		)
+		.onConflictDoNothing({ target: oauthResource.identifier });
+	for (const client of clients) {
+		const row = firstPartyClientRow(client);
+		await db
+			.insert(oauthClient)
+			.values({ ...row, createdAt: now, updatedAt: now })
+			.onConflictDoUpdate({
+				target: oauthClient.clientId,
+				set: { ...row, id: sql`${oauthClient.id}`, updatedAt: now },
+			});
+	}
+	const links = clients.flatMap((client) =>
+		client.resources.map((resourceId) => ({
+			id: `${client.clientId} ${resourceId}`,
+			clientId: client.clientId,
+			resourceId,
+			createdAt: now,
+		})),
+	);
+	await db.delete(oauthClientResource).where(
+		and(
+			inArray(
+				oauthClientResource.clientId,
+				clients.map((client) => client.clientId),
+			),
+			notInArray(
+				oauthClientResource.id,
+				links.map((link) => link.id),
+			),
+		),
+	);
+	if (links.length)
+		await db.insert(oauthClientResource).values(links).onConflictDoNothing();
 }

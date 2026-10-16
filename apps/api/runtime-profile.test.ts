@@ -5,19 +5,18 @@
  * Each `mount*` declares one reusable surface. This test pins down the part
  * each entry writes by hand: which surfaces it chose to mount.
  *
- * The Worker is the deployed hosted artifact; the Bun entry is local dev and the
- * runtime-parity smoke (ADR-0066). Four surfaces are Worker-only for reasons that
- * survive scrutiny, and each says so in its row. Everything the shared library can
+ * The Worker is the deployed hosted artifact; the Bun entry is local dev and
+ * self-host (ADR-0066). Two surfaces are Worker-only for reasons that survive
+ * scrutiny, and each says so in its row. Everything the shared library can
  * mount on both is expected on both, so dropping one from the dev host (which is
  * how `/v1/audio/transcriptions` went missing) fails here.
  *
  * How the probe reads an entry's surface: send one request per row and ask only
  * whether the path routed at all. A mounted surface answers 401 (or 403, or 503
- * when unconfigured); an unmounted one answers Hono's 404. Every probe carries a
- * bearer so the `/api/*` CSRF gate is skipped, otherwise an unmounted mutating
- * path would 403 before it could 404. Nothing here asserts a status code beyond
- * that in the profile checks. Outage checks below additionally verify shell
- * availability and protected-operation rejection through both entrypoints.
+ * when unconfigured); an unmounted one answers Hono's 404. Nothing here asserts
+ * a status code beyond that in the profile checks. Outage checks below
+ * additionally verify shell availability and protected-operation rejection
+ * through both entrypoints.
  */
 
 import { expect, mock, test } from 'bun:test';
@@ -142,14 +141,6 @@ const PROFILE: Surface[] = [
 		why: "Billing is the deployed hosted Worker's concern: it needs the Autumn secret and the after-response drain. The dev host meters nothing, which is also why its inference and transcription gateways carry no policy.",
 	},
 	{
-		surface: 'account deletion',
-		method: 'DELETE',
-		url: `${ORIGIN}/api/account`,
-		worker: 'served',
-		bun: 'absent',
-		why: 'Deletion is a hosted resource sweep. A dev host holds none of those resources, and a partial sweep is worse than no route.',
-	},
-	{
 		surface: 'dashboard SPA',
 		method: 'GET',
 		url: `${ORIGIN}/dashboard`,
@@ -169,8 +160,6 @@ async function readProfile(
 		const response = await fetcher(
 			new Request(row.url, {
 				method: row.method,
-				// Bearer requests skip the `/api/*` CSRF gate, which would otherwise
-				// answer 403 for an unmounted mutating path and hide its absence.
 				headers: { authorization: 'Bearer runtime-profile-probe' },
 			}),
 		);
@@ -338,7 +327,6 @@ test("both runtimes' public HTML shells and unrelated 404s survive Postgres outa
 				['GET', '/v1/chat/completions'],
 				['GET', '/v1/audio/transcriptions'],
 				['POST', '/api/billing/plans'],
-				['GET', '/api/account'],
 				['GET', '/api/store/v1/sync'],
 				['POST', '/api/store/v1/sync'],
 				['POST', '/api/store/v1/current/so.epicenter.notes/personal/test.data'],

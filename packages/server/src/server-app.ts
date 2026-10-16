@@ -1,6 +1,6 @@
 /**
  * Server app factory. Wires the portable per-request lifecycle (origin + trust
- * resolution, CORS, CSRF) and returns a `Hono` instance the deployment mounts
+ * resolution, CORS) and returns a `Hono` instance the deployment mounts
  * every other sub-app on.
  *
  * It takes exactly one thing, the single axis a deployment varies on: an
@@ -20,7 +20,6 @@
 
 import { Hono } from 'hono';
 import { corsMiddleware } from './middleware/cors.js';
-import { requireOriginForCookieMutations } from './middleware/require-origin-for-cookie-mutations.js';
 import type { ServerBindings } from './server-bindings.js';
 import type { Env } from './types.js';
 
@@ -40,8 +39,8 @@ export type Identity = {
 	 */
 	resolveOrigin: (env: ServerBindings) => string;
 	/**
-	 * The origins this deployment trusts for CORS, cookie-mutation CSRF, and
-	 * Better Auth's redirect allow-list. The library hardcodes none: `apps/api`
+	 * The origins this deployment trusts for CORS and Better Auth's origin
+	 * and redirect allow-list. The library hardcodes none: `apps/api`
 	 * supplies the Epicenter app origins. Receives
 	 * the resolved `baseURL` so a deployment can include its own origin without
 	 * restating it, and the per-request `env` so a deployment whose trust set is
@@ -59,7 +58,9 @@ export type Identity = {
  *
  *   1. Origin + trust resolution (a pure read of the env binding).
  *   2. CORS (skips WS upgrades).
- *   3. CSRF gate on `/api/*` (bearer requests skip it inside the middleware).
+ *
+ * Cookie routes guard their own origin: `requireSessionCookie` refuses another
+ * origin and a state change that names none.
  *
  * The deployment is responsible for exposing a health endpoint on `/`. The cloud's
  * relational-auth context (`c.var.auth`, `c.var.db`) is NOT installed here: the
@@ -72,9 +73,8 @@ export function createServerApp<E extends Env = Env>({
 	const app = new Hono<E>();
 
 	// 1. Deployment auth origin and trust set. Resolved first (a pure read of
-	// the env binding, no DB) so downstream middleware, including CORS and the
-	// cookie-CSRF guard, can scope the trusted-origin allow-list to this
-	// deployment. The origin is supplied explicitly and never inferred from the
+	// the env binding, no DB) so downstream middleware, including CORS, can
+	// scope the trusted-origin allow-list to this deployment. The origin is supplied explicitly and never inferred from the
 	// request, so hosted callback URLs are stable per deployment.
 	app.use('*', async (c, next) => {
 		const baseURL = resolveOrigin(c.env);
@@ -85,10 +85,6 @@ export function createServerApp<E extends Env = Env>({
 
 	// 2. CORS
 	app.use('*', corsMiddleware);
-
-	// 3. CSRF gate on every `/api/*` route. Bearer requests are CSRF-immune
-	// and skip this check inside the middleware.
-	app.use('/api/*', requireOriginForCookieMutations);
 
 	return app;
 }

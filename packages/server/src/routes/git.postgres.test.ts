@@ -599,6 +599,17 @@ describe('hosted Git over the disk store', () => {
 		}
 		const unauthenticated = await fetch(`${origin}/api/repos`);
 		expect(unauthenticated.status).toBe(401);
+		// The listing takes the Git audience's token; an API token, even with
+		// `folders:read`, is another resource's.
+		const api = await signedIn(
+			'lister-api',
+			'openid folders:read',
+			audiences.api,
+		);
+		const wrongAudience = await fetch(`${origin}/api/repos`, {
+			headers: { authorization: `Bearer ${api.token}` },
+		});
+		expect(wrongAudience.status).toBe(401);
 		const response = await fetch(`${origin}/api/repos`, {
 			headers: { authorization: `Bearer ${token}` },
 		});

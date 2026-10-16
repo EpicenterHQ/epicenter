@@ -76,11 +76,10 @@ export type AppKey = keyof typeof APPS;
 /**
  * Dev listen port for the apps/api Bun runtime (`apps/api/server.ts`,
  * ADR-0066): the off-Cloudflare twin of the wrangler dev server on
- * {@link APPS.API.port} (8787). The two are deliberately one apart so the
- * runtime-parity smoke can run both backends at once (`apps/api/scripts/smoke.ts`
- * targets :8788 and :8787). An operator overrides it with `PORT`; this is only
- * the unset-`PORT` default. It is not an app origin (never a CORS or sign-in
- * target), so it lives beside {@link APPS} rather than as a field inside it.
+ * {@link APPS.API.port} (8787), one apart so both can run at once. An
+ * operator overrides it with `PORT`; this is only the unset-`PORT` default.
+ * It is not an app origin (never a CORS or sign-in target), so it lives
+ * beside {@link APPS} rather than as a field inside it.
  */
 export const API_BUN_DEV_PORT = 8788;
 
@@ -143,7 +142,7 @@ export const EPICENTER_API_URL =
  * presents them, and its Git credential helper answers for the `git` one.
  */
 export function resolveOAuthAudiences(apiOrigin: string): {
-	/** Inference, transcription, `GET /api/repos`, profile and usage reads. */
+	/** Inference and transcription. */
 	api: string;
 	/** Git smart HTTP and LFS. */
 	git: string;

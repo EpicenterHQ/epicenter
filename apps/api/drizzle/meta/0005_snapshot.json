@@ -1,6 +1,6 @@
 {
-	"id": "97f6878c-c01c-4469-83df-b3495fe72f98",
-	"prevId": "c3372942-ccaa-4b43-9f0f-ba578feb1b5c",
+	"id": "64430fb2-024b-4962-b8c0-ec8878a047a1",
+	"prevId": "97f6878c-c01c-4469-83df-b3495fe72f98",
 	"version": "7",
 	"dialect": "postgresql",
 	"tables": {
@@ -690,6 +690,30 @@
 					"type": "text",
 					"primaryKey": false,
 					"notNull": false
+				},
+				"reference_id": {
+					"name": "reference_id",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"auth_time": {
+					"name": "auth_time",
+					"type": "timestamp",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"acr": {
+					"name": "acr",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"amr": {
+					"name": "amr",
+					"type": "text[]",
+					"primaryKey": false,
+					"notNull": false
 				}
 			},
 			"indexes": {
@@ -1006,6 +1030,12 @@
 					"primaryKey": false,
 					"notNull": false
 				},
+				"sector_identifier": {
+					"name": "sector_identifier",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
 				"scopes": {
 					"name": "scopes",
 					"type": "text[]",
@@ -1111,6 +1141,18 @@
 				},
 				"backchannel_logout_session_required": {
 					"name": "backchannel_logout_session_required",
+					"type": "boolean",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"frontchannel_logout_uri": {
+					"name": "frontchannel_logout_uri",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"frontchannel_logout_session_required": {
+					"name": "frontchannel_logout_session_required",
 					"type": "boolean",
 					"primaryKey": false,
 					"notNull": false
@@ -1570,6 +1612,18 @@
 				"auth_time": {
 					"name": "auth_time",
 					"type": "timestamp",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"acr": {
+					"name": "acr",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"amr": {
+					"name": "amr",
+					"type": "text[]",
 					"primaryKey": false,
 					"notNull": false
 				},

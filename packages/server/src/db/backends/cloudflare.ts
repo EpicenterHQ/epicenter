@@ -16,12 +16,13 @@ import { createDb, type Db } from '../create-db.js';
 
 /**
  * Open a per-request database handle over a Hyperdrive binding. The caller
- * (the `db.connect` leg in `createServerApp`) closes it after the
- * after-response queue drains.
+ * (`createCloudContextMiddleware`'s `connect`) closes it after the
+ * after-response queue drains. It reads only the binding's connection string,
+ * so a Bun program typechecks the main barrel without Workers types.
  */
-export async function connectHyperdriveDb(
-	hyperdrive: Hyperdrive,
-): Promise<{ db: Db; close: () => Promise<void> }> {
+export async function connectHyperdriveDb(hyperdrive: {
+	connectionString: string;
+}): Promise<{ db: Db; close: () => Promise<void> }> {
 	const client = new pg.Client({
 		connectionString: hyperdrive.connectionString,
 	});

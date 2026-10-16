@@ -11,6 +11,7 @@ export const SESSION_POLICY = {
 const managementPaths = new Set([
 	'/link-social',
 	'/unlink-account',
+	'/delete-user',
 	'/passkey/generate-register-options',
 	'/passkey/verify-registration',
 	'/passkey/delete-passkey',
@@ -23,6 +24,12 @@ const managementPaths = new Set([
  * session is the authorization server's own credential, and no access token or
  * `Authorization` header reaches account management (ADR-0549). The nested
  * /get-session call bypasses this path guard.
+ *
+ * It holds Better Auth's account-management endpoints to the same rules as
+ * `requireSessionCookie` holds the server's own: this origin only, a live
+ * session, the page's named account, and a session younger than `freshAge`.
+ * Better Auth's own origin check admits every trusted origin, and every
+ * Epicenter app is one.
  */
 export function requireAccountSession(
 	resolveSession: (
@@ -31,6 +38,12 @@ export function requireAccountSession(
 ) {
 	return createAuthMiddleware(async (ctx) => {
 		if (!managementPaths.has(ctx.path)) return;
+		const origin = ctx.headers?.get('origin');
+		if (origin && origin !== new URL(ctx.context.baseURL).origin)
+			throw new APIError('FORBIDDEN', {
+				message: "The request did not come from this server's own origin.",
+				code: 'FORBIDDEN_ORIGIN',
+			});
 		const headers = new Headers();
 		const cookie = ctx.headers?.get('cookie');
 		if (cookie) headers.set('cookie', cookie);
@@ -59,7 +72,7 @@ export function requireAccountSession(
 			SESSION_FRESH_AGE_SECONDS * 1000
 		)
 			throw new APIError('FORBIDDEN', {
-				message: 'Sign in again to change your login methods.',
+				message: 'Sign in again to manage your account.',
 				code: 'SESSION_NOT_FRESH',
 			});
 		ctx.context.session = session;

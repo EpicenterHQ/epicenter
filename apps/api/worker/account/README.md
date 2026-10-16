@@ -1,10 +1,12 @@
 # Hosted account deletion
 
-This directory owns the hosted deletion endpoint. It currently refuses deletion
-before destructive work: `DELETE /api/account` requires a fresh, live session
-bound by `x-epicenter-principal`, then returns `503` with
-`ACCOUNT_DELETION_UNAVAILABLE`. It accepts no job, tracks no progress, and never
-reports completion. The account page disables deletion. The former synchronous
+Account deletion is Better Auth's `POST /auth/delete-user`, enabled in
+`packages/server/src/auth/base-config.ts`. It currently refuses deletion before
+destructive work: the request needs this origin and a fresh, live session bound
+by `x-epicenter-principal` (`requireAccountSession`), then `beforeDelete`
+returns `503` with `ACCOUNT_DELETION_UNAVAILABLE`. It accepts no job, tracks no
+progress, and never reports completion. This file is the storage inventory a
+real deletion has to cover. The account page disables deletion. The former synchronous
 coordinator could remove login access while leaving hosted data behind. Automated
 deletion is deferred for the zero-user V1; see
 [the decision](../../../../docs/adr/0360-defer-automated-hosted-account-deletion.md).

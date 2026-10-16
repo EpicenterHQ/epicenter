@@ -2,96 +2,12 @@
  * @epicenter/server/bun: the Bun host surface.
  *
  * Same library, second runtime (ADR-0066). `apps/api/server.ts` composes its
- * server from here (`createServerApp` + the `mount*` surface) and serves it with
- * `Bun.serve`: the self-host path, on Postgres. It uses
- * `createCloudContextMiddleware` with a shared `pg.Pool` and a fire-and-forget
- * drain on database-dependent routes.
- *
- * This barrel re-exports everything the main barrel does EXCEPT the Cloudflare
- * pieces whose modules name `cloudflare:workers` or a Workers binding and so cannot
- * load in a Bun process. A Bun host supplies its own db concerns.
+ * server from here and serves it with `Bun.serve`: the self-host path, on
+ * Postgres. This is the main barrel plus the modules a Worker cannot bundle.
  */
 
-// The OAuth 2.1 authorization server (ADR-0549): its shared policy, the
-// first-party registrations a deployment writes, and the one resource check.
 // Resolve-once, address-pinned CIMD transport for a Node or Bun host.
 export { fetchClientMetadataResource as nodeClientMetadataFetch } from '@better-auth/cimd/node';
-// Hosted auth routes are separate from the cloud request-context middleware.
-// CloudAuthBindings is merged into the Bun host's boot validation.
-export { CloudAuthBindings } from './auth/create-auth.js';
-// The bearer resource-boundary error union the resolver emits. Exported
-// here too (it is not a Cloudflare module) so a Bun entry's dev bearer resolver
-// gets it without importing the main barrel, which would drag in the Cloudflare
-// Durable Objects and their `cloudflare:workers` import.
-export { OAuthError } from './auth/oauth-errors.js';
-export {
-	OAUTH_SCOPES,
-	type OAuthAudiences,
-	type OAuthScope,
-	oauthResourceInputs,
-} from './auth/oauth-policy.js';
-export {
-	type FirstPartyClient,
-	firstPartyClientRow,
-	registerFirstPartyClients,
-} from './auth/oauth-registrations.js';
-export {
-	type AccountAccess,
-	authorizeAccountRequest,
-	authorizeResourceRequest,
-	protectedResourceMetadataUrl,
-	type ResourceAccess,
-	type ResourceRefusal,
-	readAccessToken,
-} from './auth/resource-access.js';
-export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
-export { createDb } from './db/create-db.js';
 // Bare repositories on disk behind `git http-backend`, the Bun entry's store.
 export { createDiskGitHost } from './git-disk-store.js';
-export {
-	requireAccessToken,
-	requireBearerPrincipal,
-	requireSessionCookie,
-} from './middleware/require-auth.js';
-export {
-	NAMESPACE_ROLES,
-	type NamespaceOperation,
-	type NamespaceRole,
-	roleAllows,
-} from './namespace-roles.js';
-// Hosted repositories as rows (ADR-0546): the manage role's rename and move,
-// each leaving an alias. No route mounts them yet.
-export {
-	changeRepository,
-	moveRepository,
-	RepositoryChangeError,
-	renameRepository,
-} from './repositories.js';
-export { mountAuthRoutes } from './routes/auth.js';
-export {
-	type HostedBlobStore,
-	mountPersonalAuthorityBlobs,
-} from './routes/authority-blobs.js';
-export {
-	type GitHost,
-	type GitRequest,
-	type GitService,
-	mountGitHost,
-} from './routes/git.js';
-export { mountInferenceApp } from './routes/inference.js';
-// The folder MCP server at the MCP audience (ADR-0550).
-export { mountMcpServer } from './routes/mcp.js';
-export { mountTranscriptionApp } from './routes/transcription.js';
-export { resolveDeploymentBlobStore } from './s3-blob-store.js';
-export { createServerApp } from './server-app.js';
-// The portable env contract as both arktype schema (value) and inferred type;
-// the Bun entry validates `process.env` against it at boot (merging its own
-// process config and any secrets it re-requires).
-export { ServerBindings } from './server-bindings.js';
-// Public Hono context types: the portable `Env`, the cloud's `CloudEnv`, and the
-// `ResolveBearerPrincipal<E>` seam the dev Bun entry closes its wrapper over for the smoke.
-export type {
-	CloudEnv,
-	Env,
-	ResolveBearerPrincipal,
-} from './types.js';
+export * from './index.js';

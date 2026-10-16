@@ -863,7 +863,7 @@ try {
 		true,
 	);
 	assert.equal(
-		requests.filter((request) => request.path === '/api/account').length,
+		requests.filter((request) => request.path === '/auth/delete-user').length,
 		0,
 	);
 	// Another tab signing in as Bob replaces the cookie; returning to this tab

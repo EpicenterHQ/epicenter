@@ -37,9 +37,9 @@ export const TOKEN_PREFIX = {
 
 /** The token audiences of one deployment, named by the deployment. */
 export type OAuthAudiences = {
-	/** Inference, transcription, `GET /api/repos`, profile and usage reads. */
+	/** Inference and transcription. */
 	api: string;
-	/** Git smart HTTP and LFS. */
+	/** Git smart HTTP, personal blobs, and `GET /api/repos`. */
 	git: string;
 	/** The folder MCP server. */
 	mcp: string;
@@ -51,7 +51,7 @@ export type OAuthAudiences = {
  * not what a token for it may carry: see {@link oauthResourceInputs}.
  */
 export const SCOPES_SUPPORTED = {
-	api: ['ai', 'profile', 'folders:read'],
+	api: ['ai'],
 	git: ['folders:read', 'folders:write'],
 	mcp: ['folders:read', 'folders:write'],
 } as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;

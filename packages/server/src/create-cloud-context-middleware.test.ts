@@ -64,14 +64,6 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	for (const path of ['/missing', '/api/missing']) {
 		expect((await app.request(path)).status).toBe(404);
 	}
-	for (const headers of [
-		new Headers(),
-		new Headers({ origin: 'https://attacker.example' }),
-	]) {
-		expect(
-			(await app.request('/api/protected', { method: 'POST', headers })).status,
-		).toBe(403);
-	}
 	const preflight = await app.request('/api/protected', {
 		method: 'OPTIONS',
 		headers: { origin, 'access-control-request-method': 'POST' },

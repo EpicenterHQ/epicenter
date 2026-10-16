@@ -15,7 +15,6 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountSessionApp` | `src/routes/session.ts` | The profile read: the account an access token acts for. |
 | `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads; deployment supplies local SQLite or S3 byte storage. |
 | `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`, push-to-create, and `GET /api/repos`; the deployment supplies the store (`GitHost`). |
 | `mountMcpServer` | `src/routes/mcp.ts` | The folder MCP server at the MCP audience: six tools over hosted repositories, reached through the same `GitHost` store as Git. |
@@ -69,7 +68,7 @@ elsewhere (`resolveOAuthAudiences`).
 | --- | --- |
 | `GET info/refs?service=git-upload-pack`, `POST git-upload-pack` | `folders:read`, the `read` role |
 | `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role |
-| `GET /api/repos` | `folders:read` on the API or Git audience |
+| `GET /api/repos` | `folders:read` on the Git audience |
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,
@@ -168,7 +167,7 @@ deployment passes `oauth` (through `createCloudContextMiddleware`'s
 initializes, and a Worker builds one per request, so only the context that
 serves `/auth/*` composes it. Beside it are only passkeys: a Better Auth
 session is the authorization server's own cookie, never a resource credential,
-so there is no `bearer()` and no session handoff.
+so there is no `bearer()`.
 
 | Piece | Source | What it holds |
 | --- | --- | --- |
@@ -176,9 +175,10 @@ so there is no `bearer()` and no session handoff.
 | Provider | `src/auth/plugins.ts` | `@better-auth/oauth-provider` with `disableJwtPlugin`, no dynamic registration, `resourceSeedMode: "insertOnly"`, the device grant, and `@better-auth/cimd`, whose plugin is kept per transport so its cache outlives a Worker request. |
 | Grant target | `src/auth/grant-target.ts` | `*` or `ns:<id>`, staged by the consent page through `POST /auth/grant-target/select` and listed by `GET /auth/grant-target/options`. It becomes the consent's `referenceId`, and a consent without one is refused. A device code is approved on the same consent page (`/auth/oauth2/authorize?user_code=<code>`), so its tokens carry the target natively. |
 | Offline grants | `src/auth/offline-detach.ts` | Clears `sessionId` on a grant with a refresh token, so it outlives the browser session that approved it. |
-| Registrations | `src/auth/oauth-registrations.ts` | The `oauth_client` and `oauth_resource` rows a deployment's first-party clients need, written insert-only for resources. |
-| Resource check | `src/auth/resource-access.ts` | `authorizeResourceRequest`: one SQL statement from a token, an audience, a scope, and a namespace to the account and its role, or a 401 or 403 with `resource_metadata`. `authorizeAccountRequest`: the same without a namespace, for resources that act on the account (inference, transcription, the profile read). |
-| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, `requireSessionCookie()` in front of account management on the authorization server's own pages, and `requireBearerPrincipal` for the dev entry's resolver only. |
+| Registrations | `src/auth/oauth-registrations.ts` | `registerFirstPartyClients`, the one writer of the `oauth_client`, `oauth_resource`, and `oauth_client_resource` rows a deployment's first-party clients need: insert-only for resources, idempotent with no transaction, so concurrent writers converge. The Bun entry calls it at boot and the Worker once per isolate; no migration seeds a client. |
+| Resource check | `src/auth/resource-access.ts` | `authorizeResourceRequest`: one SQL statement from a token, an audience, a scope, and a namespace to the account and its role, or a 401 or 403 with `resource_metadata`. `authorizeAccountRequest`: the same without a namespace, for resources that act on the account (inference, transcription, personal blobs, the repository listing). |
+| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
+| Account session | `src/auth/session-policy.ts` | `requireAccountSession`, the Better Auth hook that holds its account-management endpoints (`/link-social`, `/unlink-account`, `/delete-user`, and the passkey changes) to the same rules plus ten-minute freshness. `/delete-user` then refuses with `ACCOUNT_DELETION_UNAVAILABLE` (`src/auth/base-config.ts`). |
 | CIMD transports | `src/auth/client-metadata-fetch.ts`, `@better-auth/cimd/node` | The Worker's `redirect: "manual"` fetch and the Bun host's resolve-once, address-pinned fetch. |
 
 The provider runs unpatched ([ADR-0565](../../docs/adr/0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md)).
@@ -203,9 +203,8 @@ deployment names each mount's audience and scope:
 | Mount | Audience | Scope |
 | --- | --- | --- |
 | `mountInferenceApp`, `mountTranscriptionApp` (`/v1/*`) | API | `ai` |
-| `mountSessionApp` (`/api/session`, the profile read) | API | `profile` |
 | `mountGitHost` (Git requests) | Git | `folders:read` to fetch, `folders:write` to push |
-| `mountGitHost` (`GET /api/repos`) | API or Git | `folders:read` |
+| `mountGitHost` (`GET /api/repos`) | Git | `folders:read` |
 | `mountMcpServer` | MCP | `folders:read` for every request, `folders:write` to call `write_files` |
 | `mountPersonalAuthorityBlobs` | Git | `folders:read` to read a private object, `folders:write` to publish or delete |
 

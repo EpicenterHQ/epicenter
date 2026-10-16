@@ -87,7 +87,7 @@ test("each audience's metadata lists its own scopes, on its own host", async () 
 		`${origin}/.well-known/oauth-protected-resource`,
 	);
 	expect(await api.json()).toMatchObject({
-		scopes_supported: ['ai', 'profile', 'folders:read'],
+		scopes_supported: ['ai'],
 	});
 	const mcp = await app.request(
 		`${origin}/.well-known/oauth-protected-resource/mcp`,
