@@ -136,6 +136,7 @@ impl LocalTranscriptionSettings {
             }
             OnDisk::Missing => State {
                 stored: previous
+                    .filter(|previous| *previous != path)
                     .map(|previous| adopt(&path, previous))
                     .unwrap_or_default(),
                 unreadable: false,
@@ -176,11 +177,24 @@ impl LocalTranscriptionSettings {
         self.update(|stored| stored.unload_policy = policy)
     }
 
+    /// While the file is unreadable, each read looks again, so fixing the file
+    /// by hand takes effect without a restart.
     fn read(&self) -> State {
-        self.state
+        let state = self
+            .state
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+            .clone();
+        if !state.unreadable {
+            return state;
+        }
+        match read_file(&self.path) {
+            OnDisk::Read(stored) => State {
+                stored,
+                unreadable: false,
+            },
+            _ => state,
+        }
     }
 
     /// Apply `change` and flush. The lock is held across the write so two
@@ -411,11 +425,16 @@ mod tests {
         let error = settings
             .set_unload_policy(UnloadPolicy::Never)
             .expect_err("a file Epicenter cannot read is not replaced");
-        assert!(matches!(error, SettingsError::SaveFailed { .. }));
+        let SettingsError::SaveFailed { message } = error else {
+            panic!("expected SaveFailed, got {error:?}");
+        };
+        assert!(message.contains(&path.display().to_string()), "{message}");
         assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
 
-        // Once the file is fixed, the next change goes through on top of it.
+        // Once the file is fixed, reads see it, and the next change goes
+        // through on top of it.
         std::fs::write(&path, br#"{ "unloadPolicy": "immediately" }"#).unwrap();
+        assert_eq!(settings.unload_policy(), UnloadPolicy::Immediately);
         settings
             .set_active_model_id(Some(a_catalog_model_id()))
             .unwrap();
@@ -424,6 +443,38 @@ mod tests {
         assert_eq!(reloaded.active_model_id(), Some(a_catalog_model_id()));
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_corrupt_file_that_is_removed_takes_the_next_change() {
+        let path = temp_path("corrupt-removed");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+
+        let settings = LocalTranscriptionSettings::load(path.clone());
+        std::fs::remove_file(&path).unwrap();
+        settings.set_unload_policy(UnloadPolicy::Never).unwrap();
+        let reloaded = LocalTranscriptionSettings::load(path.clone());
+        assert_eq!(reloaded.unload_policy(), UnloadPolicy::Never);
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn a_corrupt_file_is_not_replaced_by_earlier_settings() {
+        let path = temp_path("corrupt-over-previous");
+        let previous = temp_path("corrupt-over-previous-earlier");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(previous.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+        std::fs::write(&previous, br#"{ "unloadPolicy": "never" }"#).unwrap();
+
+        let settings = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
+        assert_eq!(settings.unload_policy(), UnloadPolicy::default());
+        assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        std::fs::remove_dir_all(previous.parent().unwrap()).ok();
     }
 
     #[test]

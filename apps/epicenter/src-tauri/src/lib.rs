@@ -376,14 +376,20 @@ pub fn run() {
             // state (ADR-0180), so they live in the app's data directory beside
             // `approvals.json`, never in a folder that could carry them to a
             // machine without the model files or a compatible accelerator.
-            // Earlier builds kept the file in the config directory.
-            let settings = LocalTranscriptionSettings::load_or_adopt(
-                desktop_paths.data_dir.join("local-transcription.json"),
-                app.path()
+            // Earlier builds kept the file in the config directory. A data
+            // directory chosen with `EPICENTER_DATA_DIR` starts on its own
+            // rather than copying this machine's settings in.
+            let previous_settings = match std::env::var_os("EPICENTER_DATA_DIR") {
+                Some(_) => None,
+                None => app
+                    .path()
                     .app_config_dir()
                     .ok()
-                    .map(|dir| dir.join("local-transcription.json"))
-                    .as_deref(),
+                    .map(|dir| dir.join("local-transcription.json")),
+            };
+            let settings = LocalTranscriptionSettings::load_or_adopt(
+                desktop_paths.data_dir.join("local-transcription.json"),
+                previous_settings.as_deref(),
             );
             app.manage(desktop_paths);
 
