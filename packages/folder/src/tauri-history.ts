@@ -207,31 +207,29 @@ function createCliHistory({
 					cause: answer.kind === 'failed' ? answer.message : 'no reply',
 				});
 
-	const scanRunner = createPassRunner<void, Result<FilesObservation, GitError>>(
-		{
-			async run() {
-				const capturedAt = ++clock;
-				const answer = await ask<HistoryResults['status']>(() =>
-					commands.status(scope),
-				);
-				if (answer.kind !== 'reply') {
-					const failure = gitFailure('status', answer);
-					files =
-						files.state === 'observed'
-							? { ...files, stale: true, error: failure.error.message }
-							: { state: 'unknown', error: failure.error.message };
-					emit();
-					return failure;
-				}
-				observe(answer.reply, capturedAt);
+	const scanRunner = createPassRunner<Result<FilesObservation, GitError>>({
+		async run() {
+			const capturedAt = ++clock;
+			const answer = await ask<HistoryResults['status']>(() =>
+				commands.status(scope),
+			);
+			if (answer.kind !== 'reply') {
+				const failure = gitFailure('status', answer);
+				files =
+					files.state === 'observed'
+						? { ...files, stale: true, error: failure.error.message }
+						: { state: 'unknown', error: failure.error.message };
 				emit();
-				return answer.reply.result;
-			},
-			failed: (cause) => GitError.Failed({ operation: 'status', cause }),
-			closed: () => GitError.Closed(),
-			onChange: () => emit(),
+				return failure;
+			}
+			observe(answer.reply, capturedAt);
+			emit();
+			return answer.reply.result;
 		},
-	);
+		failed: (cause) => GitError.Failed({ operation: 'status', cause }),
+		closed: () => GitError.Closed(),
+		onChange: () => emit(),
+	});
 
 	function commit({
 		message,

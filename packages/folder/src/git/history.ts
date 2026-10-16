@@ -372,40 +372,38 @@ export function createHistory({
 		void scanRunner.attempt();
 	}
 
-	const scanRunner = createPassRunner<void, Result<FilesObservation, GitError>>(
-		{
-			async run() {
-				const capturedAt = ++clock;
-				try {
-					const captured = await capture();
-					const head = await backend.readBranch();
-					const committed = await headFiles(head);
-					// Status shows what a commit would record; with a declaration
-					// that cannot be read, by what the definition keeps.
-					const isLocal =
-						(await localNow()).data ?? localMatcher(definition?.local);
-					const hashes = await hashFiles(
-						await source(captured, committed, isLocal),
-					);
-					const value: FilesObservation = {
-						head,
-						changes: diffFileMaps(committed, hashes),
-					};
-					observeFiles(capturedAt, value);
-					await refreshSync({ head });
-					emit();
-					return Ok(value);
-				} catch (cause) {
-					failFiles(describe(cause));
-					emit();
-					return GitError.Failed({ operation: 'status', cause });
-				}
-			},
-			failed: (cause) => GitError.Failed({ operation: 'status', cause }),
-			closed: () => GitError.Closed(),
-			onChange: () => emit(),
+	const scanRunner = createPassRunner<Result<FilesObservation, GitError>>({
+		async run() {
+			const capturedAt = ++clock;
+			try {
+				const captured = await capture();
+				const head = await backend.readBranch();
+				const committed = await headFiles(head);
+				// Status shows what a commit would record; with a declaration
+				// that cannot be read, by what the definition keeps.
+				const isLocal =
+					(await localNow()).data ?? localMatcher(definition?.local);
+				const hashes = await hashFiles(
+					await source(captured, committed, isLocal),
+				);
+				const value: FilesObservation = {
+					head,
+					changes: diffFileMaps(committed, hashes),
+				};
+				observeFiles(capturedAt, value);
+				await refreshSync({ head });
+				emit();
+				return Ok(value);
+			} catch (cause) {
+				failFiles(describe(cause));
+				emit();
+				return GitError.Failed({ operation: 'status', cause });
+			}
 		},
-	);
+		failed: (cause) => GitError.Failed({ operation: 'status', cause }),
+		closed: () => GitError.Closed(),
+		onChange: () => emit(),
+	});
 
 	/**
 	 * One whole-folder commit, after waiting for the backend's protection. A
@@ -584,11 +582,8 @@ export function createHistory({
 	 * Sync's fetches, one at a time: the remote branch head, or `undefined`
 	 * when the remote has no such branch.
 	 */
-	const fetchRunner = createPassRunner<
-		void,
-		Result<string | undefined, GitError>
-	>({
-		async run(_input, signal) {
+	const fetchRunner = createPassRunner<Result<string | undefined, GitError>>({
+		async run(signal) {
 			if ((await backend.refreshRemote()) === undefined)
 				return GitError.NoRemote();
 			let result: Result<string | undefined, GitError>;

@@ -36,8 +36,8 @@ function counting({ obeysAbort = true } = {}) {
 	const gates: ReturnType<typeof gate>[] = [];
 	let starts = 0;
 	let changes = 0;
-	const runner = createPassRunner<string, string>({
-		async run(input, signal) {
+	const runner = createPassRunner<string>({
+		async run(signal) {
 			const index = starts++;
 			const current = gate();
 			gates.push(current);
@@ -49,7 +49,7 @@ function counting({ obeysAbort = true } = {}) {
 			]);
 			return obeysAbort && signal.aborted
 				? `aborted ${index}`
-				: `pass ${index} ${input}`;
+				: `pass ${index}`;
 		},
 		failed: (cause) => `failed ${String(cause)}`,
 		closed: () => 'closed',
@@ -61,137 +61,137 @@ function counting({ obeysAbort = true } = {}) {
 describe('createPassRunner', () => {
 	test('an attempt starts a pass when idle; one made during a pass does nothing and never runs later', async () => {
 		const { runner, gates, starts, changes } = counting();
-		const first = runner.attempt('a');
+		const first = runner.attempt();
 		await Bun.sleep(0);
 		expect(starts()).toBe(1);
 		expect(runner.active).toBe(true);
 		const before = changes();
-		expect(runner.attempt('b')).toBeUndefined();
-		expect(runner.attempt('c')).toBeUndefined();
+		expect(runner.attempt()).toBeUndefined();
+		expect(runner.attempt()).toBeUndefined();
 		// A skipped attempt changed nothing an observer could see.
 		expect(changes()).toBe(before);
 		gates[0]!.open();
-		expect(await first).toBe('pass 0 a');
+		expect(await first).toBe('pass 0');
 		expect(runner.active).toBe(false);
 		await Bun.sleep(5);
 		expect(starts()).toBe(1);
-		const next = runner.attempt('d');
+		const next = runner.attempt();
 		await Bun.sleep(0);
 		gates[1]!.open();
-		expect(await next).toBe('pass 1 d');
+		expect(await next).toBe('pass 1');
 	});
 
 	test('requests wait for the passes ahead and each runs its own, in order', async () => {
 		const { runner, gates, starts } = counting();
-		const first = runner.request('a');
-		const second = runner.request('b');
-		const third = runner.request('c');
+		const first = runner.request();
+		const second = runner.request();
+		const third = runner.request();
 		await Bun.sleep(0);
 		expect(starts()).toBe(1);
 		gates[0]!.open();
-		expect(await first).toBe('pass 0 a');
+		expect(await first).toBe('pass 0');
 		await Bun.sleep(0);
 		expect(starts()).toBe(2);
 		gates[1]!.open();
-		expect(await second).toBe('pass 1 b');
+		expect(await second).toBe('pass 1');
 		await Bun.sleep(0);
 		gates[2]!.open();
-		expect(await third).toBe('pass 2 c');
+		expect(await third).toBe('pass 2');
 		expect(starts()).toBe(3);
 	});
 
 	test('an attempt does not start between a finished pass and a caller already waiting', async () => {
 		const { runner, gates, starts } = counting();
-		const first = runner.request('a');
-		const waiting = runner.request('b');
+		const first = runner.request();
+		const waiting = runner.request();
 		await Bun.sleep(0);
 		gates[0]!.open();
 		await first;
 		// The pass ended this instant; the waiter's turn has not begun yet.
-		expect(runner.attempt('unawaited')).toBeUndefined();
+		expect(runner.attempt()).toBeUndefined();
 		await Bun.sleep(0);
 		gates[1]!.open();
-		expect(await waiting).toBe('pass 1 b');
+		expect(await waiting).toBe('pass 1');
 		expect(starts()).toBe(2);
 	});
 
 	test('followers share one pass that starts after they asked and never join a running one', async () => {
 		const { runner, gates, starts } = counting();
 		// Asked together while idle: one pass serves both.
-		const a = runner.follow('a');
-		const b = runner.follow('b');
+		const a = runner.follow();
+		const b = runner.follow();
 		expect(b).toBe(a);
 		await Bun.sleep(0);
 		expect(starts()).toBe(1);
 
 		// Asked while that pass runs: one more pass, shared, not the running one.
-		const c = runner.follow('c');
-		const d = runner.follow('d');
+		const c = runner.follow();
+		const d = runner.follow();
 		expect(c).not.toBe(a);
 		expect(d).toBe(c);
 		await Bun.sleep(5);
 		expect(starts()).toBe(1);
 		gates[0]!.open();
-		expect(await a).toBe('pass 0 a');
+		expect(await a).toBe('pass 0');
 		await Bun.sleep(0);
 		expect(starts()).toBe(2);
 
 		// Asked while the follower runs: the next pass, not this one.
-		const e = runner.follow('e');
+		const e = runner.follow();
 		expect(e).not.toBe(c);
 		gates[1]!.open();
-		expect(await c).toBe('pass 1 c');
+		expect(await c).toBe('pass 1');
 		await Bun.sleep(0);
 		gates[2]!.open();
-		expect(await e).toBe('pass 2 e');
+		expect(await e).toBe('pass 2');
 		expect(starts()).toBe(3);
 	});
 
 	test('close tells a waiting follower that the runner closed', async () => {
 		const { runner, starts } = counting();
-		const first = runner.request('a');
-		const follower = runner.follow('b');
+		const first = runner.request();
+		const follower = runner.follow();
 		await Bun.sleep(0);
 		await runner.close();
 		expect(await first).toBe('aborted 0');
 		expect(await follower).toBe('closed');
-		expect(await runner.follow('d')).toBe('closed');
+		expect(await runner.follow()).toBe('closed');
 		expect(starts()).toBe(1);
 	});
 
 	test('close aborts the active pass, waits for it, and tells waiting and later callers it closed', async () => {
 		const { runner, starts } = counting();
-		const first = runner.request('a');
-		const waiting = runner.request('b');
+		const first = runner.request();
+		const waiting = runner.request();
 		await Bun.sleep(0);
 		await runner.close();
 		expect(await first).toBe('aborted 0');
 		expect(await waiting).toBe('closed');
 		expect(runner.active).toBe(false);
-		expect(await runner.request('c')).toBe('closed');
-		expect(runner.attempt('d')).toBeUndefined();
+		expect(await runner.request()).toBe('closed');
+		expect(runner.attempt()).toBeUndefined();
 		expect(starts()).toBe(1);
 	});
 
 	test('close waits for a pass that ignores its signal, and that pass reports what it really did', async () => {
 		const { runner, gates } = counting({ obeysAbort: false });
-		const first = runner.request('a');
+		const first = runner.request();
 		await Bun.sleep(0);
 		let closed = false;
 		const closing = runner.close().then(() => {
 			closed = true;
 		});
-		expect(await runner.request('b')).toBe('closed');
+		expect(await runner.request()).toBe('closed');
 		await Bun.sleep(5);
 		expect(closed).toBe(false);
 		gates[0]!.open();
 		await closing;
-		expect(await first).toBe('pass 0 a');
+		expect(await first).toBe('pass 0');
 	});
 
 	test('a throwing pass becomes a result and the runner keeps working', async () => {
 		let calls = 0;
-		const runner = createPassRunner<void, string>({
+		const runner = createPassRunner<string>({
 			async run() {
 				calls++;
 				if (calls === 1) throw new Error('boom');

@@ -20,13 +20,13 @@
  * without running.
  */
 
-export type PassRunner<TInput, T> = {
+export type PassRunner<T> = {
 	/** Starts a pass and returns its result, or `undefined` when one is running, waiting, or the runner is closed. */
-	attempt(input: TInput): Promise<T> | undefined;
+	attempt(): Promise<T> | undefined;
 	/** Runs a pass after those ahead of it. Resolves with the closed result once closing started. */
-	request(input: TInput): Promise<T>;
+	request(): Promise<T>;
 	/** The result of the one pass that starts after this call and before any later `follow`. */
-	follow(input: TInput): Promise<T>;
+	follow(): Promise<T>;
 	readonly active: boolean;
 	/**
 	 * Refuse new passes, abort the active pass's signal, and wait for that
@@ -36,19 +36,19 @@ export type PassRunner<TInput, T> = {
 	close(): Promise<void>;
 };
 
-export function createPassRunner<TInput, T>({
+export function createPassRunner<T>({
 	run,
 	failed,
 	closed,
 	onChange,
 }: {
-	run: (input: TInput, signal: AbortSignal) => Promise<T>;
+	run: (signal: AbortSignal) => Promise<T>;
 	/** Converts an unexpected throw into a result; a pass never rejects. */
 	failed: (cause: unknown) => T;
 	/** The result for a request that closing reached before its turn. */
 	closed: () => T;
 	onChange?: () => void;
-}): PassRunner<TInput, T> {
+}): PassRunner<T> {
 	let controller: AbortController | undefined;
 	let waiting = 0;
 	let fenced = false;
@@ -57,11 +57,11 @@ export function createPassRunner<TInput, T>({
 	/** The shared pass that has not started yet, if `follow` made one. */
 	let follower: Promise<T> | undefined;
 
-	async function pass(input: TInput): Promise<T> {
+	async function pass(): Promise<T> {
 		controller = new AbortController();
 		onChange?.();
 		try {
-			return await run(input, controller.signal);
+			return await run(controller.signal);
 		} catch (cause) {
 			return failed(cause);
 		} finally {
@@ -71,13 +71,13 @@ export function createPassRunner<TInput, T>({
 	}
 
 	/** Queue one turn; `starting` hears when it begins to run. */
-	function enqueue(input: TInput, starting?: () => void): Promise<T> {
+	function enqueue(starting?: () => void): Promise<T> {
 		waiting++;
 		const result = tail.then(() => {
 			waiting--;
 			if (fenced) return closed();
 			starting?.();
-			return pass(input);
+			return pass();
 		});
 		tail = result;
 		return result;
@@ -87,17 +87,17 @@ export function createPassRunner<TInput, T>({
 		get active() {
 			return controller !== undefined;
 		},
-		attempt(input) {
+		attempt() {
 			if (fenced || controller !== undefined || waiting > 0) return undefined;
-			return enqueue(input);
+			return enqueue();
 		},
-		request(input) {
+		request() {
 			if (fenced) return Promise.resolve(closed());
-			return enqueue(input);
+			return enqueue();
 		},
-		follow(input) {
+		follow() {
 			if (fenced) return Promise.resolve(closed());
-			follower ??= enqueue(input, () => {
+			follower ??= enqueue(() => {
 				// Starting now: whoever asks from here on needs the next pass.
 				follower = undefined;
 			});
