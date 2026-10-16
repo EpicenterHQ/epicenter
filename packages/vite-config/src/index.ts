@@ -8,9 +8,7 @@ import {
 	searchForWorkspaceRoot,
 	type UserConfig,
 } from 'vite';
-// svelte-check loads an app's Vite config, and with it this file, in Node
-// without bundling, so a relative import names its real `.ts` file.
-import { isInstalledAppBuild } from './installed-app.ts';
+import { isInstalledAppBuild } from './installed-app.js';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and

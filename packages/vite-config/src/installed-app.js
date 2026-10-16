@@ -3,11 +3,12 @@
  * (ADR-0552). Each folder app's `build:installed` script selects it with
  * `EPICENTER_HOST=1`; every other build is the browser build.
  *
- * This module imports nothing, so an app's `svelte.config.js` loads it as
- * plain source. `installedAppViteConfig` in this package's entry reads the
+ * Plain JavaScript with JSDoc types that imports nothing, so an app's
+ * `svelte.config.js` loads it under any Node without type stripping. `installedAppViteConfig` in this package's entry reads the
  * same answer for Vite.
  */
-export function isInstalledAppBuild(): boolean {
+/** @returns {boolean} */
+export function isInstalledAppBuild() {
 	return process.env.EPICENTER_HOST === '1';
 }
 
@@ -23,10 +24,10 @@ export function isInstalledAppBuild(): boolean {
  *
  * The browser build writes adapter-static's default `build/` and serves
  * `index.html` as the fallback for every route.
+ *
+ * @returns {{ pages: string; assets: string } | { fallback: string }}
  */
-export function installedAppAdapterOptions():
-	| { pages: string; assets: string }
-	| { fallback: string } {
+export function installedAppAdapterOptions() {
 	return isInstalledAppBuild()
 		? { pages: 'dist', assets: 'dist' }
 		: { fallback: 'index.html' };
