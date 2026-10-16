@@ -372,10 +372,23 @@ export function createTable<TFields>(
 					return Err(writeFailure(from, removed.error));
 				if (removed.data === 'landed') return movedRow(moved);
 				const now = await storage.read(from);
-				if (now.error !== null)
-					return now.error.name === 'NotFound'
-						? movedRow(moved)
-						: Err(writeFailure(from, now.error));
+				if (now.error?.name === 'NotFound') {
+					// The row was deleted while it moved: the delete stands, so
+					// its copy at `next` goes too, unless something wrote there.
+					const undone = await confirmedPut(
+						storage,
+						to,
+						null,
+						moved.sha256,
+						null,
+					);
+					if (undone.error !== null) return Err(writeFailure(to, undone.error));
+					return WriteError.InvalidPath({
+						path: from,
+						reason: 'no row is at this stem',
+					});
+				}
+				if (now.error !== null) return Err(writeFailure(from, now.error));
 				const carried = await confirmedPut(
 					storage,
 					to,

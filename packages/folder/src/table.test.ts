@@ -567,6 +567,23 @@ test('a write that lands at the old stem during a rename is carried to the new o
 	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
 
+test('a delete of the old stem during a rename stands: the row is at neither stem', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	let raced = false;
+	// The row is deleted once its bytes reached the new stem.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
+	});
+	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(await s.stored('todos/a.md')).toBeUndefined();
+	expect(await s.stored('todos/b.md')).toBeUndefined();
+});
+
 test('rename from a stem with no file, or onto an occupied one, is InvalidPath and changes nothing', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
