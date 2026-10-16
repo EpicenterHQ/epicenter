@@ -22,9 +22,12 @@ import {
 } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { hashBytes } from './capture.js';
-import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
+import type {
+	DirectoryPrimitives,
+	EntryKind,
+	Expectation,
+} from './directory-primitives.js';
 import { UnexpectedTarget } from './errors.js';
-import type { Expectation } from './directory-primitives.js';
 
 const kindOf = (entry: {
 	isFile(): boolean;

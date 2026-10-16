@@ -145,9 +145,9 @@ test('competing edits merge into one commit this device wins, and the cache show
 	});
 	const remote = await git(session.bare, 'show', `main:${MILK}`);
 	expect(remote).toContain('title: Buy oat milk');
-	expect(
-		await git(session.bare, 'log', '-1', '--format=%B', 'main'),
-	).toContain(`field="title" "${MILK}"`);
+	expect(await git(session.bare, 'log', '-1', '--format=%B', 'main')).toContain(
+		`field="title" "${MILK}"`,
+	);
 });
 
 test('Connect sends a first folder, gives the next one its todos, and asks before combining separate histories', async () => {

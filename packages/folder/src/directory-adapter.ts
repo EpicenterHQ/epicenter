@@ -19,6 +19,7 @@ import {
 	isStaleScratch,
 	SCRATCH_DIRECTORY,
 } from './directory-primitives.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {
@@ -26,7 +27,6 @@ import {
 	type FolderSchema,
 	openAtRoot,
 } from './open-at-root.js';
-import { createDirectoryStorage } from './directory-store.js';
 
 /**
  * A directory folder's history, made once its file storage exists:

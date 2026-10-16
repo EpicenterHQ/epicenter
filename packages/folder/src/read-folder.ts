@@ -18,8 +18,8 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
-import { createDirectoryStorage } from './directory-store.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
 import {
 	FileError,
 	type KvReadError,

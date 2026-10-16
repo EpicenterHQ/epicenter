@@ -129,9 +129,10 @@ test('browser sync, native sync, then a browser fast-forward and a native merge 
 	const mine = await git(checkout, 'rev-parse', 'HEAD');
 	const merged = await native(checkout, 'sync').json();
 	expect(merged.data.kind).toBe('synced');
-	expect(
-		(await git(checkout, 'log', '-1', '--format=%P')).split(' '),
-	).toEqual([mine, theirs]);
+	expect((await git(checkout, 'log', '-1', '--format=%P')).split(' ')).toEqual([
+		mine,
+		theirs,
+	]);
 	expect(await readFile(join(checkout, 'todos/bread.md'), 'utf8')).toContain(
 		'title: Buy bread',
 	);

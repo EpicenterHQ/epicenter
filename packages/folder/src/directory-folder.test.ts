@@ -14,11 +14,11 @@ import { expectOk } from 'wellcrafted/testing';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openDirectoryFolder } from './directory-adapter.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
 import {
 	type DirectoryPrimitives,
 	SCRATCH_DIRECTORY,
 } from './directory-primitives.js';
-import { nodeDirectoryPrimitives } from './directory-node.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import {

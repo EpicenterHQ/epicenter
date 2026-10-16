@@ -32,13 +32,13 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from '../boundary.js';
-import { captureFiles } from '../storage.js';
 import type { FolderDefinition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
-import { callObserver } from '../observer.js';
 import { fileKindOf, sameContent } from '../merge-file.js';
+import { callObserver } from '../observer.js';
 import { ancestors, collisionKey, pathProblem } from '../paths.js';
 import { confirmedPut, writeFile } from '../save-file.js';
+import { captureFiles } from '../storage.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';

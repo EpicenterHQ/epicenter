@@ -25,8 +25,8 @@ import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import type { FolderStorage } from '../boundary.js';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
-import type { GitBackend } from './backend.js';
 import { overwrite } from '../put.test-support.js';
+import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
 import { writeCommitObject, writeFilesTree } from './objects.js';
 

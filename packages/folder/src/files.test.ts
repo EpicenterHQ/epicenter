@@ -58,8 +58,8 @@ import {
 	type FolderHistory,
 } from './folder.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
-import { formatRow, parseRow } from './row-text.js';
 import { overwrite } from './put.test-support.js';
+import { formatRow, parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({

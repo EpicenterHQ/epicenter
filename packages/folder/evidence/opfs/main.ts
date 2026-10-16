@@ -825,9 +825,14 @@ async function moves(id: string) {
 		'a file moves into an absent name in another directory, whole, and leaves its old name',
 		async () => {
 			const staged = await fresh('staged.md', 'moved');
-			assert(typeof staged.move === 'function', 'FileSystemFileHandle.move is missing');
+			assert(
+				typeof staged.move === 'function',
+				'FileSystemFileHandle.move is missing',
+			);
 			await staged.move(into, 'target.md');
-			const moved = await (await (await into.getFileHandle('target.md')).getFile()).text();
+			const moved = await (
+				await (await into.getFileHandle('target.md')).getFile()
+			).text();
 			assert(moved === 'moved', `the target holds ${JSON.stringify(moved)}`);
 			const left = await outcome(top.getFileHandle('staged.md'));
 			assert(left !== 'done', 'the old name is still there');
@@ -838,7 +843,9 @@ async function moves(id: string) {
 	await writeHandle(existing, 'before');
 	const onto = await fresh('onto.md', 'after');
 	const movedOnto = await outcome(onto.move!(into, 'existing.md'));
-	const after = await (await (await into.getFileHandle('existing.md')).getFile()).text();
+	const after = await (
+		await (await into.getFileHandle('existing.md')).getFile()
+	).text();
 	record(
 		'a move onto an existing name',
 		'note',
@@ -855,7 +862,9 @@ async function moves(id: string) {
 	} finally {
 		await outcome(writable.close());
 	}
-	const held = await (await (await into.getFileHandle('open.md')).getFile()).text();
+	const held = await (
+		await (await into.getFileHandle('open.md')).getFile()
+	).text();
 	record(
 		'a move onto a name with an open write stream',
 		'note',

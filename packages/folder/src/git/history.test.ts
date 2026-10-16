@@ -17,8 +17,8 @@
  */
 import { expect, test } from 'bun:test';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
-import type { GitBackend } from './backend.js';
 import { overwrite } from '../put.test-support.js';
+import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
 
 const author = { name: 'History', email: 'history@example.test' };
