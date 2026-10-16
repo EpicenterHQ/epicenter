@@ -245,6 +245,61 @@ pub(crate) async fn run_child(
     }
 }
 
+/// The arguments for the launch call: remake `<dataDir>/bin/epicenter`, the
+/// path every Git configuration Epicenter writes runs (ADR-0566), at the
+/// binary this launch bundles. `--user-only` leaves the `PATH` link alone,
+/// so it never needs an administrator.
+fn command_link_args() -> Vec<OsString> {
+    vec![
+        "install-command".into(),
+        "--user-only".into(),
+        "--json".into(),
+    ]
+}
+
+/// Run `epicenter install-command --user-only --json` with `env`, this
+/// shell's directories. A run that does not exit 0, such as one from an
+/// App Translocation copy, is an error naming what the CLI printed.
+pub(crate) async fn refresh_command_link(
+    program: &Program,
+    env: &[(OsString, OsString)],
+) -> Result<(), String> {
+    let mut printed = Vec::new();
+    let exit = run_with_env(program, &command_link_args(), env, None, |line| {
+        printed.push(line);
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("{error:?}"))?;
+    if exit.code == 0 {
+        return Ok(());
+    }
+    Err(format!(
+        "exit {}: {} {}",
+        exit.code,
+        printed.join(" "),
+        exit.stderr.trim()
+    ))
+}
+
+/// The launch call, in the background so a launch never waits on it. A
+/// development build runs the CLI from source, which has no binary to link,
+/// and Windows writes the installed `.exe` path instead of a link.
+pub(crate) fn spawn_command_link_refresh(env: Vec<(OsString, OsString)>) {
+    if cfg!(debug_assertions) || cfg!(windows) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let result = match bundled_program() {
+            Ok(program) => refresh_command_link(&program, &env).await,
+            Err(message) => Err(message),
+        };
+        if let Err(message) = result {
+            log::warn!("the epicenter command link was not refreshed: {message}");
+        }
+    });
+}
+
 /// The arguments for `epicenter check <root> --json`.
 fn check_args(root: PathBuf) -> Vec<OsString> {
     vec!["check".into(), root.into_os_string(), "--json".into()]
@@ -833,6 +888,45 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::canonicalize(dir).unwrap()
+    }
+
+    /// The launch call runs one fixed invocation with the shell's
+    /// directories, and a run that exits non-zero is reported with what the
+    /// CLI printed. The child is a script standing in for the binary.
+    #[tokio::test]
+    async fn the_launch_call_is_one_fixed_invocation_with_the_shells_directories() {
+        let dir = scratch("link");
+        let seen = dir.join("seen");
+        let script = dir.join("child.sh");
+        fs::write(
+            &script,
+            format!(
+                "printf '%s\\n' \"$*\" \"$EPICENTER_DATA_DIR\" > '{}'\n\
+                 echo '{{\"commandLink\":{{\"action\":\"translocated\"}}}}'\n\
+                 exit \"$CHILD_EXIT\"\n",
+                seen.display()
+            ),
+        )
+        .unwrap();
+        let program = Program {
+            program: PathBuf::from("sh"),
+            prefix: vec![script.into_os_string()],
+        };
+        let env = |code: &str| {
+            vec![
+                ("EPICENTER_DATA_DIR".into(), "/support/so.epicenter".into()),
+                ("CHILD_EXIT".into(), code.into()),
+            ]
+        };
+
+        assert_eq!(refresh_command_link(&program, &env("0")).await, Ok(()));
+        assert_eq!(
+            fs::read_to_string(&seen).unwrap(),
+            "install-command --user-only --json\n/support/so.epicenter\n"
+        );
+        let refused = refresh_command_link(&program, &env("1")).await.unwrap_err();
+        assert!(refused.starts_with("exit 1: "), "{refused}");
+        assert!(refused.contains("translocated"), "{refused}");
     }
 
     /// A child that prints a megabyte and a 300 KB line before it reads any

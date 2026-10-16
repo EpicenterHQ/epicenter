@@ -25,8 +25,8 @@ import {
 	loginWithLoopback,
 	logout,
 	type StoredGrant,
-	selfCommand,
 } from './auth.ts';
+import { gitCommand } from './install-command.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
@@ -76,7 +76,7 @@ export async function authLogin(
 	json: boolean,
 	desktop: boolean,
 	ctx: AuthContext = authContext(),
-	helperCommand: readonly string[] = selfCommand(),
+	helperCommand?: readonly string[],
 	env: Record<string, string | undefined> = process.env,
 ): Promise<number> {
 	if (options.loopback === true) {
@@ -118,7 +118,12 @@ export async function authLogin(
 		},
 	});
 	if (error !== null) return fail(error.message, json);
-	const helper = await configureGitHelper(ctx, helperCommand, env);
+	// The link is remade only now, once the sign-in it serves exists.
+	const helper = await configureGitHelper(
+		ctx,
+		helperCommand ?? gitCommand(),
+		env,
+	);
 	if (json)
 		writeJson({
 			signedIn: {

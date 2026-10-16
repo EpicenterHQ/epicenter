@@ -485,6 +485,9 @@ pub fn run() {
                 }
                 Err(message) => log::warn!("the data folder listing is not watched: {message}"),
             }
+            // Git's configuration runs `<dataDir>/bin/epicenter`; point it
+            // at this launch's binary, wherever the app now is (ADR-0566).
+            cli::spawn_command_link_refresh(installed_apps::directory_env(&desktop_paths));
             app.manage(desktop_paths);
 
             // The active local model and the unload policy are device-local host

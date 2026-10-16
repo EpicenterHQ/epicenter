@@ -99,19 +99,21 @@ function gitMergeFile(base: string, ours: string, theirs: string): number {
 	}
 }
 
-/** The driver command Git runs: this binary by its absolute path, quoted for `sh`. */
-async function driverCommand() {
-	const { selfCommand, shellQuote } = await import('./auth.ts');
-	return `${selfCommand().map(shellQuote).join(' ')} merge-driver -- %O %A %B %P`;
+/** The driver command Git runs for `command`, each word quoted for `sh`. */
+async function driverCommand(command: readonly string[]) {
+	const { shellQuote } = await import('./auth.ts');
+	return `${command.map(shellQuote).join(' ')} merge-driver -- %O %A %B %P`;
 }
 
 /**
  * Make the repository at `dir`, whose `.git` is its own, merge every path
  * with this driver. Idempotent: the attribute line is added once, and the
- * configuration names this binary's path.
+ * configuration names `command`, by default `gitCommand()`: the per-user
+ * link, remade first, so moving the app does not break the driver.
  */
 export async function configureMergeDriver(
 	dir: string,
+	command?: readonly string[],
 ): Promise<{ attributes: string; driver: string }> {
 	const { createGitRunner, directoryRoot } = await import(
 		'@epicenter/folder/bun'
@@ -127,7 +129,9 @@ export async function configureMergeDriver(
 			`${dir} has no repository yet; its first saved version or sync creates one`,
 		);
 	const run = createGitRunner(root);
-	const driver = await driverCommand();
+	const driver = await driverCommand(
+		command ?? (await import('./install-command.ts')).gitCommand(),
+	);
 	await run([
 		'config',
 		'--local',
