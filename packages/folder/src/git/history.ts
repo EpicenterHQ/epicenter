@@ -575,12 +575,6 @@ export function createHistory({
 			? { status: 'unconfirmed', error: describe(cause) }
 			: { status: 'failed', error: describe(cause) };
 
-	/** An operation that threw: `Unconfirmed` when a private write may have landed. */
-	const thrown = (operation: string, cause: unknown) =>
-		cause instanceof UnconfirmedWrite
-			? GitError.Unconfirmed({ operation, cause })
-			: GitError.Failed({ operation, cause });
-
 	/** Record what a commit that ran did and what is now known of the remote. */
 	async function settleCommit(outcome: CommitOutcome) {
 		lastCommit = { ...outcome, at: Date.now() };
@@ -1028,32 +1022,6 @@ export function createHistory({
 	}
 
 	/**
-	 * Admit one explicit Git operation for its whole lifetime, including any
-	 * refresh after the backend call. Refused once closing starts; `close()`
-	 * drains admitted work before storage is released.
-	 */
-	function manual<T, E = never>(
-		operation: string,
-		work: () => Promise<Result<T, E | GitError>>,
-	): Promise<Result<T, E | GitError>> {
-		if (closing.signal.aborted) return Promise.resolve(GitError.Closed());
-		const settled = work().catch(
-			(cause): Result<T, E | GitError> =>
-				refusedByClose(cause) ? GitError.Closed() : thrown(operation, cause),
-		);
-		admittedWork.add(settled);
-		void settled.then(() => admittedWork.delete(settled));
-		return settled;
-	}
-
-	function guarded<T>(
-		operation: string,
-		work: () => Promise<T>,
-	): Promise<Result<T, GitError>> {
-		return manual<T>(operation, async () => Ok(await work()));
-	}
-
-	/**
 	 * Admit one sync call for its whole lifetime: refused once closing
 	 * starts, and drained by `close()`. Each step it composes is admitted on
 	 * its own as well.
@@ -1337,8 +1305,21 @@ export function createHistory({
 				return runSync(options);
 			},
 		}),
-		log: (depth: number): Promise<Result<CommitSummary[], GitError>> =>
-			guarded('log', () => backend.log(depth)),
+		/**
+		 * The last `depth` commits on the branch. It reads only, so it waits
+		 * for no protection; once closing starts it is refused, and `close()`
+		 * waits for one already running.
+		 */
+		log(depth: number): Promise<Result<CommitSummary[], GitError>> {
+			if (closing.signal.aborted) return Promise.resolve(GitError.Closed());
+			const settled = backend.log(depth).then(
+				(commits): Result<CommitSummary[], GitError> => Ok(commits),
+				(cause) => GitError.Failed({ operation: 'log', cause }),
+			);
+			admittedWork.add(settled);
+			void settled.then(() => admittedWork.delete(settled));
+			return settled;
+		},
 		/**
 		 * Resolve once nothing of this handle still uses storage: the commits,
 		 * pulls, and other Git operations already inside the backend's

@@ -10,17 +10,6 @@ import { describe } from '../errors.js';
 import type { CommitOutcome } from './history.js';
 
 export const GitError = defineErrors({
-	Unconfirmed: ({
-		operation,
-		cause,
-	}: {
-		operation: string;
-		cause: unknown;
-	}) => ({
-		message: `The folder host did not confirm Git ${operation}; the operation may have completed: ${describe(cause)}`,
-		operation,
-		cause,
-	}),
 	Failed: ({ operation, cause }: { operation: string; cause: unknown }) => ({
 		message: `Git ${operation} failed: ${describe(cause)}`,
 		operation,
@@ -44,26 +33,6 @@ export const GitError = defineErrors({
 		message: `Git ${operation} needs git, which is not installed on this computer`,
 		operation,
 		install,
-	}),
-	StoppedWaiting: ({ operation }: { operation: string }) => ({
-		message: `Stopped waiting for Git ${operation}; the shared attempt may still complete`,
-		operation,
-	}),
-	InvalidMessage: ({ reason }: { reason: string }) => ({
-		message: `The commit message is not usable: ${reason}`,
-		reason,
-	}),
-	NothingToCommit: () => ({ message: 'Nothing is staged to commit' }),
-	BranchMoved: ({
-		expected,
-		actual,
-	}: {
-		expected: string | undefined;
-		actual: string | undefined;
-	}) => ({
-		message: 'The branch moved while the commit was being written',
-		expected,
-		actual,
 	}),
 });
 export type GitError = InferErrors<typeof GitError>;
