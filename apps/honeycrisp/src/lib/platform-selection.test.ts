@@ -68,12 +68,17 @@ describe('bundles', () => {
 					path.endsWith('platform/notes-host.epicenter-host.ts'),
 				),
 			).toBe(true);
-			// One set of bindings: the ones the folder package generated.
+			// Only the folder package's generated bindings: its plugin's and the
+			// shell's history commands.
 			expect(
 				modules
 					.filter((path) => path.endsWith('bindings.gen.ts'))
-					.map((path) => path.slice(path.indexOf('packages/'))),
-			).toEqual(['packages/folder/src/native/bindings.gen.ts']);
+					.map((path) => path.slice(path.indexOf('packages/')))
+					.sort(),
+			).toEqual([
+				'packages/folder/src/native/bindings.gen.ts',
+				'packages/folder/src/shell/bindings.gen.ts',
+			]);
 			// The folder contract came through the desktop entry, not the selector.
 			expect(
 				modules.filter((path) =>

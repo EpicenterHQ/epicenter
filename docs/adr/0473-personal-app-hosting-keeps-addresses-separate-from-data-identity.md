@@ -20,7 +20,9 @@ folders. Her app needs a separate identity and execution boundary even when it
 understands the same files as Braden's app.
 
 The desktop host lists applications by ID and title in
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `apps/epicenter/src/applications.ts` and serves built assets through
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `apps/epicenter/src/server.ts`. This separates the app index from app builds;
 it does not implement personal browser hosting or cross-origin folder access.
 

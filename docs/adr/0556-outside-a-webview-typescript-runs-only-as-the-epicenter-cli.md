@@ -23,6 +23,7 @@ with a boot frame over stdin, waits up to 15 seconds for a ready frame on port
 window's initialization script carries the dead host's launch token
 (`apps/epicenter/src-tauri/src/lib.rs:84-95`, `:758-1257`, `:1583-1873`). The
 Bun host serves every app, bootstraps a session cookie, brokers the account,
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 and holds AI connections (`apps/epicenter/src/server.ts`).
 
 Rust does the rest. It runs `git` for every page through `run_git`

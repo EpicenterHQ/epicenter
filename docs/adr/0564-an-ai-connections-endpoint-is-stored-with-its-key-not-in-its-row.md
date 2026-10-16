@@ -105,6 +105,7 @@ endpoint and key together on each machine, in one form with two fields.
   the shell permits a window whose capability file, `installed-<app>.json`,
   grants `send`. The shell reads no capability file when it opens a window:
   the AI commands are granted separately, by
+  <!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
   `apps/epicenter/src-tauri/capabilities/installed-whispering-development.json`
   and `installed-whispering-production.json` beside it, both compiled into the build and
   keyed by the same app id. `AI_CONNECTION_APPS` is the rule adopted, because

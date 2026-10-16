@@ -24,6 +24,7 @@ it over server-sent events, and send requests to
 adds `Authorization: Bearer <key>` and refuses redirects (`ai-catalog.ts:382-523`;
 <!-- doc-path-check: ignore-next-line -->
 routes in `apps/epicenter/src/ai-catalog-routes.ts:10-73`, mounted at
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `apps/epicenter/src/server.ts:168-181`).
 
 Installed Whispering keeps its two connections there as "Whispering
