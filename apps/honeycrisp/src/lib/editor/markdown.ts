@@ -656,15 +656,14 @@ export const bodyCodec = {
 	},
 	/**
 	 * `doc` as the body that replaces `prior`, or why Markdown cannot spell it
-	 * (`checkNoteDoc`). The blank lines at the start of `prior` are kept, the
-	 * text ends with one line break, and CRLF line endings are kept when
-	 * `prior` uses them.
+	 * (`checkNoteDoc`). The blank lines at the start of `prior` are kept, and
+	 * the text ends with one line break. A body is read with line feeds
+	 * (ADR-0570), so the text is written with them.
 	 */
 	encode(doc: Node, prior: string): Result<string, string> {
 		const check = checkNoteDoc(doc);
 		if (!check.ok) return Err(check.reason);
-		const lead = /^(?:\r?\n)*/.exec(prior)?.[0] ?? '';
-		const body = check.markdown === '' ? lead : `${lead}${check.markdown}\n`;
-		return Ok(prior.includes('\r\n') ? body.replace(/\r?\n/g, '\r\n') : body);
+		const lead = /^\n*/.exec(prior)?.[0] ?? '';
+		return Ok(check.markdown === '' ? lead : `${lead}${check.markdown}\n`);
 	},
 };

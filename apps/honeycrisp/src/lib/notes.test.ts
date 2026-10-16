@@ -210,7 +210,7 @@ test('a read that lands while a body is held does not replace it, and the save m
 	disk.release({ all: true });
 	await quiet(notes);
 	expect(failures).toEqual([]);
-	expect(disk.text(A)).toContain('title: Theirs');
+	expect(disk.text(A)).toMatch(/^"?title"?: "?Theirs"?$/m);
 	expect(disk.text(A)).toContain('Typed.\n');
 	expect(shown(notes, A)).toMatchObject({
 		fields: { title: 'Theirs' },

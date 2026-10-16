@@ -196,7 +196,6 @@ export function noteText({
 		`"title": ${JSON.stringify(title)}`,
 		'"pinned": false',
 		'"createdAt": "2026-10-01T00:00:00.000Z"',
-		'"updatedAt": "2026-10-01T00:00:00.000Z"',
 		'"deletedAt": null',
 		`${extra}---`,
 		body,

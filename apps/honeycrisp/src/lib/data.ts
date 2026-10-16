@@ -38,7 +38,6 @@ export const honeycrispDefinition = defineFolder({
 				title: field.string(),
 				pinned: field.boolean(),
 				createdAt: field.instant(),
-				updatedAt: field.instant(),
 				deletedAt: field.nullable(field.instant()),
 			},
 		}),

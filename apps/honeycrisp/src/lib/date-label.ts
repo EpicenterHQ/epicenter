@@ -10,7 +10,7 @@ import { differenceInDays, format, isToday, isYesterday } from 'date-fns';
  * ```typescript
  * import { getDateLabel } from '$lib/date-label.js';
  *
- * const label = getDateLabel(note.updatedAt);
+ * const label = getDateLabel(note.createdAt);
  * // "Today" | "Yesterday" | "Previous 7 Days" | "March 2026"
  * ```
  */

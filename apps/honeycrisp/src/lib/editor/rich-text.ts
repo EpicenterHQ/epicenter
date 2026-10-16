@@ -27,7 +27,7 @@
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
 
-import { type Row, wellFormed } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
 import {
 	baseKeymap,
 	chainCommands,
@@ -58,7 +58,6 @@ import {
 	type Transaction,
 } from 'prosemirror-state';
 import type { NoteFields } from '../data.js';
-import { withBody } from '../note-source.js';
 import { bodyCodec, equivalentNoteDocs } from './markdown.js';
 import { noteSchema } from './schema.js';
 
@@ -184,8 +183,8 @@ export type NoteBody = {
 	readonly row: Row<NoteFields> | undefined;
 	/** Whether the note takes no edit now. */
 	readonly locked: boolean;
-	/** Change the note's draft, which saves it. Answers whether it was taken. */
-	edit(change: (row: Row<NoteFields>) => Row<NoteFields>): boolean;
+	/** Type `body` as the note's body, which saves it. Answers whether it was taken. */
+	edit(body: string): boolean;
 };
 
 /**
@@ -200,8 +199,8 @@ export type NoteBody = {
  * nothing. Markdown that cannot spell the new document is refused with its
  * reason through `refuse`. Otherwise the new body goes into the note's
  * draft, which saves it; an edit the note refuses is not shown. A lone surrogate
- * a file cannot hold becomes U+FFFD within the same transaction, so the undo
- * history keeps it.
+ * becomes U+FFFD within the same transaction, as the file will store it, so
+ * the screen and the undo history never show what the file does not hold.
  */
 export function stateAfter(
 	state: EditorState,
@@ -221,8 +220,9 @@ export function stateAfter(
 	if (!current.supported) return undefined;
 	const shown = stateShowing(state, current.doc);
 	if (shown !== state) return shown;
-	// A file cannot hold a lone surrogate: the same transaction replaces it
-	// with U+FFFD, so the screen, the draft, and the undo history agree.
+	// The file stores a lone surrogate as U+FFFD (ADR-0570). The same
+	// transaction replaces it now, so the screen, the draft, and the undo
+	// history agree, and the save landing does not restart the state.
 	repairLoneSurrogates(transaction);
 	const next = state.apply(transaction);
 	const { data: encoded, error } = bodyCodec.encode(next.doc, body);
@@ -230,11 +230,9 @@ export function stateAfter(
 		refuse(error);
 		return undefined;
 	}
-	const written = wellFormed(encoded);
 	// An edit Markdown has no spelling for (a new empty paragraph) gives the
 	// same body back: it is shown, and nothing saves.
-	if (written !== body && !note.edit((stored) => withBody(stored, written)))
-		return undefined;
+	if (encoded !== body && !note.edit(encoded)) return undefined;
 	return next;
 }
 

@@ -74,15 +74,20 @@ and settings stay intact, and opening records no commit. The definition file
 supports discovery and does not configure Honeycrisp.
 
 A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,
-`pinned`, `createdAt`, `updatedAt`, and `deletedAt`; its body is the note.
+`pinned`, `createdAt`, and `deletedAt`; its body is the note. The note list
+shows the newest notes first, by `createdAt`, grouped under labels such as
+"Today" and "Yesterday". Honeycrisp keeps no last-edited time in a note
+(ADR-0571); when a file last changed is the file system's and Git's to say.
 Folders are logical: a note belongs to one through `folderId`, so moving a note
 between folders changes one field and never moves or renames its file.
 
-Saving a note writes its frontmatter as plain YAML: its declared fields
-first, then any keys Honeycrisp does not know, which are kept. Comments and
-custom quoting in the frontmatter are not kept, so the first save of a file
-written by hand rewrites its frontmatter. The body is kept exactly. Opening or
-listing a note writes nothing. To change a key Honeycrisp does not show, use
+Editing a note's text replaces only its body (`table.setBody`, ADR-0575):
+the frontmatter stays byte for byte as written. The body is read and written
+with line feeds, so a body written with CRLF line endings gets line feeds on
+its next save (ADR-0570). Changing a field (its title, folder, or pin) writes
+the frontmatter as plain YAML: its declared fields first, then any keys
+Honeycrisp does not know, which are kept; comments and custom quoting are
+not. Opening or listing a note writes nothing. To change a key Honeycrisp does not show, use
 **Edit as file**: it saves exactly what you type.
 
 An action from the note list or the folder list (pin, move to a folder, move to
@@ -158,8 +163,10 @@ dividers, and line breaks. There is no underline and there are no images.
   block, and bold, italic, or strikethrough on a space by itself. An empty
   paragraph from Enter shows at once and saves nothing until you type in it.
 - **Text a file cannot hold is saved as the replacement character.** Half of
-  an emoji (a lone surrogate) typed in the title, rich text, Source, or a
-  file's text becomes U+FFFD as you type, so what saves is what you see.
+  an emoji (a lone surrogate) typed in the rich text or a file's text
+  becomes U+FFFD as you type. Typed in the title or Source, it shows until
+  its save lands and then shows as U+FFFD, as the folder writes it
+  (ADR-0570).
 - Spaces at the start or end of a line are kept. In Source they appear as
   `&#32;` (and a tab as `&#9;`), since Markdown would drop them otherwise.
 - Inline code is literal: it can be a link, but not bold, italic, or struck.
@@ -288,12 +295,12 @@ exactly the queries it names stale; the query client's focus refetch is off.
 
 A field edit of a note or folder is `tables.<name>.update`, which sets the
 fields on the file as it is now (ADR-0554); `NoteDetail` holds a typed title in
-its own state until it is sent. A note's body is a body draft
-(`createBodyDraftState` from `@epicenter/folder/svelte`), one per note in the
-store, shared by rich text and Source: it captures the cached row and its
-version at the first change, keeps the body outside the cache, and saves with
-`tables.notes.save` a second after the last change or when the view leaves
-it, merging with whatever changed since. A text edit is a text draft
+its own state until it is sent. A note's body is opened with a body editor
+(`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0573), one per note
+in the store, shared by rich text and Source: it captures the cached row and
+its version at the first change, keeps the body outside the cache, and saves
+the body alone with `tables.notes.setBody` a second after the last change or when
+the view leaves it, merging with whatever changed since. A text edit is a text draft
 (`createTextDraftState`) saved the same way with `files.save`. Writes to one
 file run one at a time, and each puts its result in the cache. A new note
 or folder is `tables.<name>.create`; a new file is `files.create`; rename and
@@ -380,7 +387,7 @@ view and delivers events to it.
 | `src/lib/editor/schema.ts` | The bounded ProseMirror schema. |
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
-| `src/lib/note-source.ts` | The body replacement Rich and Source share (`withBody`), and list previews. |
+| `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The query cache and its change wiring, the updates fields are set with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
 | `src/lib/platform/` | The `#platform/notes-host` seam and its two leaves: `notes-host.epicenter-host.ts`, the folder Epicenter hands the window, and `notes-host.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
@@ -401,6 +408,12 @@ since deleted; its terminal, reveal, and per-note history no longer exist.
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
+
+The note list orders notes by when they were created, not when they were last
+edited, and a save no longer moves an `updatedAt` field (ADR-0571); a file
+that has one keeps it as a key Honeycrisp does not know. A note's body is
+written with line feeds, so the first save of a file with CRLF line endings
+changes every line once (ADR-0570).
 
 Honeycrisp is now an app installed in Epicenter (ADR-0552), and its
 standalone desktop app is deleted. It drops these promises of the standalone

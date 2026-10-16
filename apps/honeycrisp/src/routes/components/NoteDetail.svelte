@@ -20,8 +20,6 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { wellFormed } from '@epicenter/folder';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
@@ -107,12 +105,8 @@
 		notes.saveAgain(path);
 	}
 
-	/** Textareas report LF; the setter restores the file's own line endings. */
-	const lf = (text: string) => text.replace(/\r\n?/g, '\n');
-
-	function setBody(value: string, current: string) {
-		refusal(notes.editBody(path, wellFormed(withFileNewlines(value, current))));
-	}
+	/** Type the Source's text as the note's body, as the textarea reports it. */
+	const setBody = (value: string) => refusal(notes.editBody(path, value));
 
 	async function report(action: string, problem: string | undefined) {
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
@@ -135,7 +129,7 @@
 				bind:value={
 					() => title ?? row.fields.title,
 					(typed) => {
-						title = wellFormed(typed);
+						title = typed;
 						void sendTitleLater();
 					}
 				}
@@ -193,7 +187,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => lf(row.body), (value) => setBody(value, row.body)}
+						bind:value={() => row.body, setBody}
 						onblur={() => void notes.saveBody(path)}
 						disabled={locked}
 						aria-label="Markdown source"
