@@ -192,7 +192,7 @@ the rule.
 
 Opening Whispering's window permits it into Epicenter's own folder,
 `so.epicenter`. `src/lib/workspace/desktop-connections.ts` opens it with
-`openDataFolder` through `connectionsLens` from
+`openDataFolder` through `epicenterDefinition` from
 `@epicenter/ai/connection-table`, and reads and changes the two rows of its
 `connections` table, which sync with that folder. The endpoint and key are
 in this computer's keychain under the row's id, and only the `epicenter` CLI

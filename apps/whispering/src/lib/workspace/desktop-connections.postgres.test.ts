@@ -17,7 +17,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { connectionsLens } from '@epicenter/ai/connection-table';
+import { epicenterDefinition } from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -226,7 +226,7 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	await mkdir(root);
 	const opened = await openBunFolder({
 		root,
-		definition: connectionsLens,
+		definition: epicenterDefinition,
 		git: { author: { name: 'Test', email: 'test@localhost' } },
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);

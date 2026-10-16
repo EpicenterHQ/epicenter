@@ -446,9 +446,13 @@ export async function sendToEndpoint(
 /**
  * Where an Epicenter connection sends: the deployment's API origin plus
  * `/v1`, and the access token `epicenter send` reads for it, or why there is
- * none.
+ * none. A browser page has no token to hand over: its access carries the
+ * account's own `fetch`, which adds the token and sends only to the
+ * account's origins, and an empty key.
  */
-export type EpicenterAccess = () => Promise<Result<KeyEntry, string>>;
+export type EpicenterAccess = () => Promise<
+	Result<KeyEntry & { readonly fetch?: typeof globalThis.fetch }, string>
+>;
 
 /**
  * Where an account request sends: the deployment's origin, and an access
@@ -538,7 +542,10 @@ export async function sendRequest({
 					connection: target.connection,
 					reason: error,
 				});
-			return sendToEndpoint(access, request, { fetch, signal });
+			return sendToEndpoint(access, request, {
+				fetch: access.fetch ?? fetch,
+				signal,
+			});
 		}
 		case 'local':
 			return SendError.LocalNotSent({ connection: target.connection });

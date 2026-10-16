@@ -39,7 +39,7 @@
 
 import {
 	CONNECTIONS_FOLDER_ID,
-	connectionsLens,
+	epicenterDefinition,
 } from '@epicenter/ai/connection-table';
 import { openDataFolder, openHandedFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
@@ -85,7 +85,7 @@ export async function openDesktopWorkspace({
 	commands: native = commands,
 	connectionCommands = commands,
 	openConnectionsFolder = () =>
-		openDataFolder({ id: CONNECTIONS_FOLDER_ID, lens: connectionsLens }),
+		openDataFolder({ id: CONNECTIONS_FOLDER_ID, lens: epicenterDefinition }),
 }: {
 	commands?: LocalTranscriptionCommands;
 	/** The AI connection commands; injected for tests. */

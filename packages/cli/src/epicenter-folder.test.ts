@@ -15,15 +15,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	CONNECTIONS_FOLDER_ID,
-	connectionsLens,
+	epicenterDefinition,
 } from '@epicenter/ai/connection-table';
 import { openDataFolder, openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 import { resolveAppPaths } from './app-paths.ts';
-import {
-	declareEpicenterFolder,
-	epicenterDefinition,
-} from './epicenter-folder.ts';
+import { declareEpicenterFolder } from './epicenter-folder.ts';
 
 const author = { name: 'Epicenter', email: 'epicenter@localhost' };
 const originalEnv = { ...process.env };
@@ -83,7 +80,7 @@ test('an AI connection is a row of kind, title, and model, which an app reads th
 		expect(text).not.toContain('endpoint');
 
 		const lens = expectOk(
-			await openDataFolder({ root, lens: connectionsLens, git: { author } }),
+			await openDataFolder({ root, lens: epicenterDefinition, git: { author } }),
 		);
 		try {
 			const row = expectOk(await lens.tables.connections.get('groq'));
@@ -112,7 +109,7 @@ test('declaring publishes the definition, so a lens on a table an update added f
 	await writeFile(path, JSON.stringify(earlier));
 	const refused = await openDataFolder({
 		root,
-		lens: connectionsLens,
+		lens: epicenterDefinition,
 		git: { author },
 	});
 	expect(refused.error?.name).toBe('ShapeMismatch');
@@ -121,7 +118,7 @@ test('declaring publishes the definition, so a lens on a table an update added f
 	expect(await declareEpicenterFolder(false, paths)).toBe(0);
 	expect(await readFile(path, 'utf8')).toBe(current);
 	const lens = expectOk(
-		await openDataFolder({ root, lens: connectionsLens, git: { author } }),
+		await openDataFolder({ root, lens: epicenterDefinition, git: { author } }),
 	);
 	try {
 		expect(expectOk(await lens.tables.connections.list())).toEqual([]);
