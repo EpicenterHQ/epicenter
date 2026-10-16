@@ -14,12 +14,9 @@ import {
 	isStaleScratch,
 	SCRATCH_DIRECTORY,
 } from './boundary.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import type { FolderDefinition } from './definition.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import { OpenFolderError } from './errors.js';
+import type { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {
 	type ChangeDetector,
@@ -42,13 +39,12 @@ export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
  * this page: the desktop app's shell decides the directory, takes the lock
  * that keeps other processes out of it, and grants the page access to it.
  *
- * The directory is the folder: there is no ready marker and no address to
- * claim, and a repository someone already made there is used as it is.
- * Opening creates nothing: a directory with no repository gets one with its
- * first commit, staging, or remote. With a `definition`, the handle
- * publishes it to `epicenter.json` before its first write. With
- * `'declared'`, the handle reads with the folder's own `epicenter.json` and
- * never writes it.
+ * The directory is the folder, and a repository someone already made there
+ * is used as it is. Opening creates nothing: a directory with no repository
+ * gets one with its first commit, staging, or remote. With a prepared
+ * definition as its `schema`, the handle publishes it to `epicenter.json`
+ * before its first write. With `'declared'`, the handle reads with the
+ * folder's own `epicenter.json` and never writes it.
  * Files are read and written through the directory's storage
  * (`directory-store.ts`). History is real Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the
@@ -66,11 +62,11 @@ export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
  * (ADR-0548): the shell's watcher on the desktop, none in Bun.
  */
 export async function openDirectoryFolder<
-	const TDefinition extends FolderDefinition,
+	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
 	THistory extends FolderHistory = FolderHistory,
 >({
-	definition,
+	schema,
 	lens,
 	rootPath,
 	files,
@@ -78,8 +74,8 @@ export async function openDirectoryFolder<
 	history,
 	detector,
 }: {
-	/** The opener's definition, or `'declared'` for the folder's own. */
-	readonly definition: TDefinition | 'declared';
+	/** The opener's prepared definition, or `'declared'` for the folder's own. */
+	readonly schema: FolderSchema;
 	/** With `'declared'`, the prepared shape the folder must contain (ADR-0538). */
 	readonly lens?: FolderDefinition;
 	/** The directory's absolute path, for showing to a person and naming locks. */
@@ -96,20 +92,6 @@ export async function openDirectoryFolder<
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
 }): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	let schema: FolderSchema = 'declared';
-	if (definition !== 'declared') {
-		const { data: prepared, error: definitionError } =
-			prepareFolderDefinition(definition);
-		if (definitionError !== null)
-			return OpenFolderError.InvalidDefinition(definitionError);
-		schema = prepared;
-	}
-	let shape: FolderDefinition | undefined;
-	if (lens !== undefined) {
-		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
-		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
-		shape = prepared;
-	}
 	// A write that stopped before its rename (a crash, a quit) leaves its
 	// staged bytes behind. Another handle or process may be writing the
 	// directory now, so only files staged long enough ago to be abandoned are
@@ -127,7 +109,7 @@ export async function openDirectoryFolder<
 	}
 	return openAtRoot<TDefinition, TDeclared, THistory>(schema, {
 		detector,
-		lens: shape,
+		lens,
 		location: { kind: 'directory', root: rootPath },
 		async start({ landed }) {
 			return { boundary: storage, history: await history({ landed }) };

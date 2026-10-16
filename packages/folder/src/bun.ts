@@ -38,7 +38,10 @@ import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { LockingStorage } from './boundary.js';
 import { readDeclaration } from './declaration.js';
-import type { FolderDefinition } from './definition.js';
+import {
+	type FolderDefinition,
+	prepareFolderDefinition,
+} from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
@@ -144,9 +147,13 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	const { data: prepared, error: definitionError } =
+		prepareFolderDefinition(definition);
+	if (definitionError !== null)
+		return OpenFolderError.InvalidDefinition(definitionError);
 	const opened = directory(resolved);
-	return openDirectoryFolder({
-		definition,
+	return openDirectoryFolder<TDefinition>({
+		schema: prepared,
 		...opened,
 		history: systemHistory(resolved, opened.storage, git),
 	});
@@ -177,10 +184,16 @@ export async function openDataFolder<
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	let shape: FolderDefinition | undefined;
+	if (lens !== undefined) {
+		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
+		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
+		shape = prepared;
+	}
 	const opened = directory(resolved);
 	return openDirectoryFolder<TLens, FolderDefinition, History>({
-		definition: 'declared',
-		lens,
+		schema: 'declared',
+		lens: shape,
 		...opened,
 		history: systemHistory(resolved, opened.storage, git, () =>
 			enclosingRepository(resolved),

@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { SCRATCH_DIRECTORY } from './boundary.js';
 import { defineFolder, defineTable, field } from './contract.js';
+import { prepareFolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
@@ -148,8 +149,8 @@ function open(
 		primitives: files,
 		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
 	});
-	return openDirectoryFolder({
-		definition,
+	return openDirectoryFolder<typeof definition>({
+		schema: expectOk(prepareFolderDefinition(definition)),
 		rootPath: root,
 		files,
 		storage,
