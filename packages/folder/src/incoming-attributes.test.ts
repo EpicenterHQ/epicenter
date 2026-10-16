@@ -1,10 +1,9 @@
 /**
  * Incoming Attribute Refusal Tests
  *
- * A fast-forward writes each incoming blob's bytes as they are stored. A
- * commit that declares a Git filter or a byte conversion means something else
- * by those bytes, so the pull is refused before a file, the index, or the
- * branch changes. These run the same cases against a browser folder and a
+ * Sync writes each incoming blob's bytes as they are stored. A commit that
+ * declares a Git filter or a byte conversion means something else by those
+ * bytes, so Sync refuses it before a file, the index, or the branch changes. These run the same cases against a browser folder and a
  * directory folder, which is what the desktop app opens.
  *
  * Key behaviors:
@@ -41,7 +40,7 @@ import {
 	createTestStorage,
 	dumpStorage,
 } from './browser-storage.test-support.js';
-import { defineFolder, type Folder, type FolderGitSteps } from './contract.js';
+import { defineFolder, type Folder } from './contract.js';
 import { formatDeclaration } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
@@ -57,7 +56,7 @@ const definition = defineFolder({
 	kv: {},
 	tables: {},
 });
-type Opened = Folder<typeof definition, typeof definition, FolderGitSteps>;
+type Opened = Folder<typeof definition>;
 const author = { name: 'Reader', email: 'reader@example.test' };
 const decoder = new TextDecoder();
 
@@ -157,7 +156,7 @@ async function incoming(kind: 'browser' | 'directory') {
 			}),
 		);
 		// The fetch itself records the remote head and its objects; a refused
-		// pull must change nothing else.
+		// Sync must change nothing else.
 		untouched = () =>
 			dumpStorage(
 				environment,
@@ -180,10 +179,7 @@ async function incoming(kind: 'browser' | 'directory') {
 	}
 	opened.push(folder);
 	// Seed the initial remote tree before testing later incoming attributes.
-	expectOk(await folder.git.fetch());
-	expect(expectOk(await folder.git.pullFastForward()).status).toBe(
-		'fastForwarded',
-	);
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 
 	const text = async (path: string) =>
 		decoder.decode(expectOk(await folder.files.read(path)).bytes);
@@ -191,29 +187,29 @@ async function incoming(kind: 'browser' | 'directory') {
 		folder,
 		upstream,
 		text,
-		/** Commit the upstream working tree and make it the fetched head. */
+		/** Commit the upstream working tree and push it. */
 		async publish(message: string) {
 			// `--force`: the attribute file is ignored by the fixture's own rule.
 			await git(upstream, 'add', '--all', '--force');
 			await git(upstream, 'commit', '--quiet', '-m', message);
 			await git(upstream, 'push', '--quiet', 'origin', 'main');
-			return expectOk(await folder.git.fetch()).oid;
+			return git(upstream, 'rev-parse', 'HEAD');
 		},
 		/**
-		 * The fast-forward is refused for `path` and nothing at all changed: no
-		 * working file, no index entry, no ref.
+		 * Sync is refused for `path` and nothing at all changed: no working
+		 * file, no index entry, no ref.
 		 */
 		async refusedUntouched(path: string, reasonHolds: string) {
 			const head = expectOk(await folder.git.log(1))[0]?.oid;
 			// Looking at a browser folder's status refreshes the index's stat
 			// cache, as `git status` does. Look once first, so the comparison
-			// below sees only what the refused pull itself wrote: nothing.
-			expect(expectOk(await folder.git.paths())).toEqual([]);
+			// below sees only what the refused Sync itself wrote: nothing.
+			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			const before = await untouched();
 			const heard: string[] = [];
 			const stop = folder.onFilesChanged((paths) => heard.push(...paths));
 
-			const refused = expectErr(await folder.git.pullFastForward());
+			const refused = expectErr(await folder.sync.run());
 
 			stop();
 			expect(refused.name).toBe('Unrepresentable');
@@ -225,7 +221,6 @@ async function incoming(kind: 'browser' | 'directory') {
 			);
 			expect(await untouched()).toEqual(before);
 			expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(head);
-			expect(expectOk(await folder.git.paths())).toEqual([]);
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			expect(heard).toEqual([]);
 			expect(await text('rec/take.wav')).toBe('RIFF real audio bytes');
@@ -290,7 +285,7 @@ describe.each([
 		);
 		await masked.publish('filter audio');
 
-		const refused = expectErr(await masked.folder.git.pullFastForward());
+		const refused = expectErr(await masked.folder.sync.run());
 		expect(refused.name).toBe('Unrepresentable');
 		if (refused.name === 'Unrepresentable')
 			expect(refused.reason).toContain('filter=lfs');
@@ -298,7 +293,7 @@ describe.each([
 		expect(await masked.text('.gitattributes')).toBe('*.wav -filter\n');
 	});
 
-	test('pointer-shaped text with no declared filter fast-forwards byte for byte', async () => {
+	test('pointer-shaped text with no declared filter syncs byte for byte', async () => {
 		const plain = await incoming(kind);
 		// Someone keeps an LFS pointer as an ordinary file, and declares
 		// attributes that change no bytes.
@@ -312,14 +307,10 @@ describe.each([
 		const heard: string[] = [];
 		plain.folder.onFilesChanged((paths) => heard.push(...paths));
 
-		const pulled = expectOk(await plain.folder.git.pullFastForward());
-		expect(pulled).toMatchObject({ status: 'fastForwarded', to: head });
-		if (pulled.status !== 'fastForwarded') return;
-		expect([...pulled.changedPaths].sort()).toEqual([
-			'.gitattributes',
-			'example-pointer.txt',
-			'rec/take.wav',
-		]);
+		expect(expectOk(await plain.folder.sync.run())).toEqual({
+			kind: 'synced',
+			head,
+		});
 		// An update that landed is announced, with the paths it reached.
 		expect(heard.sort()).toEqual([
 			'.gitattributes',
@@ -330,6 +321,5 @@ describe.each([
 			expect(await plain.text(path)).toBe(LFS_POINTER);
 		expect(expectOk(await plain.folder.git.log(1))[0]?.oid).toBe(head);
 		expect(expectOk(await plain.folder.git.status()).changes).toEqual([]);
-		expect(expectOk(await plain.folder.git.paths())).toEqual([]);
 	});
 });

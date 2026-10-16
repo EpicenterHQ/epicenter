@@ -16,7 +16,8 @@
  * - Competing units go to this device; each lost unit is an `Overrode:`
  *   trailer naming the losing parent, and the lost version stays reachable
  * - A delete beats an edit it never saw, from either side
- * - A text file merges by line; a binary file both changed is this device's
+ * - A text file merges by line, a lone carriage return kept; a binary file,
+ *   or bytes that are not UTF-8, both changed, are this device's whole
  * - Only the net change of each side counts: a change made and reverted
  *   between syncs does not override the other side
  * - A rename merges the other side's edit into the renamed file
@@ -290,6 +291,35 @@ test('a text file merges by line, and a binary file both changed is this deviceâ
 	);
 });
 
+test('bytes stay exact: a lone carriage return merges by line, and invalid UTF-8 both changed is this deviceâ€™s whole', async () => {
+	const context = await setup();
+	const { local } = context;
+	const base = {
+		'lone-cr.txt': 'one\rtwo\nthree\n',
+		'latin1.txt': new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x0a]),
+	};
+	for (const [path, bytes] of Object.entries(base))
+		expectOk(await local.files.create(path, bytes));
+	synced(expectOk(await local.sync.run()));
+
+	const mine = {
+		'lone-cr.txt': 'ONE\rtwo\nthree\n',
+		'latin1.txt': new Uint8Array([0x43, 0x61, 0x66, 0xe9, 0x0a, 0x0a]),
+	};
+	for (const [path, bytes] of Object.entries(mine))
+		expectOk(await put(local.files, path, bytes));
+	await context.incoming({
+		'lone-cr.txt': 'one\rtwo\nTHREE\n',
+		'latin1.txt': new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x21]),
+	});
+
+	synced(expectOk(await local.sync.run()));
+	expect(await text(local, 'lone-cr.txt')).toBe('ONE\rtwo\nTHREE\n');
+	expect(expectOk(await local.files.read('latin1.txt')).bytes).toEqual(
+		mine['latin1.txt'],
+	);
+});
+
 test('a change made and reverted between syncs does not override the other side', async () => {
 	const context = await setup();
 	const { local } = context;
@@ -308,9 +338,9 @@ test('a change made and reverted between syncs does not override the other side'
 	});
 
 	synced(expectOk(await local.sync.run()));
-	expect(
-		expectOk(await local.tables.todos.get('walk'))?.row.fields.title,
-	).toBe('Peer walk');
+	expect(expectOk(await local.tables.todos.get('walk'))?.row.fields.title).toBe(
+		'Peer walk',
+	);
 	expect(await context.remoteMessage()).not.toContain('Overrode:');
 });
 
@@ -324,9 +354,10 @@ test("a rename merges the other side's edit into the renamed file", async () => 
 
 	synced(expectOk(await local.sync.run()));
 	expect(expectOk(await local.tables.todos.get('walk'))).toBeUndefined();
-	expect(
-		expectOk(await local.tables.todos.get('stroll'))?.row.fields,
-	).toEqual({ title: 'Walk', done: true });
+	expect(expectOk(await local.tables.todos.get('stroll'))?.row.fields).toEqual({
+		title: 'Walk',
+		done: true,
+	});
 	expect(await context.remoteFile('todos/stroll.md')).toContain('done: true');
 });
 

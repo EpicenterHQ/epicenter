@@ -366,7 +366,6 @@ describe('native folder', () => {
 		const backend = await createNativeGitBackend({
 			root,
 			branch: 'main',
-			boundary,
 			host: { run: createGitRunner(root), files: nodeDirectoryPrimitives },
 		});
 		const history = createHistory({
@@ -459,35 +458,35 @@ describe('native folder', () => {
 		}
 	});
 
-	test('explicit staging uses real Git commands', async () => {
-		const root = await scratch('native-stage-');
+	test('a merge another Git program began blocks commits and Sync until Git finishes it', async () => {
+		const root = await scratch('native-merge-head-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
-		await folder.files.create('a.txt', 'a\n');
-		await folder.files.create('b.txt', 'b\n');
-		expectOk(await folder.git.stage(['a.txt']));
-		expect((await folder.git.paths()).data).toEqual([
-			{ path: 'a.txt', index: 'A', worktree: ' ' },
-			{ path: 'b.txt', index: '?', worktree: '?' },
-			{ path: 'epicenter.json', index: '?', worktree: '?' },
-		]);
-		expectOk(await folder.git.commitStaged('Stage one file'));
+		await folder.files.create('a.md', 'one\n');
+		expect((await folder.git.commit()).status).toBe('committed');
+		const head = await git(root, 'rev-parse', 'main');
+		await writeFile(join(root, '.git/MERGE_HEAD'), `${head}\n`);
+		await writeFile(join(root, 'a.md'), 'two\n');
 
-		expect(await git(root, 'log', '--format=%s%n%an')).toBe(
-			'Stage one file\nApp',
-		);
-		expect(expectErr(await folder.git.commitStaged('again')).name).toBe(
-			'NothingToCommit',
-		);
+		const commit = await folder.git.commit();
+		expect(commit).toMatchObject({ status: 'blocked' });
+		if (commit.status === 'blocked')
+			expect(commit.reason).toContain(
+				'a Git operation is in progress (MERGE_HEAD)',
+			);
+		await git(root, 'remote', 'add', 'origin', join(root, 'none.git'));
+		expect(expectErr(await folder.sync.run()).name).toBe('Checkpoint');
+		expect(await git(root, 'rev-parse', 'main')).toBe(head);
 		await folder.close();
 	});
 });
 
 describe('browser and native exchange through a real bare repository', () => {
-	test('browser push, native pull, native push, browser fast-forward', async () => {
+	test('browser and native folders sync both ways, and merge when both moved', async () => {
 		const root = await scratch('exchange-');
 		const bare = await createBareRemote(root);
 		globalThis.fetch = await gitHttpFetch(root);
@@ -511,9 +510,7 @@ describe('browser and native exchange through a real bare repository', () => {
 			{ fields: { title: 'First', done: false }, body: '' },
 			{ stem: 'first' },
 		);
-		expect((await browser.git.commit()).status).toBe('committed');
-		expect(browser.git.snapshot.lastPush).toBeUndefined();
-		expect((await browser.git.push()).status).toBe('pushed');
+		expect(expectOk(await browser.sync.run()).kind).toBe('synced');
 		expect(await git(bare, 'log', '--format=%s', 'main')).toBe(
 			'Update 2 files',
 		);
@@ -526,38 +523,30 @@ describe('browser and native exchange through a real bare repository', () => {
 			// The clone's `origin` is the remote.
 			git: { author: { name: 'Native', email: 'native@example.test' } },
 		});
-		expect((await native.git.fetch()).data?.oid).toBe(
-			await git(bare, 'rev-parse', 'main'),
-		);
-		const pulled = expectOk(await native.git.pullFastForward());
-
-		expect(pulled?.status).toBe('upToDate');
+		expect(expectOk(await native.sync.run())).toEqual({
+			kind: 'synced',
+			head: await git(bare, 'rev-parse', 'main'),
+		});
 		expect(await git(nativeRoot, 'status', '--porcelain')).toBe('');
 		const nativeEntry = expectOk(await native.tables.todos.get('first'))!;
 		expect(nativeEntry.row.fields.title).toBe('First');
 
 		expectOk(await native.tables.todos.set('first', { done: true }));
-		expect((await native.git.commit()).status).toBe('committed');
-		expect(native.git.snapshot.lastPush).toBeUndefined();
-		expect((await native.git.push()).status).toBe('pushed');
+		expect(expectOk(await native.sync.run()).kind).toBe('synced');
 		expect(await git(bare, 'log', '-1', '--format=%s', 'main')).toBe(
 			'Update todos/first.md',
 		);
 
-		expectOk(await browser.git.fetch());
-		const incoming = expectOk(await browser.git.pullFastForward());
-
-		expect(incoming?.status).toBe('fastForwarded');
+		expect(expectOk(await browser.sync.run()).kind).toBe('synced');
 		const browserEntry = expectOk(await browser.tables.todos.get('first'))!;
 		expect(browserEntry.row.fields.done).toBe(true);
 		expect((await browser.git.status()).data?.changes).toEqual([]);
-		expect((await browser.git.paths()).data).toEqual([]);
 
-		// A dirty folder refuses the next fast-forward before writing anything.
+		// Both move: the native folder edits the todo, and another writer
+		// adds a file to the browser folder without telling this handle.
 		expectOk(await native.tables.todos.set('first', { title: 'Native edit' }));
-		expect((await native.git.commit()).status).toBe('committed');
-		expect((await native.git.push()).status).toBe('pushed');
-		// Another writer publishes without a save request on this handle.
+		expect(expectOk(await native.sync.run()).kind).toBe('synced');
+		const theirs = await git(bare, 'rev-parse', 'main');
 		const external = await rawBrowserFolder({
 			id: 'exchange',
 			storage: environment,
@@ -573,33 +562,27 @@ describe('browser and native exchange through a real bare repository', () => {
 				},
 			]),
 		);
-		await browser.git.fetch();
-		const { error: dirtyError } = await browser.git.pullFastForward();
-		expect(dirtyError?.name).toBe('Dirty');
+		const merged = expectOk(await browser.sync.run());
+		expect(merged.kind).toBe('synced');
+		const head = merged.head;
+		expect(
+			(await git(bare, 'rev-list', '--parents', '-n', '1', 'main')).split(' '),
+		).toEqual([head, expect.any(String), theirs]);
 		expect(
 			(await browser.tables.todos.get('first')).data!.row.fields.title,
-		).toBe('First');
+		).toBe('Native edit');
+		expect(await git(bare, 'show', 'main:scratch.txt')).toBe('local');
 
-		// Divergence: the browser commits locally; its push is rejected and pull refuses.
-		expect((await browser.git.commit()).status).toBe('committed');
-		const push = await browser.git.push();
-		expect(push.status).toBe('failed');
-		if (push.status === 'failed')
-			expect(push.error).toBe(
-				"The remote branch 'main' cannot be updated by a fast-forward",
-			);
-		const { error: divergedError } = await browser.git.pullFastForward();
-		expect(divergedError?.name).toBe('Diverged');
-		expect(
-			(await browser.tables.todos.get('first')).data!.row.fields.title,
-		).toBe('First');
-
+		expect(expectOk(await native.sync.run()).kind).toBe('synced');
+		expect(await readFile(join(nativeRoot, 'scratch.txt'), 'utf8')).toBe(
+			'local',
+		);
 		await browser.close();
 		await native.close();
 		globalThis.fetch = originalFetch;
 	});
 
-	test('an unreachable remote leaves the local commit and reports the push failure', async () => {
+	test('an unreachable remote leaves the local commit and reports the failed fetch', async () => {
 		const environment = createTestStorage();
 		await configureRemote(
 			environment,
@@ -618,12 +601,9 @@ describe('browser and native exchange through a real bare repository', () => {
 		);
 		expectOk(await browser.files.create('offline.txt', 'Offline'));
 		expect(browser.git.snapshot.lastCommit).toBeUndefined();
-		expect((await browser.git.commit()).status).toBe('committed');
-		expect(browser.git.snapshot.lastPush).toBeUndefined();
-		expect((await browser.git.push()).status).toBe('failed');
-		expect(browser.git.snapshot.lastPush?.status).toBe('failed');
-		const sync = browser.git.snapshot.sync;
-		expect(sync.state === 'observed' && sync.value.ahead).toBe(1);
+		expect(expectErr(await browser.sync.run()).name).toBe('Fetch');
+		expect(browser.git.snapshot.lastCommit?.status).toBe('committed');
+		expect(expectOk(await browser.git.status()).changes).toEqual([]);
 		expect(
 			new TextDecoder().decode(
 				expectOk(await browser.files.read('offline.txt')).bytes,

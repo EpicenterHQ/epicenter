@@ -161,10 +161,6 @@ test('opening creates no repository; status is every file uncommitted, and the f
 		'todos/one.md',
 	]);
 	expect(expectOk(await folder.git.log(10))).toEqual([]);
-	expect(expectOk(await folder.git.paths())).toEqual([]);
-	expect(
-		expectOk(await folder.git.diff({ staged: false, paths: ['todos'] })),
-	).toBe('');
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 
 	// A save stages its bytes under `.git`, and still creates no repository.

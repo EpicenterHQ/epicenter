@@ -161,6 +161,7 @@ async function held() {
 		...real,
 		async push() {
 			pushes++;
+			return 'pushed' as const;
 		},
 		async casBranch(expected, next) {
 			commits.reached?.();
@@ -215,13 +216,8 @@ test('closing releases storage before a begun save replies; its actual result st
 		'Closed',
 	);
 	expect(await folder.git.commit()).toEqual({ status: 'closed' });
-	expect(await folder.git.push()).toEqual({ status: 'closed' });
 	expect(expectErr(await folder.git.status()).name).toBe('Closed');
-	expect(expectErr(await folder.git.fetch()).name).toBe('Closed');
-	expect(expectErr(await folder.git.pullFastForward()).name).toBe('Closed');
-	expect((await folder.git.commitAndPush()).commit).toEqual({
-		status: 'closed',
-	});
+	expect(expectErr(await folder.sync.run()).name).toBe('Closed');
 	await Bun.sleep(20);
 	// File replies are owned by their callers, not close.
 	expect(closed).toBe(true);

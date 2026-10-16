@@ -122,12 +122,11 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	await rm(join(root, '.git', 'index.lock'));
 	// The unrepaired index shows the committed file as a staged deletion.
 	expect(await git(root, 'status', '--porcelain')).toContain('D  b.md');
-	const repaired = await folder.git.commitAndPush();
-	expect(repaired.commit).toMatchObject({
+	const repaired = await folder.git.commit();
+	expect(repaired).toMatchObject({
 		status: 'unchanged',
 		indexWarning: undefined,
 	});
-	expect(repaired.push.status).toBe('noRemote');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await folder.close();
 });

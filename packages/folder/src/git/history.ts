@@ -702,12 +702,14 @@ export function createHistory({
 	 * file's hash and done again when it is stale. Removals go first, and
 	 * each removal's emptied directories after it, so a file can take a
 	 * directory's place and the reverse. A file of this folder's own where
-	 * `to` needs a directory, or files where it needs a file, refuse the
-	 * publish before anything is written. Returns the paths it changed.
+	 * `to` needs a directory or adds a file, or files where it needs a file,
+	 * refuse the publish before anything is written. Returns the paths it
+	 * changed.
 	 */
 	async function publish(
 		from: string | undefined,
 		to: string,
+		{ resumed = false }: { resumed?: boolean } = {},
 	): Promise<Result<readonly string[], SyncError>> {
 		const [before, after] = await Promise.all([headFiles(from), headFiles(to)]);
 		const changes = diffFileMaps(before, after).filter(
@@ -733,6 +735,20 @@ export function createHistory({
 					ancestors(path).some((ancestor) => stayingSet.has(ancestor)) ||
 					staying.some((other) => other.startsWith(`${path}/`)),
 			);
+		// A file `from` does not track where `to` adds one is this folder's
+		// own, ignored or untracked: Sync never merges it into history. A
+		// resumed publish checked this before its journal, and what stands
+		// there now is its own partial write.
+		for (const { path } of resumed ? [] : changes) {
+			if (before.has(path) || !after.has(path) || !stayingSet.has(path))
+				continue;
+			const read = await boundary.read(path);
+			const incoming = await backend.withObjects((access) =>
+				readBlob(access, after.get(path)!.oid),
+			);
+			if (read.error !== null || !sameContent(read.data.bytes, incoming))
+				inTheWay.push(path);
+		}
 		if (inTheWay.length > 0)
 			return SyncError.Blocked({
 				reason: `files of this folder stand where the remote has ${inTheWay.map((path) => `'${path}'`).join(', ')}; move them, then sync again`,
@@ -843,7 +859,9 @@ export function createHistory({
 		}
 		if (head !== (journal.from ?? undefined))
 			return `a Sync to ${journal.to} did not finish, and the branch has moved to ${head ?? 'no commit'} since`;
-		const { error } = await publish(journal.from ?? undefined, journal.to);
+		const { error } = await publish(journal.from ?? undefined, journal.to, {
+			resumed: true,
+		});
 		return error?.message;
 	}
 

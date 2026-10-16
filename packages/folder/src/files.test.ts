@@ -441,7 +441,6 @@ describe('a save never reads its bytes back', () => {
 			commit: unused,
 			sync: {
 				run: unused,
-				resolve: unused,
 				connect: unused,
 			},
 			noteEdit: () => {},
