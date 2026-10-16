@@ -454,7 +454,7 @@ test('a title input keeps its value well formed, so what is written is what is s
 	expect((await reading(path)).fields.title).toBe('Oat �');
 });
 
-test('notes from a CRLF file show LF, and typing in them writes LF and keeps undeclared keys (ADR-0570)', async () => {
+test('notes from a CRLF file show LF; typing in them writes an LF body and keeps the frontmatter byte for byte', async () => {
 	const { todos, target, get, reading } = await setup();
 	const crlf =
 		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\r\nTwo\r\n';
@@ -467,7 +467,8 @@ test('notes from a CRLF file show LF, and typing in them writes LF and keeps und
 	type(notes, 'One\nTwo\nThree\n');
 	blur(notes);
 	await settle(todos);
-	// The file is written with LF throughout, and the undeclared key stays.
+	// A body write keeps every byte before the body (ADR-0575) and writes the
+	// body with LF (ADR-0570).
 	expect(await reading('todos/crlf.md')).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'sam' },
 		body: 'One\nTwo\nThree\n',
@@ -476,7 +477,7 @@ test('notes from a CRLF file show LF, and typing in them writes LF and keeps und
 		new TextDecoder().decode(
 			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
 		),
-	).not.toContain('\r');
+	).toBe('---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\nTwo\nThree\n');
 });
 
 test('completion from the list and from the detail keeps notes and undeclared keys', async () => {

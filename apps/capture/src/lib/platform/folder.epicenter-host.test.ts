@@ -97,12 +97,8 @@ async function put(path: string, source: string) {
 const SAVED =
 	'---\ncapturedAt: 2026-10-01T10:30:00+08:00\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n';
 const PATH = 'captures/one.md';
-/** SAVED as a save writes it: plain YAML frontmatter, the body byte for byte. */
-const FORMATTED = SAVED.replace(
-	'capturedAt: 2026-10-01T10:30:00+08:00\n',
-	'capturedAt: "2026-10-01T10:30:00+08:00"\n',
-);
-const withText = (body: string) => FORMATTED.replace('\nText\n', `\n${body}\n`);
+/** SAVED with its text replaced: a body write keeps the frontmatter as written (ADR-0575). */
+const withText = (body: string) => SAVED.replace('\nText\n', `\n${body}\n`);
 const LOST = 'the webview lost its IPC connection';
 
 async function opened() {
@@ -274,7 +270,7 @@ test('a write saves the row on disk and keeps undeclared metadata', async () => 
 	await quiet(captures);
 
 	expect(failures).toEqual([]);
-	expect(await text(PATH)).toBe(`${FORMATTED}- second\n`);
+	expect(await text(PATH)).toBe(`${SAVED}- second\n`);
 	await captures.close();
 	await host.close();
 });

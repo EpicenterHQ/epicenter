@@ -29,7 +29,7 @@
 		options: TableOptions<Fields>;
 	} = $props();
 
-	const save = createMutation(() => options.save.mutationOptions());
+	const save = createMutation(() => options.setBody.mutationOptions());
 	/** What the last save replaced of another window's lines, and the save that puts it back. */
 	let notice = $state<{ replaced: readonly Replaced[]; restore: () => void }>();
 	/** The body, opened with the version it started from (ADR-0573). */

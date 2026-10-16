@@ -64,14 +64,12 @@ async function open(files: Record<string, string> = {}) {
 const AT = '2026-10-01T10:30:00+08:00';
 /** A capture file written by hand, with metadata Capture does not declare. */
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n`;
-/** HAND as a write saves it: plain YAML frontmatter, the body byte for byte. */
-const FORMATTED = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 const PATH = 'captures/one.md';
 
 /** How many saves of a capture are running. */
 const savesRunning = ({ captures }: Opened) =>
 	captures.queryClient.isMutating({
-		mutationKey: captures.folder$.captures.save.mutationOptions().mutationKey,
+		mutationKey: captures.folder$.captures.setBody.mutationOptions().mutationKey,
 	});
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */
@@ -180,7 +178,7 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	expect(form.body).toContain('\nEdited\n');
 	await quiet(captures);
 	expect(await harness.text(PATH)).toBe(
-		`${FORMATTED.replace('\nText\n', '\nEdited\n')}- second\n`,
+		`${HAND.replace('\nText\n', '\nEdited\n')}- second\n`,
 	);
 	// The saves landed: the edit is done, and the cache holds what they wrote.
 	expect(form.body).toBeUndefined();
@@ -190,7 +188,7 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	expect(harness.failures).toEqual([]);
 });
 
-test('a capture from a CRLF file is written with LF, and half a character typed is written as U+FFFD (ADR-0570)', async () => {
+test('a body write to a CRLF capture keeps its frontmatter and writes the body with LF, and half a character as U+FFFD', async () => {
 	const harness = await open({ [PATH]: HAND.replace(/\n/g, '\r\n') });
 	const { captures } = harness;
 	const form = captures.formOf('one');
@@ -198,7 +196,7 @@ test('a capture from a CRLF file is written with LF, and half a character typed 
 	expect(form.addThought()).toBe(true);
 	await quiet(captures);
 	expect(await harness.text(PATH)).toBe(
-		`${FORMATTED}- half � a character\n`,
+		`---\r\ncapturedAt: ${AT}\r\ncustom: kept\r\n---\r\n\nText\n\n## Thoughts\n\n- first\n  nested line\n- half � a character\n`,
 	);
 	expect(harness.failures).toEqual([]);
 });

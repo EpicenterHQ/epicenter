@@ -51,7 +51,7 @@ import {
 	type TableCreateError,
 	type TableError,
 	type TableListing,
-	type TableSaveError,
+	type TableSetBodyError,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import { folderOptions, runMutation, whenIdle } from '@epicenter/folder/query';
@@ -307,7 +307,7 @@ export function createCaptures(
 	const listKey = folder$.captures.list.queryKey();
 	/** Saves of a capture and writes of a file's text, the header's Saving… */
 	const writeKeys = [
-		folder$.captures.save.mutationOptions().mutationKey,
+		folder$.captures.setBody.mutationOptions().mutationKey,
 		folder$.files.write.mutationOptions().mutationKey,
 	];
 	const writing = () =>
@@ -342,10 +342,10 @@ export function createCaptures(
 			save: (variables) =>
 				runMutation(
 					queryClient,
-					folder$.captures.save.mutationOptions(),
+					folder$.captures.setBody.mutationOptions(),
 					variables,
-				).catch((error: TableSaveError) => {
-					const text = form.body ?? variables.row.body;
+				).catch((error: TableSetBodyError) => {
+					const text = form.body ?? variables.text;
 					// The file is gone: the edit has nowhere to go but the notice.
 					if (error.name === 'NotFound') form.discard();
 					onWriteFailed({ path, error, text });

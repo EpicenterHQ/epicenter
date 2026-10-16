@@ -78,13 +78,14 @@ are not UTF-8 text are listed apart and not opened.
   text to copy. Your next change saves it again. A save whose reply was lost
   is one of these failures: the notice says the change may or may not have
   happened.
-- The first write of a file written by hand rewrites its frontmatter in the
-  standard form: plain YAML, `capturedAt` first, keys Capture does not
-  declare kept. Comments and custom quoting in the frontmatter are not kept.
-- A capture's body is written with line feeds (ADR-0570): a file written
-  with `\r\n` gets `\n` on its first save from the capture view. Half a
-  character (a lone surrogate) is written as U+FFFD, so it shows as `�` once
-  the save lands. Otherwise the body is written exactly.
+- An edit of a capture replaces only its body (`table.setBody`, ADR-0575):
+  the frontmatter stays byte for byte as written, comments, quoting, line
+  endings, and keys Capture does not declare included.
+- A capture's body is written with line feeds (ADR-0570): a body written
+  with `\r\n` gets `\n` on its first save from the capture view, while the
+  frontmatter keeps its own line endings. Half a character (a lone
+  surrogate) is written as U+FFFD, so it shows as `�` once the save lands.
+  Otherwise the body is written exactly.
 - Edit as text writes exactly what is typed, valid or not, and keeps the
   file's line endings. Issues are read live from the text, each with its
   line. It writes the whole file over the version you started typing on,
@@ -353,9 +354,8 @@ The version before that one dropped these:
 - Unconfirmed-delete choices are gone. A delete whose reply was lost is
   reported once, and the timeline reads the folder again.
 - The 30-second relisting is gone.
-- The first write of a hand-written file rewrites its frontmatter as plain
-  YAML. Comments in the frontmatter are lost. The previous standard form was
-  JSON-style quoted keys.
+- An edit no longer rewrites a hand-written file's frontmatter: only the
+  body is replaced, and the frontmatter keeps its comments and quoting.
 - Captures from before the file version can no longer be imported. The
   recovery screen and the export format it read are gone.
 - A commit is refused while Capture closes or Epicenter quits or restarts,

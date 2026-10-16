@@ -31,7 +31,7 @@ import {
 	type CaptureFields,
 	captureBody,
 } from '@epicenter/capture';
-import type { Row, SavedRow, StoredRow } from '@epicenter/folder';
+import type { SavedRow, StoredRow } from '@epicenter/folder';
 import { createBodyEditor } from '@epicenter/folder/svelte';
 
 /** One edit of a thought, from Edit until it is saved or cancelled. */
@@ -57,12 +57,12 @@ export function createCaptureForm(capture: {
 	/** The capture as the cache holds it now, if it reads as a row. */
 	row(): StoredRow<CaptureFields> | undefined;
 	/**
-	 * Write `row` over `base`, the row the edit started from: the table's
-	 * save mutation, rejecting on failure.
+	 * Replace the body of the row the edit started from (`base`) with
+	 * `text`: the table's `setBody` mutation, rejecting on failure.
 	 */
 	save(variables: {
 		readonly base: StoredRow<CaptureFields>;
-		readonly row: Row<CaptureFields>;
+		readonly text: string;
 	}): Promise<SavedRow<CaptureFields>>;
 	/** A save landed, with the save that restores what it replaced. */
 	onSaved(saved: SavedRow<CaptureFields>, restore: () => void): void;

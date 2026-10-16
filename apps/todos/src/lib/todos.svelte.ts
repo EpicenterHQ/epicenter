@@ -77,7 +77,7 @@ export function createTodos(
 
 	/** Every save and update of a todo's file. */
 	const rowWrites = [
-		folder$.todos.save.mutationOptions().mutationKey ?? [],
+		folder$.todos.setBody.mutationOptions().mutationKey ?? [],
 		folder$.todos.update.mutationOptions().mutationKey ?? [],
 	];
 	const writing = {
