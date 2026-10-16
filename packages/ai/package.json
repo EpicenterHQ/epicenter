@@ -11,7 +11,8 @@
 		"./picker": "./src/picker/index.ts",
 		"./selections": "./src/selections.ts",
 		"./send": "./src/send.ts",
-		"./target": "./src/target.ts"
+		"./target": "./src/target.ts",
+		"./ui": "./src/ui/index.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
@@ -23,6 +24,7 @@
 		"@tauri-apps/api": "catalog:",
 		"nanoid": "catalog:",
 		"openai": "^7.12.1",
+		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
