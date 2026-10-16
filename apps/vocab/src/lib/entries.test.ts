@@ -402,7 +402,7 @@ test('the folder refuses a value it cannot hold, and the file is left as it was'
 	expect(cached(vocab, 'lucid').stage).toBe('new');
 });
 
-test('a note is kept well formed, so what saves is what is shown', async () => {
+test('half of a surrogate pair in a note is saved as U+FFFD (ADR-0570)', async () => {
 	const context = await setup();
 	const { vocab, entries } = context;
 	const entry = await context.add('lucid');

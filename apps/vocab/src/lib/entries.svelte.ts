@@ -272,6 +272,8 @@ export function createEntries(
 		> => {
 			const why = refused();
 			if (why !== undefined) return EntryError.NotStarted({ reason: why });
+			// Well formed as the folder stores it, so a word read back compares
+			// equal to the text it was added with.
 			const exact = wellFormed(text.trim());
 			if (exact === '') return EntryError.Empty();
 			// A word under another name, such as one written outside Vocab, is
@@ -360,8 +362,8 @@ export function createEntries(
 			const { data, error } = await addWord(text);
 			return error === null ? Ok(data.outcome) : Err(error);
 		},
-		/** Send the note of the word at `id`, kept well formed, so what is shown is what is saved. */
-		setNote: (id: string, note: string) => set(id, { note: wellFormed(note) }),
+		/** Send the note of the word at `id`. */
+		setNote: (id: string, note: string) => set(id, { note }),
 		/** Press a stage of the word at `id`; it is sent at once. */
 		setStage: (id: string, stage: EntryFields['stage']) => set(id, { stage }),
 		/**
