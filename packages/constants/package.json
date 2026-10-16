@@ -17,6 +17,7 @@
 		"./app-id": "./src/app-id.ts",
 		"./apps": "./src/apps.ts",
 		"./provider-credentials": "./src/provider-credentials.ts",
+		"./repositories": "./src/repositories.ts",
 		"./vite": "./src/vite.ts"
 	},
 	"devDependencies": {

@@ -36,6 +36,13 @@
 			"when": 1792093904052,
 			"tag": "0004_hosted_oauth_registrations",
 			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "7",
+			"when": 1792099966057,
+			"tag": "0005_hosted_repositories",
+			"breakpoints": true
 		}
 	]
 }

@@ -20,6 +20,17 @@ export type ResourceAccess = {
 	accountId: string;
 	role: NamespaceRole;
 	clientId: string;
+	/**
+	 * The namespace the role is in: the requested one, or, when the request
+	 * names a repository that has moved, the namespace it lives in now.
+	 */
+	namespaceId: string;
+	/**
+	 * The repository the requested name resolves to, by its name or by an
+	 * alias a move or rename left (ADR-0546); null when the request named
+	 * none, or no repository has that name.
+	 */
+	repository: { id: string; name: string } | null;
 };
 
 /** A refusal, ready to send: status, challenge header, and JSON body. */
@@ -68,6 +79,11 @@ export type AccountAccess = {
 	accountId: string;
 	email: string;
 	clientId: string;
+	/**
+	 * The grant's target: `*`, `ns:<id>` for one namespace (ADR-0549), or
+	 * null for a grant that reaches no namespace.
+	 */
+	target: string | null;
 };
 
 type AccessRow = {
@@ -77,11 +93,17 @@ type AccessRow = {
 	has_scope: boolean;
 	in_target: boolean;
 	role: NamespaceRole | null;
+	namespace_id: string;
+	repository_id: string | null;
+	repository_name: string | null;
 };
 
 /**
  * Decide one request. Returns the account and its role in `namespaceId`, or
- * the refusal to send:
+ * the refusal to send. When the request names a `repository`, the same
+ * statement resolves `<namespaceId>/<repository>` through `repository`, then
+ * `repository_alias`; a repository that has moved is checked against the
+ * namespace it lives in now, never the one in the old URL.
  *
  * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
  *   token whose approving browser session ended, or another audience's token;
@@ -96,12 +118,15 @@ export async function authorizeResourceRequest(
 		audience,
 		scope,
 		namespaceId,
+		repository,
 	}: {
 		token: string | null;
 		/** This resource's identifier, the token's required audience. */
 		audience: string;
 		scope: OAuthScope;
 		namespaceId: string;
+		/** A repository name in `namespaceId` to resolve in the same statement. */
+		repository?: string;
 	},
 ): Promise<Result<ResourceAccess, ResourceRefusal>> {
 	const metadata = `resource_metadata="${protectedResourceMetadataUrl(audience)}"`;
@@ -118,16 +143,34 @@ export async function authorizeResourceRequest(
 	// Compare against the client's clock the way Better Auth writes these
 	// columns: a JS Date into a timestamp without time zone.
 	const now = new Date();
+	const name = repository ?? null;
 	const { rows } = await db.execute<AccessRow>(sql`
+		with named as (
+			select r.id, r.namespace_id, r.name, 0 as via_alias
+			from repository r
+			where r.namespace_id = ${namespaceId} and r.name = ${name}
+			union all
+			select r.id, r.namespace_id, r.name, 1 as via_alias
+			from repository_alias a
+			join repository r on r.id = a.repository_id
+			where a.namespace_id = ${namespaceId} and a.name = ${name}
+			order by via_alias
+			limit 1
+		)
 		select t.user_id as account_id,
 		       t.client_id,
 		       ${audience} = any(t.resources) as has_audience,
 		       ${scope} = any(t.scopes) as has_scope,
-		       coalesce(t.reference_id in ('*', 'ns:' || ${namespaceId}), false) as in_target,
-		       m.role
+		       coalesce(t.reference_id in ('*', 'ns:' || coalesce(n.namespace_id, ${namespaceId})), false) as in_target,
+		       m.role,
+		       coalesce(n.namespace_id, ${namespaceId}) as namespace_id,
+		       n.id as repository_id,
+		       n.name as repository_name
 		from oauth_access_token t
+		left join named n on true
 		left join namespace_member m
-		       on m.account_id = t.user_id and m.namespace_id = ${namespaceId}
+		       on m.account_id = t.user_id
+		      and m.namespace_id = coalesce(n.namespace_id, ${namespaceId})
 		left join session s on s.id = t.session_id
 		where t.token = ${hash}
 		  and t.revoked is null
@@ -162,6 +205,11 @@ export async function authorizeResourceRequest(
 		accountId: row.account_id,
 		role: row.role,
 		clientId: row.client_id,
+		namespaceId: row.namespace_id,
+		repository:
+			row.repository_id !== null && row.repository_name !== null
+				? { id: row.repository_id, name: row.repository_name }
+				: null,
 	});
 }
 
@@ -169,6 +217,7 @@ type AccountRow = {
 	account_id: string;
 	client_id: string;
 	email: string;
+	target: string | null;
 	has_audience: boolean;
 	has_scope: boolean;
 };
@@ -191,12 +240,17 @@ export async function authorizeAccountRequest(
 		scope,
 	}: {
 		token: string | null;
-		/** This resource's identifier, the token's required audience. */
-		audience: string;
+		/**
+		 * This resource's identifier, the token's required audience, or the
+		 * identifiers of which the token needs one; the first names the
+		 * resource's metadata.
+		 */
+		audience: string | readonly [string, ...string[]];
 		scope: OAuthScope;
 	},
 ): Promise<Result<AccountAccess, ResourceRefusal>> {
-	const metadata = `resource_metadata="${protectedResourceMetadataUrl(audience)}"`;
+	const audiences = typeof audience === 'string' ? [audience] : audience;
+	const metadata = `resource_metadata="${protectedResourceMetadataUrl(audiences[0])}"`;
 	const invalid = (description: string) =>
 		Err<ResourceRefusal>({
 			status: 401,
@@ -212,7 +266,11 @@ export async function authorizeAccountRequest(
 		select t.user_id as account_id,
 		       t.client_id,
 		       u.email,
-		       ${audience} = any(t.resources) as has_audience,
+		       t.reference_id as target,
+		       t.resources && array[${sql.join(
+							audiences.map((one) => sql`${one}`),
+							sql`, `,
+						)}]::text[] as has_audience,
 		       ${scope} = any(t.scopes) as has_scope
 		from oauth_access_token t
 		join "user" u on u.id = t.user_id
@@ -239,5 +297,6 @@ export async function authorizeAccountRequest(
 		accountId: row.account_id,
 		email: row.email,
 		clientId: row.client_id,
+		target: row.target,
 	});
 }
