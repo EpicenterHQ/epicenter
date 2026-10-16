@@ -7,33 +7,33 @@
  * change to `entries/`. This page's own saves are not reported: each puts
  * what it wrote in the listing itself.
  *
- * A note or a stage is an update of the word's file as it is now
- * (ADR-0554): it sets that field and keeps every other field another writer
- * changed. The card holds a note typed and not yet sent; a stage press
- * sends at once. One word's writes run one at a time, in the order made. A
- * failed update is reported, and the card keeps what was typed.
+ * A note or a stage is set on the word's file as it is now (ADR-0576): it
+ * sets that field and keeps every other field another writer changed. The
+ * card holds a note typed and not yet sent; a stage press sends at once.
+ * One word's writes run one at a time, in the order made. A failed write is
+ * reported, and the card keeps what was typed.
  *
  * A word file that is not a valid word is repaired as its exact text, read
  * as its own query and written the same way: a text draft over the version
  * read, saved after a pause in typing, one write at a time, and merged with
  * a change made elsewhere (ADR-0551). Where both changed the same lines,
- * the save wins, with no notice (ADR-0575). Adding and deleting a word are
- * mutations too, so closing waits for them.
+ * the save wins, with no notice. Adding and deleting a word are mutations
+ * too, so closing waits for them. A delete removes the file whatever it
+ * holds by then (ADR-0576).
  *
- * A new word's file is named by the SHA-256 of its exact text, and creation
- * is exclusive, so two adds of one text reach the same file.
+ * A new word's file is named by the SHA-256 of its exact text, so two adds
+ * of one text reach the same file. An add reads that file first and writes
+ * only when none is there.
  */
 
 import { InstantString } from '@epicenter/definition/field';
 import {
-	type FileCapture,
-	type FileError,
 	hashBytes,
 	rowPath,
 	type StoredRow,
-	type TableError,
 	type TableListing,
 	wellFormed,
+	type WriteError,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import {
@@ -127,7 +127,7 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 
 export function createEntries(
 	folder: Pick<VocabFolder, 'tables' | 'files'>,
-	folder$: Pick<VocabOptions, 'entries' | 'files' | 'pathFilter'>,
+	folder$: Pick<VocabOptions, 'entries' | 'files'>,
 	queryClient: QueryClient,
 	{
 		refused,
@@ -171,17 +171,17 @@ export function createEntries(
 	 * Set fields of a word as its file is now. A failure is reported; the
 	 * card keeps what was typed, and a word deleted elsewhere is gone.
 	 */
-	const update = {
-		...folder$.entries.update.mutationOptions(),
+	const setEntry = {
+		...folder$.entries.set.mutationOptions(),
 		onError: (error, { stem }) =>
 			onWriteFailed({ path: pathOf(stem), error, lost: '' }),
-	} satisfies ReturnType<typeof folder$.entries.update.mutationOptions>;
-	const updateKey = update.mutationKey ?? [];
+	} satisfies ReturnType<typeof folder$.entries.set.mutationOptions>;
+	const setKey = setEntry.mutationKey ?? [];
 
-	/** Resolves once no update of the word at `id` runs or waits. */
-	const updatesSettled = (id: string) =>
+	/** Resolves once no set of the word at `id` runs or waits. */
+	const setsSettled = (id: string) =>
 		whenIdle(queryClient, {
-			mutationKey: updateKey,
+			mutationKey: setKey,
 			predicate: (mutation) =>
 				(mutation.state.variables as { stem?: string } | undefined)?.stem ===
 				id,
@@ -203,21 +203,6 @@ export function createEntries(
 			},
 			{ path, ...sent },
 		);
-	}
-
-	/**
-	 * The capture a delete of `id` acts on, read when it runs: the newest
-	 * hash the cache holds. A file open as text, or one that is not a valid
-	 * word, is a capture of its bytes too.
-	 */
-	function heldCapture(id: string): FileCapture | undefined {
-		const path = pathOf(id);
-		const opened = textData(path);
-		if (repair?.path === path && opened?.kind === 'text') return opened.file;
-		const result = listingData()?.find((entry) => entry.stem === id)?.result;
-		if (result?.error === null) return result.data;
-		if (result?.error.name === 'InvalidRow') return result.error;
-		return undefined;
 	}
 
 	/** Put a word this page just saved into the listing. */
@@ -266,6 +251,19 @@ export function createEntries(
 					return Ok({ outcome: 'present', id: listed.id, stored: current });
 			}
 			const stem = await hashBytes(new TextEncoder().encode(exact));
+			// A create merges into a file already at the stem. Another add,
+			// another tab, or an earlier attempt whose answer was lost may have
+			// made it: it is this word only if it holds this text.
+			const { data: current, error: readError } = await table.get(stem);
+			if (readError !== null) {
+				if (readError.name !== 'InvalidRow' && readError.name !== 'InvalidUtf8')
+					return EntryError.NotSaved({ cause: readError });
+				return EntryError.Taken({ path: pathOf(stem) });
+			}
+			if (current !== undefined)
+				return current.row.fields.text === exact
+					? Ok({ outcome: 'present', id: stem, stored: current })
+					: EntryError.Taken({ path: current.path });
 			const { data: created, error } = await table.create(
 				{
 					fields: {
@@ -278,35 +276,33 @@ export function createEntries(
 				},
 				{ stem },
 			);
-			if (error === null)
-				return Ok({ outcome: 'added', id: stem, stored: created });
-			if (error.name !== 'Exists') return EntryError.NotSaved({ cause: error });
-			// Another add, another tab, or an earlier attempt whose answer was
-			// lost made the file. It is this word only if it holds this text.
-			const { data: current, error: readError } = await table.get(stem);
-			if (
-				readError !== null &&
-				readError.name !== 'InvalidRow' &&
-				readError.name !== 'InvalidUtf8'
-			)
-				return EntryError.NotSaved({ cause: readError });
-			if (current?.row.fields.text !== exact)
-				return EntryError.Taken({ path: error.path });
-			return Ok({ outcome: 'present', id: stem, stored: current });
+			if (error !== null) return EntryError.NotSaved({ cause: error });
+			// A file written meanwhile that is not a word.
+			if (created === null) return EntryError.Taken({ path: pathOf(stem) });
+			return Ok({ outcome: 'added', id: stem, stored: created });
 		},
 		onSuccess: ({ id, stored }) => received(id, stored),
 	});
 
-	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
+	/**
+	 * Whether the word at `id` takes an edit now: not closing, being
+	 * deleted, or open as text, and still listed as a word. A set of a word
+	 * deleted elsewhere is refused as not a whole word, so none is sent.
+	 */
 	function canEdit(id: string) {
 		const path = pathOf(id);
-		return refused() === undefined && repair?.path !== path && !removing(path);
+		return (
+			refused() === undefined &&
+			repair?.path !== path &&
+			!removing(path) &&
+			rowOf(id) !== undefined
+		);
 	}
 
-	/** Send an update of the word at `id`; answers whether it was sent. */
-	function set(id: string, fields: Partial<EntryFields>): boolean {
-		if (!canEdit(id) || rowOf(id) === undefined) return false;
-		void runMutation(queryClient, update, { stem: id, set: fields }).catch(
+	/** Set fields of the word at `id`; answers whether it was sent. */
+	function send(id: string, fields: Partial<EntryFields>): boolean {
+		if (!canEdit(id)) return false;
+		void runMutation(queryClient, setEntry, { stem: id, fields }).catch(
 			() => {},
 		);
 		return true;
@@ -321,8 +317,8 @@ export function createEntries(
 		},
 		/** One word file's exact text, or its type and size when it is not editable text. */
 		textQuery: (path: string) => folder$.files.text.queryOptions(path),
-		/** The update a card sends a note it holds with: `{ stem, set }`. */
-		update,
+		/** The set a card sends a note it holds with: `{ stem, fields }`. */
+		setEntry,
 		canEdit,
 		/** Whether the word at `id` takes no edit now: it is being deleted, or is open as text. */
 		isLocked(id: string) {
@@ -342,26 +338,26 @@ export function createEntries(
 			return error === null ? Ok(data.outcome) : Err(error);
 		},
 		/** Send the note of the word at `id`. */
-		setNote: (id: string, note: string) => set(id, { note }),
+		setNote: (id: string, note: string) => send(id, { note }),
 		/** Press a stage of the word at `id`; it is sent at once. */
-		setStage: (id: string, stage: EntryFields['stage']) => set(id, { stage }),
+		setStage: (id: string, stage: EntryFields['stage']) =>
+			send(id, { stage }),
 		/**
-		 * Delete `entry`. It waits for the word's updates under way, so it
-		 * removes what this page saved last; a file changed elsewhere since is
-		 * refused, and the list reads it again.
+		 * Delete `entry`. It waits for the word's sets under way and writes
+		 * the repair text typed, then deletes the file whatever it holds.
 		 */
 		remove(entry: Entry) {
 			const path = pathOf(entry.id);
 			return defineMutation({
 				mutationKey: vocabKeys.remove(path),
 				mutationFn: async (): Promise<
-					Result<undefined, TableError | FileError | EntryError>
+					Result<undefined, WriteError | EntryError>
 				> => {
 					const why = refused();
 					if (why !== undefined) return EntryError.NotStarted({ reason: why });
-					await updatesSettled(entry.id);
+					await setsSettled(entry.id);
 					if (repair?.path === path) await repair.draft.save();
-					return table.delete(heldCapture(entry.id) ?? entry.stored);
+					return table.delete(entry.id);
 				},
 				onSuccess: () => {
 					queryClient.setQueryData<EntryListing>(listKey, (listing) =>
@@ -369,10 +365,6 @@ export function createEntries(
 					);
 					queryClient.removeQueries({ queryKey: textKey(path), exact: true });
 					if (repair?.path === path) repair = undefined;
-				},
-				onError: (error) => {
-					if (error.name === 'Conflict')
-						return queryClient.invalidateQueries(folder$.pathFilter([path]));
 				},
 			})();
 		},

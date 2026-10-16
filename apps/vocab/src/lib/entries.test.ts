@@ -214,11 +214,10 @@ test('adds of one text made together, in one tab or two, save one word', async (
 		entries.add(' on the fence '),
 		otherTab.vocab.entries.add('on the fence'),
 	]);
-	expect(outcomes.map((outcome) => expectOk(outcome)).sort()).toEqual([
-		'added',
-		'present',
-		'present',
-	]);
+	// Adds that each read no file yet each write one, and the writes merge
+	// into one file, so each may answer `added`.
+	for (const outcome of outcomes)
+		expect(['added', 'present']).toContain(expectOk(outcome));
 	await quiet(otherTab.vocab);
 	expect(await tableFiles(folder, 'entries')).toHaveLength(1);
 	expect(words(otherTab.vocab)).toEqual([
@@ -466,7 +465,7 @@ test('a file that is not a valid word is named for repair, is written as typed t
 // Delete
 // ============================================================================
 
-test('a delete waits for the update under way and removes what it saved; edits wait while it runs', async () => {
+test('a delete waits for the set under way and removes what it saved; edits wait while it runs', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -486,16 +485,18 @@ test('a delete waits for the update under way and removes what it saved; edits w
 	expect(wordsOf(listing(vocab))).toEqual([]);
 });
 
-test('a delete is refused when the word changed elsewhere, and the list reads it again', async () => {
+test('a delete removes the word even when it changed elsewhere', async () => {
 	const context = await setup();
 	const { vocab, entries } = context;
 	const entry = await context.add('lucid');
-	const elsewhere = wordText('lucid', 'theirs', 'usable');
-	await context.writeElsewhere(entry.stored.path, elsewhere);
-	expect(expectErr(await entries.remove(entry)).name).toBe('Conflict');
+	await context.writeElsewhere(
+		entry.stored.path,
+		wordText('lucid', 'theirs', 'usable'),
+	);
+	expectOk(await entries.remove(entry));
 	await quiet(vocab);
-	expect(await context.text(entry.stored.path)).toBe(elsewhere);
-	expect(cached(vocab, 'lucid').note).toBe('theirs');
+	expect(await context.text(entry.stored.path)).toBeUndefined();
+	expect(wordsOf(listing(vocab))).toEqual([]);
 });
 
 // ============================================================================
@@ -521,7 +522,7 @@ test('close waits for running saves, and every close call shares one completion'
 	await first;
 	expect(folder.signal.aborted).toBe(true);
 	const saves = vocab.queryClient.getMutationCache().findAll({
-		mutationKey: vocab.folder$.entries.update.mutationOptions().mutationKey,
+		mutationKey: vocab.folder$.entries.set.mutationOptions().mutationKey,
 	});
 	expect(saves.map((save) => save.state.status)).toEqual(['success']);
 });

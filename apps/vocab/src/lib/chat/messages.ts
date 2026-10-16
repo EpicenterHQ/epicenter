@@ -137,9 +137,10 @@ export type MessageWrite = (
  * resolves `Ok` only once the folder holds the file, so the loop asks the
  * tutor nothing before a learner message is a file.
  *
- * Creation is exclusive. Saving a message again after an answer that never
- * arrived finds its own file, compares it, and adds no second one; a
- * different message at that name is refused.
+ * A create merges into a file already at its stem, so a save reads the
+ * stem first and creates only when no file is there. Saving a message again
+ * after an answer that never arrived finds its own file, compares it, and
+ * adds no second one; a different message at that name is refused.
  */
 export function createChatMessageStore(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
@@ -173,30 +174,32 @@ export function createChatMessageStore(
 		value: AgentMessage,
 	): Promise<Result<undefined, AgentMessageStoreError>> {
 		const stem = messageStem(chatId, key);
-		const { error: createError } = await table.create(
-			{ fields: { chat: chatId, message: value }, body: '' },
-			{ stem },
-		);
-		if (createError !== null) {
-			if (createError.name !== 'Exists')
-				return AgentMessageStoreError.WriteFailed({ cause: createError });
-			// An earlier attempt may have landed without its answer.
-			const { data: current, error: readError } = await table.get(stem);
-			if (
-				readError !== null &&
-				readError.name !== 'InvalidRow' &&
-				readError.name !== 'InvalidUtf8'
-			)
-				return AgentMessageStoreError.WriteFailed({ cause: readError });
+		// A create merges into a file already at its stem, so the stem is read
+		// first. An earlier attempt may have landed without its answer.
+		const { data: current, error: readError } = await table.get(stem);
+		if (
+			readError !== null &&
+			readError.name !== 'InvalidRow' &&
+			readError.name !== 'InvalidUtf8'
+		)
+			return AgentMessageStoreError.WriteFailed({ cause: readError });
+		if (readError !== null || current !== undefined) {
 			if (
 				current?.row.fields.chat !== chatId ||
 				!sameJson(current.row.fields.message, value)
 			) {
 				const { error: taken } = ChatHistoryError.Taken({
-					path: createError.path,
+					path: rowPath(table.name, stem),
 				});
 				return AgentMessageStoreError.WriteFailed({ cause: taken });
 			}
+		} else {
+			const { error: createError } = await table.create(
+				{ fields: { chat: chatId, message: value }, body: '' },
+				{ stem },
+			);
+			if (createError !== null)
+				return AgentMessageStoreError.WriteFailed({ cause: createError });
 		}
 		created.set(key, value);
 		notify();
@@ -276,6 +279,10 @@ export async function startChat(
 	});
 	if (createError !== null)
 		return ChatHistoryError.NotSaved({ cause: createError });
+	if (created === null)
+		return ChatHistoryError.NotSaved({
+			cause: 'The new file does not read as a chat',
+		});
 	return Ok({ id: rowStemOf(chats.name, created.path) ?? '', ...chat });
 }
 

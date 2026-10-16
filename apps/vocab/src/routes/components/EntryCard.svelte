@@ -3,7 +3,7 @@
 	press is sent at once. The note is held here while it is typed and sent
 	a second after the last keystroke, when the learner leaves it, and when
 	the card goes away; a read that lands meanwhile never replaces it. Each
-	is an update of the word's file as it is now (ADR-0554).
+	sets its field on the word's file as it is now (ADR-0576).
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -32,15 +32,15 @@
 	const id = entry.id;
 	/** Edits wait while the word is deleted or open as text. */
 	const locked = $derived(entries.isLocked(id));
-	const saveNote = createMutation(() => entries.update);
+	const setEntry = createMutation(() => entries.setEntry);
 
 	/** The note typed and not yet saved; `undefined` shows the file. */
 	let note = $state<string>();
 	function sendNote() {
 		if (note === undefined || !entries.canEdit(id)) return;
 		const sent = note;
-		saveNote.mutate(
-			{ stem: id, set: { note: sent } },
+		setEntry.mutate(
+			{ stem: id, fields: { note: sent } },
 			{
 				onSuccess: () => {
 					if (note === sent) note = undefined;
@@ -81,9 +81,9 @@
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
 		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} disabled={locked} onclick={() => entries.setStage(id, option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
-			{#if saveNote.isPending || (sendNoteLater.pending && note !== undefined)}
+			{#if setEntry.isPending || (sendNoteLater.pending && note !== undefined)}
 				Saving…
-			{:else if note !== undefined && saveNote.isError}
+			{:else if note !== undefined && setEntry.isError}
 				Not saved. <Button variant="link" size="xs" class="h-auto p-0" onclick={sendNote}>Try again</Button>
 			{/if}
 		</span>
