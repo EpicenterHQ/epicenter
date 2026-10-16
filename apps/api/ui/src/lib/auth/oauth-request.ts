@@ -50,7 +50,8 @@ const SCOPE_COPY: Record<string, string> = {
 	'folders:read': 'Read your folders',
 	'folders:write': 'Change your folders',
 	ai: 'Use Epicenter AI on your plan',
-	profile: 'See your name, email, plan, and usage',
+	profile: 'See your name, plan, and usage',
+	email: 'See your email address',
 	offline_access: 'Stay signed in on that device',
 };
 

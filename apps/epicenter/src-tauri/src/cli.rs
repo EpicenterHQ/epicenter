@@ -6,6 +6,14 @@
 //! line, to the page's `Channel`. Secrets and bodies cross on stdin, never in
 //! arguments.
 //!
+//! Every command starts the CLI through one [`Invocation`]: the bundled
+//! program, the deployment this shell is configured for in
+//! `EPICENTER_API_URL`, and this shell's directories in `EPICENTER_DATA_DIR`,
+//! `EPICENTER_FOLDER_DIR`, and `EPICENTER_CACHE_DIR`, so the CLI a command
+//! runs names the same deployment and files as the shell, whichever command
+//! it is. A command a page calls is that window's ([`CliChildren`]): its
+//! child ends when the page reloads or the window closes.
+//!
 //! The runner writes stdin on its own task and drains stderr on another while
 //! it reads stdout, so a child that prints before it finishes reading cannot
 //! deadlock on a full pipe. Lines are read whole, however long, and the run
@@ -16,9 +24,12 @@
 //! [`STOP_GRACE`], so a refresh the child already sent reaches the keychain
 //! (ADR-0565).
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD;
@@ -26,10 +37,12 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
-use tauri::{Runtime, Webview};
+use tauri::{AppHandle, Manager, Runtime, Webview};
 use tauri_plugin_epicenter_folder::{FolderExt, GrantError};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+
+use crate::app_data::DesktopPaths;
 
 /// How much of the child's stderr a result keeps: the end, where the reason is.
 const STDERR_TAIL_BYTES: usize = 64 * 1024;
@@ -102,6 +115,96 @@ fn signal_group(child: &Child, signal: libc::c_int) {
     }
 }
 
+/// The `epicenter` children each window's page started, by window label.
+/// Cloning shares the one record, so a run can hold it across its awaits.
+#[derive(Clone, Default)]
+pub struct CliChildren {
+    running: Arc<Mutex<HashMap<String, Vec<(u32, Arc<AtomicBool>)>>>>,
+}
+
+impl CliChildren {
+    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<(u32, Arc<AtomicBool>)>>> {
+        self.running
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn start(&self, window: &str, pid: u32) -> Arc<AtomicBool> {
+        let live = Arc::new(AtomicBool::new(true));
+        self.state()
+            .entry(window.to_string())
+            .or_default()
+            .push((pid, Arc::clone(&live)));
+        live
+    }
+
+    fn finish(&self, window: &str, live: &Arc<AtomicBool>) {
+        live.store(false, Ordering::SeqCst);
+        let mut state = self.state();
+        if let Some(children) = state.get_mut(window) {
+            children.retain(|(_, other)| !Arc::ptr_eq(other, live));
+            if children.is_empty() {
+                state.remove(window);
+            }
+        }
+    }
+
+    /// The page in `window` is over: it reloaded, navigated, or the window
+    /// was destroyed. End every child it started, with the processes each
+    /// started.
+    pub fn page_ended(&self, window: &str) {
+        let children = self.state().remove(window).unwrap_or_default();
+        for (pid, live) in children {
+            end_group(pid, live);
+        }
+    }
+
+    /// How many children `window`'s page has running.
+    #[cfg(test)]
+    pub(crate) fn running(&self, window: &str) -> usize {
+        self.state().get(window).map_or(0, Vec::len)
+    }
+}
+
+/// Ask the child `pid` to stop, which ends the `git` it runs, then kill its
+/// process group if it is still running after `STOP_GRACE`.
+fn end_group(pid: u32, live: Arc<AtomicBool>) {
+    #[cfg(unix)]
+    {
+        let Ok(group) = libc::pid_t::try_from(pid) else {
+            return;
+        };
+        // SAFETY: `kill` takes no pointers. The group is the one the child
+        // leads (`process_group(0)`); `live` says it has not been reaped.
+        unsafe {
+            libc::kill(-group, libc::SIGTERM);
+        }
+        std::thread::spawn(move || {
+            std::thread::sleep(STOP_GRACE);
+            if live.load(Ordering::SeqCst) {
+                // SAFETY: as above.
+                unsafe {
+                    libc::kill(-group, libc::SIGKILL);
+                }
+            }
+        });
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        if live.load(Ordering::SeqCst) {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
+    }
+}
+
 /// How to start the `epicenter` binary: a program and the arguments that
 /// come before a command's own.
 #[derive(Debug, Clone)]
@@ -148,8 +251,51 @@ pub(crate) fn bundled_program() -> Result<Program, String> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct CliExit {
     pub code: i32,
+    /// The last line the CLI printed on stdout: a command's one answer, or
+    /// `{"error": ...}`.
+    pub reply: Option<String>,
     /// The end of what the CLI wrote for people, at most 64 KiB.
     pub stderr: String,
+}
+
+impl CliExit {
+    /// The message of a reply `{"error": "<message>"}`, the CLI's refusal.
+    fn refusal(&self) -> Option<String> {
+        let value = serde_json::from_str::<Value>(self.reply.as_deref()?).ok()?;
+        value.get("error")?.as_str().map(str::to_string)
+    }
+
+    /// Why `epicenter <what>` did not do what it was asked: its refusal, or
+    /// the end of what it wrote for people, or its exit code.
+    pub(crate) fn failure(&self, what: &str) -> String {
+        self.refusal()
+            .or_else(|| Some(self.stderr.trim().to_string()).filter(|text| !text.is_empty()))
+            .unwrap_or_else(|| format!("epicenter {what} exited with {}", self.code))
+    }
+
+    /// The one JSON value a command that exited 0 answered. A refusal is
+    /// [`CliError::Refused`]; anything else is a failure naming `what`.
+    fn answer<T: serde::de::DeserializeOwned>(self, what: &str) -> Result<T, CliError> {
+        let value = self
+            .reply
+            .as_deref()
+            .and_then(|line| serde_json::from_str::<Value>(line).ok());
+        match value {
+            Some(value) if self.code == 0 => serde_json::from_value(value).map_err(|error| {
+                failed(format!(
+                    "epicenter {what} answered something that does not read: {error}"
+                ))
+            }),
+            _ => match self.refusal() {
+                Some(message) => Err(CliError::Refused { message }),
+                None => Err(failed(format!(
+                    "epicenter {what} exited {}: {}",
+                    self.code,
+                    self.stderr.trim()
+                ))),
+            },
+        }
+    }
 }
 
 /// Why a command did not run the CLI, or the CLI did not finish.
@@ -172,35 +318,122 @@ pub(crate) fn failed(message: impl Into<String>) -> CliError {
     }
 }
 
-/// Run `program` with `args`, write `stdin` (or nothing) on its own task, and
-/// hand each line of stdout to `on_line` as it arrives. A line is passed
-/// without its line ending. When `on_line` refuses a line, the child is
-/// stopped, gracefully (`STOP_GRACE`), and the run fails.
-pub async fn run(
-    program: &Program,
-    args: &[OsString],
-    stdin: Option<Vec<u8>>,
-    on_line: impl FnMut(String) -> Result<(), String>,
-) -> Result<CliExit, CliError> {
-    run_with_env(program, args, &[], stdin, on_line).await
+/// How this shell starts the `epicenter` CLI: the program, the environment
+/// every run gets, whether it selects the app's own grant (`--desktop`,
+/// ADR-0558), and the window whose page the run belongs to.
+#[derive(Clone)]
+pub(crate) struct Invocation {
+    program: Program,
+    env: Vec<(OsString, OsString)>,
+    desktop: bool,
+    owner: Option<(CliChildren, String)>,
 }
 
-/// [`run`], with `env` set in the child's environment, such as the shell's
-/// directories for `epicenter app` (`installed_apps.rs`).
-pub async fn run_with_env(
-    program: &Program,
-    args: &[OsString],
-    env: &[(OsString, OsString)],
-    stdin: Option<Vec<u8>>,
-    on_line: impl FnMut(String) -> Result<(), String>,
-) -> Result<CliExit, CliError> {
-    run_child(program, args, env, stdin, on_line, |_| {}).await
+impl Invocation {
+    /// `program` with the deployment at `origin` and this shell's `paths`,
+    /// as the CLI reads them (`app-paths.ts`, `authContext`).
+    pub(crate) fn new(program: Program, origin: &str, paths: &DesktopPaths) -> Self {
+        Self {
+            program,
+            env: vec![
+                ("EPICENTER_API_URL".into(), origin.into()),
+                ("EPICENTER_DATA_DIR".into(), paths.data_dir.clone().into()),
+                (
+                    "EPICENTER_FOLDER_DIR".into(),
+                    paths.folder_dir.clone().into(),
+                ),
+                ("EPICENTER_CACHE_DIR".into(), paths.cache_dir.clone().into()),
+            ],
+            desktop: false,
+            owner: None,
+        }
+    }
+
+    /// Run as the desktop app's grant: `--desktop` follows the arguments.
+    pub(crate) fn desktop(mut self) -> Self {
+        self.desktop = true;
+        self
+    }
+
+    /// One more variable in the child's environment.
+    pub(crate) fn env(mut self, name: &str, value: impl Into<OsString>) -> Self {
+        self.env.push((name.into(), value.into()));
+        self
+    }
+
+    /// The run belongs to `window`'s page, and ends with it.
+    pub(crate) fn owned_by(mut self, children: &CliChildren, window: &str) -> Self {
+        self.owner = Some((children.clone(), window.to_string()));
+        self
+    }
+
+    /// Run `epicenter <args>`, write `stdin` (or nothing) on its own task,
+    /// and hand each line of stdout to `on_line` as it arrives. A line is
+    /// passed without its line ending. When `on_line` refuses a line, the
+    /// child is stopped, gracefully (`STOP_GRACE`), and the run fails.
+    pub(crate) async fn run(
+        &self,
+        args: &[OsString],
+        stdin: Option<Vec<u8>>,
+        on_line: impl FnMut(String) -> Result<(), String>,
+    ) -> Result<CliExit, CliError> {
+        let mut args = args.to_vec();
+        if self.desktop {
+            args.push("--desktop".into());
+        }
+        let mut live = None;
+        let exit = run_child(&self.program, &args, &self.env, stdin, on_line, |pid| {
+            if let Some((children, window)) = &self.owner {
+                live = Some(children.start(window, pid));
+            }
+        })
+        .await;
+        if let (Some((children, window)), Some(live)) = (&self.owner, &live) {
+            children.finish(window, live);
+        }
+        exit
+    }
+
+    /// Run `epicenter <args>` that answers one JSON value, and read it.
+    async fn answer<T: serde::de::DeserializeOwned>(
+        &self,
+        args: &[&str],
+        stdin: Option<Vec<u8>>,
+    ) -> Result<T, CliError> {
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let what = args
+            .iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.run(&args, stdin, |_| Ok(())).await?.answer(&what)
+    }
 }
 
-/// [`run_with_env`], calling `started` with the child's process ID once it
-/// runs. On Unix the child leads its own process group, so the shell can end
-/// it with every process it started (`history::CliChildren`).
-pub(crate) async fn run_child(
+/// How this shell starts the CLI, for work no page owns, such as the launch
+/// call. Fails when the shell's directories or deployment are not known.
+pub(crate) fn invocation<R: Runtime>(app: &AppHandle<R>) -> Result<Invocation, CliError> {
+    let paths = app
+        .try_state::<DesktopPaths>()
+        .ok_or_else(|| failed("the shell's directories are not resolved yet"))?;
+    Ok(Invocation::new(
+        bundled_program().map_err(failed)?,
+        &crate::deployment_origin().map_err(failed)?,
+        &paths,
+    ))
+}
+
+/// How this shell starts the CLI for a command `webview`'s page called: the
+/// child is that window's, and ends when its page does.
+pub(crate) fn window_invocation<R: Runtime>(webview: &Webview<R>) -> Result<Invocation, CliError> {
+    let children = webview.state::<CliChildren>();
+    Ok(invocation(webview.app_handle())?.owned_by(&children, webview.label()))
+}
+
+/// Run `program` with `args` and `env`, calling `started` with the child's
+/// process ID once it runs. On Unix the child leads its own process group,
+/// so the shell can end it with every process it started ([`CliChildren`]).
+async fn run_child(
     program: &Program,
     args: &[OsString],
     env: &[(OsString, OsString)],
@@ -270,6 +503,7 @@ pub(crate) async fn run_child(
         .ok_or_else(|| failed("no stdout pipe"))?;
     let mut reader = BufReader::new(stdout);
     let mut line = Vec::new();
+    let mut reply = None;
     let mut refused = None;
     loop {
         line.clear();
@@ -293,6 +527,7 @@ pub(crate) async fn run_child(
                 break;
             }
         };
+        reply = Some(text.clone());
         if let Err(message) = on_line(text) {
             refused = Some(message);
             break;
@@ -312,7 +547,11 @@ pub(crate) async fn run_child(
     }
     let stderr = stderr.await.unwrap_or_default();
     match status.code() {
-        Some(code) => Ok(CliExit { code, stderr }),
+        Some(code) => Ok(CliExit {
+            code,
+            reply,
+            stderr,
+        }),
         None => Err(failed(format!(
             "the CLI stopped without an exit code ({status})"
         ))),
@@ -331,20 +570,18 @@ fn command_link_args() -> Vec<OsString> {
     ]
 }
 
-/// Run `epicenter install-command --user-only --json` with `env`, this
-/// shell's directories. A run that does not exit 0, such as one from an
-/// App Translocation copy, is an error naming what the CLI printed.
-pub(crate) async fn refresh_command_link(
-    program: &Program,
-    env: &[(OsString, OsString)],
-) -> Result<(), String> {
+/// Run `epicenter install-command --user-only --json`. A run that does not
+/// exit 0, such as one from an App Translocation copy, is an error naming
+/// what the CLI printed.
+pub(crate) async fn refresh_command_link(invocation: &Invocation) -> Result<(), String> {
     let mut printed = Vec::new();
-    let exit = run_with_env(program, &command_link_args(), env, None, |line| {
-        printed.push(line);
-        Ok(())
-    })
-    .await
-    .map_err(|error| format!("{error:?}"))?;
+    let exit = invocation
+        .run(&command_link_args(), None, |line| {
+            printed.push(line);
+            Ok(())
+        })
+        .await
+        .map_err(|error| format!("{error:?}"))?;
     if exit.code == 0 {
         return Ok(());
     }
@@ -356,16 +593,20 @@ pub(crate) async fn refresh_command_link(
     ))
 }
 
-/// The launch call, in the background so a launch never waits on it. A
-/// development build runs the CLI from source, which has no binary to link,
-/// and Windows writes the installed `.exe` path instead of a link.
-pub(crate) fn spawn_command_link_refresh(env: Vec<(OsString, OsString)>) {
+/// The launch call, in the background so a launch never waits on it, with
+/// this shell's `paths`, which the app does not manage yet. A development
+/// build runs the CLI from source, which has no binary to link, and Windows
+/// writes the installed `.exe` path instead of a link.
+pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
     if cfg!(debug_assertions) || cfg!(windows) {
         return;
     }
+    let invocation = bundled_program().and_then(|program| {
+        crate::deployment_origin().map(|origin| Invocation::new(program, &origin, paths))
+    });
     tauri::async_runtime::spawn(async move {
-        let result = match bundled_program() {
-            Ok(program) => refresh_command_link(&program, &env).await,
+        let result = match invocation {
+            Ok(invocation) => refresh_command_link(&invocation).await,
             Err(message) => Err(message),
         };
         if let Err(message) = result {
@@ -393,13 +634,11 @@ pub async fn folder_check<R: Runtime>(
         .folders()
         .granted_root(&scope, webview.label())
         .map_err(|grant| CliError::NotGranted { grant })?;
-    run(
-        &bundled_program().map_err(failed)?,
-        &check_args(root),
-        None,
-        |line| on_line.send(line).map_err(|error| error.to_string()),
-    )
-    .await
+    window_invocation(&webview)?
+        .run(&check_args(root), None, |line| {
+            on_line.send(line).map_err(|error| error.to_string())
+        })
+        .await
 }
 
 // ---------------------------------------------------------------------------
@@ -505,37 +744,32 @@ fn send_input(target: &impl Serialize, request: &AiRequest) -> Result<Vec<u8>, C
     Ok(input)
 }
 
-/// `epicenter send --json --desktop` over `target`, each NDJSON line handed
-/// to `on_line`. `--desktop` gives an Epicenter connection and an account
-/// request the app's own grant (ADR-0558).
+/// `epicenter send --json` over `target` as the app's grant, each NDJSON
+/// line handed to `on_line`. `--desktop` gives an Epicenter connection and
+/// an account request the app's own grant (ADR-0558).
 async fn run_send(
-    program: &Program,
-    env: &[(OsString, OsString)],
+    invocation: &Invocation,
     target: &impl Serialize,
     request: &AiRequest,
     on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
     let input = send_input(target, request)?;
-    run_with_env(
-        program,
-        &["send".into(), "--json".into(), "--desktop".into()],
-        env,
-        Some(input),
-        on_line,
-    )
-    .await
+    invocation
+        .clone()
+        .desktop()
+        .run(&["send".into(), "--json".into()], Some(input), on_line)
+        .await
 }
 
 /// [`run_send`] over an AI connection, whose id is checked first.
 async fn send_with(
-    program: &Program,
-    env: &[(OsString, OsString)],
+    invocation: &Invocation,
     target: &AiTarget,
     request: &AiRequest,
     on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
     connection_id(target.connection())?;
-    run_send(program, env, target, request, on_line).await
+    run_send(invocation, target, request, on_line).await
 }
 
 /// Send one line of a send's output to the page's channel.
@@ -554,83 +788,44 @@ fn end_channel(on_event: &Channel<String>, exit: CliExit) -> Result<CliExit, Cli
     Ok(exit)
 }
 
-/// The deployment the CLI is to sign in to and send to: the one the shell
-/// is configured for, so a self-hosted build's CLI names its own server.
-fn deployment_env() -> Result<Vec<(OsString, OsString)>, CliError> {
-    let origin = crate::deployment_origin().map_err(failed)?;
-    Ok(vec![("EPICENTER_API_URL".into(), origin.into())])
-}
-
-/// Run one `epicenter auth key` invocation and read its one JSON line.
-async fn key_command(
-    program: &Program,
+/// Run one `epicenter auth key <action> <connection> --json` and read its
+/// answer.
+async fn key_command<T: serde::de::DeserializeOwned>(
+    invocation: &Invocation,
     action: &str,
     connection: &str,
     stdin: Option<Vec<u8>>,
-) -> Result<Value, CliError> {
+) -> Result<T, CliError> {
     let connection = connection_id(connection)?;
-    let mut answer = None;
-    let exit = run(
-        program,
-        &[
-            "auth".into(),
-            "key".into(),
-            action.into(),
-            connection.into(),
-            "--json".into(),
-        ],
-        stdin,
-        |line| {
-            answer = Some(line);
-            Ok(())
-        },
-    )
-    .await?;
-    let value = answer
-        .as_deref()
-        .and_then(|line| serde_json::from_str::<Value>(line).ok());
-    match (exit.code, value) {
-        (0, Some(value)) => Ok(value),
-        (_, Some(Value::Object(object))) if object.contains_key("error") => {
-            Err(CliError::Refused {
-                message: object["error"].as_str().unwrap_or_default().to_string(),
-            })
-        }
-        (code, _) => Err(failed(format!(
-            "epicenter auth key {action} exited {code}: {}",
-            exit.stderr.trim()
-        ))),
-    }
-}
-
-fn key_state(value: Value) -> Result<AiKeyState, CliError> {
-    serde_json::from_value(value).map_err(|error| {
-        failed(format!(
-            "the CLI answered a key state that does not read: {error}"
-        ))
-    })
+    invocation
+        .answer(&["auth", "key", action, connection, "--json"], stdin)
+        .await
 }
 
 async fn key_set_with(
-    program: &Program,
+    invocation: &Invocation,
     connection: &str,
     endpoint: &str,
     key: &str,
 ) -> Result<AiKeyState, CliError> {
     let input = serde_json::to_vec(&json!({ "endpoint": endpoint, "key": key }))
         .map_err(|error| failed(error.to_string()))?;
-    key_state(key_command(program, "set", connection, Some(input)).await?)
+    key_command(invocation, "set", connection, Some(input)).await
 }
 
-async fn key_state_with(program: &Program, connection: &str) -> Result<AiKeyState, CliError> {
-    key_state(key_command(program, "state", connection, None).await?)
+async fn key_state_with(invocation: &Invocation, connection: &str) -> Result<AiKeyState, CliError> {
+    key_command(invocation, "state", connection, None).await
 }
 
-async fn key_remove_with(program: &Program, connection: &str) -> Result<bool, CliError> {
-    let value = key_command(program, "remove", connection, None).await?;
-    value["removed"]
-        .as_bool()
-        .ok_or_else(|| failed("the CLI answered a removal that does not read"))
+/// What `epicenter auth key remove` answers.
+#[derive(Deserialize)]
+struct KeyRemoved {
+    removed: bool,
+}
+
+async fn key_remove_with(invocation: &Invocation, connection: &str) -> Result<bool, CliError> {
+    let answer: KeyRemoved = key_command(invocation, "remove", connection, None).await?;
+    Ok(answer.removed)
 }
 
 /// Send one request over an AI connection with the key saved on this
@@ -642,13 +837,13 @@ async fn key_remove_with(program: &Program, connection: &str) -> Result<bool, Cl
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_send(
+    webview: Webview,
     connection: AiTarget,
     request: AiRequest,
     on_event: Channel<String>,
 ) -> Result<CliExit, CliError> {
     let exit = send_with(
-        &bundled_program().map_err(failed)?,
-        &deployment_env()?,
+        &window_invocation(&webview)?,
         &connection,
         &request,
         to_channel(&on_event),
@@ -663,31 +858,26 @@ pub async fn ai_send(
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_key_set(
+    webview: Webview,
     connection: String,
     endpoint: String,
     key: String,
 ) -> Result<AiKeyState, CliError> {
-    key_set_with(
-        &bundled_program().map_err(failed)?,
-        &connection,
-        &endpoint,
-        &key,
-    )
-    .await
+    key_set_with(&window_invocation(&webview)?, &connection, &endpoint, &key).await
 }
 
 /// Remove what this computer saved for `connection`; whether there was anything.
 #[tauri::command]
 #[specta::specta]
-pub async fn ai_key_remove(connection: String) -> Result<bool, CliError> {
-    key_remove_with(&bundled_program().map_err(failed)?, &connection).await
+pub async fn ai_key_remove(webview: Webview, connection: String) -> Result<bool, CliError> {
+    key_remove_with(&window_invocation(&webview)?, &connection).await
 }
 
 /// Whether a key is saved for `connection`, and for which endpoint. Never the key.
 #[tauri::command]
 #[specta::specta]
-pub async fn ai_key_state(connection: String) -> Result<AiKeyState, CliError> {
-    key_state_with(&bundled_program().map_err(failed)?, &connection).await
+pub async fn ai_key_state(webview: Webview, connection: String) -> Result<AiKeyState, CliError> {
+    key_state_with(&window_invocation(&webview)?, &connection).await
 }
 
 // ---------------------------------------------------------------------------
@@ -716,15 +906,13 @@ enum AccountTarget {
 /// `epicenter send --json --desktop` with an account target. The CLI sends
 /// only a path below the deployment's `/api/`.
 async fn account_send_with(
-    program: &Program,
-    env: &[(OsString, OsString)],
+    invocation: &Invocation,
     audience: AccountAudience,
     request: &AiRequest,
     on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
     run_send(
-        program,
-        env,
+        invocation,
         &AccountTarget::Account { audience },
         request,
         on_line,
@@ -740,13 +928,13 @@ async fn account_send_with(
 #[tauri::command]
 #[specta::specta]
 pub async fn account_send(
+    webview: Webview,
     audience: AccountAudience,
     request: AiRequest,
     on_event: Channel<String>,
 ) -> Result<CliExit, CliError> {
     let exit = account_send_with(
-        &bundled_program().map_err(failed)?,
-        &deployment_env()?,
+        &window_invocation(&webview)?,
         audience,
         &request,
         to_channel(&on_event),
@@ -801,44 +989,6 @@ pub struct AuthSignOut {
     pub revoked: bool,
 }
 
-/// Run one `epicenter` invocation that answers one JSON line, and read it.
-async fn json_command<T: serde::de::DeserializeOwned>(
-    program: &Program,
-    args: &[&str],
-    env: &[(OsString, OsString)],
-) -> Result<T, CliError> {
-    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
-    let mut answer = None;
-    let exit = run_with_env(program, &args, env, None, |line| {
-        answer = Some(line);
-        Ok(())
-    })
-    .await?;
-    let value = answer
-        .as_deref()
-        .and_then(|line| serde_json::from_str::<Value>(line).ok());
-    match (exit.code, value) {
-        (0, Some(value)) => serde_json::from_value(value).map_err(|error| {
-            failed(format!(
-                "the CLI answered something that does not read: {error}"
-            ))
-        }),
-        (_, Some(Value::Object(object))) if object.contains_key("error") => {
-            Err(CliError::Refused {
-                message: object["error"].as_str().unwrap_or_default().to_string(),
-            })
-        }
-        (code, _) => Err(failed(format!(
-            "epicenter {} exited {code}: {}",
-            args.iter()
-                .map(|arg| arg.to_string_lossy())
-                .collect::<Vec<_>>()
-                .join(" "),
-            exit.stderr.trim()
-        ))),
-    }
-}
-
 /// The page the CLI asks to open must be this deployment's authorization
 /// endpoint, so a CLI that misbehaved could not send the person elsewhere.
 fn authorization_page(url: &str, origin: &str) -> Result<(), String> {
@@ -856,36 +1006,32 @@ fn authorization_page(url: &str, origin: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `epicenter auth login --loopback --desktop --json`: hand `open` the
-/// authorization page the CLI prints, and every line to `on_line`.
+/// `epicenter auth login --loopback --json --desktop`: hand `open` the
+/// authorization page the CLI prints, and every line to `on_line`. The page
+/// must be on `origin`, the deployment the invocation names.
 async fn login_with(
-    program: &Program,
+    invocation: &Invocation,
     origin: &str,
     mut open: impl FnMut(&str) -> Result<(), String>,
     mut on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
-    run_with_env(
-        program,
-        &[
-            "auth".into(),
-            "login".into(),
-            "--loopback".into(),
-            "--desktop".into(),
-            "--json".into(),
-        ],
-        &[("EPICENTER_API_URL".into(), origin.into())],
-        None,
-        |line| {
-            if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&line) {
-                if let Some(url) = object.get("open").and_then(Value::as_str) {
-                    authorization_page(url, origin)?;
-                    open(url)?;
+    invocation
+        .clone()
+        .desktop()
+        .run(
+            &["auth".into(), "login".into(), "--loopback".into(), "--json".into()],
+            None,
+            |line| {
+                if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&line) {
+                    if let Some(url) = object.get("open").and_then(Value::as_str) {
+                        authorization_page(url, origin)?;
+                        open(url)?;
+                    }
                 }
-            }
-            on_line(line)
-        },
-    )
-    .await
+                on_line(line)
+            },
+        )
+        .await
 }
 
 /// Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
@@ -895,13 +1041,14 @@ async fn login_with(
 #[tauri::command]
 #[specta::specta]
 pub async fn auth_login<R: Runtime>(
-    app: tauri::AppHandle<R>,
+    webview: Webview<R>,
     on_event: Channel<String>,
 ) -> Result<CliExit, CliError> {
     use tauri_plugin_opener::OpenerExt;
     let origin = crate::deployment_origin().map_err(failed)?;
+    let app = webview.app_handle().clone();
     login_with(
-        &bundled_program().map_err(failed)?,
+        &window_invocation(&webview)?,
         &origin,
         |url| {
             app.opener()
@@ -916,26 +1063,22 @@ pub async fn auth_login<R: Runtime>(
 /// Who each of the CLI's grants on this computer belongs to.
 #[tauri::command]
 #[specta::specta]
-pub async fn auth_status() -> Result<AuthStatus, CliError> {
-    json_command(
-        &bundled_program().map_err(failed)?,
-        &["auth", "status", "--desktop", "--json"],
-        &deployment_env()?,
-    )
-    .await
+pub async fn auth_status(webview: Webview) -> Result<AuthStatus, CliError> {
+    window_invocation(&webview)?
+        .desktop()
+        .answer(&["auth", "status", "--json"], None)
+        .await
 }
 
 /// Sign the app out: the CLI revokes its grant and deletes it from the
 /// keychain. A terminal's `epicenter auth login` is left signed in.
 #[tauri::command]
 #[specta::specta]
-pub async fn auth_logout() -> Result<AuthSignOut, CliError> {
-    json_command(
-        &bundled_program().map_err(failed)?,
-        &["auth", "logout", "--desktop", "--json"],
-        &deployment_env()?,
-    )
-    .await
+pub async fn auth_logout(webview: Webview) -> Result<AuthSignOut, CliError> {
+    window_invocation(&webview)?
+        .desktop()
+        .answer(&["auth", "logout", "--json"], None)
+        .await
 }
 
 #[cfg(test)]
@@ -951,6 +1094,26 @@ mod tests {
     use tauri_plugin_epicenter_folder::{Author, FolderConfig, ScopeConfig};
 
     use super::*;
+
+    /// This shell's directories, under `dir`.
+    fn paths_in(dir: &std::path::Path) -> DesktopPaths {
+        DesktopPaths {
+            data_dir: dir.join("data"),
+            folder_dir: dir.join("Epicenter"),
+            cache_dir: dir.join("cache"),
+        }
+    }
+
+    /// `program` as this shell starts the CLI, for a deployment nothing
+    /// listens on and directories under `dir`.
+    fn invocation_in(program: Program, dir: &std::path::Path) -> Invocation {
+        Invocation::new(program, "http://127.0.0.1:9", &paths_in(dir))
+    }
+
+    /// `program` for a test that reads no directory.
+    fn plain(program: Program) -> Invocation {
+        invocation_in(program, &std::env::temp_dir().join("epicenter-cli-unused"))
+    }
 
     fn scratch(label: &str) -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -986,19 +1149,22 @@ mod tests {
             program: PathBuf::from("sh"),
             prefix: vec![script.into_os_string()],
         };
+        let paths = DesktopPaths {
+            data_dir: PathBuf::from("/support/so.epicenter"),
+            folder_dir: PathBuf::from("/home/Epicenter"),
+            cache_dir: PathBuf::from("/caches/so.epicenter"),
+        };
         let env = |code: &str| {
-            vec![
-                ("EPICENTER_DATA_DIR".into(), "/support/so.epicenter".into()),
-                ("CHILD_EXIT".into(), code.into()),
-            ]
+            Invocation::new(program.clone(), "https://api.example.test", &paths)
+                .env("CHILD_EXIT", code)
         };
 
-        assert_eq!(refresh_command_link(&program, &env("0")).await, Ok(()));
+        assert_eq!(refresh_command_link(&env("0")).await, Ok(()));
         assert_eq!(
             fs::read_to_string(&seen).unwrap(),
             "install-command --user-only --json\n/support/so.epicenter\n"
         );
-        let refused = refresh_command_link(&program, &env("1")).await.unwrap_err();
+        let refused = refresh_command_link(&env("1")).await.unwrap_err();
         assert!(refused.starts_with("exit 1: "), "{refused}");
         assert!(refused.contains("translocated"), "{refused}");
     }
@@ -1034,7 +1200,7 @@ process.exitCode = 1;
         };
         let body = vec![b'z'; 4 * 1024 * 1024];
         let mut lines = Vec::new();
-        let exit = run(&program, &[], Some(body), |line| {
+        let exit = plain(program).run(&[], Some(body), |line| {
             lines.push(line);
             Ok(())
         })
@@ -1063,7 +1229,7 @@ process.exitCode = 1;
             prefix: vec!["-e".into(), "for (;;) process.stdout.write('{}\\n')".into()],
         };
         let mut seen = 0;
-        let ended = run(&program, &[], None, |_| {
+        let ended = plain(program).run(&[], None, |_| {
             seen += 1;
             if seen == 3 {
                 Err("the page went away".into())
@@ -1102,7 +1268,8 @@ process.exitCode = 1;
             program: PathBuf::from("/bin/sh"),
             prefix: vec![script.into_os_string()],
         };
-        let ended = run(&program, &[], None, |_| Err("the page went away".into()))
+        let ended = plain(program)
+            .run(&[], None, |_| Err("the page went away".into()))
             .await
             .unwrap_err();
         assert_eq!(
@@ -1129,7 +1296,7 @@ process.exitCode = 1;
             program: PathBuf::from("/nonexistent/epicenter-cli"),
             prefix: Vec::new(),
         };
-        let CliError::Failed { message } = run(&program, &[], None, |_| Ok(())).await.unwrap_err()
+        let CliError::Failed { message } = plain(program).run(&[], None, |_| Ok(())).await.unwrap_err()
         else {
             panic!("not a failure");
         };
@@ -1178,8 +1345,11 @@ process.exitCode = 1;
         );
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
+            .manage(CliChildren::default())
             .build(context)
             .expect("mock app");
+        let shell = scratch("check-shell");
+        app.manage(paths_in(&shell));
         app.folders()
             .register(ScopeConfig {
                 scope: "data:notes".into(),
@@ -1247,6 +1417,68 @@ process.exitCode = 1;
 
         app.folders().shutdown();
         let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(shell);
+    }
+
+    /// Every command a page calls starts the CLI the same way: with the
+    /// shell's deployment and its three directories, and as that window's
+    /// child, which ends with its page. The child stands in for a long
+    /// `epicenter app install`: it reports its environment and waits.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn every_invocation_names_the_shells_deployment_and_directories_and_ends_with_its_page() {
+        let dir = scratch("invocation");
+        let script = dir.join("child.sh");
+        fs::write(
+            &script,
+            "#!/bin/sh\nprintf '%s|%s|%s|%s|%s\\n' \"$*\" \"$EPICENTER_API_URL\" \"$EPICENTER_DATA_DIR\" \"$EPICENTER_FOLDER_DIR\" \"$EPICENTER_CACHE_DIR\"\nsleep 30 &\nwait\n",
+        )
+        .unwrap();
+        let program = Program {
+            program: PathBuf::from("/bin/sh"),
+            prefix: vec![script.into_os_string()],
+        };
+        let paths = paths_in(&dir);
+        let children = CliChildren::default();
+        let invocation = Invocation::new(program, "https://self.example.test", &paths)
+            .desktop()
+            .owned_by(&children, "folders");
+        let (sender, received) = tokio::sync::oneshot::channel::<String>();
+        let running = tokio::spawn(async move {
+            let mut sender = Some(sender);
+            invocation
+                .run(&["app".into(), "install".into()], None, move |line| {
+                    if let Some(sender) = sender.take() {
+                        let _ = sender.send(line);
+                    }
+                    Ok(())
+                })
+                .await
+        });
+        let line = tokio::time::timeout(Duration::from_secs(5), received)
+            .await
+            .expect("the child reported")
+            .unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "app install --desktop|https://self.example.test|{}|{}|{}",
+                paths.data_dir.display(),
+                paths.folder_dir.display(),
+                paths.cache_dir.display()
+            )
+        );
+        assert_eq!(children.running("folders"), 1);
+        children.page_ended("other");
+        assert_eq!(children.running("folders"), 1);
+        children.page_ended("folders");
+        let ended = tokio::time::timeout(Duration::from_secs(5), running)
+            .await
+            .expect("the child ended with its page")
+            .unwrap();
+        assert!(ended.as_ref().map_or(true, |exit| exit.code != 0), "{ended:?}");
+        assert_eq!(children.running("folders"), 0);
+        let _ = fs::remove_dir_all(dir);
     }
 
     /// The CLI's source under the `bun` on `PATH`, as a development build
@@ -1350,8 +1582,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         };
         let mut lines = Vec::new();
         let exit = send_with(
-            &program,
-            &[],
+            &plain(program.clone()),
             &openai("https://api.groq.com/openai/v1"),
             &request,
             |line| {
@@ -1379,8 +1610,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         assert_eq!(seen["length"], body.len());
 
         let refused = send_with(
-            &program,
-            &[],
+            &plain(program),
             &AiTarget::Epicenter {
                 connection: "--json".into(),
             },
@@ -1421,7 +1651,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             body: Some(STANDARD.encode(br#"{"folder":"so.epicenter.todos"}"#)),
         };
         let mut lines = Vec::new();
-        let exit = account_send_with(&program, &[], AccountAudience::Git, &request, |line| {
+        let exit = account_send_with(&plain(program), AccountAudience::Git, &request, |line| {
             lines.push(line);
             Ok(())
         })
@@ -1478,8 +1708,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
     #[tokio::test]
     async fn account_send_through_the_cli_needs_the_apps_grant_and_an_api_path() {
         let dir = scratch("account-send-cli");
-        let program = cli_with_secrets(&dir, json!({}));
-        let env = [("EPICENTER_API_URL".into(), "http://127.0.0.1:9".into())];
+        let invocation = invocation_in(cli_with_secrets(&dir, json!({})), &dir);
         let request = |path: &str| AiRequest {
             method: "GET".into(),
             path: path.into(),
@@ -1488,8 +1717,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         };
         let mut events = Vec::new();
         let exit = account_send_with(
-            &program,
-            &env,
+            &invocation,
             AccountAudience::Api,
             &request("api/session"),
             |line| {
@@ -1513,8 +1741,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
 
         let mut events = Vec::new();
         account_send_with(
-            &program,
-            &env,
+            &invocation,
             AccountAudience::Api,
             &request("auth/oauth2/revoke"),
             |line| {
@@ -1537,9 +1764,12 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let dir = scratch("send-cli");
         let reply: Vec<u8> = (0..200_000u32).map(|index| (index % 251) as u8).collect();
         let (endpoint, served) = fake_endpoint(reply.clone()).await;
-        let program = cli_with_secrets(
+        let program = invocation_in(
+            cli_with_secrets(
+                &dir,
+                json!({ "groq": { "endpoint": endpoint, "key": "sk-rust" } }),
+            ),
             &dir,
-            json!({ "groq": { "endpoint": endpoint, "key": "sk-rust" } }),
         );
 
         assert_eq!(
@@ -1575,7 +1805,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             body: Some(STANDARD.encode(b"{\"model\":\"m\"}")),
         };
         let mut events = Vec::new();
-        let exit = send_with(&program, &[], &openai(&endpoint), &request, |line| {
+        let exit = send_with(&program, &openai(&endpoint), &request, |line| {
             events.push(serde_json::from_str::<Value>(&line).unwrap());
             Ok(())
         })
@@ -1604,7 +1834,6 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let mut events = Vec::new();
         let exit = send_with(
             &program,
-            &[],
             &openai("https://api.example.com/v1"),
             &request,
             |line| {
@@ -1621,7 +1850,6 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let mut events = Vec::new();
         send_with(
             &program,
-            &[("EPICENTER_API_URL".into(), "http://127.0.0.1:9".into())],
             &AiTarget::Epicenter {
                 connection: "account".into(),
             },
@@ -1652,18 +1880,11 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
     #[tokio::test]
     async fn auth_status_and_logout_run_the_cli() {
         let dir = scratch("auth-cli");
-        let program = cli_with_secrets(&dir, json!({}));
-        let env = [
-            ("EPICENTER_API_URL".into(), "http://127.0.0.1:9".into()),
-            (
-                "EPICENTER_DATA_DIR".into(),
-                dir.join("data").into_os_string(),
-            ),
-        ];
-        let status: AuthStatus =
-            json_command(&program, &["auth", "status", "--desktop", "--json"], &env)
-                .await
-                .unwrap();
+        let desktop = invocation_in(cli_with_secrets(&dir, json!({})), &dir).desktop();
+        let status: AuthStatus = desktop
+            .answer(&["auth", "status", "--json"], None)
+            .await
+            .unwrap();
         assert_eq!(status.origin, "http://127.0.0.1:9");
         assert_eq!(
             status
@@ -1676,10 +1897,10 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
                 ("desktop", "so.epicenter", false)
             ]
         );
-        let signed_out: AuthSignOut =
-            json_command(&program, &["auth", "logout", "--desktop", "--json"], &env)
-                .await
-                .unwrap();
+        let signed_out: AuthSignOut = desktop
+            .answer(&["auth", "logout", "--json"], None)
+            .await
+            .unwrap();
         assert_eq!(
             signed_out,
             AuthSignOut {
@@ -1687,10 +1908,10 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
                 revoked: false
             }
         );
-        let refused =
-            json_command::<Value>(&program, &["auth", "token", "--desktop", "--json"], &env)
-                .await
-                .unwrap_err();
+        let refused = desktop
+            .answer::<Value>(&["auth", "token", "--json"], None)
+            .await
+            .unwrap_err();
         assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
         let _ = fs::remove_dir_all(dir);
     }
@@ -1728,7 +1949,7 @@ console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
         let mut opened = Vec::new();
         let mut lines = Vec::new();
         let exit = login_with(
-            &child(&good),
+            &Invocation::new(child(&good), origin, &paths_in(&dir)),
             origin,
             |url| {
                 opened.push(url.to_string());
@@ -1745,7 +1966,7 @@ console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
         assert_eq!(
             lines[0],
             json!({
-                "argv": ["auth", "login", "--loopback", "--desktop", "--json"],
+                "argv": ["auth", "login", "--loopback", "--json", "--desktop"],
                 "origin": origin,
             })
         );
@@ -1759,7 +1980,7 @@ console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
         ] {
             let mut opened = Vec::new();
             let refused = login_with(
-                &child(elsewhere),
+                &Invocation::new(child(elsewhere), origin, &paths_in(&dir)),
                 origin,
                 |url| {
                     opened.push(url.to_string());

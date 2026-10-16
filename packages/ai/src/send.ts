@@ -86,8 +86,22 @@ export function canonicalEndpoint(text: string): Result<string, string> {
 export const ACCOUNT_AUDIENCES = ['api', 'git'] as const;
 export type AccountAudience = (typeof ACCOUNT_AUDIENCES)[number];
 
-/** The only paths an account request may reach: below `/api/`, so `/auth/*` and token revocation stay out of reach. */
+/**
+ * The only paths an account request may reach: below `/api/`, and a `GET`
+ * of the authorization server's userinfo, the profile read. The rest of
+ * `/auth/*`, token revocation included, stays out of reach.
+ */
 const ACCOUNT_PATH_PREFIX = '/api/';
+const USERINFO_PATH = '/auth/oauth2/userinfo';
+
+/** Whether an account request may go to `url`. */
+function isAccountPath(url: string, method: string): boolean {
+	const { pathname } = new URL(url);
+	return (
+		pathname.startsWith(ACCOUNT_PATH_PREFIX) ||
+		(pathname === USERINFO_PATH && method.toUpperCase() === 'GET')
+	);
+}
 
 /**
  * Where a request goes. An `openai-compatible` target names the endpoint
@@ -446,8 +460,8 @@ export type AccountAccess = (
 
 /**
  * Send an account request to the deployment's origin with `access`'s token.
- * Only a path below `/api/` is sent, checked after the URL is resolved, so
- * an encoded dot segment cannot climb out of it.
+ * Only an account path (`isAccountPath`) is sent, checked after the URL is
+ * resolved, so an encoded dot segment cannot climb out of it.
  */
 async function sendToAccount(
 	audience: AccountAudience,
@@ -456,7 +470,7 @@ async function sendToAccount(
 	options: { fetch?: typeof globalThis.fetch; signal?: AbortSignal },
 ): Promise<Result<Response, SendError>> {
 	const refusePath = SendError.InvalidRequest({
-		reason: `'${request.path}' is not an account path below ${ACCOUNT_PATH_PREFIX}`,
+		reason: `'${request.path}' is not an account path: one below ${ACCOUNT_PATH_PREFIX}, or a GET of ${USERINFO_PATH}`,
 	});
 	// Checked before any token is minted, against a stand-in origin.
 	const { data: probe, error: probeError } = requestUrl(
@@ -464,8 +478,7 @@ async function sendToAccount(
 		request.path,
 	);
 	if (probeError !== null) return Err(probeError);
-	if (!new URL(probe).pathname.startsWith(ACCOUNT_PATH_PREFIX))
-		return refusePath;
+	if (!isAccountPath(probe, request.method)) return refusePath;
 	if (!access)
 		return SendError.NoAccountToken({
 			audience,
@@ -479,7 +492,7 @@ async function sendToAccount(
 		request.path,
 	);
 	if (urlError !== null) return Err(urlError);
-	if (!new URL(url).pathname.startsWith(ACCOUNT_PATH_PREFIX)) return refusePath;
+	if (!isAccountPath(url, request.method)) return refusePath;
 	return sendToEndpoint(entry, request, options);
 }
 

@@ -21,6 +21,9 @@
  */
 
 import { expect, mock, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { makeSignature } from 'better-auth/crypto';
 
@@ -71,13 +74,6 @@ const PROFILE: Surface[] = [
 		surface: 'health',
 		method: 'GET',
 		url: ORIGIN,
-		worker: 'served',
-		bun: 'served',
-	},
-	{
-		surface: 'mountSessionApp',
-		method: 'GET',
-		url: API_ROUTES.session.url(ORIGIN),
 		worker: 'served',
 		bun: 'served',
 	},
@@ -219,8 +215,15 @@ const workerFetcher = once(async () => {
  * `Bun.serve` for a recorder lets the entry boot exactly as it does in
  * production and hands back the composed app's `fetch`, with no port bound.
  */
+/** The built pages the Bun entry serves: a shell and one asset. */
+const uiDir = mkdtempSync(join(tmpdir(), 'epicenter-runtime-profile-ui-'));
+mkdirSync(join(uiDir, '_app', 'immutable'), { recursive: true });
+writeFileSync(join(uiDir, 'fallback.html'), '<html>Cloud UI</html>');
+writeFileSync(join(uiDir, '_app', 'immutable', 'start.js'), 'export {};');
+
 const bunFetcher = once(async () => {
 	Object.assign(process.env, {
+		API_UI_DIR: uiDir,
 		DATABASE_URL: 'postgres://probe@localhost:5432/probe',
 		BETTER_AUTH_SECRET: 'runtime-profile-probe-secret-not-a-real-key',
 		GOOGLE_CLIENT_ID: 'probe',
@@ -282,7 +285,7 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 	}
 });
 
-test('Worker public HTML shells and both runtimes unrelated 404s survive Postgres outage without database calls', async () => {
+test("both runtimes' public HTML shells and unrelated 404s survive Postgres outage without database calls", async () => {
 	const worker = await workerFetcher();
 	const bun = await bunFetcher();
 	databaseUnavailable = true;
@@ -298,15 +301,23 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 				expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 			}
 		}
-		// Bun intentionally delegates browser UI to Vite; its existing diagnostic
-		// must remain available without consulting the shared pool.
+		// Bun serves the same built shell, and its assets, from disk.
 		for (const path of authPages) {
 			const response = await bun(new Request(`${ORIGIN}${path}`));
-			expect(response.status).toBe(503);
-			expect(await response.text()).toContain(
-				'Hosted auth UI is served by the SvelteKit app',
-			);
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe('<html>Cloud UI</html>');
+			expect(response.headers.get('cache-control')).toBe('no-store');
 		}
+		const asset = await bun(new Request(`${ORIGIN}/_app/immutable/start.js`));
+		expect(asset.status).toBe(200);
+		expect(asset.headers.get('cache-control')).toContain('immutable');
+		for (const path of [
+			'/_app/..%2ffallback.html',
+			'/_app/%2e%2e/fallback.html',
+			'/_app/immutable',
+			'/_app/missing.js',
+		])
+			expect((await bun(new Request(`${ORIGIN}${path}`))).status).toBe(404);
 		for (const fetcher of [worker, bun]) {
 			for (const path of [
 				'/missing',
@@ -322,7 +333,6 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 		}
 		for (const fetcher of [worker, bun]) {
 			for (const [method, path] of [
-				['DELETE', '/api/session'],
 				['GET', '/api/blobs'],
 				['PUT', '/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA'],
 				['GET', '/v1/chat/completions'],

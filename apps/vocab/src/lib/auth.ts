@@ -10,13 +10,13 @@ const server = SELF_HOST_ORIGIN
 	? selfHostedServer(SELF_HOST_ORIGIN)
 	: epicenterCloud(APP_URLS.API);
 
-// Vocab's account calls are inference and the profile read, both served by
-// the API audience.
+// Vocab's account calls are inference, served by the API audience, and the
+// profile read from userinfo, which answers the email only under `email`.
 export const auth = createBrowserOAuth({
 	server,
 	clientId: APPS.VOCAB.id,
 	resource: resolveOAuthAudiences(server.baseURL).api,
-	scope: 'openid profile ai',
+	scope: 'openid profile email ai',
 	accountManagement: !SELF_HOST_ORIGIN,
 });
 

@@ -7,14 +7,14 @@ const auth = createBrowserOAuth({
 	server: epicenterCloud('https://api.epicenter.so'),
 	clientId: 'so.epicenter.vocab',
 	resource: 'https://api.epicenter.so',
-	scope: 'openid profile ai',
+	scope: 'openid profile email ai',
 	accountManagement: true,
 });
 const state = auth.getState();
 if (state.status !== 'signed-out') {
 	const account = state.account;
 	// Keep this Account for the lifetime of the opened application.
-	const response = await account.fetch('/api/session');
+	const response = await account.fetch('/api/repos');
 }
 ```
 
@@ -80,7 +80,9 @@ never redirected.
 `Authorization: Bearer <token>`, no cookies, `credentials: 'omit'`, and
 `redirect: 'manual'`. A 401 publishes `reauth-required` on the same Account,
 which refuses requests until a new token for the same person arrives.
-`getProfile` reads `/api/session`, so the app's audience must serve it.
+`getProfile` reads the authorization server's `/auth/oauth2/userinfo`, which
+answers `sub` for a token with `openid` and the email only for one with
+`email`, so an app that shows the email asks for both.
 
 `signOut` clears the token at once, then revokes it at `/auth/oauth2/revoke`,
 waiting at most five seconds. A failed revocation is logged; the person is
@@ -102,11 +104,13 @@ An installed app's window uses `createDesktopAccountAuth` from
 `@epicenter/auth/desktop` over three shell commands its desktop leaf binds:
 `auth_status` for who the desktop grant belongs to, `account_send` for each
 account request, and `open_home` to send the person to Settings to sign in.
-The grant's account id is the Account's `principalId` and the CLI's deployment
-is its `baseURL`. `Account.fetch` carries a request below `/api/` to the CLI
+The grant's account id is the Account's `principalId` and the deployment
+`auth_status` names is its `baseURL`; the build names no deployment of its
+own, and any origin but the hosted one is a self-hosted server. `Account.fetch` carries a request below `/api/` to the CLI
 with the resource the app names (`git` for Todos' `GET /api/repos`),
-and the CLI adds the token for it; `getProfile` reads `/api/session` with the
-`api` resource. A 401 publishes `reauth-required` on the same Account. A new
+and the CLI adds the token for it; `getProfile` reads `/auth/oauth2/userinfo`
+with the `api` resource, the one path outside `/api/` an account request may
+name. A 401 publishes `reauth-required` on the same Account. A new
 grant, including the same person signing in again, opens a new Account, and a
 grant that is gone retires it. The client reads the grant again when the
 window regains focus. `signOut` is refused: the app signs out from Settings.

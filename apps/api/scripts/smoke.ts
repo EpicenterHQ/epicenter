@@ -2,8 +2,8 @@
  * One-scenario smoke test for the runtime port. Same backend, either runtime.
  *
  * Point it at a base URL and it runs ONE end-to-end scenario against the live
- * HTTP server: read the session and exercise the Personal URL blob lifecycle
- * (authenticated upload -> read back -> delete).
+ * HTTP server: exercise the Personal URL blob lifecycle (authenticated
+ * upload -> read back -> delete).
  * Every step prints a single PASS/FAIL/SKIP line, so the same
  * invocation against the Bun process (:8788) and the wrangler process (:8787)
  * produces a diffable transcript of runtime parity.
@@ -31,7 +31,6 @@ import {
 	parsePersonalBlobUrl,
 	personalBlobCollectionUrl,
 } from '@epicenter/blobs';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
 import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
 
 const BASE_URL = (
@@ -81,25 +80,8 @@ async function main() {
 		return summarize();
 	}
 
-	// 2. Session: resolves the principal from the bearer.
-	let resolvedPrincipalId = '';
-	{
-		const res = await fetch(API_ROUTES.session.url(BASE_URL), {
-			headers: authHeaders,
-		});
-		if (res.ok) {
-			resolvedPrincipalId = ((await res.json()) as { principalId: string })
-				.principalId;
-			record(
-				'PASS',
-				'session',
-				`${res.status} principalId=${resolvedPrincipalId}`,
-			);
-		} else {
-			record('FAIL', 'session', `${res.status} ${await res.text()}`);
-			return summarize();
-		}
-	}
+	// 2. The dev bearer names its principal, whose blobs the lifecycle uses.
+	const resolvedPrincipalId = principalId;
 
 	// 3. Blob lifecycle.
 	const payload = new TextEncoder().encode(

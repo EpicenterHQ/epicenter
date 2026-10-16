@@ -3,7 +3,9 @@
  * `epicenter` CLI holds as its desktop grant (ADR-0556, ADR-0558).
  *
  * No page holds an access token (ADR-0549's desktop row: WebViews hold
- * none). Identity comes from `status`, which reads `epicenter auth status`;
+ * none). Identity and the deployment come from `status`, which reads
+ * `epicenter auth status`, so the page names the deployment the shell runs
+ * the CLI for and never one of its own build;
  * every account request goes out through `send`, which runs
  * `epicenter send --desktop` with an account target, so the CLI adds the
  * token for the named resource outside the page. Settings owns the app's
@@ -14,6 +16,7 @@
  * (`auth_status`, `account_send`, `open_home`).
  */
 
+import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
 import { asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { createAccountManagementUrl } from './account-management.js';
@@ -25,7 +28,7 @@ import type {
 } from './auth-contract.js';
 import { AuthError } from './auth-errors.js';
 import { epicenterCloud, selfHostedServer } from './auth-server.js';
-import { getProfileVia } from './read-api-session.js';
+import { getProfileVia } from './read-profile.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
 
 /**
@@ -46,13 +49,6 @@ export type DesktopAccountStatus = {
 };
 
 export type DesktopAccountAuthOptions = {
-	/** The deployment this build expects, which `baseURL` answers until `status` names one. */
-	baseURL: string;
-	/**
-	 * Whether this build signs in to a self-hosted server, which names its
-	 * local data by its origin and has no hosted account website.
-	 */
-	selfHosted: boolean;
 	/** Read the desktop grant. Throws when it cannot be read. */
 	status: () => Promise<DesktopAccountStatus>;
 	/**
@@ -93,8 +89,6 @@ function watchFocus(refresh: () => void): () => void {
 
 /** The app's account through the CLI's desktop grant; see the module doc. */
 export function createDesktopAccountAuth({
-	baseURL: expectedBaseURL,
-	selfHosted,
 	status,
 	send,
 	openSignIn,
@@ -103,7 +97,8 @@ export function createDesktopAccountAuth({
 }: DesktopAccountAuthOptions): DesktopAccountAuth {
 	const listeners = new Set<(state: AuthState) => void>();
 	let state: AuthState = { status: 'signed-out' };
-	let baseURL = new URL(expectedBaseURL).origin;
+	/** The deployment `status` last named; empty until the first read. */
+	let baseURL = '';
 	/** The grant the current account was opened for, so a new sign-in opens a new one. */
 	let grantKey: string | undefined;
 	let lifetime = new AbortController();
@@ -123,9 +118,12 @@ export function createDesktopAccountAuth({
 
 	function openAccount(origin: string, accountId: string): Account {
 		const { signal } = lifetime;
-		const descriptor = selfHosted
-			? selfHostedServer(origin)
-			: epicenterCloud(origin);
+		// Any deployment but the hosted one is a self-hosted server, which
+		// names its local data by its origin.
+		const descriptor =
+			origin === PRODUCTION_API_URL
+				? epicenterCloud(origin)
+				: selfHostedServer(origin);
 		const via =
 			(resource: DesktopAccountAudience): AuthFetch =>
 			async (input, init) => {
@@ -208,8 +206,15 @@ export function createDesktopAccountAuth({
 		getState() {
 			return state;
 		},
+		/** The deployment `status` last named; empty until the first read. */
 		get baseURL() {
 			return baseURL;
+		},
+		/** Only the hosted deployment has the account website. */
+		get accountManagementUrl() {
+			return baseURL === PRODUCTION_API_URL
+				? createAccountManagementUrl
+				: undefined;
 		},
 		onStateChange(fn) {
 			listeners.add(fn);
@@ -235,7 +240,6 @@ export function createDesktopAccountAuth({
 			);
 		},
 		refresh,
-		...(selfHosted ? {} : { accountManagementUrl: createAccountManagementUrl }),
 		[Symbol.dispose]() {
 			disposed = true;
 			unwatch();

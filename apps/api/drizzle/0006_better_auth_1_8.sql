@@ -10,5 +10,5 @@ ALTER TABLE "oauth_refresh_token" ADD COLUMN "amr" text[];--> statement-breakpoi
 -- Every first-party audience allows every scope (ADR-0565), so a refresh never
 -- narrows the grant. The first-party audiences are the ones so.epicenter.cli
 -- links to, in every deployment: api and git, never mcp.
-UPDATE "oauth_resource" SET "allowed_scopes" = ARRAY['openid', 'offline_access', 'profile', 'ai', 'folders:read', 'folders:write'], "updated_at" = now()
+UPDATE "oauth_resource" SET "allowed_scopes" = ARRAY['openid', 'offline_access', 'profile', 'email', 'ai', 'folders:read', 'folders:write'], "updated_at" = now()
 WHERE "identifier" IN (SELECT "resource_id" FROM "oauth_client_resource" WHERE "client_id" = 'so.epicenter.cli');

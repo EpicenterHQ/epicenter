@@ -20,7 +20,6 @@ import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
 import { type GitHost, mountGitHost } from '../routes/git.js';
 import { mountInferenceApp } from '../routes/inference.js';
-import { mountSessionApp } from '../routes/session.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
 import {
@@ -225,7 +224,6 @@ beforeAll(async () => {
 			resourceContext,
 			requireAccessToken({ audience: () => audiences[audience], scope }),
 		);
-	mountSessionApp(app, { auth: resource('api', 'profile') });
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	mountGitHost(app, {
 		setup: resourceContext,
@@ -564,7 +562,8 @@ describe('the protected routes', () => {
 				body: init.body ? JSON.stringify(init.body) : undefined,
 			}),
 		);
-	const profile = (token: string | null) => call('/api/session', token);
+	const userinfo = (token: string | null) =>
+		call('/auth/oauth2/userinfo', token);
 	const inference = (token: string | null) =>
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
 	/** The first request of a push: the receive-pack advertisement. */
@@ -580,10 +579,9 @@ describe('the protected routes', () => {
 			/=([^;]+)/.exec(person.cookie)?.[1] ?? '',
 		);
 		for (const [response, metadata] of [
-			[await profile(null), ''],
 			[await inference(null), ''],
 			[await push(null), '/git'],
-			[await profile(sessionToken), ''],
+			[await inference(sessionToken), ''],
 		] as const) {
 			expect(response.status).toBe(401);
 			expect(response.headers.get('www-authenticate')).toBe(
@@ -599,7 +597,6 @@ describe('the protected routes', () => {
 		);
 		// A Git token at an API route is another audience's: 401, not 403
 		// (ADR-0549).
-		expect((await profile(git.token)).status).toBe(401);
 		expect((await inference(git.token)).status).toBe(401);
 		const api = await browserToken(audiences.api, 'openid profile');
 		expect((await push(api.token, api.person.personal)).status).toBe(401);
@@ -617,9 +614,10 @@ describe('the protected routes', () => {
 
 	test('admit a token for the audience with the scope, as its account', async () => {
 		const api = await browserToken(audiences.api, 'openid profile ai');
-		const read = await profile(api.token);
+		// The profile read is userinfo, which names the token's account.
+		const read = await userinfo(api.token);
 		expect(read.status).toBe(200);
-		expect(await read.json()).toMatchObject({ principalId: api.person.id });
+		expect(await read.json()).toMatchObject({ sub: api.person.id });
 		// Past the guard, the gateway reads the body: 400, not 401 or 403.
 		expect((await inference(api.token)).status).toBe(400);
 		const git = await browserToken(
@@ -651,17 +649,18 @@ describe('the protected routes', () => {
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {
 		const api = await browserToken(audiences.api, 'openid profile ai');
-		expect((await profile(api.token)).status).toBe(200);
+		// Past the guard, the gateway reads the body: 400.
+		expect((await inference(api.token)).status).toBe(400);
 		expect(
 			await harness.client.revoke(browser.clientId, api.token, 'access_token'),
 		).toBe(200);
-		expect((await profile(api.token)).status).toBe(401);
+		expect((await inference(api.token)).status).toBe(401);
 		const other = await browserToken(audiences.api, 'openid profile ai');
 		await sqlClient.query(
 			'update session set expires_at = $2 where user_id = $1',
 			[other.person.id, new Date(Date.now() - 1000)],
 		);
-		expect((await profile(other.token)).status).toBe(401);
+		expect((await inference(other.token)).status).toBe(401);
 	}, 60_000);
 
 	test('a browser renews silently with prompt=none while its session lasts', async () => {

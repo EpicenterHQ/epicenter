@@ -16,7 +16,7 @@
  *
  * The whole Bun bootstrap lives here, in the app, not behind a shared
  * `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the cloud
- * auth layer, the session/inference/blobs mounts, `Bun.serve`) is this app's
+ * auth layer, the inference/blobs mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
  * The wiring lives in {@link startBunApiServer} so `server.dev.ts` can boot the
@@ -31,6 +31,11 @@
  * alarm timing, edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
  *
+ * The authorization server's pages (sign-in, consent, device) are the built
+ * `apps/api/ui`, as on the Worker: this entry serves its `fallback.html`
+ * for those URLs and its `/_app/*` files ({@link uiPages}), so sign-in
+ * completes on a self-hosted server.
+ *
  * Four surfaces the Worker serves are intentionally absent here, and
  * `runtime-profile.test.ts` is where that list is declared and checked against
  * both entries: the dashboard SPA and the account-deletion route need Worker-only
@@ -44,6 +49,8 @@
  * reset and does not resume legacy receipts.
  */
 
+import { statSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 import {
 	API_BUN_DEV_PORT,
 	resolveOAuthAudiences,
@@ -60,7 +67,6 @@ import {
 	mountInferenceApp,
 	mountMcpServer,
 	mountPersonalAuthorityBlobs,
-	mountSessionApp,
 	mountTranscriptionApp,
 	nodeClientMetadataFetch,
 	type OAuthScope,
@@ -72,6 +78,7 @@ import {
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
+import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import pg from 'pg';
 import { buildFirstPartyClients } from './worker/oauth-registrations.js';
@@ -98,6 +105,9 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	'API_PUBLIC_ORIGIN?': 'string',
 	// Where hosted Git keeps its bare repositories. Unset, Git answers 503.
 	'GIT_STORE_ROOT?': 'string',
+	// The built authorization pages (`apps/api/ui`'s `build`), by default
+	// beside this file at `ui/build`.
+	'API_UI_DIR?': 'string',
 	GOOGLE_CLIENT_ID: 'string',
 	GOOGLE_CLIENT_SECRET: 'string',
 	GITHUB_CLIENT_ID: 'string',
@@ -105,6 +115,60 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	MICROSOFT_CLIENT_ID: 'string',
 	MICROSOFT_CLIENT_SECRET: 'string',
 });
+
+/**
+ * The built authorization pages in `dir`, served as the Worker's asset layer
+ * serves them: `fallback.html` as the shell of each page, and the files under
+ * `_app/`, which never leave that directory. Unbuilt, the shell answers 503
+ * with the command that builds it.
+ */
+function uiPages(dir: string) {
+	const assets = resolve(dir, '_app');
+	const isFile = (path: string) => {
+		try {
+			return statSync(path).isFile();
+		} catch {
+			return false;
+		}
+	};
+	return {
+		shell: () => {
+			const shell = resolve(dir, 'fallback.html');
+			if (!isFile(shell))
+				return new Response(
+					`The sign-in pages are not built in ${dir}. Run \`bun run --cwd apps/api/ui build\`, or set API_UI_DIR to the built pages.`,
+					{
+						status: 503,
+						headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+					},
+				);
+			return new Response(Bun.file(shell), {
+				headers: { 'Content-Type': 'text/html; charset=utf-8' },
+			});
+		},
+		asset: (c: Context) => {
+			let path: string;
+			try {
+				path = resolve(
+					dir,
+					`.${decodeURIComponent(new URL(c.req.url).pathname)}`,
+				);
+			} catch {
+				return c.notFound();
+			}
+			if (!path.startsWith(`${assets}${sep}`) || !isFile(path))
+				return c.notFound();
+			return new Response(Bun.file(path), {
+				headers: {
+					// SvelteKit names every file under `immutable/` by its content.
+					'Cache-Control': path.includes(`${sep}immutable${sep}`)
+						? 'public, max-age=31536000, immutable'
+						: 'no-cache',
+				},
+			});
+		},
+	};
+}
 
 /**
  * Boot the apps/api Bun server, optionally with an injected principal resolver.
@@ -153,14 +217,8 @@ export async function startBunApiServer(
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
 	});
 
-	const serveAuthUiShell = () =>
-		new Response(
-			'Hosted auth UI is served by the SvelteKit app in Bun dev. Use `bun run --cwd apps/api/ui dev` for browser auth surfaces, or `bun run --cwd apps/api dev` for the Worker asset shell.',
-			{
-				status: 503,
-				headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-			},
-		);
+	const ui = uiPages(env.API_UI_DIR ?? resolve(import.meta.dir, 'ui', 'build'));
+	app.get('/_app/*', ui.asset);
 
 	app.get('/', (c) =>
 		c.json({ product: 'hub', version: '0.1.0', runtime: 'bun' }),
@@ -183,7 +241,7 @@ export async function startBunApiServer(
 	// guards explicitly install the context middleware, just like the Worker.
 	mountAuthRoutes(app, {
 		setup: authServerContext,
-		serveAuthUiShell,
+		serveAuthUiShell: ui.shell,
 		resolveAudiences: () => audiences,
 	});
 	// Every resource takes only an access token for its audience and the scope
@@ -197,7 +255,6 @@ export async function startBunApiServer(
 				? requireBearerPrincipal(devBearer)
 				: requireAccessToken({ audience: () => audiences[audience], scope }),
 		);
-	mountSessionApp(app, { auth: resource('api', 'profile') });
 	// Hosted Git (ADR-0546) keeps bare repositories on disk under
 	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
 	// the shared profile and answer 503 `git_unavailable`.

@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { CONNECTION_KINDS, type ConnectionKind } from '@epicenter/ai/send';
+	import type { ConnectionKind } from '@epicenter/ai/send';
 	import type { TableOptions } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { commands } from '../bindings.gen';
 	import ConnectionEditor from './ConnectionEditor.svelte';
-	import { type ConnectionFields, connectionId, failureText, KIND_LABELS } from './connections';
+	import { type ConnectionFields, connectionId, failureText, KIND_LABELS, OFFERED_KINDS } from './connections';
 
 	/**
 	 * Every AI connection in `so.epicenter`, each with its editor, and a form
@@ -97,7 +97,7 @@
 			aria-label="Kind"
 			class="h-9 rounded-md border border-input bg-transparent px-2 dark:bg-input/30"
 		>
-			{#each CONNECTION_KINDS as option (option)}
+			{#each OFFERED_KINDS as option (option)}
 				<option value={option}>{KIND_LABELS[option]}</option>
 			{/each}
 		</select>

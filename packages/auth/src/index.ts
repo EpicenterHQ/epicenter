@@ -14,11 +14,10 @@ export {
 	epicenterCloud,
 	selfHostedServer,
 } from './auth-server.js';
-export { ApiSessionResponse, Principal } from './auth-types.js';
+export { Principal } from './auth-types.js';
 export {
 	type BrowserOAuthLocation,
 	type CreateBrowserOAuthOptions,
 	createBrowserOAuth,
 } from './browser-oauth.js';
 export { normalizeInstanceServer } from './instance-server.js';
-export { readApiSession } from './read-api-session.js';

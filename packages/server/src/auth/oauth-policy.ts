@@ -8,12 +8,14 @@ import type { OAuthResourceInput } from '@better-auth/oauth-provider';
 
 /**
  * Every scope the server grants. A scope exists only while some route refuses
- * a token without it; none of them changes the account.
+ * a token without it, or userinfo withholds a claim without it (`email`);
+ * none of them changes the account.
  */
 export const OAUTH_SCOPES = [
 	'openid',
 	'offline_access',
 	'profile',
+	'email',
 	'ai',
 	'folders:read',
 	'folders:write',

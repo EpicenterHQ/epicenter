@@ -5,9 +5,10 @@
 //! the clone under `<folder_dir>/Apps/<app-id>/`, `epicenter.app.json`,
 //! `approvals.json`, Git, `bun install`, and the build into
 //! `<cache_dir>/builds/<app-id>/<commit>/`. Each command here is one fixed
-//! `epicenter app …` invocation, run with this shell's directories in
-//! `EPICENTER_DATA_DIR`, `EPICENTER_FOLDER_DIR`, and `EPICENTER_CACHE_DIR`,
-//! whose NDJSON lines go to the page's `Channel` as the CLI prints them.
+//! `epicenter app …` invocation, run as every command runs the CLI
+//! (`cli::window_invocation`: this shell's deployment and directories, and
+//! ended with the Folders window's page), whose NDJSON lines go to the
+//! page's `Channel` as the CLI prints them.
 //!
 //! ```txt
 //! list_installed_apps    epicenter app list --json
@@ -26,12 +27,11 @@ use std::fs;
 use std::path::Path;
 
 use tauri::ipc::Channel;
-use tauri::Manager;
+use tauri::{Manager, Webview};
 
 use crate::app_data::DesktopPaths;
-use crate::cli::{self, CliError, CliExit};
+use crate::cli::{window_invocation, CliError, CliExit};
 use crate::data_folders;
-use crate::DesktopAppHandle;
 
 /// The file in an app's build directory naming the commit its window loads.
 pub const CURRENT_BUILD: &str = "current";
@@ -97,40 +97,18 @@ fn update_args(id: &str, commit: Option<&str>, approve: bool) -> Vec<OsString> {
     args
 }
 
-/// This shell's directories, as the CLI reads them (`app-paths.ts`).
-pub(crate) fn directory_env(paths: &DesktopPaths) -> Vec<(OsString, OsString)> {
-    vec![
-        ("EPICENTER_DATA_DIR".into(), paths.data_dir.clone().into()),
-        (
-            "EPICENTER_FOLDER_DIR".into(),
-            paths.folder_dir.clone().into(),
-        ),
-        ("EPICENTER_CACHE_DIR".into(), paths.cache_dir.clone().into()),
-    ]
-}
-
-/// Run `epicenter <args>` with this shell's directories, each line it prints
-/// to `on_line`.
-async fn run_app_command(
-    app: &DesktopAppHandle,
-    args: Vec<OsString>,
-    on_line: impl FnMut(String) -> Result<(), String>,
-) -> Result<CliExit, CliError> {
-    let program = cli::bundled_program().map_err(|message| CliError::Failed { message })?;
-    let env = directory_env(&app.state::<DesktopPaths>());
-    cli::run_with_env(&program, &args, &env, None, on_line).await
-}
-
-/// Run `epicenter <args>`, every line it prints sent to `on_line`.
+/// Run `epicenter <args>` for `webview`'s page, every line it prints sent to
+/// `on_line`.
 async fn stream(
-    app: &DesktopAppHandle,
+    webview: &Webview,
     args: Vec<OsString>,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    run_app_command(app, args, |line| {
-        on_line.send(line).map_err(|error| error.to_string())
-    })
-    .await
+    window_invocation(webview)?
+        .run(&args, None, |line| {
+            on_line.send(line).map_err(|error| error.to_string())
+        })
+        .await
 }
 
 // ---------------------------------------------------------------------------
@@ -141,10 +119,10 @@ async fn stream(
 #[tauri::command]
 #[specta::specta]
 pub async fn list_installed_apps(
-    app: DesktopAppHandle,
+    webview: Webview,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&app, list_args(None), on_line).await
+    stream(&webview, list_args(None), on_line).await
 }
 
 /// The apps in the repository at `source`, a Git URL or a local path, each
@@ -152,11 +130,11 @@ pub async fn list_installed_apps(
 #[tauri::command]
 #[specta::specta]
 pub async fn list_repository_apps(
-    app: DesktopAppHandle,
+    webview: Webview,
     source: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&app, list_args(Some(&source)), on_line).await
+    stream(&webview, list_args(Some(&source)), on_line).await
 }
 
 /// Clone the repository at `source` into `Apps/`, with the app at `folder`
@@ -165,12 +143,12 @@ pub async fn list_repository_apps(
 #[tauri::command]
 #[specta::specta]
 pub async fn install_app(
-    app: DesktopAppHandle,
+    webview: Webview,
     source: String,
     folder: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&app, install_args(&source, &folder), on_line).await
+    stream(&webview, install_args(&source, &folder), on_line).await
 }
 
 /// Approve `commit` of app `id`, the commit the person was shown, and build
@@ -178,12 +156,12 @@ pub async fn install_app(
 #[tauri::command]
 #[specta::specta]
 pub async fn approve_app(
-    app: DesktopAppHandle,
+    webview: Webview,
     id: String,
     commit: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&app, update_args(&id, Some(&commit), true), on_line).await
+    stream(&webview, update_args(&id, Some(&commit), true), on_line).await
 }
 
 /// Fetch app `id`'s upstream and bring it up to date. What arrives from
@@ -191,20 +169,11 @@ pub async fn approve_app(
 #[tauri::command]
 #[specta::specta]
 pub async fn update_app(
-    app: DesktopAppHandle,
+    webview: Webview,
     id: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&app, update_args(&id, None, false), on_line).await
-}
-
-/// The message of the CLI's last `{"error": …}` line, or the end of what it
-/// wrote for people.
-fn failure(last: Option<&str>, exit: &CliExit) -> String {
-    last.and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .and_then(|value| value.get("error")?.as_str().map(str::to_string))
-        .or_else(|| Some(exit.stderr.trim().to_string()).filter(|text| !text.is_empty()))
-        .unwrap_or_else(|| format!("epicenter app update exited with {}", exit.code))
+    stream(&webview, update_args(&id, None, false), on_line).await
 }
 
 /// Open app `id` at `commit`, the commit the Folders window listed, in its own
@@ -217,7 +186,7 @@ fn failure(last: Option<&str>, exit: &CliExit) -> String {
 #[tauri::command]
 #[specta::specta]
 pub async fn open_installed_app(
-    app: DesktopAppHandle,
+    webview: Webview,
     id: String,
     title: String,
     commit: String,
@@ -228,18 +197,17 @@ pub async fn open_installed_app(
             "'{id}' at '{commit}' is not an installed app's commit."
         ));
     }
+    let app = webview.app_handle().clone();
     let builds = app.state::<DesktopPaths>().builds_dir().join(&id);
     if current_build(&builds).as_deref() != Some(commit.as_str()) {
-        let mut last = None;
-        let exit = run_app_command(&app, update_args(&id, Some(&commit), false), |line| {
-            last = Some(line);
-            Ok(())
-        })
-        .await
-        .map_err(|error| match error {
-            CliError::Failed { message } => message,
-            other => format!("{other:?}"),
-        })?;
+        let exit = window_invocation(&webview)
+            .map_err(|error| format!("{error:?}"))?
+            .run(&update_args(&id, Some(&commit), false), None, |_| Ok(()))
+            .await
+            .map_err(|error| match error {
+                CliError::Failed { message } => message,
+                other => format!("{other:?}"),
+            })?;
         match exit.code {
             0 => {}
             1 => {
@@ -247,7 +215,7 @@ pub async fn open_installed_app(
                     "{title} changed from elsewhere. Review and approve it first."
                 ))
             }
-            _ => return Err(failure(last.as_deref(), &exit)),
+            _ => return Err(exit.failure("app update")),
         }
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -264,8 +232,6 @@ pub async fn open_installed_app(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     fn strings(args: Vec<OsString>) -> Vec<String> {
@@ -317,33 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn the_cli_gets_this_shells_directories() {
-        let paths = DesktopPaths {
-            data_dir: PathBuf::from("/support/so.epicenter.dev"),
-            folder_dir: PathBuf::from("/home/Epicenter Dev"),
-            cache_dir: PathBuf::from("/caches/so.epicenter.dev"),
-        };
-        let env: Vec<(String, String)> = directory_env(&paths)
-            .into_iter()
-            .map(|(name, value)| (name.into_string().unwrap(), value.into_string().unwrap()))
-            .collect();
-        assert_eq!(
-            env,
-            [
-                (
-                    "EPICENTER_DATA_DIR".into(),
-                    "/support/so.epicenter.dev".into()
-                ),
-                ("EPICENTER_FOLDER_DIR".into(), "/home/Epicenter Dev".into()),
-                (
-                    "EPICENTER_CACHE_DIR".into(),
-                    "/caches/so.epicenter.dev".into()
-                ),
-            ]
-        );
-    }
-
-    #[test]
     fn only_a_current_build_with_its_page_is_served() {
         let builds =
             std::env::temp_dir().join(format!("epicenter-current-build-{}", std::process::id()));
@@ -375,23 +314,22 @@ mod tests {
 
     #[test]
     fn a_failure_reads_the_clis_error_line_first() {
-        let exit = CliExit {
-            code: 2,
-            stderr: "for people\n".into(),
+        let exit = |reply: Option<&str>, code: i32, stderr: &str| CliExit {
+            code,
+            reply: reply.map(str::to_string),
+            stderr: stderr.into(),
         };
         assert_eq!(
-            failure(Some(r#"{"error":"Board did not build"}"#), &exit),
+            exit(Some(r#"{"error":"Board did not build"}"#), 2, "for people\n")
+                .failure("app update"),
             "Board did not build"
         );
-        assert_eq!(failure(Some(r#"{"progress":"x"}"#), &exit), "for people");
         assert_eq!(
-            failure(
-                None,
-                &CliExit {
-                    code: 3,
-                    stderr: String::new()
-                }
-            ),
+            exit(Some(r#"{"progress":"x"}"#), 2, "for people\n").failure("app update"),
+            "for people"
+        );
+        assert_eq!(
+            exit(None, 3, "").failure("app update"),
             "epicenter app update exited with 3"
         );
     }

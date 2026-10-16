@@ -17,6 +17,13 @@
  * endpoint needs no CORS headers, because the request never leaves from the
  * page.
  *
+ * A row of kind `epicenter` sends to the deployment the app signed in to,
+ * `<origin>/v1`, with an `ai` access token the CLI mints from the app's
+ * sign-in (`--desktop`), which Settings makes: the page learns the origin
+ * and whether the app is signed in from `auth_status`, sends through the
+ * same `ai_send` with an `epicenter` target, and holds no token. Whispering
+ * cannot change such a row; Settings does. A `local` row is not used.
+ *
  * The rules are `connections.ts`'s: a canonical base URL, a model, and a key
  * kept only for the base URL it was saved for.
  */
@@ -59,11 +66,24 @@ const TITLES: Record<Operation, string> = {
 /** Stands in for a key the keychain holds, so `applyConnectionChange` can refuse carrying it elsewhere. */
 const HELD_KEY = 'held in the keychain';
 
+/** Why Whispering does not change an `epicenter` row. */
+const SET_IN_SETTINGS =
+	'This connection uses your Epicenter account. Change it in Epicenter’s Settings.';
+
 /** The shell commands the connections use. */
 export type ConnectionCommands = Pick<
 	typeof commands,
-	'aiKeyState' | 'aiKeySet' | 'aiSend'
+	'aiKeyState' | 'aiKeySet' | 'aiSend' | 'authStatus'
 >;
+
+/** How a connection sends: over its own endpoint and key, or with the app's sign-in. */
+type ConnectionTarget = 'openai-compatible' | 'epicenter';
+
+/** A connection as a row and the shell describe it. */
+type Resolved = {
+	readonly target: ConnectionTarget;
+	readonly connection: StoredConnection;
+};
 
 /** `so.epicenter` as Whispering opens it: through its `connections` table alone. */
 export type ConnectionsFolder = Pick<
@@ -84,6 +104,7 @@ const failureOf = (error: { name: string; message?: string }) =>
  */
 async function sendThroughEpicenter(
 	native: ConnectionCommands,
+	target: ConnectionTarget,
 	connection: string,
 	endpoint: string,
 	input: string,
@@ -114,7 +135,9 @@ async function sendThroughEpicenter(
 	};
 	native
 		.aiSend(
-			{ kind: 'openai-compatible', connection, endpoint },
+			target === 'epicenter'
+				? { kind: 'epicenter', connection }
+				: { kind: 'openai-compatible', connection, endpoint },
 			{
 				method: request.method,
 				path: request.path,
@@ -167,36 +190,57 @@ export function createDesktopConnections({
 		return opening;
 	}
 
-	/** The row and keychain entry `operation` uses now, or undefined when either is missing. */
-	async function stored(
-		operation: Operation,
-	): Promise<StoredConnection | undefined> {
+	/**
+	 * The connection `operation` uses now, or undefined when its row is
+	 * missing, is `local`, or names an endpoint this computer has no entry
+	 * for. An `epicenter` row's endpoint is the signed-in deployment's `/v1`,
+	 * and its key is present while the app is signed in.
+	 */
+	async function stored(operation: Operation): Promise<Resolved | undefined> {
 		const id = CONNECTION_IDS[operation];
 		const { data: row, error } = await (await folder()).tables.connections.get(
 			id,
 		);
 		if (error !== null) throw new Error(error.message);
-		if (row === undefined || row.row.fields.kind !== 'openai-compatible')
-			return undefined;
+		if (row === undefined) return undefined;
+		const { kind, model } = row.row.fields;
+		if (kind === 'epicenter') {
+			const { data: status, error: statusError } = await native.authStatus();
+			if (statusError !== null) throw new Error(failureOf(statusError));
+			const signedIn = status.grants.some(
+				(grant) => grant.grant === 'desktop' && grant.signedIn,
+			);
+			return {
+				target: 'epicenter',
+				connection: {
+					baseUrl: `${new URL(status.origin).origin}/v1`,
+					model,
+					...(signedIn && { apiKey: HELD_KEY }),
+				},
+			};
+		}
+		if (kind !== 'openai-compatible') return undefined;
 		const { data: state, error: stateError } = await native.aiKeyState(id);
 		if (stateError !== null) throw new Error(failureOf(stateError));
 		if (state.state === 'missing') return undefined;
 		return {
-			baseUrl: state.endpoint,
-			model: row.row.fields.model,
-			...(state.hasKey && { apiKey: HELD_KEY }),
+			target: 'openai-compatible',
+			connection: {
+				baseUrl: state.endpoint,
+				model,
+				...(state.hasKey && { apiKey: HELD_KEY }),
+			},
 		};
 	}
 
-	function infoOf(
-		connection: StoredConnection | undefined,
-	): ConnectionInfo | undefined {
+	function infoOf(found: Resolved | undefined): ConnectionInfo | undefined {
 		return (
-			connection && {
-				baseUrl: connection.baseUrl,
-				model: connection.model,
-				keyPresent: connection.apiKey !== undefined,
-				readOnlyReason: undefined,
+			found && {
+				baseUrl: found.connection.baseUrl,
+				model: found.connection.model,
+				keyPresent: found.connection.apiKey !== undefined,
+				readOnlyReason:
+					found.target === 'epicenter' ? SET_IN_SETTINGS : undefined,
 			}
 		);
 	}
@@ -222,7 +266,9 @@ export function createDesktopConnections({
 		): Promise<Result<ConnectionsInfo, string>> {
 			try {
 				const id = CONNECTION_IDS[operation];
-				const current = await stored(operation);
+				const found = await stored(operation);
+				if (found?.target === 'epicenter') return Err(SET_IN_SETTINGS);
+				const current = found?.connection;
 				const { data: next, error: changeError } = applyConnectionChange(
 					operation,
 					current,
@@ -285,14 +331,22 @@ export function createDesktopConnections({
 			const found = await stored(operation);
 			if (found === undefined) return undefined;
 			const id = CONNECTION_IDS[operation];
+			const { baseUrl, model } = found.connection;
 			return {
-				stored: { baseUrl: found.baseUrl, model: found.model },
+				stored: { baseUrl, model },
 				send(url, init) {
-					if (!url.startsWith(`${found.baseUrl}/`))
+					if (!url.startsWith(`${baseUrl}/`))
 						throw new Error(
 							`${url} is not below the ${OPERATION_NAMES[operation]} connection's base URL.`,
 						);
-					return sendThroughEpicenter(native, id, found.baseUrl, url, init);
+					return sendThroughEpicenter(
+						native,
+						found.target,
+						id,
+						baseUrl,
+						url,
+						init,
+					);
 				},
 			};
 		},

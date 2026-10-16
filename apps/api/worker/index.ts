@@ -25,7 +25,6 @@ import {
 	mountInferenceApp,
 	mountMcpServer,
 	mountPersonalAuthorityBlobs,
-	mountSessionApp,
 	mountTranscriptionApp,
 	type OAuthScope,
 	requireAccessToken,
@@ -137,7 +136,6 @@ const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 const accountSession = every(cloudContext, requireSessionCookie());
 
 // The profile read.
-mountSessionApp(app, { auth: resource('api', 'profile') });
 // Hosted Git at git.epicenter.so/<namespace>/<name>.git over Cloudflare
 // Artifacts (ADR-0546), and `GET /api/repos`. Both decide each request from
 // the access token and the namespace membership (`authorizeResourceRequest`),

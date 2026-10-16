@@ -20,6 +20,16 @@ export const KIND_LABELS: Record<ConnectionKind, string> = {
 	local: 'This computer',
 };
 
+/**
+ * The kinds a new connection may have. `local` stays a kind a row may hold,
+ * and `epicenter send` refuses it (`LocalNotSent`), but no app sends over it
+ * yet, so it is not offered.
+ */
+export const OFFERED_KINDS = [
+	'openai-compatible',
+	'epicenter',
+] as const satisfies readonly ConnectionKind[];
+
 /** The query key of what the keychain holds for `stem`. */
 export const keyStateKey = (stem: string) => ['ai-key-state', stem] as const;
 

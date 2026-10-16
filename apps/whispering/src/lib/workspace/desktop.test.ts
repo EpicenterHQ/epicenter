@@ -184,6 +184,13 @@ async function epicenter() {
 		});
 	}) as typeof fetch;
 	const ai: ConnectionCommands = {
+		async authStatus() {
+			return {
+				status: 'ok',
+				data: { origin: 'https://api.example.test', grants: [] },
+				error: null,
+			};
+		},
 		async aiKeyState(connection) {
 			const { data, error } = await keyState(keychain, connection);
 			return error === null
@@ -236,7 +243,7 @@ async function epicenter() {
 					deliver(JSON.stringify(event));
 			const exit = { code: error === null ? 0 : 2, stderr: '' };
 			deliver(JSON.stringify({ type: 'exit', ...exit }));
-			return { status: 'ok', data: exit, error: null };
+			return { status: 'ok', data: { ...exit, reply: null }, error: null };
 		},
 	} as ConnectionCommands;
 	cleanups.push(() => rm(root, { recursive: true, force: true }));

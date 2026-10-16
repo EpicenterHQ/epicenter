@@ -470,16 +470,29 @@ test('an unsolicited login_required callback cannot sign the person out', async 
 	expect(world.storage.getItem(TOKEN_KEY)).not.toBeNull();
 });
 
+test('getProfile reads userinfo with the account token', async () => {
+	const world = createWorld();
+	const { auth } = await signIn(world);
+	const { data: profile, error } = await auth.getProfile();
+	expect(error).toBeNull();
+	expect(profile?.id).toBe(auth.getState().account!.principalId);
+	const sent = world.requests.at(-1)!;
+	expect(sent.url).toBe(`${SERVER}/auth/oauth2/userinfo`);
+	expect(new Headers(sent.init?.headers).get('authorization')).toBe(
+		'Bearer token-1',
+	);
+});
+
 test("Account.fetch attaches the bearer only for its own server and its token's resource", async () => {
 	const world = createWorld();
 	const { auth } = await signIn(world);
 	const account = auth.getState().account!;
 
-	await account.fetch('/api/session', {
+	await account.fetch('/api/repos', {
 		headers: { cookie: 'session=ambient', authorization: 'Bearer caller' },
 	});
 	const sent = world.requests.at(-1)!;
-	expect(sent.url).toBe(`${SERVER}/api/session`);
+	expect(sent.url).toBe(`${SERVER}/api/repos`);
 	const headers = new Headers(sent.init?.headers);
 	expect(headers.get('authorization')).toBe('Bearer token-1');
 	expect(headers.has('cookie')).toBe(false);

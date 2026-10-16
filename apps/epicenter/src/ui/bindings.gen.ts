@@ -218,11 +218,11 @@ export const commands = {
 	 */
 	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
 	/**  The folder's changed files, its head, and its remote, ahead and behind. */
-	status: (scope: string) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("status", { scope })),
+	status: (scope: string) => typedError<CliExit, CliError>(__TAURI_INVOKE("status", { scope })),
 	/**  The folder's last `depth` versions. */
-	history: (scope: string, depth: number) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("history", { scope, depth })),
+	history: (scope: string, depth: number) => typedError<CliExit, CliError>(__TAURI_INVOKE("history", { scope, depth })),
 	/**  Record the folder's edits as a version, with `message` when a person gave one. */
-	saveVersion: (scope: string, message: string | null) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("save_version", { scope, message })),
+	saveVersion: (scope: string, message: string | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message })),
 	/**
 	 *  Record the folder's edits, fetch, merge by each file's kind, and push. A
 	 *  sync that needs choices records its attempt in the folder for
@@ -232,7 +232,7 @@ export const commands = {
 	url: string,
 	username: string,
 	password: string,
-} | null) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, credential })),
+} | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, credential })),
 	/**
 	 *  Settle the sync attempt this folder recorded, named by its ID, with one
 	 *  choice per conflict, then push. The conflicts are read again from the
@@ -242,7 +242,7 @@ export const commands = {
 	url: string,
 	username: string,
 	password: string,
-} | null) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("settle_sync", { scope, attempt, choices, credential })),
+} | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("settle_sync", { scope, attempt, choices, credential })),
 	/**
 	 *  Start what gives this computer a `git`, after the CLI answered
 	 *  `GitMissing` (ADR-0559): on macOS the Command Line Tools installer, a
@@ -526,6 +526,11 @@ export type CliError =
  */
 export type CliExit = {
 	code: number,
+	/**
+	 *  The last line the CLI printed on stdout: a command's one answer, or
+	 *  `{"error": ...}`.
+	 */
+	reply: string | null,
 	/**  The end of what the CLI wrote for people, at most 64 KiB. */
 	stderr: string,
 };
@@ -652,19 +657,6 @@ export type GrantError =
 { name: "Unavailable"; message: string } | 
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" };
-
-/**  How a history child ended, and its one reply line. */
-export type HistoryOutput = {
-	/**
-	 *  The CLI's exit code: 0 done, 1 a result a person acts on, 2 a folder
-	 *  or a `git` it cannot use.
-	 */
-	code: number,
-	/**  The last line the child printed: its reply, or `{"error": ...}`. */
-	reply: string | null,
-	/**  The end of what the child wrote for people, at most 64 KiB. */
-	stderr: string,
-};
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.

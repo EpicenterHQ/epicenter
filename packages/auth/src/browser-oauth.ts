@@ -14,7 +14,7 @@ import type {
 } from './auth-contract.js';
 import { AccountUnavailable, AuthError } from './auth-errors.js';
 import type { AuthServer } from './auth-server.js';
-import { getProfileVia } from './read-api-session.js';
+import { getProfileVia, USERINFO_PATH } from './read-profile.js';
 import { resolveTargetUrl } from './resolve-target-url.js';
 
 /** Renew a stored access token this long before it expires (ADR-0549). */
@@ -443,14 +443,11 @@ export function createBrowserOAuth({
 	}
 
 	async function readPrincipal(accessToken: string) {
-		const response = await fetchImpl(
-			new URL('/auth/oauth2/userinfo', serverOrigin),
-			{
-				credentials: 'omit',
-				redirect: 'error',
-				headers: { authorization: `Bearer ${accessToken}` },
-			},
-		);
+		const response = await fetchImpl(new URL(USERINFO_PATH, serverOrigin), {
+			credentials: 'omit',
+			redirect: 'error',
+			headers: { authorization: `Bearer ${accessToken}` },
+		});
 		if (!response.ok)
 			throw new Error(`The userinfo request failed (${response.status}).`);
 		return UserInfo.assert(await response.json()).sub as PrincipalId;

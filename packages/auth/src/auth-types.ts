@@ -8,11 +8,3 @@ export const Principal = type({
 	'email?': 'string',
 });
 export type Principal = typeof Principal.infer;
-
-/** Resource projection served by /api/session; Better Auth owns session rows. */
-export const ApiSessionResponse = type({
-	'+': 'delete',
-	principalId: PrincipalId,
-	'email?': 'string',
-});
-export type ApiSessionResponse = typeof ApiSessionResponse.infer;

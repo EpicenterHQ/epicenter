@@ -179,6 +179,8 @@ test('an account request goes below /api/ on the deployment, with the token for 
 
 	for (const path of [
 		'auth/oauth2/revoke',
+		// The profile read is a GET; this request is a POST.
+		'auth/oauth2/userinfo',
 		'api',
 		'v1/chat/completions',
 		'api/../auth/sign-out',
@@ -196,16 +198,27 @@ test('an account request goes below /api/ on the deployment, with the token for 
 	}
 	expect(minted).toEqual(['git']);
 
+	const profile = await sendRequest({
+		target: { kind: 'account', audience: 'api' },
+		request: { ...request('auth/oauth2/userinfo'), method: 'GET' },
+		secrets,
+		account,
+		fetch,
+	});
+	expect(profile.error).toBeNull();
+	expect(sent[1]?.url).toBe('https://api.example.test/auth/oauth2/userinfo');
+	expect(sent[1]?.headers.get('authorization')).toBe('Bearer at_api');
+
 	const absent = await sendRequest({
 		target: { kind: 'account', audience: 'api' },
-		request: request('api/session'),
+		request: request('api/repos'),
 		secrets,
 		fetch,
 	});
 	expect(absent.error?.name).toBe('NoAccountToken');
 	const signedOut = await sendRequest({
 		target: { kind: 'account', audience: 'api' },
-		request: request('api/session'),
+		request: request('api/repos'),
 		secrets,
 		account: async () => Err('run epicenter auth login --loopback'),
 		fetch,
@@ -215,13 +228,13 @@ test('an account request goes below /api/ on the deployment, with the token for 
 		audience: 'api',
 		reason: 'run epicenter auth login --loopback',
 	});
-	expect(sent.length).toBe(1);
+	expect(sent.length).toBe(2);
 });
 
 test('an account target reads back only with a known audience', () => {
 	const head = (target: unknown) =>
 		new TextEncoder().encode(
-			`${JSON.stringify({ target, request: { method: 'GET', path: 'api/session', headers: [] } })}\n`,
+			`${JSON.stringify({ target, request: { method: 'GET', path: 'api/repos', headers: [] } })}\n`,
 		);
 	expect(
 		decodeSendInput(head({ kind: 'account', audience: 'git' })).data?.target,

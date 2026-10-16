@@ -5,9 +5,11 @@
  */
 
 import { expect, test } from 'bun:test';
+import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr } from 'wellcrafted/testing';
 import type { AuthState } from './auth-contract.ts';
+import { selfHostedServer } from './auth-server.ts';
 import {
 	createDesktopAccountAuth,
 	type DesktopAccountAudience,
@@ -32,8 +34,6 @@ function harness(
 	let opened = 0;
 	let refreshFromWatch: (() => void) | undefined;
 	const auth = createDesktopAccountAuth({
-		baseURL: origin,
-		selfHosted: false,
 		audience: 'git',
 		status: async () => current,
 		send: async (audience, request) => {
@@ -70,19 +70,26 @@ test('the desktop grant is the account, and its id is the principal', async () =
 	const state = auth.getState();
 	expect(state.status).toBe('signed-in');
 	expect(state.account?.principalId).toBe(asPrincipalId('alice'));
-	expect(state.account?.authorityId).toBe('epicenter-api');
+	expect(state.account?.authorityId).toBe(selfHostedServer(origin).authorityId);
 	expect(state.account?.baseURL).toBe(origin);
 	expect(auth.baseURL).toBe(origin);
+	expect(auth.accountManagementUrl).toBeUndefined();
+});
+
+test('the deployment is the one the status names: the hosted one has the account website', async () => {
+	const { auth, set } = harness(signedIn());
+	expect(auth.baseURL).toBe('');
+	set({ origin: PRODUCTION_API_URL, grant: signedIn().grant });
+	await auth.refresh();
+	expect(auth.baseURL).toBe(PRODUCTION_API_URL);
+	expect(auth.getState().account?.authorityId).toBe('epicenter-api');
+	expect(auth.accountManagementUrl).toBeDefined();
 });
 
 test('Account.fetch sends through the app audience and getProfile through api, with no token in the page', async () => {
 	const { auth, sent } = harness(signedIn(), (audience) =>
 		audience === 'api'
-			? Response.json({
-					principalId: 'alice',
-					email: 'alice@example.test',
-					user: { name: 'Alice' },
-				})
+			? Response.json({ sub: 'alice', email: 'alice@example.test' })
 			: Response.json({ remote: 'x' }),
 	);
 	await auth.refresh();
@@ -96,9 +103,12 @@ test('Account.fetch sends through the app audience and getProfile through api, w
 	expect(sent[0]?.request.url).toBe(`${origin}/api/git/connect`);
 	expect(sent[0]?.request.method).toBe('POST');
 	expect(sent[0]?.request.headers.get('authorization')).toBeNull();
-	await account.getProfile();
+	expect(await account.getProfile()).toEqual({
+		data: { id: asPrincipalId('alice'), email: 'alice@example.test' },
+		error: null,
+	});
 	expect(sent[1]?.audience).toBe('api');
-	expect(sent[1]?.request.url).toBe(`${origin}/api/session`);
+	expect(sent[1]?.request.url).toBe(`${origin}/auth/oauth2/userinfo`);
 	expect(sent[1]?.request.headers.get('authorization')).toBeNull();
 	expect(
 		account.fetch('https://elsewhere.example/api/git/connect'),

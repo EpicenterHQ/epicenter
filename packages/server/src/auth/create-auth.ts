@@ -119,8 +119,8 @@ export function configuredProviders(env: CloudAuthBindings) {
  * - Plugins: passkey (WebAuthn) and the OAuth 2.1 authorization server
  *   (ADR-0549); a session is only the authorization server's own cookie
  *
- * `/api/session` is the single Epicenter session surface; this builder no longer
- * enriches `/auth/get-session` with encryption keys.
+ * An app reads its account from the provider's `/auth/oauth2/userinfo`; this
+ * builder does not enrich `/auth/get-session`.
  */
 export function createAuth({
 	db,

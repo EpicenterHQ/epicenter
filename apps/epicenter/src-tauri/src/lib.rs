@@ -448,7 +448,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
         .manage(data_folders::DataFolderScopes::default())
-        .manage(history::CliChildren::default())
+        .manage(cli::CliChildren::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(DownloadManager::default());
 
@@ -461,14 +461,14 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Started {
                 webview
-                    .state::<history::CliChildren>()
+                    .state::<cli::CliChildren>()
                     .page_ended(webview.label());
             }
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 window
-                    .state::<history::CliChildren>()
+                    .state::<cli::CliChildren>()
                     .page_ended(window.label());
             }
         })
@@ -487,7 +487,7 @@ pub fn run() {
             }
             // Git's configuration runs `<dataDir>/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
-            cli::spawn_command_link_refresh(installed_apps::directory_env(&desktop_paths));
+            cli::spawn_command_link_refresh(&desktop_paths);
             app.manage(desktop_paths);
 
             // The active local model and the unload policy are device-local host
@@ -1991,8 +1991,10 @@ mod tests {
     /// `so.epicenter.whispering`, opened on its own folder or on another, and
     /// no other window. It grants what Whispering's page calls and nothing
     /// else: the recorder into its granted folder (ADR-0543), local
-    /// transcription with the active model and its readiness (ADR-0180), and
-    /// opening Settings where that model is chosen.
+    /// transcription with the active model and its readiness (ADR-0180),
+    /// opening Settings where that model is chosen, its AI connections
+    /// (ADR-0557), and who the app is signed in as, for an Epicenter
+    /// connection.
     #[test]
     fn installed_whispering_is_granted_its_native_commands_by_app_id() {
         for encoded in [
@@ -2029,7 +2031,8 @@ mod tests {
                     "allow-ai-send",
                     "allow-ai-key-set",
                     "allow-ai-key-remove",
-                    "allow-ai-key-state"
+                    "allow-ai-key-state",
+                    "allow-auth-status"
                 ]),
                 "{encoded}"
             );
@@ -2087,8 +2090,9 @@ mod tests {
     }
 
     /// An account request reaches installed Todos by its app id and no other
-    /// window; who the app is signed in as reaches Settings and Todos; signing
-    /// in and out reaches Settings alone (ADR-0558).
+    /// window; who the app is signed in as reaches Settings, Todos, and
+    /// Whispering, whose Epicenter connection sends with that sign-in;
+    /// signing in and out reaches Settings alone (ADR-0558).
     #[test]
     fn account_commands_are_granted_to_settings_and_todos_alone() {
         for encoded in ALL_CAPABILITIES {
@@ -2098,12 +2102,17 @@ mod tests {
             let identifier = capability["identifier"].as_str().unwrap();
             let todos = capability["windows"]
                 == serde_json::json!(["app:so_epicenter_todos", "app:so_epicenter_todos:*"]);
+            let whispering = capability["windows"]
+                == serde_json::json!([
+                    "app:so_epicenter_whispering",
+                    "app:so_epicenter_whispering:*"
+                ]);
             let settings_account = capability["windows"] == serde_json::json!(["home"])
                 && identifier.starts_with("home-account");
             assert_eq!(grants("allow-account-send"), todos, "{identifier}");
             assert_eq!(
                 grants("allow-auth-status"),
-                todos || settings_account,
+                todos || whispering || settings_account,
                 "{identifier}"
             );
             for permission in ["allow-auth-login", "allow-auth-logout"] {

@@ -60,18 +60,25 @@ export const proposedName = toRepositoryName(TODOS_FOLDER_ID) ?? 'todos';
 const isObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
 
-const gitAudience = auth && resolveOAuthAudiences(auth.baseURL).git;
-
 const account = (): Account | undefined => {
 	const state = auth?.getState();
 	return state?.status === 'signed-in' ? state.account : undefined;
 };
 
+/**
+ * The Git audience of the deployment auth names now. On the desktop that is
+ * the one `auth_status` answered, unknown until its first read.
+ */
+function gitAudience(): string | undefined {
+	const base = auth?.baseURL;
+	return base ? resolveOAuthAudiences(base).git : undefined;
+}
+
 /** Whether `url` is one of the hosted repositories on the server this build signs in to. */
 export function isEpicenter(url: string): boolean {
+	const audience = gitAudience();
 	return (
-		gitAudience !== undefined &&
-		parseRepositoryUrl(gitAudience, url) !== undefined
+		audience !== undefined && parseRepositoryUrl(audience, url) !== undefined
 	);
 }
 
@@ -92,7 +99,8 @@ export async function connectEpicenter(
 	name: string,
 ): Promise<Result<string, RemoteError>> {
 	const current = account();
-	if (current === undefined || gitAudience === undefined)
+	const audience = current && resolveOAuthAudiences(current.baseURL).git;
+	if (current === undefined || audience === undefined)
 		return RemoteError.SignInRequired();
 	let url: string;
 	try {
@@ -107,7 +115,7 @@ export async function connectEpicenter(
 			(namespace) => namespace.personal,
 		);
 		if (personal === undefined) return RemoteError.Malformed();
-		url = repositoryUrl(gitAudience, { namespace: personal.id, name });
+		url = repositoryUrl(audience, { namespace: personal.id, name });
 	} catch (cause) {
 		return RemoteError.Unreachable({ cause });
 	}
@@ -118,10 +126,11 @@ export async function connectEpicenter(
 
 /** Whether `url` is under Epicenter's Git origin, whatever it names there. */
 function underGitAudience(url: string): boolean {
-	if (gitAudience === undefined) return false;
+	const git = gitAudience();
+	if (git === undefined) return false;
 	try {
 		const target = new URL(url);
-		const audience = new URL(gitAudience);
+		const audience = new URL(git);
 		const prefix = audience.pathname.replace(/\/+$/, '');
 		return (
 			target.origin === audience.origin &&

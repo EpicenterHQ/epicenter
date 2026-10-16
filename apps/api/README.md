@@ -36,7 +36,9 @@ Postgres and, for blobs, any S3-compatible endpoint, with no Cloudflare
 account. It builds the same `createServerApp` and the same Better Auth
 `createAuth` as the Worker, so a self-hosted server has the same sign-in,
 sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
-`.env.example` for the rest. The runtime-parity CI boots this entry against
+`.env.example` for the rest. It serves the sign-in, consent, and device
+pages from the built UI, so build it first with `bun run --cwd apps/api/ui
+build` (or point `API_UI_DIR` at a build). The runtime-parity CI boots this entry against
 Postgres and S3 on every pull request. ADR-0549 records how auth will work
 there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
 deletion is a hosted resource sweep, and billing needs the Autumn secret and the
@@ -54,10 +56,12 @@ sign-in, consent, device approval, and the dashboard's account management
 This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
-takes the API audience and `ai`, `/api/session` the API audience and
-`profile`, Git requests the Git audience with `folders:read` or
-`folders:write` and a namespace role, `GET /api/repos` `folders:read`, and
-personal blobs the Git audience with `folders:read` or `folders:write`. Browser
+takes the API audience and `ai`, Git requests the Git audience with
+`folders:read` or `folders:write` and a namespace role, `GET /api/repos`
+`folders:read`, and personal blobs the Git audience with `folders:read` or
+`folders:write`. An app reads who signed in from Better Auth's
+`/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
+with `email`. Browser
 apps get a token by authorization code with PKCE as their own client; the
 desktop app's pages reach the API through `epicenter send`, which holds the
 desktop grant. See [Authorization server](#authorization-server).
@@ -109,7 +113,6 @@ Cloudflare Workers
 │   ├── /consent               OAuth consent, with the folder picker
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
-│   ├── /api/session           the principal projection
 │   ├── /api/repos             the caller's repositories, by namespace
 │   ├── git audience /:namespace/:name.git/*  Git smart HTTP, forwarded to Artifacts
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways

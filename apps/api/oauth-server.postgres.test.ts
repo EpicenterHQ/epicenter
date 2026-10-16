@@ -204,6 +204,15 @@ beforeAll(async () => {
 		const port = await freePort();
 		const origin = `http://127.0.0.1:${port}`;
 		const { url, client } = await database('bun_entry');
+		// The pages it serves are the built UI, as on a self-hosted server.
+		if (!(await Bun.file(resolve(apiRoot, 'ui/build/fallback.html')).exists()))
+			expect(
+				Bun.spawnSync([process.execPath, 'run', 'build'], {
+					cwd: resolve(apiRoot, 'ui'),
+					stdout: 'ignore',
+					stderr: 'inherit',
+				}).exitCode,
+			).toBe(0);
 		const entry = Bun.spawn([process.execPath, 'server.ts'], {
 			cwd: apiRoot,
 			env: {
@@ -313,6 +322,27 @@ afterAll(async () => {
 }, 60_000);
 
 checks('the Bun entry on Postgres', 'bun', () => bun);
+
+test('the Bun entry serves the sign-in, consent, and device pages with every file they load', async () => {
+	for (const path of ['/sign-in', '/consent', '/device']) {
+		const page = await bun.client.request(path);
+		expect(page.status).toBe(200);
+		expect(page.headers.get('content-type')).toContain('text/html');
+		const html = await page.text();
+		const files = [...html.matchAll(/["'](\/_app\/[^"'?#]+)["']/g)].map(
+			(match) => match[1]!,
+		);
+		// SvelteKit preloads the whole module graph of a page, so these are
+		// every file it loads.
+		expect(files.length).toBeGreaterThan(0);
+		for (const file of new Set(files)) {
+			const loaded = await bun.client.request(file);
+			expect(loaded.status, file).toBe(200);
+			await loaded.body?.cancel();
+		}
+	}
+}, 60_000);
+
 checks(
 	'the Worker entry under wrangler dev --local, through Hyperdrive',
 	'cloudflare',

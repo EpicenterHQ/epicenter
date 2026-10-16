@@ -3,7 +3,8 @@
  * which the `epicenter` CLI holds as its desktop grant (ADR-0556, ADR-0558).
  *
  * The page never holds a token (ADR-0549's desktop row). It learns who is
- * signed in from `auth_status`, sends its one account request,
+ * signed in, and on which deployment, from `auth_status`, so it names the
+ * deployment the shell runs the CLI for and none of its own build. It sends its one account request,
  * `GET /api/repos`, through `account_send` with the `git` resource, where the
  * CLI adds the token, and sends the person to Settings with `open_home` to
  * sign in. The shell grants these three commands to Todos' windows by app id
@@ -23,7 +24,6 @@ import {
 	type DesktopAccountAudience,
 	type DesktopAccountStatus,
 } from '@epicenter/auth/desktop';
-import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 /** What `auth_status` answers (`AuthStatus` in `src-tauri/src/cli.rs`). */
@@ -113,8 +113,6 @@ async function send(
 }
 
 export const auth: AuthClient | undefined = createDesktopAccountAuth({
-	baseURL: SELF_HOST_ORIGIN || APP_URLS.API,
-	selfHosted: Boolean(SELF_HOST_ORIGIN),
 	audience: 'git',
 	status,
 	send,
