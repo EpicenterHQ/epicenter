@@ -383,6 +383,23 @@ test('a row that does not read merges as text, and its frontmatter lines compete
 	expect(await context.remoteMessage()).toContain(`Overrode: ${theirs} lines=`);
 });
 
+test('a merge that would hold two paths only their case tells apart is not sent', async () => {
+	const context = await setup();
+	const { local } = context;
+	expectOk(await put(local.files, 'Notes.md', 'mine\n'));
+	const theirs = await context.incoming({ 'notes.md': 'theirs\n' });
+
+	const refused = expectErr(await local.sync.run());
+	expect(refused).toMatchObject({
+		name: 'Unrepresentable',
+		whose: 'folder',
+		paths: ['Notes.md', 'notes.md'],
+	});
+	expect(refused.message).toContain("'Notes.md', 'notes.md'");
+	expect(await context.remoteHead()).toBe(theirs);
+	expect(await text(local, 'Notes.md')).toBe('mine\n');
+});
+
 test('a push that lost a race merges again from the same local head', async () => {
 	const context = await setup();
 	const { local, hooks } = context;

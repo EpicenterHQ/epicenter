@@ -635,12 +635,14 @@ export function createHistory({
 	});
 
 	/**
-	 * Refuse a tree, the files of `commit`, that this folder cannot write as
+	 * Refuse a tree, the files of `commit`, that a folder cannot write as
 	 * plain bytes: a link, an executable, a submodule, an invalid path, a Git
-	 * attribute filter, or two paths only their case tells apart.
+	 * attribute filter, or two paths only their case tells apart. `whose` is
+	 * the remote's tree arriving, or this folder's about to be sent.
 	 */
 	async function representable(
 		commit: string,
+		whose: 'remote' | 'folder',
 	): Promise<Result<undefined, SyncError>> {
 		const files = await headFiles(commit);
 		const unsupported = [...files]
@@ -648,6 +650,7 @@ export function createHistory({
 			.map(([path]) => path);
 		if (unsupported.length > 0)
 			return SyncError.Unrepresentable({
+				whose,
 				paths: unsupported,
 				reason:
 					'symbolic links, submodules, and executable files are not plain folder files',
@@ -657,6 +660,7 @@ export function createHistory({
 		);
 		if (invalid.length > 0)
 			return SyncError.Unrepresentable({
+				whose,
 				paths: invalid,
 				reason: 'some paths are not valid folder paths',
 			});
@@ -665,6 +669,7 @@ export function createHistory({
 		const declared = await backend.incomingAttribute(commit, files);
 		if (declared !== undefined)
 			return SyncError.Unrepresentable({
+				whose,
 				paths: [declared.path],
 				reason: `the commit declares the Git attribute ${declared.attribute}, and this folder does not apply attribute filters or conversion`,
 			});
@@ -677,6 +682,7 @@ export function createHistory({
 				const existing = folded.get(key);
 				if (existing !== undefined && existing !== name)
 					return SyncError.Unrepresentable({
+						whose,
 						paths: [existing, name],
 						reason: 'paths collide on case-insensitive filesystems',
 					});
@@ -1088,7 +1094,10 @@ export function createHistory({
 							isAncestor(access, theirs, local!),
 						)))
 				) {
-					// The remote is behind: send ours.
+					// The remote is behind: send ours, if another device could
+					// hold it.
+					const unsendable = await representable(local!, 'folder');
+					if (unsendable.error !== null) return unsendable;
 					const pushed = await pushCommit(local!);
 					if (pushed === 'rejected') {
 						rejectedAt = theirs;
@@ -1096,7 +1105,7 @@ export function createHistory({
 					}
 					return done(local, pushed);
 				}
-				const refused = await representable(theirs);
+				const refused = await representable(theirs, 'remote');
 				if (refused.error !== null) return refused;
 				if (
 					local === undefined ||
@@ -1144,6 +1153,10 @@ export function createHistory({
 						author,
 					});
 				});
+				// A merge of two sendable trees can still hold two paths only
+				// their case tells apart, one from each side.
+				const unsendable = await representable(merged, 'folder');
+				if (unsendable.error !== null) return unsendable;
 				// What stands in the way stops Sync before the merge is sent.
 				const inWay = await inTheWay(
 					boundary,

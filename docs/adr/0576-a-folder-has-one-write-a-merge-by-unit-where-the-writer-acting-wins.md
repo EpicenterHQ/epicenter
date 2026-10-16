@@ -225,8 +225,9 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    a file `T` removes holds an edit no commit has, it stops, records the
    files again as `K`, and merges `K` with what it pushed: the delete wins,
    and the edit stays in history as a parent, named by a trailer. Names
-   compare as a case-insensitive disk folds them, so a name held under
-   another spelling stops it too. Then the branch moves from `L` to `T` by
+   compare as APFS folds them, so a name held under another spelling stops
+   it too, and a tree this device would send is checked as an incoming one
+   is: a merge whose two sides each add one spelling of a name is not sent. Then the branch moves from `L` to `T` by
    compare-and-swap, and the index is set to `T`; an index another program
    holds is left for the next commit to refresh. Every write lands whole, so a publish cut off
    partway leaves each file at its old bytes or its new ones: ordinary

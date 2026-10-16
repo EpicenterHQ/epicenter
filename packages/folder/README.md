@@ -1430,7 +1430,7 @@ Sync stops, and says why, only where it must not decide:
 | `SyncError` | When | What was written |
 | --- | --- | --- |
 | `Blocked` | a merge or a rebase another Git program began (`.git/MERGE_HEAD`), a detached head, a file of this folder's own where the remote needs the path (a file it never committed, ignored or new, where the remote adds one; files where the remote needs a file), or a branch another program moved while Sync wrote | nothing sent, for a file in the way; for a moved branch, the files written are changes to it |
-| `Unrepresentable` | the remote holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or a commit whose attributes declare a filter or a byte conversion | nothing |
+| `Unrepresentable` | the remote (`whose: 'remote'`) or the tree this folder would send (`whose: 'folder'`) holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or a commit whose attributes declare a filter or a byte conversion | nothing |
 | `Unrelated` | the histories share no commit | nothing |
 | `KeptChanging` | the remote moved before every push | nothing |
 | `Publish` | a file could not be written | what landed, whole; the next Sync finishes |
