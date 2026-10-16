@@ -6,7 +6,6 @@
 	"license": "AGPL-3.0-or-later",
 	"exports": {
 		".": "./src/ai.ts",
-		"./codex": "./src/codex-connection.ts",
 		"./connection-table": "./src/connection-table.ts",
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
