@@ -17,13 +17,14 @@
  * - `list` has one item per `.md` file with its own Result, through the same
  *   pipeline as `get`
  * - `create` writes canonical text that reads back as the same row, captures
- *   the row before anything is awaited, refuses an invalid row before
- *   storage, and refuses an occupied path
- * - `save`, `rename`, and `delete` take a capture: a stored row, an
- *   `InvalidRow`, or a listed row. `rename` and `delete` over different or
- *   missing bytes are `Conflict`; `save` over different bytes merges (see
- *   `save.test.ts`), and over missing ones is `NotFound`. A missing row is
- *   never recreated
+ *   the row before anything is awaited, and refuses an invalid row before
+ *   storage; a create at an occupied stem merges with what is there
+ * - `write` merges the change from one row to another into the row as it is
+ *   now, written canonically; another writer landing first starts it again,
+ *   and one that never stops is `KeptChanging`
+ * - `set` changes the fields it names of the row as it is now; `delete`
+ *   removes whatever is there; `rename` moves the file, row or not, to a
+ *   vacant stem (see `save.test.ts` for each over a real directory)
  * - Every literal single-segment stem is an address, the empty one included;
  *   only the exact lowercase `.md` extension is a row
  *
@@ -64,6 +65,13 @@ const todo = (title: string, extra: Partial<Todo> = {}): Row<Todo> => ({
 	fields: { title, done: false, tags: [], ...extra },
 	body: '',
 });
+
+/** The row a write left, which these writes always leave. */
+function must<T>(result: { data: T | null; error: unknown }): T {
+	const written = expectOk(result as never) as T | null;
+	if (written === null) throw new Error('the write left no row');
+	return written;
+}
 
 async function setup() {
 	const base = (await rawBrowserFolder({ id: 'table.rows' })).boundary;
@@ -250,7 +258,7 @@ test('create writes canonical text that reads back as the same row', async () =>
 	const row = todo('Milk', { tags: ['home'] });
 	(row.fields as Record<string, unknown>).priority = 'high';
 	row.body = 'Two percent.\n';
-	const created = expectOk(await s.table.create(row, { stem: 'milk' }));
+	const created = must(await s.table.create(row, { stem: 'milk' }));
 
 	const text = await s.stored('todos/milk.md');
 	expect(text).toBe(
@@ -269,7 +277,7 @@ test('create captures the row before anything is awaited', async () => {
 	const pending = s.table.create(row, { stem: 'c' });
 	row.fields.title = 'After';
 	row.fields.tags.push('late');
-	const created = expectOk(await pending);
+	const created = must(await pending);
 	expect(created.row.fields).toEqual({
 		title: 'Before',
 		done: false,
@@ -311,173 +319,148 @@ test('an invalid or unrepresentable row is refused before anything touches stora
 	expect(expectOk(await s.table.list())).toEqual([]);
 });
 
-test('an occupied path is Exists, and a differently cased stem is another file', async () => {
+test('a create at an occupied stem merges with it, and a differently cased stem is another file', async () => {
 	const s = await setup();
-	expectOk(await s.table.create(todo('A'), { stem: 'a' }));
-	expect(
-		expectErr(await s.table.create(todo('Again'), { stem: 'a' })),
-	).toMatchObject({ name: 'Exists', path: 'todos/a.md' });
+	expectOk(
+		await s.table.create(
+			{ ...todo('A', { tags: ['kept'] }), body: 'first\n' },
+			{ stem: 'a' },
+		),
+	);
+	const again = must(
+		await s.table.create(
+			{ ...todo('Again', { done: true }), body: 'second\n' },
+			{ stem: 'a' },
+		),
+	);
+	expect(again.row).toEqual({
+		fields: { title: 'Again', done: true, tags: [] },
+		body: 'first\nsecond\n',
+	});
 	expectOk(await s.table.create(todo('Upper'), { stem: 'A' }));
 	expect(expectOk(await s.table.get('A'))?.row.fields.title).toBe('Upper');
-	expect(expectOk(await s.table.get('a'))?.row.fields.title).toBe('A');
+	expect(expectOk(await s.table.get('a'))?.row.fields.title).toBe('Again');
 });
 
 test('a generated stem is used when none is given', async () => {
 	const s = await setup();
-	const created = expectOk(await s.table.create(todo('A')));
+	const created = must(await s.table.create(todo('A')));
 	expect(created.path).toMatch(/^todos\/[0-9a-z]{10}\.md$/);
 });
 
-// -- Guarded writes -----------------------------------------------------------
+// -- Writes -------------------------------------------------------------------
 
-test('save writes a row over the bytes it was read from, reading nothing', async () => {
+test('set changes the fields it names of the row as it is now, unknown keys and the body kept', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	stored.row.fields.done = true;
 	s.resetCounts();
-	const replaced = expectOk(await s.table.save(stored, stored.row)).stored;
-	expect(s.counts()).toEqual({ reads: 0, applications: 1 });
-	expect<unknown>(replaced.row.fields).toEqual({
-		title: 'External',
-		done: true,
-		tags: [],
-		priority: 'high',
+	const written = must(await s.table.set('a', { done: true }));
+	expect(s.counts().applications).toBe(1);
+	expect<unknown>(written.row).toEqual({
+		fields: { title: 'External', done: true, tags: [], priority: 'high' },
+		body: 'Body\n',
 	});
-	expect(expectOk(await s.table.get('a'))).toEqual(replaced);
+	expect(expectOk(await s.table.get('a'))).toEqual(written);
 });
 
-test('save against bytes that changed merges with them, keeping what only they changed', async () => {
+test('set keeps a field another writer changed between its read and its write', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
+	s.beforeApply(async () => {
+		s.beforeApply(undefined);
+		await s.put('todos/a.md', VALID.replace('External', 'Theirs'));
+	});
+	s.resetCounts();
+	const written = must(await s.table.set('a', { done: true }));
+	expect(s.counts().applications).toBe(2);
+	expect(written.row.fields).toMatchObject({ title: 'Theirs', done: true });
+});
+
+test('set removes a field set to undefined, and creates a row that is not there', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const removed = must(
+		await s.table.set('a', { priority: undefined } as Partial<Todo>),
+	);
+	expect(removed.row.fields).toEqual({
+		title: 'External',
+		done: false,
+		tags: [],
+	});
+	const created = must(
+		await s.table.set('new', { title: 'New', done: false, tags: [] }),
+	);
+	expect(created.row).toEqual({ fields: todo('New').fields, body: '' });
+	expect(
+		expectErr(await s.table.set('partial', { done: true })),
+	).toMatchObject({ name: 'InvalidValues' });
+	expect(await s.stored('todos/partial.md')).toBeUndefined();
+});
+
+test('set over a file that is not a row, or with a value its field does not admit, is InvalidValues', async () => {
+	const s = await setup();
+	await s.put('todos/m.md', MALFORMED);
+	expect(expectErr(await s.table.set('m', { done: true })).name).toBe(
+		'InvalidValues',
+	);
+	expect(await s.stored('todos/m.md')).toBe(MALFORMED);
+	await s.put('todos/a.md', VALID);
+	expect(
+		expectErr(await s.table.set('a', { title: 7 as never })),
+	).toMatchObject({ name: 'InvalidValues', issues: [{ field: 'title' }] });
+	expect(await s.stored('todos/a.md')).toBe(VALID);
+});
+
+const STYLED =
+	'---\r\ntitle: "Kept"   # a comment\r\ndone: false\r\ntags: []\r\npriority: high\r\n---\r\nOne\r\nTwo\r\n';
+
+test('a body write rewrites the frontmatter in the standard form and the body with line feeds', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', STYLED);
 	const stored = await s.row('a');
-	await s.put('todos/a.md', NEWER);
-	const edited = structuredClone(stored.row);
-	edited.fields.done = true;
-	const saved = expectOk(await s.table.save(stored, edited));
-	expect(saved.merged).toBe(true);
-	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
-		fields: { title: 'Newer', done: true, tags: [] },
-		body: '',
+	const written = must(
+		await s.table.write('a', stored.row, {
+			...stored.row,
+			body: 'One\nTwo\nThree\n',
+		}),
+	);
+	expect(await s.stored('todos/a.md')).toBe(
+		'---\ntitle: Kept\ndone: false\ntags: []\npriority: high\n---\nOne\nTwo\nThree\n',
+	);
+	expect(written.row.body).toBe('One\nTwo\nThree\n');
+});
+
+test('a write keeps fields and lines another writer changed, and wins lines both changed', async () => {
+	const s = await setup();
+	const at = (title: string, body: string) =>
+		`---\ntitle: ${title}\ndone: false\ntags: []\n---\n${body}`;
+	await s.put('todos/a.md', at('A', 'one\ntwo\nthree\n'));
+	const stored = await s.row('a');
+	await s.put('todos/a.md', at('Theirs', 'one\nTWO (theirs)\nthree\nadded\n'));
+	const written = must(
+		await s.table.write('a', stored.row, {
+			...stored.row,
+			body: 'ONE\nTWO (mine)\nthree\n',
+		}),
+	);
+	expect(written.row).toEqual({
+		fields: { title: 'Theirs', done: false, tags: [] },
+		body: 'ONE\nTWO (mine)\nthree\nadded\n',
 	});
 });
 
-test('a missing row is never recreated by a guarded write', async () => {
+test('a write over a row deleted since it started writes the row again', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
 	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
-	expect(expectErr(await s.table.save(stored, todo('Back'))).name).toBe(
-		'NotFound',
+	expectOk(
+		await s.table.write('a', stored.row, { ...stored.row, body: 'Back\n' }),
 	);
-	expect(await s.stored('todos/a.md')).toBeUndefined();
+	expect(expectOk(await s.table.get('a'))?.row.body).toBe('Back\n');
 });
 
-test('an invalid row is repaired with its own capture', async () => {
-	const s = await setup();
-	await s.put('todos/m.md', MALFORMED);
-	const invalid = expectErr(await s.table.get('m'));
-	if (invalid.name !== 'InvalidRow') throw new Error(invalid.message);
-	expectOk(await s.table.save(invalid, todo('Repaired'))).stored;
-	expect(expectOk(await s.table.get('m'))?.row.fields.title).toBe('Repaired');
-});
-
-test('save refuses an invalid row before anything touches storage', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	s.resetCounts();
-	expect(
-		expectErr(
-			await s.table.save(stored, {
-				fields: { title: 7 as never, done: false, tags: [] },
-				body: '',
-			}),
-		),
-	).toMatchObject({ name: 'InvalidValues' });
-	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
-	expect(await s.stored('todos/a.md')).toBe(VALID);
-});
-
-test('a capture that is not a row file of this table is InvalidPath before storage', async () => {
-	const s = await setup();
-	const sha256 = '0'.repeat(64);
-	s.resetCounts();
-	for (const path of ['other/a.md', 'todos/a.txt', 'todos/nested/a.md'])
-		expect(expectErr(await s.table.delete({ path, sha256 })).name).toBe(
-			'InvalidPath',
-		);
-	expect(
-		expectErr(await s.table.delete({ path: 'todos/a.md', sha256: 'nope' }))
-			.name,
-	).toBe('InvalidPath');
-	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
-});
-
-test('rename moves the captured row to a vacant stem and returns its capture there', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	expect(expectOk(await s.table.rename(stored, 'b'))).toEqual({
-		path: 'todos/b.md',
-		sha256: stored.sha256,
-	});
-	expect(await s.stored('todos/a.md')).toBeUndefined();
-	expect(await s.stored('todos/b.md')).toBe(VALID);
-});
-
-test('rename to its own stem is InvalidPath and to an occupied stem is Exists', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	await s.put('todos/b.md', VALID);
-	const stored = await s.row('a');
-	s.resetCounts();
-	expect(expectErr(await s.table.rename(stored, 'a')).name).toBe('InvalidPath');
-	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
-	expect(expectErr(await s.table.rename(stored, 'b')).name).toBe('Exists');
-	expect(await s.stored('todos/a.md')).toBe(VALID);
-});
-
-test('rename and delete of bytes that changed are Conflict and change nothing', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	await s.put('todos/a.md', NEWER);
-	expect(expectErr(await s.table.rename(stored, 'b')).name).toBe('Conflict');
-	expect(expectErr(await s.table.delete(stored)).name).toBe('Conflict');
-	expect(await s.stored('todos/a.md')).toBe(NEWER);
-	expect(await s.stored('todos/b.md')).toBeUndefined();
-});
-
-test('delete removes the captured row, a listed or invalid one included', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	await s.put('todos/m.md', MALFORMED);
-	for (const { result } of expectOk(await s.table.list())) {
-		const capture = result.error === null ? result.data : result.error;
-		if (!('sha256' in capture)) throw new Error('every item here was read');
-		expectOk(await s.table.delete(capture));
-	}
-	expect(expectOk(await s.table.list())).toEqual([]);
-});
-
-test('a save that races a competing write merges over it once, and the edit wins', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	s.beforeApply(async () => {
-		s.beforeApply(undefined);
-		await s.put('todos/a.md', NEWER);
-	});
-	s.resetCounts();
-	const saved = expectOk(await s.table.save(stored, todo('Mine')));
-	expect(s.counts().applications).toBe(2);
-	expect(saved.merged).toBe(true);
-	expect(saved.stored.row.fields.title).toBe('Mine');
-	expect(expectOk(await s.table.get('a'))?.row.fields.title).toBe('Mine');
-});
-
-test("every merge round starts from the edit's own base, so a save logs what the last round overwrote", async () => {
+test("every attempt merges from the write's own from, and the write logs what the last one overwrote", async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
@@ -489,9 +472,9 @@ test("every merge round starts from the edit's own base, so a save logs what the
 	});
 	const logged = spyOn(console, 'info').mockImplementation(() => {});
 	try {
-		const saved = expectOk(await s.table.save(stored, todo('Mine')));
-		expect(saved.stored.row.fields.title).toBe('Mine');
-		// One line for the save that landed, naming the last round's units.
+		const mine = { ...stored.row, fields: { ...stored.row.fields, title: 'Mine' } };
+		const written = must(await s.table.write('a', stored.row, mine));
+		expect(written.row.fields.title).toBe('Mine');
 		expect(logged.mock.calls).toEqual([
 			[
 				'[folder/save]',
@@ -507,24 +490,59 @@ test("every merge round starts from the edit's own base, so a save logs what the
 	}
 });
 
-test('a row that keeps changing gives up after the bounded merges, writing nothing of its own', async () => {
+test('a row that keeps changing gives up after the bounded attempts, writing nothing of its own', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
 	let writes = 0;
-	// Another writer lands before every attempt, so each merge is overtaken.
+	// Another writer lands before every attempt, so each one is overtaken.
 	s.beforeApply(async () => {
 		await s.put('todos/a.md', NEWER.replace('Newer', `Newer ${writes++}`));
 	});
-	const refused = expectErr(await s.table.save(stored, todo('Mine')));
+	const refused = expectErr(await s.table.set('a', { title: 'Mine' }));
 	s.beforeApply(undefined);
 	expect(refused).toMatchObject({
 		name: 'KeptChanging',
 		path: 'todos/a.md',
 		attempts: WRITE_ATTEMPTS,
 	});
-	expect(writes).toBe(WRITE_ATTEMPTS + 1);
-	expect(await s.stored('todos/a.md')).toContain(`Newer ${WRITE_ATTEMPTS}`);
+	expect(writes).toBe(WRITE_ATTEMPTS);
+	expect(await s.stored('todos/a.md')).toContain(`Newer ${WRITE_ATTEMPTS - 1}`);
+});
+
+test('delete removes whatever is at the stem, a row or not, and a gone row is done', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	await s.put('todos/m.md', MALFORMED);
+	for (const { stem } of expectOk(await s.table.list()))
+		expectOk(await s.table.delete(stem));
+	expect(expectOk(await s.table.list())).toEqual([]);
+	expectOk(await s.table.delete('a'));
+});
+
+test('rename moves the row file to a vacant stem, a file that is not a row as it is', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	await s.put('todos/m.md', MALFORMED);
+	const moved = must(await s.table.rename('a', 'b'));
+	expect(moved.path).toBe('todos/b.md');
+	expect(await s.stored('todos/a.md')).toBeUndefined();
+	expect(await s.stored('todos/b.md')).toBe(VALID);
+	expect(expectOk(await s.table.rename('m', 'n'))).toBeNull();
+	expect(await s.stored('todos/n.md')).toBe(MALFORMED);
+	expect(await s.stored('todos/m.md')).toBeUndefined();
+});
+
+test('rename from a stem with no file, or onto an occupied one, is InvalidPath and changes nothing', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	await s.put('todos/b.md', NEWER);
+	expect(expectErr(await s.table.rename('gone', 'c')).name).toBe(
+		'InvalidPath',
+	);
+	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
+	expect(await s.stored('todos/a.md')).toBe(VALID);
+	expect(await s.stored('todos/b.md')).toBe(NEWER);
+	expect(must(await s.table.rename('a', 'a')).path).toBe('todos/a.md');
 });
 
 // -- Addresses ----------------------------------------------------------------
@@ -546,174 +564,10 @@ test('a stem that is not one segment is InvalidPath before storage', async () =>
 		expect(expectErr(await s.table.create(todo('x'), { stem })).name).toBe(
 			'InvalidPath',
 		);
+		expect(expectErr(await s.table.set(stem, { done: true })).name).toBe(
+			'InvalidPath',
+		);
+		expect(expectErr(await s.table.delete(stem)).name).toBe('InvalidPath');
 	}
 	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
-});
-
-// -- Body writes (ADR-0575) ------------------------------------------------------
-
-const STYLED =
-	'---\r\ntitle: "Kept"   # a comment\r\ndone: false\r\ntags: []\r\npriority: high\r\n---\r\nOne\r\nTwo\r\n';
-
-test('setBody keeps every byte before the body and writes the body with line feeds', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', STYLED);
-	const stored = await s.row('a');
-	const saved = expectOk(await s.table.setBody(stored, 'One\nTwo\nThree\n'));
-	expect(saved.merged).toBe(false);
-	const head = STYLED.slice(0, STYLED.indexOf('---\r\n', 4) + 5);
-	expect(await s.stored('todos/a.md')).toBe(`${head}One\nTwo\nThree\n`);
-	expect(saved.stored.row.body).toBe('One\nTwo\nThree\n');
-	expect(saved.stored.row.fields).toMatchObject({
-		title: 'Kept',
-		priority: 'high',
-	});
-});
-
-test('setBody keeps fields another writer changed and merges the body by line', async () => {
-	const s = await setup();
-	await s.put(
-		'todos/a.md',
-		'---\ntitle: A\ndone: false\ntags: []\n---\none\ntwo\nthree\n',
-	);
-	const stored = await s.row('a');
-	await s.put(
-		'todos/a.md',
-		'---\ntitle: Renamed\ndone: true\ntags: []\n---\none\ntwo\nthree\nfour\n',
-	);
-	const saved = expectOk(await s.table.setBody(stored, 'ONE\ntwo\nthree\n'));
-	expect(saved.merged).toBe(true);
-	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
-		fields: { title: 'Renamed', done: true, tags: [] },
-		body: 'ONE\ntwo\nthree\nfour\n',
-	});
-});
-
-test('setBody wins lines both changed', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
-	const stored = await s.row('a');
-	await s.put(
-		'todos/a.md',
-		'---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n',
-	);
-	const saved = expectOk(await s.table.setBody(stored, 'mine\n'));
-	expect(saved).toMatchObject({
-		merged: true,
-		stored: { row: { body: 'mine\n' } },
-	});
-	expect(await s.stored('todos/a.md')).toBe(
-		'---\ntitle: A\ndone: false\ntags: []\n---\nmine\n',
-	);
-});
-
-test('setBody with ifUnchanged refuses a body another writer changed, writing nothing', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
-	const stored = await s.row('a');
-	const theirs = '---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n';
-	await s.put('todos/a.md', theirs);
-	s.resetCounts();
-	const refused = expectErr(
-		await s.table.setBody(stored, 'mine\n', { ifUnchanged: true }),
-	);
-	expect(refused).toMatchObject({
-		name: 'Conflict',
-		path: 'todos/a.md',
-		expectedSha256: stored.sha256,
-		actualSha256: await hashBytes(encoder.encode(theirs)),
-	});
-	expect(s.counts().applications).toBe(0);
-	expect(await s.stored('todos/a.md')).toBe(theirs);
-});
-
-test('setBody with ifUnchanged writes over a change to the fields alone, keeping it', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
-	const stored = await s.row('a');
-	await s.put(
-		'todos/a.md',
-		'---\ntitle: Renamed\ndone: true\ntags: []\n---\none\n',
-	);
-	const saved = expectOk(
-		await s.table.setBody(stored, 'mine\n', { ifUnchanged: true }),
-	);
-	expect(saved.merged).toBe(false);
-	expect(await s.stored('todos/a.md')).toBe(
-		'---\ntitle: Renamed\ndone: true\ntags: []\n---\nmine\n',
-	);
-});
-
-test('setBody with ifUnchanged writes as usual over an unchanged file', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', STYLED);
-	const stored = await s.row('a');
-	const saved = expectOk(
-		await s.table.setBody(stored, 'One\nTwo\nThree\n', { ifUnchanged: true }),
-	);
-	expect(saved.merged).toBe(false);
-	const head = STYLED.slice(0, STYLED.indexOf('---\r\n', 4) + 5);
-	expect(await s.stored('todos/a.md')).toBe(`${head}One\nTwo\nThree\n`);
-});
-
-test('setBody writes nothing when the body would not change', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', STYLED);
-	const stored = await s.row('a');
-	s.resetCounts();
-	const saved = expectOk(await s.table.setBody(stored, 'One\r\nTwo\r\n'));
-	expect(saved.stored.sha256).toBe(stored.sha256);
-	expect(s.counts().applications).toBe(0);
-	expect(await s.stored('todos/a.md')).toBe(STYLED);
-});
-
-test('setBody puts a line break after a closing fence with none', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---');
-	const stored = await s.row('a');
-	expectOk(await s.table.setBody(stored, 'Body\n'));
-	expect(await s.stored('todos/a.md')).toBe(
-		'---\ntitle: A\ndone: false\ntags: []\n---\nBody\n',
-	);
-});
-
-test('setBody never recreates a deleted row and refuses a file that is not a row', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
-	expect(expectErr(await s.table.setBody(stored, 'x\n')).name).toBe('NotFound');
-	expect(await s.stored('todos/a.md')).toBeUndefined();
-
-	await s.put('todos/a.md', VALID);
-	const again = await s.row('a');
-	await s.put('todos/a.md', 'no frontmatter at all\n');
-	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe(
-		'InvalidRow',
-	);
-	await s.put('todos/a.md', MALFORMED);
-	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe(
-		'InvalidRow',
-	);
-	expect(await s.stored('todos/a.md')).toBe(MALFORMED);
-});
-
-test('setBody gives up after the bounded attempts when the file keeps changing', async () => {
-	const s = await setup();
-	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	let n = 0;
-	s.beforeApply(async () => {
-		s.beforeApply(undefined);
-		await s.put('todos/a.md', `${VALID}${n++}\n`);
-		s.beforeApply(async function again() {
-			s.beforeApply(undefined);
-			await s.put('todos/a.md', `${VALID}${n++}\n`);
-			s.beforeApply(again);
-		});
-	});
-	expect(expectErr(await s.table.setBody(stored, 'mine\n'))).toMatchObject({
-		name: 'KeptChanging',
-		attempts: WRITE_ATTEMPTS,
-	});
 });

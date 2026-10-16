@@ -310,8 +310,7 @@ test('choices settle every unit, and the merge keeps what merged', async () => {
 test('a deleted row against an edit is one whole-file unit', async () => {
 	const context = await setup();
 	const { local } = context;
-	const stored = expectOk(await local.tables.todos.get('walk'));
-	expectOk(await local.tables.todos.delete(stored!));
+	expectOk(await local.tables.todos.delete('walk'));
 	const edited = row(['title: Morning walk', 'done: false'], 'Left at dawn.\n');
 	await context.incoming({ [TODO]: edited });
 

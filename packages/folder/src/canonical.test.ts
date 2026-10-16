@@ -11,8 +11,8 @@
  * - Anything without an exact JSON value is refused, never converted lossily
  * - The body is kept byte for byte; schema validation is not the codec's job
  * - An invalid row keeps its unknown and invalid fields: the table refuses to
- *   save it, the file verbs save its canonical text guarded by the
- *   `InvalidRow` capture, and only an explicit create restores a deleted row
+ *   set fields over it, the one write repairs it from the `InvalidRow`'s
+ *   exact text, and only an explicit create restores a deleted row
  *
  * See also:
  * - `row-text.test.ts` for `parseRow` and `formatRow` over this codec
@@ -396,7 +396,7 @@ test('a body that UTF-8 encoding would change is refused rather than rewritten',
 	).toEqual(['body']);
 });
 
-test('an invalid row keeps unknown and invalid fields through a guarded raw save, and restores only explicitly', async () => {
+test('an invalid row keeps unknown and invalid fields through a raw write from its exact text, and restores only explicitly', async () => {
 	const definition = defineFolder({
 		kv: {},
 		tables: {
@@ -434,12 +434,13 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 			),
 		);
 
-		// The table saves only valid rows.
+		// The table writes only valid rows.
 		expect(
-			expectErr(await folder.tables.todos.save(invalid, edited as never)).name,
+			expectErr(await folder.tables.todos.set('milk', { title: 'Oat milk' }))
+				.name,
 		).toBe('InvalidValues');
-		// The file verbs save the repair, guarded by the bytes that were read.
-		expectOk(await folder.files.save(invalid, text));
+		// The one write lands the repair, from the text that was read.
+		expectOk(await folder.write(invalid.path, invalid.text, text));
 		const repaired = expectErr(await folder.tables.todos.get('milk'));
 		if (repaired.name !== 'InvalidRow') throw new Error(repaired.message);
 		expect(repaired.text).toBe(text);
@@ -450,8 +451,9 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 		expect(repaired.issues).toHaveLength(1);
 		expect(repaired.issues[0].field).toBe('done');
 
-		expectOk(await folder.tables.todos.delete(repaired));
-		expect(expectErr(await folder.files.save(repaired, text)).name).toBe(
+		const captured = expectOk(await folder.files.read(repaired.path));
+		expectOk(await folder.tables.todos.delete('milk'));
+		expect(expectErr(await folder.files.save(captured, text)).name).toBe(
 			'NotFound',
 		);
 		expect(expectOk(await folder.tables.todos.get('milk'))).toBeUndefined();

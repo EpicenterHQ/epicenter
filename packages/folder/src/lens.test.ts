@@ -7,13 +7,14 @@
  * Key behaviors:
  * - A lens over a bigger folder opens with the lens's tables alone; the
  *   handle's `definition` is the folder's own declaration
- * - Rows read through the lens keep the fields it does not name, so a replace
+ * - Rows read through the lens keep the fields it does not name, so a write
  *   keeps them, and every write is checked against the folder's declaration
  * - `epicenter.json` is never written
  * - A lens the declaration does not contain is `ShapeMismatch`, listing every
  *   problem, and opening creates nothing
  * - A table whose folder requires a field the lens does not declare cannot
- *   add rows: `canCreate` is false and `create` is `CannotCreate`
+ *   add rows: `canCreate` is false and `create` is `InvalidValues` naming
+ *   each such field
  * - A browser folder opened through a lens behaves the same
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -99,8 +100,7 @@ test('a lens over a bigger folder opens with its own tables, and the folder keep
 	const todos = folder.tables.todos;
 	const milk = expectOk(await todos.get('milk'))!;
 	expect(milk.row.fields.title).toBe('Milk');
-	milk.row.fields.status = 'done';
-	expectOk(await todos.save(milk, milk.row)).stored;
+	expectOk(await todos.set('milk', { status: 'done' }));
 	expect(await readFile(join(root, 'todos/milk.md'), 'utf8')).toBe(
 		'---\ntitle: Milk\nstatus: done\npriority: 2\nnote: Oat\nsource: phone\n---\nBuy it.\n',
 	);
@@ -118,17 +118,16 @@ test("every write is checked against the folder's declaration, not the lens's", 
 		await openDataFolder({ root, git: { author }, lens: board }),
 	);
 	const todos = folder.tables.todos;
-	const milk = expectOk(await todos.get('milk'))!;
 	// The lens admits 'later'; the folder does not.
-	milk.row.fields.status = 'later';
-	const refused = expectErr(await todos.save(milk, milk.row));
+	const refused = expectErr(await todos.set('milk', { status: 'later' }));
 	expect(refused.name).toBe('InvalidValues');
 	// A field the lens does not name is checked too.
-	const again = expectOk(await todos.get('milk'))!;
-	(again.row.fields as Record<string, unknown>).priority = 9;
-	expect(expectErr(await todos.save(again, again.row)).name).toBe(
-		'InvalidValues',
-	);
+	const milk = expectOk(await todos.get('milk'))!;
+	const fields = { ...milk.row.fields, priority: 9 };
+	expect(
+		expectErr(await todos.write('milk', milk.row, { ...milk.row, fields }))
+			.name,
+	).toBe('InvalidValues');
 	// The lens's string theme is checked against the folder's options.
 	expect(expectErr(await folder.kv.set('theme', 'sepia')).name).toBe(
 		'InvalidValues',
@@ -150,9 +149,8 @@ test('a lens that does not declare a required field cannot add rows', async () =
 		}),
 	);
 	expect(refused).toMatchObject({
-		name: 'CannotCreate',
-		table: 'todos',
-		fields: ['priority'],
+		name: 'InvalidValues',
+		issues: [{ field: 'priority' }],
 	});
 	expect(await readdir(join(root, 'todos'))).toEqual(['milk.md']);
 	await folder.close();
@@ -167,7 +165,7 @@ test('a lens that does not declare a required field cannot add rows', async () =
 			{ stem: 'eggs' },
 		),
 	);
-	expect(eggs.path).toBe('todos/eggs.md');
+	expect(eggs?.path).toBe('todos/eggs.md');
 	// The lens's number is still held to the folder's integer from 1 to 3.
 	expect(
 		expectErr(
@@ -252,9 +250,7 @@ test('a closed folder table opens through a lens that reads a subset of it', asy
 	);
 	const pages = folder.tables.pages;
 	expect(pages.canCreate).toBe(true);
-	const a = expectOk(await pages.get('a'))!;
-	a.row.fields.title = 'Renamed';
-	expectOk(await pages.save(a, a.row));
+	expectOk(await pages.set('a', { title: 'Renamed' }));
 	expect(await readFile(join(root, 'pages/a.md'), 'utf8')).toBe(
 		'---\ntitle: Renamed\ntags:\n  - x\n---\n',
 	);
@@ -285,9 +281,7 @@ test('a browser folder opened through a lens reads, writes, and refuses alike', 
 	);
 	expect(Object.keys(folder.tables)).toEqual(['todos']);
 	expect(folder.tables.todos.canCreate).toBe(false);
-	const milk = expectOk(await folder.tables.todos.get('milk'))!;
-	milk.row.fields.status = 'done';
-	expectOk(await folder.tables.todos.save(milk, milk.row)).stored;
+	expectOk(await folder.tables.todos.set('milk', { status: 'done' }));
 	expect(
 		new TextDecoder().decode(
 			expectOk(await folder.files.read('todos/milk.md')).bytes,

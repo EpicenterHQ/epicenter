@@ -120,49 +120,29 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 	const text = async (folder: Opened, path: string) =>
 		decoder.decode(expectOk(await folder.files.read(path)).bytes);
 
-	test('table mutations own their capture and row before awaiting', async () => {
+	test('a table write owns its rows before awaiting', async () => {
 		const folder = await open();
 		const table = folder.tables.todos;
-		const entry = expectOk(
-			await table.create({ fields: { title: 'A' }, body: '' }, { stem: 'a' }),
-		);
-		const capture = {
-			path: entry.path,
-			sha256: entry.sha256,
-			text: entry.text,
-		};
+		const from = { fields: { title: 'A' }, body: '' };
+		expectOk(await table.create(from, { stem: 'a' }));
 		const row = { fields: { title: 'Mine' }, body: '' };
-		const saving = table.save(capture, row);
-		capture.sha256 = 'f'.repeat(64);
-		capture.text = 'changed after the call';
+		const writing = table.write('a', from, row);
+		from.fields.title = 'Changed after the call';
 		row.fields.title = 'Changed after the call';
-		const { stored: saved } = expectOk(await saving);
-		expect(saved.path).toBe(entry.path);
-		expect(saved.row).toEqual({ fields: { title: 'Mine' }, body: '' });
-		const landed = expectOk(await folder.files.read(entry.path));
-		expect(landed.sha256).toEqual(saved.sha256);
+		const written = expectOk(await writing);
+		expect(written?.row).toEqual({ fields: { title: 'Mine' }, body: '' });
+		const landed = expectOk(await folder.files.read('todos/a.md'));
+		expect<string | undefined>(landed.sha256).toEqual(written?.sha256);
 		expect(
 			expectOk(parseRow(definition.tables.todos, decoder.decode(landed.bytes))),
-		).toEqual(saved.row);
+		).toEqual(written?.row as never);
 
-		const moving = { path: saved.path, sha256: saved.sha256 };
-		const renamed = table.rename(moving, 'b');
-		moving.sha256 = 'f'.repeat(64);
-		expect(expectOk(await renamed)).toEqual({
-			path: 'todos/b.md',
-			sha256: saved.sha256,
-		});
-		expect(expectOk(await folder.files.read('todos/b.md')).sha256).toEqual(
-			saved.sha256,
-		);
-		expect(expectErr(await folder.files.read(entry.path)).name).toBe(
+		const renamed = expectOk(await table.rename('a', 'b'));
+		expect(renamed?.path).toBe('todos/b.md');
+		expect(expectErr(await folder.files.read('todos/a.md')).name).toBe(
 			'NotFound',
 		);
-
-		const deleting = { path: 'todos/b.md', sha256: saved.sha256 };
-		const removing = table.delete(deleting);
-		deleting.sha256 = 'f'.repeat(64);
-		expectOk(await removing);
+		expectOk(await table.delete('b'));
 		expect(expectOk(await table.get('b'))).toBeUndefined();
 	});
 
@@ -266,18 +246,18 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 
 	test('several changes are several calls: a save that landed stays when the next is refused', async () => {
 		const folder = await open();
-		// Another writer already holds the row's path.
 		expectOk(await folder.files.create('todos/take.md', 'not a row'));
 		const audio = expectOk(
 			await folder.files.create('audio/take.webm', new Uint8Array([1, 2])),
 		);
+		// The row that would name the audio cannot be written.
 		const row = expectErr(
 			await folder.tables.todos.create(
-				{ fields: { title: 'Take' }, body: '' },
+				{ fields: { title: 1 as never }, body: '' },
 				{ stem: 'take' },
 			),
 		);
-		expect(row).toMatchObject({ name: 'Exists', path: 'todos/take.md' });
+		expect(row).toMatchObject({ name: 'InvalidValues' });
 		// Nothing undoes the audio; the caller decides what comes next.
 		expect(expectOk(await folder.files.read('audio/take.webm'))).toMatchObject(
 			audio,
@@ -505,7 +485,7 @@ describe('a save never reads its bytes back', () => {
 		throw new Error('this test uses no Git');
 	}
 
-	test('create, save, move, and a table save read nothing after publishing', async () => {
+	test('file writes read nothing after publishing, and a table write reads only its own rows', async () => {
 		const { folder, reads } = await instrumented();
 		const created = expectOk(await folder.files.create('a.md', 'one'));
 		const saved = expectOk(await folder.files.save(created, 'two')).stored;
@@ -517,16 +497,19 @@ describe('a save never reads its bytes back', () => {
 				{ stem: 'r' },
 			),
 		);
-		const savedRow = expectOk(
-			await folder.tables.todos.save(row, {
+		expectOk(
+			await folder.tables.todos.write('r', row?.row ?? null, {
 				fields: { title: 'S' },
 				body: '',
 			}),
-		).stored;
-		const renamed = expectOk(await folder.tables.todos.rename(savedRow, 's'));
-		expectOk(await folder.tables.todos.delete(renamed));
-		// The one read is the declaration's, before the first save (ADR-0508).
-		expect(reads).toEqual(['epicenter.json']);
+		);
+		expectOk(await folder.tables.todos.rename('r', 's'));
+		expectOk(await folder.tables.todos.delete('s'));
+		// The declaration's read comes before the first save (ADR-0508); a
+		// table write reads the file it merges into, and nothing else.
+		expect(new Set(reads)).toEqual(
+			new Set(['epicenter.json', 'todos/r.md', 'todos/s.md']),
+		);
 	});
 
 	test('a writer that lands behind a save does not change the capture the save returns', async () => {
@@ -573,6 +556,7 @@ describe('a save never reads its bytes back', () => {
 				{ stem: 'r' },
 			),
 		);
+		if (row === null) throw new Error('the create left no row');
 		expect(row.row).toEqual({ fields: { title: 'Mine' }, body: '' });
 		expect(row.sha256).toEqual(
 			await versionOf(expectOk(formatRow(definition.tables.todos, row.row))),
@@ -580,15 +564,14 @@ describe('a save never reads its bytes back', () => {
 		// An explicit get is the new observation; it never acknowledges the draft.
 		const current = expectOk(await folder.tables.todos.get('r'));
 		expect(current!.row.fields).toEqual({ title: 'Theirs' });
-		// A save merges with what is there instead, from the bytes it named,
-		// and wins the field both changed.
-		const again = expectOk(
-			await folder.tables.todos.save(row, {
+		// A write merges with what is there instead, from the row it started
+		// from, and wins the field both changed.
+		expectOk(
+			await folder.tables.todos.write('r', row.row, {
 				fields: { title: 'Again' },
 				body: '',
 			}),
 		);
-		expect(again.merged).toBe(true);
 		expect(expectOk(await folder.tables.todos.get('r'))!.row.fields).toEqual({
 			title: 'Again',
 		});

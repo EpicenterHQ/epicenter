@@ -43,6 +43,13 @@ const definition = defineFolder({
 
 const author = { name: 'Browser', email: 'browser@example.test' };
 
+/** The row a write left, which these writes always leave. */
+function must<T>(result: { data: T | null; error: unknown }): T {
+	const written = expectOk(result as never) as T | null;
+	if (written === null) throw new Error('the write left no row');
+	return written;
+}
+
 let environment: TestStorage;
 const opened: Folder<typeof definition>[] = [];
 
@@ -113,9 +120,9 @@ describe('browser folder tables', () => {
 		).rejects.toThrow();
 	});
 
-	test('creates, lists, replaces, renames, and deletes canonical Markdown rows', async () => {
+	test('creates, lists, sets, renames, and deletes canonical Markdown rows', async () => {
 		const folder = await open();
-		const created = expectOk(
+		const created = must(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Buy milk', done: false }, body: 'Two liters.\n' },
 				{ stem: 'milk' },
@@ -131,23 +138,17 @@ describe('browser folder tables', () => {
 		).toEqual(created.row);
 		expect(raw.sha256).toEqual(created.sha256);
 
-		created.row.fields.done = true;
-		const completed = expectOk(
-			await folder.tables.todos.save(created, created.row),
-		).stored;
+		const completed = must(
+			await folder.tables.todos.set('milk', { done: true }),
+		);
 		expect(completed.row).toEqual({
 			fields: { title: 'Buy milk', done: true },
 			body: 'Two liters.\n',
 		});
 		expect(expectOk(await folder.tables.todos.get('milk'))).toEqual(completed);
 
-		const renamed = expectOk(
-			await folder.tables.todos.rename(completed, 'groceries'),
-		);
-		expect(renamed).toEqual({
-			path: 'todos/groceries.md',
-			sha256: completed.sha256,
-		});
+		const renamed = must(await folder.tables.todos.rename('milk', 'groceries'));
+		expect(renamed).toEqual({ ...completed, path: 'todos/groceries.md' });
 
 		expect((await folder.tables.todos.get('milk')).data).toBeUndefined();
 		const listed = expectOk(await folder.tables.todos.list());
@@ -155,27 +156,28 @@ describe('browser folder tables', () => {
 			'todos/groceries.md',
 		]);
 
-		expectOk(await folder.tables.todos.delete(renamed));
+		expectOk(await folder.tables.todos.delete('groceries'));
 		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
 	});
 
-	test('create is exclusive, keeps names exactly, and refuses a path outside its table', async () => {
+	test('create merges at an occupied stem, keeps names exactly, and refuses a path outside its table', async () => {
 		const folder = await open();
 		await folder.tables.todos.create(
 			{ fields: { title: 'P', done: false }, body: '' },
 			{ stem: 'Plan' },
 		);
+		// The row already there merges with the create, which wins the title.
 		expect(
-			expectErr(
+			must(
 				await folder.tables.todos.create(
 					{ fields: { title: 'Q', done: false }, body: '' },
 					{ stem: 'Plan' },
 				),
-			).name,
-		).toBe('Exists');
+			).row.fields,
+		).toEqual({ title: 'Q', done: false });
 		// Browser storage keeps names exactly: another spelling is another row.
 		expect(
-			expectOk(
+			must(
 				await folder.tables.todos.create(
 					{ fields: { title: 'Q', done: false }, body: '' },
 					{ stem: 'plan' },
@@ -200,7 +202,7 @@ describe('browser folder tables', () => {
 		).toBe('InvalidValues');
 	});
 
-	test('text that is not a valid row is InvalidRow with its exact text, and is repaired by a save', async () => {
+	test('text that is not a valid row is InvalidRow with its exact text, and is repaired by a raw write from that text', async () => {
 		const folder = await open();
 		const source =
 			'﻿---\r\ntitle: Kept # comment\r\ndone: maybe\r\nextra: unknown\r\n---\r\nBody\r\n';
@@ -220,24 +222,27 @@ describe('browser folder tables', () => {
 		expect(odd.path).toBe('todos/odd.md');
 		expect(odd.text).toBe(source);
 		expect(odd.issues.map((issue) => issue.field)).toEqual(['done']);
-		const fixed = expectOk(
-			await folder.tables.todos.save(odd, {
-				fields: { title: 'Kept', done: true },
-				body: 'Body\n',
-			}),
-		).stored;
-		expect(expectOk(await folder.tables.todos.get('odd'))).toEqual(fixed);
-		// The capture names bytes that are gone, and its text is not a row, so
-		// a second save from it merges by line: the edit wins where both
-		// changed the same lines.
-		const again = expectOk(
-			await folder.tables.todos.save(odd, {
-				fields: { title: 'Again', done: false },
-				body: '',
-			}),
+		expectOk(
+			await folder.write(
+				odd.path,
+				odd.text,
+				'---\ntitle: Kept\ndone: true\n---\nBody\n',
+			),
 		);
-		expect(again.merged).toBe(true);
-		expect(again.stored.row).toEqual({
+		expect(expectOk(await folder.tables.todos.get('odd'))?.row).toEqual({
+			fields: { title: 'Kept', done: true },
+			body: 'Body\n',
+		});
+		// That text is gone, and it is not a row, so a second write from it
+		// merges by line: the edit wins where both changed the same lines.
+		expectOk(
+			await folder.write(
+				odd.path,
+				odd.text,
+				'---\ntitle: Again\ndone: false\n---\n',
+			),
+		);
+		expect(expectOk(await folder.tables.todos.get('odd'))?.row).toEqual({
 			fields: { title: 'Again', done: false },
 			body: '',
 		});
@@ -246,13 +251,14 @@ describe('browser folder tables', () => {
 		if (broken.name !== 'InvalidRow') throw new Error(broken.message);
 		// Text with no canonical form has exactly one issue.
 		expect(broken.issues).toHaveLength(1);
-		const repaired = expectOk(
-			await folder.tables.todos.save(broken, {
-				fields: { title: 'Repaired', done: false },
-				body: '',
-			}),
-		).stored;
-		expect(repaired.row).toEqual({
+		expectOk(
+			await folder.write(
+				broken.path,
+				broken.text,
+				'---\ntitle: Repaired\ndone: false\n---\n',
+			),
+		);
+		expect(expectOk(await folder.tables.todos.get('broken'))?.row).toEqual({
 			fields: { title: 'Repaired', done: false },
 			body: '',
 		});
@@ -264,7 +270,7 @@ describe('browser folder tables', () => {
 		// The audio exists first. It does not block the row that shares its stem.
 		const opus = expectOk(await folder.files.create('todos/rec.opus', audio));
 		expectOk(await folder.files.create('todos/rec.wav', new Uint8Array([9])));
-		const receipt = expectOk(
+		const receipt = must(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Recording', done: false }, body: '' },
 				{ stem: 'rec' },
@@ -285,7 +291,7 @@ describe('browser folder tables', () => {
 		const listed = expectOk(await folder.tables.todos.list());
 		expect(listed.map((item) => expectOk(item.result))).toEqual([created]);
 
-		const renamed = expectOk(await folder.tables.todos.rename(created, 'rec2'));
+		expectOk(await folder.tables.todos.rename('rec', 'rec2'));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
 			'rec.flac',
 			'rec.opus',
@@ -303,7 +309,7 @@ describe('browser folder tables', () => {
 		const changedAudio = expectOk(
 			await folder.files.save({ ...movedAudio, bytes: audio }, 'rewritten'),
 		).stored;
-		expectOk(await folder.tables.todos.delete(renamed));
+		expectOk(await folder.tables.todos.delete('rec2'));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
 			'rec.flac',
 			'rec.wav',
@@ -363,7 +369,7 @@ describe('browser folder tables', () => {
 					{ stem: 'dangling' },
 				),
 			);
-			const home = expectOk(
+			expectOk(
 				await lists.create(
 					{ fields: { title: 'Home' }, body: '' },
 					{ stem: 'home' },
@@ -377,7 +383,7 @@ describe('browser folder tables', () => {
 			);
 
 			// Renaming the row a reference names rewrites nothing that names it.
-			expectOk(await lists.rename(home, 'house'));
+			expectOk(await lists.rename('home', 'house'));
 			for (const [stem, list] of [
 				['milk', 'home'],
 				['dangling', 'no-such-list'],
@@ -402,14 +408,14 @@ describe('browser folder tables', () => {
 		expect(invalid.text).toBe(source);
 		expect(invalid.issues[0].message).toContain('alias');
 
-		const repaired = expectOk(
-			await folder.tables.todos.save(invalid, {
-				fields: { title: 'Fixed', done: false },
-				body: 'Notes stay.\n',
-			}),
-		).stored;
-		expect(expectOk(await folder.tables.todos.get('alias'))).toEqual(repaired);
-		expect(repaired.row).toEqual({
+		expectOk(
+			await folder.write(
+				invalid.path,
+				invalid.text,
+				'---\ntitle: Fixed\ndone: false\n---\nNotes stay.\n',
+			),
+		);
+		expect(expectOk(await folder.tables.todos.get('alias'))?.row).toEqual({
 			fields: { title: 'Fixed', done: false },
 			body: 'Notes stay.\n',
 		});

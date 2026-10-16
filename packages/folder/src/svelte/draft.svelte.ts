@@ -1,42 +1,37 @@
 /**
- * `@epicenter/folder/svelte`: a document's text draft a component reads
- * reactively (ADR-0548, ADR-0551, ADR-0554).
+ * `@epicenter/folder/svelte`: what a component edits text through
+ * (ADR-0548, ADR-0551, ADR-0576).
  *
  * A field is not drafted: a component holds what was typed in its own
- * `$state` and sends it with `table.update`. A document's text is drafted,
- * because its save needs the version the edit started from.
+ * `$state` and sends it with the table's `set`.
  *
- * `createTextDraftState({ save })` is `createTextDraft()` whose `base` and
- * `text` are tracked, plus the one-save-at-a-time loop every editor needs:
- * `save()` sends what the draft holds, and when the text changed while that
- * save ran, it sends again from the version it wrote. A failed save ends the
- * loop and keeps the draft, so nothing typed is lost; the next `save()` tries
- * again. The failure itself is the mutation's to show. The component decides
- * when to call `save()`: after a pause in typing, and when the person leaves
- * the editor or it goes away.
- *
- * `save` is the files' write mutation, sent `{ base, content }`, as a
- * promise that rejects on failure. Where another writer changed the same
- * lines, the save wins; the folder logs it, and nothing is shown
- * (ADR-0575).
- *
- * `createBodyDraftState({ save })` is the same for one row's body: `save`
- * replaces the body of the row the draft started from.
- *
- * `createBodyEditor({ row, save })` opens one row's body for a control
- * (ADR-0575). It reads the row as the cache holds it, sends the body typed
- * with the row it started from to the table's `setBody` mutation, which
- * replaces only the body on the file as it is now, and shows the draft's
- * text or the file's body:
+ * `createBodyEditor({ row, write })` opens one row's body for a control. It
+ * holds `from`, the row the edit started from, and `typed`, the body typed
+ * and not yet in the file, and sends each save to the table's `write`
+ * mutation as the change from `from` to `from` with the typed body. The
+ * write merges it into the row as it is now, so fields and lines another
+ * writer changed meanwhile stay, and the typed lines win where both changed
+ * the same lines; the folder logs that, and nothing is shown (ADR-0575):
  *
  * ```ts
- * const setBody = createMutation(() => folder.notes.setBody.mutationOptions());
- * const body = createBodyEditor({ row: () => note.data ?? undefined, save: (v) => setBody.mutateAsync(v) });
+ * const writeNote = createMutation(() => folder.notes.write.mutationOptions());
+ * const body = createBodyEditor({
+ *   row: () => note.data ?? undefined,
+ *   write: (change) => writeNote.mutateAsync({ stem, ...change }),
+ * });
  * ```
  *
  * ```svelte
  * <Textarea bind:value={() => body.text ?? '', (text) => body.change(text)} onblur={() => body.save()} />
  * ```
+ *
+ * `createTextDraftState({ save })` is the same for a file's exact text, over
+ * `files.save`: `createTextDraft()` whose `base` and `text` are tracked,
+ * plus the one-save-at-a-time loop every editor needs. A failed save ends
+ * the loop and keeps the draft, so nothing typed is lost; the next `save()`
+ * tries again, and the failure itself is the mutation's to show. The
+ * component decides when to call `save()`: after a pause in typing, and
+ * when the person leaves the editor or it goes away.
  */
 import { createSubscriber } from 'svelte/reactivity';
 import type { ContentCapture } from '../capture.js';
@@ -45,11 +40,11 @@ import {
 	type SaveTextVariables,
 	type TextDraft,
 	type WrittenText,
-	writtenBody,
 	writtenFile,
 } from '../draft.js';
+import type { Row } from '../row-text.js';
 import type { SavedFile } from '../save-file.js';
-import type { SavedRow, StoredRow } from '../table.js';
+import type { StoredRow } from '../table.js';
 
 export type TextDraftState<TBase extends ContentCapture = ContentCapture> =
 	Pick<TextDraft<TBase>, 'base' | 'text' | 'change' | 'discard'> & {
@@ -139,22 +134,7 @@ export function createTextDraftState({
 	return draftState({ save, written: writtenFile });
 }
 
-export function createBodyDraftState<TFields>({
-	save,
-}: {
-	/**
-	 * Replace the body of `base`, the row the draft started from, with
-	 * `content`: the table's `setBody` mutation, rejecting on failure.
-	 */
-	save: (sent: {
-		readonly base: StoredRow<TFields>;
-		readonly content: string;
-	}) => Promise<SavedRow<TFields>>;
-}): TextDraftState<StoredRow<TFields>> {
-	return draftState({ save, written: writtenBody<TFields> });
-}
-
-/** One row's body, opened for a control (ADR-0575). */
+/** One row's body, opened for a control (ADR-0576). */
 export type BodyEditor = {
 	/** What the control shows: the text typed, or the body as the file holds it; `undefined` with no row. */
 	readonly text: string | undefined;
@@ -162,44 +142,106 @@ export type BodyEditor = {
 	readonly typed: string | undefined;
 	/** Whether a save of the body is running. */
 	readonly saving: boolean;
-	/** Type `text`. The first change takes the row as the cache holds it as the starting version. */
+	/** Type `text`. The first change takes the row as the cache holds it as `from`. */
 	change(text: string): void;
-	/** Save what is typed, one save at a time; a failed save keeps it. */
+	/**
+	 * Save what is typed, one save at a time, until nothing typed is
+	 * unsent. Called while a save runs, it resolves when that loop ends. A
+	 * failed save keeps what is typed; its error is the mutation's. Nothing
+	 * is saved while the row is gone from the cache, so a body editor never
+	 * makes a row deleted elsewhere again.
+	 */
 	save(): Promise<void>;
 	/** Drop what is typed. */
 	discard(): void;
 };
 
+/** A body as the file stores it: line feeds, and well-formed text (ADR-0572). */
+const storable = (text: string) =>
+	text.replace(/\r\n?/g, '\n').toWellFormed();
+
 export function createBodyEditor<TFields>({
 	row,
-	save,
+	write,
 }: {
 	/** The row as the cache holds it now; `undefined` while it is absent or does not read as a row. */
 	row: () => StoredRow<TFields> | undefined;
-	/** The table's body write, rejecting on failure: `mutateAsync` of `folder.<table>.setBody`. */
-	save: (variables: {
-		readonly base: StoredRow<TFields>;
-		readonly text: string;
-	}) => Promise<SavedRow<TFields>>;
+	/**
+	 * Write the change from `from` to `to`, rejecting on failure:
+	 * `mutateAsync` of `folder.<table>.write` with the row's stem.
+	 */
+	write: (change: {
+		readonly from: Row<TFields>;
+		readonly to: Row<TFields>;
+	}) => Promise<unknown>;
 }): BodyEditor {
-	const draft = createBodyDraftState<TFields>({
-		save: ({ base, content }) => save({ base, text: content }),
-	});
+	/** The row the edit started from, then the row each landed save sent. */
+	let from: Row<TFields> | undefined = $state.raw();
+	let typed: string | undefined = $state.raw();
+	let running: Promise<void> | undefined = $state.raw();
+
+	/** Started only with something to send, so it awaits before it ends. */
+	async function loop() {
+		try {
+			while (from !== undefined && typed !== undefined) {
+				if (row() === undefined) return;
+				const base = from;
+				const sent = storable(typed);
+				const landed = await write({
+					from: base,
+					to: { fields: base.fields, body: sent },
+				}).then(
+					() => true,
+					() => false,
+				);
+				// The mutation holds the error; what is typed stays.
+				if (!landed) return;
+				// Discarded, or discarded and begun again, while it ran.
+				if (from !== base || typed === undefined) return;
+				if (storable(typed) === sent) {
+					from = undefined;
+					typed = undefined;
+					return;
+				}
+				// Typing continued: the next save starts from what this one
+				// sent, so it changes only what was typed since.
+				from = { fields: base.fields, body: sent };
+			}
+		} finally {
+			running = undefined;
+		}
+	}
+
 	return {
 		get text() {
-			return draft.text ?? row()?.row.body;
+			return typed ?? row()?.row.body;
 		},
 		get typed() {
-			return draft.text;
+			return typed;
 		},
 		get saving() {
-			return draft.saving;
+			return running !== undefined;
 		},
 		change(text) {
-			const current = row();
-			if (current !== undefined) draft.change(current, text);
+			if (from === undefined) {
+				const current = row();
+				if (current === undefined) return;
+				from = current.row;
+			}
+			typed = text;
 		},
-		save: () => draft.save(),
-		discard: () => draft.discard(),
+		save() {
+			if (running !== undefined) return running;
+			// Nothing to send, or no row to send it to: the loop would end
+			// before it first awaits.
+			if (from === undefined || typed === undefined || row() === undefined)
+				return Promise.resolve();
+			running = loop();
+			return running;
+		},
+		discard() {
+			from = undefined;
+			typed = undefined;
+		},
 	};
 }

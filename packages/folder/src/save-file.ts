@@ -9,8 +9,7 @@
  * `WRITE_ATTEMPTS` times, then `KeptChanging`. A `put` whose reply was lost
  * is read back once: the bytes it sent, or no file for a delete, mean done.
  *
- * `saveFile` is the save loop `table.save`, `kv.set`, and `files.save` still
- * run: it swaps first on the base's own hash, refuses a base without content
+ * `saveFile` is the save loop `kv.set` and `files.save` still run: it swaps first on the base's own hash, refuses a base without content
  * (`UnknownBase`) and a deleted file (`NotFound`), and merges the same way.
  *
  * Where both sides changed one unit, the writer wins. Nothing is returned to
@@ -129,7 +128,7 @@ async function confirmedPut(
 }
 
 /** A storage failure as a write reports it. */
-function writeFailure(path: string, error: FileError): WriteError {
+export function writeFailure(path: string, error: FileError): WriteError {
 	if (error.name === 'Closed' || error.name === 'InvalidPath') return error;
 	if (error.name === 'NotAFile' || error.name === 'NotADirectory')
 		return FileError.InvalidPath({ path, reason: error.message }).error;

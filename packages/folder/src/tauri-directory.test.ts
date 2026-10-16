@@ -250,6 +250,13 @@ const definition = defineFolder({
 });
 
 const originalEnv = { ...process.env };
+
+/** The row a write left, which these writes always leave. */
+function must<T>(result: { data: T | null; error: unknown }): T {
+	const written = expectOk(result as never) as T | null;
+	if (written === null) throw new Error('the write left no row');
+	return written;
+}
 beforeAll(() => {
 	Object.assign(process.env, {
 		GIT_CONFIG_GLOBAL: GIT_ENV.GIT_CONFIG_GLOBAL,
@@ -312,7 +319,7 @@ test('a granted folder opens over its real directory', async () => {
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	expect(folder.definition).toBe(definition);
 
-	const created = expectOk(
+	const created = must(
 		await folder.tables.todos.create({
 			fields: { title: 'From the desktop', done: false },
 			body: '',
@@ -414,7 +421,7 @@ test('a removal whose reply is lost with the path still there is unconfirmed', a
 	await folder.close();
 });
 
-test('a save another window overtakes where it publishes merges with what is there; a create or a remove is refused', async () => {
+test('a row write another window overtakes where it publishes merges with what is there; a create or a remove is refused', async () => {
 	const { root, folder } = await granted();
 	const sha256 = (text: string) =>
 		createHash('sha256').update(text).digest('hex');
@@ -427,7 +434,7 @@ test('a save another window overtakes where it publishes merges with what is the
 		overtaken.delete(path);
 		writeFileSync(path, theirs);
 	};
-	const created = expectOk(
+	const created = must(
 		await folder.tables.todos.create({
 			fields: { title: 'Mine', done: false },
 			body: '',
@@ -436,9 +443,13 @@ test('a save another window overtakes where it publishes merges with what is the
 	const path = join(root, created.path);
 	const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
 	overtaken.set(path, theirs);
-	created.row.fields.title = 'Mine, edited';
-	const saved = expectOk(await folder.tables.todos.save(created, created.row));
-	expect(saved.merged).toBe(true);
+	const stem = created.path.slice('todos/'.length, -'.md'.length);
+	expectOk(
+		await folder.tables.todos.write(stem, created.row, {
+			...created.row,
+			fields: { ...created.row.fields, title: 'Mine, edited' },
+		}),
+	);
 	expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 	// Each refused stream removed what it staged.
 	const scratchDirectory = join(root, '.git/epicenter/scratch');
@@ -526,11 +537,11 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 	const todos = folder.tables.todos!;
 	const one = expectOk(await todos.get('one'));
 	expectOk(
-		await todos.save(one!, {
+		await todos.write('one', one!.row, {
 			fields: { title: 'One', done: true },
 			body: '',
 		}),
-	).stored;
+	);
 	expectOk(
 		await todos.create({ fields: { title: 'Two', done: false }, body: '' }),
 	);
@@ -635,10 +646,8 @@ test('a data folder opened through a lens reads its fields, keeps the rest, and 
 	expect(todos.canCreate).toBe(false);
 	expect(
 		expectErr(await todos.create({ fields: { title: 'Two' }, body: '' })).name,
-	).toBe('CannotCreate');
-	const one = expectOk(await todos.get('one'))!;
-	one.row.fields.title = 'One, renamed';
-	expectOk(await todos.save(one, one.row)).stored;
+	).toBe('InvalidValues');
+	expectOk(await todos.set('one', { title: 'One, renamed' }));
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: false\nsource: phone\n---\n',
 	);
@@ -691,11 +700,11 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	const todos = folder.tables.todos!;
 	const one = expectOk(await todos.get('one'));
 	expectOk(
-		await todos.save(one!, {
+		await todos.write('one', one!.row, {
 			fields: { title: 'One', done: true },
 			body: '',
 		}),
-	).stored;
+	);
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: true\n---\n',
@@ -752,7 +761,7 @@ test("a page's Sync runs in the CLI, reports what it wrote once, and settles a c
 	await git(native, 'push', '--quiet', 'origin', 'main');
 	const one = expectOk(await folder.tables.todos.get('one'))!;
 	expectOk(
-		await folder.tables.todos.save(one, {
+		await folder.tables.todos.write('one', one.row, {
 			fields: { title: 'Mine', done: false },
 			body: '',
 		}),

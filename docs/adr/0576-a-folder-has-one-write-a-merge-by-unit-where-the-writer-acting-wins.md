@@ -6,8 +6,8 @@
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing "Sync: decided by the person": an overlap in Sync is decided by the device syncing. That files are the truth, with one read path and one channel of change, remains.
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Relates:** [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md), [ADR-0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md)
-- **Replaces, as Proposed records:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review), ADR-0522 (settings as `kv.json` keys), and ADR-0575's write verbs (`table.update`, `table.setBody`, `ifUnchanged`). Each carries a note pointing here and is deleted when this is built.
-- **Unbuilt:** the table helpers and their mutations, the body editor's `from` and `typed`, and deleting the earlier verbs; Sync and the merge driver on `merge`; the `settings` table and deleting `kv.json`'s machinery.
+- **Replaces, as Proposed records:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review) and ADR-0522 (settings as `kv.json` keys). Each carries a note pointing here and is deleted when this is built.
+- **Unbuilt:** Sync and the merge driver on `merge`; the `settings` table and deleting `kv.json`'s machinery.
 
 ## Context
 

@@ -162,7 +162,7 @@ Name a query handle for its data and a mutation handle for its verb plus noun:
 ```svelte
 const todo       = createQuery(() => folder.todos.get.queryOptions(stem));
 const todos      = createQuery(() => folder.todos.list.queryOptions());
-const updateTodo = createMutation(() => folder.todos.update.mutationOptions());
+const setTodo    = createMutation(() => folder.todos.set.mutationOptions());
 const deleteTodo = createMutation(() => folder.todos.delete.mutationOptions());
 ```
 

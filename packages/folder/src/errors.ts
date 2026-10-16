@@ -245,22 +245,6 @@ export const TableError = defineErrors({
 		issues,
 	}),
 	/**
-	 * The folder requires `fields` in every row of `table`, and the lens this
-	 * table was opened with does not declare them, so it cannot supply them.
-	 * Rows can be read and saved through the lens, not added (ADR-0538).
-	 */
-	CannotCreate: ({
-		table,
-		fields,
-	}: {
-		table: string;
-		fields: readonly string[];
-	}) => ({
-		message: `The folder requires ${fields.map((name) => `'${table}.${name}'`).join(', ')} in every row, which this lens does not declare, so it cannot add rows to '${table}'`,
-		table,
-		fields,
-	}),
-	/**
 	 * The file was read, but its bytes are not UTF-8. `sha256` is the hash of
 	 * the bytes read, so a repair can be guarded by them.
 	 */
@@ -305,14 +289,6 @@ export type TableReadError = FileError | TableErrorOf<'InvalidUtf8'>;
 export type RowReadError = TableReadError | TableErrorOf<'InvalidRow'>;
 
 /**
- * The row cannot be written as a valid row, the table's lens cannot add rows,
- * or publication failed.
- */
-export type TableCreateError =
-	| FileError
-	| TableErrorOf<'InvalidValues' | 'CannotCreate'>;
-
-/**
  * Why a save wrote nothing (ADR-0551): its base does not carry the content
  * it names (`UnknownBase`), the file was deleted (`NotFound`; a save never
  * recreates a file), it moved on and the save was asked not to merge
@@ -328,36 +304,6 @@ export type FileSaveError =
 			| 'InvalidValues'
 			| 'InvalidRow'
 			| 'InvalidKv'
-	  >;
-
-/**
- * Why a row save wrote nothing: the row cannot be written as a valid row
- * (`InvalidValues`), or any reason a file save fails, where `InvalidRow` is
- * another writer's text that does not read as a row and does not merge
- * into one.
- */
-export type TableSaveError =
-	| FileError
-	| TableErrorOf<
-			'UnknownBase' | 'KeptChanging' | 'InvalidValues' | 'InvalidRow'
-	  >;
-
-/**
- * Why an update wrote nothing: the row could not be read (`NotFound` when no
- * file is at the stem), or any reason a save fails.
- */
-export type TableUpdateError = TableSaveError | TableErrorOf<'InvalidUtf8'>;
-
-/**
- * Why a body write wrote nothing (ADR-0575): the file is gone (`NotFound`),
- * does not read as a row of the table (`InvalidRow`, `InvalidUtf8`), the
- * result does not read as one (`InvalidValues`), it kept changing
- * (`KeptChanging`), or storage failed.
- */
-export type TableSetBodyError =
-	| FileError
-	| TableErrorOf<
-			'KeptChanging' | 'InvalidValues' | 'InvalidRow' | 'InvalidUtf8'
 	  >;
 
 /**
@@ -381,20 +327,6 @@ export const WriteError = {
 	Closed: FileError.Closed,
 	InvalidPath: FileError.InvalidPath,
 };
-
-/** A guarded row move preserves the file move's failures, its landed capture included. */
-export type TableRenameError = FileError | MoveError;
-
-/** Removing a row preserves the storage operation's failures. */
-export type TableDeleteError = FileError;
-
-/** Every failure a table write can report. */
-export type TableWriteError =
-	| TableCreateError
-	| TableUpdateError
-	| TableSetBodyError
-	| TableRenameError
-	| TableDeleteError;
 
 /** `kv.json` could not be read, is not UTF-8, or is not a file a folder can hold. */
 export type KvReadError = FileError | TableErrorOf<'InvalidUtf8' | 'InvalidKv'>;

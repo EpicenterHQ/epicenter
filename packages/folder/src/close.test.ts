@@ -73,8 +73,8 @@ test('browser helpers still preparing when close starts are refused without writ
 		{ stem: 'last' },
 	);
 	await folder.close();
-	for (const pending of [saving, row])
-		expect(expectErr(await pending).name).toBe('Closed');
+	expect(expectErr(await saving).name).toBe('Closed');
+	expect(expectErr(await row).name).toBe('Closed');
 	expect(expectErr(await folder.files.create('late.md', 'late')).name).toBe(
 		'Closed',
 	);

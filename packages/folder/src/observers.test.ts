@@ -223,18 +223,13 @@ describe('browser pages', () => {
 		});
 		const heard = await hear(reader, async () => {
 			expectOk(await writer.files.create('note.txt', 'submitted'));
-			const row = expectOk(
+			expectOk(
 				await writer.tables.notes.create(
 					{ fields: { title: 'A' }, body: '' },
 					{ stem: 'a' },
 				),
 			);
-			expectOk(
-				await writer.tables.notes.save(row, {
-					fields: { title: 'B' },
-					body: '',
-				}),
-			);
+			expectOk(await writer.tables.notes.set('a', { title: 'B' }));
 			expectOk(await writer.kv.set('theme', 'dark'));
 		});
 		// The first save publishes the declaration before its own file.

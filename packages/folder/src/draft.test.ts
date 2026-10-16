@@ -10,11 +10,9 @@
  * - A save that landed with no change since ends the draft; text typed while
  *   it ran continues from the version it wrote, and after a merged save is
  *   merged onto the written text by line, so the other writer's lines stay
- * - A row's body drafts the same way, reading the body the save wrote
  */
 import { expect, test } from 'bun:test';
-import { createTextDraft, writtenBody, writtenFile } from './draft.js';
-import type { StoredRow } from './table.js';
+import { createTextDraft, writtenFile } from './draft.js';
 
 const file = (sha: string, text: string) =>
 	Object.freeze({
@@ -66,27 +64,6 @@ test('after a merged save, text typed since is carried onto the version written'
 	// Another writer changed the second line; the save merged it in.
 	const written = file('c', 'ONE\nTWO\n');
 	await draft.saved(sent, writtenFile({ stored: written, merged: true }));
-	expect(draft.base).toBe(written);
-	expect(draft.text).toBe('ONE\nTWO\nthree\n');
-});
-
-test("a row's body drafts the same way, reading the body the save wrote", async () => {
-	type Note = { title: string };
-	const row = (sha: string, title: string, body: string): StoredRow<Note> =>
-		Object.freeze({
-			path: 'notes/a.md',
-			sha256: sha.repeat(64),
-			text: `---\ntitle: ${title}\n---\n${body}`,
-			row: { fields: { title }, body },
-		});
-	const draft = createTextDraft<StoredRow<Note>>();
-	const first = row('a', 'One', 'one\ntwo\n');
-	draft.change(first, 'ONE\ntwo\n');
-	const sent = draft.toSave()!;
-	draft.change(first, 'ONE\ntwo\nthree\n');
-	// Another writer changed the title and the second line.
-	const written = row('b', 'Theirs', 'ONE\nTWO\n');
-	await draft.saved(sent, writtenBody({ stored: written, merged: true }));
 	expect(draft.base).toBe(written);
 	expect(draft.text).toBe('ONE\nTWO\nthree\n');
 });

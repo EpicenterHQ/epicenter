@@ -10,12 +10,13 @@
  * const folder$ = folderOptions(folder);
  * createQuery(() => folder$.todos.list.queryOptions());
  * createQuery(() => folder$.todos.get.queryOptions('abc'));
- * createMutation(() => folder$.todos.update.mutationOptions());
+ * createMutation(() => folder$.todos.set.mutationOptions());
  * ```
  *
- * Writes to one file run one at a time, in the order they were made,
- * whichever control or mutation made them (ADR-0554), so an update reads
- * the file the one before it wrote. The folder's options keep that order
+ * Each row helper of the folder's one write (ADR-0576) is its own mutation,
+ * so each control owns its pending and error state. Writes to one file run
+ * one at a time, in the order they were made, whichever control or mutation
+ * made them, so a `set` reads the file the one before it wrote. The folder's options keep that order
  * themselves rather than in a TanStack mutation scope: a scoped mutation
  * waiting its turn resumes only while the window has focus, and a save must
  * not wait for the person to come back.
@@ -71,13 +72,8 @@ import type {
 	KvWriteError,
 	MoveError,
 	RowReadError,
-	TableCreateError,
-	TableDeleteError,
 	TableEnumerationError,
-	TableRenameError,
-	TableSaveError,
-	TableSetBodyError,
-	TableUpdateError,
+	WriteError,
 } from './errors.js';
 import { type OpenedFile, openedFile, readTextFile } from './file-browser.js';
 import type { FilesChanged, Folder, FolderAccess } from './folder.js';
@@ -95,10 +91,9 @@ import type { Row } from './row-text.js';
 import type { SavedFile } from './save-file.js';
 import type {
 	FileTable,
-	RowUpdate,
-	SavedRow,
 	StoredRow,
 	TableListing,
+	WrittenRow,
 } from './table.js';
 
 export {
@@ -107,7 +102,6 @@ export {
 	type SentText,
 	type TextDraft,
 	type WrittenText,
-	writtenBody,
 	writtenFile,
 } from './draft.js';
 
@@ -148,22 +142,17 @@ type MutationFactory<TVariables, TData, TError> = {
 	mutationOptions(): MutationObserverOptions<TData, TError, TVariables>;
 };
 
-/** What a row update sends: the row's stem, and the fields to set and unset. */
-export type UpdateRowVariables<TFields> = {
+/** What a row write sends: the row's stem, and the change from `from` to `to` (`table.write`). */
+export type WriteRowVariables<TFields> = {
 	readonly stem: string;
-} & RowUpdate<TFields>;
-
-/** What a row save sends: the version the edit started from, and the edited row. */
-export type SaveRowVariables<TFields> = {
-	/** The version the edit started from, with its content (see `table.save`). */
-	readonly base: ContentCapture;
-	readonly row: Row<TFields>;
+	readonly from: Row<TFields> | null;
+	readonly to: Row<TFields> | null;
 };
 
-/** What a body write sends: the row the edit started from, and the body typed. */
-export type SetBodyVariables<TFields> = {
-	readonly base: StoredRow<TFields>;
-	readonly text: string;
+/** What a field set sends: the row's stem, and the fields to set (`table.set`). */
+export type SetRowVariables<TFields> = {
+	readonly stem: string;
+	readonly fields: Partial<TFields>;
 };
 
 export type TableOptions<TFields> = {
@@ -174,35 +163,30 @@ export type TableOptions<TFields> = {
 		StoredRow<TFields> | null,
 		RowReadError
 	>;
+	/** Write the change from one row to another into the row as it is now: what a body editor sends. */
+	readonly write: MutationFactory<
+		WriteRowVariables<TFields>,
+		WrittenRow<TFields>,
+		WriteError
+	>;
+	/** Set fields of the row as it is now. */
+	readonly set: MutationFactory<
+		SetRowVariables<TFields>,
+		WrittenRow<TFields>,
+		WriteError
+	>;
 	readonly create: MutationFactory<
 		{ readonly row: Row<TFields>; readonly stem?: string },
-		StoredRow<TFields>,
-		TableCreateError
-	>;
-	/** Save an edit of the whole row over the version it started from (`table.save`). */
-	readonly save: MutationFactory<
-		SaveRowVariables<TFields>,
-		SavedRow<TFields>,
-		TableSaveError
-	>;
-	/** Set and unset a row's fields as its file holds them now (`table.update`). */
-	readonly update: MutationFactory<
-		UpdateRowVariables<TFields>,
-		SavedRow<TFields>,
-		TableUpdateError
-	>;
-	/** Replace a row's body on the file as it is now, merged by line from `base` (`table.setBody`). */
-	readonly setBody: MutationFactory<
-		SetBodyVariables<TFields>,
-		SavedRow<TFields>,
-		TableSetBodyError
+		WrittenRow<TFields>,
+		WriteError
 	>;
 	readonly rename: MutationFactory<
-		{ readonly file: FileCapture; readonly stem: string },
-		FileCapture,
-		TableRenameError
+		{ readonly stem: string; readonly next: string },
+		WrittenRow<TFields>,
+		WriteError
 	>;
-	readonly delete: MutationFactory<FileCapture, undefined, TableDeleteError>;
+	/** Delete the row at the stem it is sent. */
+	readonly delete: MutationFactory<string, undefined, WriteError>;
 };
 
 export type KvOptions<TValues> = {
@@ -563,7 +547,7 @@ export function folderOptions<TTables, TValues>(
 	}: {
 		mutationKey: readonly unknown[];
 		/** The file the write is to; writes to one file run one at a time, in order. */
-		file?: (variables: TVariables) => string;
+		file?: (variables: TVariables) => string | undefined;
 		run: (variables: TVariables) => Promise<Result<TData, TError>>;
 		wrote: (client: QueryClient, data: TData, variables: TVariables) => unknown;
 		touched: (variables: TVariables) => readonly string[];
@@ -581,10 +565,12 @@ export function folderOptions<TTables, TValues>(
 		return {
 			mutationKey,
 			networkMode: 'always',
-			mutationFn: (variables, { client }) =>
-				file === undefined
+			mutationFn: (variables, { client }) => {
+				const path = file?.(variables);
+				return path === undefined
 					? write(variables, client)
-					: inTurn(folder, file(variables), () => write(variables, client)),
+					: inTurn(folder, path, () => write(variables, client));
+			},
 		};
 	}
 
@@ -594,20 +580,42 @@ export function folderOptions<TTables, TValues>(
 		const table = (folder.tables as Record<string, unknown>)[
 			name
 		] as FileTable<Fields>;
-		/** The page wrote `stored`: its row and its entry in the listing are it. */
-		async function wroteRow(client: QueryClient, stored: StoredRow<Fields>) {
-			const stem = rowStemOf(name, stored.path);
-			if (stem === undefined) return;
-			const item = Object.freeze({ stem, result: Ok(stored) });
+		/**
+		 * The page wrote the row at `stem`: its row and its entry in the
+		 * listing are what the write left. A file left that is not a row is
+		 * read again.
+		 */
+		async function wroteRow(
+			client: QueryClient,
+			stem: string,
+			written: WrittenRow<Fields>,
+		) {
+			const path = rowPath(name, stem);
+			if (written === null) return ownWrite(client, [path]);
+			const item = Object.freeze({ stem, result: Ok(written) });
 			await Promise.all([
-				put(client, keys.row(name, stem), () => stored),
+				put(client, keys.row(name, stem), () => written),
 				put<TableListing<Fields>>(client, keys.list(name), (listing) =>
 					listing?.some((entry) => entry.stem === stem)
 						? listing.map((entry) => (entry.stem === stem ? item : entry))
 						: listing && [...listing, item],
 				),
 			]);
-			ownWrite(client, [stored.path], [keys.row(name, stem), keys.list(name)]);
+			ownWrite(client, [path], [keys.row(name, stem), keys.list(name)]);
+		}
+		/** The page deleted the row at `stem`: its row is none, and the listing lacks it. */
+		async function deletedRow(client: QueryClient, stem: string) {
+			await Promise.all([
+				put(client, keys.row(name, stem), () => null),
+				put<TableListing<Fields>>(client, keys.list(name), (listing) =>
+					listing?.filter((entry) => entry.stem !== stem),
+				),
+			]);
+			ownWrite(
+				client,
+				[rowPath(name, stem)],
+				[keys.row(name, stem), keys.list(name)],
+			);
 		}
 		return {
 			list: {
@@ -621,83 +629,74 @@ export function folderOptions<TTables, TValues>(
 						orNull(await table.get(stem)),
 					),
 			},
+			write: {
+				mutationOptions: () =>
+					writeOptions({
+						mutationKey: [...keys.table(name), 'write'],
+						file: ({ stem }: WriteRowVariables<Fields>) => rowPath(name, stem),
+						run: ({ stem, from, to }: WriteRowVariables<Fields>) =>
+							table.write(stem, from, to),
+						wrote: (client, row, { stem, to }) =>
+							to === null ? deletedRow(client, stem) : wroteRow(client, stem, row),
+						touched: ({ stem }) => [rowPath(name, stem)],
+					}),
+			},
+			set: {
+				mutationOptions: () =>
+					writeOptions({
+						mutationKey: [...keys.table(name), 'set'],
+						file: ({ stem }: SetRowVariables<Fields>) => rowPath(name, stem),
+						run: ({ stem, fields }: SetRowVariables<Fields>) =>
+							table.set(stem, fields),
+						wrote: (client, row, { stem }) => wroteRow(client, stem, row),
+						touched: ({ stem }) => [rowPath(name, stem)],
+					}),
+			},
 			create: {
 				mutationOptions: () =>
 					writeOptions({
 						mutationKey: [...keys.table(name), 'create'],
+						file: ({ stem }: { row: Row<Fields>; stem?: string }) =>
+							stem === undefined ? undefined : rowPath(name, stem),
 						run: ({ row, stem }: { row: Row<Fields>; stem?: string }) =>
 							table.create(row, stem === undefined ? undefined : { stem }),
-						wrote: (client, stored) => wroteRow(client, stored),
+						wrote: (client, row, { stem }) => {
+							const at =
+								stem ?? (row === null ? undefined : rowStemOf(name, row.path));
+							if (at !== undefined) return wroteRow(client, at, row);
+							// A generated stem whose file is not a row: the listing says.
+							return client.invalidateQueries({ queryKey: keys.list(name) });
+						},
 						touched: ({ stem }) =>
 							stem === undefined ? [] : [rowPath(name, stem)],
-					}),
-			},
-			save: {
-				mutationOptions: () =>
-					writeOptions({
-						mutationKey: [...keys.table(name), 'save'],
-						file: ({ base }: SaveRowVariables<Fields>) => base.path,
-						run: ({ base, row }: SaveRowVariables<Fields>) =>
-							table.save(base, row),
-						wrote: (client, saved) => wroteRow(client, saved.stored),
-						touched: ({ base }) => [base.path],
-					}),
-			},
-			update: {
-				mutationOptions: () =>
-					writeOptions({
-						mutationKey: [...keys.table(name), 'update'],
-						file: ({ stem }: UpdateRowVariables<Fields>) => rowPath(name, stem),
-						run: ({ stem, ...update }: UpdateRowVariables<Fields>) =>
-							table.update(stem, update),
-						wrote: (client, saved) => wroteRow(client, saved.stored),
-						touched: ({ stem }) => [rowPath(name, stem)],
-					}),
-			},
-			setBody: {
-				mutationOptions: () =>
-					writeOptions({
-						mutationKey: [...keys.table(name), 'setBody'],
-						file: ({ base }: SetBodyVariables<Fields>) => base.path,
-						run: ({ base, text }: SetBodyVariables<Fields>) =>
-							table.setBody(base, text),
-						wrote: (client, saved) => wroteRow(client, saved.stored),
-						touched: ({ base }) => [base.path],
 					}),
 			},
 			rename: {
 				mutationOptions: () =>
 					writeOptions({
 						mutationKey: [...keys.table(name), 'rename'],
-						run: ({ file, stem }: { file: FileCapture; stem: string }) =>
-							table.rename(file, stem),
-						// The new capture holds no row: both paths are read again.
-						wrote: (client, moved, { file }) =>
-							ownWrite(client, [file.path, moved.path]),
-						touched: ({ file, stem }) => [file.path, rowPath(name, stem)],
+						file: ({ stem }: { stem: string; next: string }) =>
+							rowPath(name, stem),
+						run: ({ stem, next }: { stem: string; next: string }) =>
+							table.rename(stem, next),
+						wrote: async (client, row, { stem, next }) => {
+							if (next !== stem) await deletedRow(client, stem);
+							await wroteRow(client, next, row);
+						},
+						touched: ({ stem, next }) => [
+							rowPath(name, stem),
+							rowPath(name, next),
+						],
 					}),
 			},
 			delete: {
 				mutationOptions: () =>
 					writeOptions({
 						mutationKey: [...keys.table(name), 'delete'],
-						run: (file: FileCapture) => table.delete(file),
-						wrote: async (client, _done, file) => {
-							const stem = rowStemOf(name, file.path);
-							if (stem === undefined) return ownWrite(client, [file.path]);
-							await Promise.all([
-								put(client, keys.row(name, stem), () => null),
-								put<TableListing<Fields>>(client, keys.list(name), (listing) =>
-									listing?.filter((entry) => entry.stem !== stem),
-								),
-							]);
-							ownWrite(
-								client,
-								[file.path],
-								[keys.row(name, stem), keys.list(name)],
-							);
-						},
-						touched: (file) => [file.path],
+						file: (stem: string) => rowPath(name, stem),
+						run: (stem: string) => table.delete(stem),
+						wrote: (client, _done, stem) => deletedRow(client, stem),
+						touched: (stem) => [rowPath(name, stem)],
 					}),
 			},
 		};
@@ -764,7 +763,7 @@ export function folderOptions<TTables, TValues>(
 							content,
 						);
 						if (error !== null) return Err(error);
-						return Ok({ stored, merged: false, replaced: [] });
+						return Ok({ stored, merged: false });
 					},
 					// The file read and opened, where a view holds them, is what the
 					// write wrote.

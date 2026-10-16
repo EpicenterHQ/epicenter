@@ -1,24 +1,27 @@
 /**
  * Text Draft State Tests
  *
- * `createTextDraftState` and `createBodyDraftState` are a text draft read
- * reactively, with the one save loop every document editor needs
- * (ADR-0548, ADR-0554).
+ * `createTextDraftState` is a file's text draft read reactively, with the
+ * one save loop every document editor needs (ADR-0548). `createBodyEditor`
+ * opens a row's body over the table's one write (ADR-0576).
  *
  * Key behaviors:
  * - A component re-reads the draft's text on each change
  * - Text typed while a save runs is sent next, from the version it wrote
  * - A failed save keeps the draft, and the next save sends it again
  * - A body editor shows the file's body until something is typed, sends the
- *   text typed with the row it started from, and shows the file again once
- *   its save lands with nothing typed since
+ *   change from the row it started from to that row with the typed body,
+ *   and shows the file again once its save lands with nothing typed since
+ * - Typing during a save makes the next save start from what that one sent
+ * - A failed save keeps what is typed; nothing is saved while the row is gone
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 import type { CapturedFile } from '../capture.js';
 import type { SaveTextVariables } from '../draft.js';
 import type { SavedFile } from '../save-file.js';
-import type { SavedRow, StoredRow } from '../table.js';
+import type { Row } from '../row-text.js';
+import type { StoredRow } from '../table.js';
 
 const { flushSync } = await import('svelte');
 const { createBodyEditor, createTextDraftState } = await import(
@@ -119,48 +122,84 @@ test('a failed save keeps the draft, and the next save sends it again', async ()
 	expect(draft.text).toBeUndefined();
 });
 
-test('a body editor sends the text typed with the row it started from', async () => {
-	type Note = { title: string };
-	const row = (sha: string, title: string, body: string): StoredRow<Note> =>
-		Object.freeze({
-			path: 'notes/a.md',
-			sha256: sha.repeat(64),
-			text: `---\ntitle: ${title}\n---\n${body}`,
-			row: { fields: { title }, body },
-		});
-	let cached: StoredRow<Note> | undefined = row('a', 'One', 'one\n');
-	const { calls, save } = heldSaves<
-		{ base: StoredRow<Note>; text: string },
-		SavedRow<Note>
-	>();
-	const body = createBodyEditor<Note>({ row: () => cached, save });
+type Note = { title: string };
+const note = (sha: string, title: string, body: string): StoredRow<Note> =>
+	Object.freeze({
+		path: 'notes/a.md',
+		sha256: sha.repeat(64),
+		text: `---\ntitle: ${title}\n---\n${body}`,
+		row: { fields: { title }, body },
+	});
+type Change = { readonly from: Row<Note>; readonly to: Row<Note> };
+
+test('a body editor sends the change from the row it started from to that row with the typed body', async () => {
+	let cached: StoredRow<Note> | undefined = note('a', 'One', 'one\n');
+	const { calls, save: write } = heldSaves<Change, unknown>();
+	const body = createBodyEditor<Note>({ row: () => cached, write });
 
 	expect(body.text).toBe('one\n');
 	expect(body.typed).toBeUndefined();
 
 	const started = cached;
-	body.change('mine\n');
+	body.change('mine\r\n');
 	// Another writer's title lands in the cache while the body is typed.
-	cached = row('b', 'Renamed', 'one\n');
-	expect(body.text).toBe('mine\n');
+	cached = note('b', 'Renamed', 'one\n');
+	expect(body.text).toBe('mine\r\n');
 
 	const done = body.save();
-	expect(calls[0]?.sent).toEqual({ base: started, text: 'mine\n' });
-	const written = row('c', 'Renamed', 'mine\n');
-	calls[0]?.land({ stored: written, merged: true });
+	expect(calls[0]?.sent).toEqual({
+		from: started.row,
+		to: { fields: { title: 'One' }, body: 'mine\n' },
+	});
+	calls[0]?.land(undefined);
 	await done;
-	cached = written;
+	cached = note('c', 'Renamed', 'mine\n');
 
 	expect(body.typed).toBeUndefined();
 	expect(body.text).toBe('mine\n');
 });
 
+test('typing during a save makes the next save start from what that one sent', async () => {
+	const cached = note('a', 'One', 'one\n');
+	const { calls, save: write } = heldSaves<Change, unknown>();
+	const body = createBodyEditor<Note>({ row: () => cached, write });
+	body.change('one\nX\n');
+	const done = body.save();
+	body.change("one\nX'\n");
+	calls[0]?.land(undefined);
+	await Promise.resolve();
+	await Promise.resolve();
+	expect(calls[1]?.sent).toEqual({
+		from: { fields: { title: 'One' }, body: 'one\nX\n' },
+		to: { fields: { title: 'One' }, body: "one\nX'\n" },
+	});
+	calls[1]?.land(undefined);
+	await done;
+	expect(body.typed).toBeUndefined();
+});
+
+test('a failed body save keeps what is typed, and nothing is saved while the row is gone', async () => {
+	let cached: StoredRow<Note> | undefined = note('a', 'One', 'one\n');
+	const { calls, save: write } = heldSaves<Change, unknown>();
+	const body = createBodyEditor<Note>({ row: () => cached, write });
+	body.change('mine\n');
+	const failing = body.save();
+	calls[0]?.fail(new Error('disk full'));
+	await failing;
+	expect(body.saving).toBe(false);
+	expect(body.typed).toBe('mine\n');
+
+	cached = undefined;
+	await body.save();
+	expect(calls).toHaveLength(1);
+	expect(body.typed).toBe('mine\n');
+	expect(body.saving).toBe(false);
+});
+
 test('a body editor takes no change while there is no row', () => {
-	type Note = { title: string };
 	const body = createBodyEditor<Note>({
 		row: () => undefined,
-		save: heldSaves<{ base: StoredRow<Note>; text: string }, SavedRow<Note>>()
-			.save,
+		write: heldSaves<Change, unknown>().save,
 	});
 	body.change('typed\n');
 	expect(body.text).toBeUndefined();
