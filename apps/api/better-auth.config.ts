@@ -65,8 +65,6 @@ export const auth = betterAuth({
 		...oauthServerPlugins({
 			db,
 			audiences: resolveOAuthAudiences(baseURL),
-			// A transport only has to exist for the CIMD plugin to be composed.
-			clientMetadataFetch: fetch,
 		}),
 	],
 });

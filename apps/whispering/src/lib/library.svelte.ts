@@ -129,6 +129,7 @@ import {
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
+import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
 import { createTerminalSession } from './terminal.svelte.js';
 import type {
@@ -830,6 +831,12 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		| undefined;
 	/** The recording being captured, by stem. No request starts for it until it stops. */
 	const capturing = new SvelteSet<string>();
+	/**
+	 * A recording this window just finished, by stem, with the file listing
+	 * read when its capture ended. Until the folder is listed again, that
+	 * listing may predate its audio, so the audio is not reported absent.
+	 */
+	const finishedOver = new Map<string, FileListing | undefined>();
 	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
 	let starting: AbortController | undefined;
 	/** Folders open in the file browser; kept while the browser is hidden. */
@@ -939,6 +946,11 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			() => capture.stop(),
 		);
 		const { data: stopped, error: stopError } = await track(() => stopping);
+		if (stopError === null)
+			finishedOver.set(
+				id,
+				queryClient.getQueryData<FileListing>(folder$.files.list.queryKey()),
+			);
 		capturing.delete(id);
 		recorder = { phase: 'idle' };
 		if (stopError !== null) {
@@ -1453,6 +1465,31 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/** The recording whose row names `path` as its audio, if one does. */
 		recordingNaming(path: string): RecordingEntry | undefined {
 			return entries().find((entry) => audioPathIn(entry.row.fields) === path);
+		},
+		/**
+		 * Whether the audio `entry` names is in this device's folder: here,
+		 * absent, or named nowhere. Read reactively. A recording this window is
+		 * still capturing or writing is never reported absent.
+		 */
+		audioOf(entry: RecordingEntry): RecordingAudio {
+			trackQueries();
+			trackMutations();
+			const listing = queryClient.getQueryData<FileListing>(
+				folder$.files.list.queryKey(),
+			);
+			// A listing read since the recording finished says where its audio is.
+			const unlisted =
+				finishedOver.has(entry.stem) &&
+				finishedOver.get(entry.stem) === listing;
+			if (!unlisted) finishedOver.delete(entry.stem);
+			return recordingAudio(entry.row.fields, {
+				listing,
+				settling:
+					unlisted ||
+					capturing.has(entry.stem) ||
+					queryClient.isMutating({ mutationKey: keys.recording(entry.path) }) >
+						0,
+			});
 		},
 
 		// ------------------------------------------------------------------

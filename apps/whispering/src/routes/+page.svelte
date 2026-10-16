@@ -10,6 +10,7 @@
 	import { audioPathIn } from '$lib/definition.js';
 	import { transformationName } from '$lib/post-processing.js';
 	import { getSession } from '$lib/session.svelte.js';
+	import AudioAbsent from './components/AudioAbsent.svelte';
 	import AudioPlayer from './components/AudioPlayer.svelte';
 	import { confirmDelete, copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
 	import RecorderCard from './components/RecorderCard.svelte';
@@ -23,6 +24,8 @@
 	const latest = $derived(library.entries[0]);
 	/** The audio the newest row names. Nothing is guessed from another file's name. */
 	const audioPath = $derived(latest ? audioPathIn(latest.row.fields) : undefined);
+	/** Whether the audio the newest recording names is missing from this device's folder. */
+	const absent = $derived(latest !== undefined && library.audioOf(latest).kind === 'absent');
 	const transcript = $derived(latest ? library.resultsFor(latest.stem)[0] : undefined);
 	const run = $derived(latest ? library.transcriptionRun(latest.stem) : undefined);
 	/** Whether the newest transcript has its answer, or what is happening to it. */
@@ -80,6 +83,7 @@
 						{library}
 						path={transcript.path}
 						result={progress}
+						audioAbsent={absent}
 						onDelete={() => void confirmDelete(library, transcript.path)}
 					/>
 				{:else if transcript}
@@ -134,7 +138,7 @@
 					{/if}
 				{:else if run?.kind === 'failed'}
 					<p class="text-sm text-destructive" role="alert" data-testid="transcription-error">{run.message}</p>
-				{:else if audioPath}
+				{:else if audioPath && !absent}
 					<p class="text-sm text-muted-foreground">
 						{#if run?.kind === 'running'}
 							Transcribing…
@@ -148,7 +152,9 @@
 
 				<!-- On a narrow window the player takes its own line, so its scrubber and duration stay visible. -->
 				<div class="flex flex-wrap items-center gap-2">
-					{#if audioPath}
+					{#if absent}
+						<div class="flex-1 basis-full sm:basis-0"><AudioAbsent /></div>
+					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
 								source={{ kind: 'file', files: library.folder.files, path: audioPath, generation: library.generation }}
@@ -162,7 +168,7 @@
 						<Button
 							size="sm"
 							tooltip={model ? `Transcribes with ${model}` : undefined}
-							disabled={audioPath === undefined || run?.kind === 'running'}
+							disabled={audioPath === undefined || absent || run?.kind === 'running'}
 							onclick={() => void library.transcribe(latest)}
 							data-testid="transcribe-latest"
 						>

@@ -360,6 +360,7 @@
 											{row.title}
 										</button>
 										{#if row.entry.row.fields.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
+										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">Audio not on this device</Badge>{/if}
 									</span>
 									{#if excerpt !== undefined}
 										<span class="line-clamp-2 text-xs break-words text-muted-foreground @3xl:line-clamp-1" data-testid="row-excerpt">

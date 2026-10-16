@@ -112,7 +112,7 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			oauthServer: {},
+			oauthServer: true,
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});

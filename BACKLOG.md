@@ -546,10 +546,9 @@ starting: a prior session may already have completed it.
     cell, so one entry point served both deployment kinds.
   The blob half is also superseded in shape. [ADR-0173](docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
   withdrew its row-owned write-once slot. [ADR-0393](docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md)
-  lets rows cite independently owned blobs, and
-  [ADR-0438](docs/adr/0438-hosted-blobs-have-stable-authority-urls.md) gives
-  hosted blobs stable authority URLs. A future command should derive its file
-  and URL contract from that current model.
+  lets rows cite independently owned blobs, and Epicenter now hosts no blobs
+  at all ([ADR-0577](docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
+  A future command should derive its file contract from that current model.
   Authentication is now owned entirely by the apps, and there is no headless
   login workflow. Any future headless tool should be designed around a concrete
   workflow and re-derive its credential story from that, treating the above as

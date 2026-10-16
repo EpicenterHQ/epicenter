@@ -121,7 +121,7 @@ beforeAll(async () => {
 			connect: async () => ({ db, close: async () => {} }),
 			afterResponse: () => {},
 			resolveAuthSecrets: () => ({ BETTER_AUTH_SECRET: secret }),
-			oauthServer: {},
+			oauthServer: true,
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});

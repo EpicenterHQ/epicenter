@@ -2,15 +2,14 @@
  * The OAuth 2.1 authorization server (ADR-0549) through the library's own
  * composition, in process, on a disposable Postgres cluster with every
  * migration applied: the spike's refresh lineage, grant target, and silent
- * re-authorization checks, the end-to-end flows, a client identified by its
- * metadata document, the resource check's 401 and 403 answers through a
+ * re-authorization checks, the end-to-end flows, the refusal of a client
+ * that names a metadata document, the resource check's 401 and 403 answers through a
  * test-only protected route, and the real protected mounts behind
  * `requireAccessToken` the way the deployments compose them.
  * Requires initdb and pg_ctl on PATH; never connects to a configured database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import type { ClientMetadataResourceFetch } from '@better-auth/oauth-provider';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { every } from 'hono/combine';
 import type { Client } from 'pg';
@@ -47,7 +46,6 @@ const secret = 'oauth-server-postgres-secret-0123456789';
 const audiences = {
 	api: origin,
 	git: `${origin}/git`,
-	mcp: `${origin}/mcp`,
 };
 const desktop = {
 	clientId: 'so.epicenter',
@@ -61,46 +59,6 @@ const cli = { clientId: 'so.epicenter.cli' };
 const untrusted = {
 	clientId: 'test.untrusted',
 	redirectUri: 'http://127.0.0.1:53222/callback',
-};
-
-// A client identified by its metadata document, served locally. The real
-// transports refuse loopback addresses, so this one maps a public-looking
-// host to the local server and still refuses redirects.
-const CIMD_CLIENT_ID = 'https://cimd.example.test/client.json';
-const CIMD_REDIRECT = 'http://127.0.0.1:53999/callback';
-let cimdFetches = 0;
-const cimdServer = Bun.serve({
-	port: 0,
-	hostname: '127.0.0.1',
-	fetch(request) {
-		cimdFetches++;
-		if (new URL(request.url).pathname !== '/client.json')
-			return new Response('not found', { status: 404 });
-		return Response.json(
-			{
-				client_id: CIMD_CLIENT_ID,
-				client_name: 'Example MCP Client',
-				client_uri: 'https://cimd.example.test',
-				redirect_uris: [CIMD_REDIRECT],
-				grant_types: ['authorization_code', 'refresh_token'],
-				response_types: ['code'],
-				token_endpoint_auth_method: 'none',
-				scope: 'openid offline_access folders:read folders:write ai',
-			},
-			{ headers: { 'cache-control': 'max-age=300' } },
-		);
-	},
-});
-const testMetadataFetch: ClientMetadataResourceFetch = (input, init) => {
-	const url = new URL(
-		typeof input === 'string' || input instanceof URL ? input : input.url,
-	);
-	if (url.host !== 'cimd.example.test')
-		throw new Error(`metadata host not allowed: ${url.host}`);
-	return fetch(new URL(url.pathname, cimdServer.url), {
-		...init,
-		redirect: 'manual',
-	});
 };
 
 /** A Git store that records what it creates and answers every request with an empty body. */
@@ -211,7 +169,7 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			oauthServer: { clientMetadataFetch: testMetadataFetch },
+			oauthServer: true,
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
@@ -275,7 +233,6 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-	cimdServer.stop(true);
 	await stop?.();
 });
 
@@ -294,80 +251,23 @@ describe('checks against the library composition on Bun and Postgres', () => {
 	);
 });
 
-test('a client identified by its metadata document reaches only MCP, after consent, inside its target', async () => {
+test('a client that names a metadata document is unknown', async () => {
 	const { client } = harness;
-	const person = await client.person('cimd');
-	const { verifier, challenge } = await pkce();
+	const person = await client.person('metadata-document');
+	const { challenge } = await pkce();
 	const authorized = await client.authorize({
-		clientId: CIMD_CLIENT_ID,
-		redirectUri: CIMD_REDIRECT,
+		clientId: 'https://client.example.test/client.json',
+		redirectUri: 'http://127.0.0.1:53999/callback',
 		cookie: person.cookie,
 		challenge,
-		resource: [audiences.mcp],
-		scope: 'offline_access folders:read folders:write',
+		resource: [audiences.git],
+		scope: 'offline_access folders:read',
 	});
-	const consentPage = new URL(authorized.location, origin);
-	expect(consentPage.pathname).toBe('/consent');
-	const links = await sqlClient.query<{ resource_id: string }>(
-		'select resource_id from oauth_client_resource where client_id = $1',
-		[CIMD_CLIENT_ID],
+	// No client identifies itself by URL: there is no metadata document
+	// support and no dynamic registration (ADR-0578).
+	expect(new URL(authorized.location, origin).searchParams.get('error')).toBe(
+		'invalid_client',
 	);
-	expect(links.rows.map((row) => row.resource_id)).toEqual([audiences.mcp]);
-	expect(
-		(
-			await client.selectTarget(
-				person.cookie,
-				`ns:${person.personal}`,
-				CIMD_CLIENT_ID,
-			)
-		).status,
-	).toBe(200);
-	const consented = await client.consent(
-		person.cookie,
-		consentPage.search.slice(1),
-	);
-	const code = new URL(consented.body.url ?? '').searchParams.get('code')!;
-	const tokens = await client.exchange({
-		clientId: CIMD_CLIENT_ID,
-		redirectUri: CIMD_REDIRECT,
-		code,
-		verifier,
-		resource: [audiences.mcp],
-	});
-	expect(
-		(
-			await harness.resource(tokens.access_token, {
-				audience: audiences.mcp,
-				scope: 'folders:write',
-				namespace: person.personal,
-			})
-		).status,
-	).toBe(200);
-	expect(
-		(
-			await harness.resource(tokens.access_token, {
-				audience: audiences.git,
-				scope: 'folders:read',
-				namespace: person.personal,
-			})
-		).status,
-	).toBe(401);
-	for (const [resource, scope] of [
-		[audiences.git, 'folders:read'],
-		[audiences.mcp, 'ai'],
-	] as const) {
-		const refused = await client.authorize({
-			clientId: CIMD_CLIENT_ID,
-			redirectUri: CIMD_REDIRECT,
-			cookie: person.cookie,
-			challenge,
-			resource: [resource],
-			scope,
-		});
-		expect(new URL(refused.location).searchParams.get('error')).toBeString();
-	}
-	// The metadata cache outlives the per-request Better Auth instance.
-	expect(cimdFetches).toBe(1);
 }, 60_000);
 
 test('one grant serves the API and Git, in any order of refreshes', async () => {
@@ -476,13 +376,13 @@ describe('the resource check', () => {
 		);
 		const foreign = await authorizeResourceRequest(db, {
 			token: (await issue()).token,
-			audience: audiences.mcp,
+			audience: audiences.api,
 			scope: 'folders:read',
 			namespaceId: person.personal,
 		});
 		expect(foreign.error?.status).toBe(401);
 		expect(foreign.error?.challenge).toContain(
-			`resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
+			`resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
 		);
 	}, 60_000);
 

@@ -91,20 +91,6 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'Personal authority collection',
-		method: 'POST',
-		url: `${ORIGIN}/api/blobs/personal/probe/private`,
-		worker: 'served',
-		bun: 'served',
-	},
-	{
-		surface: 'Personal authority object',
-		method: 'DELETE',
-		url: `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`,
-		worker: 'served',
-		bun: 'served',
-	},
-	{
 		surface: 'Repository listing',
 		method: 'GET',
 		url: `${ORIGIN}/api/repos`,
@@ -115,13 +101,6 @@ const PROFILE: Surface[] = [
 		surface: 'Git data plane',
 		method: 'GET',
 		url: `${ORIGIN}/git/aaaaaaaaaaaa/probe.git/info/refs?service=git-upload-pack`,
-		worker: 'served',
-		bun: 'served',
-	},
-	{
-		surface: 'MCP server',
-		method: 'POST',
-		url: `${ORIGIN}/mcp`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -254,14 +233,6 @@ test('the Bun entry serves its declared profile', async () => {
 	);
 });
 
-test('anonymous public blob reads bypass hosted session setup on both runtimes', async () => {
-	const url = `${ORIGIN}/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA`;
-	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
-		const response = await fetcher(new Request(url));
-		expect(response.status).toBe(503); // Storage is deliberately unconfigured.
-	}
-});
-
 test('an unmounted path reads as absent on both runtimes', async () => {
 	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
 		const response = await fetcher(
@@ -321,8 +292,11 @@ test("both runtimes' public HTML shells and unrelated 404s survive Postgres outa
 			}
 		}
 		for (const fetcher of [worker, bun]) {
+			// Epicenter hosts no MCP server and no blobs (ADR-0577).
 			for (const [method, path] of [
-				['GET', '/api/blobs'],
+				['POST', '/mcp'],
+				['GET', '/.well-known/oauth-protected-resource/mcp'],
+				['GET', '/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA'],
 				['PUT', '/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA'],
 				['GET', '/v1/chat/completions'],
 				['GET', '/v1/audio/transcriptions'],
@@ -361,14 +335,12 @@ test('both runtime compositions fail closed on protected operations during a dat
 			[worker, 'worker'],
 			[bun, 'bun'],
 		] as const) {
-			// Neither entry has a Git store here, so the Git data plane and the
-			// MCP server answer 503 before they read Postgres.
+			// Neither entry has a Git store here, so the Git data plane answers
+			// 503 before it reads Postgres.
 			for (const row of PROFILE.filter(
 				(row) =>
 					row[runtime] === 'served' &&
-					!['health', 'dashboard SPA', 'Git data plane', 'MCP server'].includes(
-						row.surface,
-					),
+					!['health', 'dashboard SPA', 'Git data plane'].includes(row.surface),
 			)) {
 				const callsBefore = databaseCalls;
 				const response = await fetcher(

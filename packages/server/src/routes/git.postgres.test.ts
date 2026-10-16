@@ -35,7 +35,7 @@ const todos = {
 };
 
 let origin = '';
-let audiences = { api: '', git: '', mcp: '' };
+let audiences = { api: '', git: '' };
 let scratch: string;
 let storeRoot: string;
 let stopPostgres: () => Promise<void>;
@@ -70,7 +70,7 @@ beforeAll(async () => {
 		idleTimeout: 30,
 	});
 	origin = `http://127.0.0.1:${server.port}`;
-	audiences = { api: origin, git: `${origin}/git`, mcp: `${origin}/mcp` };
+	audiences = { api: origin, git: `${origin}/git` };
 	await registerFirstPartyClients(db, {
 		audiences,
 		clients: [
@@ -103,9 +103,7 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			oauthServer: {
-				clientMetadataFetch: async () => new Response('', { status: 404 }),
-			},
+			oauthServer: true,
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});

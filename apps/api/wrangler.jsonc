@@ -4,9 +4,9 @@
 	"main": "worker/index.ts",
 	"minify": true,
 	"compatibility_date": "2026-03-06",
-	// global_fetch_strictly_public keeps outbound fetch on the public internet,
-	// which the authorization server's client ID metadata document fetches
-	// rely on (ADR-0549, packages/server/src/auth/client-metadata-fetch.ts).
+	// global_fetch_strictly_public keeps every outbound fetch on the public
+	// internet: a request this Worker makes never reaches a private or
+	// loopback address, whatever URL it was handed.
 	"compatibility_flags": [
 		"nodejs_compat",
 		"enable_request_signal",
@@ -101,16 +101,6 @@
 			"OPENAI_API_KEY",
 			"AUTUMN_SECRET_KEY",
 			"GEMINI_API_KEY",
-			// S3 credentials for owner-addressed hosted blobs. The portable
-			// S3 client signs exact-key PUT/GET/HEAD/DELETE requests against
-			// BLOBS_S3_ENDPOINT. For hosted cloud that
-			// endpoint is `https://<accountId>.r2.cloudflarestorage.com` with a
-			// bucket-scoped Object Read & Write token. The endpoint is grouped as
-			// a secret so the account id stays out of committed config; bucket
-			// (`epicenter-blobs`) and region (`auto`) default in code.
-			"BLOBS_S3_ENDPOINT",
-			"BLOBS_S3_ACCESS_KEY_ID",
-			"BLOBS_S3_SECRET_ACCESS_KEY",
 			// The Cloudflare account that owns the Artifacts namespace. The Git
 			// data plane forwards to `https://<accountId>.artifacts.cloudflare.net`,
 			// grouped as a secret so the account id stays out of committed config.
@@ -130,15 +120,6 @@
 			"localConnectionString": "postgres://postgres:postgres@localhost:5432/epicenter"
 		}
 	],
-	// --- R2: NO bindings ---
-	// This Worker names no `r2_buckets` binding. Hosted blob requests
-	// talk plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
-	// same code runs on this Worker against R2 and in apps/api's Bun entry
-	// against Garage/S3 with no Workers-only R2 binding. Create its bucket
-	// with: bunx wrangler r2 bucket create epicenter-blobs
-	// See packages/server/src/s3-blob-store.ts. (The legacy asset route and its
-	// `epicenter-assets` bucket binding were retired into this store.)
-	//
 	// Smart Placement: Run your Worker close to your database for lower latency
 	"placement": {
 		"region": "aws:eu-central-1"

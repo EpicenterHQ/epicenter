@@ -89,7 +89,7 @@ import {
 	writeFilesTree,
 } from './objects.js';
 import { createPassRunner, type PassRunner } from './runner.js';
-import { sourceFiles } from './scope.js';
+import { localMatcher, sourceFiles } from './scope.js';
 import {
 	type AttemptStore,
 	type HeldAttempt,
@@ -427,12 +427,18 @@ export function createHistory({
 		return captured.files;
 	}
 
+	/**
+	 * Files the definition keeps on this machine. No commit carries one,
+	 * whether or not `.gitignore` names it (ADR-0577).
+	 */
+	const isLocal = localMatcher(definition?.local);
+
 	/** Captured files that are history source under the shared scope rule. */
 	function source(
 		current: ReadonlyMap<string, Uint8Array>,
 		tracked: ReadonlyMap<string, unknown>,
 	) {
-		return sourceFiles(current, tracked, backend.ignoredPaths);
+		return sourceFiles(current, tracked, backend.ignoredPaths, isLocal);
 	}
 
 	/**
@@ -1700,7 +1706,8 @@ export function createHistory({
 			return manual('add', async () => {
 				const staged = await exclusive(
 					async (): Promise<Result<undefined, GitError>> => {
-						await backend.stage(paths);
+						// A local file never enters the index (ADR-0577).
+						await backend.stage(paths, { except: isLocal });
 						return Ok(undefined);
 					},
 				);

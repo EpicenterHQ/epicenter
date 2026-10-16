@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0578](0578-epicenter-hosts-no-mcp-server.md): Epicenter hosts no MCP server; `mountMcpServer`, `hosted-repository.ts`, and the `mcp` audience are deleted.
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
 - **Unbuilt:** routing `mcp.epicenter.so` to the Worker, `write_files` against the Artifacts store, and Claude and ChatGPT end to end. The fetch cap counts a folder's whole history, committed recordings included, until LFS ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)) moves blobs out of it. Built: `mountMcpServer` (`packages/server/src/routes/mcp.ts`) on both entries, its Protected Resource Metadata, the six tools, and `write_files`' commit through the `GitHost` store, which copies the repository into memory with isomorphic-git on every call and refuses a repository whose fetch is larger than 8 MiB (`MAX_FETCH_BYTES` in `packages/server/src/hosted-repository.ts`); verified on Bun with the disk store and an MCP SDK client.
 
 ## Context

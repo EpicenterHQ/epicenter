@@ -66,7 +66,7 @@ test('passes allowlisted mirrors, comments, tests, and excluded dirs', () => {
 		write(
 			dir,
 			'apps/web/src/notes.ts',
-			" * hits '/api/blobs' eventually\n// see '/api/ai' for details\n",
+			" * hits '/api/session' eventually\n// see '/api/ai' for details\n",
 		);
 		// Test files may reference paths verbatim.
 		write(dir, 'packages/thing/src/client.test.ts', "mock('/api/session');\n");

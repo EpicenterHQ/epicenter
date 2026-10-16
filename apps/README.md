@@ -3,8 +3,9 @@
 An application keeps its data in a data folder: Markdown rows, `kv.json`,
 `epicenter.json`, and Git history beside them (`@epicenter/folder`). The files
 are the data. A recording is a file in the folder from its start
-(`@epicenter/recorder`); inference, hosted blobs, and secrets have their own
-constructors and lifetimes beside the folder.
+(`@epicenter/recorder`), and its audio stays on the machine that recorded it,
+ignored by Git; inference and secrets have their own constructors and
+lifetimes beside the folder.
 
 Epicenter's desktop applications run as SPAs in Tauri WebViews. Rust serves
 every page from one origin, `epicenter-app://localhost`, and owns native

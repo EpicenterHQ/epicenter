@@ -14,7 +14,6 @@ remote in its own `remote.origin.url` (ADR-0521). The files that carry it:
   with a token for one repository
 - `apps/api/worker/git-repositories.ts`: where Epicenter's hosted Git keeps
   repositories, in Cloudflare Artifacts
-- `packages/server/src/s3-blob-store.ts`: hosted blobs
 
 The Yjs store sync that came before this, an authority that held each document's
 updates as opaque bytes, is removed, and the next deploy deletes what it stored
@@ -55,27 +54,23 @@ Content is only half of what a server learns. The server also sees the metadata
 around the bytes: who pushed, to which repository, when, how much, and from which
 IP. Run the server yourself and that metadata is yours too.
 
-## Big files (audio, images) follow the same rule
+## Audio stays on the machine that recorded it
 
-Rows and documents ride Git, but large binaries do not belong in history, so
-audio and images go to a separate immutable blob store: an S3-compatible bucket
-reached through `packages/server/src/s3-blob-store.ts`. Those bytes are **not
-encrypted** either. Each object has a random opaque `BlobId`; SigV4 signs the
-short-lived upload or read capability, and `If-None-Match: *` prevents an
-existing ID from being overwritten. Reads are gated by auth plus a principal
-key prefix (`principals/<principalId>/blobs/<blobId>`), not by concealing the
-bytes. A blob's confidentiality therefore equals a document's: whoever operates
-the bucket can read it. Hosted, that operator is Epicenter (R2); self-hosted, it
-is your own bucket (Garage, S3). R2 and S3 encryption at rest does not change
-who can read through the operator's credentials.
-
-One configuration is easy to get wrong here. The blob store is a service the server calls, not a part of the sync topology, so the bytes follow the store's endpoint, not the document's home. A blob's upload URL is minted by whichever deployment you are talking to, and the bytes land in that deployment's bucket. Self-host the documents but point blobs at Epicenter's blob service, and your media lands in Epicenter's R2, readable by Epicenter, the same trust as hosted documents, even though the document itself never left your box. To keep media private on self-host, point the store at your own S3 (`BLOBS_S3_ENDPOINT`). A service only ever sees what you hand it; for the blob service, what you hand it is the bytes.
+Rows and documents ride Git, but large binaries do not belong in history.
+Whispering keeps audio in `audio/`, which its folder definition declares
+local: no commit Epicenter makes carries a file there, whatever `.gitignore`
+says, and the folder's `.gitignore` names `audio/` too. So a recording's
+audio never leaves the machine that recorded it; only the transcript row
+syncs. Epicenter hosts no blob store, so no server holds your
+audio unless you send it to a transcription service yourself
+([ADR-0577](adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
+Git LFS is the later path for carrying large files with a folder (ADR-0544).
 
 ## The AI gateways see the prompt and the audio
 
 The same "a service sees only what you hand it" rule governs inference. Epicenter's hosted gateways are two OpenAI-compatible routes on the cloud worker: `/v1/chat/completions` for chat (`packages/server/src/routes/inference.ts`) and `/v1/audio/transcriptions` for speech-to-text (`packages/server/src/routes/transcription.ts`). Both are pure passthrough proxies. The gateway holds the house key, attaches it, forwards your request to the upstream provider (OpenAI or Gemini for chat, OpenAI `whisper-1` for transcription), and streams the reply back. It is house-key-only by construction: it never reads a provider key from your request, so it cannot receive yours (ADR-0054).
 
-What that means for your bytes: when you transcribe through the hosted gateway, your audio leaves your device, reaches Epicenter's worker in memory for the duration of the one request, and is forwarded to the upstream STT provider under Epicenter's key. The worker writes nothing to the blob store, keeps no transcript, and retains nothing past the response; the only durable record is a metered usage event (audio seconds, model, provider) so the call can be billed. The audio is never used for training, by us or, per their API terms, by the upstream provider. The same holds for a chat prompt: it transits the worker to the provider and back, unstored. This is convenience, not privacy: the request is inside Epicenter's trust boundary and the upstream provider's for the moment it is in flight, exactly the trust you already accept for hosted chat.
+What that means for your bytes: when you transcribe through the hosted gateway, your audio leaves your device, reaches Epicenter's worker in memory for the duration of the one request, and is forwarded to the upstream STT provider under Epicenter's key. The worker stores nothing, keeps no transcript, and retains nothing past the response; the only durable record is a metered usage event (audio seconds, model, provider) so the call can be billed. The audio is never used for training, by us or, per their API terms, by the upstream provider. The same holds for a chat prompt: it transits the worker to the provider and back, unstored. This is convenience, not privacy: the request is inside Epicenter's trust boundary and the upstream provider's for the moment it is in flight, exactly the trust you already accept for hosted chat.
 
 The private path is the same shape as everywhere else: point the connection somewhere you operate. An inference connection is just `{ baseUrl, apiKey? }` (ADR-0060), so a surface can target a local server, your own Ollama for chat or a local Speaches box for transcription, and the bytes never leave your machine (see the [self-hosted transcription recipe](guides/self-hosted-transcription-speaches.md)). There is one runtime now, a desktop SPA in a WebView (ADR-0227), and it can reach `localhost`, so private is the reachable default rather than a thing the deployment target takes away. The hosted gateway stays there for convenience, inside our trust boundary.
 

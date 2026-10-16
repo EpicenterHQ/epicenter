@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-23
-- **Implemented portion (2026-09-23):** Personal authority routes publish, read, and delete owner-level URLs. An Account-bound TypeScript client provides `publishPrivate`, `publishPublic`, `download`, and `delete`. Both server deployments mount the routes.
-- **Unbuilt:** Shared owner authorization and routes, URL references in application rows, and owner-wide erasure.
+- **Withdrawn (2026-10-16):** Epicenter hosts no blobs ([ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md)). The Personal authority routes (`mountPersonalAuthorityBlobs`), `@epicenter/blobs`, and `s3-blob-store.ts` are deleted; nothing this record decides is built, and nothing should be built from it.
+- **Unbuilt:** all of it; see Withdrawn.
 - **Amends:** [ADR-0154](0154-blob-access-is-address-only.md) at hosted addressing: callers retain authority URLs instead of supplying a separate BlobId and store namespace; remote access remains address-only. [ADR-0372](0372-local-and-remote-blobs-open-independently.md) at hosted ownership: Local stores lend `.blobs`, while hosted blobs belong to a captured Account rather than a structured store definition. [ADR-0423](0423-app-resources-open-as-independent-handles.md) at hosted lifecycle: Account retirement fences hosted traffic, while workflow cancellation belongs to its caller. [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at hosted result shape: each publication returns a fresh URL rather than a store-relative BlobId. [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at hosted presentation: an authority URL is fetched as bytes, without a required remote `open` transport.
 
 ## Context

@@ -19,6 +19,8 @@
  * - Copying takes the newest transcript of each selected row in table order
  * - Transcribing several sends the audio each row names, once each, one at a
  *   time, and reports what was sent, skipped, and failed without retrying
+ * - A recording whose audio the folder does not hold says so on its row, and
+ *   it is skipped rather than sent
  * - Deleting several captures each deletion first, leaves out what the
  *   library refuses, removes only what was captured, and keeps the audio
  * - A transcript is edited in its own draft beside its recording, which stays
@@ -63,6 +65,13 @@ import {
 	openTestWorkspace,
 } from './workspace.test-support.js';
 
+/** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
+const recordingFiles = async (root: string) =>
+	[
+		...(await readdir(join(root, 'recordings')).catch(() => [] as string[])),
+		...(await readdir(join(root, 'audio')).catch(() => [] as string[])),
+	].sort();
+
 const { openSession } = await import('./session.svelte.ts');
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -100,7 +109,7 @@ async function history(
 		durationMs: number,
 		body = '',
 	) => {
-		const audioPath = `recordings/${stem}.wav`;
+		const audioPath = `audio/${stem}.wav`;
 		expectOk(await folder.files.create(audioPath, toneWav()));
 		expectOk(
 			await folder.tables.recordings.create(
@@ -443,8 +452,8 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	);
 
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
-		'recordings/lecture.wav',
+		'audio/dentist.wav',
+		'audio/lecture.wav',
 	]);
 	expect(outcome.transcribed).toEqual(['Dentist reminder', 'Lecture notes']);
 	expect(outcome.failed).toEqual([]);
@@ -454,7 +463,7 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	]);
 	expect(progress).toEqual([1, 2, 3, 4]);
 	expect(library.resultsFor('dentist')[0]!.row.body).toBe(
-		'words from recordings/dentist.wav\n',
+		'words from audio/dentist.wav\n',
 	);
 	expect((await readdir(join(root, 'transcriptions'))).length).toBe(5);
 
@@ -466,9 +475,37 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	expect(sent).toHaveLength(2);
 });
 
+test('a recording whose audio is not in the folder says so on its row and is not sent', async () => {
+	const { library, sent, root } = await history();
+	await rm(join(root, 'audio', 'lecture.wav'));
+	await settle(library);
+	expect(rowOf(library, 'lecture').audio).toEqual({
+		kind: 'absent',
+		path: 'audio/lecture.wav',
+	});
+	expect(rowOf(library, 'dentist').audio).toEqual({
+		kind: 'here',
+		path: 'audio/dentist.wav',
+	});
+
+	const outcome = await transcribeRows(library, [
+		path('dentist'),
+		path('lecture'),
+	]);
+	expect(sent.map((request) => request.audioPath)).toEqual([
+		'audio/dentist.wav',
+	]);
+	expect(outcome.skipped).toEqual([
+		{
+			title: 'Lecture notes',
+			reason: 'Its audio isn’t on this device.',
+		},
+	]);
+});
+
 test('a transcription that fails is reported, is not sent again, and does not stop the ones after it', async () => {
 	const { library, sent } = await history(async ({ audioPath }) => {
-		if (audioPath === 'recordings/dentist.wav')
+		if (audioPath === 'audio/dentist.wav')
 			throw new Error('the endpoint hung up');
 		return Ok({ text: 'arrived' });
 	});
@@ -480,8 +517,8 @@ test('a transcription that fails is reported, is not sent again, and does not st
 	]);
 
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
-		'recordings/lecture.wav',
+		'audio/dentist.wav',
+		'audio/lecture.wav',
 	]);
 	expect(outcome.transcribed).toEqual(['Lecture notes']);
 	expect(outcome.failed).toHaveLength(1);
@@ -501,7 +538,7 @@ test('a transcription that fails is reported, is not sent again, and does not st
 test('several are transcribed one at a time: the next is not sent until the one before it has answered', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
 	const { library, sent } = await history(({ audioPath }) =>
-		audioPath === 'recordings/dentist.wav'
+		audioPath === 'audio/dentist.wav'
 			? first.promise
 			: Promise.resolve(Ok({ text: 'arrived' })),
 	);
@@ -510,7 +547,7 @@ test('several are transcribed one at a time: the next is not sent until the one 
 	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
+		'audio/dentist.wav',
 	]);
 	expect(rowOf(library, 'dentist').status).toBe('transcribing');
 
@@ -552,7 +589,7 @@ test('deleting several captures each deletion first, removes exactly those with 
 		problems: [],
 	});
 
-	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
+	expect(await recordingFiles(root)).toEqual([
 		'broken.md',
 		'dentist.md',
 		'dentist.wav',
@@ -816,7 +853,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
+		'audio/dentist.wav',
 	]);
 
 	await session.close();
@@ -825,7 +862,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 
 	// One request, ever: the queued row was not sent, and nothing was sent twice.
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
+		'audio/dentist.wav',
 	]);
 	expect(outcome.skipped).toEqual([
 		{

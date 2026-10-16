@@ -75,7 +75,7 @@ test('a recipe written by an earlier build still reads, and a new one says “us
 
 test('a recording’s audio is only what its row names', () => {
 	expect(recordingAudioStem('20260102-030405-abcd')).toBe(
-		'recordings/20260102-030405-abcd',
+		'audio/20260102-030405-abcd',
 	);
 	expect(audioPathIn({ audioPath: 'audio/take.wav' })).toBe('audio/take.wav');
 	// A row with no path, or an empty one, names no audio. Nothing is guessed.

@@ -39,10 +39,8 @@ export const TOKEN_PREFIX = {
 export type OAuthAudiences = {
 	/** Inference and transcription. */
 	api: string;
-	/** Git smart HTTP, personal blobs, and `GET /api/repos`. */
+	/** Git smart HTTP and `GET /api/repos`. */
 	git: string;
-	/** The folder MCP server. */
-	mcp: string;
 };
 
 /**
@@ -53,7 +51,6 @@ export type OAuthAudiences = {
 export const SCOPES_SUPPORTED = {
 	api: ['ai'],
 	git: ['folders:read', 'folders:write'],
-	mcp: ['folders:read', 'folders:write'],
 } as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;
 
 /**
@@ -62,28 +59,18 @@ export const SCOPES_SUPPORTED = {
  * `allowedScopes` is what a token for the audience may carry. The library
  * intersects a request's scopes with it and stores the result on the refresh
  * token as well as the access token, so a list narrower than the grant would
- * shrink the grant on its first refresh for that audience. The first-party
- * audiences, `api` and `git`, therefore allow every scope: a refresh never
- * narrows the grant, and the audience alone keeps a Git token out of
- * inference. `mcp` allows only its own scopes, plus `openid` and
- * `offline_access`, as the ceiling for third-party clients, whose only
- * audience it is.
+ * shrink the grant on its first refresh for that audience. Every audience
+ * therefore allows every scope: a refresh never narrows the grant, and the
+ * audience alone keeps a Git token out of inference.
  */
 export function oauthResourceInputs(
 	audiences: OAuthAudiences,
 ): OAuthResourceInput[] {
-	const allowedScopes = {
-		api: [...OAUTH_SCOPES],
-		git: [...OAUTH_SCOPES],
-		mcp: ['openid', 'offline_access', ...SCOPES_SUPPORTED.mcp],
-	} satisfies Record<keyof OAuthAudiences, OAuthScope[]>;
-	return (Object.keys(allowedScopes) as (keyof OAuthAudiences)[]).map(
-		(kind) => ({
-			identifier: audiences[kind],
-			accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
-			allowedScopes: allowedScopes[kind],
-		}),
-	);
+	return Object.values(audiences).map((identifier) => ({
+		identifier,
+		accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
+		allowedScopes: [...OAUTH_SCOPES],
+	}));
 }
 
 /** SHA-256, base64url without padding: the provider's stored token form. */

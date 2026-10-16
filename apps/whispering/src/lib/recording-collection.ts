@@ -22,6 +22,7 @@ import type {
 	RecordingEntry,
 	TranscriptionEntry,
 } from './library.svelte.js';
+import type { RecordingAudio } from './recording-audio.js';
 
 export type RecordingStatus =
 	| 'transcribing'
@@ -48,6 +49,8 @@ export type RecordingRow = {
 	/** Transcripts with their answer, newest first. */
 	readonly transcripts: readonly TranscriptionEntry[];
 	readonly status: RecordingStatus;
+	/** Whether the audio its row names is in this device's folder. */
+	readonly audio: RecordingAudio;
 };
 
 export type RecordingSortKey = 'title' | 'recordedAt' | 'durationMs' | 'status';
@@ -64,7 +67,7 @@ export const DEFAULT_SORT: RecordingSort = {
 
 type Source = Pick<
 	Library,
-	'entries' | 'resultsFor' | 'transcriptionRun' | 'resultState'
+	'entries' | 'resultsFor' | 'transcriptionRun' | 'resultState' | 'audioOf'
 >;
 
 /** What the newest transcript of a recording shows, or undefined when it has none. */
@@ -102,6 +105,7 @@ export function recordingRows(library: Source): RecordingRow[] {
 			.resultsFor(entry.stem)
 			.filter((transcript) => transcript.row.body !== ''),
 		status: statusOf(library, entry.stem),
+		audio: library.audioOf(entry),
 	}));
 }
 
@@ -306,7 +310,8 @@ export type BulkTranscription = {
  * Transcribe the rows that have no transcript, one at a time in the order
  * given. Each is the library's own transcription of that row: only the audio
  * its file names is sent, once. A row that already has a transcript, finished
- * or not, names no audio, or has a transcription under way is not sent.
+ * or not, names no audio, names audio not on this device, or has a
+ * transcription under way is not sent.
  * Nothing is sent again here after a failure: trying again is the person's
  * choice. Once the library is closing, the rows still waiting are not sent;
  * the one already sent ends as it would have and is reported as it ended.
@@ -344,6 +349,8 @@ export async function transcribeRows(
 			skip('Its transcription did not finish. Open it to run it again.');
 		else if (audioPathIn(entry.row.fields) === undefined)
 			skip('Its file names no audio.');
+		else if (library.audioOf(entry).kind === 'absent')
+			skip('Its audio isn’t on this device.');
 		else {
 			await library.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:

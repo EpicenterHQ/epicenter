@@ -103,7 +103,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | --- | --- | --- |
 | [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes, installed in Epicenter or in a browser tab. Metadata stays in frontmatter, logical folders preserve note identity, and Git records saved files. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
-| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted blobs, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
+| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are files in one Git-versioned folder. |
 | [Todos](apps/todos) | Runs, development milestone | Opens at once over a folder; Connect sets its Git remote. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
@@ -128,7 +128,7 @@ The server side is split into one shared library and two deployable folders:
 ```txt
 packages/server
   shared Hono library
-  route composition for auth, sessions, blobs,
+  route composition for auth, sessions, hosted Git,
   and provider-backed inference and transcription
 
 apps/api
