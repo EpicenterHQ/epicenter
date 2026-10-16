@@ -9,11 +9,10 @@
  * Key behaviors:
  * - `attempt` starts a pass only when nothing runs or waits; otherwise it does
  *   nothing and never runs later
- * - `request` waits for the passes ahead and runs its own, in arrival order;
- *   a caller that left before its turn never starts a pass
+ * - `request` waits for the passes ahead and runs its own, in arrival order
  * - `follow` shares one pass that has not started; nobody joins a running one
  * - `close` aborts the active pass, waits for it, and tells waiting callers
- *   and later ones that the runner closed, whatever else they asked for
+ *   and later ones that the runner closed
  * - A throwing pass becomes a result and the runner keeps working
  * - Subjects name one path or count several, escape control characters, and
  *   fall back past 72 characters; user messages must be nonempty text
@@ -116,40 +115,6 @@ describe('createPassRunner', () => {
 		expect(starts()).toBe(2);
 	});
 
-	test('a request whose caller left before its turn never starts; one that left after it started runs on', async () => {
-		const { runner, gates, starts } = counting();
-		const leaving = (controller: AbortController) => ({
-			signal: controller.signal,
-			withdrawn: () => 'withdrawn',
-		});
-		const first = runner.request('a');
-		const queued = new AbortController();
-		const second = runner.request('b', leaving(queued));
-		const third = runner.request('c');
-		await Bun.sleep(0);
-		queued.abort();
-		gates[0]!.open();
-		expect(await first).toBe('pass 0 a');
-		expect(await second).toBe('withdrawn');
-		await Bun.sleep(0);
-		// The pass after the withdrawn one is `c`, not `b`.
-		expect(starts()).toBe(2);
-		gates[1]!.open();
-		expect(await third).toBe('pass 1 c');
-
-		// Already aborted when asked: nothing starts, and the runner is free.
-		expect(await runner.request('d', leaving(queued))).toBe('withdrawn');
-		expect(starts()).toBe(2);
-
-		// Aborted after its pass started: the pass is not interrupted.
-		const started = new AbortController();
-		const fourth = runner.request('e', leaving(started));
-		await Bun.sleep(0);
-		started.abort();
-		gates[2]!.open();
-		expect(await fourth).toBe('pass 2 e');
-	});
-
 	test('followers share one pass that starts after they asked and never join a running one', async () => {
 		const { runner, gates, starts } = counting();
 		// Asked together while idle: one pass serves both.
@@ -182,22 +147,14 @@ describe('createPassRunner', () => {
 		expect(starts()).toBe(3);
 	});
 
-	test('close tells a waiting follower and a waiting caller that left that the runner closed', async () => {
+	test('close tells a waiting follower that the runner closed', async () => {
 		const { runner, starts } = counting();
 		const first = runner.request('a');
 		const follower = runner.follow('b');
-		const controller = new AbortController();
-		const leaver = runner.request('c', {
-			signal: controller.signal,
-			withdrawn: () => 'withdrawn',
-		});
 		await Bun.sleep(0);
-		controller.abort();
 		await runner.close();
 		expect(await first).toBe('aborted 0');
 		expect(await follower).toBe('closed');
-		// Closing is the host's refusal and is reported before the caller's own.
-		expect(await leaver).toBe('closed');
 		expect(await runner.follow('d')).toBe('closed');
 		expect(starts()).toBe(1);
 	});

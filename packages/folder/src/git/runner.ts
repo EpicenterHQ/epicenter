@@ -9,8 +9,7 @@
  *
  * `request` is for a caller that awaits the result. It waits for the passes
  * ahead of it and then runs its own, so its pass reads inputs no older than
- * the request. Each waiting caller is one pass. A caller may leave before its
- * turn: its pass then never starts.
+ * the request. Each waiting caller is one pass.
  *
  * `follow` is for callers that only need a pass that starts after they asked.
  * Everyone who asks before that pass starts shares it; nobody joins a pass
@@ -21,21 +20,11 @@
  * without running.
  */
 
-/** A caller that may stop waiting, and the result it gets if it left before its turn. */
-export type Leaving<T> = {
-	readonly signal: AbortSignal;
-	readonly withdrawn: () => T;
-};
-
 export type PassRunner<TInput, T> = {
 	/** Starts a pass and returns its result, or `undefined` when one is running, waiting, or the runner is closed. */
 	attempt(input: TInput): Promise<T> | undefined;
-	/**
-	 * Runs a pass after those ahead of it. Resolves with the closed result once
-	 * closing started. With `leaving`, a signal already aborted when the turn
-	 * comes means the pass never starts; once started, the signal is ignored.
-	 */
-	request(input: TInput, leaving?: Leaving<T>): Promise<T>;
+	/** Runs a pass after those ahead of it. Resolves with the closed result once closing started. */
+	request(input: TInput): Promise<T>;
 	/** The result of the one pass that starts after this call and before any later `follow`. */
 	follow(input: TInput): Promise<T>;
 	readonly active: boolean;
@@ -81,20 +70,18 @@ export function createPassRunner<TInput, T>({
 		}
 	}
 
-	/** Queue one turn. `admit` decides, when the turn comes, whether it runs. */
-	function enqueue(input: TInput, admit: () => T | undefined): Promise<T> {
+	/** Queue one turn; `starting` hears when it begins to run. */
+	function enqueue(input: TInput, starting?: () => void): Promise<T> {
 		waiting++;
 		const result = tail.then(() => {
 			waiting--;
-			// Closing is the host's refusal and is reported before a caller's own.
 			if (fenced) return closed();
-			return admit() ?? pass(input);
+			starting?.();
+			return pass(input);
 		});
 		tail = result;
 		return result;
 	}
-
-	const always = () => undefined;
 
 	return {
 		get active() {
@@ -102,21 +89,17 @@ export function createPassRunner<TInput, T>({
 		},
 		attempt(input) {
 			if (fenced || controller !== undefined || waiting > 0) return undefined;
-			return enqueue(input, always);
+			return enqueue(input);
 		},
-		request(input, leaving) {
+		request(input) {
 			if (fenced) return Promise.resolve(closed());
-			if (leaving === undefined) return enqueue(input, always);
-			return enqueue(input, () =>
-				leaving.signal.aborted ? leaving.withdrawn() : undefined,
-			);
+			return enqueue(input);
 		},
 		follow(input) {
 			if (fenced) return Promise.resolve(closed());
 			follower ??= enqueue(input, () => {
 				// Starting now: whoever asks from here on needs the next pass.
 				follower = undefined;
-				return undefined;
 			});
 			return follower;
 		},
