@@ -48,6 +48,10 @@ function scripted(creates: ('created' | Error)[] = []) {
 			if (next instanceof Error) throw next;
 			return { name, token: 'ignored' } as ArtifactsCreateRepoResult;
 		},
+		async delete(name) {
+			calls.push(`delete ${name}`);
+			return true;
+		},
 	};
 	let clock = 0;
 	const host = createArtifactsGitHost({
@@ -171,6 +175,19 @@ test('a token Artifacts refuses is dropped, so the next request mints another', 
 	await host.serve(ID, request('git-upload-pack', true));
 	await host.serve(ID, request('git-upload-pack', true));
 	expect(minted).toHaveLength(2);
+});
+
+test('a delete removes the repository by its id and drops its cached tokens', async () => {
+	stubFetch();
+	const { host, calls, minted } = scripted();
+	await host.serve(ID, request('git-upload-pack', true));
+	await host.serve(ID, request('git-receive-pack', true));
+	await host.delete(ID);
+	expect(calls).toContain(`delete ${ID}`);
+	// The deleted repository's tokens are not kept.
+	await host.serve(ID, request('git-upload-pack', true));
+	await host.serve(ID, request('git-receive-pack', true));
+	expect(minted).toHaveLength(4);
 });
 
 test('the namespace var names the same namespace as the Artifacts binding', async () => {

@@ -29,7 +29,10 @@
  * authorization: the storage (`GitHost.create`), then the row. Two first
  * pushes at once insert one row (the `(namespace_id, name)` unique key); the
  * one that loses pushes into the winner's repository, where its ref update
- * fails as any stale push does, and leaves an empty store entry no row names.
+ * fails as any stale push does, after removing the empty storage it made. A
+ * row that could not be inserted leaves its storage: the insert may have
+ * committed and lost only its reply, so removing it could leave a row that
+ * names no storage.
  * Unrelated history to an existing name is refused because it is not a
  * fast-forward, which the store enforces.
  *
@@ -110,6 +113,11 @@ export type GitHost = {
 	 * error.
 	 */
 	create(id: string): Promise<void>;
+	/**
+	 * Remove repository `id`'s storage, after its row is gone. Removing one
+	 * that does not exist is not an error.
+	 */
+	delete(id: string): Promise<void>;
 };
 
 const FORWARDED_HEADERS = [
@@ -127,6 +135,10 @@ const GitHostError = defineErrors({
 	}),
 	CreateFailed: ({ path, cause }: { path: string; cause: unknown }) => ({
 		message: `Could not create ${path}: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
+	DeleteFailed: ({ id, cause }: { id: string; cause: unknown }) => ({
+		message: `Could not remove the storage of repository ${id}, which no row names: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 	ServeFailed: ({ cause }: { cause: unknown }) => ({
@@ -358,6 +370,10 @@ export function mountGitHost(
 					name: target.name,
 				});
 			} catch (cause) {
+				// Storage made for `id` stays. A failed insert may still have
+				// committed and lost only its reply, and a row naming missing
+				// storage would fail every request; storage no row names harms
+				// nothing.
 				log.error(
 					GitHostError.CreateFailed({
 						path: `${target.namespaceId}/${target.name}`,
@@ -371,6 +387,12 @@ export function mountGitHost(
 					'The repository could not be created.',
 				);
 			}
+			// Another first push inserted the row, so this push goes into that
+			// repository, and the storage made for `id` is certainly unnamed.
+			if (repository.id !== id)
+				await host.delete(id).catch((cause) => {
+					log.error(GitHostError.DeleteFailed({ id, cause }).error);
+				});
 		}
 
 		const headers = new Headers();

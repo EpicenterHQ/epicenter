@@ -9,6 +9,9 @@
  * for, and a client's credential never reaches storage. The copy lives for
  * one call and holds only Git objects: no working tree, no index.
  *
+ * A repository whose fetch is larger than `MAX_FETCH_BYTES` is refused
+ * while it streams in, before the copy completes.
+ *
  * A write merges nothing. It is refused when its base is not the head it
  * fetched, and refused again by the push when another writer moved the head
  * in between; the client reads again and writes again.
@@ -24,6 +27,21 @@ const STORE_URL = 'https://store.invalid/repository.git';
 const DEFAULT_BRANCH = 'refs/heads/main';
 const FORWARDED_HEADERS = ['content-type', 'accept', 'git-protocol'];
 const LFS_POINTER = 'version https://git-lfs.github.com/spec/v1\n';
+
+/**
+ * The most bytes one copy fetches from the store: the upload-pack response,
+ * which is the repository's packed history. A Worker isolate has 128 MiB.
+ * The copy holds its pack several times over (the response collected, the
+ * pack file in the memory file system, the pack loaded again to index and
+ * read it) plus the objects isomorphic-git inflates and caches, beside the
+ * runtime and this server's own code. The Worker peak is not measured: local
+ * workerd enforces no isolate memory limit. On Bun, a 14.6 MiB pack of text
+ * kept about 66 MiB after the open, so 8 MiB leaves room for that multiple and
+ * for a write's commit on top of it. Neither store answers a repository's
+ * size without reading it (Artifacts' binding and REST API report none), so
+ * the fetch itself is counted, and refused past this.
+ */
+export const MAX_FETCH_BYTES = 8 * 1024 * 1024;
 
 function fsError(code: string, path: string): Error {
 	return Object.assign(new Error(`${code}: ${path}`), { code });
@@ -132,12 +150,26 @@ async function collect(body: AsyncIterableIterator<Uint8Array>) {
 	return bytes;
 }
 
-async function* chunksOf(stream: ReadableStream<Uint8Array>) {
+/**
+ * The chunks of `stream`. Past `limit.bytes`, the stream is cancelled,
+ * `limit.exceeded` is set, and the iteration throws.
+ */
+async function* chunksOf(
+	stream: ReadableStream<Uint8Array>,
+	limit?: { bytes: number; exceeded: boolean },
+) {
 	const reader = stream.getReader();
+	let received = 0;
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
 			if (done) return;
+			received += value.byteLength;
+			if (limit !== undefined && received > limit.bytes) {
+				limit.exceeded = true;
+				await reader.cancel();
+				throw new Error(`the fetch exceeded ${limit.bytes} bytes`);
+			}
 			yield value;
 		}
 	} finally {
@@ -159,6 +191,7 @@ function storeHttp(
 	repositoryId: string,
 	accountId: string,
 	signal: AbortSignal,
+	fetchLimit: { bytes: number; exceeded: boolean },
 ): HttpClient {
 	return {
 		async request({ url, method = 'GET', headers = {}, body }) {
@@ -191,11 +224,29 @@ function storeHttp(
 				statusCode: response.status,
 				statusMessage: response.statusText,
 				headers: headerRecord(response.headers),
-				body: response.body === null ? undefined : chunksOf(response.body),
+				body:
+					response.body === null
+						? undefined
+						: chunksOf(
+								response.body,
+								// Only a fetch's pack is the repository's size.
+								service === 'git-upload-pack' && !advertisement
+									? fetchLimit
+									: undefined,
+							),
 			};
 		},
 	};
 }
+
+/** Why a repository was not opened. */
+export const RepositoryOpenError = defineErrors({
+	TooLarge: ({ bytes }: { bytes: number }) => ({
+		message: `This folder's history is larger than this tool can read (${bytes / (1024 * 1024)} MiB). Ask the person to open it in Epicenter or with git.`,
+		bytes,
+	}),
+});
+export type RepositoryOpenError = InferErrors<typeof RepositoryOpenError>;
 
 /** One file as `read_files` answers it. */
 export type FileContent =
@@ -262,7 +313,8 @@ function summarize(entry: Awaited<ReturnType<typeof git.log>>[number]) {
 
 /**
  * Copy repository `repositoryId` from `host` into memory and return what can
- * be read or written there. Throws when the store cannot be reached.
+ * be read or written there, or `TooLarge` past `MAX_FETCH_BYTES`. Throws when
+ * the store cannot be reached.
  */
 export async function openHostedRepository(
 	host: GitHost,
@@ -273,7 +325,8 @@ export async function openHostedRepository(
 	}: { repositoryId: string; accountId: string; signal: AbortSignal },
 ) {
 	const fs = memoryFs();
-	const http = storeHttp(host, repositoryId, accountId, signal);
+	const fetchLimit = { bytes: MAX_FETCH_BYTES, exceeded: false };
+	const http = storeHttp(host, repositoryId, accountId, signal, fetchLimit);
 	const cache = {};
 	await git.init({ fs, gitdir: GITDIR, bare: true, defaultBranch: 'main' });
 	await git.addRemote({ fs, gitdir: GITDIR, remote: 'origin', url: STORE_URL });
@@ -288,16 +341,23 @@ export async function openHostedRepository(
 		advertised.refs?.find((ref) => ref.ref === branch)?.oid ?? null;
 	let head: string | null = null;
 	if (advertisedHead !== null) {
-		const fetched = await git.fetch({
-			fs,
-			http,
-			gitdir: GITDIR,
-			cache,
-			remote: 'origin',
-			ref: branch.replace(/^refs\/heads\//, ''),
-			singleBranch: true,
-			tags: false,
-		});
+		let fetched: Awaited<ReturnType<typeof git.fetch>>;
+		try {
+			fetched = await git.fetch({
+				fs,
+				http,
+				gitdir: GITDIR,
+				cache,
+				remote: 'origin',
+				ref: branch.replace(/^refs\/heads\//, ''),
+				singleBranch: true,
+				tags: false,
+			});
+		} catch (cause) {
+			if (fetchLimit.exceeded)
+				return RepositoryOpenError.TooLarge({ bytes: fetchLimit.bytes });
+			throw cause;
+		}
 		head = fetched.fetchHead;
 	}
 	const at = (commit: string | undefined) => commit ?? head;
@@ -433,7 +493,7 @@ export async function openHostedRepository(
 		);
 	}
 
-	return {
+	return Ok({
 		/** The default branch's head commit, or null for an empty repository. */
 		head,
 		/** The branch a write moves, `refs/heads/<name>`. */
@@ -582,7 +642,9 @@ export async function openHostedRepository(
 				});
 			return Ok({ commit });
 		},
-	};
+	});
 }
 
-export type HostedRepository = Awaited<ReturnType<typeof openHostedRepository>>;
+export type HostedRepository = NonNullable<
+	Awaited<ReturnType<typeof openHostedRepository>>['data']
+>;

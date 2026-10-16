@@ -15,7 +15,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { GitHost } from './routes/git.js';
@@ -186,6 +186,9 @@ export function createDiskGitHost({
 				['init', '--quiet', '--bare', '--initial-branch=main', path],
 				noHooks,
 			);
+		},
+		async delete(id) {
+			await rm(repositoryPath(root, id), { recursive: true, force: true });
 		},
 		async serve(id, request) {
 			await prepare();

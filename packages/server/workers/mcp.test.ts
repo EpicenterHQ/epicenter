@@ -30,6 +30,7 @@ function emptyRepositoryHost() {
 	const zero = '0'.repeat(40);
 	const host: GitHost = {
 		async create() {},
+		async delete() {},
 		async serve(_id, request) {
 			if (request.advertisement)
 				return new Response(
@@ -57,11 +58,12 @@ function emptyRepositoryHost() {
 
 test('isomorphic-git commits and pushes through a GitHost in workerd', async () => {
 	const { host, pushes } = emptyRepositoryHost();
-	const repository = await openHostedRepository(host, {
+	const { data: repository, error } = await openHostedRepository(host, {
 		repositoryId: 'aaaaaaaaaaaaaaaa',
 		accountId: 'account',
 		signal: new AbortController().signal,
 	});
+	if (error !== null) throw new Error(error.message);
 	expect(repository.head).toBeNull();
 	const written = await repository.commit({
 		base: null,
