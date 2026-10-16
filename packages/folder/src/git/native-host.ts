@@ -8,13 +8,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { delimiter, dirname, join } from 'node:path';
-import { nodeDirectoryPrimitives } from '../directory-node.js';
 import type { GitInstall } from './errors.js';
 import {
 	credentialEnvironment,
 	GitCommandError,
 	type GitRun,
-	type NativeGitHost,
 } from './native-backend.js';
 
 /**
@@ -479,9 +477,4 @@ function spawnGit(
 		if (options.input !== undefined) child.stdin.end(options.input);
 		else child.stdin.end();
 	});
-}
-
-/** The system `git` in `root`, and `node:fs`. */
-export function nodeGitHost(root: string): NativeGitHost {
-	return { run: createGitRunner(root), files: nodeDirectoryPrimitives };
 }
