@@ -3,10 +3,6 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 export default {
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter({
-			pages: process.env.GIT_DESKTOP ? 'build-desktop' : 'build',
-			assets: process.env.GIT_DESKTOP ? 'build-desktop' : 'build',
-			fallback: 'index.html',
-		}),
+		adapter: adapter({ fallback: 'index.html' }),
 	},
 };

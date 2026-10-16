@@ -244,7 +244,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '',
 		minArgs: 0,
 		maxArgs: 0,
-		options: [{ name: 'dry-run' }],
+		// `--user-only` is the app's launch call: the per-user link, never `sudo`.
+		options: [{ name: 'dry-run' }, { name: 'user-only', hidden: true }],
 		summary: 'link this binary onto PATH as epicenter',
 		adr: 'ADR-0556',
 		hidden: true,

@@ -257,6 +257,7 @@ test("paths follow the shell's rule: an absolute override wins, else the release
 		buildsDir: '/c/builds',
 		approvalsFile: '/d/approvals.json',
 		dataDir: '/d',
+		commandLink: '/d/bin/epicenter',
 		cacheDir: '/c',
 	});
 	expect(resolveAppPaths({ EPICENTER_FOLDER_DIR: '' }, home).appsDir).toBe(

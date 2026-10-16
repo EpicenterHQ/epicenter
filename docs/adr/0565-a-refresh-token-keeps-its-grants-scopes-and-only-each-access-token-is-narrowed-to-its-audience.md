@@ -116,9 +116,9 @@ and fits its own behavior to the library's:
   so a broader helper such as the system `osxkeychain` is never asked to
   `store` the token. This relies on Git resetting its helper list at an empty
   value, which covers helpers configured earlier (the system file); a helper
-  the person adds later in their global file is still asked. The absolute path is the compiled binary's own path, or
-  `bun` and the entry when run from source, so the helper never depends on
-  `PATH`. This replaces ADR-0558's `!epicenter auth git-credential`.
+  the person adds later in their global file is still asked. The absolute path is the per-user link
+  `<dataDir>/bin/epicenter` (ADR-0566), or `bun` and the entry when run from
+  source, so the helper never depends on `PATH` and survives moving the app. This replaces ADR-0558's `!epicenter auth git-credential`.
 - **Audiences come from one function.** `resolveOAuthAudiences` in
   `@epicenter/constants/apps` maps a deployment's API origin to its three
   audiences. The API seeds and checks them, and the CLI requests and presents

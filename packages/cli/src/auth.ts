@@ -928,7 +928,8 @@ export const shellQuote = (value: string) =>
  * Make this CLI Git's credential helper for the deployment's Git audience in
  * the person's global configuration (ADR-0558). An empty helper first clears
  * the helpers a broader configuration set, so no other helper is asked to
- * store the token.
+ * store the token. `command` is `gitCommand()` (`install-command.ts`): the
+ * per-user link, so moving the app does not break the helper (ADR-0566).
  */
 export async function configureGitHelper(
 	ctx: AuthContext,
@@ -957,14 +958,4 @@ export async function configureGitHelper(
 		(await run(['--replace-all', key, ''])) ??
 		(await run(['--add', key, helper]));
 	return failed === null ? Ok(helper) : Err(failed);
-}
-
-/**
- * How Git runs this CLI: the compiled binary by its own path, or `bun` and
- * the entry when run from source.
- */
-export function selfCommand(): string[] {
-	const compiled =
-		Bun.main.startsWith('/$bunfs/') || /^[A-Z]:[\\/]~BUN[\\/]/i.test(Bun.main);
-	return compiled ? [process.execPath] : [process.execPath, Bun.main];
 }

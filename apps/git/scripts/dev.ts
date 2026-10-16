@@ -24,23 +24,12 @@ const { session, stop } = existing
 console.log(
 	`Git lab: http://127.0.0.1:5190\nRemote: ${session.remoteUrl}\nDemo files: ${session.root}`,
 );
-const desktop = process.argv.includes('--desktop');
-const child = Bun.spawn(
-	desktop
-		? [process.execPath, 'x', 'tauri', 'dev']
-		: [process.execPath, 'x', 'vite', 'dev'],
-	{
-		cwd: new URL('..', import.meta.url).pathname,
-		env: {
-			...process.env,
-			GIT_LAB_REMOTE: session.remoteUrl,
-			GIT_LAB_ROOT: process.env.GIT_LAB_ROOT ?? session.root + '/desktop',
-		},
-		stdin: 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit',
-	},
-);
+const child = Bun.spawn([process.execPath, 'x', 'vite', 'dev'], {
+	cwd: new URL('..', import.meta.url).pathname,
+	stdin: 'inherit',
+	stdout: 'inherit',
+	stderr: 'inherit',
+});
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
 	process.on(signal, () => {
 		child.kill();

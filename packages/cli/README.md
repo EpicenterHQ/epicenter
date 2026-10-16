@@ -144,14 +144,30 @@ so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the AI connections' seeded from its JSON and the sign-ins' empty, so tests
 never touch the real one.
 
-`install-command` is ADR-0558's hidden command. It links the compiled binary
-onto `PATH` as `/usr/local/bin/epicenter` (ADR-0556's "Install the epicenter
-command"):
-it makes or replaces a symbolic link and refuses a regular file. When the
-directory is missing or not writable, it asks a person at a terminal before
-running `sudo`; with `--json` or without a terminal it exits 1 and names the
-`sudo` command. Run from source under `bun`, it refuses, since it would link
-`bun` itself.
+`install-command` is ADR-0558's hidden command. It keeps two links (ADR-0566):
+
+```txt
+<data dir>/bin/epicenter    -> the compiled binary        always remade, never with sudo
+/usr/local/bin/epicenter    -> <data dir>/bin/epicenter   ~/.local/bin/epicenter on Linux
+```
+
+Every Git configuration the CLI writes, the credential helper and
+`merge.epicenter.driver`, runs `<data dir>/bin/epicenter`
+(`~/Library/Application Support/so.epicenter/bin/epicenter` on macOS), so
+moving the app breaks neither past its next launch. The desktop app runs
+`install-command --user-only --json` at every launch, which remakes only that
+link; `auth login`, `merge-driver <dir>`, `sync --to`, and `clone` remake it
+(`gitCommand`) before they write configuration. A binary under macOS's App
+Translocation (`/private/var/folders/.../AppTranslocation/`) leaves the link as
+it is and says so. A Linux AppImage copies the binary there instead of
+linking, since its own path disappears when it quits. On Windows the
+configuration names the installed `.exe`.
+
+The `PATH` link is a symbolic link only, and a regular file there is refused.
+When its directory cannot be written or made, it asks a person at a terminal
+before running `sudo`; with `--json` or without a terminal it exits 1 and
+names the `sudo` command. Run from source under `bun`, it refuses, since it
+would link `bun` itself.
 
 ## Signing in
 
@@ -174,7 +190,7 @@ that access token to the audience's scopes while the grant keeps all of
 them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
 request. The device login also sets, in Git's global configuration, an empty
-`credential.<git audience>.helper` and then `!'<this binary>' auth
+`credential.<git audience>.helper` and then `!'<data dir>/bin/epicenter' auth
 git-credential`, so no broader helper is asked to store the token.
 
 `auth token [--resource <url>]` prints an access token for the API or the
@@ -235,7 +251,7 @@ text by line. It writes two things, neither committed:
 ```txt
 .git/info/attributes   * merge=epicenter
 .git/config            merge.epicenter.name   = Epicenter folder merge
-                       merge.epicenter.driver = '<this binary>' merge-driver -- %O %A %B %P
+                       merge.epicenter.driver = '<data dir>/bin/epicenter' merge-driver -- %O %A %B %P
 ```
 
 A sync that connects a remote (`--remote` or `--to`) writes the same, and `clone` does after cloning. A plain `git clone` does not
@@ -301,12 +317,12 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/commands.ts` | Every command ADR-0558 names, with its usage and ADR. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
-| `src/install-command.ts` | `install-command`. |
+| `src/install-command.ts` | `install-command`, and `gitCommand`: the per-user link Git's configuration runs. |
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names, the credential helper, and the repository's first creation. |
 | `src/merge-driver.ts` | `merge-driver`: Git's merge driver, and the repository configuration that names it. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
-| `src/app-paths.ts` | Where installed apps, approvals, builds, and the sign-in locks live, by the shell's rule. |
+| `src/app-paths.ts` | Where installed apps, approvals, builds, the sign-in locks, and the per-user link live, by the shell's rule. |
 | `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
 | `src/auth.ts` | The two grants: device and loopback sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |

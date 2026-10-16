@@ -1,6 +1,6 @@
 # Git lab
 
-Git lab is a browser and standalone Tauri testbed for `@epicenter/folder`.
+Git lab is a browser testbed for `@epicenter/folder`.
 Each working copy owns its files, index, and local history. Git transfers
 changes between copies. Opening two views of one folder would miss that boundary.
 
@@ -8,26 +8,21 @@ Start from the repository root:
 
 ```sh
 bun dev:git
-bun dev:git:desktop
 ```
 
-The browser is at `http://127.0.0.1:5190/?copy=a`; open `?copy=b` in another
-tab. Desktop opens windows A and B. The desktop shell edits files only: a
-desktop page's history runs in the `epicenter` CLI, which only the Epicenter
-shell starts
-([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)),
-so Git actions and Sync answer `Failed` there until this shell runs it too.
-Use the browser build to exercise history. Both development commands start or reuse
-one loopback smart HTTP backend on port 5191. The command that starts that
-backend owns its lifetime. Keep it running while the other platform uses it.
+The lab is at `http://127.0.0.1:5190/?copy=a`; open `?copy=b` in another
+tab. It has no desktop shell. A desktop page's history runs in the `epicenter`
+CLI, which only the Epicenter shell starts
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+The development command starts or reuses one loopback smart HTTP backend on
+port 5191. The command that starts that backend owns its lifetime.
 The printed temporary root contains the bare remote and seed checkout.
 `GIT_LAB_DEMO_ROOT` reopens a marked experiment. Fresh experiments have distinct
 remote URLs, so their browser working copies start separately.
 
 Select a file to edit raw text, including Markdown. Autosaves replace the
 captured file conditionally. Changes made outside the page arrive through
-`folder.onFilesChanged`: on the desktop from the shell's watcher of the copy,
-in a browser from other tabs open on the same copy. Each one reads the file
+`folder.onFilesChanged` from other tabs open on the same copy. Each one reads the file
 list and status again, and the open file when the change names it. The page
 also reads again after each of its own actions. An outside change cannot
 discard typed input: an edited buffer keeps the version it started from, and
@@ -50,7 +45,7 @@ and worktree columns; ahead and behind are relative to the last fetched head.
 Pull applies the fetched head only as a fast-forward. Merge merges it when it
 fast-forwards or merges cleanly; a conflict writes nothing and points to Sync.
 If publication stops partway, the files it wrote show as changes, and the
-next Sync records and merges them, in the browser and on the desktop.
+next Sync records and merges them.
 
 Enter an HTTP(S) remote or leave the URL empty for local history. A copy
 with no origin connects to the remote once, when it opens, and keeps it as
@@ -58,33 +53,17 @@ with no origin connects to the remote once, when it opens, and keeps it as
 transport uses fetch and needs a same-origin endpoint or a server that permits
 Git requests through CORS. The development proxy only reaches the disposable
 loopback remote. There is no browser credential flow or general CORS proxy.
-GitHub support has not been demonstrated. Desktop uses installed Git with
-interactive credential prompts disabled; configured Git credential helpers
-can apply. SSH remotes are not accepted by this app.
-
-The standalone bundle runs the same page and the same TypeScript folder
-engine over a directory the shell grants. Rust chooses directories under app
-data (or `GIT_LAB_ROOT` during development), creates them, and registers each
-copy for the one window that opens it first; that window keeps it until the
-app quits, and the other window is refused. Commits take `user.name` and
-`user.email` from Git configuration, global included; "Working copy A" or
-"B" applies only where none is set. The capability grants the folder
-plugin's commands and the app's copy commands to windows A and B. The page
-reads through the folder plugin, inside the copy's directory alone; the shell
-makes every write and runs Git. Quitting waits briefly for writes and Git commands already
-running; text typed in the last moment before an autosave can be lost. CSP
-allows IPC; remote Git transport runs in installed Git and needs no browser
-network grant.
+GitHub support has not been demonstrated. SSH remotes are not accepted by
+this app.
 
 ```sh
 bun run --cwd apps/git test
 bun run --cwd apps/git typecheck
 bun run --cwd apps/git build
-bun run --cwd apps/git build:desktop-ui
-bun run --cwd apps/git build:desktop
 ```
 
-Computer use, with the terminal this lab had then, demonstrated native editor saves reaching terminal reads,
+Computer use, with the terminal and desktop shell this lab had then (both since
+deleted), demonstrated native editor saves reaching terminal reads,
 native staging and commits, native pushes reaching the loopback remote,
 browser fetch changing ahead/behind without receiving files, and pull refusing
 uncommitted changes. Browser interaction also demonstrated clean-editor refresh,

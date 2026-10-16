@@ -162,7 +162,7 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 
 `bun dev:whispering` runs Whispering's page in a browser tab; on the desktop it, like Honeycrisp, is installed into Epicenter. `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
 
-The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter and the Git lab. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
+The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
 
 `bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
 

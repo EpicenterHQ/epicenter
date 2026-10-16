@@ -80,9 +80,12 @@ The one binary has three uses:
   cached access tokens are in the CLI's keychain entry; no token reaches a
   page or Rust.
 
-`epicenter install-command`, run from the bundled binary, links it onto `PATH`
-as `/usr/local/bin/epicenter`, asking before `sudo` when that directory is not
-writable. Settings does not offer it yet.
+At every launch a release build runs `epicenter install-command --user-only
+--json`, which points `<data dir>/bin/epicenter` at the bundled binary, so the
+Git configuration that names that link survives moving the app (ADR-0566).
+`epicenter install-command`, run from the bundled binary, also links
+`/usr/local/bin/epicenter` to it, asking before `sudo` when that directory is
+not writable. Settings does not offer it yet.
 
 ## Configure the server
 

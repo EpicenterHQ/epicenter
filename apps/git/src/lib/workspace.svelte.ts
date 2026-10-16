@@ -20,7 +20,6 @@ import {
 	writtenFile,
 } from '@epicenter/folder/query';
 import { describeSync } from '@epicenter/svelte/sync-line';
-import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Result } from 'wellcrafted/result';
 
 export type WorkingCopy = NonNullable<
@@ -29,23 +28,19 @@ export type WorkingCopy = NonNullable<
 
 export async function openWorkingCopy(copy: string, remote: string) {
 	remote = remote.trim();
-	let id: string;
-	if (isTauri()) id = await invoke<string>('open_copy', { copy, remote });
-	else {
-		if (remote) {
-			const url = new URL(remote);
-			if (!['http:', 'https:'].includes(url.protocol))
-				throw new Error('Use an HTTP or HTTPS Git remote');
-		}
-		const digest = await crypto.subtle.digest(
-			'SHA-256',
-			new TextEncoder().encode(remote),
-		);
-		const key = Array.from(new Uint8Array(digest), (b) =>
-			b.toString(16).padStart(2, '0'),
-		).join('');
-		id = `so.epicenter.git.${key}.${copy}`;
+	if (remote) {
+		const url = new URL(remote);
+		if (!['http:', 'https:'].includes(url.protocol))
+			throw new Error('Use an HTTP or HTTPS Git remote');
 	}
+	const digest = await crypto.subtle.digest(
+		'SHA-256',
+		new TextEncoder().encode(remote),
+	);
+	const key = Array.from(new Uint8Array(digest), (b) =>
+		b.toString(16).padStart(2, '0'),
+	).join('');
+	const id = `so.epicenter.git.${key}.${copy}`;
 	// A working copy is an existing folder, not this app's data: it opens with
 	// its own epicenter.json, if any, and saving never writes that file.
 	const opened = await openDataFolder({

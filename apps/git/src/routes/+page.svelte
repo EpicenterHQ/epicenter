@@ -1,7 +1,6 @@
 <script lang="ts">
  import { onMount, tick } from 'svelte';
  import { SvelteSet } from 'svelte/reactivity';
- import { invoke, isTauri } from '@tauri-apps/api/core';
  import { Button } from '@epicenter/ui/button';
  import { Input } from '@epicenter/ui/input';
  import * as Alert from '@epicenter/ui/alert';
@@ -35,22 +34,16 @@
  const rows = $derived(workspace ? visibleRows(workspace.listing, expanded) : []);
  const sync = $derived(workspace?.snapshot.sync);
  const location = $derived(workspace?.folder.location);
- const desktop = isTauri();
  let alive = true;
 
  onMount(() => {
   void (async () => {
    try {
-    if (desktop) {
-     const info = await invoke<{ remote: string; copy: string }>('demo_info');
-     remote = info.remote; copy = info.copy;
-    } else {
-     copy = new URL(locationHref()).searchParams.get('copy') === 'b' ? 'b' : 'a';
-     const response = await fetch('/demo/session');
-     if (!response.ok) throw new Error('The demo remote is unavailable. Enter a remote URL or leave it empty to work locally.');
-     const session = await response.json();
-     remote = new URL(session.browserRemotePath, locationHref()).href;
-    }
+    copy = new URL(locationHref()).searchParams.get('copy') === 'b' ? 'b' : 'a';
+    const response = await fetch('/demo/session');
+    if (!response.ok) throw new Error('The demo remote is unavailable. Enter a remote URL or leave it empty to work locally.');
+    const session = await response.json();
+    remote = new URL(session.browserRemotePath, locationHref()).href;
    } catch (error) { message = error instanceof Error ? error.message : String(error); }
    finally { initializing = false; }
   })();
@@ -82,7 +75,7 @@
  <header class="flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3">
   <GitBranch class="size-5" />
   <span class="font-semibold">Git lab</span>
-  <span class="text-sm text-muted-foreground">{desktop ? 'Desktop' : 'Browser'} · Working copy {copy.toUpperCase()}</span>
+  <span class="text-sm text-muted-foreground">Working copy {copy.toUpperCase()}</span>
   <div class="ml-auto flex gap-2">
    <Button size="sm" variant="ghost" onclick={() => { showGuide = !showGuide; }} aria-expanded={showGuide}>Demo guide</Button>
    <Button size="sm" variant="outline" onclick={() => { showGit = !showGit; }} aria-expanded={showGit}><GitCommitHorizontal class="size-4" />Git</Button>
@@ -108,7 +101,7 @@
  {/if}
  {#if showGuide}
   <section aria-label="Demo guide" class="shrink-0 space-y-2 border-b bg-muted/30 px-4 py-3 text-sm">
-   <p>Open A and B on the same remote. Each keeps its own files. In a browser, use a second tab with <code>?copy=b</code>; the desktop app opens two windows, and a copy stays with the window that opened it until the app quits.</p>
+   <p>Open A and B on the same remote. Each keeps its own files. Open B in a second tab with <code>?copy=b</code>.</p>
    <p>Both start with <code>notes/color.txt</code> containing <code>color=blue</code>. In A, change it to red and press <strong>Sync</strong>: A commits what it saved, brings in the remote, and pushes.</p>
    <p>In B, press <strong>Sync</strong>: red arrives. Edits to different lines of a file combine on their own.</p>
    <p>For a conflict, change the same line in both copies, say green in B and yellow in A. Sync A first, then Sync B. B shows its version and the remote's side by side and writes nothing until you choose one, or type your own, and press <strong>Apply and sync</strong>. <strong>Cancel</strong> forgets the review; nothing changed. A can then Sync the result.</p>

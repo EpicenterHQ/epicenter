@@ -98,7 +98,7 @@ fn update_args(id: &str, commit: Option<&str>, approve: bool) -> Vec<OsString> {
 }
 
 /// This shell's directories, as the CLI reads them (`app-paths.ts`).
-fn directory_env(paths: &DesktopPaths) -> Vec<(OsString, OsString)> {
+pub(crate) fn directory_env(paths: &DesktopPaths) -> Vec<(OsString, OsString)> {
     vec![
         ("EPICENTER_DATA_DIR".into(), paths.data_dir.clone().into()),
         (

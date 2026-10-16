@@ -175,8 +175,7 @@
 		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build",
 		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build",
-		"dev:git": "bun run --cwd apps/git dev",
-		"dev:git:desktop": "bun run --cwd apps/git dev:desktop"
+		"dev:git": "bun run --cwd apps/git dev"
 	},
 	"devDependencies": {
 		"@y/y": "14.0.0-rc.26",
