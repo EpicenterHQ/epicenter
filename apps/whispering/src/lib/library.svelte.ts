@@ -57,7 +57,7 @@ import type {
 	StoredRow,
 	TableError,
 	TableListing,
-	TableSaveError,
+	TableSetBodyError,
 } from '@epicenter/folder';
 import { parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import {
@@ -69,7 +69,7 @@ import {
 import {
 	folderOptions,
 	runMutation,
-	type SaveRowVariables,
+	type SetBodyVariables,
 	type TableOptions,
 	whenIdle,
 } from '@epicenter/folder/query';
@@ -646,20 +646,19 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		if (held !== undefined) return held;
 		const save = optionsOf(
 			table,
-		).save.mutationOptions() as unknown as MutationObserverOptions<
+		).setBody.mutationOptions() as unknown as MutationObserverOptions<
 			SavedRow<Fields>,
-			TableSaveError,
-			SaveRowVariables<Fields>
+			TableSetBodyError,
+			SetBodyVariables<Fields>
 		>;
 		const draft = createBodyDraftState<Fields>({
 			save: ({ base, content }) =>
-				runMutation(queryClient, save, {
-					base,
-					row: { fields: base.row.fields, body: content },
-				}).catch((error: TableSaveError) => {
-					bodySaveFailed(path, error);
-					throw error;
-				}),
+				runMutation(queryClient, save, { base, text: content }).catch(
+					(error: TableSetBodyError) => {
+						bodySaveFailed(path, error);
+						throw error;
+					},
+				),
 			onSaved: tell(path),
 		});
 		const typed = {
@@ -674,7 +673,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	 * A body's save failed. It is kept for the next save, unless the file is
 	 * gone: a save never recreates a row, so that body is dropped.
 	 */
-	function bodySaveFailed(path: string, error: TableSaveError) {
+	function bodySaveFailed(path: string, error: TableSetBodyError) {
 		if (error.name !== 'NotFound') {
 			notify({ kind: 'failed', path, error, lost: undefined });
 			return;
@@ -957,14 +956,12 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return;
 		}
 		const lengthError = await track(async () => {
-			const { data: stored, error } = await tableOf(RECORDINGS).get(id);
-			if (error !== null) return describeError(error);
-			if (stored === undefined) return undefined;
-			const { error: replaceError } = await tableOf(RECORDINGS).save(stored, {
-				fields: { ...stored.row.fields, durationMs: stopped.durationMs },
-				body: stored.row.body,
+			// A field edit: set the length on the file as it is now (ADR-0575).
+			const { error } = await tableOf(RECORDINGS).update(id, {
+				set: { durationMs: stopped.durationMs },
 			});
-			return replaceError === null ? undefined : describeError(replaceError);
+			if (error === null || error.name === 'NotFound') return undefined;
+			return describeError(error);
 		}, path);
 		if (lengthError !== undefined)
 			recorderError = `The recording is saved, but its length could not be written: ${lengthError}`;

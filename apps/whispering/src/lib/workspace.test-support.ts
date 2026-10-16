@@ -238,8 +238,8 @@ const refusedResult = (path: string, operation: 'create' | 'write') =>
 /**
  * A result table whose next creates fail before writing, as many times as
  * `failures.starts` says, and whose next answers fail the same way, as many
- * times as `failures.answers` says. An answer fills its row through a save
- * that does not merge. A test may arm more after opening.
+ * times as `failures.answers` says. An answer fills its row through
+ * `setBody`. A test may arm more after opening.
  */
 export function withResultFailures<TFields>(
 	table: FileTable<TFields>,
@@ -252,11 +252,10 @@ export function withResultFailures<TFields>(
 			failures.starts -= 1;
 			return refusedResult(`${table.name}/${options?.stem}.md`, 'create');
 		},
-		async save(file, row, options) {
-			if (options?.merge !== false || failures.answers === 0)
-				return table.save(file, row, options);
+		async setBody(base, text) {
+			if (failures.answers === 0) return table.setBody(base, text);
 			failures.answers -= 1;
-			return refusedResult(file.path, 'write');
+			return refusedResult(base.path, 'write');
 		},
 	};
 }
