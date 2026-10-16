@@ -18,6 +18,7 @@ export {
 	type KvOf,
 	RESERVED_TABLE_NAMES,
 	type RowOf,
+	SETTINGS_TABLE,
 	type TableDeclaration,
 } from './declaration.js';
 export {

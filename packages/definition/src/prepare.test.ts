@@ -37,6 +37,8 @@
  *   holding `undefined` is absent
  * - `field.optional` makes a field absentable; `field.nullable` over an
  *   optional schema throws. Every KV field is optional once prepared
+ * - The `settings` table declares only `field.optional` fields; another table
+ *   with the same fields keeps them required
  * - A native `default` annotation is admitted and inert: it fills nothing, and
  *   a missing required field is still an issue
  * - A frozen declared schema is prepared with every check it had
@@ -1913,6 +1915,39 @@ test('every KV field is optional once prepared, and the declaration is left as w
 	const fields = rowFields(declared);
 	expect(isOptional(fieldOf(fields, 'theme'))).toBe(false);
 	expect(isOptional(fieldOf(fields, 'note'))).toBe(true);
+});
+
+test('the settings table declares only optional fields, and another table may require them', () => {
+	const settings = defineTable({
+		fields: {
+			theme: field.optional(field.select(['light', 'dark'])),
+			width: field.optional(Type.Integer()),
+		},
+	});
+	const prepared = expectOk(prepareSchema({ kv: {}, tables: { settings } }));
+	// An unset setting is the application's default, never an issue.
+	expect(check(prepared.tables.settings.fields, {}, 'read')).toEqual({
+		conforming: {},
+		issues: [],
+	});
+
+	const required = defineTable({
+		fields: { theme: field.optional(field.string()), width: Type.Integer() },
+	});
+	expect(
+		expectErr(prepareSchema({ kv: {}, tables: { settings: required } })),
+	).toMatchObject({
+		name: 'UnrecognizedField',
+		table: 'settings',
+		field: 'width',
+		message: expect.stringContaining('field.optional'),
+	});
+	const elsewhere = expectOk(
+		prepareSchema({ kv: {}, tables: { display: required } }),
+	);
+	expect(isOptional(fieldOf(elsewhere.tables.display.fields, 'width'))).toBe(
+		false,
+	);
 });
 
 test('a schema JSON would rewrite, data with ~ keys, and draft-7 dependencies are judged as a file holds them', () => {

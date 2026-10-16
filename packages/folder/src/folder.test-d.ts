@@ -658,6 +658,33 @@ defineFolder({
 	},
 });
 
+// The settings table's fields may all be unset; a required one is refused.
+defineFolder({
+	kv: {},
+	tables: {
+		settings: defineTable({
+			fields: {
+				theme: field.optional(field.select(['light', 'dark'])),
+				width: field.optional(field.integer()),
+			},
+		}),
+	},
+});
+defineFolder({
+	kv: {},
+	tables: {
+		// @ts-expect-error A setting may be unset, so it is field.optional.
+		settings: defineTable({
+			fields: {
+				theme: field.string(),
+				width: field.optional(field.integer()),
+			},
+		}),
+		// The same fields in another table stay required.
+		display: defineTable({ fields: { theme: field.string() } }),
+	},
+});
+
 // A set takes any declared fields, each at its declared type.
 type Errand = { title: string; note?: string; due?: string | null };
 expectTypeOf<{ due: null; note: 'x' }>().toExtend<Partial<Errand>>();

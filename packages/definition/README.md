@@ -53,6 +53,10 @@ What preparation adds is ownership and a validator:
   ordinary entry and a name the schema lacks reads as `undefined`.
 - Every KV field becomes optional: an unset setting means the application's
   default.
+- A table named `settings` (`SETTINGS_TABLE`) holds settings, one row per
+  concern, and declares only `field.optional` fields: a setting may always be
+  unset. A required field there is refused with its name; `defineFolder`
+  refuses it in the types too.
 - TypeBox's compiled validator for each field is held privately beside it.
   `check` looks it up by the field's identity.
 

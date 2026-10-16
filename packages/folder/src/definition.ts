@@ -14,11 +14,13 @@
  * dangle.
  */
 import {
+	type CreateRowOf,
 	type DataSchema,
 	type DeclaredTable,
 	type FieldMap,
 	KV_ROOT,
 	prepareSchema,
+	type SETTINGS_TABLE,
 	type ValidateFields,
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -191,6 +193,31 @@ function resolved(id: string, base: string | undefined): string {
 	}
 }
 
+/** The fields a row of `TTable` cannot leave out. */
+type RequiredFields<TTable extends FolderTable> = {
+	[K in keyof CreateRowOf<TTable>]-?: object extends Pick<
+		CreateRowOf<TTable>,
+		K
+	>
+		? never
+		: K;
+}[keyof CreateRowOf<TTable>];
+
+/**
+ * A declared table as `defineFolder` takes it under `name`. The `settings`
+ * table's fields are all `field.optional`, as preparation requires, so a
+ * required one is refused at the table with the field's name.
+ */
+type TableUnder<TName, TTable> = TTable extends FolderTable
+	? TName extends typeof SETTINGS_TABLE
+		? TTable & {
+				readonly fields: {
+					readonly [K in RequiredFields<TTable>]: `'${K & string}' is a setting, which may be unset: declare it with field.optional(...)`;
+				};
+			}
+		: TTable
+	: FolderTable;
+
 /**
  * Declare how a folder's files read without opening anything or naming a
  * folder. Tables use `defineTable` and fields use `field`, the same
@@ -205,9 +232,10 @@ export function defineFolder<const TDefinition extends DataSchema>(
 	schema: TDefinition & {
 		kv: ValidateFields<TDefinition['kv']>;
 		tables: {
-			[Name in keyof TDefinition['tables']]: TDefinition['tables'][Name] extends FolderTable
-				? TDefinition['tables'][Name]
-				: FolderTable;
+			[Name in keyof TDefinition['tables']]: TableUnder<
+				Name,
+				TDefinition['tables'][Name]
+			>;
 		};
 		local?: readonly string[];
 	} & Record<Exclude<keyof TDefinition, keyof DataSchema | 'local'>, never>,

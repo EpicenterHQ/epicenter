@@ -20,6 +20,14 @@ export const KV_ROOT = 'kv';
 export const RESERVED_TABLE_NAMES: readonly string[] = [KV_ROOT];
 
 /**
+ * The table whose rows are settings, one row per concern, such as
+ * `settings/display.md` (ADR-0576). Every field it declares is
+ * `field.optional`: a setting may always be unset, and the application's
+ * own default applies.
+ */
+export const SETTINGS_TABLE = 'settings';
+
+/**
  * The fields of one bucket, by name.
  *
  * A field is any native TypeBox schema that is plain JSON. The `field.*`

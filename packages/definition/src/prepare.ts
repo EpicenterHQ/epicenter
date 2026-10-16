@@ -16,7 +16,7 @@
  * schema's validator sees it, and never changes the value it is given. A
  * `default` annotation is inert: nothing fills a missing value. Absence is an
  * issue only for a required field; `field.optional` and every KV field may be
- * absent.
+ * absent. The `settings` table declares only `field.optional` fields.
  */
 
 import { type TSchema, Type } from 'typebox';
@@ -31,6 +31,7 @@ import {
 	type FieldMap,
 	KV_ROOT,
 	RESERVED_TABLE_NAMES,
+	SETTINGS_TABLE,
 	type TableDeclaration,
 } from './declaration.js';
 import { isJsonSafe, type JsonObject, type JsonValue } from './json.js';
@@ -266,6 +267,10 @@ function prepareFields(
 			return unrecognized('a field is a TypeBox schema');
 		const problem = schemaProblem(declared);
 		if (problem !== undefined) return unrecognized(problem);
+		if (tableName === SETTINGS_TABLE && !Type.IsOptional(declared))
+			return unrecognized(
+				'a setting may always be unset, so it is declared with field.optional(...)',
+			);
 		const field = trySync({
 			try: () => {
 				const schema = plainSchema(
