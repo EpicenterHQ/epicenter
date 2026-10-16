@@ -712,6 +712,15 @@ export async function merge(
 	versions: FileVersions,
 	{ winner = 'ours' }: { readonly winner?: Winner } = {},
 ): Promise<Merged> {
+	// A side that changed nothing leaves the other's bytes exactly as they
+	// are, in whatever spelling: only competing changes are merged by unit.
+	if (
+		sameContent(versions.theirs, versions.base) ||
+		sameContent(versions.ours, versions.theirs)
+	)
+		return { content: versions.ours, overridden: [] };
+	if (sameContent(versions.ours, versions.base))
+		return { content: versions.theirs, overridden: [] };
 	if (kind.kind === 'declaration') return declarationWins(versions, winner);
 	const [base, ours, theirs] = [
 		textOf(versions.base),
