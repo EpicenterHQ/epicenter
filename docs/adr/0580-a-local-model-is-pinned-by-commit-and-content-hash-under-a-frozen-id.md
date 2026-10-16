@@ -1,6 +1,6 @@
 # 0580. A local model is pinned by commit and content hash under a frozen id
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-16
 - **Relates:** [ADR-0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md) (the shared cache these files live in), [ADR-0397](0397-native-inference-selects-an-installed-model-explicitly.md) (requests and transcripts name the model id).
 
@@ -17,9 +17,12 @@ commit `6687f30c…` while `main` was `1bd61cda…`, with identical bytes.
 ## Decision
 
 **Each catalog entry pins a commit and its file's SHA-256, and presence is
-decided by the bytes.** `download_model` fetches the pinned commit. A model is
-present when `snapshots/<commit>/<filename>` exists for its pinned commit, or
-when any `snapshots/*/<filename>` resolves to `blobs/<sha256>`:
+decided by the cache's content address.** `download_model` fetches the
+pinned commit. A model is present when `snapshots/<commit>/<filename>`
+exists for its pinned commit, or when any `snapshots/*/<filename>` resolves
+to `blobs/<sha256>`, the name `hf-hub` gives a file by its hash. Epicenter
+trusts that layout and does not hash a model file itself; a file corrupted
+in place is repaired by deleting its folder and downloading it again:
 
 ```txt
 CatalogEntry

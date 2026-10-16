@@ -23,9 +23,10 @@
 //! Epicenter reads as not downloaded on the next look.
 //!
 //! Each model is pinned to a commit and to its file's content hash. Downloads
-//! fetch that commit, and presence is decided by the bytes, so another HF tool
-//! moving `refs/main`, or fetching the same file at a different commit, never
-//! makes a model read as missing. The match at a different commit needs a
+//! fetch that commit, and presence is decided by the cache's content address
+//! (`blobs/<sha256>`), so another HF tool moving `refs/main`, or fetching the
+//! same file at a different commit, never makes a model read as missing. The
+//! file itself is not hashed: the cache's layout is trusted. The match at a different commit needs a
 //! symlinked cache: where `hf-hub` cannot symlink (Windows without the
 //! privilege), it moves the blob into the snapshot, so only the pinned commit's
 //! file is found.
