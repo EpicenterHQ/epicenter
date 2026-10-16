@@ -724,7 +724,7 @@ export function createHistory({
 	 * What in `storage`, as it is now, stands where the files of `to` go.
 	 * `occupied`: a file of this folder where `to` needs a directory, files
 	 * where it needs a file, or a name held under another spelling.
-	 * `untracked`: a file `from` never tracked (ignored, or new since) where
+	 * `untracked`: a file `from` never tracked (ignored, or made since) where
 	 * `to` adds different bytes, which Sync never merges into history on its
 	 * own. `failed` when the folder cannot be listed.
 	 */
@@ -785,6 +785,20 @@ export function createHistory({
 				untracked.push(path);
 		}
 		return { occupied, untracked };
+	}
+
+	/**
+	 * Of files `from` never tracked where `to` adds other bytes, the ones the
+	 * person made, which Sync records and merges, and the ignored ones, which
+	 * Sync never takes into history and stops for.
+	 */
+	async function madeHere(untracked: readonly string[]) {
+		if (untracked.length === 0) return { made: [], ignored: [] };
+		const ignored = await backend.ignoredPaths(untracked, await capture());
+		return {
+			made: untracked.filter((path) => !ignored.has(path)),
+			ignored: untracked.filter((path) => ignored.has(path)),
+		};
 	}
 
 	/** Why Sync stops for what stands in the way, or `undefined`. */
@@ -896,21 +910,15 @@ export function createHistory({
 			return SyncError.Blocked({ reason: localProblem });
 		const plan = await between(from, to, isLocal);
 		const way = await inTheWay(boundary, plan);
-		// Resuming, a file the person made where `to` adds one is theirs, not
-		// this publish's: it merges, unless ignored, which Sync never takes
-		// into history.
-		const ignored =
-			resuming && way.untracked.length > 0
-				? await backend.ignoredPaths(way.untracked, await capture())
-				: new Set<string>();
-		const adopted = new Set(
-			resuming ? way.untracked.filter((path) => !ignored.has(path)) : [],
-		);
-		const refused = wayProblem(way.failed, [
-			...way.occupied,
-			...way.untracked.filter((path) => !adopted.has(path)),
-		]);
+		const { made, ignored } = await madeHere(way.untracked);
+		const refused = wayProblem(way.failed, [...way.occupied, ...ignored]);
 		if (refused !== undefined) return SyncError.Blocked({ reason: refused });
+		// A file the person made where `to` adds one, which no commit holds:
+		// recorded first, it merges with `to`'s as an addition on both sides.
+		// Resuming, part of `to` is in the files already, so it joins `to`'s
+		// here instead.
+		if (made.length > 0 && !resuming) return Ok({ kind: 'edited' } as const);
+		const adopted = new Set(made);
 		// Read from history before any lock: only each file's check and
 		// write need it.
 		const blobs = new Map<
@@ -1264,16 +1272,20 @@ export function createHistory({
 				// their case tells apart, one from each side.
 				const unsendable = await representable(merged, 'folder');
 				if (unsendable.error !== null) return unsendable;
-				// What stands in the way stops Sync before the merge is sent.
+				// What stands in the way stops Sync before the merge is sent; a
+				// file the person made since the checkpoint is recorded, and
+				// merged in from the start.
 				const way = await inTheWay(
 					boundary,
 					await between(mine, merged, isLocal),
 				);
-				const inWay = wayProblem(way.failed, [
-					...way.occupied,
-					...way.untracked,
-				]);
+				const { made, ignored } = await madeHere(way.untracked);
+				const inWay = wayProblem(way.failed, [...way.occupied, ...ignored]);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });
+				if (made.length > 0) {
+					local = await recordAgain();
+					continue;
+				}
 				const pushed = await pushCommit(merged);
 				// Nothing here changed, so merging again from `local` is safe.
 				if (pushed === 'rejected') {

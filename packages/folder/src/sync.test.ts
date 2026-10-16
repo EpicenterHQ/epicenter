@@ -476,6 +476,22 @@ test('a row renamed after Sync pushed its merge keeps the edit the remote made t
 	expect(await context.remoteFile('todos/stroll.md')).toContain('done: true');
 });
 
+test('a file made while Sync fetches, where the remote adds one, merges with it in the same Sync', async () => {
+	const context = await setup();
+	const { local, hooks } = context;
+	await context.incoming({ 'notes/new.md': 'theirs\n' });
+	hooks.afterFetch = async () => {
+		hooks.afterFetch = undefined;
+		expectOk(await local.write('notes/new.md', null, 'mine\n'));
+	};
+
+	synced(expectOk(await local.sync.run()));
+	const merged = await text(local, 'notes/new.md');
+	expect(merged).toContain('mine\n');
+	expect(merged).toContain('theirs\n');
+	expect(await context.remoteFile('notes/new.md')).toBe(merged!.trimEnd());
+});
+
 test('a push that lost a race merges again from the same local head', async () => {
 	const context = await setup();
 	const { local, hooks } = context;

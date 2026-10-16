@@ -221,13 +221,15 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    directories they empty after them, so a file can take a directory's
    place and the reverse. Before writing anything it stops at
    a file of this folder's own where `T` needs a directory, files where `T`
-   needs a file, and a file `L` never tracked (ignored, or new since) where
-   `T` adds different bytes, which Sync never merges into history. And when
-   a file `T` removes holds an edit no commit has, or a file `T` changes
-   was moved or removed since the checkpoint, it stops before any change,
+   needs a file, and an ignored file where `T` adds different bytes, which
+   Sync never merges into history. And when a file `T` removes holds an
+   edit no commit has, a file `T` changes was moved or removed since the
+   checkpoint, or the person made a file where `T` adds one, it stops
+   before any change,
    records the files again as `K`, and merges `K` with what it pushed: a
    delete wins, and the edit it never saw stays in history as a parent,
-   named by a trailer; a move carries the incoming edit to the new name. Names
+   named by a trailer; a move carries the incoming edit to the new name;
+   and two files made at one path merge as an addition on both sides. Names
    compare as APFS folds them, so a name held under another spelling stops
    it too, and a tree this device would send is checked as an incoming one
    is: a merge whose two sides each add one spelling of a name is not sent. Then the branch moves from `L` to `T` by
