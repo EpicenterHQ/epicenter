@@ -517,30 +517,6 @@ export function createHistory({
 		};
 	}
 
-	/**
-	 * Run one commit, pull, or merge of this handle. It counts as active from
-	 * the moment it is asked for, including any wait for the backend's
-	 * protection, and `close()` waits for it. `work` must not reject.
-	 */
-	function owned<T>(kind: keyof typeof running, work: () => Promise<T>) {
-		running[kind]++;
-		const completion = Promise.withResolvers<T>();
-		const settled = completion.promise.finally(() => {
-			running[kind]--;
-			admittedWork.delete(settled);
-			emit();
-		});
-		admittedWork.add(settled);
-		// Register before work or observers can synchronously close this handle.
-		try {
-			void work().then(completion.resolve, completion.reject);
-		} catch (cause) {
-			completion.reject(cause);
-		}
-		emit();
-		return settled;
-	}
-
 	/** Whether `cause` is closing refusing a request that was still waiting. */
 	const refusedByClose = (cause: unknown) =>
 		closing.signal.aborted && cause === closing.signal.reason;
@@ -565,7 +541,8 @@ export function createHistory({
 	/**
 	 * An explicit commit. It waits for the backend's protection and captures
 	 * inside it. Closing refuses it while it still waits; once inside, it runs
-	 * to its end and reports what it did.
+	 * to its end and reports what it did. It counts as active from the moment
+	 * it is asked for, including that wait, and `close()` waits for it.
 	 */
 	function commitNow(
 		onCapture?: (capturedAt: number) => void,
@@ -577,7 +554,17 @@ export function createHistory({
 			if (problem !== undefined)
 				return Promise.resolve({ status: 'failed', error: problem });
 		}
-		return owned('commit', async (): Promise<CommitOutcome> => {
+		// Registered before the commit starts: the commit, or an observer it
+		// notifies, can close this handle synchronously.
+		running.commit++;
+		const completion = Promise.withResolvers<CommitOutcome>();
+		const settled = completion.promise.finally(() => {
+			running.commit--;
+			admittedWork.delete(settled);
+			emit();
+		});
+		admittedWork.add(settled);
+		void (async (): Promise<CommitOutcome> => {
 			let outcome: CommitOutcome;
 			try {
 				outcome = await commitCurrentFiles(onCapture, subject);
@@ -588,7 +575,9 @@ export function createHistory({
 			}
 			await settleCommit(outcome);
 			return outcome;
-		});
+		})().then(completion.resolve, completion.reject);
+		emit();
+		return settled;
 	}
 
 	/**
