@@ -9,18 +9,15 @@ false constraint.
 
 Use these source owners as starting points, then trace their callers and tests:
 
-- [Browser storage](../../../../packages/app/src/data/store/browser.ts): identify
-  the actual address constructors, the identities they include, and the durable
-  records they open. Renaming an address can detach existing work even when the
-  new code still writes successfully. Do not infer permission to delete old
-  storage from a change to the current constructor.
-- [Server addressing](../../../../packages/server/src/principal.ts) and
-  [sync routes](../../../../packages/sync/src/store-route.ts): trace durable
-  authority names, query fields, and how the server resolves whose data a request
-  can reach. Preserve partitioning as well as wire compatibility.
-- [Document construction](../../../../packages/app/src/data/store/document.ts):
-  identify root names and how missing roots are created. A new root name can
-  strand existing data while appearing to be a harmless rename.
+- [Folder files](../../../../packages/folder/README.md): identify the paths,
+  file kinds, and declaration (`epicenter.json`) a folder stores. Files are the
+  durable record: renaming a table directory or a stem can detach existing files
+  even when the new code still writes successfully. Do not infer permission to
+  delete old files from a change to the current layout.
+- [Server repositories](../../../../packages/server/src/repositories.ts) and
+  [routes](../../../../packages/server/src/routes): trace durable authority
+  names and how the server resolves whose data a request can reach. Preserve
+  partitioning as well as wire compatibility.
 - [Auth schemas](../../../../packages/auth/src/auth-types.ts) and
   [principal types](../../../../packages/principal/src/principal.ts): trace
   persisted values, wire schemas, and consumers before changing fields or brands.
