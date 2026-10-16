@@ -1,7 +1,7 @@
 <!--
 	The authorization server's login page (ADR-0549). It resumes the OAuth
-	authorization that sent the browser here, or returns to the device approval
-	or account page that asked for sign-in.
+	authorization that sent the browser here, a device code's included, or
+	returns to the account page that asked for sign-in.
 -->
 <script lang="ts">
  import * as Alert from '@epicenter/ui/alert';

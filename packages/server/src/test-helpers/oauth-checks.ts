@@ -80,17 +80,18 @@ const read = (h: OAuthHarness, ns: string) => ({
 });
 
 /**
- * Check 1: a refresh family is one grant's lineage. A replay after the reuse
- * window revokes that lineage and nothing else; a duplicate inside it gets
- * the cached response; a refresh row without a lineage is an error, never a
- * widening to the client's family.
+ * Check 1: a refresh family is every grant of one client for one person
+ * (ADR-0565). A duplicate inside the reuse window gets the cached response; a
+ * replay after it ends every grant of that client for that person, with the
+ * access tokens they issued, and nothing of another client or person.
  */
-export async function checkRefreshLineage(h: OAuthHarness) {
+export async function checkRefreshFamily(h: OAuthHarness) {
 	const { client } = h;
-	const person = await client.person('lineage');
+	const person = await client.person('family');
+	const other = await client.person('family-other');
 	const resource = [h.audiences.git];
-	const code = () =>
-		client.codeGrant({ ...h.desktop, cookie: person.cookie, resource });
+	const code = (who: Person) =>
+		client.codeGrant({ ...h.desktop, cookie: who.cookie, resource });
 	const device = async () => {
 		const grant = await client.deviceGrant({
 			clientId: h.cli.clientId,
@@ -101,29 +102,23 @@ export async function checkRefreshLineage(h: OAuthHarness) {
 		if (!grant.tokens) throw new Error(JSON.stringify(grant.approval));
 		return grant.tokens;
 	};
-	// Four installations of two clients: two desktop code grants, two CLI
-	// device grants. The old family was (client, user), which put A with B.
-	const A = await code();
-	const B = await code();
+	// Two desktop installations and two CLI installations of one person, and
+	// another person's desktop.
+	const A = await code(person);
+	const B = await code(person);
 	const D1 = await device();
 	const D2 = await device();
-	const lineages: (string | null | undefined)[] = [];
-	for (const t of [A, B, D1, D2])
-		lineages.push(
-			(await refreshRow(h, t.refresh_token!))?.authorization_code_id,
-		);
-	expect(new Set(lineages).size).toBe(4);
-	expect(lineages.every(Boolean)).toBe(true);
-	expect(lineages.slice(2).every((l) => l?.startsWith('device:'))).toBe(true);
+	const O = await code(other);
 
 	const current: Record<
-		'A' | 'B' | 'D1' | 'D2',
+		'A' | 'B' | 'D1' | 'D2' | 'O',
 		{ clientId: string; refresh: string }
 	> = {
 		A: { clientId: h.desktop.clientId, refresh: A.refresh_token! },
 		B: { clientId: h.desktop.clientId, refresh: B.refresh_token! },
 		D1: { clientId: h.cli.clientId, refresh: D1.refresh_token! },
 		D2: { clientId: h.cli.clientId, refresh: D2.refresh_token! },
+		O: { clientId: h.desktop.clientId, refresh: O.refresh_token! },
 	};
 	async function alive() {
 		const state: Record<string, boolean> = {};
@@ -147,48 +142,55 @@ export async function checkRefreshLineage(h: OAuthHarness) {
 	expect(duplicate.body.refresh_token).toBe(rotatedA.body.refresh_token);
 	expect(duplicate.body.access_token).toBe(rotatedA.body.access_token);
 	current.A.refresh = rotatedA.body.refresh_token!;
+	expect(await alive()).toEqual({
+		A: true,
+		B: true,
+		D1: true,
+		D2: true,
+		O: true,
+	});
 
-	// After the window, the replay revokes A's lineage and only A's.
+	// After the window, A's replay ends both desktop grants of this person,
+	// with their access tokens; the CLI and the other person keep theirs.
 	await closeReplayWindow(h, A.refresh_token!);
 	const replayA = await client.refresh(h.desktop.clientId, A.refresh_token!);
 	expect(replayA.status).toBe(400);
 	expect(replayA.body.error).toBe('invalid_grant');
+	for (const token of [rotatedA.body.access_token, B.access_token])
+		expect((await h.resource(token, read(h, person.personal))).status).toBe(
+			401,
+		);
 	expect(
-		(await h.resource(rotatedA.body.access_token, read(h, person.personal)))
-			.status,
-	).toBe(401);
-	expect(
-		(await h.resource(B.access_token, read(h, person.personal))).status,
+		(await h.resource(D1.access_token, read(h, person.personal))).status,
 	).toBe(200);
-	expect(await alive()).toEqual({ A: false, B: true, D1: true, D2: true });
+	expect(
+		(await h.resource(O.access_token, read(h, other.personal))).status,
+	).toBe(200);
+	expect(await alive()).toEqual({
+		A: false,
+		B: false,
+		D1: true,
+		D2: true,
+		O: true,
+	});
 
-	// A device grant's lineage is its own.
+	// The CLI is its own family: one device grant's replay ends both.
 	const oldD1 = current.D1.refresh;
 	const rotatedD1 = await client.refresh(h.cli.clientId, oldD1);
 	expect(rotatedD1.status).toBe(200);
 	current.D1.refresh = rotatedD1.body.refresh_token!;
 	await closeReplayWindow(h, oldD1);
 	expect((await client.refresh(h.cli.clientId, oldD1)).status).toBe(400);
-	expect(await alive()).toEqual({ A: false, B: true, D1: false, D2: true });
-
-	// A row without a lineage refuses the replay and revokes nobody else.
-	const oldB = current.B.refresh;
-	const rotatedB = await client.refresh(h.desktop.clientId, oldB);
-	current.B.refresh = rotatedB.body.refresh_token!;
-	await closeReplayWindow(h, oldB);
-	await sql(h).query(
-		'update oauth_refresh_token set authorization_code_id = null where token = $1',
-		[await hashPrefixedToken(oldB, TOKEN_PREFIX.refresh)],
-	);
-	const unrooted = await client.refresh(h.desktop.clientId, oldB);
-	expect(unrooted.status).toBe(500);
-	expect(await alive()).toEqual({ A: false, B: true, D1: false, D2: true });
-
-	// RFC 7009 revocation of one live refresh token ends that installation.
 	expect(
-		await client.revoke(h.cli.clientId, current.D2.refresh, 'refresh_token'),
-	).toBe(200);
-	expect(await alive()).toEqual({ A: false, B: true, D1: false, D2: false });
+		(await h.resource(D2.access_token, read(h, person.personal))).status,
+	).toBe(401);
+	expect(await alive()).toEqual({
+		A: false,
+		B: false,
+		D1: false,
+		D2: false,
+		O: true,
+	});
 }
 
 /**
@@ -462,8 +464,8 @@ export async function checkFlows(h: OAuthHarness) {
 }
 
 /**
- * Check 3: the grant target, chosen on the consent page or the device
- * approval page, rides every token and the resource enforces it.
+ * Check 3: the grant target, chosen on the consent page for an app or a
+ * device code, rides every token and the resource enforces it.
  */
 export async function checkGrantTarget(h: OAuthHarness) {
 	const { client } = h;
@@ -495,25 +497,31 @@ export async function checkGrantTarget(h: OAuthHarness) {
 	const stranger = await client.person('outsider');
 	expect(
 		(
-			await client.selectTarget(person.cookie, `ns:${stranger.personal}`, {
-				clientId: h.untrusted.clientId,
-			})
+			await client.selectTarget(
+				person.cookie,
+				`ns:${stranger.personal}`,
+				h.untrusted.clientId,
+			)
 		).status,
 	).toBe(403);
 	// A choice staged for another app does not reach this one's consent.
 	expect(
 		(
-			await client.selectTarget(person.cookie, `ns:${group}`, {
-				clientId: h.desktop.clientId,
-			})
+			await client.selectTarget(
+				person.cookie,
+				`ns:${group}`,
+				h.desktop.clientId,
+			)
 		).status,
 	).toBe(200);
 	expect((await client.consent(person.cookie, oauthQuery)).status).toBe(400);
 	expect(
 		(
-			await client.selectTarget(person.cookie, `ns:${group}`, {
-				clientId: h.untrusted.clientId,
-			})
+			await client.selectTarget(
+				person.cookie,
+				`ns:${group}`,
+				h.untrusted.clientId,
+			)
 		).status,
 	).toBe(200);
 	const consented = await client.consent(person.cookie, oauthQuery);
@@ -594,7 +602,9 @@ export async function checkGrantTarget(h: OAuthHarness) {
 		(await h.resource(desktop.access_token, read(h, person.personal))).status,
 	).toBe(200);
 
-	// The device approval page: no choice refuses the approval.
+	// A device code is approved only on the consent page, and with no choice
+	// the consent refuses it. The consent's target rides the device grant's
+	// tokens and their refreshes, through the library's own device consent.
 	const unchosen = await client.deviceGrant({
 		clientId: h.cli.clientId,
 		cookie: person.cookie,
@@ -628,6 +638,21 @@ export async function checkGrantTarget(h: OAuthHarness) {
 	expect(
 		(await tokenRow(h, deviceRotated.body.access_token))?.reference_id,
 	).toBe(`ns:${person.personal}`);
+	const deviceConsent = await sql(h).query<{ reference_id: string }>(
+		'select reference_id from oauth_consent where client_id = $1 and user_id = $2',
+		[h.cli.clientId, person.id],
+	);
+	expect(deviceConsent.rows.map((row) => row.reference_id)).toEqual([
+		`ns:${person.personal}`,
+	]);
+	// The consent consumed the device's staged choice too.
+	expect(
+		(
+			await sql(h).query('select 1 from verification where identifier = $1', [
+				`grant-target:consent:${person.sessionId}:${h.cli.clientId}`,
+			])
+		).rowCount,
+	).toBe(0);
 }
 
 /**

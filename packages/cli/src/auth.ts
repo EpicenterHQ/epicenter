@@ -12,8 +12,9 @@
  * Each grant is one keychain entry under `so.epicenter.auth`, named by the
  * grant and the deployment, holding its refresh token and the access tokens
  * cached for each audience. A grant asks for every audience the client may
- * reach, and each refresh names one, so the server narrows that access token
- * to the audience's scopes while the grant keeps them all.
+ * reach, and each refresh names one, so that access token is bound to the
+ * audience; every first-party audience allows every scope, so the grant keeps
+ * them all (ADR-0565).
  *
  * An access token is reused until five minutes before it expires. A refresh
  * runs under a lock file beside the other machine state, and rereads the
@@ -21,6 +22,11 @@
  * whose answer was lost is sent again: inside the server's 60-second reuse
  * interval the same refresh token gets the same answer. A refresh answered
  * `invalid_grant` is retried once with what the entry then holds.
+ *
+ * A replay after the reuse interval ends every grant of the client for the
+ * person, on every machine (ADR-0565). So a refresh this process has sent is
+ * finished before the process exits: a stop signal waits for its keychain
+ * write, at most {@link REFRESH_EXIT_GRACE_MS}.
  */
 
 import { join } from 'node:path';
@@ -48,13 +54,19 @@ export const AUTH_CLIENTS = {
 	desktop: 'so.epicenter',
 } as const satisfies Record<GrantKind, string>;
 
-/** Every scope both clients may hold; each audience narrows its own tokens. */
+/** Every scope both clients may hold; every first-party audience allows them all. */
 const SCOPE = 'openid offline_access profile ai folders:read folders:write';
 
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 
 /** A cached access token is replaced this long before it expires. */
 export const REUSE_MARGIN_MS = 5 * 60 * 1000;
+
+/**
+ * How long a stop signal waits for a refresh in flight before the process
+ * exits anyway. The desktop shell waits longer before it kills (ADR-0565).
+ */
+export const REFRESH_EXIT_GRACE_MS = 2_000;
 
 /** How long a loopback sign-in waits for the browser. */
 const LOOPBACK_TIMEOUT_MS = 10 * 60 * 1000;
@@ -320,8 +332,71 @@ export function knownAudiences(ctx: AuthContext) {
 const usable = (ctx: AuthContext, cached: CachedToken | undefined) =>
 	cached !== undefined && cached.expiresAt - ctx.now() > REUSE_MARGIN_MS;
 
+/** Refreshes this process has sent and not yet written to the keychain. */
+const refreshesInFlight = new Set<Promise<void>>();
+const STOP_SIGNALS = { SIGTERM: 15, SIGINT: 2, SIGHUP: 1 } as const;
+const STOP_SIGNAL_NAMES = Object.keys(
+	STOP_SIGNALS,
+) as (keyof typeof STOP_SIGNALS)[];
+let stopping = false;
+
+function stopAfterRefreshes(signal: keyof typeof STOP_SIGNALS) {
+	if (stopping) return;
+	stopping = true;
+	void refreshesSettled().then(() => process.exit(128 + STOP_SIGNALS[signal]));
+}
+
+/**
+ * Resolves when no refresh is in flight in this process, or after
+ * `graceMs`. A command with its own stop handler awaits it before exiting.
+ */
+export async function refreshesSettled(
+	graceMs = REFRESH_EXIT_GRACE_MS,
+): Promise<void> {
+	if (refreshesInFlight.size === 0) return;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	await Promise.race([
+		Promise.allSettled([...refreshesInFlight]),
+		new Promise((done) => {
+			timer = setTimeout(done, graceMs);
+		}),
+	]);
+	clearTimeout(timer);
+}
+
+/**
+ * Run a refresh so that a stop signal waits for it. The server rotates the
+ * refresh token when it answers, so exiting before the keychain write keeps a
+ * spent token, and the next refresh would be a replay.
+ */
+async function finishBeforeExit<T>(work: () => Promise<T>): Promise<T> {
+	const done = Promise.withResolvers<void>();
+	refreshesInFlight.add(done.promise);
+	if (refreshesInFlight.size === 1)
+		for (const signal of STOP_SIGNAL_NAMES)
+			process.on(signal, stopAfterRefreshes);
+	try {
+		return await work();
+	} finally {
+		done.resolve();
+		refreshesInFlight.delete(done.promise);
+		if (refreshesInFlight.size === 0 && !stopping)
+			for (const signal of STOP_SIGNAL_NAMES)
+				process.off(signal, stopAfterRefreshes);
+	}
+}
+
 /** One refresh for `audience` with `stored`'s refresh token, written back on success. */
-async function refreshOnce(
+function refreshOnce(
+	ctx: AuthContext,
+	grant: GrantKind,
+	stored: StoredGrant,
+	audience: string,
+): Promise<Result<StoredGrant, AuthError | 'invalid_grant'>> {
+	return finishBeforeExit(() => sendRefresh(ctx, grant, stored, audience));
+}
+
+async function sendRefresh(
 	ctx: AuthContext,
 	grant: GrantKind,
 	stored: StoredGrant,
@@ -466,8 +541,8 @@ async function keepGrant(
 	ctx: AuthContext,
 	grant: GrantKind,
 	issued: TokenAnswer,
-	/** The audience `issued.access_token` was narrowed to, when it was. */
-	issuedFor: string | undefined,
+	/** The audience `issued.access_token` is bound to. */
+	issuedFor: string,
 ): Promise<Result<StoredGrant, AuthError>> {
 	if (typeof issued.refresh_token !== 'string')
 		return AuthError.Refused({
@@ -480,13 +555,11 @@ async function keepGrant(
 		client: AUTH_CLIENTS[grant],
 		issuer: ctx.deployment.origin,
 		refreshToken: issued.refresh_token,
-		// The grant holds what was asked for; `issued.scope` is only this
-		// access token's, narrowed to its audience.
 		scope: SCOPE,
 		account: null,
 		signedInAt: new Date(ctx.now()).toISOString(),
 		access:
-			issuedFor && typeof issued.access_token === 'string'
+			typeof issued.access_token === 'string'
 				? {
 						[issuedFor]: {
 							token: issued.access_token,
@@ -572,13 +645,14 @@ export async function loginWithDevice(
 			grant_type: DEVICE_GRANT,
 			client_id: AUTH_CLIENTS.device,
 			device_code: device.device_code,
+			resource: audiences.api,
 		});
 		if (polled.error !== null) {
 			if (polled.error.name === 'Unreachable') continue;
 			return Err(polled.error);
 		}
 		const { status, body } = polled.data;
-		if (status === 200) return keepGrant(ctx, 'device', body, undefined);
+		if (status === 200) return keepGrant(ctx, 'device', body, audiences.api);
 		if (body.error === 'authorization_pending') continue;
 		if (body.error === 'slow_down') {
 			interval += 5000;
@@ -744,9 +818,12 @@ export async function authStatus(
 }
 
 /**
- * Sign `grant` out: revoke it at the server, which ends every token it
- * issued, then delete its keychain entry. The entry is deleted even when the
- * server cannot be reached; `revoked` says whether it heard.
+ * Sign `grant` out: revoke its refresh token and every access token it has
+ * cached at the server, then delete its keychain entry. Revoking the refresh
+ * token ends only the access tokens of its latest rotation, and each audience's
+ * token usually comes from a different one, so each is revoked by name. The
+ * entry is deleted even when the server cannot be reached; `revoked` says
+ * whether it heard every revocation.
  */
 export async function logout(
 	ctx: AuthContext,
@@ -756,14 +833,22 @@ export async function logout(
 		const { data: stored, error } = await readGrant(ctx, grant);
 		if (error !== null) return Err(error);
 		if (stored === null) return Ok({ signedOut: false, revoked: false });
-		// Revoking the refresh token ends its lineage at the server, with every
-		// access token the grant issued.
-		const answer = await post(ctx, '/oauth2/revoke', {
-			client_id: stored.client,
-			token: stored.refreshToken,
-			token_type_hint: 'refresh_token',
-		});
-		const revoked = answer.error === null && answer.data.status === 200;
+		const revocations = [
+			{ token: stored.refreshToken, hint: 'refresh_token' },
+			...Object.values(stored.access).map(({ token }) => ({
+				token,
+				hint: 'access_token',
+			})),
+		];
+		let revoked = true;
+		for (const { token, hint } of revocations) {
+			const answer = await post(ctx, '/oauth2/revoke', {
+				client_id: stored.client,
+				token,
+				token_type_hint: hint,
+			});
+			if (answer.error !== null || answer.data.status !== 200) revoked = false;
+		}
 		try {
 			await ctx.secrets.delete(entryName(ctx, grant));
 		} catch (cause) {

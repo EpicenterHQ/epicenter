@@ -1,8 +1,10 @@
 <!--
 	The authorization server's consent page (ADR-0549). An app that does not
-	skip consent lands here with the authorization request the server signed.
-	The person picks the folders the grant reaches; the page stages that
-	choice, then answers the consent, and the server redirects to the app.
+	skip consent lands here with the authorization request the server signed,
+	and so does every device code (`user_code`), which only this answer
+	approves. The person picks the folders the grant reaches; the page stages
+	that choice, then answers the consent, and the server redirects to the app
+	or back to the device page.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -23,16 +25,17 @@
 	const queries = new QueryClient();
 	$effect(() => () => queries.clear());
 	const request = readOAuthRequest(window.location.search);
+	const clientId = request?.clientId ?? null;
 	let target = $state('');
 
 	const details = createQuery(
 		() => ({
-			queryKey: ['consent', request?.clientId],
-			enabled: request !== null,
+			queryKey: ['consent', clientId],
+			enabled: clientId !== null,
 			queryFn: async () => {
-				if (!request) throw new Error('Start from the app that sent you here.');
+				if (!clientId) throw new Error('Start from the app that sent you here.');
 				const [client, options] = await Promise.all([
-					fetchPublicClient(request.clientId),
+					fetchPublicClient(clientId),
 					fetchGrantTargets(),
 				]);
 				return { client, options };
@@ -45,10 +48,11 @@
 	const answer = createMutation(
 		() => ({
 			mutationFn: async (accept: boolean) => {
-				if (!request) throw new Error('Start from the app that sent you here.');
+				if (!request || !clientId)
+					throw new Error('Start from the app that sent you here.');
 				if (accept) {
 					if (!target) throw new Error('Choose which folders it can reach.');
-					await selectGrantTarget(target, { clientId: request.clientId });
+					await selectGrantTarget(target, clientId);
 				}
 				const result = await readJson<{ url?: string }>(
 					await fetch('/auth/oauth2/consent', {
@@ -67,13 +71,14 @@
 	);
 
 	const appName = $derived(
-		details.data?.client.client_name ?? request?.clientId ?? 'This app',
+		details.data?.client.client_name ?? clientId ?? 'This app',
 	);
+	const userCode = request?.userCode ?? null;
 	const error = $derived(answer.error ?? details.error);
 </script>
 
 <svelte:head>
-	<title>Allow access: Epicenter</title>
+	<title>{userCode ? 'Approve a device' : 'Allow access'}: Epicenter</title>
 	<meta name="referrer" content="no-referrer" />
 </svelte:head>
 
@@ -84,21 +89,31 @@
 		</div>
 		<Card.Header class="justify-items-center text-center">
 			<Card.Title>
-				<h1 class="text-xl font-semibold tracking-tight">Allow {appName}?</h1>
+				<h1 class="text-xl font-semibold tracking-tight">
+					{userCode ? 'Approve a device' : `Allow ${appName}?`}
+				</h1>
 			</Card.Title>
 			<Card.Description>
-				{#if details.data?.client.client_uri}
-					From {new URL(details.data.client.client_uri).host}.
+				{#if userCode}
+					Only approve a code you just started.
+				{:else}
+					{#if details.data?.client.client_uri}
+						From {new URL(details.data.client.client_uri).host}.
+					{/if}
+					It can do this until you remove it from your account.
 				{/if}
-				It can do this until you remove it from your account.
 			</Card.Description>
 		</Card.Header>
 		<Card.Content class="flex flex-col gap-4">
-			{#if !request}
+			{#if !request || !clientId}
 				<p class="text-sm">Start from the app that sent you here.</p>
 			{:else if details.isPending}
 				<Spinner class="mx-auto size-5" />
 			{:else if details.data}
+				{#if userCode}
+					<p class="text-center font-mono text-lg tracking-widest">{userCode}</p>
+					<p class="text-sm">{appName} on another device wants to:</p>
+				{/if}
 				<GrantRequest
 					scopes={request.scopes}
 					options={details.data.options}
@@ -110,7 +125,7 @@
 					onclick={() => answer.mutate(true)}
 				>
 					{#if answer.isPending}<Spinner class="size-4" />{/if}
-					Allow
+					{userCode ? 'Approve' : 'Allow'}
 				</Button>
 				<Button
 					variant="outline"

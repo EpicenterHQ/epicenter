@@ -433,9 +433,7 @@ async function consentedTokens(person: Person, target: string) {
 	});
 	const consentPage = new URL(authorized.location, origin);
 	expect(consentPage.pathname).toBe('/consent');
-	await client.selectTarget(person.cookie, target, {
-		clientId: CIMD_CLIENT_ID,
-	});
+	await client.selectTarget(person.cookie, target, CIMD_CLIENT_ID);
 	const consented = await client.consent(
 		person.cookie,
 		consentPage.search.slice(1),
@@ -618,9 +616,7 @@ function consentingProvider(person: Person, target: string) {
 			});
 			const consentPage = new URL(opened.headers.get('location') ?? '', origin);
 			expect(consentPage.pathname).toBe('/consent');
-			await client.selectTarget(person.cookie, target, {
-				clientId: CIMD_CLIENT_ID,
-			});
+			await client.selectTarget(person.cookie, target, CIMD_CLIENT_ID);
 			const consented = await client.consent(
 				person.cookie,
 				consentPage.search.slice(1),

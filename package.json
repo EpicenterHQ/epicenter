@@ -75,12 +75,12 @@
 			"hono": "^4.12.25",
 			"mime": "^4.0.6",
 			"typebox": "^1.0.0",
-			"better-auth": "1.7.9",
-			"@better-auth/cimd": "1.7.9",
-			"@better-auth/core": "1.7.9",
-			"@better-auth/drizzle-adapter": "1.7.9",
-			"@better-auth/oauth-provider": "1.7.9",
-			"@better-auth/passkey": "1.7.9",
+			"better-auth": "1.8.0-beta.0",
+			"@better-auth/cimd": "1.8.0-beta.0",
+			"@better-auth/core": "1.8.0-beta.0",
+			"@better-auth/drizzle-adapter": "1.8.0-beta.0",
+			"@better-auth/oauth-provider": "1.8.0-beta.0",
+			"@better-auth/passkey": "1.8.0-beta.0",
 			"jose": "^6.2.2",
 			"jsrepo": "^3.6.2",
 			"@tailwindcss/vite": "^4.1.11",
@@ -188,8 +188,5 @@
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
 		"tinyexec": "^1.0.4"
-	},
-	"patchedDependencies": {
-		"@better-auth/oauth-provider@1.7.9": "patches/@better-auth%2Foauth-provider@1.7.9.patch"
 	}
 }

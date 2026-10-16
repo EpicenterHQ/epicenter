@@ -24,7 +24,7 @@
  *     `wrangler.jsonc` by `wrangler-config.ts`.
  */
 
-import { APPS } from '@epicenter/constants/apps';
+import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { type } from 'arktype';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
@@ -36,7 +36,6 @@ import {
 	oauthServerPlugins,
 } from '../../packages/server/src/auth/plugins';
 import * as schema from '../../packages/server/src/db/schema';
-import { resolveOAuthAudiences } from './worker/oauth-registrations';
 import { LOCAL_DATABASE_URL } from './wrangler-config';
 
 const env = type({
@@ -62,7 +61,7 @@ export const auth = betterAuth({
 	database: drizzleAdapter(db, { provider: 'pg', schema }),
 	secret: env.BETTER_AUTH_SECRET,
 	plugins: [
-		...authPlugins(baseURL, []),
+		...authPlugins(baseURL),
 		...oauthServerPlugins({
 			db,
 			audiences: resolveOAuthAudiences(baseURL),

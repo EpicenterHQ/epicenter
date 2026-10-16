@@ -8,14 +8,14 @@ import {
 } from '@better-auth/oauth-provider';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { AUDIENCE_SCOPES, type OAuthAudiences } from '../auth/oauth-policy.js';
+import { type OAuthAudiences, SCOPES_SUPPORTED } from '../auth/oauth-policy.js';
 import { protectedResourceMetadataUrl } from '../auth/resource-access.js';
 import type { CloudEnv } from '../types.js';
 
 /** The browser pages this server owns, served from the deployment's UI shell. */
 const AUTH_PAGES = ['/sign-in', '/consent', '/device'];
 
-/** The RFC 9728 document for one audience: its own scopes, never the others'. */
+/** The RFC 9728 document for one audience: the scopes its routes check. */
 function protectedResourceMetadata(
 	kind: keyof OAuthAudiences,
 	audience: string,
@@ -24,7 +24,7 @@ function protectedResourceMetadata(
 	return {
 		resource: audience,
 		authorization_servers: [issuer],
-		scopes_supported: AUDIENCE_SCOPES[kind],
+		scopes_supported: SCOPES_SUPPORTED[kind],
 		bearer_methods_supported: ['header'],
 	};
 }

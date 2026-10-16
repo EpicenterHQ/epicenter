@@ -26,7 +26,7 @@ import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js'
 import {
 	checkFlows,
 	checkGrantTarget,
-	checkRefreshLineage,
+	checkRefreshFamily,
 	checkSilentReauthorization,
 	type OAuthHarness,
 } from '../test-helpers/oauth-checks.js';
@@ -288,7 +288,11 @@ afterAll(async () => {
 });
 
 describe('checks against the library composition on Bun and Postgres', () => {
-	test('refresh lineage isolation', () => checkRefreshLineage(harness), 60_000);
+	test(
+		"a refresh family is one client's grants for one person",
+		() => checkRefreshFamily(harness),
+		60_000,
+	);
 	test('end-to-end flows', () => checkFlows(harness), 60_000);
 	test('grant target', () => checkGrantTarget(harness), 60_000);
 	test(
@@ -319,9 +323,11 @@ test('a client identified by its metadata document reaches only MCP, after conse
 	expect(links.rows.map((row) => row.resource_id)).toEqual([audiences.mcp]);
 	expect(
 		(
-			await client.selectTarget(person.cookie, `ns:${person.personal}`, {
-				clientId: CIMD_CLIENT_ID,
-			})
+			await client.selectTarget(
+				person.cookie,
+				`ns:${person.personal}`,
+				CIMD_CLIENT_ID,
+			)
 		).status,
 	).toBe(200);
 	const consented = await client.consent(
@@ -372,55 +378,57 @@ test('a client identified by its metadata document reaches only MCP, after conse
 	expect(cimdFetches).toBe(1);
 }, 60_000);
 
-test('a refresh for one audience narrows that access token, not the grant', async () => {
+test('one grant serves the API and Git, in any order of refreshes', async () => {
 	const { client } = harness;
 	const person = await client.person('audiences');
+	const everyScope =
+		'ai folders:read folders:write offline_access openid profile';
 	const grant = await client.deviceGrant({
 		clientId: cli.clientId,
 		cookie: person.cookie,
 		target: '*',
 		scope: 'openid offline_access profile ai folders:read folders:write',
 		resource: [audiences.api, audiences.git],
+		redeemFor: audiences.api,
 	});
+	expect(grant.tokens!.scope?.split(' ').sort().join(' ')).toBe(everyScope);
 	let refresh = grant.tokens!.refresh_token!;
-	// Each audience allows a different set, so the first token carries only
-	// what both allow; the grant keeps all of it.
-	expect(grant.tokens!.scope?.split(' ').sort()).toEqual([
-		'folders:read',
-		'offline_access',
-		'openid',
-	]);
-	for (const [resource, scope] of [
-		[audiences.git, 'folders:read folders:write offline_access openid'],
-		[audiences.api, 'ai folders:read offline_access openid profile'],
-		[audiences.git, 'folders:read folders:write offline_access openid'],
+	const at = async (token: string, audience: string, scope: OAuthScope) =>
+		(
+			await harness.resource(token, {
+				audience,
+				scope,
+				namespace: person.personal,
+			})
+		).status;
+	for (const [audience, scope] of [
+		[audiences.git, 'folders:write'],
+		[audiences.api, 'ai'],
+		[audiences.git, 'folders:write'],
+		[audiences.api, 'profile'],
 	] as const) {
 		const rotated = await client.token({
 			grant_type: 'refresh_token',
 			client_id: cli.clientId,
 			refresh_token: refresh,
-			resource,
+			resource: audience,
 		});
 		expect(rotated.status).toBe(200);
-		expect(rotated.body.scope?.split(' ').sort().join(' ')).toBe(scope);
+		// Every first-party audience allows every scope, so the grant keeps
+		// them all, and each access token is still bound to its audience.
+		expect(rotated.body.scope?.split(' ').sort().join(' ')).toBe(everyScope);
+		const token = rotated.body.access_token;
+		expect(await at(token, audience, scope)).toBe(200);
+		const elsewhere =
+			audience === audiences.git ? audiences.api : audiences.git;
+		expect(await at(token, elsewhere, 'folders:read')).toBe(401);
 		refresh = rotated.body.refresh_token!;
 	}
-	const write = await harness.resource(
-		(
-			await client.token({
-				grant_type: 'refresh_token',
-				client_id: cli.clientId,
-				refresh_token: refresh,
-				resource: audiences.git,
-			})
-		).body.access_token,
-		{
-			audience: audiences.git,
-			scope: 'folders:write',
-			namespace: person.personal,
-		},
+	const stored = await sqlClient.query<{ scopes: string[] }>(
+		'select scopes from oauth_refresh_token where token = $1',
+		[await hashPrefixedToken(refresh, TOKEN_PREFIX.refresh)],
 	);
-	expect(write.status).toBe(200);
+	expect(stored.rows[0]?.scopes.sort().join(' ')).toBe(everyScope);
 }, 60_000);
 
 describe('the resource check', () => {

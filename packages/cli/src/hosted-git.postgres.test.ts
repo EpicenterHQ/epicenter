@@ -141,15 +141,11 @@ beforeAll(async () => {
 		sleep: async () => {
 			if (approved) return;
 			approved = true;
-			const userCode = codes[0]!.userCode;
-			await client.request(
-				`/auth/device?user_code=${encodeURIComponent(userCode)}`,
-				{ cookie: person.cookie },
-			);
-			await client.selectTarget(person.cookie, '*', { userCode });
-			await client.request('/auth/device/approve', {
+			await client.approveDeviceCode({
 				cookie: person.cookie,
-				json: { userCode },
+				userCode: codes[0]!.userCode,
+				clientId: 'so.epicenter.cli',
+				target: '*',
 			});
 		},
 	});

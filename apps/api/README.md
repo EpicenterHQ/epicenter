@@ -107,7 +107,7 @@ Cloudflare Workers
 │   │                          OAuth 2.1 authorize, token, revoke, device grant)
 │   ├── /sign-in               hosted browser sign-in
 │   ├── /consent               OAuth consent, with the folder picker
-│   ├── /device                device approval, with the folder picker
+│   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/session           the principal projection
 │   ├── /api/repos             the caller's repositories, by namespace
@@ -238,15 +238,13 @@ origin, so it writes its registrations at boot with
 run the Bun entry, or call `registerFirstPartyClients` for the local origin,
 to sign a client in locally.
 
-A vendored patch of `@better-auth/oauth-provider`, applied by Bun from the
-root `package.json` `patchedDependencies`
-(`patches/@better-auth%2Foauth-provider@1.7.9.patch`), keys the refresh
-family on grant lineage, ends the whole lineage when a refresh token is
-revoked, and keeps a refresh token's scopes whole when a refresh names one
-audience, so one grant serves both the API and Git. It is meant for
-upstream; re-verify it on every Better Auth upgrade.
+Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
+device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
+consent page approves it with its folder choice. Migration
+`0006_better_auth_1_8` adds the 1.8 columns and gives `api` and `git` every
+first-party scope, so a refresh never narrows the grant (ADR-0565).
 
-`oauth-server.postgres.test.ts` runs the spike's checks (refresh lineage, grant
+`oauth-server.postgres.test.ts` runs the spike's checks (refresh family, grant
 target, silent re-authorization, and the end-to-end flows) against both
 entries as separate processes on a disposable Postgres cluster: `bun
 server.ts`, and the Worker under `wrangler dev --local` with Hyperdrive's

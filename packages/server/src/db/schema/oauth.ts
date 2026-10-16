@@ -5,8 +5,8 @@
  * models here.
  *
  * Tokens are stored as SHA-256 hashes, never as the token. `reference_id` on a
- * token is its grant target (`*` or `ns:<id>`); `authorization_code_id` is its
- * grant lineage, which the vendored provider patch keys refresh families on.
+ * token, a consent, or an approved device code is its grant target (`*` or
+ * `ns:<id>`).
  */
 import {
 	boolean,
@@ -31,6 +31,7 @@ export const oauthClient = pgTable(
 		skipConsent: boolean('skip_consent'),
 		enableEndSession: boolean('enable_end_session'),
 		subjectType: text('subject_type'),
+		sectorIdentifier: text('sector_identifier'),
 		scopes: text('scopes').array(),
 		clientCredentialsScopes: text('client_credentials_scopes')
 			.array()
@@ -52,6 +53,10 @@ export const oauthClient = pgTable(
 		backchannelLogoutUri: text('backchannel_logout_uri'),
 		backchannelLogoutSessionRequired: boolean(
 			'backchannel_logout_session_required',
+		),
+		frontchannelLogoutUri: text('frontchannel_logout_uri'),
+		frontchannelLogoutSessionRequired: boolean(
+			'frontchannel_logout_session_required',
 		),
 		tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
 		applicationType: text('application_type'),
@@ -138,6 +143,8 @@ export const oauthRefreshToken = pgTable(
 		rotationReplayResponse: text('rotation_replay_response'),
 		rotationReplayExpiresAt: timestamp('rotation_replay_expires_at'),
 		authTime: timestamp('auth_time'),
+		acr: text('acr'),
+		amr: text('amr').array(),
 		confirmation: jsonb('confirmation'),
 		scopes: text('scopes').array().notNull(),
 	},
@@ -231,6 +238,10 @@ export const deviceCode = pgTable(
 		scope: text('scope'),
 		resources: text('resources').array(),
 		oauthClientId: text('oauth_client_id'),
+		referenceId: text('reference_id'),
+		authTime: timestamp('auth_time'),
+		acr: text('acr'),
+		amr: text('amr').array(),
 	},
 	(table) => [
 		uniqueIndex('deviceCode_deviceCode_uidx').on(table.deviceCode),

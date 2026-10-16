@@ -43,6 +43,13 @@
 			"when": 1792099966057,
 			"tag": "0005_hosted_repositories",
 			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1792117504649,
+			"tag": "0006_better_auth_1_8",
+			"breakpoints": true
 		}
 	]
 }

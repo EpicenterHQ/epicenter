@@ -41,7 +41,7 @@ import {
 import {
 	checkFlows,
 	checkGrantTarget,
-	checkRefreshLineage,
+	checkRefreshFamily,
 	checkSilentReauthorization,
 	type OAuthHarness,
 } from '../../packages/server/src/test-helpers/oauth-checks.js';
@@ -175,8 +175,8 @@ function checks(
 			expect(await health.json()).toMatchObject({ runtime });
 		});
 		test(
-			'refresh lineage isolation',
-			() => checkRefreshLineage(harness()),
+			"a refresh family is one client's grants for one person",
+			() => checkRefreshFamily(harness()),
 			60_000,
 		);
 		test('end-to-end flows', () => checkFlows(harness()), 60_000);

@@ -1,8 +1,8 @@
 /**
- * What the authorization server issues (ADR-0549): the scopes, each resource's
- * audience and scope ceiling, token lifetimes, and the token prefixes. The
- * deployment names its audiences and its first-party clients; this module owns
- * the policy every deployment shares.
+ * What the authorization server issues (ADR-0549, ADR-0565): the scopes, each
+ * resource's audience and scope ceiling, token lifetimes, and the token
+ * prefixes. The deployment names its audiences and its first-party clients;
+ * this module owns the policy every deployment shares.
  */
 import type { OAuthResourceInput } from '@better-auth/oauth-provider';
 
@@ -44,27 +44,42 @@ export type OAuthAudiences = {
 };
 
 /**
- * The scopes each audience accepts, as its protected resource metadata lists
- * them. `openid` and `offline_access` ride along on every audience's
- * registration (`oauthResourceInputs`): the library intersects requested
- * scopes with each resource's list, so leaving `offline_access` out would
- * silently withhold the refresh token.
+ * The scopes each audience's routes check, as its protected resource metadata
+ * (RFC 9728) lists them. This is what a client asks for to use the audience,
+ * not what a token for it may carry: see {@link oauthResourceInputs}.
  */
-export const AUDIENCE_SCOPES = {
+export const SCOPES_SUPPORTED = {
 	api: ['ai', 'profile', 'folders:read'],
 	git: ['folders:read', 'folders:write'],
 	mcp: ['folders:read', 'folders:write'],
 } as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;
 
-/** The `oauthResource` rows for a deployment's audiences. */
+/**
+ * The `oauthResource` rows for a deployment's audiences.
+ *
+ * `allowedScopes` is what a token for the audience may carry. The library
+ * intersects a request's scopes with it and stores the result on the refresh
+ * token as well as the access token, so a list narrower than the grant would
+ * shrink the grant on its first refresh for that audience. The first-party
+ * audiences, `api` and `git`, therefore allow every scope: a refresh never
+ * narrows the grant, and the audience alone keeps a Git token out of
+ * inference. `mcp` allows only its own scopes, plus `openid` and
+ * `offline_access`, as the ceiling for third-party clients, whose only
+ * audience it is.
+ */
 export function oauthResourceInputs(
 	audiences: OAuthAudiences,
 ): OAuthResourceInput[] {
-	return (Object.keys(AUDIENCE_SCOPES) as (keyof OAuthAudiences)[]).map(
+	const allowedScopes = {
+		api: [...OAUTH_SCOPES],
+		git: [...OAUTH_SCOPES],
+		mcp: ['openid', 'offline_access', ...SCOPES_SUPPORTED.mcp],
+	} satisfies Record<keyof OAuthAudiences, OAuthScope[]>;
+	return (Object.keys(allowedScopes) as (keyof OAuthAudiences)[]).map(
 		(kind) => ({
 			identifier: audiences[kind],
 			accessTokenTtl: ACCESS_TOKEN_TTL_SECONDS,
-			allowedScopes: ['openid', 'offline_access', ...AUDIENCE_SCOPES[kind]],
+			allowedScopes: allowedScopes[kind],
 		}),
 	);
 }

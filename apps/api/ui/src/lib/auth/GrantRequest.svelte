@@ -1,7 +1,7 @@
 <!--
-	What an app is asking for, and which folders it may reach: the shared body
-	of the consent page and the device approval page (ADR-0549). The folder
-	choice is the grant's target: "All folders", "Personal", or one group.
+	What an app is asking for, and which folders it may reach, on the consent
+	page, which also approves device codes (ADR-0549). The folder choice is the
+	grant's target: "All folders", "Personal", or one group.
 -->
 <script lang="ts">
 	import { Label } from '@epicenter/ui/label';

@@ -3,14 +3,14 @@
  * ADR-0558): `@epicenter/server`'s composition in process, on a disposable
  * Postgres cluster with every migration applied, registering the desktop
  * and CLI clients as the hosted deployment does. The CLI reaches it through
- * an injected `fetch`; a person's approval is simulated through the server's
- * own approve path, as the server's checks do, and the browser's return to
+ * an injected `fetch`; a person's approval is simulated through the consent
+ * page's requests, as the server's checks do, and the browser's return to
  * the loopback listener is a real request to it. The keychain is a store in
  * memory. Requires initdb and pg_ctl on PATH; never connects to a configured
  * database.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -180,22 +180,13 @@ async function deviceLogin(ctx: AuthContext, person: Person) {
 		sleep: async () => {
 			if (approved) return;
 			approved = true;
-			const userCode = codes[0]!.userCode;
-			// The approval page claims the code, the person picks folders, and
-			// approves it: what the server's own checks do.
-			const opened = await client.request(
-				`/auth/device?user_code=${encodeURIComponent(userCode)}`,
-				{ cookie: person.cookie },
-			);
-			expect(opened.ok).toBe(true);
-			expect(
-				(await client.selectTarget(person.cookie, '*', { userCode })).status,
-			).toBe(200);
-			const approval = await client.request('/auth/device/approve', {
+			const approval = await client.approveDeviceCode({
 				cookie: person.cookie,
-				json: { userCode },
+				userCode: codes[0]!.userCode,
+				clientId: 'so.epicenter.cli',
+				target: '*',
 			});
-			expect(approval.ok).toBe(true);
+			expect(approval.status).toBe(200);
 		},
 	});
 	return { result, code: codes[0]! };
@@ -238,7 +229,7 @@ test('device login: the code, approval on the server, and a grant that reaches t
 	expect(stored.issuer).toBe(origin);
 	expect(stored.account).toEqual({ id: person.id, name: 'device-person' });
 	expect(stored.scope.split(' ').sort()).toEqual([...everyScope].sort());
-	// The API token is cached, narrowed to the API's scopes.
+	// The API token from the device exchange is cached, bound to the API.
 	const api = stored.access[audiences.api]!;
 	expect(api.expiresAt - Date.now()).toBeGreaterThan(7 * 3600_000);
 	expect(
@@ -410,7 +401,12 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 	const replayed = await accessToken(ctx, 'device', audiences.git);
 	expect(replayed.data?.token).toBe(current.access[audiences.git]!.token);
 
-	// After the interval, the replay revokes the grant's lineage.
+	// After the interval, the replay ends every CLI grant of this person, on
+	// every machine; the desktop grant is another client's and survives.
+	const elsewhere = machine();
+	await deviceLogin(elsewhere, person);
+	const desktop = machine();
+	await loopbackLogin(desktop, person);
 	await sql.query(
 		'update oauth_refresh_token set rotation_replay_expires_at = $1 where rotation_replay_expires_at is not null and user_id = $2',
 		[new Date(Date.now() - 1000), person.id],
@@ -422,15 +418,33 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 	const ended = await accessToken(ctx, 'device', audiences.git);
 	expect(ended.error?.name).toBe('SignInEnded');
 	expect(ended.error?.message).toContain('epicenter auth login');
+	const other = (await readGrant(elsewhere, 'device')).data!;
+	expect(
+		await reaches(other.access[audiences.api]!.token, {
+			audience: audiences.api,
+			scope: 'ai',
+			person,
+		}),
+	).toBe(401);
+	expect(
+		(await client.refresh('so.epicenter.cli', other.refreshToken)).status,
+	).toBe(400);
+	const kept = await accessToken(desktop, 'desktop', audiences.git);
+	expect(kept.error).toBeNull();
 }, 60_000);
 
-test('logout revokes the grant at the server and deletes only its entry', async () => {
+test('logout revokes the refresh token and every cached access token, and deletes only its entry', async () => {
 	const person = await client.person('logout');
 	const ctx = machine();
 	await deviceLogin(ctx, person);
 	await loopbackLogin(ctx, person);
-	const device = (await readGrant(ctx, 'device')).data!;
 	const git = await accessToken(ctx, 'device', audiences.git);
+	// Each audience's token comes from a different rotation, so revoking the
+	// refresh token alone would leave the older one live.
+	const device = (await readGrant(ctx, 'device')).data!;
+	expect(Object.keys(device.access).sort()).toEqual(
+		[audiences.api, audiences.git].sort(),
+	);
 
 	const out = await logout(ctx, 'device');
 	expect(out.data).toEqual({ signedOut: true, revoked: true });
@@ -467,6 +481,88 @@ test('logout revokes the grant at the server and deletes only its entry', async 
 		signedOut: false,
 		revoked: false,
 	});
+}, 60_000);
+
+test('a refresh already sent finishes its keychain write before a stop signal ends the process', async () => {
+	const person = await client.person('stopped');
+	const ctx = machine();
+	await deviceLogin(ctx, person);
+	const stored = (await readGrant(ctx, 'device')).data!;
+	const dir = await mkdtemp(join(scratch, 'stop-'));
+	// The server rotates the token, then its answer takes a while to arrive:
+	// the moment a stop signal lands in.
+	const rotated = Promise.withResolvers<void>();
+	const server = Bun.serve({
+		hostname: '127.0.0.1',
+		port: 0,
+		async fetch(request) {
+			const url = new URL(request.url);
+			const answer = await app.fetch(
+				new Request(`${origin}${url.pathname}${url.search}`, request),
+			);
+			if (url.pathname === '/auth/oauth2/token') {
+				rotated.resolve();
+				await Bun.sleep(500);
+			}
+			return answer;
+		},
+	});
+	// The child's deployment is this server, so its keychain entry is named
+	// by this server's origin.
+	const keychain = join(dir, 'keychain.json');
+	const name = `device ${server.url.origin}`;
+	await writeFile(
+		keychain,
+		JSON.stringify({ [name]: JSON.stringify({ ...stored, access: {} }) }),
+	);
+	const script = join(dir, 'refresh.ts');
+	await writeFile(
+		script,
+		`import { accessToken } from ${JSON.stringify(join(import.meta.dir, 'auth.ts'))};
+const [file, origin, api, git, lockDir] = process.argv.slice(2);
+const read = async () => JSON.parse(await Bun.file(file).text());
+const secrets = {
+	get: async (key) => (await read())[key] ?? null,
+	set: async (key, value) => Bun.write(file, JSON.stringify({ ...(await read()), [key]: value })),
+	delete: async () => false,
+};
+await accessToken({ deployment: { origin, audiences: { api, git } }, secrets, lockDir, fetch, now: Date.now }, 'device', api);
+`,
+	);
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			script,
+			keychain,
+			server.url.origin,
+			audiences.api,
+			audiences.git,
+			join(dir, 'locks'),
+		],
+		{ stdout: 'ignore', stderr: 'pipe' },
+	);
+	try {
+		const early = await Promise.race([
+			rotated.promise.then(() => null),
+			child.exited.then(async (code) => ({
+				code,
+				stderr: await new Response(child.stderr).text(),
+			})),
+		]);
+		expect(early).toBeNull();
+		child.kill('SIGTERM');
+		expect(await child.exited).toBe(143);
+	} finally {
+		void server.stop(true);
+	}
+	const written = JSON.parse(
+		JSON.parse(await Bun.file(keychain).text())[name],
+	) as StoredGrant;
+	expect(written.refreshToken).not.toBe(stored.refreshToken);
+	expect(written.access[audiences.api]).toBeDefined();
+	expect(
+		(await client.refresh('so.epicenter.cli', written.refreshToken)).status,
+	).toBe(200);
 }, 60_000);
 
 test("login makes this CLI Git's helper for the deployment's Git origin in the global configuration", async () => {

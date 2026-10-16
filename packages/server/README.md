@@ -172,26 +172,25 @@ so there is no `bearer()` and no session handoff.
 
 | Piece | Source | What it holds |
 | --- | --- | --- |
-| Policy | `src/auth/oauth-policy.ts` | Scopes, each audience's scope ceiling, the 8-hour access and 30-day refresh lifetimes, the 60-second reuse interval, token prefixes, and the SHA-256 token hash. |
+| Policy | `src/auth/oauth-policy.ts` | Scopes, each audience's scope ceiling and the scopes its metadata lists, the 8-hour access and 30-day refresh lifetimes, the 60-second reuse interval, token prefixes, and the SHA-256 token hash. |
 | Provider | `src/auth/plugins.ts` | `@better-auth/oauth-provider` with `disableJwtPlugin`, no dynamic registration, `resourceSeedMode: "insertOnly"`, the device grant, and `@better-auth/cimd`, whose plugin is kept per transport so its cache outlives a Worker request. |
-| Grant target | `src/auth/grant-target.ts` | `*` or `ns:<id>`, staged by the consent or device approval page through `POST /auth/grant-target/select` and listed by `GET /auth/grant-target/options`. It becomes the consent's `referenceId`; a device approval without one is refused. |
+| Grant target | `src/auth/grant-target.ts` | `*` or `ns:<id>`, staged by the consent page through `POST /auth/grant-target/select` and listed by `GET /auth/grant-target/options`. It becomes the consent's `referenceId`, and a consent without one is refused. A device code is approved on the same consent page (`/auth/oauth2/authorize?user_code=<code>`), so its tokens carry the target natively. |
 | Offline grants | `src/auth/offline-detach.ts` | Clears `sessionId` on a grant with a refresh token, so it outlives the browser session that approved it. |
 | Registrations | `src/auth/oauth-registrations.ts` | The `oauth_client` and `oauth_resource` rows a deployment's first-party clients need, written insert-only for resources. |
 | Resource check | `src/auth/resource-access.ts` | `authorizeResourceRequest`: one SQL statement from a token, an audience, a scope, and a namespace to the account and its role, or a 401 or 403 with `resource_metadata`. `authorizeAccountRequest`: the same without a namespace, for resources that act on the account (inference, transcription, the profile read). |
 | Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, `requireSessionCookie()` in front of account management on the authorization server's own pages, and `requireBearerPrincipal` for the dev entry's resolver only. |
 | CIMD transports | `src/auth/client-metadata-fetch.ts`, `@better-auth/cimd/node` | The Worker's `redirect: "manual"` fetch and the Bun host's resolve-once, address-pinned fetch. |
 
-The refresh family is one grant's lineage, the refresh row's
-`authorizationCodeId` (`device:<id>` for a device grant). A Bun patch of
-`@better-auth/oauth-provider` 1.7.9, `patches/@better-auth%2Foauth-provider@1.7.9.patch`
-in the root `package.json` `patchedDependencies`, makes reuse detection and
-revocation key on it, and refuses a row without one. Revoking a live refresh
-token ends its whole lineage, so the access tokens earlier rotations issued
-stop too (RFC 7009). A refresh that names one audience narrows that access
-token to the audience's scopes and leaves the refresh token's scopes whole,
-so one grant serves several audiences (RFC 8707); unpatched, the first such
-refresh narrowed the grant for good. It is written for upstream; re-verify it
-on every Better Auth upgrade.
+The provider runs unpatched ([ADR-0565](../../docs/adr/0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md)).
+Its refresh family is every grant of one client for one person: a replay
+after the 60-second reuse interval ends all of them, with every access token
+they issued. The library stores a refresh's scopes, intersected with the
+named resource's `allowedScopes`, on the new refresh token too, so the
+first-party audiences, `api` and `git`, allow every scope and a refresh never
+narrows the grant; each access token is still bound to its audience. `mcp`
+allows only the folder scopes, the ceiling for third-party clients. Revoking
+a refresh token ends only its latest rotation's access tokens, so a client
+signing out revokes each access token it holds as well.
 
 A resource that acts on a namespace calls `authorizeResourceRequest` with its
 own audience, the scope the operation needs, and the namespace in its path,

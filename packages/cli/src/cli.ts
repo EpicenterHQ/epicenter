@@ -119,7 +119,7 @@ const HANDLERS: Record<string, Run> = {
 /**
  * Run a history command. When the shell ends this process (a page reloaded,
  * or its window closed), every `git` it started ends too, with the helpers
- * each started (ADR-0559).
+ * each started (ADR-0559), and a refresh it sent finishes first (ADR-0565).
  */
 async function history(
 	command: 'status' | 'history' | 'save-version' | 'sync',
@@ -128,15 +128,20 @@ async function history(
 	json: boolean,
 	desktop = false,
 ) {
-	const [{ historyCommand }, { endGitCommands }] = await Promise.all([
-		import('./history-commands.ts'),
-		import('@epicenter/folder/bun'),
-	]);
+	const [{ historyCommand }, { endGitCommands }, { refreshesSettled }] =
+		await Promise.all([
+			import('./history-commands.ts'),
+			import('@epicenter/folder/bun'),
+			import('./auth.ts'),
+		]);
 	for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
 		process.once(signal, () => {
 			endGitCommands();
-			process.exit(
-				128 + (signal === 'SIGTERM' ? 15 : signal === 'SIGINT' ? 2 : 1),
+			// A refresh this process sent finishes its keychain write first.
+			void refreshesSettled().then(() =>
+				process.exit(
+					128 + (signal === 'SIGTERM' ? 15 : signal === 'SIGINT' ? 2 : 1),
+				),
 			);
 		});
 	return historyCommand(command, dir, options, json, desktop);

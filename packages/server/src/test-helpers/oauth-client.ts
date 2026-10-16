@@ -241,20 +241,11 @@ export class OAuthTestClient {
 		});
 	}
 
-	/** Stage a target for one app's consent or one device code's approval. */
-	async selectTarget(
-		cookie: string,
-		target: string,
-		forRequest: { clientId: string } | { userCode: string },
-	) {
+	/** Stage a target for one client's consent, a device code's included. */
+	async selectTarget(cookie: string, target: string, clientId: string) {
 		const response = await this.request('/auth/grant-target/select', {
 			cookie,
-			json: {
-				target,
-				...('clientId' in forRequest
-					? { client_id: forRequest.clientId }
-					: { user_code: forRequest.userCode }),
-			},
+			json: { target, client_id: clientId },
 		});
 		return { status: response.status, body: await this.json(response) };
 	}
@@ -270,13 +261,54 @@ export class OAuthTestClient {
 		};
 	}
 
-	/** The device grant: request, open, choose a target, approve, redeem. */
+	/**
+	 * Approve a device code as the device page leads a person to: open it at
+	 * the authorization endpoint, which shows the consent page, choose a
+	 * target, and answer the consent. Only that answer approves the code.
+	 */
+	async approveDeviceCode(o: {
+		cookie: string;
+		userCode: string;
+		clientId: string;
+		target?: string;
+	}): Promise<{ status: number; body: unknown }> {
+		const opened = await this.request(
+			`/auth/oauth2/authorize?user_code=${encodeURIComponent(o.userCode)}`,
+			{ cookie: o.cookie },
+		);
+		const consentPage = new URL(
+			opened.headers.get('location') ?? '',
+			this.origin,
+		);
+		if (consentPage.pathname !== '/consent')
+			throw new Error(`device authorize ${opened.status} ${consentPage}`);
+		if (o.target) {
+			const selected = await this.selectTarget(o.cookie, o.target, o.clientId);
+			if (selected.status !== 200)
+				throw new Error(
+					`select ${selected.status} ${JSON.stringify(selected.body)}`,
+				);
+		}
+		const approved = await this.consent(o.cookie, consentPage.search.slice(1));
+		if (approved.status !== 200) return approved;
+		const answered = new URL(approved.body.url ?? '', this.origin);
+		if (answered.searchParams.get('status') !== 'approved')
+			throw new Error(`device consent answered ${answered}`);
+		return approved;
+	}
+
+	/**
+	 * The device grant: request a code, open it at the authorization endpoint,
+	 * choose a target, approve it on the consent page, redeem it. `redeemFor`
+	 * names the audience the first access token is for.
+	 */
 	async deviceGrant(o: {
 		clientId: string;
 		cookie: string;
 		target?: string;
 		scope?: string;
 		resource: string[];
+		redeemFor?: string;
 	}) {
 		const started = await this.request('/auth/device/code', {
 			form: {
@@ -293,33 +325,18 @@ export class OAuthTestClient {
 			throw new Error(
 				`device/code ${started.status} ${JSON.stringify(device)}`,
 			);
-		// Opening the code on the approval page claims it for this person.
-		const opened = await this.request(
-			`/auth/device?user_code=${encodeURIComponent(device.user_code)}`,
-			{ cookie: o.cookie },
-		);
-		if (!opened.ok) throw new Error(`device ${opened.status}`);
-		if (o.target) {
-			const selected = await this.selectTarget(o.cookie, o.target, {
-				userCode: device.user_code,
-			});
-			if (selected.status !== 200)
-				throw new Error(
-					`select ${selected.status} ${JSON.stringify(selected.body)}`,
-				);
-		}
-		const approved = await this.request('/auth/device/approve', {
+		const approval = await this.approveDeviceCode({
 			cookie: o.cookie,
-			json: { userCode: device.user_code },
+			userCode: device.user_code,
+			clientId: o.clientId,
+			target: o.target,
 		});
-		if (!approved.ok)
-			return {
-				approval: { status: approved.status, body: await this.json(approved) },
-			};
+		if (approval.status !== 200) return { approval };
 		const issued = await this.token({
 			grant_type: DEVICE_GRANT,
 			client_id: o.clientId,
 			device_code: device.device_code,
+			...(o.redeemFor && { resource: o.redeemFor }),
 		});
 		if (issued.status !== 200)
 			throw new Error(
