@@ -158,18 +158,20 @@ and every `epicenter` command the shell runs receives all three. The recorder
 writes into a folder a window was granted, not into application data
 (`tauri-plugin-epicenter-recorder`, ADR-0543). Local model files are not here:
 they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
-`HF_HOME`), which Epicenter downloads into and never deletes from. Settings
-shows a model's folder there; deleting that folder removes the model.
+`$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
+Settings shows a model's folder there; deleting that folder removes the model.
+Local transcription settings, `local-transcription.json`, are in the data
+directory. Earlier builds kept them in Tauri's config directory, which differs
+from the data directory on Linux and Windows; when the new file is missing and
+`EPICENTER_DATA_DIR` is unset, Epicenter copies the old one over and leaves the
+original there.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
 
 Earlier Windows builds used `%APPDATA%\so.epicenter`. Existing files are not
 moved automatically. To carry them forward, stop Epicenter and any CLI using
 its data, back up the old directory, then copy it to
-`%LOCALAPPDATA%\so.epicenter` before launching the new build. Native model
-settings follow on their own: when `local-transcription.json` is missing from
-the data directory and `EPICENTER_DATA_DIR` is unset, Epicenter copies it from
-Roaming AppData and leaves the original there. If the destination
+`%LOCALAPPDATA%\so.epicenter` before launching the new build. If the destination
 already contains data, do not merge or overwrite the directories. Set
 `EPICENTER_DATA_DIR` to the full path of the directory you intend to use instead.
 The same override can keep an existing installation at its old location.

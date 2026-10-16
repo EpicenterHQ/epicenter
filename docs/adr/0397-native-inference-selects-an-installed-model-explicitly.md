@@ -37,10 +37,10 @@ The request carries the model the way it carries the language and the prompt.
 produced the text, so the ADR-0180 compatibility test still holds: identical
 requests naming the same installed model name the same model on the transcript.
 
-**Epicenter Home still administers installs, deletion, and unload policy.**
-Downloading, removing, and the idle clock stay host-owned and stay in Home. An
-application cannot install a model, delete one, or ask for one to be loaded; it
-can only name one that is already installed.
+**Epicenter Home still administers installs and unload policy.**
+Downloading and the idle clock stay host-owned and stay in Home. Epicenter never
+deletes a model ([ADR-0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md)). An application cannot install a model or ask
+for one to be loaded; it can only name one that is already installed.
 
 **The installed list is the runtime connection's model list, not a download
 inventory.** `GET /v1/models` over the native transport returns installed

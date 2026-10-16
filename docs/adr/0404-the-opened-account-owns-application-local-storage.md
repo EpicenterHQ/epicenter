@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
-- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) makes Local data, blobs, SQLite, secrets, and recording independent of account identity; account-partitioned AI catalogs remained separate until browser AI storage dropped its account split too ([ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md)), and existing bytes are not migrated.
+- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) makes Local data, blobs, SQLite, secrets, and recording independent of account identity; account-partitioned AI catalogs remain separate and existing bytes are not migrated.
 - **Supersedes:** [ADR-0400](0400-device-sqlite-and-secrets-key-by-application-id.md).
 - **Relates:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md): a browser's AI connections are shared across its apps on that origin and are not split by account.
 

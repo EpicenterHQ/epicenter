@@ -29,7 +29,7 @@ import {
   openEpicenterInference,
   openRuntimeTranscriber,
   openEndpointInference,
-} from '@epicenter/app/ai';
+} from '@epicenter/ai';
 
 const epicenter = await openEpicenterInference({ account });
 const runtime = await openRuntimeTranscriber();
@@ -234,9 +234,9 @@ The public owner union and `app.device.connections`/`app.account.connection`
 access paths disappear. Distinct constructors make authentication requirements
 visible while preserving runtime absence and ordinary request failures.
 
-Catalog ownership remains explicit because saved keys need isolation even when
-their storage is local. The local/account constructor pair costs two names and
-avoids a tagged public option. Page roots retain acquired access for their
+Catalog ownership remains explicit because saved keys need an owner even when
+their storage is local. One browser constructor, `openLocalConnectionCatalog`,
+takes no account. Page roots retain acquired access for their
 document. Temporary form and workflow owners release their access. Catalog snapshots remain inert; listing
 settings cannot allocate request owners.
 
@@ -268,7 +268,7 @@ implemented signatures; target examples do not claim completion.
 Check independent client closure through response-body completion and delayed
 authentication resolution, caller-header override refusal, redirected credential
 refusal, account retirement, endpoint credential isolation, runtime absence
-without fallback, and explicit model selection. Verify account-separated catalog reopen, signed-out
+without fallback, and explicit model selection. Verify catalog reopen after reload, signed-out
 custom access, desktop broker requests without exported keys, access retirement
 on URL/key changes, and preview leaving persistence untouched. Verify unsaved
 native inference beyond model discovery without logging or persisting ephemeral
