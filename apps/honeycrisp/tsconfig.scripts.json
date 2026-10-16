@@ -1,9 +1,0 @@
-{
-	// Build scripts, which run under Bun outside SvelteKit.
-	"extends": "../../tsconfig.dom.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noEmit": true
-	},
-	"include": ["scripts/**/*.ts"]
-}

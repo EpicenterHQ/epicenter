@@ -12,37 +12,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import {
+	BUNDLE_TIMEOUT,
+	bundledModules,
+} from '@epicenter/vite-config/module-graph';
 
 const appDir = join(import.meta.dir, '..', '..');
-/**
- * Each test runs a Vite production build of the app's resolution graph. It
- * takes under a second alone, but `bun run check` tests every package at
- * once, and on CI's 4-vCPU runner one build outlasted the default 5s.
- */
-const BUNDLE_TIMEOUT = 30_000;
-
-/** Every module a bundle of `entry` pulls in, as paths. Built in its own process. */
-async function inputs(
-	entry: string,
-	platform: 'browser' | 'epicenter-host',
-): Promise<string[]> {
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			join(appDir, 'scripts', 'module-graph.ts'),
-			entry,
-			platform,
-		],
-		{ cwd: appDir, stdout: 'pipe', stderr: 'pipe' },
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`Bundling ${entry} failed:\n${stderr}`);
-	return JSON.parse(stdout) as string[];
-}
 
 const FORBIDDEN =
 	/(^|\/)(@y[+/]|yjs[/@]|y-prosemirror[/@]|y-protocols[/@])|packages\/(auth|sync)\/src\//;
@@ -54,7 +29,8 @@ describe('bundles', () => {
 	test(
 		'the installed page reaches its folder through the shell only',
 		async () => {
-			const modules = await inputs(
+			const modules = await bundledModules(
+				appDir,
 				'src/lib/platform-selection.test-support.ts',
 				'epicenter-host',
 			);
@@ -103,7 +79,8 @@ describe('bundles', () => {
 	test(
 		'the browser page opens a browser folder without Yjs or a native path',
 		async () => {
-			const modules = await inputs(
+			const modules = await bundledModules(
+				appDir,
 				'src/lib/platform-selection.test-support.ts',
 				'browser',
 			);
