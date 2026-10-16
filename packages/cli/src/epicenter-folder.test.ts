@@ -80,7 +80,11 @@ test('an AI connection is a row of kind, title, and model, which an app reads th
 		expect(text).not.toContain('endpoint');
 
 		const lens = expectOk(
-			await openDataFolder({ root, lens: epicenterDefinition, git: { author } }),
+			await openDataFolder({
+				root,
+				lens: epicenterDefinition,
+				git: { author },
+			}),
 		);
 		try {
 			const row = expectOk(await lens.tables.connections.get('groq'));
