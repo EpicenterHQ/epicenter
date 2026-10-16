@@ -30,7 +30,7 @@ import { resolveTargetUrl } from './resolve-target-url.js';
 
 /**
  * The deployment's resources an account request names by role (ADR-0549):
- * `api` for the profile read, `git` for Git and `POST /api/git/connect`.
+ * `api` for the profile read, `git` for Git and the repository listing, `GET /api/repos`.
  */
 export type DesktopAccountAudience = 'api' | 'git';
 

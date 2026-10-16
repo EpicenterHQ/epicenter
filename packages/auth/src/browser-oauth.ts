@@ -171,6 +171,9 @@ export function createBrowserOAuth({
 }: CreateBrowserOAuthOptions): CallbackAuthClient {
 	const { baseURL, authorityId } = server;
 	const serverOrigin = new URL(baseURL).origin;
+	// The token is for `resource`, so its own origin may carry it too: on the
+	// hosted cloud, Git is served from an origin of its own.
+	const resourceOrigin = new URL(resource).origin;
 	if (
 		!callbackPath.startsWith('/') ||
 		callbackPath.startsWith('//') ||
@@ -265,8 +268,15 @@ export function createBrowserOAuth({
 		const lifetime = new AbortController();
 		const accountFetch: AuthFetch = async (input, init) => {
 			const target = resolveTargetUrl(input, baseURL);
-			if (target?.origin !== serverOrigin || target.username || target.password)
-				throw new TypeError('Account requests must target their own server.');
+			if (
+				(target?.origin !== serverOrigin &&
+					target?.origin !== resourceOrigin) ||
+				target.username ||
+				target.password
+			)
+				throw new TypeError(
+					'Account requests must target their own server or the resource their token is for.',
+				);
 			lifetime.signal.throwIfAborted();
 			const stored = sync();
 			lifetime.signal.throwIfAborted();
