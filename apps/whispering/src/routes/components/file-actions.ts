@@ -52,8 +52,8 @@ export function formatTime(value: unknown, style: 'short' | 'full' = 'full') {
 }
 
 /**
- * Ask before deleting `path`. What the dialog names is captured first, and
- * the deletion applies only to that captured version.
+ * Ask before deleting `path`. What the dialog names is read first, and the
+ * deletion deletes those files, whatever they hold by then (ADR-0576).
  */
 export async function confirmDelete(library: Library, path: string) {
 	const { data: deletion, error: refusal } = await library.deletionFor(path);
@@ -67,7 +67,7 @@ export async function confirmDelete(library: Library, path: string) {
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const problem = await library.remove(deletion);
+			const problem = await library.delete(deletion);
 			if (problem)
 				toast.error(`Could not delete ${basename(path)}`, {
 					description: problem,

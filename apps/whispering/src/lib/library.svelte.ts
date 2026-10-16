@@ -15,17 +15,18 @@
  * field and keeps every field another writer changed; a view holds a field
  * typed until it is sent. A row's body (a recording's notes, a transcript, a
  * transformation's instructions) and a file edited as its exact text are
- * documents, held outside the cache: a body editor (`createBodyEditor`)
- * holds the row the edit started from and the body typed, and a text draft
- * (`createTextDraftState`) the version the edit started from. Each is saved
- * a second after the last change, or when the view leaves it, as the change
- * from where it started, merged by line with whatever changed since
- * (ADR-0551, ADR-0576). A read never touches what is typed. Writes to one
- * file run one at a time. Where another writer changed the same lines, the
- * save wins, with no notice (ADR-0575). A text save that fails is reported
- * with the text that was not written. A row deleted elsewhere stays deleted:
- * a delete beats an edit that never saw it (ADR-0576), so nothing typed into
- * it is written, and what was typed is offered to copy.
+ * documents, held outside the cache in a text editor: a body editor
+ * (`createBodyEditor`) holds the row the edit started from and the body
+ * typed, and a file's text editor (`createTextEditor`) the text it started
+ * from. Each is saved a second after the last change, or when the view
+ * leaves it, as the change from where it started, merged by line with
+ * whatever changed since (ADR-0576). A read never touches what is typed.
+ * Writes to one file run one at a time. Where another writer changed the
+ * same lines, the save wins, with no notice (ADR-0575). A text save that
+ * fails is reported with the text that was not written. A file deleted
+ * elsewhere stays deleted: a delete beats an edit that never saw it
+ * (ADR-0576), so nothing typed into it is written, and what was typed is
+ * offered to copy.
  *
  * Every other action is a mutation: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
@@ -45,12 +46,9 @@
 import { InstantString } from '@epicenter/definition';
 import type {
 	CommitOutcome,
-	FileCapture,
 	FileListing,
-	FileSaveError,
 	FileTable,
 	KvReading,
-	MoveError,
 	Row,
 	RowReadError,
 	StoredRow,
@@ -80,8 +78,7 @@ import {
 } from '@epicenter/folder/query';
 import {
 	createBodyEditor,
-	createTextDraftState,
-	type TextDraftState,
+	createTextEditor,
 	type TextEditor,
 } from '@epicenter/folder/svelte';
 import type { RecordingFolder } from '@epicenter/recorder';
@@ -126,7 +123,7 @@ import {
 	type Deletion,
 	type DeletionContext,
 	recordingTitle,
-	removeDeletion,
+	runDeletion,
 } from './deletion.js';
 import { describeError, nameProblem } from './files.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
@@ -212,7 +209,8 @@ export type Selection = {
 export type WriteNotice = {
 	readonly kind: 'failed';
 	readonly path: string;
-	readonly error: WriteError | FileSaveError;
+	/** Why: the write's error, or `NotFound` for a file deleted elsewhere. */
+	readonly error: WriteError | Extract<FileError, { name: 'NotFound' }>;
 	readonly lost: string | undefined;
 };
 
@@ -246,7 +244,7 @@ export const whisperingKeys = defineKeys({
 	/** Every action the app runs. */
 	all: ['whispering'],
 	move: (path: string) => ['whispering', 'move', path] as const,
-	remove: (path: string) => ['whispering', 'remove', path] as const,
+	delete: (path: string) => ['whispering', 'delete', path] as const,
 	/** A recording's lifecycle: its row and length, and saving its transcripts and results. */
 	recording: (path: string) => ['whispering', 'recording', path] as const,
 	action: (name: string) => ['whispering', 'action', name] as const,
@@ -500,7 +498,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** Whether a rename or delete of `path` is running or waiting, which pauses its edits. */
 	const moving = (path: string) =>
 		queryClient.isMutating({ mutationKey: keys.move(path), exact: true }) +
-			queryClient.isMutating({ mutationKey: keys.remove(path), exact: true }) >
+			queryClient.isMutating({ mutationKey: keys.delete(path), exact: true }) >
 		0;
 
 	/** Row files the person chose to edit as their exact text. */
@@ -517,28 +515,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const stem = rowStemOf(table, path) as string;
 		const result = listed(table)?.find((entry) => entry.stem === stem)?.result;
 		return result !== undefined && result.error !== null;
-	}
-
-	/**
-	 * The capture a rename or delete of `path` acts on, read when it runs: the
-	 * newest hash the cache confirmed for what the app edits, if it holds one.
-	 */
-	function heldCapture(path: string): FileCapture | undefined {
-		const table = rowTableOf(path);
-		if (table !== undefined && !asText.has(path)) {
-			const stem = rowStemOf(table, path);
-			const result = queryClient
-				.getQueryData<TableListing<unknown>>(optionsOf(table).list.queryKey())
-				?.find((entry) => entry.stem === stem)?.result;
-			if (result?.error === null)
-				return { path: result.data.path, sha256: result.data.sha256 };
-			if (result?.error.name === 'InvalidRow')
-				return { path: result.error.path, sha256: result.error.sha256 };
-		}
-		const opened = textData(path);
-		return opened?.kind === 'text'
-			? { path: opened.file.path, sha256: opened.file.sha256 }
-			: undefined;
 	}
 
 	// --- edits -----------------------------------------------------------------
@@ -682,34 +658,56 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			});
 	}
 
-	/** Each file's text edit, by path: the version it started from and the text typed. */
-	const textEdits = new SvelteMap<string, Typed<TextDraftState>>();
-	const writeFile = folder$.files.write.mutationOptions();
+	/** Each file's text edit, by path: the text it started from and the text typed. */
+	const textEdits = new SvelteMap<string, Typed<TextEditor>>();
+	const writeFile = folder$.write.mutationOptions();
+
+	/** The text of `path` as the cache holds it, when it opens as text. */
+	function shownText(path: string): string | undefined {
+		const opened = textData(path);
+		return opened?.kind === 'text' ? opened.file.text : undefined;
+	}
+
+	/**
+	 * Let go of the text typed into `path`, and report it: what was typed is
+	 * dropped, so the view shows the file as it is.
+	 */
+	function dropText(
+		path: string,
+		error: WriteNotice['error'],
+		sent: string,
+	): void {
+		const held = textEdits.get(path);
+		const lost = held?.draft.typed ?? sent;
+		held?.draft.discard();
+		textEdits.delete(path);
+		notify({ kind: 'failed', path, error, lost });
+	}
 
 	/** The text edit of `path`, made at its first change. */
 	function textEdit(path: string) {
 		const held = textEdits.get(path);
 		if (held !== undefined) return held;
-		const draft = createTextDraftState({
-			save: (sent) =>
-				runMutation(queryClient, writeFile, { path, ...sent }).catch(
-					(error: FileSaveError) => {
-						// What was typed is reported with the failure and dropped, so
-						// the view shows the file as it is.
-						const lost =
-							draft.text ??
-							(typeof sent.content === 'string' ? sent.content : undefined);
-						draft.discard();
-						textEdits.delete(path);
-						notify({ kind: 'failed', path, error, lost });
-						throw error;
-					},
-				),
+		const draft = createTextEditor({
+			current: () => shownText(path),
+			write: async (change) => {
+				const written = await runMutation(queryClient, writeFile, {
+					path,
+					...change,
+				}).catch((error: WriteError) => {
+					dropText(path, error, change.to);
+					throw error;
+				});
+				if (written.file !== null) return 'landed';
+				// Deleted elsewhere: a delete beats an edit it never saw.
+				dropText(path, FileError.NotFound({ path }).error, change.to);
+				return 'gone';
+			},
 		});
 		const typed = {
 			draft,
 			later: useDebounce(() => saveTyped(textEdits, path), 1000),
-			unsent: () => draft.text,
+			unsent: () => draft.typed,
 		};
 		textEdits.set(path, typed);
 		return typed;
@@ -982,7 +980,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			folder$.files.list.queryKey(),
 		),
 		writesSettled,
-		held: heldCapture,
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
 		audioOf: (path) => {
@@ -1237,14 +1234,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		 */
 		editText(path: string, text: string): void {
 			if (refused() !== undefined || moving(path)) return;
-			const opened = textData(path);
-			// The first change starts from the file shown; later ones keep their base.
-			const base =
-				textEdits.get(path)?.draft.base ??
-				(opened?.kind === 'text' ? opened.file : undefined);
-			if (base === undefined) return;
+			// The first change starts from the file shown; later ones keep theirs.
+			if (!textEdits.has(path) && shownText(path) === undefined) return;
 			const typed = textEdit(path);
-			typed.draft.change(base, text);
+			typed.draft.change(text);
 			void typed.later();
 		},
 		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
@@ -1703,19 +1696,11 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const moving = await defineMutation({
 				mutationKey: keys.move(path),
 				scope: { id: path },
-				mutationFn: async (): Promise<
-					Result<unknown, FileError | MoveError | WriteError | string>
-				> => {
+				mutationFn: async (): Promise<Result<unknown, WriteError | string>> => {
 					await writesSettled();
 					if (stem !== undefined && nextStem !== undefined)
 						return tableOf(TRANSCRIPTIONS).rename(stem, nextStem);
-					let capture = heldCapture(path);
-					if (capture === undefined) {
-						const { data: read, error } = await folder.files.read(path);
-						if (error !== null) return Err(error);
-						capture = { path: read.path, sha256: read.sha256 };
-					}
-					return folder.files.move(capture, to);
+					return folder.move(path, to);
 				},
 				onSuccess: () => moved(path, to),
 				onSettled: () => invalidate(),
@@ -1735,9 +1720,13 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				const listing = queryClient.getQueryData<FileListing>(
 					folder$.files.list.queryKey(),
 				);
-				if (listing?.directories.includes(path))
+				if (
+					listing?.directories.includes(path) ||
+					listing?.files.some((file) => file.path === path)
+				)
 					return `"${name}" already exists here.`;
-				const { error } = await folder.files.create(path, '');
+				// A write from no file places it only where none is.
+				const { error } = await folder.write(path, null, '');
 				if (error !== null) return describeError(error);
 				open(path);
 				return undefined;
@@ -1774,11 +1763,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/**
 		 * Delete what was confirmed, after the edits being written land: what
-		 * this window saved since goes with it. A row goes whatever another
-		 * program changed in it since (ADR-0576); any other file changed since
-		 * is refused.
+		 * this window saved since goes with it. A file goes whatever another
+		 * program changed in it since (ADR-0576).
 		 */
-		async remove(deletion: Deletion): Promise<string | undefined> {
+		async delete(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
 			// Work for the recording that is under way refuses now, rather than
@@ -1791,20 +1779,15 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 						: undefined;
 			const busy = recording && deletionContext().busy(recording);
 			if (busy) return busy;
-			const path =
-				deletion.kind === 'folder'
-					? deletion.path
-					: deletion.kind === 'recording'
-						? deletion.row.path
-						: deletion.file.path;
-			const removed = await defineMutation({
-				mutationKey: keys.remove(path),
+			const { path } = deletion;
+			const done = await defineMutation({
+				mutationKey: keys.delete(path),
 				scope: { id: path },
 				mutationFn: async () => {
 					// Typed while the person was asked: written first, and deleted with it.
 					await writesSettled();
 					return Ok(
-						await removeDeletion(
+						await runDeletion(
 							{
 								...deletionContext(),
 								deleting,
@@ -1817,9 +1800,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				},
 				onSettled: () => invalidate(),
 			})();
-			return removed.error === null
-				? (removed.data ?? undefined)
-				: describe(removed.error);
+			return done.error === null
+				? (done.data ?? undefined)
+				: describe(done.error);
 		},
 		/**
 		 * Record a version: commit the saved files (ADR-0529). Writes still

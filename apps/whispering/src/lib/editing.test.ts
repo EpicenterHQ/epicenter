@@ -130,17 +130,20 @@ async function sha(library: Library, path: string) {
 
 /** Another program writes the file over whatever is there. */
 async function writeElsewhere(library: Library, path: string, content: string) {
-	const { files } = library.folder;
-	const current = await files.read(path);
-	if (current.error?.name === 'NotFound')
-		return void expectOk(await files.create(path, content));
-	expectOk(await files.save(expectOk(current), content, { merge: false }));
+	const { folder } = library;
+	const current = await folder.files.read(path);
+	expectOk(
+		await folder.write(
+			path,
+			current.error === null ? current.data.bytes : null,
+			content,
+		),
+	);
 }
 
 /** Another program deletes the file as it is now. */
 async function deleteElsewhere(library: Library, path: string) {
-	const { files } = library.folder;
-	expectOk(await files.remove(expectOk(await files.read(path))));
+	expectOk(await library.folder.write(path, null, null));
 }
 
 /** Record one recording; it is saved and opens. Answers its editor. */
@@ -470,7 +473,7 @@ test('a deletion runs after the edits are written and removes the recording and 
 		kind: 'recording',
 		title: 'Saved before the delete',
 		audioPath,
-		results: [{ path: result.path }],
+		results: [result.path],
 		// Nothing is in a saved version yet.
 		unversioned: true,
 	});
@@ -482,7 +485,7 @@ test('a deletion runs after the edits are written and removes the recording and 
 	editor.edit((row) => {
 		row.body = 'Typed while asked.\n';
 	});
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	expect(await text(library, path)).toBeUndefined();
 	expect(await text(library, result.path)).toBeUndefined();
 	expect((await library.folder.files.read(audioPath)).error).toBeNull();
@@ -498,7 +501,7 @@ test('a deletion beats a change made elsewhere after it was confirmed (ADR-0576)
 	const theirs = recordingText('Changed', editor.draft.fields.audioPath);
 	await writeElsewhere(library, path, theirs);
 
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	expect(await text(library, path)).toBeUndefined();
 	await settle(library);
 	expect(library.entries).toEqual([]);

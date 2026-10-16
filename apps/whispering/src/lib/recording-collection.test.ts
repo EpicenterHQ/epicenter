@@ -46,9 +46,9 @@ import { createQueryClient } from './query.test-support.js';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
+	deleteCaptured,
 	describeDeletions,
 	nextSort,
-	removeCaptured,
 	selectionIn,
 	shownRows,
 	toggleAllShown,
@@ -110,7 +110,7 @@ async function history(
 		body = '',
 	) => {
 		const audioPath = `audio/${stem}.wav`;
-		expectOk(await folder.files.create(audioPath, toneWav()));
+		expectOk(await folder.write(audioPath, null, toneWav()));
 		expectOk(
 			await folder.tables.recordings.create(
 				{
@@ -159,13 +159,14 @@ async function history(
 	await recording('walk', 'Walk ideas', '04', 300_000);
 	await recording('lecture', 'Lecture notes', '01', 3_000_000);
 	expectOk(
-		await folder.files.create(
+		await folder.write(
 			'recordings/orphan.md',
+			null,
 			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\ncapture: microphone\n---\n',
 		),
 	);
 	expectOk(
-		await folder.files.create('recordings/broken.md', 'no frontmatter here\n'),
+		await folder.write('recordings/broken.md', null, 'no frontmatter here\n'),
 	);
 	await transcript(
 		'standup-t1',
@@ -390,7 +391,7 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 
 	// A selected recording deleted from the folder is no longer selected, or counted as hidden.
 	const deletion = expectOk(await library.deletionFor(path('lecture')));
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	const after = shownRows(library, 'standup', view.recordingSort);
 	expect(selectionIn(view.recordingSelected, after, library)).toMatchObject({
 		hidden: 2,
@@ -584,8 +585,8 @@ test('deleting several captures each deletion first, removes exactly those with 
 	expect(told.description).toContain('“Walk ideas”, “Monday standup”');
 	expect(told.description).toContain('The 2 audio files are not deleted');
 
-	expect(await removeCaptured(library, captured.deletions)).toEqual({
-		removed: 2,
+	expect(await deleteCaptured(library, captured.deletions)).toEqual({
+		deleted: 2,
 		problems: [],
 	});
 
@@ -637,12 +638,12 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 	expect(
 		(await captureDeletions(library, [path('standup')])).deletions,
 	).toEqual([]);
-	const { removed, problems } = await removeCaptured(
+	const { deleted, problems } = await deleteCaptured(
 		library,
 		captured.deletions,
 	);
 
-	expect(removed).toBe(0);
+	expect(deleted).toBe(0);
 	expect(problems.map((problem) => problem.title)).toEqual([
 		'Monday standup',
 		'Walk ideas',

@@ -499,7 +499,7 @@ test('a recording cannot be deleted while a transformation of it runs, including
 	// Asking now refuses, and so does the deletion already confirmed.
 	const { error: refusal } = await library.deletionFor(recording.path);
 	expect(refusal).toContain('still running');
-	expect(await library.remove(confirmed)).toContain('still running');
+	expect(await library.delete(confirmed)).toContain('still running');
 	expect(
 		[
 			...(await names(root, 'recordings')),
@@ -511,11 +511,11 @@ test('a recording cannot be deleted while a transformation of it runs, including
 	await running;
 
 	// The result written since was never named to the person, so they are asked again.
-	expect(await library.remove(confirmed)).toContain('after you were asked');
+	expect(await library.delete(confirmed)).toContain('after you were asked');
 	expect(await names(root, RUNS)).toHaveLength(1);
 	const again = expectOk(await library.deletionFor(recording.path));
 	expect(again).toMatchObject({ kind: 'recording' });
-	expect(await library.remove(again!)).toBeUndefined();
+	expect(await library.delete(again!)).toBeUndefined();
 	// The row and the results are gone. The audio is an ordinary file and stays.
 	expect(await names(root, 'recordings')).toEqual([]);
 	expect(await names(root, 'audio')).toEqual([`${recording.stem}.wav`]);
@@ -534,7 +534,7 @@ test('a failed run does not block deletion, and its row goes with the recording'
 	expect(state.kind).toBe('failed');
 
 	const deletion = expectOk(await library.deletionFor(recording.path));
-	expect(await library.remove(deletion!)).toBeUndefined();
+	expect(await library.delete(deletion!)).toBeUndefined();
 
 	// Nothing is left that could be run again against the deleted recording.
 	expect(await library.runAgain(output.path)).toContain(
@@ -550,7 +550,7 @@ test('a transformation asked for while its recording is being deleted sends noth
 	const editor = await cleanupProfile(library);
 	const deletion = expectOk(await library.deletionFor(recording.path));
 
-	const removing = library.remove(deletion!);
+	const removing = library.delete(deletion!);
 	const problem = await library.transform(transcript.path, editor.path);
 	expect(await removing).toBeUndefined();
 
@@ -577,7 +577,7 @@ test('a result outlives edits to its transformation and the transformation’s d
 
 	const deletion = expectOk(await library.deletionFor(editor.path));
 	expect(deletion).toMatchObject({ kind: 'transformation', results: 1 });
-	expect(await library.remove(deletion!)).toBeUndefined();
+	expect(await library.delete(deletion!)).toBeUndefined();
 
 	expect(library.transformations).toHaveLength(0);
 	expect(library.selectedTransformation).toBeUndefined();
@@ -597,7 +597,7 @@ test('deleting a recording removes the results made from its transcripts', async
 
 	const deletion = expectOk(await library.deletionFor(recording.path));
 	expect(deletion).toMatchObject({ kind: 'recording' });
-	expect(await library.remove(deletion!)).toBeUndefined();
+	expect(await library.delete(deletion!)).toBeUndefined();
 
 	expect(await names(root, RUNS)).toEqual([]);
 	expect(await names(root, 'transcriptions')).toEqual([]);

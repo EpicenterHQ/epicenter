@@ -606,7 +606,7 @@ test('a text_runs/ file that does not read never holds up a recording’s deleti
 	]);
 
 	const deletion = expectOk(await library.deletionFor(recording.path));
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	expect(library.entries).toEqual([]);
 	expect(await names(root, TEXT_RUNS)).toHaveLength(3);
 
