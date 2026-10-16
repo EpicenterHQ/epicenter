@@ -14,9 +14,9 @@
 
 	A file that does not read as a todo shows its text and what to fix,
 	read-only: another editor fixes it, and the folder's change report shows
-	the result. Delete carries the version this view shows when the person
-	asks. Todos does not rename files; the file system, Git, or another
-	program does.
+	the result. Delete removes what the file holds when it runs; notes typed
+	into a todo deleted before they were written are offered as text. Todos
+	does not rename files; the file system, Git, or another program does.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -99,13 +99,28 @@
 	});
 	const sendNotesLater = useDebounce(() => notes.save(), 1000);
 
+	/** The notes last offered as text after the todo was deleted. */
+	let offered: string | undefined;
+	/**
+	 * Notes typed into a todo deleted before they were written are never
+	 * written; offer them as text, once for each text typed.
+	 */
+	function offerGoneNotes() {
+		const typed = notes.typed;
+		if (!notes.gone || typed === undefined || typed === offered) return;
+		offered = typed;
+		todos.rows.notesGone(stem, typed);
+	}
+	$effect(offerGoneNotes);
+
 	/** Send what is typed now, as leaving the field does. */
 	function flush() {
 		void sendTitleLater.runScheduledNow();
-		void sendNotesLater.runScheduledNow();
+		return sendNotesLater.runScheduledNow();
 	}
-	// runed's timers outlive the view; send now instead.
-	onDestroy(flush);
+	// runed's timers outlive the view; send now instead, and offer the notes
+	// if the send finds the todo deleted.
+	onDestroy(() => void Promise.resolve(flush()).then(offerGoneNotes));
 
 	const pending = $derived(
 		setDone.isPending ||
@@ -141,21 +156,21 @@
 	/**
 	 * Ask before deleting this file, named by its title when it has one. The
 	 * dialog opens once what is typed here and every running save have
-	 * landed, on the version they left, and the delete runs only on that
-	 * version.
+	 * landed. The delete removes what the file holds when it runs (ADR-0576);
+	 * notes typed while the dialog is open are offered as text.
 	 */
 	async function confirmDelete(shownTitle: string | undefined) {
 		await Promise.all([sendTitleLater.runScheduledNow(), sendNotesLater.runScheduledNow()]);
 		await notes.save();
-		const version = await todos.rows.shown(stem);
+		const listed = await todos.rows.listed(stem);
 		const lost = await history();
-		if (version === undefined) return;
+		if (!listed) return;
 		confirmationDialog.open({
 			title: `Delete “${shownTitle?.trim() ? shownTitle : `${stem}.md`}”?`,
 			description: `This deletes ${path} from the folder. ${lost}`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				const { error } = await todos.rows.delete(stem, version);
+				const { error } = await todos.rows.delete(stem);
 				if (error !== null) toast.error(`Could not delete ${path}`, { description: describeError(error) });
 				else onDeleted?.();
 			},

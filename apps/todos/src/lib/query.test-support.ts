@@ -12,7 +12,7 @@
  * observes it, and a control that edits a todo sends each change through its
  * own set mutation.
  */
-import type { FileCapture, StoredRow } from '@epicenter/folder';
+import type { StoredRow } from '@epicenter/folder';
 import { MutationObserver, QueryObserver } from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
 import type { TodoListing } from './todo-listing.js';
@@ -89,19 +89,4 @@ export function cached(todos: Todos, stem: string): StoredRow<TodoFields> {
 	if (result?.error !== null || result === undefined)
 		throw new Error(`No valid row for ${stem} in the cache`);
 	return result.data;
-}
-
-/**
- * The bytes the cache holds for `stem`, a row's or an `InvalidRow`'s, as a
- * view shows them when the person asks to delete it.
- */
-export function shown(todos: Todos, stem: string): FileCapture {
-	const result = listing(todos).find((entry) => entry.stem === stem)?.result;
-	if (result === undefined)
-		throw new Error(`No entry for ${stem} in the cache`);
-	if (result.error === null)
-		return { path: result.data.path, sha256: result.data.sha256 };
-	if (result.error.name !== 'InvalidRow')
-		throw new Error(`${stem} could not be read: ${result.error.message}`);
-	return { path: result.error.path, sha256: result.error.sha256 };
 }

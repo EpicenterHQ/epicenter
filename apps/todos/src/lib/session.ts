@@ -20,16 +20,16 @@ export const todosKeys = defineKeys({
 	delete: (path: string) => ['todos', 'delete', path] as const,
 });
 
-/** Why an action did not start: what it would change is not what the person saw. */
+/** Why an action Todos asked for did not happen, in words a person reads. */
 export const TodosError = defineErrors({
 	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 });
 export type TodosError = InferErrors<typeof TodosError>;
 
-/** A save that failed. The editor keeps the edit; `unsaved` is it as text. */
+/** A save that failed or found its todo deleted; `unsaved` is the edit as text. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: WriteError;
+	readonly error: WriteError | TodosError;
 	/** The text that was in the editor and is not in the file. */
 	readonly unsaved: string;
 };

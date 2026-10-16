@@ -22,6 +22,8 @@
  * - Opening another todo while a save is pending writes the pending text to
  *   the todo it was typed into, and to no other
  * - A failed save keeps the typed text, and Try again sends it
+ * - Notes typed into a todo deleted elsewhere are not written; they are
+ *   offered as text
  * - The checkbox sends at once and never undoes a title typed meanwhile
  * - A title saved over a change made elsewhere keeps the other fields; the
  *   typed title wins where both changed
@@ -380,6 +382,21 @@ test('a failed save keeps the typed text, and Try again sends it', async () => {
 	expect((await reading(path)).fields.title).toBe('Oat milk');
 	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
 	expect(get('[data-testid="write-status"]').textContent).toContain('Saved to');
+});
+
+test('notes typed into a todo deleted elsewhere are not written and are offered as text', async () => {
+	const { todos, target, get, failures, text } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get(NOTES), 'From the shop.\n');
+	// Another writer deletes the file before the notes are sent; the cache
+	// still holds the row.
+	expectOk(await todos.folder.files.remove(expectOk(await todos.folder.files.read(path))));
+	blur(get(NOTES));
+	await settle(todos);
+	expect(await text(path)).toBeUndefined();
+	expect(failures).toMatchObject([
+		{ path, unsaved: 'From the shop.\n', error: { name: 'NotStarted' } },
+	]);
 });
 
 test('the checkbox sends at once and does not undo a title typed meanwhile', async () => {

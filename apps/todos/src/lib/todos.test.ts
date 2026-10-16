@@ -18,8 +18,8 @@
  *   a value it cannot hold the same way
  * - A row that is not a valid todo is named for repair, and reads as a todo
  *   once another editor fixes it
- * - Delete runs after running saves and acts on what the last one saved; a
- *   version other than the one the cache holds is refused
+ * - Delete runs after running saves and deletes whatever the file holds
+ *   then; a field set that lands after it writes nothing
  * - Git status names a file with changes in no saved version; saves never
  *   commit, and Save version records one
  * - Close waits for every mutation, and every close call shares one
@@ -29,7 +29,7 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { folderOptions } from '@epicenter/folder/query';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
 	createTestStorage,
@@ -44,7 +44,6 @@ import {
 	observe,
 	quiet,
 	rowEditor,
-	shown,
 } from './query.test-support.js';
 import type { WriteFailure } from './session.js';
 import { repairsOf, todosOf } from './todo-listing.js';
@@ -369,10 +368,10 @@ test('a row that is not a valid todo is named for repair, and reads as a todo on
 // Delete
 // ============================================================================
 
-test('a file that does not read as a todo is deleted as the listing read it', async () => {
+test('a file that does not read as a todo is deleted', async () => {
 	const { todos } = await open();
 	await breakTodo(todos, 'bad', 'not a todo');
-	expectOk(await todos.rows.delete('bad', shown(todos, 'bad')));
+	expectOk(await todos.rows.delete('bad'));
 	expect(await text(todos, 'todos/bad.md')).toBeUndefined();
 });
 
@@ -384,62 +383,40 @@ test('a delete runs after running saves and removes only the Markdown file', asy
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const confirming = todos.rows.shown(stem);
+	const confirming = todos.rows.listed(stem);
 	release();
-	const version = await confirming;
+	expect(await confirming).toBe(true);
 	expect(await text(todos, path)).toContain('title: Oat milk\n');
-	expectOk(await todos.rows.delete(stem, version!));
+	expectOk(await todos.rows.delete(stem));
 	await quiet(todos);
 	expect(await text(todos, path)).toBeUndefined();
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
 });
 
-test('a delete confirmed on a version changed elsewhere since, and read again, deletes nothing', async () => {
+test('a delete beats a change made elsewhere since the person confirmed it', async () => {
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	// The confirmation opens on the version the view shows.
-	const confirmedOn = shown(todos, stem);
 	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
 	await todos.refresh();
 	await quiet(todos);
 	expect(cached(todos, stem).row.fields.title).toBe('Theirs');
 
-	expect(expectErr(await todos.rows.delete(stem, confirmedOn))).toMatchObject({
-		name: 'NotStarted',
-	});
-	expect(await text(todos, path)).toContain('title: Theirs');
-});
-
-test("the version a delete confirms is the one the app's running save wrote, never the one before it", async () => {
-	const { todos, holdNextWrite } = await open();
-	const { stem, path } = await addTodo(todos, 'Milk');
-	const before = shown(todos, stem);
-	const { held, release } = holdNextWrite();
-	rowEditor(todos, stem)(titled('Oat milk'));
-	await held;
-	const confirming = todos.rows.shown(stem);
-	release();
-	const version = await confirming;
-	expect(version?.sha256).not.toBe(before.sha256);
-	expect(version?.sha256).toBe(cached(todos, stem).sha256);
-	// A version from before the app's own save is no longer what the file holds.
-	expect(expectErr(await todos.rows.delete(stem, before)).name).toBe(
-		'NotStarted',
-	);
-	expectOk(await todos.rows.delete(stem, version!));
+	expectOk(await todos.rows.delete(stem));
 	expect(await text(todos, path)).toBeUndefined();
 });
 
-test('a delete of a todo the cache no longer holds is refused without reading the folder', async () => {
-	const { todos } = await open();
+test('a field set on a todo deleted since writes nothing and reports nothing', async () => {
+	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const confirmedOn = shown(todos, stem);
-	todos.queryClient.setQueryData(todos.rows.todos.queryKey, []);
-	expect(expectErr(await todos.rows.delete(stem, confirmedOn))).toMatchObject({
-		name: 'NotStarted',
-	});
-	expect(await text(todos, path)).toContain('title: Milk');
+	const set = rowEditor(todos, stem);
+	expectOk(await todos.rows.delete(stem));
+	await quiet(todos);
+
+	await set(marked(true));
+	await quiet(todos);
+	expect(await text(todos, path)).toBeUndefined();
+	expect(failures).toEqual([]);
 });
 
 // ============================================================================

@@ -131,23 +131,18 @@ try {
 			const stem = args[0];
 			if (stem === undefined) throw new Error('complete needs a stem');
 			// Marked done on the row as it is now: a field set keeps every other
-			// field and the body another writer changed (ADR-0576).
-			const { data: current, error: readError } =
-				await folder.tables.todos.get(stem);
-			if (readError || current === undefined) {
+			// field and the body another writer changed, and writes nothing
+			// when no todo is there (ADR-0576).
+			const { data: updated, error } = await folder.tables.todos.set(stem, {
+				done: true,
+			});
+			if (error || updated === null) {
 				exitCode = 1;
-				print({ error: readError?.message ?? `No todo named ${stem}` });
-				break;
-			}
-			const { data: updated, error: updatedError } =
-				await folder.tables.todos.set(stem, { done: true });
-			if (updatedError) {
-				exitCode = 1;
-				print({ error: updatedError.message });
+				print({ error: error?.message ?? `No todo named ${stem}` });
 				break;
 			}
 			print({
-				updated: updated?.path ?? null,
+				updated: updated.path,
 				history: await folder.git.commitAndPush(),
 			});
 			break;
