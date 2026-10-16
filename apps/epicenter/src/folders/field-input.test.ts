@@ -194,7 +194,9 @@ test('a write that failed says why in words a person reads', () => {
 			path: 'notes/a.md',
 			attempts: 3,
 		}),
-	).toBe('This row kept changing in another window, so your edit was not saved.');
+	).toBe(
+		'This row kept changing in another window, so your edit was not saved.',
+	);
 	expect(
 		failureText({
 			name: 'InvalidValues',

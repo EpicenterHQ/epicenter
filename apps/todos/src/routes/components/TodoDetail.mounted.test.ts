@@ -390,7 +390,11 @@ test('notes typed into a todo deleted elsewhere are not written and are offered 
 	type(get(NOTES), 'From the shop.\n');
 	// Another writer deletes the file before the notes are sent; the cache
 	// still holds the row.
-	expectOk(await todos.folder.files.remove(expectOk(await todos.folder.files.read(path))));
+	expectOk(
+		await todos.folder.files.remove(
+			expectOk(await todos.folder.files.read(path)),
+		),
+	);
 	blur(get(NOTES));
 	await settle(todos);
 	expect(await text(path)).toBeUndefined();
@@ -494,9 +498,7 @@ test('notes from a CRLF file show LF; typing in them writes the file in the stan
 		new TextDecoder().decode(
 			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
 		),
-	).toBe(
-		'---\ntitle: Milk\ndone: false\nowner: sam\n---\nOne\nTwo\nThree\n',
-	);
+	).toBe('---\ntitle: Milk\ndone: false\nowner: sam\n---\nOne\nTwo\nThree\n');
 });
 
 test('completion from the list and from the detail keeps notes and undeclared keys', async () => {

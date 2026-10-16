@@ -587,11 +587,8 @@ async function typedValues(
 	folder.tables.todos.delete('milk', { expectedSha256: 'a'.repeat(64) });
 	if (entry.data) {
 		// A write names the row the change started from and the row it ends at.
-		const { data: written, error: writeError } = await folder.tables.todos.write(
-			'milk',
-			entry.data.row,
-			entry.data.row,
-		);
+		const { data: written, error: writeError } =
+			await folder.tables.todos.write('milk', entry.data.row, entry.data.row);
 		if (writeError === null)
 			expectTypeOf(written).toEqualTypeOf<WrittenRow<Fields>>();
 		else {

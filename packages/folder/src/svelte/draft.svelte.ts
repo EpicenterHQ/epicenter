@@ -164,8 +164,7 @@ export type BodyEditor = {
 };
 
 /** A body as the file stores it: line feeds, and well-formed text (ADR-0572). */
-const storable = (text: string) =>
-	text.replace(/\r\n?/g, '\n').toWellFormed();
+const storable = (text: string) => text.replace(/\r\n?/g, '\n').toWellFormed();
 
 export function createBodyEditor<TFields>({
 	row,

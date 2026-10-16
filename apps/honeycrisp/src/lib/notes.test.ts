@@ -241,7 +241,12 @@ test('a body saved over a delete not yet reported writes nothing, and the text i
 	// A delete beats an edit that never saw it.
 	expect(disk.text(A)).toBeUndefined();
 	expect(failures).toMatchObject([
-		{ path: A, error: { name: 'NoteDeleted' }, unsaved: 'Mine.\n', kept: false },
+		{
+			path: A,
+			error: { name: 'NoteDeleted' },
+			unsaved: 'Mine.\n',
+			kept: false,
+		},
 	]);
 	expect(notes.isUnsaved(A)).toBe(false);
 	expect(notes.unsaved).toBe(false);
@@ -261,7 +266,12 @@ test('a body typed and not yet saved when a delete is reported is dropped and of
 	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
 	await quiet(notes);
 	expect(failures).toMatchObject([
-		{ path: A, error: { name: 'NoteDeleted' }, unsaved: 'Mine.\n', kept: false },
+		{
+			path: A,
+			error: { name: 'NoteDeleted' },
+			unsaved: 'Mine.\n',
+			kept: false,
+		},
 	]);
 	expect(notes.isUnsaved(A)).toBe(false);
 	expect(notes.unsaved).toBe(false);
@@ -355,7 +365,9 @@ test('a change another tab saved shows in the lists and the open note', async ()
 	const tab = await disk.otherTab();
 	const theirs = expectOk(await tab.tables.notes.get('a'));
 	if (theirs === undefined) throw new Error('No note a');
-	expectOk(await tab.tables.notes.write('a', theirs.row, titled('Theirs')(theirs.row)));
+	expectOk(
+		await tab.tables.notes.write('a', theirs.row, titled('Theirs')(theirs.row)),
+	);
 	expectOk(await tab.files.create('notes/c.md', noteText({ title: 'Gamma' })));
 	await until(
 		() =>

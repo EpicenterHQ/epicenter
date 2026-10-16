@@ -471,7 +471,10 @@ test("every attempt merges from the write's own from, and the write logs what th
 	});
 	const logged = spyOn(console, 'info').mockImplementation(() => {});
 	try {
-		const mine = { ...stored.row, fields: { ...stored.row.fields, title: 'Mine' } };
+		const mine = {
+			...stored.row,
+			fields: { ...stored.row.fields, title: 'Mine' },
+		};
 		const written = must(await s.table.write('a', stored.row, mine));
 		expect(written.row.fields.title).toBe('Mine');
 		expect(logged.mock.calls).toEqual([
@@ -588,9 +591,7 @@ test('rename from a stem with no file, or onto an occupied one, is InvalidPath a
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/b.md', NEWER);
-	expect(expectErr(await s.table.rename('gone', 'c')).name).toBe(
-		'InvalidPath',
-	);
+	expect(expectErr(await s.table.rename('gone', 'c')).name).toBe('InvalidPath');
 	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
 	expect(await s.stored('todos/a.md')).toBe(VALID);
 	expect(await s.stored('todos/b.md')).toBe(NEWER);

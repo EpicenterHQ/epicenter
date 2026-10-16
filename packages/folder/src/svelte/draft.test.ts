@@ -20,12 +20,12 @@
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import type { CapturedFile } from '../capture.js';
-import type { SaveTextVariables } from '../draft.js';
-import type { SavedFile } from '../save-file.js';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
+import type { CapturedFile } from '../capture.js';
 import { defineFolder, defineTable, field } from '../contract.js';
+import type { SaveTextVariables } from '../draft.js';
 import type { Row } from '../row-text.js';
+import type { SavedFile } from '../save-file.js';
 import { createTable, type StoredRow } from '../table.js';
 
 const { flushSync } = await import('svelte');
@@ -222,7 +222,10 @@ test("an agent's lines merged into the body stay, and typing after a save appear
 		'notes',
 		definition.tables.notes,
 	);
-	await notes.create({ fields: { title: 'One' }, body: 'Hello\n' }, { stem: 'a' });
+	await notes.create(
+		{ fields: { title: 'One' }, body: 'Hello\n' },
+		{ stem: 'a' },
+	);
 	let cached = (await notes.get('a')).data as StoredRow<Note>;
 	const body = createBodyEditor<Note>({
 		row: () => cached,

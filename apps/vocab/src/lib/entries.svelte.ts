@@ -33,8 +33,8 @@ import {
 	rowPath,
 	type StoredRow,
 	type TableListing,
-	wellFormed,
 	type WriteError,
+	wellFormed,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import {
@@ -336,8 +336,7 @@ export function createEntries(
 		/** Send the note of the word at `id`. */
 		setNote: (id: string, note: string) => send(id, { note }),
 		/** Press a stage of the word at `id`; it is sent at once. */
-		setStage: (id: string, stage: EntryFields['stage']) =>
-			send(id, { stage }),
+		setStage: (id: string, stage: EntryFields['stage']) => send(id, { stage }),
 		/**
 		 * Delete `entry`. It waits for the word's sets under way and writes
 		 * the repair text typed, then deletes the file whatever it holds.

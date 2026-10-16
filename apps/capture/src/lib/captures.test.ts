@@ -71,8 +71,7 @@ const STANDARD = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 /** How many saves of a capture are running. */
 const savesRunning = ({ captures }: Opened) =>
 	captures.queryClient.isMutating({
-		mutationKey:
-			captures.folder$.captures.write.mutationOptions().mutationKey,
+		mutationKey: captures.folder$.captures.write.mutationOptions().mutationKey,
 	});
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */
@@ -199,9 +198,7 @@ test('a body write to a CRLF capture writes the row in its standard form with LF
 	form.inputNewThought('half \uD800 a character');
 	expect(form.addThought()).toBe(true);
 	await quiet(captures);
-	expect(await harness.text(PATH)).toBe(
-		`${STANDARD}- half � a character\n`,
-	);
+	expect(await harness.text(PATH)).toBe(`${STANDARD}- half � a character\n`);
 	expect(harness.failures).toEqual([]);
 });
 

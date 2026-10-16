@@ -163,9 +163,9 @@ test('two processes appending to one file through the one write keep every line 
 				{ stdout: 'pipe', stderr: 'inherit', env: process.env },
 			);
 		const appenders = [appender(0), appender(1)];
-		expect(
-			await Promise.all(appenders.map((child) => child.exited)),
-		).toEqual([0, 0]);
+		expect(await Promise.all(appenders.map((child) => child.exited))).toEqual([
+			0, 0,
+		]);
 		const lines = (await readFile(join(root, 'log.txt'), 'utf8'))
 			.split('\n')
 			.filter((line) => line !== '');

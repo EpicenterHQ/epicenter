@@ -202,7 +202,10 @@ test('a set puts its row in the row and the listing, and marks the rest of its p
 			told++;
 		},
 	});
-	const written = await setTodo.mutate({ stem: 'milk', fields: { done: true } });
+	const written = await setTodo.mutate({
+		stem: 'milk',
+		fields: { done: true },
+	});
 
 	expect(told).toBe(1);
 	expect(written?.row.fields.done).toBe(true);

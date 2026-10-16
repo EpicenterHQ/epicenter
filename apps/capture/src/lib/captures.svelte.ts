@@ -332,7 +332,11 @@ export function createCaptures(
 				}),
 			// The file is gone: the edit has nowhere to go but the notice.
 			gone: (text) =>
-				onWriteFailed({ path, error: FileError.NotFound({ path }).error, text }),
+				onWriteFailed({
+					path,
+					error: FileError.NotFound({ path }).error,
+					text,
+				}),
 			locked: () => refused() !== undefined || removing(path),
 		});
 		forms.set(stem, form);

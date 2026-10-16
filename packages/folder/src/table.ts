@@ -37,11 +37,7 @@ import {
 	WriteError,
 } from './errors.js';
 import type { FileContent } from './merge-file.js';
-import {
-	ROW_EXTENSION,
-	rowAddressProblem,
-	rowPath,
-} from './paths.js';
+import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
 import {
 	confirmedPut,
@@ -396,8 +392,7 @@ export function createTable<TFields>(
 					moved.sha256,
 					now.data.sha256,
 				);
-				if (carried.error !== null)
-					return Err(writeFailure(to, carried.error));
+				if (carried.error !== null) return Err(writeFailure(to, carried.error));
 				if (carried.data === 'stale') break;
 				moved = now.data;
 			}

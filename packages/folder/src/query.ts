@@ -637,7 +637,9 @@ export function folderOptions<TTables, TValues>(
 						run: ({ stem, from, to }: WriteRowVariables<Fields>) =>
 							table.write(stem, from, to),
 						wrote: (client, row, { stem, to }) =>
-							to === null ? deletedRow(client, stem) : wroteRow(client, stem, row),
+							to === null
+								? deletedRow(client, stem)
+								: wroteRow(client, stem, row),
 						touched: ({ stem }) => [rowPath(name, stem)],
 					}),
 			},
