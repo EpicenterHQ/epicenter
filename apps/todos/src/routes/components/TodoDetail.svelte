@@ -93,7 +93,7 @@
 	}
 	const sendTitleLater = useDebounce(sendTitle, 1000);
 
-	/** The notes: the body, opened with the version it started from (ADR-0573). */
+	/** The notes: the body, opened with the version it started from (ADR-0575). */
 	const notes = createBodyEditor<TodoFields>({
 		row: () => stored,
 		save: (variables) => saveNotes.mutateAsync(variables),

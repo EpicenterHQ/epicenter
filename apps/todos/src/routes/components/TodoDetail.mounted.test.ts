@@ -468,7 +468,7 @@ test('notes from a CRLF file show LF; typing in them writes an LF body and keeps
 	blur(notes);
 	await settle(todos);
 	// A body write keeps every byte before the body (ADR-0575) and writes the
-	// body with LF (ADR-0570).
+	// body with LF (ADR-0572).
 	expect(await reading('todos/crlf.md')).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'sam' },
 		body: 'One\nTwo\nThree\n',

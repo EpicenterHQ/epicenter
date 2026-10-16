@@ -77,14 +77,14 @@ A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,
 `pinned`, `createdAt`, and `deletedAt`; its body is the note. The note list
 shows the newest notes first, by `createdAt`, grouped under labels such as
 "Today" and "Yesterday". Honeycrisp keeps no last-edited time in a note
-(ADR-0571); when a file last changed is the file system's and Git's to say.
+(ADR-0573); when a file last changed is the file system's and Git's to say.
 Folders are logical: a note belongs to one through `folderId`, so moving a note
 between folders changes one field and never moves or renames its file.
 
 Editing a note's text replaces only its body (`table.setBody`, ADR-0575):
 the frontmatter stays byte for byte as written. The body is read and written
 with line feeds, so a body written with CRLF line endings gets line feeds on
-its next save (ADR-0570). Changing a field (its title, folder, or pin) writes
+its next save (ADR-0572). Changing a field (its title, folder, or pin) writes
 the frontmatter as plain YAML: its declared fields first, then any keys
 Honeycrisp does not know, which are kept; comments and custom quoting are
 not. Opening or listing a note writes nothing. To change a key Honeycrisp does not show, use
@@ -166,7 +166,7 @@ dividers, and line breaks. There is no underline and there are no images.
   an emoji (a lone surrogate) typed in the rich text or a file's text
   becomes U+FFFD as you type. Typed in the title or Source, it shows until
   its save lands and then shows as U+FFFD, as the folder writes it
-  (ADR-0570).
+  (ADR-0572).
 - Spaces at the start or end of a line are kept. In Source they appear as
   `&#32;` (and a tab as `&#9;`), since Markdown would drop them otherwise.
 - Inline code is literal: it can be a link, but not bold, italic, or struck.
@@ -296,7 +296,7 @@ exactly the queries it names stale; the query client's focus refetch is off.
 A field edit of a note or folder is `tables.<name>.update`, which sets the
 fields on the file as it is now (ADR-0554); `NoteDetail` holds a typed title in
 its own state until it is sent. A note's body is opened with a body editor
-(`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0573), one per note
+(`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0575), one per note
 in the store, shared by rich text and Source: it captures the cached row and
 its version at the first change, keeps the body outside the cache, and saves
 the body alone with `tables.notes.setBody` a second after the last change or when
@@ -410,10 +410,10 @@ since deleted; its terminal, reveal, and per-note history no longer exist.
 ## Changed promises
 
 The note list orders notes by when they were created, not when they were last
-edited, and a save no longer moves an `updatedAt` field (ADR-0571); a file
+edited, and a save no longer moves an `updatedAt` field (ADR-0573); a file
 that has one keeps it as a key Honeycrisp does not know. A note's body is
 written with line feeds, so the first save of a file with CRLF line endings
-changes every line once (ADR-0570).
+changes every line once (ADR-0572).
 
 Honeycrisp is now an app installed in Epicenter (ADR-0552), and its
 standalone desktop app is deleted. It drops these promises of the standalone

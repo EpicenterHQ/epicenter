@@ -804,7 +804,7 @@ unpaired surrogate in a string is written as U+FFFD, and `undefined` in a
 mapping is an absent key. Text it writes always reads back through
 `parseRow` as the row it stored. `parseRow` reads a body's `\r\n` and lone
 `\r` as `\n`, so an editor shows and sends a body as a `<textarea>` reports
-it ([ADR-0570](../../docs/adr/0570-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md)).
+it ([ADR-0572](../../docs/adr/0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md)).
 
 The frontmatter is block-style YAML that a YAML 1.2 reader and a YAML 1.1
 reader (PyYAML, Ruby's Psych, Go's `yaml.v2`) read identically:

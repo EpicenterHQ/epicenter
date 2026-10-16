@@ -220,7 +220,7 @@ export function stateAfter(
 	if (!current.supported) return undefined;
 	const shown = stateShowing(state, current.doc);
 	if (shown !== state) return shown;
-	// The file stores a lone surrogate as U+FFFD (ADR-0570). The same
+	// The file stores a lone surrogate as U+FFFD (ADR-0572). The same
 	// transaction replaces it now, so the screen, the draft, and the undo
 	// history agree, and the save landing does not restart the state.
 	repairLoneSurrogates(transaction);

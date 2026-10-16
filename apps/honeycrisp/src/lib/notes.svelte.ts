@@ -485,7 +485,7 @@ export function createNotes(
 	}
 
 	/**
-	 * Note bodies being typed, by stem (ADR-0573). A body is opened: its
+	 * Note bodies being typed, by stem (ADR-0575). A body is opened: its
 	 * editor keeps the version it started from, and its save merges by line
 	 * with whatever changed since. It saves a second after the last change,
 	 * and at once when the view leaves it (`saveBody`).

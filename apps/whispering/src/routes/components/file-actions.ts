@@ -35,7 +35,7 @@ export async function copyText(text: string, what: string) {
 /**
  * A file's exact text as a textarea reports it: LF only. Raw-text editors
  * restore the file's own line endings with `withFileNewlines`. A row body
- * already reads with LF (ADR-0570).
+ * already reads with LF (ADR-0572).
  */
 export const lf = (text: string) => text.replace(/\r\n?/g, '\n');
 

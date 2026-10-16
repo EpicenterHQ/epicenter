@@ -1,4 +1,4 @@
-# 0571. Applications keep no last-edited timestamp in a row
+# 0573. Applications keep no last-edited timestamp in a row
 
 - **Status:** Proposed
 - **Date:** 2026-10-16

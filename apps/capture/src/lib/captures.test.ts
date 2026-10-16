@@ -13,7 +13,7 @@
  *   captures for repair as text, and lists unreadable files apart
  * - An edit is a body draft over the cache, saved when the view sends it,
  *   keeping metadata Capture does not declare
- * - A body is written with LF, and a lone surrogate as U+FFFD (ADR-0570)
+ * - A body is written with LF, and a lone surrogate as U+FFFD (ADR-0572)
  * - Saves run one at a time; text typed meanwhile goes in one more save,
  *   from the version the first wrote
  * - A change reported on the folder's channel reads the view again, and

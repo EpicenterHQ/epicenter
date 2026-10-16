@@ -16,7 +16,7 @@
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - a body from a CRLF file shows in LF, and any save writes the file in LF
- *   (ADR-0570); a title and a model save from their own controls, an emptied
+ *   (ADR-0572); a title and a model save from their own controls, an emptied
  *   model as none
  *
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
@@ -224,7 +224,7 @@ test('a transformation that does not read opens as its text with its issues, and
 	expect(await readFile(join(root, RECIPE), 'utf8')).toContain('model: null');
 });
 
-test('a transformation’s title, model, and instructions save from their own controls, and a CRLF file is written in LF (ADR-0570)', async () => {
+test('a transformation’s title, model, and instructions save from their own controls, and a CRLF file is written in LF (ADR-0572)', async () => {
 	const seed =
 		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\r\n';
 	const { library, target, root } = await open(

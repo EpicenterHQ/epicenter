@@ -323,7 +323,7 @@ test('the folder refuses a value the schema does not accept; the cache keeps the
 	expect(cached(todos, stem).row.fields.done).toBe(false);
 });
 
-test('half a character typed into a title is saved as U+FFFD (ADR-0570)', async () => {
+test('half a character typed into a title is saved as U+FFFD (ADR-0572)', async () => {
 	const { todos, failures } = await open();
 	const { stem } = await addTodo(todos, 'Milk');
 	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));

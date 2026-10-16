@@ -81,7 +81,7 @@ are not UTF-8 text are listed apart and not opened.
 - An edit of a capture replaces only its body (`table.setBody`, ADR-0575):
   the frontmatter stays byte for byte as written, comments, quoting, line
   endings, and keys Capture does not declare included.
-- A capture's body is written with line feeds (ADR-0570): a body written
+- A capture's body is written with line feeds (ADR-0572): a body written
   with `\r\n` gets `\n` on its first save from the capture view, while the
   frontmatter keeps its own line endings. Half a character (a lone
   surrogate) is written as U+FFFD, so it shows as `�` once the save lands.

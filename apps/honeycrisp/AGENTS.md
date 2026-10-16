@@ -40,7 +40,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   folder's update options and keep every field another writer changed. The
   open note holds a title typed in its own `$state` until it is sent.
 - A note's body, from rich text or Source, is opened with a body editor
-  (`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0573), one per
+  (`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0575), one per
   note in the store. It takes the row and its version at the first change,
   keeps the body outside the cache, and saves the body alone a second after
   the last change, or at once when the view leaves it; `table.setBody`
@@ -48,9 +48,9 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   the draft and reports it through `onWriteFailed`. While a file is open as
   text, its text is a draft of its own, written whole over the version it
   started from, and row edits of it are refused.
-- A save moves no timestamp (ADR-0571). Do not add a last-edited field or
+- A save moves no timestamp (ADR-0573). Do not add a last-edited field or
   write `updatedAt`; the list orders and groups notes by `createdAt`.
-- Row editors pass the text typed as it is (ADR-0570): the folder reads a
+- Row editors pass the text typed as it is (ADR-0572): the folder reads a
   body with line feeds and writes a lone surrogate as U+FFFD. Do not convert
   line endings or call `wellFormed` on a title or body. `FileView` edits a
   file's exact text through `files`, so it keeps `withFileNewlines`.

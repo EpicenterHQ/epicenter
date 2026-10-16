@@ -11,7 +11,7 @@
  *     const { data: saved } = formatRow(definition.tables.todos, row);
  *
  * A row's body has `\n` line endings: `parseRow` reads `\r\n` and lone `\r`
- * as `\n`, and `formatRow` writes `\n` (ADR-0570). `formatRow` also writes
+ * as `\n`, and `formatRow` writes `\n` (ADR-0572). `formatRow` also writes
  * each unpaired surrogate in a string as U+FFFD, as UTF-8 encoding would, so
  * an editor passes typed text as it is.
  *

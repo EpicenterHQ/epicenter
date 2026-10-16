@@ -794,7 +794,7 @@ When you add an ADR, add its row here.
 | [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Proposed (amends 0559) |
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Proposed (amends 0535 and 0562) |
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Proposed (amends 0539 and 0552) |
-| [0570](0570-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
-| [0571](0571-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
-| [0572](0572-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
-| [0573](0573-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |
+| [0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
+| [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
+| [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
+| [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |

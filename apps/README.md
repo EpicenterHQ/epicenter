@@ -62,7 +62,7 @@ The root page starts opening the folder when it mounts and waits with
 `FolderProvider` creates the page's `QueryClient`, provides
 `folderOptions(folder)` with `setFolder`, connects `invalidateOnChange` once,
 and closes the folder after its writes when the page goes away
-([ADR-0572](../docs/adr/0572-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md)).
+([ADR-0574](../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md)).
 
 ```svelte
 {#await opening}<Loading … />{:then opened}

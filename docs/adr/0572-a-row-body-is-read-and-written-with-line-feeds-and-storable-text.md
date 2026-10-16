@@ -1,4 +1,4 @@
-# 0570. A row body is read and written with line feeds and storable text
+# 0572. A row body is read and written with line feeds and storable text
 
 - **Status:** Proposed
 - **Date:** 2026-10-16

@@ -1,4 +1,4 @@
-# 0572. An app opens its folder behind `{#await}` and provides its options through context
+# 0574. An app opens its folder behind `{#await}` and provides its options through context
 
 - **Status:** Proposed
 - **Date:** 2026-10-16

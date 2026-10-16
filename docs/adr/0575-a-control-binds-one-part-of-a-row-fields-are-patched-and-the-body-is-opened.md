@@ -1,8 +1,8 @@
-# 0573. A control binds one part of a row: fields are patched and the body is opened
+# 0575. A control binds one part of a row: fields are patched and the body is opened
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0572](0572-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)
+- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)
 - **Unbuilt:** retiring `table.save` and `folderOptions(folder).<table>.save`, whose remaining callers are `table.update`'s own write, `publish-definition.ts`, the Git lab (`apps/git/src/lib/workspace.svelte.ts`), `apps/todos/scripts/native.ts`, the folder package's evidence apps, and its tests; Whispering's library drafts, held in its store rather than a view, still call `createBodyDraftState` directly over `setBody`.
 
 ## Context
@@ -71,7 +71,7 @@ therefore has mixed line endings, which is accepted. When the body changed
 since `base`, the text is merged with it by line from `base.row.body`, the
 text winning only lines both changed, and each region it won is in the
 result's `replaced`. The new body is written with `\n` line endings and
-well-formed text (ADR-0570), guarded by what the attempt read; another writer
+well-formed text (ADR-0572), guarded by what the attempt read; another writer
 in between starts the next attempt, and after `WRITE_ATTEMPTS` it is
 `KeptChanging`. A file with missing or unclosed frontmatter, or one that is
 `InvalidRow` or `InvalidUtf8`, is refused, and a deleted file is `NotFound`:

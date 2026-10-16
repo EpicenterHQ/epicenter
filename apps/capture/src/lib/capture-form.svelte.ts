@@ -4,7 +4,7 @@
  * thoughts into a new body.
  *
  * A capture's body is a document, so the form opens it with
- * `createBodyEditor` (ADR-0573): a body draft that holds the version it
+ * `createBodyEditor` (ADR-0575): a body draft that holds the version it
  * started from and the body typed, outside the cache, so reading the folder
  * again never replaces it, and the folder merges each save by line with
  * whatever changed since that version.

@@ -282,7 +282,7 @@ describe('every displayed edit is in the note', () => {
 		expect(view.shown()).toBe(state);
 	});
 
-	test('an edit saves the body once, and every field stays as it was (ADR-0571)', async () => {
+	test('an edit saves the body once, and every field stays as it was (ADR-0573)', async () => {
 		// An earlier Honeycrisp wrote `updatedAt`; it is now a key it does not declare.
 		const edited = '"updatedAt": "2026-10-01T00:00:00.000Z"';
 		const { type, draft, settled, failures, folder } = await open('one\n', {
@@ -302,7 +302,7 @@ describe('every displayed edit is in the note', () => {
 		expect(saved).toMatch(/^"?owner"?: "?sam"?$/m);
 	});
 
-	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0570)', async () => {
+	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
 		const { type, end, body, settled, failures, folder } = await open('', {
 			text: crlf,
