@@ -2,7 +2,7 @@
  * Browser folders with real isomorphic-git objects, on the in-memory OPFS
  * stand-in (`browser-storage.test-support.ts`).
  *
- * A save makes no commit (ADR-0529): table, KV, file, and shell writes stay
+ * A save makes no commit (ADR-0529): table, file, and shell writes stay
  * uncommitted until a commit is asked for, and staged authoring works through
  * the folder shell.
  * A table reads and writes one Markdown file per row and leaves every other
@@ -28,13 +28,12 @@ import {
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
-import { overwrite, put } from './put.test-support.js';
+import { overwrite } from './put.test-support.js';
 import { parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -322,7 +321,6 @@ describe('browser folder tables', () => {
 
 	test('admits a reference field as a string that nothing checks or repairs', async () => {
 		const withReference = defineFolder({
-			kv: {},
 			tables: {
 				lists: defineTable({ fields: { title: field.string() } }),
 				todos: defineTable({
@@ -407,29 +405,6 @@ describe('browser folder tables', () => {
 			fields: { title: 'Fixed', done: false },
 			body: 'Notes stay.\n',
 		});
-	});
-
-	test('a kv set creates kv.json when it is missing and keeps keys it does not change', async () => {
-		const folder = await open();
-		const kvText = async () =>
-			new TextDecoder().decode(
-				expectOk(await folder.files.read('kv.json')).bytes,
-			);
-		expect(expectOk(await folder.kv.get())).toBeUndefined();
-		expect(expectOk(await folder.kv.set('theme', 'light')).values).toEqual({
-			theme: 'light',
-		});
-		expect(await kvText()).toBe('{\n  "theme": "light"\n}\n');
-		expectOk(
-			await put(
-				folder.files,
-				'kv.json',
-				'{\n  "other": 1,\n  "theme": "light"\n}\n',
-			),
-		);
-		const updated = expectOk(await folder.kv.set('theme', 'dark'));
-		expect(await kvText()).toBe('{\n  "other": 1,\n  "theme": "dark"\n}\n');
-		expect(expectOk(await folder.kv.get())).toEqual(updated);
 	});
 });
 
@@ -520,14 +495,13 @@ describe('browser folder persistence and history', () => {
 		unsubscribe();
 	});
 
-	test('table, file, and KV saves make no commit; Save version commits', async () => {
+	test('table and file saves make no commit; Save version commits', async () => {
 		const folder = await open();
 		await folder.tables.todos.create(
 			{ fields: { title: 'M', done: false }, body: '' },
 			{ stem: 'manual' },
 		);
 		expectOk(await folder.files.create('manual.txt', 'x'));
-		expectOk(await folder.kv.set('theme', 'dark'));
 		await Bun.sleep(20);
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect((await folder.git.commit()).status).toBe('committed');

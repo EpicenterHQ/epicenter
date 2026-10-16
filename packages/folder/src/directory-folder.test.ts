@@ -30,7 +30,6 @@ import {
 import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },

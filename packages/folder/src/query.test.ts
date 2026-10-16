@@ -8,8 +8,8 @@
  *
  * Key behaviors:
  * - Keys are stable for one folder and differ between folders
- * - `pathFilter` covers a changed row, its table's listing, `kv.json`, a
- *   changed file and the file listing, and the history's status; a change
+ * - `pathFilter` covers a changed row, its table's listing, a changed file
+ *   and the file listing, and the history's status; a change
  *   inside `.git` also covers the log; `'everything'` covers every query of
  *   the folder and none of another's
  * - A row write updates its row and the listing from its own result, even
@@ -43,7 +43,6 @@ import { isStoredRow } from './table.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -112,7 +111,7 @@ test('keys are stable for one folder and differ between folders', async () => {
 	);
 });
 
-test('pathFilter covers the row, its listing, kv.json, the files, and history', async () => {
+test('pathFilter covers the row, its listing, the files, and history', async () => {
 	const folder = await open();
 	const other = await open('so.epicenter.querytest.other');
 	const folder$ = folderOptions(folder);
@@ -122,7 +121,6 @@ test('pathFilter covers the row, its listing, kv.json, the files, and history', 
 		a: folder$.todos.get.queryKey('a'),
 		b: folder$.todos.get.queryKey('b'),
 		list: folder$.todos.list.queryKey(),
-		kv: folder$.kv.get.queryKey(),
 		files: folder$.files.list.queryKey(),
 		note: folder$.files.read.queryKey('note.txt'),
 		noteText: folder$.files.text.queryKey('note.txt'),
@@ -140,11 +138,6 @@ test('pathFilter covers the row, its listing, kv.json, the files, and history', 
 	expect(matched(queryClient, folder$.pathFilter(['todos/a.md']))).toEqual([
 		keys.a,
 		keys.list,
-		keys.files,
-		keys.status,
-	]);
-	expect(matched(queryClient, folder$.pathFilter(['kv.json']))).toEqual([
-		keys.kv,
 		keys.files,
 		keys.status,
 	]);
@@ -404,7 +397,6 @@ test("another page's change, wired from onFilesChanged, invalidates exactly what
 	await Bun.sleep(20);
 	await queryClient.fetchQuery(reader$.todos.get.queryOptions('a'));
 	await queryClient.fetchQuery(reader$.todos.get.queryOptions('b'));
-	await queryClient.fetchQuery(reader$.kv.get.queryOptions());
 
 	// The app root's one line.
 	reader$.invalidateOnChange(queryClient);

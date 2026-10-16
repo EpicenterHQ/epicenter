@@ -44,9 +44,9 @@ const { publishLocalPatterns } = await import('./publish-definition.js');
 const tables = {
 	recordings: defineTable({ fields: { title: field.string() } }),
 };
-const definition = defineFolder({ kv: {}, tables, local: ['audio/'] });
+const definition = defineFolder({ tables, local: ['audio/'] });
 /** The same folder before it declared its audio local. */
-const unruled = defineFolder({ kv: {}, tables });
+const unruled = defineFolder({ tables });
 const author = { name: 'Recorder', email: 'recorder@example.test' };
 const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
 const roots: string[] = [];
@@ -130,9 +130,7 @@ for (const [name, local] of [
 	['an empty pattern', ['']],
 ] as const)
 	test(`${name} is refused at the declaration`, () => {
-		expect(() =>
-			defineFolder({ kv: {}, tables: {}, local: [...local] }),
-		).toThrow();
+		expect(() => defineFolder({ tables: {}, local: [...local] })).toThrow();
 	});
 
 type Opened = {

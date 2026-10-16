@@ -53,7 +53,6 @@ import {
 } from './git-http.test-support.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {},
 });
 type Opened = Folder<typeof definition>;

@@ -17,8 +17,8 @@ type CallbackSchema =
 	| { readonly '~guard': unknown };
 
 /**
- * Field validation shared with KV: identity remains reserved, and a field is
- * a schema JSON can hold.
+ * Field validation: identity remains reserved, and a field is a schema JSON
+ * can hold.
  */
 export type ValidateFields<T extends FieldMap> = {
 	[K in keyof T]: K extends string

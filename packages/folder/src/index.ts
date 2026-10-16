@@ -2,9 +2,8 @@
  * `@epicenter/folder`: a file-authoritative folder, opened wherever the page
  * is running.
  *
- * A folder's current files are its saved data: Markdown rows, `kv.json`, and
- * any other file. In a browser tab they are files in the origin private file
- * system. In the desktop app they are files in a directory the shell grants
+ * A folder's current files are its saved data: Markdown rows and any other
+ * file. In a browser tab they are files in the origin private file system. In the desktop app they are files in a directory the shell grants
  * the page.
  *
  * `openFolder` and `openDataFolder` decide which when they are called, not

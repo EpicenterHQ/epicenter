@@ -206,7 +206,7 @@ test('a window handed no folder names the Capture scope and is told the director
 const STRING = { type: 'string', 'x-field': { kind: 'string' } };
 /** A folder's `epicenter.json` with `tables`, as Epicenter writes one. */
 const declaration = (title: string, tables: Record<string, unknown>) =>
-	`${JSON.stringify({ title, kv: { type: 'object', properties: {} }, tables }, null, '\t')}\n`;
+	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
 /** A folder declaring Capture's captures table, a field more, and a table of its own. */
 const NOTES = declaration('Notes', {
 	captures: {

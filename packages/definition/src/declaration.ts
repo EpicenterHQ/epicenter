@@ -16,11 +16,16 @@ import type { Static, TObject, TSchema } from 'typebox';
 
 export { field } from './field/index.js';
 
-export const KV_ROOT = 'kv';
-export const RESERVED_TABLE_NAMES: readonly string[] = [KV_ROOT];
+/**
+ * The table whose rows are settings, one row per concern, such as
+ * `settings/display.md` (ADR-0576). Every field it declares is
+ * `field.optional`: a setting may always be unset, and the application's
+ * own default applies.
+ */
+export const SETTINGS_TABLE = 'settings';
 
 /**
- * The fields of one bucket, by name.
+ * The fields of one table, by name.
  *
  * A field is any native TypeBox schema that is plain JSON. The `field.*`
  * helpers build common ones and annotate them with an editor; a bare
@@ -74,8 +79,8 @@ export type DeclaredMark = { readonly [DECLARED]: true };
 export type DeclaredTable = TableDeclaration & DeclaredMark;
 
 /**
- * How stored data reads, naming no dataset: the optional title, the KV fields,
- * and the tables.
+ * How stored data reads, naming no dataset: the optional title and the
+ * tables. Settings are a table too, `settings` (`SETTINGS_TABLE`).
  *
  * A declaration and the prepared schema `prepareSchema` returns for it have
  * this one shape. The prepared one is an owned, frozen snapshot whose fields
@@ -92,7 +97,6 @@ export type DataSchema = {
 	 * without surrounding whitespace.
 	 */
 	readonly local?: readonly string[];
-	readonly kv: FieldMap;
 	readonly tables: {
 		readonly [table: string]: DeclaredTable;
 	};
@@ -107,7 +111,7 @@ export type ConformanceIssue = {
 };
 
 /**
- * What one bucket's fields read as: the bucket as one `Type.Object`, so a
+ * What one table's fields read as: the fields as one `Type.Object`, so a
  * `field.optional` field is `name?:`.
  */
 type FieldsOut<TFields extends FieldMap> = Static<
@@ -121,8 +125,3 @@ export type RowOf<T extends TableDeclaration> = { id: string } & FieldsOut<
 
 /** Values supplied when creating a row. */
 export type CreateRowOf<T extends TableDeclaration> = FieldsOut<T['fields']>;
-
-/** Settings as read: every KV field may be unset. */
-export type KvOf<TDatabase extends DataSchema> = Partial<
-	FieldsOut<TDatabase['kv']>
->;

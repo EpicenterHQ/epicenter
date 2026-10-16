@@ -55,7 +55,6 @@ const contract = await import('./contract.js');
 
 const id = 'so.epicenter.entriestest';
 const definition = root.defineFolder({
-	kv: {},
 	tables: {
 		notes: root.defineTable({ fields: { title: root.field.string() } }),
 	},

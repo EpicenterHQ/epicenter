@@ -20,7 +20,6 @@ import {
 
 export const honeycrispDefinition = defineFolder({
 	title: 'Honeycrisp',
-	kv: {},
 	tables: {
 		folders: defineTable({
 			fields: {

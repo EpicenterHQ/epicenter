@@ -113,7 +113,7 @@ shapes, see `docs/adr/`.
 ## Data API
 
 - **Data folder** (ADR-0517): a directory containing `epicenter.json`, which
-  declares the `<table>/<stem>.md` directories and `kv.json` beside it. It may
+  declares the `<table>/<stem>.md` directories beside it. It may
   sit at any depth in any Git repository; apps open and sync only one at a
   repository root.
 - **Owned attachment** (ADR-0456): zero or one `<id>.<extension>` sibling of
@@ -175,10 +175,10 @@ Git history before that date.
   such as a folder's `files`. Borrowing operations does not transfer readiness
   or shutdown ownership.
 - **Device settings vs synced settings**: per-device settings (global shortcuts,
-  microphone, inference selection) stay on the device; synced settings are the
-  folder's `kv.json`. This follows the collision and OS ownership distinction in
-  ADR-0007. Inference catalogs and gateway clients open independently of the
-  folder.
+  microphone, inference selection) stay on the device; synced settings are
+  rows of the folder's `settings` table, one per concern (ADR-0576). This
+  follows the collision and OS ownership distinction in ADR-0007. Inference
+  catalogs and gateway clients open independently of the folder.
 - **Vault**: the designated, not-yet-built home for the one encryption that
   survives ADR-0004: an explicitly encrypted place for the values a person
   brings that name no durable local state, such as a provider API key. The key

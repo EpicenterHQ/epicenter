@@ -3,8 +3,8 @@
  *
  * `merge` merges three versions of one file by its kind, the writer acting
  * (`ours`) winning each unit both sides changed differently: a row by field
- * and body after reading each version through `parseRow`, `kv.json` by key,
- * any other text by line, and binary or a side with no file as the whole
+ * and body after reading each version through `parseRow`, any other text by
+ * line, `kv.json` included, and binary or a side with no file as the whole
  * file. Each test names a pair of changes and shows what merges and what
  * the writer overrode.
  *
@@ -26,7 +26,6 @@ import { type FileVersions, fileKindOf, merge } from './merge-file.js';
 import { sameValue } from './row-merge.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: {
@@ -51,15 +50,17 @@ async function clean(versions: FileVersions, kind = ROW) {
 	return merged.content;
 }
 
-test('a path is a row of its table, kv.json, or a plain file', () => {
+test('a path is a row of its table or a plain file, kv.json included', () => {
 	expect(ROW).toEqual({ kind: 'row', table: definition.tables.todos });
-	expect(fileKindOf(definition, 'kv.json')).toEqual({
-		kind: 'kv',
-		schemas: definition.kv,
-	});
-	for (const path of ['todos/a.txt', 'todos/x/a.md', 'other/a.md', 'a.md'])
+	for (const path of [
+		'kv.json',
+		'todos/a.txt',
+		'todos/x/a.md',
+		'other/a.md',
+		'a.md',
+	])
 		expect(fileKindOf(definition, path)).toEqual({ kind: 'file' });
-	expect(fileKindOf(undefined, 'kv.json')).toEqual({ kind: 'file' });
+	expect(fileKindOf(undefined, 'todos/walk.md')).toEqual({ kind: 'file' });
 });
 
 test('independent field and body changes merge, written in canonical form', async () => {
@@ -176,19 +177,6 @@ test('a row version that does not read as a row merges as text', async () => {
 	});
 	expect(merged.content).toBe('---\ntitle: [unclosed\n---\nAnd more.\n');
 	expect(merged.overridden).toMatchObject([{ kind: 'lines', part: 'text' }]);
-});
-
-test('kv.json merges by key, and the writer wins a competing key', async () => {
-	expect(
-		await merge(fileKindOf(definition, 'kv.json'), {
-			base: '{\n  "theme": "light"\n}\n',
-			ours: '{\n  "theme": "dark",\n  "other": 1\n}\n',
-			theirs: '{\n  "theme": "sepia",\n  "more": 2\n}\n',
-		}),
-	).toEqual({
-		content: '{\n  "more": 2,\n  "other": 1,\n  "theme": "dark"\n}\n',
-		overridden: [{ kind: 'setting', key: 'theme' }],
-	});
 });
 
 test('other text merges by line', async () => {

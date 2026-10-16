@@ -30,6 +30,5 @@ export const connectionsTable = defineTable({
 /** `so.epicenter` seen through its `connections` table alone. */
 export const connectionsLens = defineFolder({
 	title: 'Epicenter',
-	kv: {},
 	tables: { connections: connectionsTable },
 });

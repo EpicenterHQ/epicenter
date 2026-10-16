@@ -14,10 +14,8 @@ export {
 	type DeclaredTable,
 	type FieldMap,
 	field,
-	KV_ROOT,
-	type KvOf,
-	RESERVED_TABLE_NAMES,
 	type RowOf,
+	SETTINGS_TABLE,
 	type TableDeclaration,
 } from './declaration.js';
 export {

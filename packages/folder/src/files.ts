@@ -43,8 +43,8 @@ export type FolderFiles = {
 	 * Save an edit of the file `base` captured (ADR-0551). When the file
 	 * still holds the captured bytes, `content` is written over them.
 	 * Otherwise another writer changed it, and the edit is merged with their
-	 * file by its kind (`kv.json` by key, a row by field and body line, other
-	 * text by line), the edit winning only where both changed the same unit;
+	 * file by its kind (a row by field and body line, other text by line),
+	 * the edit winning only where both changed the same unit;
 	 * `replaced` names what of theirs that replaced. With `{ merge: false }`
 	 * a moved file is `Conflict` instead.
 	 *

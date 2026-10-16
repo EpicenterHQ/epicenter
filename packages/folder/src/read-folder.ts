@@ -2,9 +2,8 @@
  * Read a data folder on disk without opening it (ADR-0517).
  *
  * A data folder is a directory holding `epicenter.json`. `readFolder` reads
- * and prepares that declaration, then reads every declared table and
- * `kv.json` through the same tables, settings, and directory file storage an
- * opened folder uses, so a tool and an application reach the same verdict
+ * and prepares that declaration, then reads every declared table through the
+ * same tables and directory file storage an opened folder uses, so a tool and an application reach the same verdict
  * on every file: path policy, symbolic links, names, UTF-8, and row
  * validity included.
  *
@@ -20,12 +19,7 @@ import { readDeclaration } from './declaration.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
-import {
-	FileError,
-	type KvReadError,
-	type TableEnumerationError,
-} from './errors.js';
-import { createKv, type KvReading } from './kv.js';
+import { FileError, type TableEnumerationError } from './errors.js';
 import { DECLARATION_PATH } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
@@ -61,20 +55,14 @@ export type FolderReading = {
 			Result<TableListing<Record<string, unknown>>, TableEnumerationError>
 		>
 	>;
-	/** Exactly what `kv.get()` returns. */
-	readonly kv: Result<
-		KvReading<Record<string, unknown>> | undefined,
-		KvReadError
-	>;
 };
 
 /**
  * Read the data folder at `root`. A directory with no `epicenter.json` is
  * `NotDataFolder`; one whose declaration cannot be used is
- * `InvalidDeclaration`; a missing root is `NotFound`, and a root that is not a directory is
- * `NotADirectory`. A
- * table or `kv.json` that cannot be read is that entry's error, beside the
- * others.
+ * `InvalidDeclaration`; a missing root is `NotFound`, and a root that is not
+ * a directory is `NotADirectory`. A table that cannot be read is that
+ * entry's error, beside the others.
  */
 export async function readFolder(
 	root: string,
@@ -114,17 +102,11 @@ export async function readFolder(
 			name,
 			table as PreparedFolderTable,
 		).list();
-	const kv = await createKv<Record<string, unknown>>(
-		{ storage },
-		definition.kv,
-	).get();
-
 	return Ok(
 		Object.freeze({
 			root,
 			definition,
 			tables: Object.freeze(tables),
-			kv,
 		}),
 	);
 }

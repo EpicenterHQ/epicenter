@@ -29,7 +29,6 @@ function setup() {
 	const workspace = createWorkspace({
 		id: 'test',
 		tables: { files: filesTable },
-		kv: {},
 	});
 	return { files: workspace.tables.files };
 }
@@ -47,7 +46,6 @@ function setup() {
 	const workspace = createWorkspace({
 		id: 'test',
 		tables: { files: filesTable },
-		kv: {},
 	});
 	return workspace.tables.files; // No destructuring = breaks convention
 }
@@ -86,7 +84,6 @@ function setup() {
 	const workspace = createWorkspace({
 		id: 'test-workspace',
 		tables: { files: tableDef },
-		kv: {},
 	});
 	return { ydoc: workspace.ydoc, tables: workspace.tables };
 }
@@ -122,7 +119,6 @@ beforeEach(() => {
 	const workspace = createWorkspace({
 		id: 'test',
 		tables: { files: filesTable },
-		kv: {},
 	});
 	files = workspace.tables.files;
 });
@@ -132,7 +128,6 @@ function setup() {
 	const workspace = createWorkspace({
 		id: 'test',
 		tables: { files: filesTable },
-		kv: {},
 	});
 	return { files: workspace.tables.files };
 }
@@ -153,7 +148,6 @@ function setup() {
 	const workspace = createWorkspace({
 		id: 'test',
 		tables: { files: filesTable },
-		kv: {},
 	});
 	return { files: workspace.tables.files };
 }

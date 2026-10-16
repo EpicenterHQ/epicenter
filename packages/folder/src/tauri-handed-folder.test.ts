@@ -40,7 +40,6 @@ const OWN_ID = 'so.epicenter.todos';
 
 const definition = defineFolder({
 	title: 'Todos',
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -102,7 +101,7 @@ const STRING = { type: 'string', 'x-field': { kind: 'string' } };
 const BOOLEAN = { type: 'boolean', 'x-field': { kind: 'boolean' } };
 /** A folder's `epicenter.json` with `tables`, as Epicenter writes one. */
 const declaration = (title: string, tables: Record<string, unknown>) =>
-	`${JSON.stringify({ title, kv: { type: 'object', properties: {} }, tables }, null, '\t')}\n`;
+	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
 
 beforeEach(() => {
 	opened = [];

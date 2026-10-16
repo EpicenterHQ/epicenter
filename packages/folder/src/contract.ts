@@ -17,12 +17,7 @@ import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import type { OpfsEnvironment } from './opfs-store.js';
 
-export {
-	type CreateRowOf,
-	defineTable,
-	field,
-	type KvOf,
-} from '@epicenter/definition';
+export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export type { FileListing } from './boundary.js';
 export {
 	type CapturedFile,
@@ -42,8 +37,6 @@ export {
 export {
 	FileError,
 	type FileSaveError,
-	type KvReadError,
-	type KvWriteError,
 	MoveError,
 	OpenFolderError,
 	type RowReadError,
@@ -84,8 +77,6 @@ export type { SettledRegion } from './git/merge-lines.js';
 export type { PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type { SyncOptions, SyncOutcome } from './git/sync.js';
-export type { FileKv, KvReading } from './kv.js';
-export { type KvMerge, type KvMergeInput, mergeKv } from './kv-merge.js';
 export { frameRowText, type RowTextFrame } from './markdown.js';
 export type { FileContent, Overridden } from './merge-file.js';
 export type {
@@ -198,8 +189,8 @@ export type OpenDataFolderOptions<
 	/**
 	 * The shape this caller reads: the tables and fields it knows, as a
 	 * `defineFolder` definition (ADR-0538). The folder opens only when its
-	 * declaration contains the lens, and its tables and settings are then
-	 * typed by the lens. Every write is still checked against the folder's
+	 * declaration contains the lens, and its tables are then typed by the
+	 * lens. Every write is still checked against the folder's
 	 * own declaration, and nothing publishes the lens.
 	 */
 	readonly lens?: TLens;
@@ -208,7 +199,7 @@ export type OpenDataFolderOptions<
 /**
  * Open a folder that already exists with the schema in its own
  * `epicenter.json`, which the handle never writes. A folder without one opens
- * with no tables and no settings; files, history, and Sync work.
+ * with no tables; files, history, and Sync work.
  *
  * Without a lens, rows are checked at run time, so tables are keyed by any
  * name. With one, a folder whose declaration does not contain it is
