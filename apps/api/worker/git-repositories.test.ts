@@ -159,6 +159,20 @@ test('a token is minted for 24 hours per repository and scope, cached, and renew
 	expect(minted).toHaveLength(4);
 });
 
+test('a token Artifacts refuses is dropped, so the next request mints another', async () => {
+	let status = 401;
+	globalThis.fetch = (async () =>
+		new Response(null, { status })) as unknown as typeof fetch;
+	const { host, minted } = scripted();
+	expect((await host.serve(ID, request('git-upload-pack', true))).status).toBe(
+		401,
+	);
+	status = 200;
+	await host.serve(ID, request('git-upload-pack', true));
+	await host.serve(ID, request('git-upload-pack', true));
+	expect(minted).toHaveLength(2);
+});
+
 test('the namespace var names the same namespace as the Artifacts binding', async () => {
 	const config = Bun.JSONC.parse(
 		await Bun.file(new URL('../wrangler.jsonc', import.meta.url)).text(),
