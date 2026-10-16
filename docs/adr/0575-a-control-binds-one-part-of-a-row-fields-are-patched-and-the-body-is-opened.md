@@ -88,8 +88,7 @@ setting alike. The save returns no list of what it replaced and there is no
 "Restore theirs": `Replaced`, `restoreTheirs`, `SavedRow.replaced`,
 `SavedFile.replaced`, the drafts' `onSaved`, and `ReplacedNotice` are
 deleted. The engine logs each overwrite that lands through
-`wellcrafted/logger` (`folder/save`) with the units it replaced. Sync is
-unchanged: competing units still wait for the person's choice.
+`wellcrafted/logger` (`folder/save`) with the units it replaced.
 
 **`table.update` never carries a body, and no control saves a whole row.**
 Replacing a body on the file as it is now is the write this record exists to
