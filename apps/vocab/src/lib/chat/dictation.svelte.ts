@@ -1,6 +1,6 @@
 /**
  * Vocab dictation: a continuous voice-activity-detection session over
- * `@epicenter/recorder`. The package owns the microphone and utterance
+ * `@epicenter/recorder/browser`. The package owns the microphone and utterance
  * segmentation (Silero VAD; assets served from `/vad/`, see vite.config.ts);
  * this controller owns the UI-facing cycle: it mirrors the session into a
  * reactive status and transcribes each spoken phrase through the shared
@@ -26,7 +26,7 @@ import {
 	createVadRecorder,
 	type DeviceStreamError,
 	type VadRecorderError,
-} from '@epicenter/recorder';
+} from '@epicenter/recorder/browser';
 import type OpenAI from 'openai';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { base } from '$app/paths';

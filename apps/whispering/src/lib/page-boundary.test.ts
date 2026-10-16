@@ -106,11 +106,13 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 
 test('a microphone is reached only through its platform’s recorder entry', () => {
 	// In Epicenter Rust owns the microphone (ADR-0571): only the desktop
-	// workspace's microphone reaches the shell's recorder, and only the
-	// WebView microphone reaches the browser's.
+	// workspace (which also repairs recordings on open) reaches the shell's
+	// recorder, and only the WebView microphone reaches the browser's. Shared
+	// code names the bare specifier, which is the recording contract alone.
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
 	).toEqual([
+		'lib/workspace/desktop.ts imports @epicenter/recorder/tauri',
 		'lib/workspace/desktop-microphone.ts imports @epicenter/recorder/tauri',
 	]);
 	expect(
@@ -119,11 +121,6 @@ test('a microphone is reached only through its platform’s recorder entry', () 
 	expect(callers('createWebViewMicrophone')).toEqual([
 		'lib/workspace/browser.ts',
 	]);
-	// Shared code names the bare specifier, which each build points at its
-	// own entry; `platform-selection.test.ts` reads what each build pulls in.
-	expect(
-		readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8'),
-	).toContain('find: /^@epicenter\\/recorder$/');
 });
 
 test('the build picks the workspace: nothing imports either one but through the seam', () => {

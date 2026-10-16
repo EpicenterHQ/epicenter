@@ -165,9 +165,9 @@ mod tests {
         }
     }
 
-    // Regression guard for the get_optimal_config site (recorder.rs): a device
-    // that yields no input configs is unusable, so the call site remaps a Failed
-    // config-query error to NoInputDevice. A permission denial must survive that
+    // Regression guard for the input_config site (recorder.rs): a device that
+    // cannot describe its configuration is unusable, so the call site remaps a
+    // Failed config-query error to NoInputDevice. A permission denial must survive that
     // remap unchanged rather than being downgraded.
     #[test]
     fn config_query_failed_fallback_remaps_to_no_input_device() {

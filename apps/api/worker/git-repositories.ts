@@ -8,13 +8,13 @@
  * request itself, then reaches Artifacts with a token it mints: 24 hours,
  * for one repository and one scope (`read` for a fetch, `write` for a push),
  * cached in the isolate, renewed an hour before it ends, and dropped when
- * Artifacts refuses it. The client's credential never crosses.
+ * Artifacts refuses it or the repository is deleted. The client's credential never crosses.
  */
 
 import type { GitHost } from '@epicenter/server';
 
 /** The slice of the Artifacts binding this store calls. */
-export type ArtifactsNamespace = Pick<Artifacts, 'get' | 'create'>;
+export type ArtifactsNamespace = Pick<Artifacts, 'get' | 'create' | 'delete'>;
 
 /** How long a minted token lives, and how long before its end it is replaced. */
 const TOKEN_TTL_SECONDS = 24 * 60 * 60;
@@ -91,6 +91,12 @@ export function createArtifactsGitHost({
 				// Another first push, or an earlier one that stopped, made it.
 				if (!isArtifactsError(cause, 'ALREADY_EXISTS')) throw cause;
 			}
+		},
+		async delete(id) {
+			// `false` is a repository that was not there.
+			await artifacts.delete(id);
+			tokens.delete(`read:${id}`);
+			tokens.delete(`write:${id}`);
 		},
 		async serve(id, { service, advertisement, headers, body, signal }) {
 			const scope = service === 'git-receive-pack' ? 'write' : 'read';

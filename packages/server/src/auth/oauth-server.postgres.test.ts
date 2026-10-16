@@ -109,6 +109,7 @@ const recordingHost: GitHost = {
 	async create(id) {
 		createdRepositories.push(id);
 	},
+	async delete() {},
 	async serve() {
 		return new Response('0000', {
 			headers: {

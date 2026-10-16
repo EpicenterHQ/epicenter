@@ -3,8 +3,10 @@
 //! Nothing is recorded, written, or sent but the level. The stream is built
 //! the way a recording builds it (the same device, configuration, and
 //! callback), and its level is the one a recording sends, over the channel
-//! the page passed: `{ kind: 'level' }` about twenty times a second, and
-//! `{ kind: 'ended' }` once if the stream dies on its own. The meter is
+//! the page passed: `{ kind: 'level' }` at most twenty times a second (one
+//! per audio callback once 50 ms have passed, so fewer when the device's
+//! callbacks are long), and `{ kind: 'ended' }` once if the stream dies on its
+//! own. The meter is
 //! closed by the page, or when its page reloads or its window is destroyed.
 //! A meter whose stream dies, or whose page stops hearing its level, closes
 //! itself: it calls back to be dropped, so no microphone stays open for a page
@@ -22,9 +24,7 @@ use tauri::ipc::Channel;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
-use crate::recorder::{
-    build_input_stream, get_optimal_config, resolve_device, ChunkSink, Level, Result,
-};
+use crate::recorder::{build_input_stream, input_config, resolve_device, ChunkSink, Level, Result};
 
 /// How many chunks may wait for the meter's worker. A meter keeps nothing, so
 /// a short queue is enough; a full one drops chunks, which costs a level.
@@ -109,7 +109,7 @@ pub(crate) fn open(
 ) -> Result<(Meter, String)> {
     let host = cpal::default_host();
     let (device, name) = resolve_device(&host, requested)?;
-    let config = get_optimal_config(&device)?;
+    let config = input_config(&device)?;
     let sample_format = config.sample_format();
     let channels = config.channels();
     let stream_config = cpal::StreamConfig {

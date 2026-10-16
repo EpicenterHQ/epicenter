@@ -12,6 +12,9 @@
  * opened in its place. Every stream opened here has one owner that releases
  * it, and a start withdrawn while the browser is still answering releases the
  * stream when it arrives.
+ *
+ * The page's microphone streams and voice activity detection are here too:
+ * they call `getUserMedia`, so only a browser build reaches them.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -22,7 +25,23 @@ import {
 	type StartRecording,
 } from './recording.js';
 
+export {
+	cleanupRecordingStream,
+	DeviceStreamError,
+	getRecordingStream,
+} from './device-stream.js';
+export {
+	asDeviceIdentifier,
+	type DeviceAcquisitionOutcome,
+	type DeviceIdentifier,
+} from './devices.js';
 export * from './recording.js';
+export {
+	createVadRecorder,
+	type StartActiveListeningOptions,
+	type VadRecorder,
+	type VadRecorderError,
+} from './vad-recorder.js';
 
 /** The level reading a recording needs from an audio graph. */
 type LevelContext = {

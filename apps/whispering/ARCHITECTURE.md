@@ -301,8 +301,12 @@ refused transcription.
 There are two capture devices, and a workspace has exactly one, chosen when it
 opens; neither falls back to the other.
 
-- The microphone device (`src/lib/microphone.ts`) records with
-  `@epicenter/recorder`, over the inputs each workspace supplies. Inside the
+- The microphone device (`src/lib/microphone.ts`) records with the recorder
+  each workspace supplies, over that workspace's inputs: the desktop
+  workspace imports `@epicenter/recorder/tauri` and the browser workspace
+  `@epicenter/recorder/browser`; shared code names only the bare contract.
+  The desktop workspace repairs recordings a quit cut off when it opens, and
+  shows a failure as its capture notice. Inside the
   desktop app (`src/lib/workspace/desktop-microphone.ts`) Rust owns the
   microphone (ADR-0571): the shell's `tauri-plugin-epicenter-recorder` lists
   the inputs, reads a level, and writes `<path>.wav` into the granted folder

@@ -29,7 +29,9 @@
  * | `history`         | `folders:read`  | read | the commits that touch a path |
  *
  * The server reaches storage as itself, through the `GitHost` store
- * (`hosted-repository.ts`); a client's token never leaves this module. A
+ * (`hosted-repository.ts`); a client's token never leaves this module. Each
+ * call copies the repository into memory, so a repository whose fetch is
+ * larger than `MAX_FETCH_BYTES` (8 MiB) is the tool's error. A
  * commit's author is the grant's account, named with the client that made it.
  */
 import {
@@ -259,11 +261,13 @@ async function reach(
 		};
 	if (access.repository === null)
 		return { refused: `No folder is named ${namespace}/${name}.` };
-	const repository = await openHostedRepository(context.host, {
+	const opened = await openHostedRepository(context.host, {
 		repositoryId: access.repository.id,
 		accountId: access.accountId,
 		signal: context.signal,
 	});
+	if (opened.error !== null) return { refused: opened.error.message };
+	const repository = opened.data;
 	return {
 		namespace: access.namespaceId,
 		name: access.repository.name,

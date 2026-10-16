@@ -211,6 +211,13 @@ async function commit(
 const remote = (namespace: string, name: string) =>
 	`${audiences.git}/${namespace}/${name}.git`;
 
+/** The repository ids the disk store holds. */
+const stored = async () =>
+	(await readdir(storeRoot))
+		.filter((entry) => entry.endsWith('.git'))
+		.map((entry) => entry.slice(0, -'.git'.length))
+		.sort();
+
 const repositoryRows = async (namespace: string) =>
 	(
 		await sql.query<{ id: string; name: string }>(
@@ -303,6 +310,7 @@ describe('hosted Git over the disk store', () => {
 	test('concurrent first pushes to one name make one repository', async () => {
 		const { person, token } = await signedIn('racer');
 		const url = remote(person.personal, 'raced');
+		const before = await stored();
 		const copies = await Promise.all(
 			['a', 'b', 'c', 'd'].map((label) =>
 				workingCopy(`race-${label}`, { [`${label}.md`]: `${label}\n` }),
@@ -315,6 +323,10 @@ describe('hosted Git over the disk store', () => {
 		expect(pushes.filter((run) => run.code === 0)).toHaveLength(1);
 		const rows = await repositoryRows(person.personal);
 		expect(rows.map((row) => row.name)).toEqual(['raced']);
+		// Each losing push removed the storage it made: only the winner's remains.
+		expect((await stored()).filter((id) => !before.includes(id))).toEqual([
+			rows[0]?.id as string,
+		]);
 		const check = join(scratch, `raced-${crypto.randomUUID().slice(0, 8)}`);
 		expect((await git(scratch, token, 'clone', url, check)).code).toBe(0);
 		const winner = pushes.findIndex((run) => run.code === 0);
@@ -323,6 +335,40 @@ describe('hosted Git over the disk store', () => {
 			`${label}\n`,
 		);
 	}, 120_000);
+
+	test('a row that could not be inserted leaves the storage its push made', async () => {
+		const { person, token } = await signedIn('unlucky');
+		// The insert fails after the storage exists, as one that committed and
+		// lost its reply would look to the route.
+		await sql.query(`
+			create function refuse_repository() returns trigger language plpgsql
+			as $$ begin raise exception 'refused for the test'; end $$
+		`);
+		await sql.query(`
+			create trigger refuse_repository before insert on repository
+			for each row when (new.name = 'refused')
+			execute function refuse_repository()
+		`);
+		try {
+			const before = await stored();
+			const dir = await workingCopy('refused', { 'a.md': 'a\n' });
+			const pushed = await git(
+				dir,
+				token,
+				'push',
+				remote(person.personal, 'refused'),
+				'HEAD:main',
+			);
+			expect(pushed.code).not.toBe(0);
+			expect(await repositoryRows(person.personal)).toEqual([]);
+			expect(
+				(await stored()).filter((id) => !before.includes(id)),
+			).toHaveLength(1);
+		} finally {
+			await sql.query('drop trigger refuse_repository on repository');
+			await sql.query('drop function refuse_repository()');
+		}
+	}, 60_000);
 
 	test('isomorphic-git, as a browser syncs, fetches nothing from a new name, then its push creates it', async () => {
 		const { person, token } = await signedIn('browser');

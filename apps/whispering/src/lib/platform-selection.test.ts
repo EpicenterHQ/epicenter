@@ -1,8 +1,9 @@
 /**
  * Platform Selection Tests
  *
- * Bundles the `#platform/workspace` seam and the bare `@epicenter/folder` and
- * `@epicenter/recorder` specifiers the way each build resolves them, with the conditions and
+ * Bundles the `#platform/workspace` seam, the bare `@epicenter/folder`
+ * specifier, and the recording contract (`@epicenter/recorder`, the same file
+ * in every build) the way each build resolves them, with the conditions and
  * aliases `vite.config.ts` declares, and reads every module the bundle pulls
  * in. A dropped leaf or alias fails no build: resolution falls back silently,
  * so the selection is proved here.
@@ -15,8 +16,8 @@
  * - The browser build reaches the browser workspace, isomorphic-git, and the
  *   WebView microphone, and no desktop workspace, desktop adapter, shell
  *   recorder, or generated bindings
- * - Neither build reaches the automatic entry, which loads either adapter,
- *   or a Bun or Node module
+ * - Neither build reaches the folder's automatic entry, which loads either
+ *   adapter, or a Bun or Node module
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -39,9 +40,9 @@ const folderModule = (name: string) => (path: string) =>
 const reaches = (modules: string[], suffix: string) =>
 	modules.some((path) => path.endsWith(suffix));
 
-/** The automatic entries, which can load either adapter, and Bun or Node. */
+/** The folder's automatic entry, which can load either adapter, and Bun or Node. */
 const SHARED_FORBIDDEN =
-	/packages\/(folder|recorder)\/src\/index\.ts$|packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
+	/packages\/folder\/src\/index\.ts$|packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
 
 describe('#platform/workspace', () => {
 	test(

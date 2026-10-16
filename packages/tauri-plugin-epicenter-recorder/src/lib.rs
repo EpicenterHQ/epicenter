@@ -40,6 +40,7 @@ pub mod ended;
 pub mod error;
 mod meter;
 pub mod permission;
+mod rate;
 pub mod recorder;
 pub mod wav;
 

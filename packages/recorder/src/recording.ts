@@ -10,6 +10,10 @@
  *
  * Nothing here says whether a recording is running. That is the live handle
  * `startRecording` returns; it ends with the page.
+ *
+ * This is the package's bare entry, the same file for every build: shared
+ * code names these types and errors, and a build reaches an implementation
+ * only through `@epicenter/recorder/tauri` or `@epicenter/recorder/browser`.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
