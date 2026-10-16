@@ -46,8 +46,9 @@ afterEach(async () => {
 const AT = '2026-10-04T20:49:23.041Z';
 const PATH = 'captures/one.md';
 const FILE = `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;
+/** FILE after a body write: its frontmatter as written (ADR-0575), with this body. */
 const saved = (text: string, thoughts = '- first\n') =>
-	`---\ncapturedAt: "${AT}"\n---\n\n${text}\n\n## Thoughts\n\n${thoughts}`;
+	`---\ncapturedAt: ${AT}\n---\n\n${text}\n\n## Thoughts\n\n${thoughts}`;
 
 /** Open `one` as `mode` and mount the view the app shows for it. */
 async function setup(files: Record<string, string>, mode: 'capture' | 'text') {

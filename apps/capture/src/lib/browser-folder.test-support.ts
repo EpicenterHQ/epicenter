@@ -5,8 +5,7 @@
  * a path, change files as another program would, and report a change as the
  * folder's change channel does. The store gets its own mounted query client,
  * wired to that channel as the page wires it, with the capture listing
- * observed as the timeline observes it, and records every write that failed
- * and every save that replaced a change made elsewhere.
+ * observed as the timeline observes it, and records every write that failed.
  *
  * Import a runes-module loader first (`packages/svelte/src/svelte-modules.test-support.js`
  * or `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
@@ -23,11 +22,7 @@ import type {
 	OpfsDirectoryHandle,
 	OpfsFileHandle,
 } from '../../../../packages/folder/src/opfs-store.js';
-import type {
-	Captures,
-	ReplacedChange,
-	WriteFailure,
-} from './captures.svelte.js';
+import type { Captures, WriteFailure } from './captures.svelte.js';
 import { createQueryClient, observe, quiet } from './query.test-support.js';
 
 /**
@@ -109,11 +104,9 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const failures: WriteFailure[] = [];
-	const replaced: ReplacedChange[] = [];
 	const queryClient = createQueryClient();
 	const captures: Captures = createCaptures(folder, queryClient, {
 		onWriteFailed: (failure) => failures.push(failure),
-		onReplaced: (change) => replaced.push(change),
 	});
 	// As the page wires it. One page per folder here, so it reports nothing;
 	// `reportChange` stands in for another page's report.
@@ -126,7 +119,6 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		captures,
 		counter,
 		failures,
-		replaced,
 		/** The file's text now, or `undefined` when it is gone. */
 		async text(path: string) {
 			const read = await folder.files.read(path);

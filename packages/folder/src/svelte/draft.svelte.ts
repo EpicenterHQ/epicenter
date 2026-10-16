@@ -16,29 +16,30 @@
  * the editor or it goes away.
  *
  * `save` is the files' write mutation, sent `{ base, content }`, as a
- * promise that rejects on failure. `onSaved` hears each save that landed,
- * with `restore`: one more save, of `restoreTheirs(saved)` through the same
- * `save`, that puts back what it replaced of another writer's change; its
- * own result is heard the same way. Restoring a file at a row path or
- * `kv.json` needs the folder's `definition`.
+ * promise that rejects on failure. Where another writer changed the same
+ * lines, the save wins; the folder logs it, and nothing is shown
+ * (ADR-0575).
  *
  * `createBodyDraftState({ save })` is the same for one row's body: `save`
- * writes the body over the row the draft started from, as `table.save`
- * does, and the app decides which fields go with it.
+ * replaces the body of the row the draft started from.
+ *
+ * `createBodyEditor({ row, save })` opens one row's body for a control
+ * (ADR-0575). It reads the row as the cache holds it, sends the body typed
+ * with the row it started from to the table's `setBody` mutation, which
+ * replaces only the body on the file as it is now, and shows the draft's
+ * text or the file's body:
  *
  * ```ts
- * const save = createMutation(() => folder$.notes.save.mutationOptions());
- * const body = createBodyDraftState<NoteFields>({
- *   save: ({ base, content }) =>
- *     save.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
- * });
- * const shown = $derived(body.text ?? note.data?.row.body);
- * body.change(note.data, typed);
+ * const setBody = createMutation(() => folder.notes.setBody.mutationOptions());
+ * const body = createBodyEditor({ row: () => note.data ?? undefined, save: (v) => setBody.mutateAsync(v) });
+ * ```
+ *
+ * ```svelte
+ * <Textarea bind:value={() => body.text ?? '', (text) => body.change(text)} onblur={() => body.save()} />
  * ```
  */
 import { createSubscriber } from 'svelte/reactivity';
 import type { ContentCapture } from '../capture.js';
-import type { FolderDefinition } from '../definition.js';
 import {
 	createTextDraft,
 	type SaveTextVariables,
@@ -47,7 +48,7 @@ import {
 	writtenBody,
 	writtenFile,
 } from '../draft.js';
-import { restoreTheirs, type SavedFile } from '../save-file.js';
+import type { SavedFile } from '../save-file.js';
 import type { SavedRow, StoredRow } from '../table.js';
 
 export type TextDraftState<TBase extends ContentCapture = ContentCapture> =
@@ -62,25 +63,16 @@ export type TextDraftState<TBase extends ContentCapture = ContentCapture> =
 		save(): Promise<void>;
 	};
 
-/** What a draft state hears of each save that landed, with the save that restores theirs. */
-type OnSaved<TSaved> = (saved: TSaved, restore: () => void) => void;
-
-/**
- * The reactive draft over `save`. `written` reads what a save wrote, and
- * `theirs` builds the save that restores what it replaced.
- */
-function draftState<TBase extends ContentCapture, TSent, TSaved>({
+/** The reactive draft over `save`. `written` reads what a save wrote. */
+function draftState<TBase extends ContentCapture, TSaved>({
 	save,
 	written,
-	theirs,
-	onSaved,
 }: {
-	save: (
-		sent: TSent | { readonly base: TBase; readonly content: string },
-	) => Promise<TSaved>;
+	save: (sent: {
+		readonly base: TBase;
+		readonly content: string;
+	}) => Promise<TSaved>;
 	written: (saved: TSaved) => WrittenText<TBase>;
-	theirs: (saved: TSaved) => TSent;
-	onSaved: OnSaved<TSaved> | undefined;
 }): TextDraftState<TBase> {
 	const draft = createTextDraft<TBase>();
 	/** Reads of the draft subscribe; every change to it wakes them. */
@@ -93,12 +85,6 @@ function draftState<TBase extends ContentCapture, TSent, TSaved>({
 	});
 	let running: Promise<void> | undefined = $state();
 
-	const hear =
-		onSaved === undefined
-			? undefined
-			: (saved: TSaved) =>
-					onSaved(saved, () => void save(theirs(saved)).then(hear, () => {}));
-
 	/** Started only with something to send, so it awaits before it ends. */
 	async function loop() {
 		try {
@@ -109,7 +95,6 @@ function draftState<TBase extends ContentCapture, TSent, TSaved>({
 				if (saved === undefined) return;
 				await draft.saved(sent, written(saved));
 				wake?.();
-				hear?.(saved);
 			}
 		} finally {
 			running = undefined;
@@ -147,46 +132,74 @@ function draftState<TBase extends ContentCapture, TSent, TSaved>({
 
 export function createTextDraftState({
 	save,
-	onSaved,
-	definition,
 }: {
 	/** Write one save of the file: the files' write mutation, rejecting on failure. */
 	save: (sent: SaveTextVariables) => Promise<SavedFile>;
-	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
-	onSaved?: OnSaved<SavedFile>;
-	/** The folder's definition, which restoring a row file or `kv.json` by field or key needs. */
-	definition?: FolderDefinition;
 }): TextDraftState {
-	return draftState({
-		save,
-		written: writtenFile,
-		theirs: (saved) => restoreTheirs(saved, definition),
-		onSaved,
-	});
+	return draftState({ save, written: writtenFile });
 }
 
 export function createBodyDraftState<TFields>({
 	save,
-	onSaved,
 }: {
 	/**
-	 * Write the body `content` over `base`, the row the draft started from:
-	 * the table's save mutation, rejecting on failure.
+	 * Replace the body of `base`, the row the draft started from, with
+	 * `content`: the table's `setBody` mutation, rejecting on failure.
 	 */
 	save: (sent: {
 		readonly base: StoredRow<TFields>;
 		readonly content: string;
 	}) => Promise<SavedRow<TFields>>;
-	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
-	onSaved?: OnSaved<SavedRow<TFields>>;
 }): TextDraftState<StoredRow<TFields>> {
-	return draftState({
-		save,
-		written: writtenBody<TFields>,
-		theirs: (saved) => ({
-			base: saved.stored,
-			content: restoreTheirs(saved).row.body,
-		}),
-		onSaved,
+	return draftState({ save, written: writtenBody<TFields> });
+}
+
+/** One row's body, opened for a control (ADR-0575). */
+export type BodyEditor = {
+	/** What the control shows: the text typed, or the body as the file holds it; `undefined` with no row. */
+	readonly text: string | undefined;
+	/** The text typed and not yet in the file; `undefined` when nothing is. */
+	readonly typed: string | undefined;
+	/** Whether a save of the body is running. */
+	readonly saving: boolean;
+	/** Type `text`. The first change takes the row as the cache holds it as the starting version. */
+	change(text: string): void;
+	/** Save what is typed, one save at a time; a failed save keeps it. */
+	save(): Promise<void>;
+	/** Drop what is typed. */
+	discard(): void;
+};
+
+export function createBodyEditor<TFields>({
+	row,
+	save,
+}: {
+	/** The row as the cache holds it now; `undefined` while it is absent or does not read as a row. */
+	row: () => StoredRow<TFields> | undefined;
+	/** The table's body write, rejecting on failure: `mutateAsync` of `folder.<table>.setBody`. */
+	save: (variables: {
+		readonly base: StoredRow<TFields>;
+		readonly text: string;
+	}) => Promise<SavedRow<TFields>>;
+}): BodyEditor {
+	const draft = createBodyDraftState<TFields>({
+		save: ({ base, content }) => save({ base, text: content }),
 	});
+	return {
+		get text() {
+			return draft.text ?? row()?.row.body;
+		},
+		get typed() {
+			return draft.text;
+		},
+		get saving() {
+			return draft.saving;
+		},
+		change(text) {
+			const current = row();
+			if (current !== undefined) draft.change(current, text);
+		},
+		save: () => draft.save(),
+		discard: () => draft.discard(),
+	};
 }

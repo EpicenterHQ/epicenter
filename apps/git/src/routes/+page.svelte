@@ -7,7 +7,6 @@
  import * as Item from '@epicenter/ui/item';
  import { Folder, FileText, ChevronDown, ChevronRight, GitBranch, GitCommitHorizontal } from '@lucide/svelte';
  import { visibleRows } from '@epicenter/folder/file-browser';
- import ReplacedNotice from '@epicenter/svelte/replaced-notice';
  import SyncReview from '@epicenter/svelte/sync-review';
  import { openWorkingCopy, type WorkingCopy } from '$lib/workspace.svelte';
 
@@ -150,9 +149,6 @@
     {:else}
     {#if workspace.dirty && !['Unsaved changes', 'Saving…'].includes(workspace.saveMessage)}
      <div class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm"><span>Your text is still here.</span><Button size="xs" variant="outline" onclick={() => act(() => workspace!.useSavedText())}>Discard my edits and reload</Button></div>
-    {/if}
-    {#if workspace.replaced.length > 0}
-     <div class="shrink-0 border-b px-4 py-2"><ReplacedNotice replaced={workspace.replaced} subject={workspace.selected} disabled={workspace.dirty} onRestore={() => act(() => workspace!.restoreTheirs())} onDismiss={() => workspace!.dismissReplaced()} /></div>
     {/if}
     {#if workspace.editable}
      <textarea aria-label="File text" class="min-h-0 flex-1 resize-none bg-background p-4 font-mono text-sm leading-6 outline-none" spellcheck="false" value={workspace.buffer} disabled={workspace.locked} oninput={(event) => workspace!.input(event.currentTarget.value)} onblur={() => void workspace!.flush().catch(() => {})}></textarea>

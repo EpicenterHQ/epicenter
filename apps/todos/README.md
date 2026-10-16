@@ -320,8 +320,8 @@ time, and switching never waits or asks.
   what another writer changed in another field stays, and where you both
   changed the title, yours wins. The notes keep the version they started
   from and merge by line with whatever changed since: lines only the other
-  writer changed stay, and where you both changed the same lines, yours win
-  and a message names what of theirs was replaced, with **Restore theirs**.
+  writer changed stay, and where you both changed the same lines, yours win,
+  with no message (ADR-0575).
 - A save that fails, or whose reply is lost, keeps what you typed in the
   editor, which says it is not saved and offers **Try again**; a message
   about notes offers **Copy your text**. A checkbox that did not save shows
@@ -462,10 +462,11 @@ A field edit is an update of the file as it is now (`todos.rows.update`,
 `table.update` underneath, ADR-0554). `TodoDetail` holds the typed title in
 its own state and sends it a second after the last keystroke, on blur, and
 when it goes away; each `TodoRow` checkbox, and the detail's, sends at once.
-The notes are a body draft (`createBodyDraftState` from
-`@epicenter/folder/svelte`) that keeps the version it started from and saves
-with `todos.rows.saveNotes` on the same pause, merged by line by
-`table.save`. The page keys `TodoDetail` by the todo, and the view keeps the
+The notes are the body, opened with `createBodyEditor` from
+`@epicenter/folder/svelte` (ADR-0575): it keeps the version it started from
+and saves with `todos.rows.saveNotes` on the same pause, merged by line by
+`table.save`. Bodies read and write with `\n` line endings (ADR-0572), so
+the textarea's value is sent as it is. The page keys `TodoDetail` by the todo, and the view keeps the
 stem it was created with, so a save sent as it goes away lands on the todo
 it was typed into. Writes to one file run one at a time in the order made,
 and each puts the row it wrote in the cache; a read that lands meanwhile

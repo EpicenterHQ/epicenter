@@ -430,20 +430,14 @@ describe('native folder', () => {
 				),
 			);
 			const saved = results.map((result) => expectOk(result));
-			// Both changed the title: the one that merged wins, and says whose
-			// title it replaced.
+			// Both changed the title: the one that merged wins.
 			const merged = saved.filter((outcome) => outcome.merged);
 			expect(merged).toHaveLength(1);
 			const [last] = merged;
 			const first = saved.find((outcome) => !outcome.merged)!;
-			expect(last!.replaced).toEqual([
-				{
-					kind: 'field',
-					field: 'title',
-					kept: last!.stored.row.fields.title,
-					theirs: first.stored.row.fields.title,
-				},
-			]);
+			expect(last!.stored.row.fields.title).not.toBe(
+				first.stored.row.fields.title,
+			);
 			const kept = expectOk(await folder.tables.todos.get('a'))!;
 			expect(kept.row.fields.title).toBe(last!.stored.row.fields.title);
 

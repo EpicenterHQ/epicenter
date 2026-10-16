@@ -405,3 +405,45 @@ test('multi-line strings every reader keeps exactly are literal blocks; the rest
 test('wellFormed replaces each unpaired surrogate and keeps pairs', () => {
 	expect(wellFormed('a\uD800b\uDC00c😀')).toBe('a�b�c😀');
 });
+
+test('a body reads with line feeds, whatever the file wrote', () => {
+	const text =
+		'---\r\ntitle: T\r\ndone: false\r\ntags: []\r\n---\r\none\r\ntwo\rthree\n';
+	expect(expectOk(parseRow(todos, text)).body).toBe('one\ntwo\nthree\n');
+});
+
+test('a body writes with line feeds and reads back as the row it stored', () => {
+	const text = expectOk(
+		formatRow(todos, {
+			fields: { title: 'T', done: false, tags: [] },
+			body: 'one\r\ntwo\rthree\n',
+		}),
+	);
+	expect(text).not.toContain('\r');
+	expect(expectOk(parseRow(todos, text)).body).toBe('one\ntwo\nthree\n');
+});
+
+test('an unpaired surrogate in the body or a field is written as U+FFFD', () => {
+	const text = expectOk(
+		formatRow(todos, {
+			fields: { title: 'a\uD800b', done: false, tags: ['x\uDC00'] },
+			body: 'half \uD83D emoji',
+		}),
+	);
+	const row = expectOk(parseRow(todos, text));
+	expect(row.fields.title).toBe('a�b');
+	expect(row.fields.tags).toEqual(['x�']);
+	expect(row.body).toBe('half � emoji');
+});
+
+test('formatting a row leaves the row it was given unchanged', () => {
+	const row = {
+		fields: { title: 'a\uD800', done: false, tags: [] },
+		body: 'one\r\n',
+	};
+	formatRow(todos, row);
+	expect(row).toEqual({
+		fields: { title: 'a\uD800', done: false, tags: [] },
+		body: 'one\r\n',
+	});
+});

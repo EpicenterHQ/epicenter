@@ -27,7 +27,6 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from './data.js';
-import type { ReplacedNotice } from './entries.svelte.js';
 import {
 	createBrowser,
 	fileText,
@@ -56,15 +55,13 @@ afterEach(async () => {
 /** Vocab over `folder`, with its screens observing, read once. */
 async function openVocab(folder: VocabFolder) {
 	const failures: WriteFailure[] = [];
-	const replaced: ReplacedNotice[] = [];
 	const vocab = createVocab(folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
-		onReplaced: (notice) => replaced.push(notice),
 	});
 	cleanup.push(() => vocab.close());
 	cleanup.push(observe(vocab));
 	await quiet(vocab);
-	return { vocab, failures, replaced };
+	return { vocab, failures };
 }
 
 /**
@@ -75,7 +72,7 @@ async function setup() {
 	const browser = createBrowser();
 	cleanup.push(() => browser[Symbol.asyncDispose]());
 	const folder = await browser.open();
-	const { vocab, failures, replaced } = await openVocab(folder);
+	const { vocab, failures } = await openVocab(folder);
 	const { faults } = browser.opfs;
 	const counter = { wordWrites: 0 };
 	let hold: PromiseWithResolvers<void> | undefined;
@@ -96,7 +93,6 @@ async function setup() {
 		vocab,
 		entries: vocab.entries,
 		failures,
-		replaced,
 		counter,
 		holdNextWrite() {
 			hold = Promise.withResolvers<void>();
@@ -315,7 +311,6 @@ test("one word's updates run one at a time in the order made, so a stage press d
 	release();
 	await quiet(vocab);
 	expect(failures).toEqual([]);
-	expect(context.replaced).toEqual([]);
 	expect(counter.wordWrites - before).toBe(2);
 	const saved = await context.text(path);
 	expect(saved).toContain('note: clear');
@@ -358,8 +353,6 @@ test('an update over a change made elsewhere keeps their other fields and wins t
 	// The note is the learner's; only they changed the stage, so it stays.
 	expect(await context.text(path)).toContain('note: mine');
 	expect(await context.text(path)).toContain('stage: usable');
-	// An update replaces only what it names, so there is nothing to report.
-	expect(context.replaced).toEqual([]);
 	expect(cached(vocab, 'lucid')).toMatchObject({
 		note: 'mine',
 		stage: 'usable',
@@ -402,7 +395,7 @@ test('the folder refuses a value it cannot hold, and the file is left as it was'
 	expect(cached(vocab, 'lucid').stage).toBe('new');
 });
 
-test('a note is kept well formed, so what saves is what is shown', async () => {
+test('half of a surrogate pair in a note is saved as U+FFFD (ADR-0572)', async () => {
 	const context = await setup();
 	const { vocab, entries } = context;
 	const entry = await context.add('lucid');

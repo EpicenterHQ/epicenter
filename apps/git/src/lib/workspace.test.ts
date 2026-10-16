@@ -2,7 +2,7 @@
  * Working-copy editor regressions over a real browser folder and held OPFS writes.
  * Concurrent save waiters share writes, file switches wait for saves, and another
  * page's change rereads a clean editor but never replaces typed input: the save
- * merges with it, names what it replaced, and can put theirs back.
+ * merges with it, and the typed text wins the lines both changed.
  * Two copies on one remote sync: a competing line waits for a modal review that
  * locks the editor, Cancel forgets it, and an applied choice reaches the remote.
  */
@@ -208,7 +208,7 @@ const fileText = async (workspace: (typeof opened)[number], path: string) =>
 		expectOk(await workspace.folder.files.read(path)).bytes,
 	);
 
-test('a change from another page rereads a clean editor; typed text merges with it, and theirs can be restored', async () => {
+test('a change from another page rereads a clean editor; typed text merges with it and wins the lines both changed', async () => {
 	const { workspace } = await setup();
 	const other = await elsewhere(workspace);
 	await put(other, 'a.txt', 'first outside\n');
@@ -222,18 +222,11 @@ test('a change from another page rereads a clean editor; typed text merges with 
 		workspace.listing.files.some((file) => file.path === 'c.txt'),
 	);
 	expect(workspace.buffer).toBe('my unsaved text\n');
-	// Both changed the one line: the typed text stands, and theirs is named.
+	// Both changed the one line: the typed text stands.
 	await workspace.flush();
 	expect(workspace.dirty).toBe(false);
+	expect(workspace.buffer).toBe('my unsaved text\n');
 	expect(await fileText(workspace, 'a.txt')).toBe('my unsaved text\n');
-	expect(workspace.replaced).toMatchObject([
-		{ kind: 'text', kept: 'my unsaved text\n', theirs: 'outside\n' },
-	]);
-
-	await workspace.restoreTheirs();
-	expect(workspace.replaced).toEqual([]);
-	expect(workspace.buffer).toBe('outside\n');
-	expect(await fileText(workspace, 'a.txt')).toBe('outside\n');
 });
 
 test('a save of a file deleted elsewhere fails and keeps the text; discarding it closes editing', async () => {

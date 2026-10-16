@@ -5,8 +5,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
-	import { describeError, type ReplacedNotice } from '$lib/entries.svelte.js';
+	import { describeError } from '$lib/entries.svelte.js';
 	import { openVocabFolder } from '$lib/folder.js';
 	import type { WriteFailure } from '$lib/query.js';
 	import { createVocab } from '$lib/vocab.svelte.js';
@@ -33,16 +32,11 @@
 		});
 	}
 
-	/** A save merged with a change made elsewhere and kept the learner's value where both changed. */
-	function replaced({ path, replaced, restore }: ReplacedNotice) {
-		void toastReplaced({ replaced, subject: path, restore });
-	}
-
 	// The mounted page opens the folder; importing modules opens nothing. There
 	// is no sign-in on this path: words and chats are in this browser's folder
 	// whether or not an account is signed in.
 	const opening = openVocabFolder().then((folder) =>
-		createVocab(folder, queryClient, { onWriteFailed: writeFailed, onReplaced: replaced }),
+		createVocab(folder, queryClient, { onWriteFailed: writeFailed }),
 	);
 
 	// Every write and action under way lands before the folder closes.

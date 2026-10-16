@@ -68,9 +68,8 @@ are not UTF-8 text are listed apart and not opened.
   Edit as text to write unfinished Markdown.
 - When the file changed elsewhere since the edit started, the save merges
   with it: what only the other writer changed stays, and where you both
-  changed the same field or line, your edit wins and a notice names what of
-  theirs it replaced, with **Restore theirs**. Text edited as text merges
-  the same way, by line. When the file was deleted, the save is refused: the
+  changed the same field or line, your edit wins, with no notice
+  (ADR-0575). Text edited as text merges the same way, by line. When the file was deleted, the save is refused: the
   capture leaves the list, and a notice says your change was not saved and
   offers **Copy your text**.
 - A save that fails for another reason keeps your edit on screen, the
@@ -78,12 +77,14 @@ are not UTF-8 text are listed apart and not opened.
   text to copy. Your next change saves it again. A save whose reply was lost
   is one of these failures: the notice says the change may or may not have
   happened.
-- Text you type is kept well formed, so a lone surrogate becomes U+FFFD as
-  you type and what is written is what you see.
-- The first write of a file written by hand rewrites its frontmatter in the
-  standard form: plain YAML, `capturedAt` first, keys Capture does not
-  declare kept. Comments and custom quoting in the frontmatter are not kept.
-  The body is written exactly.
+- An edit of a capture replaces only its body (`table.setBody`, ADR-0575):
+  the frontmatter stays byte for byte as written, comments, quoting, line
+  endings, and keys Capture does not declare included.
+- A capture's body is written with line feeds (ADR-0572): a body written
+  with `\r\n` gets `\n` on its first save from the capture view, while the
+  frontmatter keeps its own line endings. Half a character (a lone
+  surrogate) is written as U+FFFD, so it shows as `�` once the save lands.
+  Otherwise the body is written exactly.
 - Edit as text writes exactly what is typed, valid or not, and keeps the
   file's line endings. Issues are read live from the text, each with its
   line. It writes the whole file over the version you started typing on,
@@ -270,7 +271,7 @@ write runs.
 | --- | --- |
 | `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. |
 | `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache keyed by `folderOptions`: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and close. |
-| `src/lib/capture-form.svelte.ts` | One capture's edit, a body draft (`createBodyDraftState` from `@epicenter/folder/svelte`) saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
+| `src/lib/capture-form.svelte.ts` | One capture's edit, its body opened with `createBodyEditor` from `@epicenter/folder/svelte` and saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
 | `src/lib/components/` | `CaptureApp.svelte` shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 
@@ -297,7 +298,7 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved keeping undeclared metadata, saves one at a time with text typed meanwhile in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere and what it replaced, a failed save kept and sent again, a deleted file, a change the body cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
+| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved keeping undeclared metadata, saves one at a time with text typed meanwhile in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere, a failed save kept and sent again, a deleted file, a change the body cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
 | `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a window handed no folder opens Capture's own, a window handed another folder opens it through Capture's shape and keeps its declaration, one without the shape is refused by name, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, and Save version commits and rewrites nothing. It does not run the shell's path or Git checks. |
 | `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
@@ -352,9 +353,8 @@ The version before that one dropped these:
 - Unconfirmed-delete choices are gone. A delete whose reply was lost is
   reported once, and the timeline reads the folder again.
 - The 30-second relisting is gone.
-- The first write of a hand-written file rewrites its frontmatter as plain
-  YAML. Comments in the frontmatter are lost. The previous standard form was
-  JSON-style quoted keys.
+- An edit no longer rewrites a hand-written file's frontmatter: only the
+  body is replaced, and the frontmatter keeps its comments and quoting.
 - Captures from before the file version can no longer be imported. The
   recovery screen and the export format it read are gone.
 - A commit is refused while Capture closes or Epicenter quits or restarts,

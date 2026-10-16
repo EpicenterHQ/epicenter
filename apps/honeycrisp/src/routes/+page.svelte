@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
@@ -10,7 +9,6 @@
 	import {
 		createNotes,
 		describeError,
-		type ReplacedChange,
 		type WriteFailure,
 	} from '$lib/notes.svelte.js';
 	import NotesView from './components/NotesView.svelte';
@@ -33,11 +31,6 @@
 		});
 	}
 
-	/** A save replaced a change made elsewhere to the same values: name them, and offer theirs back. */
-	function replacedChange({ path, replaced, restore }: ReplacedChange) {
-		void toastReplaced({ replaced, subject: path, restore });
-	}
-
 	// The mounted page acquires the folder; importing modules opens nothing.
 	// Once the notes are built over it, `notes.close()` releases it. On the
 	// desktop, closing the window quits at once: every save is an atomic
@@ -47,7 +40,6 @@
 		try {
 			const notes = createNotes(folder, queryClient, {
 				onWriteFailed: writeFailed,
-				onReplaced: replacedChange,
 			});
 			await notes.load();
 			return notes;

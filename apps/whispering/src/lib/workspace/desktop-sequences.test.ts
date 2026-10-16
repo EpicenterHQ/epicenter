@@ -13,8 +13,8 @@
  *   written
  * - a save that failed or whose reply was lost is reported and keeps the
  *   edit, and the next edit saves it
- * - a save over another writer's change merges with it, and names what of
- *   theirs it replaced
+ * - a save over another writer's change merges with it, and wins where both
+ *   changed, with no notice
  * - a deletion runs after the edits are written, and one whose reply was
  *   lost is reported and recreates nothing
  *
@@ -155,13 +155,8 @@ test('a save whose reply was lost is reported and keeps the edit, which saves ag
 	type(session, 'Tidy it all.\n');
 	await settle(library);
 	// Whether the lost save landed was unknown, so the edit saves again from
-	// where it started, over what did land, and says what it replaced.
-	expect(notices.slice(1)).toMatchObject([
-		{
-			kind: 'replaced',
-			replaced: [{ kind: 'text', part: 'body', theirs: 'Tidy it.\n' }],
-		},
-	]);
+	// where it started, over what did land, and wins with no notice.
+	expect(notices).toHaveLength(1);
 	expect(library.unsaved).toBe(false);
 	expect(session.draft.body).toBe('Tidy it all.\n');
 	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
@@ -203,21 +198,13 @@ test('a refused save is reported and keeps the edit; the next edit saves it', as
 	expect(await shell.text(PATH)).toContain('Mine, again.\n');
 });
 
-test('another writer’s change merges with the typing: where both changed, the typing wins and says so', async () => {
+test('another writer’s change merges with the typing: where both changed, the typing wins with no notice', async () => {
 	const { library, notices, session } = await open({ [PATH]: SEED });
 	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
 	await settle(library);
-	expect(notices).toMatchObject([
-		{
-			kind: 'replaced',
-			path: PATH,
-			replaced: [
-				{ kind: 'text', part: 'body', kept: 'Mine.\n', theirs: 'Theirs.\n' },
-			],
-		},
-	]);
+	expect(notices).toEqual([]);
 	expect(await shell.text(PATH)).toContain('Mine.\n');
 	expect(await shell.text(PATH)).not.toContain('Theirs.');
 });

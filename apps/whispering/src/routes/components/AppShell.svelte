@@ -27,7 +27,7 @@
 	// svelte-ignore state_referenced_locally
 	setSession(session);
 
-	// A write that failed, or replaced a change made elsewhere, is told.
+	// A write that failed is told.
 	$effect(() => library.onWriteNotice(reportWriteNotice));
 
 	// Edits not yet saved live only in this window until they land.

@@ -7,8 +7,8 @@
  *   applies to the file as it is now (ADR-0554), so it keeps every field
  *   another writer changed and wins only the fields it set. The editing
  *   view holds typed text until it is sent. The notes are a document: the
- *   view's body draft keeps the version it started from and `saveNotes`
- *   saves over it, merged by line with whatever changed since. Every write
+ *   view's body editor keeps the version it started from and `saveNotes`
+ *   replaces only the body, merged by line with whatever changed since. Every write
  *   puts the row it wrote in the cache; a failure is reported, and the view
  *   keeps what was typed.
  * - A file that does not read as a todo is listed with why; Todos does not
@@ -101,14 +101,16 @@ export function createRows({
 				onWriteFailed({ path: todoPath(stem), error, unsaved: '' }),
 		} satisfies ReturnType<typeof folder$.todos.update.mutationOptions>,
 		/**
-		 * Save one todo's notes over the version the edit started from, for
-		 * the view's body draft. A failure is reported with the notes as text.
+		 * Replace one todo's notes on the file as it is now, merged by line
+		 * from the version the edit started from (`table.setBody`, ADR-0575),
+		 * for the view's body editor. A failure is reported with the notes as
+		 * text.
 		 */
 		saveNotes: {
-			...folder$.todos.save.mutationOptions(),
-			onError: (error, { base, row }) =>
-				onWriteFailed({ path: base.path, error, unsaved: row.body }),
-		} satisfies ReturnType<typeof folder$.todos.save.mutationOptions>,
+			...folder$.todos.setBody.mutationOptions(),
+			onError: (error, { base, text }) =>
+				onWriteFailed({ path: base.path, error, unsaved: text }),
+		} satisfies ReturnType<typeof folder$.todos.setBody.mutationOptions>,
 		/** Add a todo titled `title`. The caller decides whether to show it. */
 		create: defineMutation({
 			mutationKey: ['todos', 'create'],

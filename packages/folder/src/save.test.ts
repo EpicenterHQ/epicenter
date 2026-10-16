@@ -9,13 +9,11 @@
  * Key behaviors:
  * - A save over the bytes the row was read from lands as it is
  * - Over a row another writer changed in a different field, both changes land
- * - Where both changed one field, the edit wins, the other writer's other
- *   fields survive, and the result names the value it replaced and the one
- *   it kept
+ * - Where both changed one field, the edit wins and the other writer's
+ *   other fields survive (ADR-0575)
  * - Body edits merge by line: neighboring lines both survive; where both
- *   changed the same lines the edit wins there, their other lines survive,
- *   and the result names the body with theirs winning there, which
- *   `restoreTheirs` saves back
+ *   changed the same lines the edit wins there, and their other lines and
+ *   fields survive
  * - A capture without the content it names is `UnknownBase`, and nothing is
  *   written
  * - A row another writer deleted is `NotFound`, and not recreated
@@ -41,7 +39,6 @@ import { openDataFolder } from './bun.js';
 import {
 	type AnyRow,
 	type FileTable,
-	restoreTheirs,
 	type StoredRow,
 	WRITE_ATTEMPTS,
 } from './contract.js';
@@ -119,7 +116,7 @@ test('a save over the row as read lands', async () => {
 		),
 	);
 
-	expect(saved).toMatchObject({ merged: false, replaced: [] });
+	expect(saved.merged).toBe(false);
 	expect((await read()).row.fields).toEqual({
 		title: 'Renamed',
 		done: false,
@@ -145,7 +142,7 @@ test('another writer changed a different field: both changes land', async () => 
 		),
 	);
 
-	expect(saved).toMatchObject({ merged: true, replaced: [] });
+	expect(saved.merged).toBe(true);
 	expect((await read()).row.fields).toEqual({
 		title: 'Mine',
 		done: true,
@@ -155,7 +152,7 @@ test('another writer changed a different field: both changes land', async () => 
 	await folder.close();
 });
 
-test('both changed one field: the edit wins, says what it replaced, and their other fields survive', async () => {
+test('both changed one field: the edit wins, and their other fields survive', async () => {
 	const { folder, table, read, otherWriter } = await setup();
 	const captured = await read();
 	await otherWriter(captured, (row) => {
@@ -172,12 +169,7 @@ test('both changed one field: the edit wins, says what it replaced, and their ot
 		),
 	);
 
-	expect(saved).toMatchObject({
-		merged: true,
-		replaced: [
-			{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' },
-		],
-	});
+	expect(saved.merged).toBe(true);
 	expect((await read()).row.fields).toEqual({
 		title: 'Mine',
 		done: false,
@@ -202,14 +194,14 @@ test('body edits to neighboring lines both survive', async () => {
 		),
 	);
 
-	expect(saved).toMatchObject({ merged: true, replaced: [] });
+	expect(saved.merged).toBe(true);
 	expect((await read()).row.body).toBe(
 		'FIRST (mine)\nSECOND (theirs)\nthird\n',
 	);
 	await folder.close();
 });
 
-test('body edits to the same line: the edit wins there, says what it replaced, and theirs can be restored', async () => {
+test('body edits to the same line: the edit wins there, and their other lines and fields survive', async () => {
 	const { folder, table, read, otherWriter } = await setup();
 	const captured = await read();
 	await otherWriter(captured, (row) => {
@@ -226,29 +218,10 @@ test('body edits to the same line: the edit wins there, says what it replaced, a
 		),
 	);
 
-	expect(saved.replaced).toEqual([
-		{
-			kind: 'text',
-			part: 'body',
-			kept: 'ONE (theirs)\nsecond\nTHREE (mine)\n',
-			// Theirs winning where both changed, with the edit's other lines.
-			theirs: 'ONE (theirs)\nsecond\nTHREE (theirs)\n',
-			regions: [
-				{ line: 2, kept: 'THREE (mine)\n', theirs: 'THREE (theirs)\n' },
-			],
-		},
-	]);
+	expect(saved.merged).toBe(true);
 	const stored = await read();
 	expect(stored.row.body).toBe('ONE (theirs)\nsecond\nTHREE (mine)\n');
 	expect(stored.row.fields.done).toBe(true);
-	// What the result names is enough to put theirs back, in one save.
-	const restore = restoreTheirs(saved);
-	expect(restore.base).toBe(saved.stored);
-	const restored = expectOk(await table.save(restore.base, restore.row));
-	expect(restored).toMatchObject({ merged: false, replaced: [] });
-	expect((await read()).row.body).toBe(
-		'ONE (theirs)\nsecond\nTHREE (theirs)\n',
-	);
 	await folder.close();
 });
 
@@ -333,7 +306,6 @@ test('another writer left text that is not a row: it merges by line', async () =
 	);
 
 	expect(saved.merged).toBe(true);
-	expect(saved.replaced).toMatchObject([{ kind: 'text', part: 'file' }]);
 	expect(saved.stored.row.fields).toEqual({
 		title: 'Mine',
 		done: false,
@@ -406,7 +378,7 @@ test('an update over a change to another field made between its read and its wri
 
 	const saved = expectOk(await table.update('one', { set: { title: 'Mine' } }));
 
-	expect(saved).toMatchObject({ merged: false, replaced: [] });
+	expect(saved.merged).toBe(false);
 	expect((await read()).row).toEqual({
 		fields: { title: 'Mine', done: true, tags: ['a'] },
 		body: 'first\nsecond\nthird\n',
@@ -423,9 +395,8 @@ test('an update and another writer set one field: the update wins', async () => 
 		),
 	]);
 
-	const saved = expectOk(await table.update('one', { set: { title: 'Mine' } }));
+	expectOk(await table.update('one', { set: { title: 'Mine' } }));
 
-	expect(saved.replaced).toEqual([]);
 	expect((await read()).row.fields).toEqual({
 		title: 'Mine',
 		done: false,

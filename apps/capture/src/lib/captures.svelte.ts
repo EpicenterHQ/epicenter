@@ -16,10 +16,10 @@
  * with whatever changed since (ADR-0551, ADR-0554). A failed save keeps the
  * draft and is reported. An edit of a file's text is a text draft held the
  * same way. A view saves typed text after a pause and when the person
- * leaves it (`flush`, `saveText`); a thought command saves at once. A save that replaced another
- * writer's change names it, with a way to put theirs back. A text save that
- * fails drops the typed text, reads the file again, and reports the text
- * that was not written.
+ * leaves it (`flush`, `saveText`); a thought command saves at once. Where a
+ * save meets another writer's change to the same line, the save wins, with
+ * no notice (ADR-0575). A text save that fails drops the typed text, reads
+ * the file again, and reports the text that was not written.
  *
  * Every other action is a mutation too: create, delete, Save version, and
  * the import of old captures. Closing fences new input, then waits for the
@@ -43,7 +43,6 @@ import {
 	type FileCapture,
 	type FileError,
 	type FileSaveError,
-	type Replaced,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
@@ -51,7 +50,7 @@ import {
 	type TableCreateError,
 	type TableError,
 	type TableListing,
-	type TableSaveError,
+	type TableSetBodyError,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import { folderOptions, runMutation, whenIdle } from '@epicenter/folder/query';
@@ -119,16 +118,6 @@ export type WriteFailure = {
 	readonly error: TableError | FileError | FileSaveError;
 	/** The text that was on screen and is not in the file. */
 	readonly text: string;
-};
-
-/**
- * A save that landed over a change made elsewhere: what of it the edit
- * replaced, and the one more save that puts theirs back.
- */
-export type ReplacedChange = {
-	readonly path: string;
-	readonly replaced: readonly Replaced[];
-	readonly restore: () => void;
 };
 
 /** Why an action did not start. */
@@ -263,12 +252,9 @@ export function createCaptures(
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
-		onReplaced = () => {},
 	}: {
 		/** A write failed; the app tells the person. */
 		onWriteFailed?: (failure: WriteFailure) => void;
-		/** A save replaced a change made elsewhere; the app tells the person. */
-		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
 	const folder$ = folderOptions(folder);
@@ -306,7 +292,7 @@ export function createCaptures(
 	const listKey = folder$.captures.list.queryKey();
 	/** Saves of a capture and writes of a file's text, the header's Saving… */
 	const writeKeys = [
-		folder$.captures.save.mutationOptions().mutationKey,
+		folder$.captures.setBody.mutationOptions().mutationKey,
 		folder$.files.write.mutationOptions().mutationKey,
 	];
 	const writing = () =>
@@ -337,31 +323,24 @@ export function createCaptures(
 		if (existing !== undefined) return existing;
 		const path = pathOf(stem);
 		const form: CaptureForm = createCaptureForm({
-			stored: () => rowOf(stem),
-			save: ({ base, content }) =>
-				runMutation(queryClient, folder$.captures.save.mutationOptions(), {
-					base,
-					row: { fields: base.row.fields, body: content },
-				}).catch((error: TableSaveError) => {
-					const text = form.body ?? content;
+			row: () => rowOf(stem),
+			save: (variables) =>
+				runMutation(
+					queryClient,
+					folder$.captures.setBody.mutationOptions(),
+					variables,
+				).catch((error: TableSetBodyError) => {
+					const text = form.body ?? variables.text;
 					// The file is gone: the edit has nowhere to go but the notice.
 					if (error.name === 'NotFound') form.discard();
 					onWriteFailed({ path, error, text });
 					throw error;
 				}),
-			onSaved: tell(path),
 			locked: () => refused() !== undefined || removing(path),
 		});
 		forms.set(stem, form);
 		return form;
 	}
-
-	/** What a save of `path` replaced, named with the save that restores it. */
-	const tell =
-		(path: string) =>
-		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
-			if (replaced.length > 0) onReplaced({ path, replaced, restore });
-		};
 
 	/** The text edit of `path`, made at its first change. */
 	function textDraftOf(path: string): TextDraftState {
@@ -383,8 +362,6 @@ export function createCaptures(
 					onWriteFailed({ path, error, text: lost });
 					throw error;
 				}),
-			onSaved: tell(path),
-			definition: folder.definition,
 		});
 		texts.set(path, draft);
 		return draft;

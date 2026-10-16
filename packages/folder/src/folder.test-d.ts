@@ -41,7 +41,6 @@ import {
 	type OpenFolderOptions,
 	type PreparedFolderTable,
 	parseRow,
-	type Replaced,
 	type Row,
 	type RowReadError,
 	type RowUpdate,
@@ -492,7 +491,7 @@ async function typedValues(
 	}
 	expectTypeOf(saved).toEqualTypeOf<SavedFile>();
 	expectTypeOf(saved.stored).toEqualTypeOf<CapturedFile>();
-	expectTypeOf(saved.replaced).toEqualTypeOf<readonly Replaced[]>();
+	expectTypeOf(saved.merged).toEqualTypeOf<boolean>();
 	expectTypeOf(await folder.files.remove(saved.stored)).toEqualTypeOf<
 		Awaited<ReturnType<Opened['files']['remove']>>
 	>();
@@ -601,7 +600,7 @@ async function typedValues(
 		);
 		if (saveError === null) {
 			expectTypeOf(savedRow.stored).toEqualTypeOf<StoredRow<Fields>>();
-			expectTypeOf(savedRow.replaced).toEqualTypeOf<readonly Replaced[]>();
+			expectTypeOf(savedRow.merged).toEqualTypeOf<boolean>();
 		} else {
 			expectTypeOf(saveError).toEqualTypeOf<TableSaveError>();
 			// @ts-expect-error A table never saves text it cannot read back.

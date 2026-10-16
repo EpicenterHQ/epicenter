@@ -30,10 +30,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { wellFormed } from '@epicenter/folder';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createBodyDraftState } from '@epicenter/folder/svelte';
-	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
+	import { createBodyEditor } from '@epicenter/folder/svelte';
 	import { createMutation, createQuery, useIsMutating } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
@@ -95,13 +92,10 @@
 	}
 	const sendTitleLater = useDebounce(sendTitle, 1000);
 
-	/** The notes typed and not yet saved, with the version they started from. */
-	const notes = createBodyDraftState<TodoFields>({
-		save: ({ base, content }) =>
-			saveNotes.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
-		// Name what a save replaced of another writer's lines, and offer them back.
-		onSaved: ({ replaced, stored }, restore) =>
-			void toastReplaced({ replaced, subject: stored.row.fields.title, restore }),
+	/** The notes: the body, opened with the version it started from (ADR-0575). */
+	const notes = createBodyEditor<TodoFields>({
+		row: () => stored,
+		save: (variables) => saveNotes.mutateAsync(variables),
 	});
 	const sendNotesLater = useDebounce(() => notes.save(), 1000);
 
@@ -113,21 +107,18 @@
 	// runed's timers outlive the view; send now instead.
 	onDestroy(flush);
 
-	/** Textareas report LF, so views show LF; the setter restores the file's convention. */
-	const lf = (text: string) => text.replace(/\r\n?/g, '\n');
-
 	const pending = $derived(
 		saveDone.isPending ||
 			saveTitle.isPending ||
 			notes.saving ||
 			(sendTitleLater.pending && title !== undefined) ||
-			(sendNotesLater.pending && notes.text !== undefined),
+			(sendNotesLater.pending && notes.typed !== undefined),
 	);
 	/** Why typed text is not in the file, while it is still typed. */
 	const failure = $derived(
 		title !== undefined && saveTitle.error
 			? saveTitle.error
-			: notes.text !== undefined && saveNotes.error
+			: notes.typed !== undefined && saveNotes.error
 				? saveNotes.error
 				: undefined,
 	);
@@ -209,7 +200,7 @@
 				bind:value={
 					() => shownTitle,
 					(typed) => {
-						title = wellFormed(typed);
+						title = typed;
 						void sendTitleLater();
 					}
 				}
@@ -235,10 +226,9 @@
 				aria-label="Notes"
 				disabled={locked}
 				bind:value={
-					() => lf(notes.text ?? stored.row.body),
+					() => notes.text ?? '',
 					(typed) => {
-						const base = notes.base ?? stored;
-						notes.change(stored, withFileNewlines(wellFormed(typed), base.row.body));
+						notes.change(typed);
 						void sendNotesLater();
 					}
 				}
@@ -266,7 +256,7 @@
 		</div>
 		<pre
 			class="min-h-48 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap"
-			aria-label="Text of {path}">{lf(error.text)}</pre>
+			aria-label="Text of {path}">{error.text}</pre>
 		{@render fileBar()}
 	{:else if todo.data?.result.error}
 		<Empty.Root class="flex-1">

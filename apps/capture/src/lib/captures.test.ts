@@ -13,6 +13,7 @@
  *   captures for repair as text, and lists unreadable files apart
  * - An edit is a body draft over the cache, saved when the view sends it,
  *   keeping metadata Capture does not declare
+ * - A body is written with LF, and a lone surrogate as U+FFFD (ADR-0572)
  * - Saves run one at a time; text typed meanwhile goes in one more save,
  *   from the version the first wrote
  * - A change reported on the folder's channel reads the view again, and
@@ -63,14 +64,13 @@ async function open(files: Record<string, string> = {}) {
 const AT = '2026-10-01T10:30:00+08:00';
 /** A capture file written by hand, with metadata Capture does not declare. */
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n`;
-/** HAND as a write saves it: plain YAML frontmatter, the body byte for byte. */
-const FORMATTED = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 const PATH = 'captures/one.md';
 
 /** How many saves of a capture are running. */
 const savesRunning = ({ captures }: Opened) =>
 	captures.queryClient.isMutating({
-		mutationKey: captures.folder$.captures.save.mutationOptions().mutationKey,
+		mutationKey:
+			captures.folder$.captures.setBody.mutationOptions().mutationKey,
 	});
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */
@@ -179,12 +179,25 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	expect(form.body).toContain('\nEdited\n');
 	await quiet(captures);
 	expect(await harness.text(PATH)).toBe(
-		`${FORMATTED.replace('\nText\n', '\nEdited\n')}- second\n`,
+		`${HAND.replace('\nText\n', '\nEdited\n')}- second\n`,
 	);
 	// The saves landed: the edit is done, and the cache holds what they wrote.
 	expect(form.body).toBeUndefined();
 	expect(cached(captures, 'one').sha256).toBe(
 		expectOk(await harness.folder.files.read(PATH)).sha256,
+	);
+	expect(harness.failures).toEqual([]);
+});
+
+test('a body write to a CRLF capture keeps its frontmatter and writes the body with LF, and half a character as U+FFFD', async () => {
+	const harness = await open({ [PATH]: HAND.replace(/\n/g, '\r\n') });
+	const { captures } = harness;
+	const form = captures.formOf('one');
+	form.inputNewThought('half \uD800 a character');
+	expect(form.addThought()).toBe(true);
+	await quiet(captures);
+	expect(await harness.text(PATH)).toBe(
+		`---\r\ncapturedAt: ${AT}\r\ncustom: kept\r\n---\r\n\nText\n\n## Thoughts\n\n- first\n  nested line\n- half � a character\n`,
 	);
 	expect(harness.failures).toEqual([]);
 });
@@ -205,7 +218,6 @@ test('rapid edits run one save at a time, and the changes made meanwhile go in o
 	// The held save, then one save of the newest text, from the version it wrote.
 	expect(counter.mdWrites - before).toBe(1);
 	expect(await harness.text(PATH)).toContain('\nTyping\n');
-	expect(harness.replaced).toEqual([]);
 });
 
 test('a change reported elsewhere reads the view again, and never replaces an edit not saved yet', async () => {
@@ -239,7 +251,6 @@ test('a change reported elsewhere reads the view again, and never replaces an ed
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('\nMine again\n');
 	expect(saved).toContain('- theirs');
-	expect(harness.replaced).toEqual([]);
 });
 
 test('a save that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
@@ -257,20 +268,6 @@ test('a save that meets a change made elsewhere merges with it: the edit wins wh
 	expect(merged).not.toContain('Theirs');
 	expect(merged).not.toContain('custom: kept');
 	expect(merged).not.toContain('- first');
-	// The save names what of theirs it replaced.
-	expect(harness.replaced).toMatchObject([
-		{
-			path: PATH,
-			replaced: [expect.objectContaining({ kind: 'text', part: 'body' })],
-		},
-	]);
-
-	// Restoring theirs is one more save, over the version this one wrote.
-	harness.replaced[0]?.restore();
-	await quiet(captures);
-	expect(harness.failures).toEqual([]);
-	expect(await harness.text(PATH)).toContain('\nTheirs\n');
-	expect(await harness.text(PATH)).not.toContain('\nMine\n');
 });
 
 test('a save that fails keeps the edit and reports it, and the next change sends it again', async () => {
@@ -378,11 +375,10 @@ test('a write of the text that meets a change made elsewhere merges with it by l
 	typeFile(captures, PATH, `${HAND}- mine\n`);
 	await quiet(captures);
 	stop();
-	// Their changes and the added line do not compete, so both stand, and
-	// nothing of theirs was replaced. A row is written in its standard form.
+	// Their changes and the added line do not compete, so both stand. A row
+	// is written in its standard form.
 	const merged = `---\ncapturedAt: "${AT}"\n---\n\nTheirs\n- mine\n`;
 	expect(harness.failures).toEqual([]);
-	expect(harness.replaced).toEqual([]);
 	expect(captures.typedText(PATH)).toBeUndefined();
 	expect(cachedText(captures, PATH)).toBe(merged);
 	expect(await harness.text(PATH)).toBe(merged);

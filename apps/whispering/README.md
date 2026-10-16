@@ -467,8 +467,7 @@ the table shows the row once it is saved.
   runs are written next, so fast typing writes what you typed last.
 - A save merges with a change made elsewhere since your edit started: fields
   and lines only one side changed are both kept. Where both changed the same
-  field or the same lines, your edit wins and a notice names what of theirs it
-  replaced, with **Restore theirs**. Reading the folder again never touches
+  field or the same lines, your edit wins, with no notice. Reading the folder again never touches
   what you are typing.
 - Text edited as a whole file (Source, or any text file from Files) merges the
   same way, by line (ADR-0551).
@@ -481,8 +480,10 @@ the table shows the row once it is saved.
   deletion. The status says an edit is not saved yet.
 - A value that a file cannot hold, such as a field with the wrong kind of
   value, is refused and nothing in the file changes.
-- Text typed or pasted into a field that a file cannot hold exactly (a lone
-  surrogate) is saved with U+FFFD in its place.
+- Text typed or pasted into a field or a body that a file cannot hold
+  exactly (a lone surrogate) is saved with U+FFFD in its place.
+- Notes, transcripts, and instructions are saved with LF line endings. A file
+  written with CRLF becomes LF the next time Whispering saves it.
 - The lists are read when the page opens, after this window's own actions and
   terminal commands, and when the folder reports that files changed.
 

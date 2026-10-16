@@ -14,15 +14,15 @@
  * title, folder, and pin, a list action on any note, and a folder's name
  * each set their fields and keep every field another writer changed. The
  * open note holds a title typed and not yet sent. A note's body, from rich
- * text or Source, is a document: a body draft (`createBodyDraftState`), one
+ * text or Source, is a document: a body editor (`createBodyEditor`), one
  * per note, which keeps the version it started from and is saved a second
  * after the last change, or at once when the view leaves it, merged by line
  * with whatever changed since. A file open as its exact text has a text
  * draft of its own (`createTextDraftState`), saved the same way (ADR-0551).
  * Writes to one file run one at a time, in the order made. A body save that
  * fails keeps the body on screen and reports the failure; a note deleted
- * elsewhere drops it. A save that replaced another writer's lines names
- * them, with a way to put theirs back.
+ * elsewhere drops it. Where a save meets another writer's change to the
+ * same lines, the save wins (ADR-0575).
  *
  * Every other action is a mutation: create, rename, delete, deleting a
  * folder, and Save version. Closing the notes fences new input, then waits
@@ -38,12 +38,10 @@ import {
 	type FileSaveError,
 	type GitError,
 	type MoveError,
-	type Replaced,
 	type Row,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
-	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
@@ -64,7 +62,8 @@ import {
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	createBodyDraftState,
+	type BodyEditor,
+	createBodyEditor,
 	createTextDraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
@@ -88,7 +87,7 @@ import {
 } from './data.js';
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
-import { displayTitle, withBody } from './note-source.js';
+import { displayTitle } from './note-source.js';
 import type { NotesFolder } from './platform/types.js';
 
 export type Notes = ReturnType<typeof createNotes>;
@@ -146,16 +145,6 @@ export type WriteFailure = {
 	 * shows the file: the note is gone, or a text save failed.
 	 */
 	readonly kept: boolean;
-};
-
-/**
- * A save that replaced another writer's change to the same values, and the
- * one more save that puts theirs back.
- */
-export type ReplacedChange = {
-	readonly path: string;
-	readonly replaced: readonly Replaced[];
-	readonly restore: () => void;
 };
 
 /** Why an action did not start, or stopped before it changed anything. */
@@ -274,12 +263,9 @@ export function createNotes(
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
-		onReplaced = () => {},
 	}: {
 		/** A save failed; the app tells the person. */
 		onWriteFailed?: (failure: WriteFailure) => void;
-		/** A save replaced another writer's change to the same values; the app may say so. */
-		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
 	const folder$ = folderOptions(folder);
@@ -453,9 +439,13 @@ export function createNotes(
 		return undefined;
 	}
 
-	/** A document being typed: its draft, and the save that runs after a pause. */
+	/**
+	 * A document being typed: its draft, the text typed and not yet saved,
+	 * and the save that runs after a pause.
+	 */
 	type Typed<TDraft> = {
 		readonly draft: TDraft;
+		readonly typed: () => string | undefined;
 		readonly later: ReturnType<typeof useDebounce<[], Promise<void>>>;
 	};
 
@@ -464,18 +454,14 @@ export function createNotes(
 	 * left; then a draft with nothing left is let go from `held`.
 	 */
 	async function saveTyped<
-		TDraft extends {
-			readonly text: string | undefined;
-			readonly saving: boolean;
-			save(): Promise<void>;
-		},
+		TDraft extends { readonly saving: boolean; save(): Promise<void> },
 	>(held: SvelteMap<string, Typed<TDraft>>, key: string): Promise<void> {
 		const typed = held.get(key);
 		if (typed === undefined) return;
 		if (typed.later.pending) void typed.later.runScheduledNow();
 		await typed.draft.save();
 		if (
-			typed.draft.text === undefined &&
+			typed.typed() === undefined &&
 			!typed.draft.saving &&
 			held.get(key) === typed
 		)
@@ -483,19 +469,16 @@ export function createNotes(
 	}
 
 	/**
-	 * Note bodies being typed, by stem (ADR-0554). A body is a document: its
-	 * draft keeps the version it started from, and its save merges by line
+	 * Note bodies being typed, by stem (ADR-0575). A body is opened: its
+	 * editor keeps the version it started from, and its save merges by line
 	 * with whatever changed since. It saves a second after the last change,
 	 * and at once when the view leaves it (`saveBody`).
 	 */
-	const bodies = new SvelteMap<
-		string,
-		Typed<TextDraftState<StoredRow<NoteFields>>>
-	>();
+	const bodies = new SvelteMap<string, Typed<BodyEditor>>();
 
 	const saveNote = {
-		...folder$.notes.save.mutationOptions(),
-		onError: (error, { base, row }) => {
+		...folder$.notes.setBody.mutationOptions(),
+		onError: (error, { base, text }) => {
 			const stem = noteIdOf(base.path);
 			// A note deleted elsewhere is not written back: its body leaves the
 			// screen, the lists, read again, let it go, and the person is
@@ -505,33 +488,20 @@ export function createNotes(
 				bodies.get(stem)?.draft.discard();
 				bodies.delete(stem);
 			}
-			onWriteFailed({ path: base.path, error, unsaved: row.body, kept: !gone });
+			onWriteFailed({ path: base.path, error, unsaved: text, kept: !gone });
 		},
-	} satisfies ReturnType<typeof folder$.notes.save.mutationOptions>;
-
-	/** Name what a note's save replaced, and offer theirs back as one more save. */
-	function report(saved: SavedRow<NoteFields>, restore: () => void) {
-		// Both sides moving `updatedAt` is not a change worth a notice.
-		const told = saved.replaced.filter(
-			(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
-		);
-		if (told.length > 0)
-			onReplaced({ path: saved.stored.path, replaced: told, restore });
-	}
+	} satisfies ReturnType<typeof folder$.notes.setBody.mutationOptions>;
 
 	function bodyOf(stem: string) {
 		const known = bodies.get(stem);
 		if (known !== undefined) return known;
-		const draft = createBodyDraftState<NoteFields>({
-			save: ({ base, content }) =>
-				runMutation(queryClient, saveNote, {
-					base,
-					row: withBody(base.row, content),
-				}),
-			onSaved: report,
+		const draft = createBodyEditor<NoteFields>({
+			row: () => noteRows.storedOf(stem),
+			save: (variables) => runMutation(queryClient, saveNote, variables),
 		});
 		const typed = {
 			draft,
+			typed: () => draft.typed,
 			later: useDebounce(() => saveTyped(bodies, stem), 1000),
 		};
 		bodies.set(stem, typed);
@@ -542,7 +512,7 @@ export function createNotes(
 	function noteRowOf(stem: string): Row<NoteFields> | undefined {
 		const stored = noteRows.storedOf(stem);
 		if (stored === undefined) return undefined;
-		const typed = bodies.get(stem)?.draft.text;
+		const typed = bodies.get(stem)?.typed();
 		return typed === undefined
 			? stored.row
 			: { fields: stored.row.fields, body: typed };
@@ -557,10 +527,8 @@ export function createNotes(
 		if (stem === undefined) return NOT_LISTED;
 		const why = noteRows.refusalAt(stem);
 		if (why !== undefined) return why;
-		const stored = noteRows.storedOf(stem);
-		if (stored === undefined) return NOT_LISTED;
 		const typed = bodyOf(stem);
-		typed.draft.change(stored, body);
+		typed.draft.change(body);
 		void typed.later();
 		return undefined;
 	}
@@ -589,29 +557,29 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
 
-	/** An edit of one file's exact text, saved one write at a time after a pause; what a save replaced is named. */
+	/** An edit of one file's exact text, saved one write at a time after a pause. */
 	function textDraftOf(path: string) {
 		const known = textDrafts.get(path);
 		if (known !== undefined) return known;
+		const draft = createTextDraftState({
+			save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
+		});
 		const typed = {
-			draft: createTextDraftState({
-				save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
-				onSaved: ({ replaced }, restore) => {
-					if (replaced.length > 0) onReplaced({ path, replaced, restore });
-				},
-				definition: folder.definition,
-			}),
+			draft,
+			typed: () => draft.text,
 			later: useDebounce(() => saveTyped(textDrafts, path), 1000),
 		};
 		textDrafts.set(path, typed);
 		return typed;
 	}
 
-	/** Whether `draft` holds text whose save failed: nothing saving it or about to. */
-	const failed = (
-		draft: { readonly text: string | undefined; readonly saving: boolean },
-		later: { readonly pending: boolean },
-	) => draft.text !== undefined && !draft.saving && !later.pending;
+	/** Whether `typed` holds text whose save failed: nothing saving it or about to. */
+	const failed = ({
+		draft,
+		typed,
+		later,
+	}: Typed<{ readonly saving: boolean }>) =>
+		typed() !== undefined && !draft.saving && !later.pending;
 
 	/** Every document draft held now. */
 	const typedDrafts = () => [...bodies.values(), ...textDrafts.values()];
@@ -622,8 +590,8 @@ export function createNotes(
 		return (
 			writing() ||
 			typedDrafts().some(
-				({ draft, later }) =>
-					draft.saving || (later.pending && draft.text !== undefined),
+				({ draft, typed, later }) =>
+					draft.saving || (later.pending && typed() !== undefined),
 			)
 		);
 	};
@@ -745,15 +713,13 @@ export function createNotes(
 		> => {
 			const why = refused();
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
-			const at = InstantString.now();
 			return folder.tables.notes.create(
 				{
 					fields: {
 						folderId: view.deleted ? null : view.folderId,
 						title: '',
 						pinned: false,
-						createdAt: at,
-						updatedAt: at,
+						createdAt: InstantString.now(),
 						deletedAt: null,
 					},
 					body: '',
@@ -1051,7 +1017,7 @@ export function createNotes(
 		},
 		/** Whether a document typed holds text whose save failed and that no save is running for. */
 		get unsaved() {
-			return typedDrafts().some(({ draft, later }) => failed(draft, later));
+			return typedDrafts().some(failed);
 		},
 		/** Whether anything is saving or mutating: a save or an action. */
 		get busy() {
@@ -1076,7 +1042,7 @@ export function createNotes(
 					(typed) =>
 						typed !== undefined &&
 						(typed.draft.saving ||
-							(typed.later.pending && typed.draft.text !== undefined)),
+							(typed.later.pending && typed.typed() !== undefined)),
 				)
 			);
 		},
@@ -1084,7 +1050,7 @@ export function createNotes(
 		isUnsaved(path: string) {
 			const stem = noteIdOf(path);
 			const typed = stem === undefined ? undefined : bodies.get(stem);
-			return typed !== undefined && failed(typed.draft, typed.later);
+			return typed !== undefined && failed(typed);
 		},
 		/** Whether edits of `path` are refused now: closing, or a rename or delete runs. */
 		isLocked(path: string) {
@@ -1123,8 +1089,8 @@ export function createNotes(
 		/**
 		 * The note at `path` as the rich-text editor uses it: the row shown
 		 * now, read reactively, with the body typed while one is held;
-		 * whether it takes edits; and `edit`, which types the body it
-		 * returns and answers whether that was taken.
+		 * whether it takes edits; and `edit`, which types a body and answers
+		 * whether it was taken.
 		 */
 		noteBody(path: string): NoteBody {
 			const row = () => {
@@ -1140,12 +1106,11 @@ export function createNotes(
 					trackMutations();
 					return lockedAt(path);
 				},
-				edit(change) {
+				edit(body) {
 					const shown = row();
 					if (shown === undefined) return false;
-					const next = change(shown);
-					if (next.body === shown.body) return true;
-					return editBody(path, next.body) === undefined;
+					if (body === shown.body) return true;
+					return editBody(path, body) === undefined;
 				},
 			};
 		},

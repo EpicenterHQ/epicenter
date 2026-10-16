@@ -191,7 +191,6 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 				bytes: encoder.encode('replaced'),
 			},
 			merged: false,
-			replaced: [],
 		});
 		// Strings are saved exactly: no newline, BOM, or normalization is added.
 		expect(expectOk(await folder.files.read('a.txt')).bytes).toEqual(
@@ -539,8 +538,8 @@ describe('a save never reads its bytes back', () => {
 		expect(observed.sha256).not.toEqual(mine.sha256);
 
 		// So the next save built on `mine` does not silently overwrite bytes
-		// this editor never saw: unmerged it is refused, and merged it names
-		// what of theirs it replaced.
+		// this editor never saw: unmerged it is refused, and merged it wins
+		// the lines both changed.
 		expect(
 			expectErr(
 				await folder.files.save(mine, 'next draft\n', { merge: false }),
@@ -552,17 +551,9 @@ describe('a save never reads its bytes back', () => {
 		});
 		const merged = expectOk(await folder.files.save(mine, 'next draft\n'));
 		expect(merged.merged).toBe(true);
-		expect(merged.replaced).toEqual([
-			{
-				kind: 'text',
-				part: 'file',
-				kept: 'next draft\n',
-				theirs: 'raced in behind\n',
-				regions: [
-					{ line: 0, kept: 'next draft\n', theirs: 'raced in behind\n' },
-				],
-			},
-		]);
+		expect(
+			decoder.decode(expectOk(await folder.files.read('note.md')).bytes),
+		).toBe('next draft\n');
 
 		// The same holds for a moved file. A table row merges instead.
 		raceNextSave('moved.md', 'raced the move');
@@ -585,15 +576,16 @@ describe('a save never reads its bytes back', () => {
 		const current = expectOk(await folder.tables.todos.get('r'));
 		expect(current!.row.fields).toEqual({ title: 'Theirs' });
 		// A save merges with what is there instead, from the bytes it named,
-		// and says what of theirs it replaced.
+		// and wins the field both changed.
 		const again = expectOk(
 			await folder.tables.todos.save(row, {
 				fields: { title: 'Again' },
 				body: '',
 			}),
 		);
-		expect(again.replaced).toEqual([
-			{ kind: 'field', field: 'title', kept: 'Again', theirs: 'Theirs' },
-		]);
+		expect(again.merged).toBe(true);
+		expect(expectOk(await folder.tables.todos.get('r'))!.row.fields).toEqual({
+			title: 'Again',
+		});
 	});
 });
