@@ -478,8 +478,10 @@ the table shows the row once it is saved.
   deletion. The status says an edit is not saved yet.
 - A value that a file cannot hold, such as a field with the wrong kind of
   value, is refused and nothing in the file changes.
-- Text typed or pasted into a field that a file cannot hold exactly (a lone
-  surrogate) is saved with U+FFFD in its place.
+- Text typed or pasted into a field or a body that a file cannot hold
+  exactly (a lone surrogate) is saved with U+FFFD in its place.
+- Notes, transcripts, and instructions are saved with LF line endings. A file
+  written with CRLF becomes LF the next time Whispering saves it.
 - The lists are read when the page opens, after this window's own actions and
   terminal commands, and when the folder reports that files changed.
 

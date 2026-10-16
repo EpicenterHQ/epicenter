@@ -23,7 +23,6 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
@@ -136,7 +135,7 @@
 				bind:value={
 					() => typedTitle ?? row?.fields.title ?? '',
 					(value) => {
-						typedTitle = wellFormed(value);
+						typedTitle = value;
 						void sendTitleLater();
 					}
 				}
@@ -242,8 +241,8 @@
 					<Textarea
 						class="min-h-28 resize-y font-sans"
 						bind:value={
-							() => lf(row?.body ?? ''),
-							(value) => library.editBody(RECORDINGS, ownId, withFileNewlines(wellFormed(value), row?.body ?? ''))
+							() => row?.body ?? '',
+							(value) => library.editBody(RECORDINGS, ownId, value)
 						}
 						onblur={() => void library.saveBody(own)}
 						disabled={locked}

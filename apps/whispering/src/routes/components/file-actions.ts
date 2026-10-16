@@ -32,7 +32,11 @@ export async function copyText(text: string, what: string) {
 	}
 }
 
-/** Text as a textarea reports it: LF only. Setters restore the file's own line endings. */
+/**
+ * A file's exact text as a textarea reports it: LF only. Raw-text editors
+ * restore the file's own line endings with `withFileNewlines`. A row body
+ * already reads with LF (ADR-0570).
+ */
 export const lf = (text: string) => text.replace(/\r\n?/g, '\n');
 
 /** A saved time for display, or the raw value when it is not a time. */

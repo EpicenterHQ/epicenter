@@ -16,7 +16,6 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
@@ -145,9 +144,8 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
-					() => lf(transcript?.body ?? ''),
-					(value) =>
-						library.editBody(TRANSCRIPTIONS, stem, withFileNewlines(wellFormed(value), transcript?.body ?? ''))
+					() => transcript?.body ?? '',
+					(value) => library.editBody(TRANSCRIPTIONS, stem, value)
 				}
 				onblur={() => void library.saveBody(path)}
 				disabled={locked}

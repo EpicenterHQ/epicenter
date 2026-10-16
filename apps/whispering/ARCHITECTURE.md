@@ -513,8 +513,9 @@ text too; its fields open again once the text reads.
   `NotFound`, the draft is dropped and offered to copy, and the listing reads
   it gone.
 - **A value the schema refuses** is never written: the folder refuses it as
-  `InvalidValues`. Text typed into a field is kept well formed: a lone
-  surrogate becomes U+FFFD, as a file holds it.
+  `InvalidValues`. Text typed into a field or a body is sent as typed; the
+  folder writes a lone surrogate as U+FFFD, and a body reads and writes with
+  LF line endings (ADR-0570).
 - **A recording's lifecycle** writes in its file's queue: its row at start,
   its length at stop, saving a transcript, and saving a transformation result
   are mutations scoped by the recording's path, so they run in order.

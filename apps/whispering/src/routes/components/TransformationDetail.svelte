@@ -24,7 +24,6 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy, tick } from 'svelte';
@@ -301,7 +300,7 @@
 				bind:value={
 					() => typedTitle ?? row?.fields.title ?? '',
 					(value) => {
-						typedTitle = wellFormed(value);
+						typedTitle = value;
 						void sendTitleLater();
 					}
 				}
@@ -413,9 +412,8 @@
 							id="transformation-prompt"
 							class="min-h-36 resize-y font-sans"
 							bind:value={
-								() => lf(row?.body ?? ''),
-								(value) =>
-									library.editBody(TRANSFORMATIONS, ownId, withFileNewlines(wellFormed(value), row?.body ?? ''))
+								() => row?.body ?? '',
+								(value) => library.editBody(TRANSFORMATIONS, ownId, value)
 							}
 							onblur={() => void library.saveBody(own)}
 							disabled={locked}
@@ -449,7 +447,7 @@
 										() => (typedModel === undefined ? (row?.fields.model ?? '') : (typedModel ?? '')),
 										(value) => {
 											// An empty model uses the text connection's model.
-											typedModel = value.trim() === '' ? null : wellFormed(value);
+											typedModel = value.trim() === '' ? null : value;
 											void sendModelLater();
 										}
 									}
