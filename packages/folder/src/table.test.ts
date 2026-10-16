@@ -565,6 +565,29 @@ test('a write that lands at the old stem during a rename is carried to the new o
 	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
 
+test('a write at the new stem during a rename stops it there: the row stays at its old stem', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const OTHER = VALID.replace('External', 'Other');
+	let raced = false;
+	// Once the bytes reached the new stem, one writer lands at the old stem
+	// and another at the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+		await s.put('todos/b.md', OTHER);
+	});
+	expect(expectErr(await s.table.rename('a', 'b'))).toMatchObject({
+		name: 'InvalidPath',
+		path: 'todos/b.md',
+	});
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	expect(await s.stored('todos/b.md')).toBe(OTHER);
+});
+
 test('a delete of the old stem during a rename stands: the row is at neither stem', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
