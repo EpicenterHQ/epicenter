@@ -1,5 +1,6 @@
 /**
- * The one write of a folder file (ADR-0576), and the earlier save loop.
+ * The one write of a folder file (ADR-0576), the move, and the earlier save
+ * loop.
  *
  * `writeFile(storage, kind, path, from, to)` is `folder.write`: it reads the
  * file as it is now, merges the change from `from` to `to` into it by the
@@ -8,6 +9,10 @@
  * landing between the read and the put starts the next attempt, at most
  * `WRITE_ATTEMPTS` times, then `KeptChanging`. A `put` whose reply was lost
  * is read back once: the bytes it sent, or no file for a delete, mean done.
+ *
+ * `movePath(storage, path, next)` is `folder.move`, which `table.rename`
+ * makes too: the bytes land at `next` only where nothing is, and `path` is
+ * removed only while it holds them.
  *
  * `saveFile` is the save loop `kv.set` and `files.save` still run: it swaps first on the base's own hash, refuses a base without content
  * (`UnknownBase`) and a deleted file (`NotFound`), and merges the same way.
@@ -18,11 +23,10 @@
  */
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FolderStorage } from './boundary.js';
+import type { FileRead, FolderStorage } from './boundary.js';
 import {
 	type CapturedFile,
 	type ContentCapture,
-	fileCapture,
 	hashBytes,
 	ownCapture,
 } from './capture.js';
@@ -72,14 +76,14 @@ export type SavedFile = {
 	readonly merged: boolean;
 };
 
-/** A write that landed, or found nothing to change. */
+/** A write or a move that landed, or found nothing to change. */
 export type Written = {
 	readonly path: string;
 	/**
-	 * The file as the write left it: the bytes it put, or found already
-	 * there when the merge changed nothing, or `null` for no file.
+	 * The file as the write left it at `path`: the bytes it put, or found
+	 * already there when the merge changed nothing, or `null` for no file.
 	 */
-	readonly file: CapturedFile | null;
+	readonly file: FileRead | null;
 	/** Each unit where the writer replaced another writer's change; logged, never shown. */
 	readonly overridden: readonly Overridden[];
 };
@@ -103,6 +107,12 @@ export function logOverwrite(path: string, overridden: readonly Overridden[]) {
 		units: overridden,
 	});
 }
+
+/** A file as a write or a move answers it: the bytes and their hash, detached. */
+const fileOf = (read: FileRead | null): FileRead | null =>
+	read === null
+		? null
+		: Object.freeze({ bytes: read.bytes, sha256: read.sha256 });
 
 const toBytes = (content: FileContent | null) =>
 	typeof content === 'string' ? encoder.encode(content) : content;
@@ -180,14 +190,7 @@ export async function writeFile(
 		if (base === null && ours !== null && current !== null) {
 			if (sameContent(toBytes(ours), current.bytes))
 				return Ok(
-					Object.freeze({
-						path,
-						file: Object.freeze({
-							...fileCapture(path, current.sha256),
-							bytes: current.bytes,
-						}),
-						overridden: [],
-					}),
+					Object.freeze({ path, file: fileOf(current), overridden: [] }),
 				);
 			return WriteError.InvalidPath({
 				path,
@@ -212,19 +215,7 @@ export async function writeFile(
 		)
 			log.info(`Wrote nothing to ${path}: it was deleted since`, { path });
 		if (sameContent(bytes, theirs))
-			return Ok(
-				Object.freeze({
-					path,
-					file:
-						current === null
-							? null
-							: Object.freeze({
-									...fileCapture(path, current.sha256),
-									bytes: current.bytes,
-								}),
-					overridden: [],
-				}),
-			);
+			return Ok(Object.freeze({ path, file: fileOf(current), overridden: [] }));
 		const sha256 = bytes === null ? null : await hashBytes(bytes);
 		const { data: put, error } = await confirmedPut(
 			storage,
@@ -240,14 +231,91 @@ export async function writeFile(
 			Object.freeze({
 				path,
 				file:
-					bytes === null || sha256 === null
-						? null
-						: Object.freeze({ ...fileCapture(path, sha256), bytes }),
+					bytes === null || sha256 === null ? null : fileOf({ bytes, sha256 }),
 				overridden: Object.freeze(merged.overridden),
 			}),
 		);
 	}
 	return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
+}
+
+/**
+ * Move the file at `path` to `next`, as it is (ADR-0576). A move changes
+ * where a file is, not what it holds, so it is not a write: its bytes are
+ * put at `next` only where nothing is, so two moves onto one path never fuse
+ * two files, then `path` is removed only while it holds what moved. A write
+ * that lands at `path` meanwhile is carried to `next` first, at most
+ * `WRITE_ATTEMPTS` times. A delete of `path` meanwhile stands: the copy at
+ * `next` goes too, unless something wrote there since, and the move is
+ * `InvalidPath`.
+ *
+ * No file at `path`, or one already at `next`, is `InvalidPath`, and nothing
+ * changes. `path` changing on every attempt is `KeptChanging`; both paths
+ * then hold the file, as they do when the removal fails, which a person can
+ * see and repair (ADR-0503). A move onto its own path answers the file as it
+ * is. The answer is the file as it stands at `next`.
+ */
+export async function movePath(
+	storage: Pick<FolderStorage, 'put' | 'read'>,
+	path: string,
+	next: string,
+): Promise<Result<Written, WriteError>> {
+	const read = await storage.read(path);
+	if (read.error !== null)
+		return read.error.name === 'NotFound'
+			? WriteError.InvalidPath({ path, reason: 'no file is at this path' })
+			: Err(writeFailure(path, read.error));
+	const movedTo = (file: FileRead) =>
+		Ok(Object.freeze({ path: next, file: fileOf(file), overridden: [] }));
+	if (next === path) return movedTo(read.data);
+	let moved = read.data;
+	const placed = await confirmedPut(
+		storage,
+		next,
+		moved.bytes,
+		null,
+		moved.sha256,
+	);
+	if (placed.error !== null) return Err(writeFailure(next, placed.error));
+	if (placed.data === 'stale')
+		return WriteError.InvalidPath({
+			path: next,
+			reason: 'a file is already at this path',
+		});
+	for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+		const removed = await confirmedPut(storage, path, null, moved.sha256, null);
+		if (removed.error !== null) return Err(writeFailure(path, removed.error));
+		if (removed.data === 'landed') return movedTo(moved);
+		const now = await storage.read(path);
+		if (now.error?.name === 'NotFound') {
+			// Deleted while it moved: the delete stands, so its copy at `next`
+			// goes too, unless something wrote there.
+			const undone = await confirmedPut(
+				storage,
+				next,
+				null,
+				moved.sha256,
+				null,
+			);
+			if (undone.error !== null) return Err(writeFailure(next, undone.error));
+			return WriteError.InvalidPath({
+				path,
+				reason: 'no file is at this path',
+			});
+		}
+		if (now.error !== null) return Err(writeFailure(path, now.error));
+		const carried = await confirmedPut(
+			storage,
+			next,
+			now.data.bytes,
+			moved.sha256,
+			now.data.sha256,
+		);
+		if (carried.error !== null) return Err(writeFailure(next, carried.error));
+		if (carried.data === 'stale') break;
+		moved = now.data;
+	}
+	return WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
 }
 
 /**

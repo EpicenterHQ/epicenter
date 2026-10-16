@@ -25,6 +25,10 @@
  * - A write that changes nothing puts nothing
  * - A delete needs no base; a closed folder is `Closed`; a path no file
  *   can be at is `InvalidPath`
+ * - `folder.move` puts a file's bytes at a vacant path as they are and
+ *   removes them from their own; no file at the source, or one at the
+ *   destination, is `InvalidPath` (its races are in `table.test.ts`, through
+ *   `rename`)
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -434,4 +438,50 @@ test('a path no file can be at is InvalidPath, and a closed folder is Closed', a
 	);
 	await folder.close();
 	expect(expectErr(await folder.write('a.txt', null, 'x')).name).toBe('Closed');
+});
+
+test('a move puts the file at a vacant path as it is and removes it from its own', async () => {
+	const { root, folder, onDisk } = await directory();
+	await mkdir(join(root, 'audio'));
+	const take = new Uint8Array([0, 1, 2, 255]);
+	await writeFile(join(root, 'audio/take.wav'), take);
+	const moved = expectOk(
+		await folder.move('audio/take.wav', 'archive/take.wav'),
+	);
+	expect(moved).toEqual({
+		path: 'archive/take.wav',
+		file: { bytes: take, sha256: await hashBytes(take) },
+		overridden: [],
+	});
+	expect(expectErr(await folder.files.read('audio/take.wav')).name).toBe(
+		'NotFound',
+	);
+	// A row moves as its bytes, with no canonical rewrite.
+	await mkdir(join(root, 'notes'));
+	await writeFile(join(root, 'notes/a.md'), '---\ntitle:   Spaced\n---\n');
+	expectOk(await folder.move('notes/a.md', 'notes/b.md'));
+	expect(await onDisk('notes/b.md')).toBe('---\ntitle:   Spaced\n---\n');
+	await folder.close();
+});
+
+test('a move from no file, or onto a file, is InvalidPath and changes nothing', async () => {
+	const { root, folder, onDisk } = await directory();
+	await writeFile(join(root, 'a.txt'), 'a\n');
+	await writeFile(join(root, 'b.txt'), 'b\n');
+	expect(expectErr(await folder.move('gone.txt', 'c.txt'))).toMatchObject({
+		name: 'InvalidPath',
+		path: 'gone.txt',
+	});
+	expect(expectErr(await folder.move('a.txt', 'b.txt'))).toMatchObject({
+		name: 'InvalidPath',
+		path: 'b.txt',
+	});
+	expect(await onDisk('a.txt')).toBe('a\n');
+	expect(await onDisk('b.txt')).toBe('b\n');
+	// Onto its own path, a move answers the file as it is.
+	expect(expectOk(await folder.move('a.txt', 'a.txt')).file?.bytes).toEqual(
+		encoder.encode('a\n'),
+	);
+	await folder.close();
+	expect(expectErr(await folder.move('a.txt', 'c.txt')).name).toBe('Closed');
 });

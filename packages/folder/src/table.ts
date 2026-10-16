@@ -19,8 +19,9 @@
  * | `delete(stem)` | none: the deleter wins |
  *
  * `rename(stem, next)` changes where a file is, not what it holds, so it is
- * not a write: its bytes are put at `next` only where nothing is, and `stem`
- * is removed only while it holds them.
+ * not a write: it is `folder.move` between the two row paths, which puts the
+ * bytes at `next` only where nothing is and removes `stem` only while it
+ * holds them.
  *
  * A table reads and writes exactly one Markdown file per row (ADR-0480). A
  * sibling that shares a row's stem is an ordinary file: it is not part of the
@@ -42,12 +43,7 @@ import {
 import type { FileContent } from './merge-file.js';
 import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import {
-	confirmedPut,
-	WRITE_ATTEMPTS,
-	writeFailure,
-	writeFile,
-} from './save-file.js';
+import { movePath, writeFailure, writeFile } from './save-file.js';
 import { readMany } from './storage.js';
 
 /**
@@ -354,76 +350,9 @@ export function createTable<TFields>(
 			if (fromError !== null) return Err(fromError);
 			const { data: to, error: toError } = rowAddress(next);
 			if (toError !== null) return Err(toError);
-			const read = await storage.read(from);
-			if (read.error !== null)
-				return read.error.name === 'NotFound'
-					? WriteError.InvalidPath({
-							path: from,
-							reason: 'no row is at this stem',
-						})
-					: Err(writeFailure(from, read.error));
-			if (to === from) return written(from, read.data.bytes, read.data.bytes);
-			const movedRow = (moved: { bytes: Uint8Array; sha256: string }) =>
-				Ok(readBack(to, moved));
-			// The bytes land at `next` only where nothing is, so two renames
-			// onto one stem never fuse two rows.
-			let moved = read.data;
-			const placed = await confirmedPut(
-				storage,
-				to,
-				moved.bytes,
-				null,
-				moved.sha256,
-			);
-			if (placed.error !== null) return Err(writeFailure(to, placed.error));
-			if (placed.data === 'stale')
-				return WriteError.InvalidPath({
-					path: to,
-					reason: 'a row is already at this stem',
-				});
-			// The old stem goes only while it holds what moved; a write that
-			// landed there since is carried to `next` first.
-			for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
-				const removed = await confirmedPut(
-					storage,
-					from,
-					null,
-					moved.sha256,
-					null,
-				);
-				if (removed.error !== null)
-					return Err(writeFailure(from, removed.error));
-				if (removed.data === 'landed') return movedRow(moved);
-				const now = await storage.read(from);
-				if (now.error?.name === 'NotFound') {
-					// The row was deleted while it moved: the delete stands, so
-					// its copy at `next` goes too, unless something wrote there.
-					const undone = await confirmedPut(
-						storage,
-						to,
-						null,
-						moved.sha256,
-						null,
-					);
-					if (undone.error !== null) return Err(writeFailure(to, undone.error));
-					return WriteError.InvalidPath({
-						path: from,
-						reason: 'no row is at this stem',
-					});
-				}
-				if (now.error !== null) return Err(writeFailure(from, now.error));
-				const carried = await confirmedPut(
-					storage,
-					to,
-					now.data.bytes,
-					moved.sha256,
-					now.data.sha256,
-				);
-				if (carried.error !== null) return Err(writeFailure(to, carried.error));
-				if (carried.data === 'stale') break;
-				moved = now.data;
-			}
-			return WriteError.KeptChanging({ path: from, attempts: WRITE_ATTEMPTS });
+			const { data: moved, error } = await movePath(storage, from, to);
+			if (error !== null) return Err(error);
+			return Ok(moved.file === null ? null : readBack(to, moved.file));
 		},
 	};
 	return fileTable;

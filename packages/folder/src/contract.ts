@@ -23,7 +23,7 @@ export {
 	field,
 	type KvOf,
 } from '@epicenter/definition';
-export type { FileListing } from './boundary.js';
+export type { FileListing, FileRead } from './boundary.js';
 export {
 	type CapturedFile,
 	type ContentCapture,
