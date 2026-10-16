@@ -56,7 +56,6 @@ export { mountInferenceApp } from './routes/inference.js';
 // The folder MCP server at the MCP audience (ADR-0550).
 export { mountMcpServer } from './routes/mcp.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
-export { resolveDeploymentBlobStore } from './s3-blob-store.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS)
 // and returns the `Hono` every surface mounts onto. It takes one
 // `Identity` (who this deployment is on the web). The cloud's db + Better Auth are

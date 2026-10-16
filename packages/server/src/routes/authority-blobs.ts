@@ -7,6 +7,7 @@ import {
 	personalBlobCollectionUrl,
 } from '@epicenter/blobs';
 import type { Handler, Hono, MiddlewareHandler } from 'hono';
+import { resolveDeploymentBlobStore } from '../s3-blob-store.js';
 import type { Env } from '../types.js';
 
 export type HostedBlobStore = {
@@ -52,16 +53,16 @@ const inlineMedia = new Set([
 /**
  * Personal objects have no application or row namespace in their identity.
  * Reading a private object takes the `read` guard and publishing or deleting
- * one the `write` guard; a public object reads without either.
+ * one the `write` guard; a public object reads without either. Objects live in
+ * the deployment's S3-compatible store (`resolveDeploymentBlobStore`); without
+ * one configured, every request answers 503.
  */
 export function mountPersonalAuthorityBlobs<E extends Env>(
 	app: Hono<E>,
 	{
 		auth,
-		resolveStore,
 	}: {
 		auth: { read: MiddlewareHandler<E>; write: MiddlewareHandler<E> };
-		resolveStore: (env: E['Bindings']) => HostedBlobStore | null;
 	},
 ): void {
 	const read: Handler<Env> = async (c) => {
@@ -74,7 +75,7 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 			c.var.principal?.id !== address.principalId
 		)
 			return c.text('Blob access refused', 403);
-		const store = resolveStore(c.env);
+		const store = resolveDeploymentBlobStore(c.env);
 		if (!store) return c.text('Blob storage is unavailable', 503);
 		const range = c.req.header('range') ?? null;
 		if (range !== null && !/^bytes=(?:\d+-\d*|-\d+)$/.test(range))
@@ -187,7 +188,7 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 			return c.notFound();
 		if (c.var.principal.id !== principalId)
 			return c.text('Blob access refused', 403);
-		const store = resolveStore(c.env);
+		const store = resolveDeploymentBlobStore(c.env);
 		if (!store) return c.text('Blob storage is unavailable', 503);
 		const declared = c.req.header('content-length');
 		if (
@@ -246,7 +247,7 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 		if (!address) return c.notFound();
 		if (c.var.principal.id !== address.principalId)
 			return c.text('Blob access refused', 403);
-		const store = resolveStore(c.env);
+		const store = resolveDeploymentBlobStore(c.env);
 		if (!store) return c.text('Blob storage is unavailable', 503);
 		await store.delete(address.storageKey, c.req.raw.signal);
 		return c.body(null, 204);

@@ -30,7 +30,6 @@ import {
 	registerFirstPartyClients,
 	requireAccessToken,
 	requireSessionCookie,
-	resolveDeploymentBlobStore,
 	type ServerBindings,
 	workerClientMetadataFetch,
 } from '@epicenter/server';
@@ -195,7 +194,6 @@ mountPersonalAuthorityBlobs(app, {
 		read: resource('git', 'folders:read'),
 		write: resource('git', 'folders:write'),
 	},
-	resolveStore: resolveDeploymentBlobStore,
 });
 mountInferenceApp(app, {
 	auth: resource('api', 'ai'),

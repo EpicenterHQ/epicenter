@@ -14,7 +14,6 @@ import {
 } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
 import { Hono, type MiddlewareHandler } from 'hono';
-import { resolveDeploymentBlobStore } from '../s3-blob-store.js';
 import type { Env } from '../types.js';
 import { mountPersonalAuthorityBlobs } from './authority-blobs.js';
 
@@ -43,10 +42,7 @@ function setup(actor: string | null = 'alice') {
 		c.set('principal', { id: asPrincipalId(actor) });
 		await next();
 	};
-	mountPersonalAuthorityBlobs(app, {
-		resolveStore: resolveDeploymentBlobStore,
-		auth: { read: guard, write: guard },
-	});
+	mountPersonalAuthorityBlobs(app, { auth: { read: guard, write: guard } });
 	return app;
 }
 

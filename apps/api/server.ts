@@ -58,7 +58,6 @@ import {
 	type OAuthScope,
 	registerFirstPartyClients,
 	requireAccessToken,
-	resolveDeploymentBlobStore,
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
@@ -258,7 +257,6 @@ export async function startBunApiServer(): Promise<void> {
 			read: resource('git', 'folders:read'),
 			write: resource('git', 'folders:write'),
 		},
-		resolveStore: resolveDeploymentBlobStore,
 	});
 
 	const server = Bun.serve({
