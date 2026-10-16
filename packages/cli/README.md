@@ -60,10 +60,9 @@ owner's 12-character id (`epicenter repos` lists them).
 
 - `epicenter sync <dir> --to <namespace>/<name>` sets `remote.origin.url`,
   registers this binary as Git's credential helper for the git origin, sets the
-  merge driver, and syncs. The first request of the first push is the
-  receive-pack advertisement, which creates the repository; because a sync
-  fetches first, the command makes that request itself before syncing, so
-  the fetch finds an empty repository, not a missing one. Any sync whose remote
+  merge driver, and syncs. The server answers a name nobody holds as an
+  empty repository, so the sync's fetch finds nothing to take, and its push
+  creates the repository. Any sync whose remote
   is one of the deployment's hosted repositories carries the grant's token to
   `git` as a header (an `https` remote only; an `http` one, as a local
   server, uses the helper). `--to` and `--remote` are one choice, not two.

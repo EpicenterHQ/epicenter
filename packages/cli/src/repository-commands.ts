@@ -71,17 +71,14 @@ const grantOf = (desktop: boolean): GrantKind =>
 
 /**
  * What a sync to `url` needs when `url` is one of this deployment's hosted
- * repositories. With `create`, the repository is brought into being first:
- * the receive-pack advertisement is the first request of a push, and the
- * server creates the repository there, so a sync that fetches before it
- * pushes finds an empty remote, not a missing one. Returns `undefined` for
- * any other remote.
+ * repositories, or `undefined` for any other remote. Nothing is created here:
+ * the server answers a name nobody holds as an empty repository, so the
+ * sync's fetch finds nothing, and its push creates the repository.
  */
 export async function hostedRemote(
 	ctx: AuthContext,
 	grant: GrantKind,
 	url: string | undefined,
-	{ create }: { create: boolean },
 ): Promise<{ credential?: UrlCredential } | undefined> {
 	if (
 		url === undefined ||
@@ -94,21 +91,6 @@ export async function hostedRemote(
 		ctx.deployment.audiences.git,
 	);
 	if (error !== null) throw new Error(error.message);
-	if (create) {
-		let response: Response;
-		try {
-			response = await ctx.fetch(`${url}/info/refs?service=git-receive-pack`, {
-				headers: { authorization: `Bearer ${data.token}` },
-				redirect: 'manual',
-			});
-		} catch (cause) {
-			throw new Error(
-				`Could not reach ${new URL(url).origin}: ${cause instanceof Error ? cause.message : String(cause)}`,
-			);
-		}
-		await response.body?.cancel();
-		if (response.status !== 200) throw new Error(await refusal(response, url));
-	}
 	return {
 		credential: url.startsWith('https://')
 			? { url, username: 'epicenter', password: data.token }

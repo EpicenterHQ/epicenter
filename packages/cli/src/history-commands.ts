@@ -97,12 +97,11 @@ async function syncRequest(
 		connect = repositories.remoteFor(ctx, options.to);
 		await repositories.registerHelper(ctx);
 	}
-	// A hosted remote is created by its first sync and carries the grant's token.
+	// A hosted remote carries the grant's token; the sync's push creates it.
 	const hosted = await repositories.hostedRemote(
 		ctx,
 		desktop ? 'desktop' : 'device',
 		connect ?? (await repositories.originUrl(dir)),
-		{ create: connect !== undefined },
 	);
 	const fromStdin =
 		resolve === '-' || options['credential-stdin'] === true
