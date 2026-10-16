@@ -748,7 +748,6 @@ When you add an ADR, add its row here.
 | [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Accepted (continuous cross-reader check unbuilt) |
 | [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt) |
 | [0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) | A folder syncs over plain Git with a token, to a server the person chooses | Proposed (`mountGitApp`, both stores, LFS, Sync panel, connector deletion unbuilt) |
-| [0522](0522-settings-are-independent-keys-set-one-at-a-time.md) | Settings are independent keys set one at a time | Proposed (application adoption unbuilt) |
 | [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Superseded by 0528 |
 | [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
 | [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted |
