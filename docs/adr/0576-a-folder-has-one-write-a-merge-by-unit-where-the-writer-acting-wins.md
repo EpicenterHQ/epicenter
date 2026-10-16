@@ -156,6 +156,31 @@ holds, wins over what arrived. A delete wins over an edit the deleting side
 never saw; the edit stays in the other parent, and the merge commit lists it
 as overridden.
 
+**Epicenter owns how a file merges; Git owns how histories merge.** There is
+one merge driver, `epicenter merge-driver` (`merge-driver.ts`), which is this
+merge exposed to Git, in two modes. Under Epicenter's Sync
+(`EPICENTER_SYNC=1`), the writer acting wins competing units, and the driver
+writes the units it overrode to a file Sync names, for the merge commit's
+message. Run by hand, it keeps Git's conflicts, below. The desktop's Sync
+merges histories with `git merge-tree --write-tree` under Sync's mode, which
+writes no working file; the browser's with isomorphic-git's `merge` given the
+same merge as its driver. Git's merge reports some conflicts outside any one file's content, without
+calling the driver, and Sync settles each without stopping, listing what lost
+as overridden:
+
+| Git's conflict | Sync keeps |
+| --- | --- |
+| a modify against a delete, or a rename against a delete | no file: the delete beats an edit it never saw |
+| one file renamed to two names | the device's name: the writer acting |
+| a file against a directory at one path | the directory, and the file beside it under the name Git gives it, to repair |
+
+Then each changed file is published by a loop of `merge` and `put` in Sync:
+`merge(kind, { base: committed, ours: liveFile, theirs: merged })`, put
+guarded by the live file's hash and done again when it is stale. The device's
+file as it is at the put is the writer acting, so text typed while Sync runs
+stands. The merge commit is made with both parents. Epicenter's own history merge goes, with its merge bases,
+its tree walk, and its refusal of a criss-cross history.
+
 **Plain Git keeps its conflicts.** The merge driver that `git merge`, `git
 pull`, `git rebase`, `git cherry-pick`, and `git stash pop` run uses the same
 `merge`: units only one side changed merge by field or line, and insertions
@@ -231,6 +256,10 @@ its stems are named by concern, such as `settings/display.md` and
   Every control would share one pending and error state.
 - **A guarded fill** (`ifUnchanged`). With a union, two fills of one empty body
   keep both, and identical fills are one.
+- **No merge driver.** Sync would need its own merge again, and `git pull` by
+  hand would merge rows as plain text.
+- **A line merge of the whole row instead of a field merge.** A union of
+  insertions at one place in the frontmatter would write a key twice.
 - **Settings as `kv.json` keys** (ADR-0522). A second data model with its own
   merge, special cases in Git merging, and its own section in every
   declaration.
