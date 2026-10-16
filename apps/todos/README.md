@@ -464,10 +464,11 @@ A field edit is an update of the file as it is now (`todos.rows.update`,
 `table.update` underneath, ADR-0554). `TodoDetail` holds the typed title in
 its own state and sends it a second after the last keystroke, on blur, and
 when it goes away; each `TodoRow` checkbox, and the detail's, sends at once.
-The notes are a body draft (`createBodyDraftState` from
-`@epicenter/folder/svelte`) that keeps the version it started from and saves
-with `todos.rows.saveNotes` on the same pause, merged by line by
-`table.save`. The page keys `TodoDetail` by the todo, and the view keeps the
+The notes are the body, opened with `createBodyEditor` from
+`@epicenter/folder/svelte` (ADR-0573): it keeps the version it started from
+and saves with `todos.rows.saveNotes` on the same pause, merged by line by
+`table.save`. Bodies read and write with `\n` line endings (ADR-0570), so
+the textarea's value is sent as it is. The page keys `TodoDetail` by the todo, and the view keeps the
 stem it was created with, so a save sent as it goes away lands on the todo
 it was typed into. Writes to one file run one at a time in the order made,
 and each puts the row it wrote in the cache; a read that lands meanwhile
