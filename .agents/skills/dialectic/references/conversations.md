@@ -247,7 +247,7 @@ about current package exports. Unrelated setup is omitted.
 > actual caller before adding a shared helper; the smaller preview-only tool
 > shouldn't inherit a recording session it doesn't need.
 
-## Agent skills: revise a visible model
+## Product model: revise a visible map
 
 This hypothetical exchange uses the Epicenter cloud discussion to show a model
 the human can point to and change. The services are a proposal, not a claim
