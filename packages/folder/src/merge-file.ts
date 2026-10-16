@@ -1,26 +1,33 @@
 /**
- * The one three-way merge of a folder file, by the file's kind (ADR-0551).
+ * The three-way merge of a folder file, by the file's kind (ADR-0551,
+ * ADR-0576).
  *
- * Save and Sync both merge here, so they cannot disagree about what merges:
+ * `merge` is the one merge every write makes: `ours` is the writer acting,
+ * and it wins every unit both sides changed differently.
  *
- * | Kind | Merges by | A competing unit |
- * | --- | --- | --- |
- * | `kv.json` | key, through `reconcileKv` | one setting |
- * | a row of a declared table | field, and the body by line | one field; the body |
- * | other UTF-8 text | line | the file's text |
- * | binary, or a side absent | none | the whole file |
+ * | Kind | Unit |
+ * | --- | --- |
+ * | `kv.json` | one root key |
+ * | a row of a declared table | one frontmatter field; one region of body lines |
+ * | other UTF-8 text | one region of lines |
+ * | binary, or a side absent | the whole file |
  *
- * A row or `kv.json` version that does not read as its kind merges as text
- * (ADR-0503): the result is a file a person can repair, not a refusal.
+ * Units only one side changed all survive. Two insertions at one place in a
+ * body or a text both survive, and identical ones are one (`mergeLines`).
+ * A row or `kv.json` version that does not read as its kind merges as text,
+ * and so does a merge of rows that does not write as one: the result is a
+ * file a person can repair, never a refusal (ADR-0503).
  *
  * Rows are compared by the values `parseRow` reads, never by their spelling,
- * so key order, quoting, and frontmatter comments never compete; a merged row
- * is written in canonical form by `writeRow`. Values compare as JSON, so
- * object key order does not matter and arrays and objects are one unit each.
+ * so key order, quoting, and frontmatter comments never compete, and a
+ * merged row is written in canonical form by `writeRow`. Values compare as
+ * JSON, so object key order does not matter and arrays and objects are one
+ * unit each. A row `ours` left as `base` had it is no change: `theirs`
+ * stands as it is, spelling included.
  *
- * Each side of a text unit is a line merge with that side winning every
- * competing region, never a captured version: taking a side keeps the other
- * side's lines that did not compete.
+ * `mergeFile` is the earlier form, which returns the competing units and a
+ * `settle(pick)` for each caller to drive. Sync's choices and the Git merge
+ * driver still settle through it.
  *
  * This module writes nothing and loads no Git implementation.
  */
@@ -31,7 +38,7 @@ import { mergeLines, type SettledRegion } from './git/merge-lines.js';
 import { KV_PATH, settingText } from './kv.js';
 import { reconcileKv } from './kv-merge.js';
 import { ROW_EXTENSION } from './paths.js';
-import { type AnyRow, mergeRows, setField } from './row-merge.js';
+import { type AnyRow, mergeRows, sameValue, setField } from './row-merge.js';
 import { parseRow, writeRow } from './row-text.js';
 
 /** How a path merges: decided by its place in the folder, for save and Sync alike. */
@@ -399,4 +406,180 @@ export async function mergeFile(
 				? await mergeRow(kind.table, base, ours, theirs)
 				: undefined;
 	return structured ?? mergeText(base, ours, theirs);
+}
+
+/**
+ * A unit of a file where the writer acting replaced another writer's change.
+ *
+ * - `field`: one frontmatter field of a row.
+ * - `setting`: one root key of `kv.json`.
+ * - `lines`: one region of a row's body or a text file; `line` is where the
+ *   writer's lines stand in the result, 1-based within the body or the file.
+ * - `file`: the whole file, because a side has none or a version is not
+ *   UTF-8 text.
+ *
+ * It names the unit, never the content that lost: the other version is
+ * still in whatever held it, such as a commit.
+ */
+export type Overridden =
+	| { readonly kind: 'field'; readonly field: string }
+	| { readonly kind: 'setting'; readonly key: string }
+	| {
+			readonly kind: 'lines';
+			readonly part: 'body' | 'text';
+			readonly line: number;
+	  }
+	| { readonly kind: 'file' };
+
+/** A merge's result: the file, `null` for no file, and what the writer acting overrode. */
+export type Merged = {
+	readonly content: FileContent | null;
+	/** Each unit both sides changed differently, in file order. Empty when nothing competed. */
+	readonly overridden: readonly Overridden[];
+};
+
+const encoderOfMerge = new TextEncoder();
+
+/** Whether two versions hold the same bytes; `null` is no file. */
+function sameContent(left: FileContent | null, right: FileContent | null) {
+	if (left === null || right === null) return left === right;
+	if (typeof left === 'string' && typeof right === 'string')
+		return left === right;
+	const [a, b] = [left, right].map((side) =>
+		typeof side === 'string' ? encoderOfMerge.encode(side) : side,
+	) as [Uint8Array, Uint8Array];
+	return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}
+
+/** The whole file as one unit: a side that changed nothing yields, and otherwise ours wins. */
+function wholeFile({ base, ours, theirs }: FileVersions): Merged {
+	if (sameContent(ours, theirs) || sameContent(theirs, base))
+		return { content: ours, overridden: [] };
+	if (sameContent(ours, base)) return { content: theirs, overridden: [] };
+	return { content: ours, overridden: [{ kind: 'file' }] };
+}
+
+/** Three texts by line, ours winning each competing region. */
+async function textWins(
+	base: string | null,
+	ours: string,
+	theirs: string,
+): Promise<Merged> {
+	const merged = await mergeLines({ base: base ?? '', ours, theirs });
+	return {
+		content: merged.ours,
+		overridden: merged.regions.map((region) => ({
+			kind: 'lines',
+			part: 'text',
+			line: region.line + 1,
+		})),
+	};
+}
+
+/** `kv.json` by key, ours winning each competing key; `undefined` when a version does not read. */
+function settingsWin(
+	base: string | null,
+	ours: string,
+	theirs: string,
+): Merged | undefined {
+	const texts = { base, ours, theirs };
+	const merged = reconcileKv(texts, new Map());
+	if (merged.kind === 'merged') return { content: merged.text, overridden: [] };
+	if (merged.kind !== 'conflict') return undefined;
+	const settled = reconcileKv(
+		texts,
+		new Map(merged.conflicts.map((key) => [key.key, key.ours])),
+	);
+	if (settled.kind !== 'merged') return undefined;
+	return {
+		content: settled.text,
+		overridden: merged.conflicts.map((key) => ({
+			kind: 'setting',
+			key: key.key,
+		})),
+	};
+}
+
+const sameRow = (left: AnyRow, right: AnyRow) =>
+	left.body === right.body && sameValue(left.fields, right.fields);
+
+/**
+ * A row by field and body, ours winning each competing unit, written
+ * canonically; `undefined` when a present version does not read as a row or
+ * the merge does not write as one.
+ */
+async function rowWins(
+	table: PreparedFolderTable,
+	texts: { base: string | null; ours: string | null; theirs: string | null },
+): Promise<Merged | undefined> {
+	const read = (text: string | null) => {
+		if (text === null) return null;
+		const { data, error } = parseRow(table, text);
+		return error === null ? (data as AnyRow) : undefined;
+	};
+	const [b, o, t] = [read(texts.base), read(texts.ours), read(texts.theirs)];
+	if (b === undefined || o === undefined || t === undefined) return undefined;
+	const canonical = (row: AnyRow) => {
+		const { data, error } = writeRow(
+			table,
+			row as Parameters<typeof writeRow>[1],
+		);
+		return error === null ? data.text : undefined;
+	};
+	// The writer changed nothing: their file stands as it is.
+	if (o !== null && b !== null && sameRow(o, b))
+		return { content: texts.theirs, overridden: [] };
+	if (o === null || t === null) {
+		const whole = wholeFile(texts);
+		if (whole.content === null || whole.content === texts.theirs) return whole;
+		const text = canonical(o as AnyRow);
+		return text === undefined ? undefined : { ...whole, content: text };
+	}
+	const merged = await mergeRows(b, o, t);
+	const fields = { ...merged.fields };
+	for (const unit of merged.conflicts) setField(fields, unit.field, unit.ours);
+	const text = canonical({ fields, body: merged.body.ours });
+	if (text === undefined) return undefined;
+	return {
+		content: text,
+		overridden: [
+			...merged.conflicts.map(
+				(unit): Overridden => ({ kind: 'field', field: unit.field }),
+			),
+			...merged.body.regions.map(
+				(region): Overridden => ({
+					kind: 'lines',
+					part: 'body',
+					line: region.line + 1,
+				}),
+			),
+		],
+	};
+}
+
+/**
+ * Merge three versions of one file by its kind, `ours` the writer acting.
+ * A side with no file, or a version that is not UTF-8 text without a NUL
+ * byte, makes the whole file one unit, except that a row is still written
+ * canonically when ours wins it.
+ */
+export async function merge(
+	kind: FileKind,
+	versions: FileVersions,
+): Promise<Merged> {
+	const [base, ours, theirs] = [
+		textOf(versions.base),
+		textOf(versions.ours),
+		textOf(versions.theirs),
+	];
+	if (base === undefined || ours === undefined || theirs === undefined)
+		return wholeFile(versions);
+	if (kind.kind === 'row') {
+		const row = await rowWins(kind.table, { base, ours, theirs });
+		if (row !== undefined) return row;
+	}
+	if (ours === null || theirs === null) return wholeFile(versions);
+	const structured =
+		kind.kind === 'kv' ? settingsWin(base, ours, theirs) : undefined;
+	return structured ?? textWins(base, ours, theirs);
 }

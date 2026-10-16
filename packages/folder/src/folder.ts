@@ -1,8 +1,8 @@
 /**
  * The opened folder handle every opener returns (ADR-0471, ADR-0478).
  *
- * `tables`, `kv`, and `files` publish through one file boundary, one file
- * change per operation. A caller that needs several changes makes several
+ * `write` is the one write (ADR-0576); `tables`, `kv`, and `files` publish
+ * through the same file boundary, one file change per operation. A caller that needs several changes makes several
  * calls; each one that succeeded stays published when a later one fails.
  * `git` observes and records history. A save never commits: commits happen
  * only through `git.commit()` or sync's checkpoint (ADR-0529).
@@ -21,6 +21,7 @@ import {
 import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
+import type { WriteError } from './errors.js';
 import { createFiles, type FolderFiles } from './files.js';
 import type { PathStatus } from './git/backend.js';
 import type { SyncError } from './git/errors.js';
@@ -48,8 +49,10 @@ import type {
 	SyncOutcome,
 } from './git/sync.js';
 import { createKv, type FileKv } from './kv.js';
+import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
 import { declaring } from './publish-definition.js';
+import { writeFile, type Written } from './save-file.js';
 import { fenceStorage } from './storage.js';
 import { createTable, type FileTable } from './table.js';
 
@@ -203,6 +206,29 @@ export type FolderAccess<TDefinition extends FolderDefinition> = {
 	readonly kv: FileKv<KvOf<TDefinition>>;
 	readonly files: FolderFiles;
 	readonly git: FolderGit;
+	/**
+	 * The one write (ADR-0576): read the file at `path` as it is now, merge
+	 * the change from `from` to `to` into it by the file's kind, and put the
+	 * result guarded by what was read, again when another writer landed in
+	 * between, at most `WRITE_ATTEMPTS` times.
+	 *
+	 * Units only one side changed survive; where both changed one unit
+	 * differently, this write wins, and `overridden` names each such unit,
+	 * which is also logged. Two insertions at one place both survive. A row
+	 * is written in canonical form. A version that does not read as its kind
+	 * merges as text, so the result may be a file to repair; nothing is
+	 * refused for it.
+	 *
+	 * `from` is the content the change started from, or `null` for no file
+	 * (a create). Without it (`undefined`), `to` stands whole. `to` is the
+	 * new content, or `null` to delete the file, which the deleter wins.
+	 * Strings are written as UTF-8; byte arrays are copied when it is called.
+	 */
+	write(
+		path: string,
+		from: FileContent | null | undefined,
+		to: FileContent | null,
+	): Promise<Result<Written, WriteError>>;
 };
 
 /**
@@ -434,6 +460,8 @@ export function assembleFolder<
 		kv: createKv({ storage }, prepared.kv) as Folder<TDefinition>['kv'],
 		files,
 		git,
+		write: (path: string, from: FileContent | null | undefined, to: FileContent | null) =>
+			writeFile(storage, fileKindOf(prepared, path), path, from, to),
 		location: Object.freeze(location),
 		sync: history.sync,
 		onFilesChanged: (listener: (change: FilesChanged) => void) =>

@@ -86,6 +86,11 @@ async function setup() {
 			await beforeApply?.();
 			return base.apply(changes);
 		},
+		async put(...args: Parameters<typeof base.put>) {
+			applications++;
+			await beforeApply?.();
+			return base.put(...args);
+		},
 	};
 	const table = createTable<Todo>(
 		{ storage },

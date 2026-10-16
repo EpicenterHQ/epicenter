@@ -360,6 +360,28 @@ export type TableSetBodyError =
 			'KeptChanging' | 'InvalidValues' | 'InvalidRow' | 'InvalidUtf8'
 	  >;
 
+/**
+ * Every way the one write fails (ADR-0576), nothing written: a value that
+ * cannot be stored (`InvalidValues`), a file another writer kept changing
+ * past `WRITE_ATTEMPTS` (`KeptChanging`), storage that failed or whose reply
+ * was lost and could not be confirmed (`Io`, with the storage failure as its
+ * cause), a closed folder (`Closed`), or a path no file can be written at
+ * (`InvalidPath`, a directory included). A file that does not read as its
+ * kind is never a refusal: it merges as text, for repair (ADR-0503).
+ */
+export type WriteError =
+	| Extract<FileError, { name: 'Io' | 'Closed' | 'InvalidPath' }>
+	| TableErrorOf<'KeptChanging' | 'InvalidValues'>;
+
+/** The constructors of `WriteError`. */
+export const WriteError = {
+	InvalidValues: TableError.InvalidValues,
+	KeptChanging: TableError.KeptChanging,
+	Io: FileError.Io,
+	Closed: FileError.Closed,
+	InvalidPath: FileError.InvalidPath,
+};
+
 /** A guarded row move preserves the file move's failures, its landed capture included. */
 export type TableRenameError = FileError | MoveError;
 

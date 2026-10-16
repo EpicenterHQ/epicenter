@@ -58,6 +58,7 @@ export {
 	type TableSetBodyError,
 	type TableUpdateError,
 	type TableWriteError,
+	WriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
 export type {
@@ -123,6 +124,7 @@ export type {
 export type { FileKv, KvReading } from './kv.js';
 export { type KvMerge, type KvMergeInput, mergeKv } from './kv-merge.js';
 export { frameRowText, type RowTextFrame } from './markdown.js';
+export type { FileContent, Overridden } from './merge-file.js';
 export type {
 	OpfsDirectoryHandle,
 	OpfsEnvironment,
@@ -156,6 +158,7 @@ export {
 	type SavedFile,
 	type SaveOptions,
 	WRITE_ATTEMPTS,
+	type Written,
 } from './save-file.js';
 export type {
 	FileTable,

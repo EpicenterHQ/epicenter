@@ -137,6 +137,15 @@ async function held() {
 			order.push('saved');
 			return result;
 		},
+		async put(path, bytes, ifMatch) {
+			if (path === DECLARATION_PATH) return base.put(path, bytes, ifMatch);
+			const putting = base.put(path, bytes, ifMatch);
+			reach();
+			await released;
+			const result = await putting;
+			order.push('saved');
+			return result;
+		},
 	};
 	const real = await raw.backend({
 		remote: { url: 'http://unused.test/remote.git', branch: 'main' },

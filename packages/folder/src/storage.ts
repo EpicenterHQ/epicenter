@@ -37,6 +37,12 @@ export function withPublication({
 }): FolderStorage {
 	return {
 		...storage,
+		async put(path, bytes, ifMatch) {
+			const result = await storage.put(path, bytes, ifMatch);
+			if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
+				history.noteEdit();
+			return result;
+		},
 		async apply(changes) {
 			const result = await storage.apply(changes);
 			if (mayHaveChanged(result.error)) history.noteEdit();
@@ -65,6 +71,10 @@ export function fenceStorage(
 				: storage.readMany(paths),
 		open: (path) =>
 			signal.aborted ? Promise.resolve(FileError.Closed()) : storage.open(path),
+		put: (path, bytes, ifMatch) =>
+			signal.aborted
+				? Promise.resolve(FileError.Closed())
+				: storage.put(path, bytes, ifMatch),
 		apply: (changes) =>
 			signal.aborted
 				? Promise.resolve(FileError.Closed())

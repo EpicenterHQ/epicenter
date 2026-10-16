@@ -112,11 +112,11 @@ test('rows added on both sides merge by field from an empty base', async () => {
 		row('Same', true),
 		row('Same', true, 'other body\n'),
 	);
-	// The bodies compete; the fields agree.
-	expect(merged.kind).toBe('conflicted');
-	if (merged.kind === 'conflicted')
+	// The fields agree, and two bodies added at one place both stay.
+	expect(merged.kind).toBe('merged');
+	if (merged.kind === 'merged')
 		expect(text(merged.content)).toBe(
-			`${'---\ntitle: Same\ndone: true\n---\n'}<<<<<<< ours\nbody\n=======\nother body\n>>>>>>> theirs\n`,
+			'---\ntitle: Same\ndone: true\n---\nbody\nother body\n',
 		);
 });
 

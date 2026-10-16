@@ -5,8 +5,9 @@
  * lone carriage return, U+2028, and U+2029 stay in their line. One pass
  * answers both sides: `ours` wins every region both sides changed
  * differently, `theirs` wins them, and each keeps every other change of both.
- * Changes to neighboring lines do not compete, and both are kept; two
- * insertions at one place do.
+ * Changes to neighboring lines do not compete, and both are kept. Two
+ * different insertions at one place both survive, in an order neither side
+ * decides; identical ones are one.
  */
 import { expect, test } from 'bun:test';
 import { mergeLines } from './merge-lines.js';
@@ -80,16 +81,40 @@ test('changes to neighboring lines do not compete: both are kept', async () => {
 	).toBe('one\nTHREE (theirs)\nadded\nfour\nfive\n');
 });
 
-test('two insertions at one place compete', async () => {
+test('two insertions at one place both survive, ordered by their text whichever side is ours', async () => {
+	const ours = 'one\nzebra\ntwo\nthree\nfour\nfive\n';
+	const theirs = 'one\napple\ntwo\nthree\nfour\nfive\n';
+	const both = 'one\napple\nzebra\ntwo\nthree\nfour\nfive\n';
+	expect(await clean({ base: BASE, ours, theirs })).toBe(both);
+	expect(await clean({ base: BASE, ours: theirs, theirs: ours })).toBe(both);
+});
+
+test('identical insertions at one place are one', async () => {
 	expect(
-		await mergeLines({
-			base: BASE,
-			ours: 'one\nours\ntwo\nthree\nfour\nfive\n',
-			theirs: 'one\ntheirs\ntwo\nthree\nfour\nfive\n',
+		await clean({
+			base: '',
+			ours: 'The answer.\n',
+			theirs: 'The answer.\n',
 		}),
-	).toEqual({
-		ours: 'one\nours\ntwo\nthree\nfour\nfive\n',
-		theirs: 'one\ntheirs\ntwo\nthree\nfour\nfive\n',
-		regions: [{ line: 1, kept: 'ours\n', theirs: 'theirs\n' }],
-	});
+	).toBe('The answer.\n');
+});
+
+test('appends to a text with no line feed at its end both survive', async () => {
+	expect(
+		await clean({ base: 'hello', ours: 'hello\nmine', theirs: 'hello\nyours' }),
+	).toBe('hello\nmine\nyours');
+	// A line feed one side added is kept beside the other side's edit.
+	expect(await clean({ base: 'a\nb', ours: 'a\nb\n', theirs: 'a\nB' })).toBe(
+		'a\nB\n',
+	);
+});
+
+test('an insertion beside a replacement of the lines after it is not one region', async () => {
+	expect(
+		await clean({
+			base: BASE,
+			ours: 'one\nadded\ntwo\nthree\nfour\nfive\n',
+			theirs: 'one\nTWO\nthree\nfour\nfive\n',
+		}),
+	).toBe('one\nadded\nTWO\nthree\nfour\nfive\n');
 });

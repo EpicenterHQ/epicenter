@@ -480,17 +480,11 @@ export function createTable<TFields>(
 						theirs: current.row.body,
 					});
 					body = merge.ours;
-					if (merge.regions.length > 0)
-						overwrote = [
-							{
-								kind: 'text',
-								part: 'body',
-								base: baseBody,
-								ours: merge.ours,
-								theirs: merge.theirs,
-								regions: merge.regions,
-							},
-						];
+					overwrote = merge.regions.map((region) => ({
+						kind: 'lines',
+						part: 'body',
+						line: region.line + 1,
+					}));
 				}
 				if (body === current.row.body)
 					return Ok(Object.freeze({ stored: current, merged }));

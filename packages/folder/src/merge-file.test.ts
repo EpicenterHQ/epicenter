@@ -14,7 +14,8 @@
  * - Two edits of one field compete even where a line merge would succeed
  * - Body edits to neighboring lines both merge; only the same lines compete,
  *   and each side of a competing body keeps the other side's other lines
- * - Two added rows with no base agree only where they are equal
+ * - Two added rows with no base agree only where they are equal; two bodies
+ *   added at one place both stay
  * - A row version that does not read as a row merges as text
  * - A side with no file, or a version that is not text, is the whole file
  * - A settled row is checked against its table
@@ -183,14 +184,16 @@ test("competing body lines are one unit, and each side keeps the other side's ot
 	]);
 });
 
-test('two added rows with no base agree only where equal', async () => {
+test('two added rows with no base agree only where equal, and both bodies stay', async () => {
 	const merged = await mergeFile(ROW, {
 		base: null,
 		ours: row(['title: Walk', 'done: false'], 'Mine\n'),
 		theirs: row(['title: Walk', 'done: true'], 'Theirs\n'),
 	});
-	expect(merged.units.map((unit) => unit.kind)).toEqual(['field', 'text']);
-	expect(merged.units[1]).toMatchObject({ part: 'body', base: undefined });
+	expect(merged.units.map((unit) => unit.kind)).toEqual(['field']);
+	expect(expectOk(merged.settle(() => ours))).toBe(
+		row(['title: Walk', 'done: false'], 'Mine\nTheirs\n'),
+	);
 });
 
 test('a row version that does not read as a row merges as text', async () => {

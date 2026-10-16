@@ -448,6 +448,11 @@ describe('a save never reads its bytes back', () => {
 				await afterApply?.();
 				return result;
 			},
+			async put(path, bytes, ifMatch) {
+				const result = await base.put(path, bytes, ifMatch);
+				await afterApply?.();
+				return result;
+			},
 		};
 		const history: FolderHistory = {
 			snapshot: undefined as never,

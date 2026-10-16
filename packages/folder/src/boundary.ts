@@ -3,9 +3,11 @@
  * before assembly gives it to files, tables, and KV. Git keeps
  * raw storage for its own publication sequence and captures.
  *
- * `apply` takes ordered changes for Git publication and the native
- * transport. Files, tables, KV, and editors publish one change at a
- * time through `applyOne` (`storage.ts`), which restates the raw outcome.
+ * `put` is the one conditional change of one file that `folder.write`
+ * makes (ADR-0576). `apply` takes ordered changes for Git publication and
+ * the native transport; the earlier verbs of files, tables, and KV publish
+ * one change at a time through `applyOne` (`storage.ts`), which restates
+ * the raw outcome.
  *
  * Saves are not ordered by when their methods were called: the last to land
  * on a path wins. A change that must not overwrite bytes its caller did not
@@ -80,6 +82,20 @@ export type FolderStorage = {
 	): Promise<Result<Map<string, Result<FileRead, FileError>>, FileError>>;
 	/** Stable bytes for consumption; later path changes do not alter them. */
 	open(path: string): Promise<Result<Blob, FileError>>;
+	/**
+	 * Publish `bytes` at `path`, or remove its file for `null`, only while
+	 * the path holds `ifMatch`: the SHA-256 of the file there, or `null` for
+	 * no file. `'stale'` when it does not, and nothing changed. Missing
+	 * parent directories are made for a new file. The host checks the
+	 * condition where the change lands: under the folder's Web Lock in a
+	 * browser, and in a directory under its save lock, in the desktop shell
+	 * and in Bun alike (ADR-0562).
+	 */
+	put(
+		path: string,
+		bytes: Uint8Array | null,
+		ifMatch: string | null,
+	): Promise<Result<'landed' | 'stale', FileError>>;
 	/** Publish `changes` in order, each under its own condition. */
 	apply(
 		changes: readonly FileChange[],

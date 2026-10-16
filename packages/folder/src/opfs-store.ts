@@ -1011,6 +1011,51 @@ export function createOpfsFileBoundary({
 			if (readError !== null) return Err(readError);
 			return Ok(new Blob([read.bytes as Uint8Array<ArrayBuffer>]));
 		},
+		async put(path, bytes, ifMatch) {
+			const refused = invalid(path);
+			if (refused) return refused;
+			let change: FileChange;
+			if (bytes === null) {
+				if (ifMatch === null) {
+					// Nothing to remove, so long as nothing is there.
+					const found = await readOne(path);
+					if (found.error === null) return Ok('stale');
+					return found.error.name === 'NotFound'
+						? Ok('landed')
+						: Err(found.error);
+				}
+				change = { kind: 'remove', path, expectedSha256: ifMatch };
+			} else {
+				const owned = new Uint8Array(bytes);
+				const sha256 = await hashBytes(owned);
+				change =
+					ifMatch === null
+						? { kind: 'create', path, bytes: owned, sha256 }
+						: {
+								kind: 'replace',
+								path,
+								bytes: owned,
+								sha256,
+								expectedSha256: ifMatch,
+							};
+			}
+			const { error } = await mutate(() =>
+				applyChanges(root, [change], landed),
+			);
+			if (error === null) return Ok('landed');
+			// One change never stops partway: its report is an unknown outcome.
+			if (error.name === 'Partial')
+				return FileError.Unconfirmed({
+					path,
+					operation: 'publishing',
+					cause: error,
+				});
+			const moved =
+				error.name === 'Conflict' ||
+				error.name === 'Exists' ||
+				(error.name === 'NotFound' && ifMatch !== null);
+			return moved ? Ok('stale') : Err(error);
+		},
 		async apply(changes) {
 			for (const path of changes.flatMap(changePaths)) {
 				const refused = invalid(path);
