@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { StoredRow } from '@epicenter/folder';
 	import type { TableOptions } from '@epicenter/folder/query';
-	import { createBodyDraftState } from '@epicenter/folder/svelte';
+	import { createBodyEditor } from '@epicenter/folder/svelte';
 	import ReplacedNotice from '@epicenter/svelte/replaced-notice';
 	import type { Replaced } from '@epicenter/folder';
 	import { createMutation } from '@tanstack/svelte-query';
@@ -32,9 +32,10 @@
 	const save = createMutation(() => options.save.mutationOptions());
 	/** What the last save replaced of another window's lines, and the save that puts it back. */
 	let notice = $state<{ replaced: readonly Replaced[]; restore: () => void }>();
-	const body = createBodyDraftState<Fields>({
-		save: ({ base, content }) =>
-			save.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
+	/** The body, opened with the version it started from (ADR-0573). */
+	const body = createBodyEditor<Fields>({
+		row: () => stored,
+		save: (variables) => save.mutateAsync(variables),
 		onSaved: ({ replaced }, restore) => {
 			notice = replaced.length > 0 ? { replaced, restore } : undefined;
 		},
@@ -60,14 +61,14 @@
 	<span class="text-xs font-medium text-muted-foreground">Notes</span>
 	<textarea
 		class="min-h-48 w-full rounded-md border border-input bg-transparent p-2 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-		value={body.text ?? stored.row.body}
+		value={body.text ?? ''}
 		oninput={(event) => {
-			body.change(stored, event.currentTarget.value);
+			body.change(event.currentTarget.value);
 			void saveLater();
 		}}
 		onblur={() => void saveLater.runScheduledNow()}
 	></textarea>
-	{#if body.text !== undefined && !body.saving && !saveLater.pending && save.error}
+	{#if body.typed !== undefined && !body.saving && !saveLater.pending && save.error}
 		<span class="text-xs text-destructive" role="status">
 			{failureText(save.error)}
 			<button type="button" class="underline" onclick={() => void body.save()}>Try again</button>
