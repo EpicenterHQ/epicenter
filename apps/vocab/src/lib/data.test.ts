@@ -20,10 +20,7 @@ test('one folder under the app ID holds words, chats, and messages', () => {
 		'chats',
 		'messages',
 	]);
-	expect(Object.keys(vocabFolder.kv)).toEqual([
-		'tutorConnection',
-		'connectionsImported',
-	]);
+	expect(Object.keys(vocabFolder.kv)).toEqual(['tutorConnection']);
 });
 
 test('the folder is this browser’s storage under the same name each time it opens', async () => {

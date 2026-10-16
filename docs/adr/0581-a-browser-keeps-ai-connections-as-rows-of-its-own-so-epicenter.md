@@ -64,15 +64,10 @@ and a "Connections" button that opens `ConnectionList`. With
 `VOCAB_MODEL`, and no row is written for it. Vocab's dictation always sends to
 the account with `HOSTED_TRANSCRIPTION_MODEL`.
 
-**An earlier build's browser data is imported once.** `importEarlierConnections`
-(`apps/vocab/src/lib/import-connections.ts`) runs until
-`connectionsImported` is `true` in Vocab's `kv`:
-`epicenter/ai/no-account.app-ai-connections` becomes one row per connection,
-naming the model the tutor used on it or its first saved model, and its key;
-`vocab/no-account.app-ai-selections` becomes `tutorConnection`. A row's id is
-the earlier id when it is a connection id, and otherwise one made from its
-name. The earlier entries are left as they were, and one that does not read is
-skipped ([ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md)).
+**Nothing an earlier build kept in browser storage is read.**
+`epicenter/ai/no-account.app-ai-connections`,
+`vocab/no-account.app-ai-selections`, and `whispering.connections` are left
+where they are and never opened; a page's connections start empty.
 
 **Deleted from `packages/ai`:** `ai.ts`, `inference.ts`, `ai-connections.ts`,
 `connection-catalog.ts`, `browser.ts`, `selections.ts`, `target.ts`,
@@ -92,6 +87,7 @@ the `.`, `/connections`, `/picker`, `/selections`, and `/target` exports; and
 - A key in `localStorage` is readable by any script on the origin.
 - A Vocab connection names one model. Another model is another row, or an
   edit of this one.
+- A learner who connected an endpoint in an earlier build connects it again.
 - Each turn builds its client from what is saved at that moment, inside the
   turn, so a missing key or a gone row is that turn's error, shown after the
   learner's message is saved.

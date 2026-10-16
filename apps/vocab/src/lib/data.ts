@@ -127,11 +127,6 @@ export const vocabFolder = defineFolder({
 		 * Unset, a signed-in learner gets Epicenter's hosted `VOCAB_MODEL`.
 		 */
 		tutorConnection: field.string(),
-		/**
-		 * Set once the connections an earlier build kept in this browser's
-		 * storage became rows, so a row deleted since is not brought back.
-		 */
-		connectionsImported: field.boolean(),
 	},
 	tables: {
 		entries: entriesTable,

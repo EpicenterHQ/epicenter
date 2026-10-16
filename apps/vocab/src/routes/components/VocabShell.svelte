@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browserSecrets, openBrowserConnections } from '@epicenter/ai/browser';
+	import { openBrowserConnections } from '@epicenter/ai/browser';
 	import type { epicenterDefinition } from '@epicenter/ai/connection-table';
 	import { MODELS_BY_ID } from '@epicenter/constants/ai-providers';
 	import type { Folder } from '@epicenter/folder';
@@ -16,7 +16,6 @@
 	import { auth } from '$lib/auth.svelte.js';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
-	import { importEarlierConnections } from '$lib/import-connections.js';
 	import { tutorRoute } from '$lib/tutor.js';
 	import type { Vocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
@@ -36,12 +35,10 @@
 	// another tab is offered as a reload below. The folder, this browser's
 	// connections, and the tutor's choice are the same either way.
 	const account = auth.getState().account;
-	const secrets = browserSecrets();
 
 	// This browser's connections are rows of its own `so.epicenter` (ADR-0581).
 	let connections = $state.raw<{ folder: Folder<typeof epicenterDefinition>; options: FolderOptions<typeof epicenterDefinition> } | null>(null);
 	let connectionsProblem = $state<string | null>(null);
-	const describe = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 	let departed = false;
 	let opened: Folder<typeof epicenterDefinition> | undefined;
 	let stopConnections: (() => void) | undefined;
@@ -52,17 +49,8 @@
 		if (departed) return void data.close();
 		const options = folderOptions(data);
 		stopConnections = options.invalidateOnChange(vocab.queryClient);
-		// A failed import leaves the earlier entries where they are and the
-		// connections usable; the problem is shown.
-		await importEarlierConnections({ vocab: folder, connections: data, secrets }).catch(
-			(cause: unknown) => (connectionsProblem = `Connections saved by an earlier version were not brought in: ${describe(cause)}`),
-		);
-		if (departed) return;
-		// The import wrote Vocab's settings itself, and a page is not told of
-		// its own writes, so the settings are read again.
-		await vocab.queryClient.invalidateQueries({ queryKey: vocab.folder$.kv.get.queryKey() });
 		connections = { folder: data, options };
-	})().catch((cause: unknown) => (connectionsProblem = describe(cause)));
+	})().catch((cause: unknown) => (connectionsProblem = cause instanceof Error ? cause.message : String(cause)));
 
 	const settings = createQuery(() => vocab.folder$.kv.get.queryOptions());
 	const setSetting = createMutation(() => vocab.folder$.kv.set.mutationOptions());
@@ -92,7 +80,7 @@
 			if (choice.error !== null) return false;
 			return choice.data ? rows.some((row) => row.stem === choice.data) : account !== undefined;
 		},
-		route: () => tutorRoute({ choice, connections: connections?.folder ?? null, account, secrets }),
+		route: () => tutorRoute({ choice, connections: connections?.folder ?? null, account }),
 	};
 	const hostedLabel = `Epicenter · ${MODELS_BY_ID[VOCAB_MODEL].label}`;
 	const accountChanged = $derived(auth.state.account?.principalId !== account?.principalId || auth.state.account?.authorityId !== account?.authorityId);
