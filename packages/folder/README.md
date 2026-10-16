@@ -117,6 +117,16 @@ const definition = defineFolder({
 });
 ```
 
+`local` is part of the declaration: the handle publishes it in
+`epicenter.json` as `"local": ["audio/"]`, so every host that reads the
+folder's own file, the `epicenter` CLI's Sync and Save version included,
+leaves out the same paths. A declaration without `local` keeps nothing local.
+`local` is sorted and kept once each, so the file's bytes do not depend on the
+order it was declared in. When the folder's `epicenter.json` is there but
+cannot be read or prepared, the CLI's `runHistory` refuses a save version, a
+sync, and a settle, naming the problem, rather than commit without its
+`local`; status and the log still read.
+
 The engine decides this itself, on both backends, whatever `.gitignore` says.
 A path `local` matches is never history source (`git/scope.ts`): status does
 not offer it, a whole-folder commit leaves it out, and a file committed before
@@ -131,7 +141,16 @@ gains each missing pattern as a line at its end, saved over as read with
 `{ merge: false }`; its other lines are never reordered, rewritten, or
 removed, and a file that already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
-like any other file, so it syncs, and `epicenter.json` does not carry `local`.
+like any other file, so it syncs.
+
+One limit follows from `epicenter.json` merging as a whole file: if a Sync
+takes an `epicenter.json` written by an older app version, one without
+`local`, the engine stops excluding those paths until the app publishes its
+declaration again on its next write. `.gitignore` merges by line and keeps the
+patterns meanwhile, so plain Git still ignores an untracked file there;
+`.gitignore` does nothing for a file already committed. Likewise, two devices
+that publish differing `local` lists keep only one after a Sync, until
+merging `epicenter.json` unions `local` (ADR-0576 wave C).
 A pattern must be one line that ignores something: `defineFolder` refuses an
 empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.
@@ -1537,7 +1556,8 @@ conversion, because a row's body is the file's Markdown text. An opener given
 such a definition returns `InvalidDefinition` before it acquires anything.
 
 `epicenter.json` holds each table, and `kv`, as one JSON Schema object whose
-properties are the fields. A table declared with `additionalProperties: false`
+properties are the fields, and `local`, when the definition declares it, as
+the list of patterns. A table declared with `additionalProperties: false`
 beside `fields` is closed: the file holds the same keyword beside `properties`,
 and a row with a key the table does not declare does not conform (ADR-0536).
 Open is the default, and a closed table is for folders people write by hand;
@@ -1549,7 +1569,7 @@ table. Rename one definition, or give the field an `$id`. Definitions are not
 renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
-A definition is `{ title?, kv, tables }` and nothing else. `defineFolder`
+A definition is `{ title?, local?, kv, tables }` and nothing else. `defineFolder`
 throws on an `id`; an opener given an untyped definition with one returns
 `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.

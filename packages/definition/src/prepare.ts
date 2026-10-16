@@ -203,7 +203,11 @@ function prepareShape(
 	return Ok(
 		Object.freeze({
 			...(title === undefined ? {} : { title }),
-			...(local === undefined ? {} : { local: Object.freeze([...local]) }),
+			// Sorted and once each, so a declaration's bytes do not depend on
+			// the order its patterns were written in.
+			...(local === undefined
+				? {}
+				: { local: Object.freeze([...new Set(local)].sort()) }),
 			kv: preparedKv.data,
 			// `defineTable`'s mark is a type and nothing at run time.
 			tables: Object.freeze(preparedTables) as DataSchema['tables'],
