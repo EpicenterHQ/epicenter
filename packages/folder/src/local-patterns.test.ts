@@ -25,7 +25,7 @@ import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import { fileCapture, hashBytes } from './capture.js';
+import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
@@ -67,58 +67,58 @@ afterEach(async () => {
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-/** `.gitignore` files whose writes the test records; reads answer `text`, or NotFound. */
-function gitignoreFiles(text: string | undefined) {
-	const writes: { verb: 'create' | 'save'; text: string; options?: unknown }[] =
-		[];
-	const files = {
+/** `.gitignore` storage whose puts the test records; reads answer `text`, or NotFound. */
+function gitignoreStorage(text: string | undefined) {
+	const writes: { text: string; ifMatch: string | null }[] = [];
+	const storage = {
 		read: async (path: string) => {
 			if (text === undefined) return FileError.NotFound({ path });
 			const bytes = encode(text);
-			return Ok({ ...fileCapture(path, await hashBytes(bytes)), bytes });
+			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		},
-		create: async (path: string, content: string) => {
-			expect(path).toBe('.gitignore');
-			writes.push({ verb: 'create', text: content });
-			return Ok(fileCapture(path, '0'.repeat(64)));
-		},
-		save: async (
-			base: { path: string },
-			content: string,
-			options?: unknown,
+		put: async (
+			path: string,
+			bytes: Uint8Array | null,
+			ifMatch: string | null,
 		) => {
-			expect(base.path).toBe('.gitignore');
-			writes.push({ verb: 'save', text: content, options });
-			return Ok(fileCapture(base.path, '0'.repeat(64)));
+			expect(path).toBe('.gitignore');
+			writes.push({ text: decode(bytes ?? new Uint8Array()), ifMatch });
+			return Ok('landed');
 		},
 	} as unknown as Parameters<typeof publishLocalPatterns>[1];
-	return { files, writes };
+	return { storage, writes };
 }
 
 test('a missing .gitignore is created holding the patterns', async () => {
-	const { files, writes } = gitignoreFiles(undefined);
-	await publishLocalPatterns(['recordings/*.wav', 'recordings/*.webm'], files);
+	const { storage, writes } = gitignoreStorage(undefined);
+	await publishLocalPatterns(
+		['recordings/*.wav', 'recordings/*.webm'],
+		storage,
+	);
 	expect(writes).toEqual([
-		{ verb: 'create', text: 'recordings/*.wav\nrecordings/*.webm\n' },
+		{ text: 'recordings/*.wav\nrecordings/*.webm\n', ifMatch: null },
 	]);
 });
 
 test("a person's own lines are kept and only missing patterns are appended", async () => {
-	const { files, writes } = gitignoreFiles('# mine\n*.log\nrecordings/*.wav');
-	await publishLocalPatterns(['recordings/*.wav', 'recordings/*.webm'], files);
+	const mine = '# mine\n*.log\nrecordings/*.wav';
+	const { storage, writes } = gitignoreStorage(mine);
+	await publishLocalPatterns(
+		['recordings/*.wav', 'recordings/*.webm'],
+		storage,
+	);
 	expect(writes).toEqual([
 		{
-			verb: 'save',
 			text: '# mine\n*.log\nrecordings/*.wav\nrecordings/*.webm\n',
-			options: { merge: false },
+			ifMatch: await hashBytes(encode(mine)),
 		},
 	]);
 	expect(events).toEqual([]);
 });
 
 test('a .gitignore already naming every pattern is not written', async () => {
-	const { files, writes } = gitignoreFiles('*.log\r\nrecordings/*.wav\r\n');
-	await publishLocalPatterns(['recordings/*.wav'], files);
+	const { storage, writes } = gitignoreStorage('*.log\r\nrecordings/*.wav\r\n');
+	await publishLocalPatterns(['recordings/*.wav'], storage);
 	expect(writes).toEqual([]);
 });
 
@@ -177,13 +177,10 @@ async function browserFixture(): Promise<Opened> {
 				},
 				async write(path, text) {
 					const { data: current } = await folder.files.read(path);
-					if (current)
-						expectOk(await folder.files.save(current, text, { merge: false }));
-					else expectOk(await folder.files.create(path, text));
+					expectOk(await folder.write(path, current?.bytes ?? null, text));
 				},
 				async remove(path) {
-					const { data: current } = await folder.files.read(path);
-					if (current) expectOk(await folder.files.remove(current));
+					expectOk(await folder.write(path, null, null));
 				},
 			};
 		},
@@ -256,7 +253,7 @@ for (const [name, fixture] of [
 				{ stem },
 			),
 		);
-		expectOk(await folder.files.create(`audio/${stem}.wav`, 'RIFF'));
+		expectOk(await folder.write(`audio/${stem}.wav`, null, 'RIFF'));
 	}
 
 	test(`${name}: Sync sends the row and the .gitignore, never the audio`, async () => {
