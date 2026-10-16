@@ -891,8 +891,9 @@ export const shellQuote = (value: string) =>
  * Make this CLI Git's credential helper for the deployment's Git audience in
  * the person's global configuration (ADR-0558). An empty helper first clears
  * the helpers a broader configuration set, so no other helper is asked to
- * store the token. `command` is `gitCommand()` (`install-command.ts`): the
- * per-user link, so moving the app does not break the helper (ADR-0566).
+ * store the token. `command` is the per-user command link
+ * (`AppPaths.commandLink`), so moving the app does not break the helper
+ * (ADR-0566).
  * `git` runs through `runGit`, found by `locateGit`, with `env` as its
  * environment.
  */

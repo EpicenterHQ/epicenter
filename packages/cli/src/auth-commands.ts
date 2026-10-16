@@ -11,6 +11,7 @@
  * credential protocol and takes no `--json`.
  */
 
+import { resolveAppPaths } from './app-paths.ts';
 import {
 	type AuthContext,
 	type AuthError,
@@ -26,7 +27,6 @@ import {
 	logout,
 	type StoredGrant,
 } from './auth.ts';
-import { gitCommand } from './install-command.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
@@ -72,10 +72,8 @@ function signedInResult(
 export async function authLogin(
 	json: boolean,
 	desktop: boolean,
-	ctx: AuthContext = authContext(),
-	helperCommand?: readonly string[],
-	env: Record<string, string | undefined> = process.env,
 ): Promise<number> {
+	const ctx = authContext();
 	if (desktop) {
 		const { data, error } = await loginWithLoopback(ctx, {
 			onUrl: (url) => {
@@ -110,12 +108,8 @@ export async function authLogin(
 		},
 	});
 	if (error !== null) return fail(error.message, json);
-	// The link is remade only now, once the sign-in it serves exists.
-	const helper = await configureGitHelper(
-		ctx,
-		helperCommand ?? gitCommand(),
-		env,
-	);
+	// Git's helper is configured only now, once the sign-in it serves exists.
+	const helper = await configureGitHelper(ctx, [resolveAppPaths().commandLink]);
 	if (json)
 		writeJson({
 			signedIn: {
@@ -143,8 +137,8 @@ export async function authToken(
 	options: Options,
 	json: boolean,
 	desktop: boolean,
-	ctx: AuthContext = authContext(),
 ): Promise<number> {
+	const ctx = authContext();
 	const resource =
 		typeof options.resource === 'string'
 			? options.resource
@@ -172,10 +166,8 @@ function statusLine(status: GrantStatus) {
 }
 
 /** `epicenter auth status`: each grant on this machine, from the keychain alone. */
-export async function authStatusCommand(
-	json: boolean,
-	ctx: AuthContext = authContext(),
-): Promise<number> {
+export async function authStatusCommand(json: boolean): Promise<number> {
+	const ctx = authContext();
 	const { data, error } = await authStatus(ctx);
 	if (error !== null) return fail(error.message, json);
 	if (json) writeJson({ origin: ctx.deployment.origin, grants: data });
@@ -190,8 +182,8 @@ export async function authStatusCommand(
 export async function authLogout(
 	json: boolean,
 	desktop: boolean,
-	ctx: AuthContext = authContext(),
 ): Promise<number> {
+	const ctx = authContext();
 	const grant = grantOf(desktop);
 	const { data, error } = await logout(ctx, grant);
 	if (error !== null) return fail(error.message, json);
@@ -225,10 +217,8 @@ export async function authLogout(
 export async function authGitCredential(
 	action: string,
 	desktop: boolean,
-	ctx: AuthContext = authContext(),
-	stdin: () => Promise<string> = () => Bun.stdin.text(),
 ): Promise<number> {
-	const request = await stdin();
+	const request = await Bun.stdin.text();
 	if (action === 'store' || action === 'erase') return EXIT.ok;
 	if (action !== 'get') {
 		writeErr(
@@ -236,7 +226,11 @@ export async function authGitCredential(
 		);
 		return EXIT.unusable;
 	}
-	const { data, error } = await gitCredential(ctx, grantOf(desktop), request);
+	const { data, error } = await gitCredential(
+		authContext(),
+		grantOf(desktop),
+		request,
+	);
 	if (error !== null) {
 		writeErr(`epicenter: ${(error as AuthError).message}`);
 		return EXIT.unusable;
