@@ -1268,6 +1268,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build Epicenter")
         .run(|app, event| match event {
+            #[cfg(target_os = "macos")]
             RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Home),
             RunEvent::ExitRequested { api, code, .. } if prevents_exit(app, code) => {
                 api.prevent_exit();
