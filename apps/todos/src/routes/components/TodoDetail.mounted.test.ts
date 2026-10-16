@@ -175,17 +175,19 @@ async function setup() {
 	};
 }
 
-/** Save `content` at `path` over whatever is there, without merging. */
+/** Make `path` hold `content`, whatever is there. */
 async function put(
-	folder: Pick<Folder<typeof todosDefinition>, 'files'>,
+	folder: Pick<Folder<typeof todosDefinition>, 'files' | 'write'>,
 	path: string,
 	content: string,
 ) {
 	const current = await folder.files.read(path);
-	if (current.error?.name === 'NotFound')
-		return void expectOk(await folder.files.create(path, content));
 	expectOk(
-		await folder.files.save(expectOk(current), content, { merge: false }),
+		await folder.write(
+			path,
+			current.error === null ? current.data.bytes : null,
+			content,
+		),
 	);
 }
 
@@ -390,11 +392,7 @@ test('notes typed into a todo deleted elsewhere are not written and are offered 
 	type(get(NOTES), 'From the shop.\n');
 	// Another writer deletes the file before the notes are sent; the cache
 	// still holds the row.
-	expectOk(
-		await todos.folder.files.remove(
-			expectOk(await todos.folder.files.read(path)),
-		),
-	);
+	expectOk(await todos.folder.write(path, null, null));
 	blur(get(NOTES));
 	await settle(todos);
 	expect(await text(path)).toBeUndefined();
@@ -437,7 +435,7 @@ test("another page's change shows without returning to the window", async () => 
 test('a malformed todo shows under "Needs repair"; shown, its issues and text are read-only, and it reads as a todo once another editor fixes it', async () => {
 	const { todos, get, find, list, overwrite } = await setup();
 	const broken = '---\r\ntitle: *missing\r\n---\r\n';
-	expectOk(await todos.folder.files.create('todos/bad.md', broken));
+	expectOk(await todos.folder.write('todos/bad.md', null, broken));
 	await reread(todos);
 	const repairs = () => list().querySelector('[aria-label="Needs repair"]');
 	expect(repairs()?.textContent).toContain('todos/bad.md');
@@ -479,7 +477,7 @@ test('notes from a CRLF file show LF; typing in them writes the file in the stan
 	const { todos, target, get, reading } = await setup();
 	const crlf =
 		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\r\nTwo\r\n';
-	expectOk(await todos.folder.files.create('todos/crlf.md', crlf));
+	expectOk(await todos.folder.write('todos/crlf.md', null, crlf));
 	await reread(todos);
 	await openTodo(todos, target, 'todos/crlf.md');
 	const notes = get(NOTES);
@@ -505,8 +503,9 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 	const { todos, target, get, list, reading } = await setup();
 	const path = 'todos/milk.md';
 	expectOk(
-		await todos.folder.files.create(
+		await todos.folder.write(
 			path,
+			null,
 			'---\ntitle: Milk\ndone: false\nowner: keep-me\n---\nCurrent notes.',
 		),
 	);
@@ -538,8 +537,9 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 test('a file that cannot be read as text is labelled "Could not read", with no repair', async () => {
 	const { todos, list } = await setup();
 	expectOk(
-		await todos.folder.files.create(
+		await todos.folder.write(
 			'todos/binary.md',
+			null,
 			new Uint8Array([0xff, 0xfe, 0x00]),
 		),
 	);
