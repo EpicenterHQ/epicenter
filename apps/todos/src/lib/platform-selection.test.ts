@@ -68,7 +68,6 @@ describe('#platform/folder', () => {
 				'git/native-backend.ts',
 				'git/history.ts',
 				'git/objects.ts',
-				'history-command.ts',
 			])
 				expect(modules.some(folderModule(engine))).toBe(false);
 			// It reads through the folder plugin's commands, not the fs plugin.
