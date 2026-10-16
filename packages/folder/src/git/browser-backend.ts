@@ -63,15 +63,6 @@ export const GITDIR = '/git';
 /** isomorphic-git's read-only view of the folder's files. */
 export const WORKDIR = '/files';
 
-export const sameBytes = (
-	left: Uint8Array | undefined,
-	right: Uint8Array | undefined,
-) =>
-	left === undefined || right === undefined
-		? left === right
-		: left.byteLength === right.byteLength &&
-			left.every((byte, index) => byte === right[index]);
-
 /** The commit a stored ref names, or `undefined` for anything else. */
 export function refValue(value: Uint8Array | undefined): string | undefined {
 	if (value === undefined) return undefined;
