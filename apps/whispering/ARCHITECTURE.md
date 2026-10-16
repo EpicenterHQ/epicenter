@@ -430,8 +430,8 @@ Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
    answer (ADR-0576), merged by line into the file as it is now. Text
    someone put in the body meanwhile, by hand or by another fill, stays
    before the answer, and the same answer is written once. A row that is
-   gone was discarded and is not written: every attempt reads the row
-   first, since a write over a row deleted meanwhile would make it again. A write that
+   gone was discarded and is not written: a write over a row deleted since
+   writes nothing (ADR-0576). A write that
    fails is tried again after a wait that doubles from half a second to thirty
    seconds, for as long as the window is open.
 
@@ -461,8 +461,9 @@ A listing of `text_runs/` that fails keeps the last list and reports why; a
 file there that does not read is listed apart.
 
 Deleting a recording (`src/lib/deletion.ts`) deletes its row, its
-transcripts, and the results made from them, each guarded by the bytes read
-when the person was asked, and keeps its audio: an ordinary file the table
+transcripts, and the results made from them, whatever each holds when the
+deletion runs (a delete beats edits that never saw it, ADR-0576), and keeps
+its audio: an ordinary file the table
 does not own, which Files can delete. What goes is read from
 the folder then, never taken from a listing; a result file that does not read
 refuses the deletion, since it might be this recording's. It must not race
@@ -478,8 +479,7 @@ What a deletion of a recording or transformation path removes is decided by
 its file as read after the edits being written have landed, not by the last
 listing. The dialog says when the files have changes that are in no saved
 version. Removing is a mutation in the file's queue, after its recording's
-lifecycle work; it writes the edits first and deletes what was confirmed, or
-what this window last wrote when that changed after the person was asked. A row that reads is deleted as above. A file that
+lifecycle work; it writes the edits first, then deletes the rows. A row that reads is deleted as above. A file that
 is there and does not read as a row (bytes that are not text, say) is removed
 alone, conditional on the exact bytes read, and the person is told its
 results are kept: nothing in the file says which results are its own, so
@@ -518,8 +518,7 @@ text too; its fields open again once the text reads.
   touches what is typed; the detail shows it. Its save is the table's
   `write` mutation, the change from the row it started from, one at a time
   per file; text typed while one runs is sent next, from what the last one
-  sent. Each save reads the row first, and a row that is gone is not
-  written. A file changed since is merged by line in the engine: where both
+  sent. A save over a row deleted since writes nothing (ADR-0576). A file changed since is merged by line in the engine: where both
   changed the same lines the typing wins, with no notice (ADR-0575).
 - **Writes to one file** run one at a time, in the order made, whichever
   control made them.
@@ -530,8 +529,9 @@ text too; its fields open again once the text reads.
 - **A failed save** keeps the draft, or the field typed in its view; it is
   saved again with the next change, and a draft before anything that reads
   files (a run, a rename, a deletion, Save version, closing). A recording or
-  transcript deleted elsewhere stays deleted: its save finds it gone, the
-  listing reads it gone, and what was typed is dropped and offered to copy.
+  transcript deleted elsewhere stays deleted: its save writes nothing, the
+  listing reads it gone, and what was typed is handed to a notice that
+  offers to copy it until the person dismisses it.
 - **A value the schema refuses** is never written: the folder refuses it as
   `InvalidValues`. Text typed into a field or a body is sent as typed; the
   folder writes a lone surrogate as U+FFFD, and a body reads and writes with

@@ -16,12 +16,12 @@
  *   while it is unsaved is merged with it when it saves
  * - A set over a change made elsewhere sets its field and keeps theirs
  * - A body save that fails keeps the body, and the next change saves it
- * - A recording deleted elsewhere stays deleted: its save finds it gone, the
- *   text typed is reported, and nothing creates it again
+ * - A recording deleted elsewhere stays deleted: its save writes nothing, the
+ *   text typed is offered to copy, and nothing creates it again
  * - A row that is not valid is named for repair, edited as its text, and
  *   edited as fields once it reads
  * - A deletion runs after the edits are written and removes what they saved;
- *   its audio stays
+ *   its audio stays, and a change made elsewhere since does not stop it
  * - Nothing commits on its own; Save version records a version
  * - Close waits for an edit being written
  */
@@ -317,7 +317,7 @@ test('the folder refuses a value it cannot hold, and the file stays as it was', 
 	expect(listed(library, editor.path)?.row.fields.durationMs).toBe(1000);
 });
 
-test('a recording deleted elsewhere stays deleted: its save fails, nothing creates it again, and the text typed is reported', async () => {
+test('a recording deleted elsewhere stays deleted: its save writes nothing, nothing creates it again, and the text typed is offered', async () => {
 	const { library, notices } = await open();
 	const editor = await record(library);
 	const { path } = editor;
@@ -490,7 +490,7 @@ test('a deletion runs after the edits are written and removes the recording and 
 	expect(library.selection).toBeUndefined();
 });
 
-test('a deletion is refused when the file changed elsewhere after it was confirmed', async () => {
+test('a deletion beats a change made elsewhere after it was confirmed (ADR-0576)', async () => {
 	const { library } = await open();
 	const editor = await record(library);
 	const { path } = editor;
@@ -498,10 +498,10 @@ test('a deletion is refused when the file changed elsewhere after it was confirm
 	const theirs = recordingText('Changed', editor.draft.fields.audioPath);
 	await writeElsewhere(library, path, theirs);
 
-	expect(await library.remove(deletion)).toContain('changed elsewhere');
-	expect(await text(library, path)).toBe(theirs);
+	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await text(library, path)).toBeUndefined();
 	await settle(library);
-	expect(recordingEditor(library).draft.fields.title).toBe('Changed');
+	expect(library.entries).toEqual([]);
 });
 
 // ============================================================================

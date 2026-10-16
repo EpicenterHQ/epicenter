@@ -24,8 +24,8 @@
  * file run one at a time. Where another writer changed the same lines, the
  * save wins, with no notice (ADR-0575). A text save that fails is reported
  * with the text that was not written. A row deleted elsewhere stays deleted:
- * nothing typed into it is written, and what was typed is reported as not
- * saved.
+ * a delete beats an edit that never saw it (ADR-0576), so nothing typed into
+ * it is written, and what was typed is offered to copy.
  *
  * Every other action is a mutation: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
@@ -119,7 +119,6 @@ import {
 	captureDeletion,
 	type Deletion,
 	type DeletionContext,
-	deleteRowAsCaptured,
 	recordingTitle,
 	removeDeletion,
 } from './deletion.js';
@@ -619,41 +618,27 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const path = rowPath(table, stem);
 		const held = bodies.get(path);
 		if (held !== undefined) return held;
-		const written = optionsOf(table).write.mutationOptions() as MutationOptions<
+		const write = optionsOf(table).write.mutationOptions() as MutationOptions<
 			WrittenRow<Fields>,
 			WriteError,
 			WriteRowVariables<Fields>
 		>;
-		const gone = FileError.NotFound({ path }).error;
-		const write: typeof written = {
-			...written,
-			// An autosave checks its row is still there before each write
-			// (ADR-0576): a write over a row deleted elsewhere makes it again.
-			async mutationFn(variables, context) {
-				const { data: now, error } = await tableOf(table).get(stem);
-				if (error === null && now === undefined) throw gone;
-				return written.mutationFn!(variables, context);
-			},
-		};
 		const draft = createBodyEditor<Fields>({
 			row: () => rowOf(table, stem) as StoredRow<Fields> | undefined,
+			// A row deleted since writes nothing and resolves `null`: the
+			// editor says it is gone, and `saveBody` offers what was typed.
 			write: (change) =>
 				runMutation(queryClient, write, { stem, ...change }).catch(
-					async (error: WriteError | typeof gone) => {
-						// Gone: the listing reads it gone, and `saveBody` reports the body.
-						if (error === gone)
-							await queryClient.invalidateQueries({
-								queryKey: optionsOf(table).list.queryKey(),
-							});
-						// Anything else is kept for the next save.
-						else notify({ kind: 'failed', path, error, lost: undefined });
+					(error: WriteError) => {
+						// Kept for the next save.
+						notify({ kind: 'failed', path, error, lost: undefined });
 						throw error;
 					},
 				),
 		});
 		const typed = {
 			draft,
-			later: useDebounce(() => saveBody(table, stem), 1000),
+			later: useDebounce(() => saveBody(path), 1000),
 			unsent: () => draft.typed,
 		};
 		bodies.set(path, typed);
@@ -661,23 +646,23 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	}
 
 	/**
-	 * Save the body typed into the row at `stem`, as leaving it does. A body
-	 * is never written into a row that is gone, so nothing makes a row
-	 * deleted elsewhere again: what was typed there is reported and dropped.
+	 * Save the body typed into the row at `stem`, as leaving it does. A delete
+	 * beats an edit that never saw it (ADR-0576): a body typed into a row
+	 * deleted elsewhere is never written, and is offered to copy instead.
 	 */
-	async function saveBody(table: RowTable, stem: string) {
-		const path = rowPath(table, stem);
-		if (dropIfGone(table, stem)) return;
+	async function saveBody(path: string) {
 		await saveTyped(bodies, path);
-		dropIfGone(table, stem);
+		offerIfGone(path);
 	}
 
-	/** Drop the body typed into the row at `stem` when the row is gone, reporting what was typed. */
-	function dropIfGone(table: RowTable, stem: string): boolean {
-		const path = rowPath(table, stem);
+	/**
+	 * The row at `path` is gone with a body typed into it: the body is
+	 * handed to the person with the notice, which keeps it to copy until
+	 * they dismiss it, and the editor lets it go.
+	 */
+	function offerIfGone(path: string) {
 		const typed = bodies.get(path);
-		if (typed === undefined || typed.draft.saving) return false;
-		if (rowOf(table, stem) !== undefined) return false;
+		if (typed === undefined || typed.draft.saving || !typed.draft.gone) return;
 		const lost = typed.unsent();
 		typed.draft.discard();
 		bodies.delete(path);
@@ -688,7 +673,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				error: FileError.NotFound({ path }).error,
 				lost,
 			});
-		return true;
 	}
 
 	/** Each file's text edit, by path: the version it started from and the text typed. */
@@ -737,13 +721,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** Resolves once every document typed is sent, and every folder write landed, or failed. */
 	async function writesSettled() {
 		await Promise.all([
-			...[...bodies.keys()].map((path) => {
-				const table = rowTableOf(path);
-				const stem = table && rowStemOf(table, path);
-				return table === undefined || stem === undefined
-					? saveTyped(bodies, path)
-					: saveBody(table, stem);
-			}),
+			...[...bodies.keys()].map(saveBody),
 			...[...textEdits.keys()].map((path) => saveTyped(textEdits, path)),
 		]);
 		await whenIdle(queryClient, { mutationKey: folder$.key });
@@ -968,10 +946,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return;
 		}
 		const lengthError = await track(async () => {
-			// A field edit: set the length on the file as it is now (ADR-0575).
-			// A row deleted meanwhile stays deleted: a set would make it again.
-			const { data: stored } = await tableOf(RECORDINGS).get(id);
-			if (stored === undefined) return undefined;
+			// A field edit: set the length on the file as it is now (ADR-0576).
+			// A row deleted meanwhile stays deleted: the set writes nothing.
 			const { error } = await tableOf(RECORDINGS).set(id, {
 				durationMs: stopped.durationMs,
 			});
@@ -1235,13 +1211,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			void typed.later();
 		},
 		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
-		saveBody(path: string) {
-			const table = rowTableOf(path);
-			const stem = table && rowStemOf(table, path);
-			return table === undefined || stem === undefined
-				? saveTyped(bodies, path)
-				: saveBody(table, stem);
-		},
+		saveBody: (path: string) => saveBody(path),
 		/**
 		 * Replace the text of `path`, over the version the edit started from;
 		 * it is written a second after the last change, or at once with
@@ -1627,25 +1597,19 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		deleteTransformationResult: action(
 			'delete-result',
 			async (entry: TransformationRunEntry) => {
-				const problem = await deleteRowAsCaptured(
-					folder,
-					tableOf(TRANSFORMATION_RUNS),
-					entry,
-				);
-				if (problem === undefined) deleted(entry.path);
-				return problem;
+				const { error } = await tableOf(TRANSFORMATION_RUNS).delete(entry.stem);
+				if (error !== null) return describeError(error);
+				deleted(entry.path);
+				return undefined;
 			},
 		),
 		deleteTextResult: action(
 			'delete-text-result',
 			async (entry: TextRunEntry) => {
-				const problem = await deleteRowAsCaptured(
-					folder,
-					tableOf(TEXT_RUNS),
-					entry,
-				);
-				if (problem === undefined) deleted(entry.path);
-				return problem;
+				const { error } = await tableOf(TEXT_RUNS).delete(entry.stem);
+				if (error !== null) return describeError(error);
+				deleted(entry.path);
+				return undefined;
 			},
 		),
 
@@ -1766,9 +1730,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return captureDeletion(deletionContext(), path);
 		},
 		/**
-		 * Delete exactly what was confirmed, after the edits being written
-		 * land: what this window saved since goes with it, and a file another
-		 * program changed since is refused.
+		 * Delete what was confirmed, after the edits being written land: what
+		 * this window saved since goes with it. A row goes whatever another
+		 * program changed in it since (ADR-0576); any other file changed since
+		 * is refused.
 		 */
 		async remove(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();

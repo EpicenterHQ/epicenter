@@ -2,12 +2,13 @@
  * Deleting from the folder: capture what a deletion removes from fresh reads,
  * tell the person exactly that, and remove only what was captured.
  *
- * Every removal checks the bytes captured, so a file changed by another
- * program after the person was asked is refused and kept. A row delete
- * deletes whatever is there (ADR-0576), so the check is a read here first. Edits
- * being written land first, and a removal runs after the file's queued
- * writes: it deletes what this window saved last. The person is told when a
- * file has changes that are in no saved version.
+ * A row is deleted whatever it holds when the deletion runs: a delete beats
+ * edits that never saw it (ADR-0576). Any other file is removed guarded by
+ * the bytes captured, so one changed by another program after the person
+ * was asked is refused and kept. Edits being written land first, and a
+ * removal runs after the file's queued writes: it deletes what this window
+ * saved last. The person is told when a file has changes that are in no
+ * saved version.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -266,48 +267,25 @@ export async function captureDeletion(
 	});
 }
 
-const GONE = 'The file is no longer here, so nothing was changed.';
-const CHANGED =
-	'The file changed elsewhere, so nothing was changed. Check it and try again.';
-
 /**
- * Delete the row at `capture.path` while it is the version captured, or
- * `saved`, a version this window saved since. A row delete deletes
- * whatever is there, so the file is read first, and anything else is
- * refused. Answers why nothing was deleted.
- */
-export async function deleteRowAsCaptured(
-	folder: WhisperingFolder,
-	table: Pick<FileTable<unknown>, 'name' | 'delete'>,
-	capture: FileCapture,
-	saved?: FileCapture,
-): Promise<string | undefined> {
-	const stem = rowStemOf(table.name, capture.path);
-	if (stem === undefined) return `${capture.path} is not a ${table.name} row.`;
-	const { data: now, error: readError } = await folder.files.read(capture.path);
-	if (readError !== null)
-		return readError.name === 'NotFound' ? GONE : describeError(readError);
-	if (now.sha256 !== capture.sha256 && now.sha256 !== saved?.sha256)
-		return CHANGED;
-	const { error } = await table.delete(stem);
-	return error === null ? undefined : describeError(error);
-}
-
-/**
- * Delete the file at `capture.path` as captured. When this window saved the
- * file after the person was asked (typing while the dialog was open), that
- * is what is deleted. Anything else changed since is refused.
+ * Delete the file at `capture.path`. A row is deleted whatever it holds
+ * now: a delete beats edits that never saw it (ADR-0576). Any other file is
+ * removed as captured; when this window saved it after the person was asked
+ * (typing while the dialog was open), that is what is removed, and anything
+ * else changed since is refused.
  */
 async function deleteOne(
 	context: RemovalContext,
 	capture: FileCapture,
 	table?: Pick<FileTable<unknown>, 'name' | 'delete'>,
 ): Promise<string | undefined> {
-	const saved = context.held(capture.path);
 	let problem: string | undefined;
-	if (table !== undefined)
-		problem = await deleteRowAsCaptured(context.folder, table, capture, saved);
-	else {
+	const stem = table && rowStemOf(table.name, capture.path);
+	if (table !== undefined && stem !== undefined) {
+		const { error } = await table.delete(stem);
+		problem = error === null ? undefined : describeError(error);
+	} else {
+		const saved = context.held(capture.path);
 		let { error } = await context.folder.files.remove(capture);
 		if (
 			error?.name === 'Conflict' &&

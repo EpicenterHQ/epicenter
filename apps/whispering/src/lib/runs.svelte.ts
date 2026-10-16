@@ -229,8 +229,9 @@ export function createRuns({
 	 * empty body the run wrote to the row with the answer (ADR-0576), merged
 	 * by line with whatever changed since. A fill elsewhere with the same
 	 * text is written once, and one with different text stays beside this
-	 * one. Every attempt reads the row first, because a write over a row
-	 * deleted meanwhile would make it again; their deletion stands.
+	 * one. Each attempt reads the row for its fields. A row deleted meanwhile
+	 * stays deleted: a write over it writes nothing, and their deletion
+	 * stands.
 	 */
 	async function fill(target: Target, body: string) {
 		const table = tableOf(target.table);
