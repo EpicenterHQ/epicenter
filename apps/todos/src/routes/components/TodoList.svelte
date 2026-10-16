@@ -45,7 +45,7 @@
 		create.mutate(typed, {
 			onSuccess: (created) => {
 				title = '';
-				const stem = todoStem(created.path);
+				const stem = created === null ? undefined : todoStem(created.path);
 				if (stem !== undefined) onOpen?.(stem);
 			},
 		});

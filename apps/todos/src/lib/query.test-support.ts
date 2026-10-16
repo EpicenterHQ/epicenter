@@ -10,7 +10,7 @@
  *
  * The helpers stand in for what the views do: a screen that shows a query
  * observes it, and a control that edits a todo sends each change through its
- * own update mutation.
+ * own set mutation.
  */
 import type { FileCapture, StoredRow } from '@epicenter/folder';
 import { MutationObserver, QueryObserver } from '@tanstack/query-core';
@@ -22,28 +22,29 @@ export { QueryObserver };
 
 /**
  * What a view's control of the todo at `stem` does with each change: send
- * it through the control's own update mutation, a change to the todo's
- * fields as its file holds them then. Each call resolves once its update
+ * it through the control's own set mutation, a change to the todo's
+ * fields as its file holds them then. Each call resolves once its set
  * landed or failed; a failure is the store's to report.
  */
 export function rowEditor(todos: Todos, stem: string) {
-	const update = new MutationObserver(todos.queryClient, todos.rows.update);
-	return (set: Partial<TodoFields>) =>
-		update.mutate({ stem, set }).then(
+	const setTodo = new MutationObserver(todos.queryClient, todos.rows.set);
+	return (fields: Partial<TodoFields>) =>
+		setTodo.mutate({ stem, fields }).then(
 			() => undefined,
 			() => undefined,
 		);
 }
 
 /**
- * What the detail's notes do once a pause in typing sends them: replace the
- * body of the row the cache holds with `body`, through the notes' mutation.
+ * What the detail's notes do once a pause in typing sends them: write the
+ * change from the row the cache holds to that row with `body`, through the
+ * notes' mutation.
  */
 export function notesEditor(todos: Todos, stem: string) {
-	const save = new MutationObserver(todos.queryClient, todos.rows.saveNotes);
+	const writeNotes = new MutationObserver(todos.queryClient, todos.rows.write);
 	return (body: string) => {
-		const base = cached(todos, stem);
-		return save.mutate({ base, text: body }).then(
+		const from = cached(todos, stem).row;
+		return writeNotes.mutate({ stem, from, to: { ...from, body } }).then(
 			() => undefined,
 			() => undefined,
 		);

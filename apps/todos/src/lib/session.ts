@@ -6,7 +6,7 @@
  * query is keyed under the folder's options (`folder$`), so a change the
  * folder reports marks exactly what it names stale.
  */
-import type { FileError, TableError } from '@epicenter/folder';
+import type { WriteError } from '@epicenter/folder';
 import type { FolderOptions } from '@epicenter/folder/query';
 import type { QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -17,7 +17,7 @@ import type { TodosFolder } from './platform/types.js';
 /** Cache identity for the mutations the app runs beyond the folder's own. */
 export const todosKeys = defineKeys({
 	/** The delete of the file at `path`, which pauses its edits. */
-	remove: (path: string) => ['todos', 'remove', path] as const,
+	delete: (path: string) => ['todos', 'delete', path] as const,
 });
 
 /** Why an action did not start: what it would change is not what the person saw. */
@@ -29,7 +29,7 @@ export type TodosError = InferErrors<typeof TodosError>;
 /** A save that failed. The editor keeps the edit; `unsaved` is it as text. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError | TodosError;
+	readonly error: WriteError;
 	/** The text that was in the editor and is not in the file. */
 	readonly unsaved: string;
 };

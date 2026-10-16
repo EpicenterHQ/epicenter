@@ -33,7 +33,7 @@
  * - The open todo follows the URL, and opening one from the list sets it
  * - A title input keeps its value well formed, so what is written is what
  *   is shown
- * - Notes show LF and keep the file's CRLF
+ * - Notes show LF, and a body write writes the file in the standard form
  * - Completion from the list and the detail keep notes and undeclared keys
  *
  * jsdom implements no layout, focus, selection, IME, or `inert`. Toasts,
@@ -454,7 +454,7 @@ test('a title input keeps its value well formed, so what is written is what is s
 	expect((await reading(path)).fields.title).toBe('Oat �');
 });
 
-test('notes from a CRLF file show LF; typing in them writes an LF body and keeps the frontmatter byte for byte', async () => {
+test('notes from a CRLF file show LF; typing in them writes the file in the standard form with LF', async () => {
 	const { todos, target, get, reading } = await setup();
 	const crlf =
 		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\r\nTwo\r\n';
@@ -467,8 +467,8 @@ test('notes from a CRLF file show LF; typing in them writes an LF body and keeps
 	type(notes, 'One\nTwo\nThree\n');
 	blur(notes);
 	await settle(todos);
-	// A body write keeps every byte before the body (ADR-0575) and writes the
-	// body with LF (ADR-0572).
+	// A body write writes the frontmatter in the standard form (ADR-0576)
+	// and the body with LF (ADR-0572).
 	expect(await reading('todos/crlf.md')).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'sam' },
 		body: 'One\nTwo\nThree\n',
@@ -478,7 +478,7 @@ test('notes from a CRLF file show LF; typing in them writes an LF body and keeps
 			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
 		),
 	).toBe(
-		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\nTwo\nThree\n',
+		'---\ntitle: Milk\ndone: false\nowner: sam\n---\nOne\nTwo\nThree\n',
 	);
 });
 
@@ -498,7 +498,7 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 
 	press(completion());
 	await settle(todos);
-	// Both show the file once the update lands.
+	// Both show the file once the set lands.
 	expect(completion().getAttribute('aria-checked')).toBe('true');
 	expect(get<HTMLButtonElement>(DONE).getAttribute('aria-checked')).toBe(
 		'true',

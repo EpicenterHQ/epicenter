@@ -1,15 +1,15 @@
 <!--
 	One todo: one entry of the listing, read through `todos.rows.entry`, so it
 	never disagrees with the list. The parent keys this view by the todo, so a
-	pending save always lands on the todo it was typed into (ADR-0554).
+	pending save always lands on the todo it was typed into (ADR-0576).
 
 	The done checkbox sends its change at once and shows the file. The title
 	is held in this view's state while typed, sent a second after the last
 	keystroke, and sent at once when the person leaves the field or the view
 	goes away; the typed value clears once its save lands with nothing typed
-	since. Each is an update of the file as it is now, so neither undoes the
-	other or another writer's change to another field. The notes are a
-	document: a body draft that keeps the version it started from, saved on
+	since. Each is a field set on the file as it is now, so neither undoes
+	the other or another writer's change to another field. The notes are a
+	document: a body editor that keeps the row it started from, written on
 	the same pause and merged by line with whatever changed since.
 
 	A file that does not read as a todo shows its text and what to fix,
@@ -62,9 +62,9 @@
 	const stem = shownStem;
 	const path = todoPath(stem);
 	const todo = createQuery(() => todos.rows.entry(stem));
-	const saveDone = createMutation(() => todos.rows.update);
-	const saveTitle = createMutation(() => todos.rows.update);
-	const saveNotes = createMutation(() => todos.rows.saveNotes);
+	const setDone = createMutation(() => todos.rows.set);
+	const setTitle = createMutation(() => todos.rows.set);
+	const writeNotes = createMutation(() => todos.rows.write);
 	/** The row as the cache holds it, when the file reads as a todo. */
 	const stored = $derived(todo.data?.result.error === null ? todo.data.result.data : undefined);
 	/**
@@ -73,7 +73,7 @@
 	 * cover that.
 	 */
 	// svelte-ignore state_referenced_locally
-	const deleting = useIsMutating({ mutationKey: todosKeys.remove(path) });
+	const deleting = useIsMutating({ mutationKey: todosKeys.delete(path) });
 	const locked = $derived(deleting.current > 0);
 
 	/** The title typed and not yet saved; `undefined` shows the file. */
@@ -81,8 +81,8 @@
 	function sendTitle() {
 		if (title === undefined) return;
 		const sent = title;
-		saveTitle.mutate(
-			{ stem, set: { title: sent } },
+		setTitle.mutate(
+			{ stem, fields: { title: sent } },
 			{
 				onSuccess: () => {
 					if (title === sent) title = undefined;
@@ -92,10 +92,10 @@
 	}
 	const sendTitleLater = useDebounce(sendTitle, 1000);
 
-	/** The notes: the body, opened with the version it started from (ADR-0575). */
+	/** The notes: the body, opened with the row it started from (ADR-0576). */
 	const notes = createBodyEditor<TodoFields>({
 		row: () => stored,
-		save: (variables) => saveNotes.mutateAsync(variables),
+		write: (change) => writeNotes.mutateAsync({ stem, ...change }),
 	});
 	const sendNotesLater = useDebounce(() => notes.save(), 1000);
 
@@ -108,18 +108,18 @@
 	onDestroy(flush);
 
 	const pending = $derived(
-		saveDone.isPending ||
-			saveTitle.isPending ||
+		setDone.isPending ||
+			setTitle.isPending ||
 			notes.saving ||
 			(sendTitleLater.pending && title !== undefined) ||
 			(sendNotesLater.pending && notes.typed !== undefined),
 	);
 	/** Why typed text is not in the file, while it is still typed. */
 	const failure = $derived(
-		title !== undefined && saveTitle.error
-			? saveTitle.error
-			: notes.typed !== undefined && saveNotes.error
-				? saveNotes.error
+		title !== undefined && setTitle.error
+			? setTitle.error
+			: notes.typed !== undefined && writeNotes.error
+				? writeNotes.error
 				: undefined,
 	);
 
@@ -155,7 +155,7 @@
 			description: `This deletes ${path} from the folder. ${lost}`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				const { error } = await todos.rows.remove(stem, version);
+				const { error } = await todos.rows.delete(stem, version);
 				if (error !== null) toast.error(`Could not delete ${path}`, { description: describeError(error) });
 				else onDeleted?.();
 			},
@@ -189,7 +189,7 @@
 				bind:checked={
 					() => stored.row.fields.done,
 					(done) =>
-						saveDone.mutate({ stem, set: { done } })
+						setDone.mutate({ stem, fields: { done } })
 				}
 			/>
 			<Input

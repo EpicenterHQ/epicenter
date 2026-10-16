@@ -1,6 +1,6 @@
 <!--
 	One todo in the list. Its checkbox shows the file and sends its change at
-	once, an update of the file as it is now (ADR-0554), so it never undoes a
+	once, a field set on the file as it is now (ADR-0576), so it never undoes a
 	title typed in the detail; the todo's writes run one at a time.
 -->
 <script lang="ts">
@@ -24,10 +24,10 @@
 		onOpen?: (stem: string) => void;
 	} = $props();
 
-	const saveDone = createMutation(() => todos.rows.update);
+	const setDone = createMutation(() => todos.rows.set);
 	// The list keys each row by its stem, so a row's path never changes.
 	// svelte-ignore state_referenced_locally
-	const deleting = useIsMutating({ mutationKey: todosKeys.remove(entry.path) });
+	const deleting = useIsMutating({ mutationKey: todosKeys.delete(entry.path) });
 	const done = $derived(entry.row.fields.done);
 	const title = $derived.by(() => {
 		const typed = entry.row.fields.title;
@@ -46,7 +46,7 @@
 		bind:checked={
 			() => done,
 			(next) =>
-				saveDone.mutate({ stem: entry.stem, set: { done: next } })
+				setDone.mutate({ stem: entry.stem, fields: { done: next } })
 		}
 		disabled={deleting.current > 0}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"

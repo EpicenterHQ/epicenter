@@ -251,7 +251,7 @@ test('an interrupted sync leaves changed files; Save version and editing go ahea
 	expect(status.changes).toEqual([{ path: BREAD, kind: 'add' }]);
 
 	// Nothing is pending: editing and Save version go ahead.
-	const created = expectOk(await todos.rows.create('Call mom'));
+	const created = expectOk(await todos.rows.create('Call mom'))!;
 	await quiet(todos);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	notesEditor(todos, stem)('Today.\n');

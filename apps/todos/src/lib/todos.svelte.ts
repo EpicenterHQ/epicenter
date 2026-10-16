@@ -1,7 +1,7 @@
 /**
  * The Todos store over one opened folder, kept in its own TanStack Query
  * cache (ADR-0528, ADR-0548). Todos shows one folder table: the list is the
- * table, the detail is one row, and an edit is a save of that row's file.
+ * table, the detail is one row, and an edit is a write of that row's file.
  * Every query comes from the folder's options (`folderOptions`), and the
  * one channel of outside change, `folder.onFilesChanged`, marks what it
  * names stale; nothing rereads on focus.
@@ -10,15 +10,15 @@
  * rules, the change wiring, leaving, and closing. The parts are namespaces
  * over that session, each in its file:
  *
- * - `todos.rows` (`rows.ts`): the todo listing and its views, saving,
+ * - `todos.rows` (`rows.ts`): the todo listing and its views, writes,
  *   adding, and delete
  * - `todos.git`  (`git.ts`): history state and status, Save version
  * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
  * A view passes query and mutation options to `createQuery` or
- * `createMutation`. A field edit is an update of the file as it is now; the
- * notes are a body draft the editing view holds, saved over the version it
- * started from (ADR-0554). Which todo is open is the
+ * `createMutation`. A field edit is a set of fields on the file as it is
+ * now; the notes are a body editor the editing view holds, written as the
+ * change from the row it started from (ADR-0576). Which todo is open is the
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
@@ -75,10 +75,10 @@ export function createTodos(
 	const folder$ = folderOptions(folder);
 	const stopChanges = folder$.invalidateOnChange(queryClient);
 
-	/** Every save and update of a todo's file. */
+	/** Every write and field set of a todo's file. */
 	const rowWrites = [
-		folder$.todos.setBody.mutationOptions().mutationKey ?? [],
-		folder$.todos.update.mutationOptions().mutationKey ?? [],
+		folder$.todos.write.mutationOptions().mutationKey ?? [],
+		folder$.todos.set.mutationOptions().mutationKey ?? [],
 	];
 	const writing = {
 		predicate: (mutation: { options: { mutationKey?: readonly unknown[] } }) =>
@@ -87,7 +87,7 @@ export function createTodos(
 			),
 	};
 
-	/** Resolves once no save or update of a todo's file is running. */
+	/** Resolves once no write or field set of a todo's file is running. */
 	const writesSettled = () => whenIdle(queryClient, writing);
 
 	/** Read again what an action may have changed: every query of the folder by default. */
@@ -114,7 +114,7 @@ export function createTodos(
 		 */
 		queryClient,
 		rows: createRows(session),
-		/** The filter for every save and update of a todo's file. */
+		/** The filter for every write and field set of a todo's file. */
 		writing,
 		git: createGit(session),
 		sync: createSync(session),

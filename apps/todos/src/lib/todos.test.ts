@@ -4,22 +4,22 @@
  * Drives the real Todos store and its TanStack Query cache against a real
  * browser folder over an in-memory OPFS stand-in. Views are stood in for as
  * they behave: a screen observes the queries it shows, and a control sends
- * each change through its own update mutation (ADR-0554).
+ * each change through its own set mutation (ADR-0576).
  *
  * Key behaviors:
- * - An update is written to the file; the cache takes the row it wrote
- * - One todo's updates run one at a time, in the order made, each over the
+ * - A field set is written to the file; the cache takes the row it wrote
+ * - One todo's sets run one at a time, in the order made, each over the
  *   file the last one wrote, so a checkbox never undoes a title, and they
  *   run while the window is hidden
  * - A change another page made reaches the cache through the folder's
- *   change channel, and an update keeps it: the update sets only its fields
- * - An update over a file changed elsewhere keeps every field it did not set
- * - An update that fails is reported and writes nothing; the folder refuses
+ *   change channel, and a set keeps it: the set changes only its fields
+ * - A set over a file changed elsewhere keeps every field it did not set
+ * - A set that fails is reported and writes nothing; the folder refuses
  *   a value it cannot hold the same way
  * - A row that is not a valid todo is named for repair, and reads as a todo
  *   once another editor fixes it
  * - Delete runs after running saves and acts on what the last one saved; a
- *   file changed elsewhere since the listing read it is refused
+ *   version other than the one the cache holds is refused
  * - Git status names a file with changes in no saved version; saves never
  *   commit, and Save version records one
  * - Close waits for every mutation, and every close call shares one
@@ -157,21 +157,22 @@ async function writeElsewhere(todos: Todos, path: string, content: string) {
 /** Add a todo through the app; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
 	const created = expectOk(await todos.rows.create(title));
+	if (created === null) throw new Error(`${title} was not added as a todo`);
 	await quiet(todos);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	return { stem, path: created.path };
 }
 
-/** A title box's update. */
+/** A title box's change. */
 const titled = (title: string) => ({ title });
-/** A checkbox's update. */
+/** A checkbox's change. */
 const marked = (done: boolean) => ({ done });
 
 // ============================================================================
 // Edits and saves
 // ============================================================================
 
-test('an update is written to the file; the cache takes the row it wrote', async () => {
+test('a field set is written to the file; the cache takes the row it wrote', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 
@@ -185,7 +186,7 @@ test('an update is written to the file; the cache takes the row it wrote', async
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 });
 
-test("one todo's updates run one at a time in the order made, so a checkbox does not undo a title", async () => {
+test("one todo's sets run one at a time in the order made, so a checkbox does not undo a title", async () => {
 	const { todos, counter, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const title = rowEditor(todos, stem);
@@ -196,7 +197,7 @@ test("one todo's updates run one at a time in the order made, so a checkbox does
 	void title(titled('Oat milk'));
 	await held;
 	void done(marked(true));
-	// The checkbox's update waits for the title's to land.
+	// The checkbox's set waits for the title's to land.
 	expect(todos.queryClient.isMutating()).toBe(2);
 	expect(counter.mdWrites - writes).toBe(1);
 
@@ -223,7 +224,7 @@ function hideWindow() {
 	};
 }
 
-test('an update waiting for the one before still runs while the window is hidden', async () => {
+test('a set waiting for the one before still runs while the window is hidden', async () => {
 	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const { held, release } = holdNextWrite();
@@ -242,7 +243,7 @@ test('an update waiting for the one before still runs while the window is hidden
 	expect(failures).toEqual([]);
 });
 
-test("another page's change reaches the cache through the folder's channel, and an update keeps it", async () => {
+test("another page's change reaches the cache through the folder's channel, and a set keeps it", async () => {
 	const { todos, failures, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const other = await otherPage();
@@ -251,7 +252,7 @@ test("another page's change reaches the cache through the folder's channel, and 
 	// without a focus.
 	const theirs = expectOk(await other.tables.todos.get(stem))!;
 	expectOk(
-		await other.tables.todos.save(theirs, {
+		await other.tables.todos.write(stem, theirs.row, {
 			fields: { ...theirs.row.fields, done: true },
 			body: 'From the shop.\n',
 		}),
@@ -272,7 +273,7 @@ test("another page's change reaches the cache through the folder's channel, and 
 	);
 });
 
-test('an update over a file changed elsewhere sets only its own field', async () => {
+test('a set over a file changed elsewhere sets only its own field', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	// The cache still holds the version from before this change.
@@ -282,7 +283,7 @@ test('an update over a file changed elsewhere sets only its own field', async ()
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
 	expect(failures).toEqual([]);
-	// Both changed the title: the update wins. Only the other side marked it
+	// Both changed the title: the set wins. Only the other side marked it
 	// done, so that stays.
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: true\n---\n',
@@ -293,7 +294,7 @@ test('an update over a file changed elsewhere sets only its own field', async ()
 	});
 });
 
-test('an update that fails is reported and writes nothing; the next one sends', async () => {
+test('a set that fails is reported and writes nothing; the next one sends', async () => {
 	const { todos, failures, failNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
@@ -368,24 +369,10 @@ test('a row that is not a valid todo is named for repair, and reads as a todo on
 // Delete
 // ============================================================================
 
-test('delete uses the hash the listing read: a file changed elsewhere since is refused', async () => {
+test('a file that does not read as a todo is deleted as the listing read it', async () => {
 	const { todos } = await open();
-	const { stem, path } = await addTodo(todos, 'Milk');
-	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
-	expect(
-		expectErr(await todos.rows.remove(stem, shown(todos, stem))).name,
-	).toBe('Conflict');
-	expect(await text(todos, path)).toContain('title: Theirs');
-
-	// A file that does not read as a todo is guarded by its listed hash too.
 	await breakTodo(todos, 'bad', 'not a todo');
-	await writeElsewhere(todos, 'todos/bad.md', 'changed elsewhere');
-	expect(
-		expectErr(await todos.rows.remove('bad', shown(todos, 'bad'))).name,
-	).toBe('Conflict');
-	await todos.refresh();
-	await quiet(todos);
-	expectOk(await todos.rows.remove('bad', shown(todos, 'bad')));
+	expectOk(await todos.rows.delete('bad', shown(todos, 'bad')));
 	expect(await text(todos, 'todos/bad.md')).toBeUndefined();
 });
 
@@ -401,7 +388,7 @@ test('a delete runs after running saves and removes only the Markdown file', asy
 	release();
 	const version = await confirming;
 	expect(await text(todos, path)).toContain('title: Oat milk\n');
-	expectOk(await todos.rows.remove(stem, version!));
+	expectOk(await todos.rows.delete(stem, version!));
 	await quiet(todos);
 	expect(await text(todos, path)).toBeUndefined();
 	expect(todosOf(listing(todos))).toEqual([]);
@@ -418,7 +405,7 @@ test('a delete confirmed on a version changed elsewhere since, and read again, d
 	await quiet(todos);
 	expect(cached(todos, stem).row.fields.title).toBe('Theirs');
 
-	expect(expectErr(await todos.rows.remove(stem, confirmedOn))).toMatchObject({
+	expect(expectErr(await todos.rows.delete(stem, confirmedOn))).toMatchObject({
 		name: 'NotStarted',
 	});
 	expect(await text(todos, path)).toContain('title: Theirs');
@@ -437,10 +424,10 @@ test("the version a delete confirms is the one the app's running save wrote, nev
 	expect(version?.sha256).not.toBe(before.sha256);
 	expect(version?.sha256).toBe(cached(todos, stem).sha256);
 	// A version from before the app's own save is no longer what the file holds.
-	expect(expectErr(await todos.rows.remove(stem, before)).name).toBe(
+	expect(expectErr(await todos.rows.delete(stem, before)).name).toBe(
 		'NotStarted',
 	);
-	expectOk(await todos.rows.remove(stem, version!));
+	expectOk(await todos.rows.delete(stem, version!));
 	expect(await text(todos, path)).toBeUndefined();
 });
 
@@ -449,7 +436,7 @@ test('a delete of a todo the cache no longer holds is refused without reading th
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const confirmedOn = shown(todos, stem);
 	todos.queryClient.setQueryData(todos.rows.todos.queryKey, []);
-	expect(expectErr(await todos.rows.remove(stem, confirmedOn))).toMatchObject({
+	expect(expectErr(await todos.rows.delete(stem, confirmedOn))).toMatchObject({
 		name: 'NotStarted',
 	});
 	expect(await text(todos, path)).toContain('title: Milk');
@@ -526,7 +513,7 @@ test('an edit made while close waits is written before the folder closes', async
 	void set(titled('Oat'));
 	await held;
 	const closing = todos.close();
-	// Close is waiting for the held update; this one runs after it.
+	// Close is waiting for the held set; this one runs after it.
 	void set(titled('Oat milk'));
 	release();
 	await closing;
