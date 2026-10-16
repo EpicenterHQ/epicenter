@@ -1,6 +1,9 @@
 # tauri-plugin-epicenter-recorder
 
-The desktop shell's microphone recorder. A recording is a WAV in the folder
+The desktop shell's microphone. It lists the inputs, reads one's level, and
+records: a page in the shell opens no microphone of its own
+([ADR-0571](../../docs/adr/0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md)).
+A recording is a WAV in the folder
 the recording window was granted, written from the first sample
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
 `start` creates `<path>.wav` and appends mono PCM16 as the microphone
@@ -16,7 +19,9 @@ inside a desktop app (or `@epicenter/recorder/tauri`).
 | --- | --- |
 | `src/recorder.rs` | The CPAL and `hound` pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that appends to the WAV, updates its header about once a second, and sends the level. One recording at a time, owned by the window that started it. |
 | `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length. |
-| `src/commands.rs` | `start`, `stop`, `cancel`, and `recover`. |
+| `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
+| `src/permission.rs` | Microphone access through AVFoundation, asked before any microphone opens. |
+| `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, `stop`, `cancel`, and `recover`. |
 | `src/ended.rs`, `src/error.rs` | Why a capture ended on its own, and the refusals a page switches on by `name`. |
 | `../recorder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/recorder`. Do not edit. |
 
@@ -47,11 +52,17 @@ the channel the page passes to `start`.
 
 ## Commands
 
-A page names a folder scope and a folder-relative path, never a root.
+A page names a microphone by the id `inputs` answers, cpal's `DeviceId` as
+text (`coreaudio:<device UID>` on macOS), which stays the same across
+launches and reconnections. To record, it names a folder scope and a
+folder-relative path, never a root.
 
 | Command | What it does |
 | --- | --- |
-| `start(scope, path, device, signals)` | Records into `<path>.wav` in the folder this window was granted for `scope`, from the microphone named `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
+| `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
+| `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
+| `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
+| `start(scope, path, device, signals)` | Records into `<path>.wav` in the folder this window was granted for `scope`, from the microphone with id `device` or the system default. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV and answers its path and length. Only the window that started it may stop it. |
 | `cancel(id)` | Deletes the WAV. Only the window that started it may cancel it. |
 | `recover(scope, under)` | Rewrites the header of every `.wav` under `under` whose sizes disagree with its length, leaving the recording still being written alone. Answers the paths it rewrote; a second run rewrites none. |
@@ -61,8 +72,9 @@ A page names a folder scope and a folder-relative path, never a root.
 - `Refused`: the window was not granted `scope`, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
   plugin's core, no link on the way), or a file is already at `<path>.wav`.
-- `InputUnavailable`: no microphone has the name `device`. Another is never
-  opened in its place.
+- `PermissionDenied`: macOS does not allow Epicenter the microphone.
+- `InputUnavailable`: no microphone with the id `device` is connected.
+  Another is never opened in its place. `open_meter` refuses the same way.
 - `Busy`: another recording holds the host's one recorder.
 
 `signals` carries `{ kind: 'level', level }` about twenty times a second, and
@@ -100,4 +112,11 @@ cargo test -- --ignored          # opens the physical default microphone for a s
 ```
 
 No test but the ignored one opens a microphone: every refusal the commands
-make happens before the device is resolved.
+make happens before a stream is built, and a meter's lifecycle is driven with
+a stand-in worker.
+
+Microphone access is the plugin's own (`src/permission.rs`): `open_meter` and
+`start` ask macOS before they resolve a device, for every caller. A person not
+yet asked sees the system prompt; a denial is `PermissionDenied` and nothing
+opens. `inputs` asks for nothing. A meter or a recording counts as an open
+microphone for `on_capturing`.

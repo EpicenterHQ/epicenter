@@ -30,9 +30,11 @@ export type RecordingFolder = {
 	};
 };
 
-/** A microphone the person chose. The browser asks for its ID; the desktop for its name. */
+/** A microphone the person chose, asked for by its ID. */
 export type RecordingInput = {
+	/** The ID the browser lists it under, or on the desktop the ID the shell lists it under (`listInputs`). */
 	readonly deviceId: string;
+	/** Its name, for a refusal that says which microphone is not connected. */
 	readonly label: string;
 };
 

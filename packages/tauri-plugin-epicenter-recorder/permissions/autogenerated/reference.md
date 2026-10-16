@@ -1,9 +1,12 @@
 ## Default Permission
 
-Record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.
+List the microphones and read one's level, record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.
 
 #### This default permission set includes the following:
 
+- `allow-inputs`
+- `allow-open-meter`
+- `allow-close-meter`
 - `allow-start`
 - `allow-stop`
 - `allow-cancel`
@@ -40,6 +43,84 @@ Enables the cancel command without any pre-configured scope.
 <td>
 
 Denies the cancel command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:allow-close-meter`
+
+</td>
+<td>
+
+Enables the close_meter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:deny-close-meter`
+
+</td>
+<td>
+
+Denies the close_meter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:allow-inputs`
+
+</td>
+<td>
+
+Enables the inputs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:deny-inputs`
+
+</td>
+<td>
+
+Denies the inputs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:allow-open-meter`
+
+</td>
+<td>
+
+Enables the open_meter command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:deny-open-meter`
+
+</td>
+<td>
+
+Denies the open_meter command without any pre-configured scope.
 
 </td>
 </tr>

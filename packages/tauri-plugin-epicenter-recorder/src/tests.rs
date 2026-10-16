@@ -7,6 +7,12 @@
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
+//! - `inputs` lists without opening anything; a meter or a recording asks for
+//!   a microphone by that id, and an id that is not connected is refused.
+//! - A meter is closed only by its window, and with its page, and counts as
+//!   an open microphone while it is open.
+//! - Without microphone access no meter or recording resolves a device;
+//!   listing asks for nothing.
 //! - `start` records only into a folder the window was granted, at a data path
 //!   the shared path rule accepts, with nothing at it yet.
 //! - `stop` and `cancel` reach only a recording the window started.
@@ -24,7 +30,7 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, Manager, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, ScopeConfig};
 
-use crate::{init, Recorders, COMMANDS};
+use crate::{init, Builder, Recorders, COMMANDS};
 
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -92,13 +98,18 @@ fn context() -> tauri::Context<MockRuntime> {
 
 /// An app with both plugins, and the scope `notes` registered for `main`.
 fn fixture() -> Fixture {
+    fixture_with_access(|| Ok(()))
+}
+
+/// The fixture, with microphone access answered by `access`.
+fn fixture_with_access(access: fn() -> crate::recorder::Result<()>) -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(directory.path())
         .unwrap()
         .join("notes");
     let app = mock_builder()
         .plugin(tauri_plugin_epicenter_folder::init())
-        .plugin(init())
+        .plugin(Builder::new().access(access).build())
         .build(context())
         .expect("mock app");
     app.folders()
@@ -166,6 +177,162 @@ fn start(window: &WebviewWindow<MockRuntime>, scope: &str, path: &str) -> Result
 
 fn name(refusal: &Value) -> &str {
     refusal["name"].as_str().unwrap_or_default()
+}
+
+#[test]
+fn inputs_answers_each_microphone_with_an_id_and_at_most_one_default() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let listed = invoke(&main, "inputs", json!({})).unwrap();
+    let inputs = listed.as_array().expect("a list");
+    for input in inputs {
+        assert!(
+            input["id"].as_str().is_some_and(|id| !id.is_empty()),
+            "{input}"
+        );
+        assert!(input["name"].is_string(), "{input}");
+    }
+    let defaults = inputs
+        .iter()
+        .filter(|input| input["isDefault"] == json!(true))
+        .count();
+    assert!(defaults <= 1, "{listed}");
+}
+
+#[test]
+fn a_microphone_that_is_not_connected_is_refused_not_replaced() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    grant(&main);
+    for device in ["coreaudio:no-such-device", "not an id"] {
+        let refused = invoke(
+            &main,
+            "open_meter",
+            json!({ "device": device, "levels": "__CHANNEL__:1" }),
+        )
+        .unwrap_err();
+        assert_eq!(name(&refused), "InputUnavailable", "{device}: {refused}");
+        let refused = invoke(
+            &main,
+            "start",
+            json!({ "scope": "notes", "path": "recordings/a", "device": device, "signals": "__CHANNEL__:1" }),
+        )
+        .unwrap_err();
+        assert_eq!(name(&refused), "InputUnavailable", "{device}: {refused}");
+    }
+    assert_eq!(
+        fixture
+            .app
+            .state::<Recorders<MockRuntime>>()
+            .lock()
+            .open_meters(),
+        0
+    );
+    assert!(!fixture.root.join("recordings/a.wav").exists());
+}
+
+#[test]
+fn a_meter_is_closed_by_its_window_or_with_its_page() {
+    let fixture = fixture();
+    let main = window(&fixture.app, "main");
+    let other = window(&fixture.app, "other");
+    let recorders = fixture.app.state::<Recorders<MockRuntime>>();
+    let refused = invoke(&main, "close_meter", json!({ "id": "1" })).unwrap_err();
+    assert_eq!(name(&refused), "NotRecording", "{refused}");
+
+    let page = recorders.lock().page("main");
+    let first = "m1";
+    recorders
+        .lock()
+        .add_meter(first, page, "main", crate::meter::Meter::stand_in())
+        .unwrap();
+    assert!(
+        recorders.lock().is_capturing(),
+        "an open meter is an open microphone"
+    );
+    let refused = invoke(&other, "close_meter", json!({ "id": first })).unwrap_err();
+    assert_eq!(name(&refused), "NotRecording", "{refused}");
+    assert_eq!(
+        invoke(&main, "close_meter", json!({ "id": first })).unwrap(),
+        Value::Null
+    );
+    assert_eq!(recorders.lock().open_meters(), 0);
+    assert!(!recorders.lock().is_capturing());
+
+    recorders
+        .lock()
+        .add_meter("m2", page, "main", crate::meter::Meter::stand_in())
+        .unwrap();
+    crate::page_ended(fixture.app.handle(), "other");
+    assert_eq!(recorders.lock().open_meters(), 1);
+    crate::page_ended(fixture.app.handle(), "main");
+    assert_eq!(recorders.lock().open_meters(), 0);
+
+    // A meter that finished opening after its page left is closed, not kept.
+    let refused = recorders
+        .lock()
+        .add_meter("m3", page, "main", crate::meter::Meter::stand_in())
+        .unwrap_err();
+    assert!(
+        matches!(refused, crate::RecorderError::NotRecording { .. }),
+        "{refused:?}"
+    );
+    // So is one whose microphone stopped before it could be kept.
+    let page = recorders.lock().page("main");
+    let refused = recorders
+        .lock()
+        .add_meter("m4", page, "main", crate::meter::Meter::stand_in_gone())
+        .unwrap_err();
+    assert!(
+        matches!(refused, crate::RecorderError::Failed { .. }),
+        "{refused:?}"
+    );
+    assert_eq!(recorders.lock().open_meters(), 0);
+    assert!(!recorders.lock().is_capturing());
+}
+
+#[test]
+fn a_meter_that_stopped_on_its_own_is_dropped_and_no_longer_counts_as_open() {
+    let fixture = fixture();
+    let recorders = fixture.app.state::<Recorders<MockRuntime>>();
+    let page = recorders.lock().page("main");
+    recorders
+        .lock()
+        .add_meter("m1", page, "main", crate::meter::Meter::stand_in())
+        .unwrap();
+    assert!(recorders.lock().remove_meter("m1"));
+    assert!(!recorders.lock().remove_meter("m1"));
+    assert!(!recorders.lock().is_capturing());
+}
+
+#[test]
+fn without_microphone_access_no_meter_or_recording_resolves_a_device() {
+    let fixture = fixture_with_access(|| {
+        Err(crate::RecorderError::PermissionDenied {
+            message: "denied".to_string(),
+        })
+    });
+    let main = window(&fixture.app, "main");
+    grant(&main);
+    // An id that is not connected would be `InputUnavailable` if the device
+    // were resolved; the denial comes first.
+    let refused = invoke(
+        &main,
+        "open_meter",
+        json!({ "device": "not an id", "levels": "__CHANNEL__:1" }),
+    )
+    .unwrap_err();
+    assert_eq!(name(&refused), "PermissionDenied", "{refused}");
+    let refused = invoke(
+        &main,
+        "start",
+        json!({ "scope": "notes", "path": "recordings/a", "device": "not an id", "signals": "__CHANNEL__:1" }),
+    )
+    .unwrap_err();
+    assert_eq!(name(&refused), "PermissionDenied", "{refused}");
+    assert!(!fixture.root.join("recordings/a.wav").exists());
+    // Listing asks for nothing.
+    assert!(invoke(&main, "inputs", json!({})).is_ok());
 }
 
 #[test]

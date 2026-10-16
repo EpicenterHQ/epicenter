@@ -5,12 +5,27 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
+	 *  The microphones connected now, each with the id to ask for it by. Opens
+	 *  nothing.
+	 */
+	inputs: () => typedError<Input[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|inputs")),
+	/**
+	 *  Open the microphone whose id is `device`, or the system default, to send
+	 *  its level on `levels` until `close_meter`, or until this window's page
+	 *  reloads or the window is destroyed. Nothing is recorded. Microphone access
+	 *  is asked for first, and a denial opens nothing.
+	 */
+	openMeter: (device: string | null, levels: Channel<RecordingSignal>) => typedError<OpenedMeter, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|open_meter", { device, levels })),
+	/**  Close the meter `id` this window opened, releasing its microphone. */
+	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
+	/**
 	 *  Start recording into `<path>.wav` in the folder this window was granted for
-	 *  `scope`, from the microphone named `device` or the system default. Levels,
+	 *  `scope`, from the microphone whose id is `device` or the system default. Levels,
 	 *  and an ending nobody asked for, arrive on `signals`.
 	 *
 	 *  The path must be a data path the shared path rule accepts, with nothing at
-	 *  it yet; missing directories on the way are made. A refusal opens nothing.
+	 *  it yet; missing directories on the way are made. Microphone access is
+	 *  asked for before the device is resolved. A refusal opens nothing.
 	 */
 	start: (scope: string, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { scope, path, device, signals })),
 	/**  Stop the recording `id` this window started and finalize its file. */
@@ -67,6 +82,25 @@ export type EndedReason =
  *  finer split would be a decorative name on a message string.
  */
 "storageFailed";
+
+/**
+ *  A microphone the page can choose: the id to ask for it by, the name it gives
+ *  itself, and whether the system uses it by default.
+ */
+export type Input = {
+	id: string,
+	name: string,
+	isDefault: boolean,
+};
+
+/**
+ *  What `open_meter` answers: the id to close it by, and the name of the
+ *  microphone it opened.
+ */
+export type OpenedMeter = {
+	id: string,
+	device: string,
+};
 
 export type RecorderError =
 /**

@@ -29,6 +29,12 @@ tauri = "2.12"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 thiserror = "2.0.12"
 
+# Microphone access: `permission.rs` reads and requests it through AVFoundation.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6"
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+
 [dev-dependencies]
 tempfile = "3.8"
 # The mock runtime drives the real invoke handler in tests. Test builds only.

@@ -6,7 +6,12 @@
  * they are called, not when this module is imported, and load only the
  * implementation they chose: the desktop shell's recorder inside a desktop
  * app, `MediaRecorder` in a browser tab. To build for one environment, import
- * `@epicenter/recorder/tauri` or `@epicenter/recorder/browser`.
+ * `@epicenter/recorder/tauri` or `@epicenter/recorder/browser`. Only the
+ * desktop entry lists inputs and reads a level through the shell
+ * (`listInputs`, `openMeter`); a desktop page opens no microphone of its own.
+ *
+ * The streams and voice activity detection here are the browser's: they call
+ * `getUserMedia`, so a desktop build must not import this entry.
  */
 import { isTauri } from '@tauri-apps/api/core';
 import type { RecoverRecordings, StartRecording } from './recording.js';
@@ -14,12 +19,10 @@ import type { RecoverRecordings, StartRecording } from './recording.js';
 export {
 	cleanupRecordingStream,
 	DeviceStreamError,
-	enumerateDevices,
 	getRecordingStream,
 } from './device-stream';
 export {
 	asDeviceIdentifier,
-	type Device,
 	type DeviceAcquisitionOutcome,
 	type DeviceIdentifier,
 } from './devices';

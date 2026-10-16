@@ -52,24 +52,6 @@ export type DeviceAcquisitionOutcome =
 export type DeviceIdentifier = string & Brand<'DeviceIdentifier'>;
 
 /**
- * Represents an audio recording device with both a unique identifier and human-readable label.
- *
- * `id` is the unique `deviceId` from `MediaDeviceInfo`; `label` is the
- * human-readable device label. Browsers may hide labels until microphone
- * permission has been granted.
- *
- * @example
- * const device: Device = {
- *   id: "8a7b9c..." as DeviceIdentifier,
- *   label: "Blue Yeti USB Microphone"
- * };
- */
-export type Device = {
-	id: DeviceIdentifier;
-	label: string;
-};
-
-/**
  * Cast a string to the branded `DeviceIdentifier` type. Use this when adopting
  * device identifiers from external sources, such as settings or the Navigator
  * API.

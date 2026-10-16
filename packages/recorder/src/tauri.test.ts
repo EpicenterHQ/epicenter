@@ -3,7 +3,11 @@
  *
  * Key behaviors:
  * - `start` names the folder's scope, the path, and the chosen microphone by
- *   name, and passes the channel levels and endings arrive on
+ *   the ID the shell listed it under, and passes the channel levels and
+ *   endings arrive on
+ * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
+ *   hears its levels, and closes it, and a meter withdrawn while opening is
+ *   closed
  * - `stop` and `cancel` name the recording the shell minted, and stop hearing
  *   the channel
  * - The shell's refusals arrive as this package's errors, by name
@@ -32,7 +36,8 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const { startRecording, recoverRecordings } = await import('./tauri.js');
+const { listInputs, openMeter, startRecording, recoverRecordings } =
+	await import('./tauri.js');
 
 const folder: RecordingFolder = {
 	id: 'so.epicenter.whispering',
@@ -64,7 +69,7 @@ test('a recording starts in the granted folder and stops by the id the shell min
 		await startRecording({
 			folder,
 			path: 'recordings/a',
-			input: { deviceId: 'webview-id', label: 'Desk Microphone' },
+			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
 		}),
 	);
 	expect(recording.path).toBe('recordings/a.wav');
@@ -74,7 +79,7 @@ test('a recording starts in the granted folder and stops by the id the shell min
 	expect(start?.args).toMatchObject({
 		scope: 'so.epicenter.whispering',
 		path: 'recordings/a',
-		device: 'Desk Microphone',
+		device: 'coreaudio:desk-uid',
 	});
 
 	const channel = start?.args.signals as FakeChannel<unknown>;
@@ -194,4 +199,64 @@ test('a reply that is none of the shell’s refusals is a failure, not an answer
 		name: 'Failed',
 		cause: 'no such command plugin:epicenter-recorder|recover',
 	});
+});
+
+test('the inputs are the shell’s, each with the ID to ask for it by', async () => {
+	const inputs = [
+		{ id: 'coreaudio:desk-uid', name: 'Desk Microphone', isDefault: true },
+	];
+	answer = () => inputs;
+	expect(expectOk(await listInputs())).toEqual(inputs);
+	expect(calls).toEqual([
+		{ cmd: 'plugin:epicenter-recorder|inputs', args: {} },
+	]);
+});
+
+test('a meter opens the chosen microphone by ID, hears its level, and closes', async () => {
+	answer = ({ cmd }) =>
+		cmd === 'plugin:epicenter-recorder|open_meter'
+			? { id: '9', device: 'Desk Microphone' }
+			: null;
+	const meter = expectOk(
+		await openMeter({
+			input: { deviceId: 'coreaudio:desk-uid', label: 'Desk Microphone' },
+		}),
+	);
+	expect(meter.device).toBe('Desk Microphone');
+	const [open] = calls;
+	expect(open?.args.device).toBe('coreaudio:desk-uid');
+	const channel = open?.args.levels as FakeChannel<unknown>;
+	const levels: number[] = [];
+	meter.onLevel((level) => levels.push(level));
+	channel.onmessage({ kind: 'level', level: 0.5 });
+	await meter.close();
+	channel.onmessage({ kind: 'level', level: 0.9 });
+	expect(levels).toEqual([0.5]);
+	expect(calls.at(-1)).toEqual({
+		cmd: 'plugin:epicenter-recorder|close_meter',
+		args: { id: '9' },
+	});
+});
+
+test('a meter withdrawn while the shell opened it is closed, and a refusal arrives by name', async () => {
+	const controller = new AbortController();
+	answer = ({ cmd }) => {
+		if (cmd !== 'plugin:epicenter-recorder|open_meter') return null;
+		controller.abort();
+		return { id: '9', device: 'Desk Microphone' };
+	};
+	expect(expectErr(await openMeter({ signal: controller.signal })).name).toBe(
+		'Cancelled',
+	);
+	expect(calls.map(({ cmd }) => cmd)).toEqual([
+		'plugin:epicenter-recorder|open_meter',
+		'plugin:epicenter-recorder|close_meter',
+	]);
+
+	answer = () => {
+		throw { name: 'InputUnavailable', message: 'gone' };
+	};
+	expect(
+		expectErr(await openMeter({ input: { deviceId: 'x', label: 'USB Mic' } })),
+	).toMatchObject({ name: 'InputUnavailable', label: 'USB Mic' });
 });

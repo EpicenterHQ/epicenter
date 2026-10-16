@@ -94,6 +94,7 @@ use tauri::ipc::Channel;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
+use crate::meter::Meter;
 
 /// Recorder result type. Errors cross the IPC boundary as the internally
 /// tagged `RecorderError` enum (`{ name, message }`) so the JS side switches
@@ -179,6 +180,47 @@ fn would_exceed_wav_limit(written_samples: u32, samples: usize) -> bool {
 /// high-frequency messages). Levels between sends are averaged, not dropped, so
 /// a brief loud transient still registers.
 const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
+
+/// The microphone's loudness since the last level was sent: the root mean
+/// square of every sample in between, so a brief loud transient still
+/// registers. A recording and a meter both send it, at most once per
+/// [`MIC_LEVEL_EMIT_INTERVAL`].
+pub(crate) struct Level {
+    sum_of_squares: f64,
+    samples: usize,
+    last_sent: Instant,
+}
+
+impl Level {
+    pub(crate) fn new() -> Self {
+        Self {
+            sum_of_squares: 0.0,
+            samples: 0,
+            last_sent: Instant::now(),
+        }
+    }
+
+    pub(crate) fn add(&mut self, samples: &[i16]) {
+        for &sample in samples {
+            let normalized = sample as f64 / 32_768.0;
+            self.sum_of_squares += normalized * normalized;
+        }
+        self.samples += samples.len();
+    }
+
+    /// The level to send at `now`, from 0 to 1, if one is due and anything
+    /// was heard since the last; taking it starts the next interval.
+    pub(crate) fn take(&mut self, now: Instant) -> Option<f32> {
+        if self.samples == 0 || now.duration_since(self.last_sent) < MIC_LEVEL_EMIT_INTERVAL {
+            return None;
+        }
+        let rms = (self.sum_of_squares / self.samples as f64).sqrt() as f32;
+        self.sum_of_squares = 0.0;
+        self.samples = 0;
+        self.last_sent = now;
+        Some(rms)
+    }
+}
 
 /// Worker-thread command channel.
 ///
@@ -471,11 +513,20 @@ pub struct Recorder {
     /// How many pages each window has shown, so a `start` a departed page
     /// sent is refused rather than recording for a page that cannot stop it.
     pages: HashMap<String, u64>,
+    /// Open meters by id, each with the label of the window that opened it.
+    /// Any number may be open, beside a recording or not: a meter holds no
+    /// slot and writes nothing.
+    meters: HashMap<String, (String, Meter)>,
 }
 
 /// Ids are unique for the life of the process, so a stale `stop` never names
 /// a later recording.
 static NEXT_RECORDING: AtomicU64 = AtomicU64::new(1);
+
+/// A fresh id for a recording or a meter.
+pub(crate) fn next_id() -> String {
+    NEXT_RECORDING.fetch_add(1, Ordering::Relaxed).to_string()
+}
 
 impl Recorder {
     pub fn new() -> Self {
@@ -491,9 +542,66 @@ impl Recorder {
     /// The page `owner` showed is gone, by a reload or because the window
     /// closed: finalize what it was recording, which nobody can stop now, and
     /// count the next page.
-    pub fn page_ended(&mut self, owner: &str) -> Option<FinishedRecording> {
+    /// Also answers whether it closed any meter, which changes whether a
+    /// microphone is open.
+    pub fn page_ended(&mut self, owner: &str) -> (Option<FinishedRecording>, bool) {
         *self.pages.entry(owner.to_string()).or_default() += 1;
-        self.finish_owned_by(owner)
+        let meters = self.meters.len();
+        self.meters
+            .retain(|_, (meter_owner, _)| meter_owner != owner);
+        let meters_closed = self.meters.len() != meters;
+        (self.finish_owned_by(owner), meters_closed)
+    }
+
+    /// Keep the meter `id` that `owner` opened while it showed page `page`. A
+    /// meter whose page has gone since, or whose stream already stopped, is
+    /// closed at once and refused, since nothing is left to close it.
+    pub(crate) fn add_meter(
+        &mut self,
+        id: &str,
+        page: u64,
+        owner: &str,
+        meter: Meter,
+    ) -> Result<()> {
+        if self.page(owner) != page {
+            return Err(RecorderError::not_recording(
+                "the page that asked for a meter has gone",
+            ));
+        }
+        if meter.is_gone() {
+            return Err(RecorderError::failed(
+                "the meter's microphone stopped as it opened",
+            ));
+        }
+        self.meters
+            .insert(id.to_string(), (owner.to_string(), meter));
+        Ok(())
+    }
+
+    /// Drop the meter `id`, whose worker stopped on its own, answering whether
+    /// it was held.
+    pub(crate) fn remove_meter(&mut self, id: &str) -> bool {
+        self.meters.remove(id).is_some()
+    }
+
+    /// Close the meter `id`, releasing its microphone. Restricted to the window
+    /// that opened it.
+    pub fn close_meter(&mut self, id: &str, caller_label: &str) -> Result<()> {
+        match self.meters.get(id) {
+            Some((owner, _)) if owner == caller_label => {
+                self.meters.remove(id);
+                Ok(())
+            }
+            _ => Err(RecorderError::not_recording(format!(
+                "this window has no open meter '{id}'"
+            ))),
+        }
+    }
+
+    /// How many meters are open, for tests.
+    #[cfg(test)]
+    pub(crate) fn open_meters(&self) -> usize {
+        self.meters.len()
     }
 
     /// Create the recording's file, open the input stream, and begin
@@ -506,7 +614,7 @@ impl Recorder {
     /// finalizing it to make room would take that decision away.
     ///
     /// The device is resolved here rather than by the caller. `requested_device`
-    /// is the name of the microphone the person chose; when none by that name
+    /// is the id of the microphone the person chose; when none with that id
     /// is connected this refuses with [`RecorderError::InputUnavailable`]
     /// rather than opening another, because recording from a microphone the
     /// person did not choose is not what they asked for. `None` is the system
@@ -561,7 +669,7 @@ impl Recorder {
             })?;
         let capture = CaptureFile::open(target.clone(), file, device_rate)?;
 
-        let id = NEXT_RECORDING.fetch_add(1, Ordering::Relaxed).to_string();
+        let id = next_id();
         let (sample_tx, sample_rx) = mpsc::sync_channel::<Vec<i16>>(CAPTURE_QUEUE_CHUNKS);
         let (cmd_tx, cmd_rx) = mpsc::channel::<RecorderCmd>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<()>>();
@@ -750,15 +858,18 @@ impl Recorder {
         }
     }
 
-    /// Whether a microphone is open right now, for the host's tray indicator.
+    /// Whether a microphone is open right now, by the recording or a meter,
+    /// for the host's tray indicator.
     ///
     /// Deliberately not "is the slot occupied". A recording whose capture died
     /// still holds the slot, but nothing is being captured, and a tray that kept
     /// claiming otherwise would be lying about the microphone.
     pub fn is_capturing(&self) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| active.ended_reason.is_none())
+        !self.meters.is_empty()
+            || self
+                .active
+                .as_ref()
+                .is_some_and(|active| active.ended_reason.is_none())
     }
 
     /// The file of the held recording, which `recover` must not rewrite.
@@ -918,10 +1029,7 @@ fn run_capture<S>(
         on_ended,
     } = context;
 
-    // Mic-level metering accumulators, averaged and flushed on an interval.
-    let mut level_sumsq = 0f64;
-    let mut level_count = 0usize;
-    let mut last_level_emit = Instant::now();
+    let mut level = Level::new();
     let mut last_drop_report = Instant::now();
     let mut last_header_update = Instant::now();
 
@@ -967,11 +1075,7 @@ fn run_capture<S>(
 
         match sample_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => {
-                for &sample in &samples {
-                    let normalized = sample as f64 / 32_768.0;
-                    level_sumsq += normalized * normalized;
-                }
-                level_count += samples.len();
+                level.add(&samples);
 
                 let written = capture.write(&samples).and_then(|()| {
                     if last_header_update.elapsed() < HEADER_UPDATE_INTERVAL {
@@ -1000,16 +1104,12 @@ fn run_capture<S>(
                     return CaptureOutcome::Unclaimed(capture);
                 }
 
-                if last_level_emit.elapsed() >= MIC_LEVEL_EMIT_INTERVAL && level_count > 0 {
-                    let rms = (level_sumsq / level_count as f64).sqrt() as f32;
+                if let Some(level) = level.take(Instant::now()) {
                     // Over the owner's own channel, never a broadcast: a level
                     // is about one page's recording, and every other window is
                     // entitled not to hear it. Not an error if the page is
                     // hidden or gone, and never fatal.
-                    let _ = signals.send(RecordingSignal::Level { level: rms });
-                    level_sumsq = 0.0;
-                    level_count = 0;
-                    last_level_emit = Instant::now();
+                    let _ = signals.send(RecordingSignal::Level { level });
                 }
             }
             Err(RecvTimeoutError::Timeout) => continue,
@@ -1140,15 +1240,18 @@ fn await_resolution(capture: CaptureFile, cmd_rx: &mpsc::Receiver<RecorderCmd>) 
     }
 }
 
-/// Resolve the microphone to record from: the one named `requested`, or the
-/// system default when none is named.
+/// Resolve the microphone to open: the one whose id is `requested`, or the
+/// system default when none is named. Answers it with its name.
 ///
-/// A named microphone that is not connected is refused, never replaced by the
-/// default. The page offers the inputs it can list and the person picked one;
-/// recording from another would put a different voice, or none, in the file
-/// they think holds theirs. The name is the one the device gives itself
-/// (`description().name()`), which is also how WebViews label inputs.
-fn resolve_device(host: &cpal::Host, requested: Option<&str>) -> Result<(Device, String)> {
+/// The id is the one [`list_inputs`] answers, cpal's `DeviceId` as text
+/// (`coreaudio:<device UID>` on macOS), which stays the same across launches,
+/// reconnections, and renames. A named microphone that is not connected is
+/// refused, never replaced by the default: recording from another would put a
+/// different voice, or none, in the file the person thinks holds theirs.
+pub(crate) fn resolve_device(
+    host: &cpal::Host,
+    requested: Option<&str>,
+) -> Result<(Device, String)> {
     let Some(requested) = requested else {
         let device = host.default_input_device().ok_or_else(|| {
             RecorderError::no_input_device("No microphone is available to record from")
@@ -1156,24 +1259,52 @@ fn resolve_device(host: &cpal::Host, requested: Option<&str>) -> Result<(Device,
         let name = device_name(&device)?;
         return Ok((device, name));
     };
-
-    let devices: Vec<_> = host
-        .input_devices()
-        .map_err(|e| RecorderError::classify_cpal("Failed to list input devices", e))?
-        .collect();
-    for device in devices {
-        if device.description().is_ok_and(|d| d.name() == requested) {
-            return Ok((device, requested.to_string()));
-        }
-    }
-    Err(RecorderError::InputUnavailable {
-        message: format!("The microphone “{requested}” is not connected"),
-    })
+    let device = requested
+        .parse::<cpal::DeviceId>()
+        .ok()
+        .and_then(|id| host.device_by_id(&id))
+        .ok_or_else(|| RecorderError::InputUnavailable {
+            message: format!("No microphone with the id “{requested}” is connected"),
+        })?;
+    let name = device_name(&device)?;
+    Ok((device, name))
 }
 
-/// The name a device calls itself, which is also the id every other layer uses
-/// to refer to it. A device that cannot describe itself cannot be persisted as
-/// a choice, so this refuses rather than inventing a placeholder.
+/// A microphone the page can choose: the id to ask for it by, the name it gives
+/// itself, and whether the system uses it by default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Input {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// The input devices connected now. Listing opens no stream, so it needs no
+/// microphone permission. A device that cannot say its id or name, which is
+/// one being disconnected as it is listed, is left out.
+pub(crate) fn list_inputs(host: &cpal::Host) -> Result<Vec<Input>> {
+    let default = host
+        .default_input_device()
+        .and_then(|device| device.id().ok());
+    let devices = host
+        .input_devices()
+        .map_err(|e| RecorderError::classify_cpal("Failed to list input devices", e))?;
+    Ok(devices
+        .filter_map(|device| {
+            let id = device.id().ok()?;
+            let name = device_name(&device).ok()?;
+            Some(Input {
+                is_default: default.as_ref() == Some(&id),
+                id: id.to_string(),
+                name,
+            })
+        })
+        .collect())
+}
+
+/// The name a device calls itself, which the page shows. A device that cannot
+/// describe itself is refused rather than given a placeholder.
 fn device_name(device: &Device) -> Result<String> {
     device
         .description()
@@ -1185,7 +1316,7 @@ fn device_name(device: &Device) -> Result<String> {
 ///
 /// Prefers mono at the host's 16 kHz target, falls back to stereo at that rate,
 /// then to the closest supported rate.
-fn get_optimal_config(device: &Device) -> Result<cpal::SupportedStreamConfig> {
+pub(crate) fn get_optimal_config(device: &Device) -> Result<cpal::SupportedStreamConfig> {
     let target_sample_rate = PREFERRED_CAPTURE_RATE;
 
     // A device that yields no input configs is unusable as an input, whether the
@@ -1285,9 +1416,9 @@ fn get_optimal_config(device: &Device) -> Result<cpal::SupportedStreamConfig> {
 ///
 /// One value rather than two parameters, because the counter is meaningless
 /// apart from the channel whose refusals it counts.
-struct ChunkSink {
-    sample_tx: mpsc::SyncSender<Vec<i16>>,
-    dropped_chunks: Arc<AtomicU32>,
+pub(crate) struct ChunkSink {
+    pub(crate) sample_tx: mpsc::SyncSender<Vec<i16>>,
+    pub(crate) dropped_chunks: Arc<AtomicU32>,
 }
 
 impl ChunkSink {
@@ -1335,7 +1466,7 @@ fn capture_error_handler(on_ended: OnEnded, id: String) -> impl Fn(cpal::Error) 
 
 /// Build the cpal input stream. The callback's only job is to downmix to mono
 /// PCM16 and hand the chunk off; the worker owns the file and everything else.
-fn build_input_stream(
+pub(crate) fn build_input_stream(
     device: &Device,
     config: cpal::StreamConfig,
     sample_format: SampleFormat,
@@ -1635,7 +1766,7 @@ pub(crate) mod tests {
         recording_owned_by(&mut recorder, &root, "1", "app-notes");
         let page = recorder.page("app-notes");
 
-        assert!(recorder.page_ended("whispering").is_none());
+        assert!(recorder.page_ended("whispering").0.is_none());
         assert!(
             recorder.is_capturing(),
             "another window's page leaving changes nothing"
@@ -1644,6 +1775,7 @@ pub(crate) mod tests {
 
         let finished = recorder
             .page_ended("app-notes")
+            .0
             .expect("the departed page's recording is finalized");
         assert_eq!(finished.duration_ms, 1_000);
         assert_eq!(samples_in(&root.path().join("1.wav")), TEST_RATE);
@@ -1931,6 +2063,23 @@ pub(crate) mod tests {
         assert!(capture.write(&tone(TEST_RATE, 1)).is_err());
         assert!(capture.finish().is_err());
         assert!(path.exists());
+    }
+
+    #[test]
+    fn a_level_is_the_rms_since_the_last_one_sent_at_most_every_interval() {
+        let mut level = Level::new();
+        let start = level.last_sent;
+        let later = start + MIC_LEVEL_EMIT_INTERVAL;
+        assert_eq!(level.take(later), None, "nothing heard, nothing sent");
+        level.add(&[16_384, -16_384]);
+        assert_eq!(level.take(start), None, "not due yet");
+        assert_eq!(level.take(later), Some(0.5));
+        level.add(&[0, 0]);
+        assert_eq!(
+            level.take(later + MIC_LEVEL_EMIT_INTERVAL),
+            Some(0.0),
+            "the next level counts only what came after the last"
+        );
     }
 
     #[test]
