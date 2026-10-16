@@ -28,18 +28,6 @@ import {
 } from './folder.js';
 import { withPublication } from './storage.js';
 
-/** One folder's captured address and every name derived from it. */
-export type FolderAddress = {
-	readonly address: string;
-	readonly directory: string;
-	/** Held while deciding whether the directory is the folder, and by a download throughout. */
-	readonly openLock: string;
-	readonly filesLock: string;
-	readonly gitLock: string;
-	/** The `BroadcastChannel` pages of this origin tell each other their writes on. */
-	readonly hintChannel: string;
-};
-
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
  * Started once the handle can hear; it calls `report` for each change it
@@ -73,15 +61,14 @@ const UNDECLARED = (() => {
  * `relay` hears each landed step, for the detector; `landed` hears the
  * paths an incoming update wrote.
  */
-export type StartFolder<THistory extends FolderHistory = FolderHistory> =
-	(wiring: {
-		readonly relay: (paths: readonly string[]) => void;
-		readonly landed: (paths: readonly string[]) => void;
-	}) => Promise<{
-		readonly boundary: FileBoundary;
-		/** The history, whose Sync merges rows by `definition`. */
-		readonly history: (definition: FolderDefinition) => THistory;
-	}>;
+type StartFolder<THistory extends FolderHistory = FolderHistory> = (wiring: {
+	readonly relay: (paths: readonly string[]) => void;
+	readonly landed: (paths: readonly string[]) => void;
+}) => Promise<{
+	readonly boundary: FileBoundary;
+	/** The history, whose Sync merges rows by `definition`. */
+	readonly history: (definition: FolderDefinition) => THistory;
+}>;
 
 export async function openAtRoot<
 	TDefinition extends FolderDefinition,
