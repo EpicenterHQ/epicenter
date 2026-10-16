@@ -3,7 +3,7 @@
 	"version": "0.1.1",
 	"private": true,
 	"type": "module",
-	"description": "Typed HTTP client for the Epicenter server (assets, blobs, AI chat). Composes on @epicenter/auth's AuthFetch.",
+	"description": "OpenAI-compatible inference client: agent engine, connection presets, and inference errors.",
 	"exports": {
 		".": "./src/index.ts"
 	},
