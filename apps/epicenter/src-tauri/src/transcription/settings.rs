@@ -75,31 +75,71 @@ pub enum SettingsError {
 /// made either survives a restart or fails loudly at the moment they made it.
 pub struct LocalTranscriptionSettings {
     path: PathBuf,
-    state: RwLock<Stored>,
+    state: RwLock<State>,
+}
+
+#[derive(Clone)]
+struct State {
+    stored: Stored,
+    /// The file exists but could not be read. It is left as it is, so whatever
+    /// it holds stays there to repair, and changes are refused until it reads
+    /// again or is removed (ADR-0503).
+    unreadable: bool,
+}
+
+/// What a settings file on disk holds.
+enum OnDisk {
+    Missing,
+    Read(Stored),
+    Unreadable(String),
+}
+
+fn read_file(path: &Path) -> OnDisk {
+    match std::fs::read_to_string(path) {
+        Ok(contents) => match serde_json::from_str(&contents) {
+            Ok(stored) => OnDisk::Read(stored),
+            Err(error) => OnDisk::Unreadable(error.to_string()),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => OnDisk::Missing,
+        Err(error) => OnDisk::Unreadable(error.to_string()),
+    }
 }
 
 impl LocalTranscriptionSettings {
     /// Load the settings file, falling back to the defaults (no active model,
-    /// default unload policy) when it is missing or unreadable. A corrupt file
-    /// is a warning, not a startup failure: the user re-picks in Home, and the
-    /// next successful write replaces it.
+    /// default unload policy) when it is missing or unreadable. An unreadable
+    /// file is a warning, not a startup failure, and it is never overwritten:
+    /// changes are refused, naming the file, until it is fixed or removed.
     pub fn load(path: PathBuf) -> Self {
-        let state = match std::fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|error| {
+        Self::load_or_adopt(path, None)
+    }
+
+    /// [`load`](Self::load), and when `path` holds no file, adopt the one an
+    /// earlier build kept at `previous`: its settings are copied to `path`, and
+    /// the old file is left where it is. An unreadable old file is left alone
+    /// too, and the settings start from the defaults.
+    pub fn load_or_adopt(path: PathBuf, previous: Option<&Path>) -> Self {
+        let state = match read_file(&path) {
+            OnDisk::Read(stored) => State {
+                stored,
+                unreadable: false,
+            },
+            OnDisk::Unreadable(error) => {
                 warn!(
-                    "[Transcription] unreadable settings at {}, starting from defaults: {error}",
+                    "[Transcription] cannot read settings at {}; leaving the file as it is and refusing changes until it is fixed or removed: {error}",
                     path.display()
                 );
-                Stored::default()
-            }),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Stored::default(),
-            Err(error) => {
-                warn!(
-                    "[Transcription] could not read settings at {}: {error}",
-                    path.display()
-                );
-                Stored::default()
+                State {
+                    stored: Stored::default(),
+                    unreadable: true,
+                }
             }
+            OnDisk::Missing => State {
+                stored: previous
+                    .map(|previous| adopt(&path, previous))
+                    .unwrap_or_default(),
+                unreadable: false,
+            },
         };
         Self {
             path,
@@ -110,7 +150,7 @@ impl LocalTranscriptionSettings {
     /// The active model's catalog id, or `None` when nobody has chosen one.
     /// Read at the point of use by every transcribe and prewarm.
     pub fn active_model_id(&self) -> Option<String> {
-        self.read().active_model_id
+        self.read().stored.active_model_id
     }
 
     /// Make `model_id` the active model, or clear the choice with `None`.
@@ -129,14 +169,14 @@ impl LocalTranscriptionSettings {
 
     /// When the host drops the resident model.
     pub fn unload_policy(&self) -> UnloadPolicy {
-        self.read().unload_policy
+        self.read().stored.unload_policy
     }
 
     pub fn set_unload_policy(&self, policy: UnloadPolicy) -> Result<(), SettingsError> {
         self.update(|stored| stored.unload_policy = policy)
     }
 
-    fn read(&self) -> Stored {
+    fn read(&self) -> State {
         self.state
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -151,9 +191,25 @@ impl LocalTranscriptionSettings {
             .state
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.unreadable {
+            // Read again: the file may have been fixed or removed since.
+            match read_file(&self.path) {
+                OnDisk::Read(stored) => guard.stored = stored,
+                OnDisk::Missing => {}
+                OnDisk::Unreadable(error) => {
+                    return Err(SettingsError::SaveFailed {
+                        message: format!(
+                            "{} cannot be read ({error}). Fix or remove it, then try again.",
+                            self.path.display()
+                        ),
+                    })
+                }
+            }
+            guard.unreadable = false;
+        }
         let previous = guard.clone();
-        change(&mut guard);
-        persist(&self.path, &guard).map_err(|error| {
+        change(&mut guard.stored);
+        persist(&self.path, &guard.stored).map_err(|error| {
             // Roll back so the in-memory value never claims a choice the disk
             // does not hold.
             *guard = previous;
@@ -161,6 +217,32 @@ impl LocalTranscriptionSettings {
                 message: error.to_string(),
             }
         })
+    }
+}
+
+/// Copy the settings an earlier build kept at `previous` to `path`. A failed
+/// copy is a warning: the settings still load, and the next launch, or the next
+/// change, writes `path`.
+fn adopt(path: &Path, previous: &Path) -> Stored {
+    match read_file(previous) {
+        OnDisk::Missing => Stored::default(),
+        OnDisk::Unreadable(error) => {
+            warn!(
+                "[Transcription] cannot read earlier settings at {}; leaving them there and starting from defaults: {error}",
+                previous.display()
+            );
+            Stored::default()
+        }
+        OnDisk::Read(stored) => {
+            if let Err(error) = persist(path, &stored) {
+                warn!(
+                    "[Transcription] could not copy settings from {} to {}: {error}",
+                    previous.display(),
+                    path.display()
+                );
+            }
+            stored
+        }
     }
 }
 
@@ -318,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn a_corrupt_file_falls_back_to_defaults() {
+    fn a_corrupt_file_reads_as_defaults_and_is_never_overwritten() {
         let path = temp_path("corrupt");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"{ not json").unwrap();
@@ -326,8 +408,67 @@ mod tests {
         let settings = LocalTranscriptionSettings::load(path.clone());
         assert_eq!(settings.active_model_id(), None);
         assert_eq!(settings.unload_policy(), UnloadPolicy::default());
+        let error = settings
+            .set_unload_policy(UnloadPolicy::Never)
+            .expect_err("a file Epicenter cannot read is not replaced");
+        assert!(matches!(error, SettingsError::SaveFailed { .. }));
+        assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
+
+        // Once the file is fixed, the next change goes through on top of it.
+        std::fs::write(&path, br#"{ "unloadPolicy": "immediately" }"#).unwrap();
+        settings
+            .set_active_model_id(Some(a_catalog_model_id()))
+            .unwrap();
+        let reloaded = LocalTranscriptionSettings::load(path.clone());
+        assert_eq!(reloaded.unload_policy(), UnloadPolicy::Immediately);
+        assert_eq!(reloaded.active_model_id(), Some(a_catalog_model_id()));
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn settings_from_an_earlier_location_are_copied_and_left_in_place() {
+        let path = temp_path("adopt");
+        let previous = temp_path("adopt-previous");
+        std::fs::create_dir_all(previous.parent().unwrap()).unwrap();
+        let earlier = format!(
+            r#"{{ "activeModelId": "{}", "unloadPolicy": "never" }}"#,
+            a_catalog_model_id()
+        );
+        std::fs::write(&previous, &earlier).unwrap();
+
+        let settings = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
+        assert_eq!(settings.active_model_id(), Some(a_catalog_model_id()));
+        assert_eq!(settings.unload_policy(), UnloadPolicy::Never);
+        let copied = LocalTranscriptionSettings::load(path.clone());
+        assert_eq!(copied.unload_policy(), UnloadPolicy::Never);
+        assert_eq!(std::fs::read_to_string(&previous).unwrap(), earlier);
+
+        // Once the new file exists, the earlier one is not read again.
+        settings
+            .set_unload_policy(UnloadPolicy::Immediately)
+            .unwrap();
+        let again = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
+        assert_eq!(again.unload_policy(), UnloadPolicy::Immediately);
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        std::fs::remove_dir_all(previous.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn an_unreadable_earlier_file_is_left_alone() {
+        let path = temp_path("adopt-corrupt");
+        let previous = temp_path("adopt-corrupt-previous");
+        std::fs::create_dir_all(previous.parent().unwrap()).unwrap();
+        std::fs::write(&previous, b"{ not json").unwrap();
+
+        let settings = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
+        assert_eq!(settings.active_model_id(), None);
+        settings.set_unload_policy(UnloadPolicy::Never).unwrap();
+        assert_eq!(std::fs::read(&previous).unwrap(), b"{ not json");
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+        std::fs::remove_dir_all(previous.parent().unwrap()).ok();
     }
 
     #[test]

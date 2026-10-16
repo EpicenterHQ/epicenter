@@ -372,17 +372,21 @@ pub fn run() {
                 pages: scheme::pages_dir(app.handle())?,
                 builds: desktop_paths.builds_dir(),
             });
+            // The active local model and the unload policy are device-local host
+            // state (ADR-0180), so they live in the app's data directory beside
+            // `approvals.json`, never in a folder that could carry them to a
+            // machine without the model files or a compatible accelerator.
+            // Earlier builds kept the file in the config directory.
+            let settings = LocalTranscriptionSettings::load_or_adopt(
+                desktop_paths.data_dir.join("local-transcription.json"),
+                app.path()
+                    .app_config_dir()
+                    .ok()
+                    .map(|dir| dir.join("local-transcription.json"))
+                    .as_deref(),
+            );
             app.manage(desktop_paths);
 
-            // The active local model and the unload policy are device-local host
-            // state (ADR-0180), so they live beside the app's own config rather
-            // than in any workspace that could carry them to a machine without
-            // the model files or a compatible accelerator.
-            let settings = LocalTranscriptionSettings::load(
-                app.path()
-                    .app_config_dir()?
-                    .join("local-transcription.json"),
-            );
             let cache = ModelCache::new(settings);
             cache.start_idle_watcher();
             app.manage(cache);
