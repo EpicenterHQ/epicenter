@@ -1,7 +1,8 @@
 /**
  * Browser storage key tests.
  * Pins the exact localStorage keys browsers already hold connections and
- * choices under, so a rename cannot strand saved data.
+ * choices under, so a rename cannot strand saved data. Lock names and storage
+ * event matching derive from the same key and are not exercised here.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { createBrowserConnections } from './browser.js';
@@ -45,14 +46,19 @@ test('connections and choices are saved under the keys browsers already hold', a
 	]);
 });
 
-test('connections and choices saved before this release still read back', () => {
+test('connections and choices saved before this release still read back', async () => {
 	const values = stubWindow();
 	values.set(
 		'epicenter/ai/no-account.app-ai-connections',
 		JSON.stringify({
 			version: 1,
 			connections: [
-				{ id: 'saved', name: 'Saved', baseUrl: 'https://example.com/v1', models: [] },
+				{
+					id: 'saved',
+					name: 'Saved',
+					baseUrl: 'https://example.com/v1',
+					models: [],
+				},
 			],
 		}),
 	);
@@ -66,9 +72,11 @@ test('connections and choices saved before this release still read back', () => 
 
 	const connections = createBrowserConnections();
 	expect(connections.getAll().map(({ id }) => id)).toEqual(['saved']);
+	await connections.close();
 	const selections = createBrowserInferenceSelections('vocab');
 	expect(selections.get('chat')).toEqual({
 		connectionId: 'saved',
 		model: 'manual',
 	});
+	selections[Symbol.dispose]();
 });

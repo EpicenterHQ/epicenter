@@ -1,4 +1,3 @@
-
 import type { InferenceTarget } from './target.js';
 
 function invalid(): never {
@@ -118,15 +117,12 @@ export function createInferenceSelections({
 }
 export type InferenceSelections = ReturnType<typeof createInferenceSelections>;
 
-/**
- * An app's choices in this browser live under `<appId>/no-account`.
- * `no-account` is left from when keys were split by account; browsers already
- * hold data under it, so the literal stays as written.
- */
-const BROWSER_SELECTIONS_SEGMENT = 'no-account';
-
 export function createBrowserInferenceSelections(appId: string) {
-	const storageKey = `${appId}/${BROWSER_SELECTIONS_SEGMENT}`;
+	/**
+	 * `no-account` is left from when keys were split by account; browsers
+	 * already hold data under it, so the literal stays as written.
+	 */
+	const storageKey = `${appId}/no-account`;
 	return createInferenceSelections({
 		storage: window.localStorage,
 		storageKey,

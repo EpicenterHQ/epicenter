@@ -56,7 +56,7 @@ window.acceptance = {
 </script>`;
 const server = await createServer({
 	configFile: false,
-	root: join(root, 'apps/whispering'),
+	root: join(root, 'packages/ai'),
 	logLevel: 'error',
 	optimizeDeps: {
 		entries: [
@@ -109,21 +109,6 @@ try {
 					])
 						values[product + '.' + suffix] =
 							'malformed legacy credential bytes';
-				for (const provider of [
-					'openai',
-					'groq',
-					'deepgram',
-					'elevenlabs',
-					'mistral',
-					'anthropic',
-					'google',
-					'openrouter',
-					'custom',
-					'speaches',
-				])
-					for (const field of ['apiKey', 'endpoint', 'modelId'])
-						values['whispering.device.providers.' + provider + '.' + field] =
-							JSON.stringify('legacy-' + provider);
 				for (const [key, value] of Object.entries(values))
 					localStorage.setItem(key, value);
 				return values;

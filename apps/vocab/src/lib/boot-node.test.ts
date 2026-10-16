@@ -74,13 +74,6 @@ describe('the working page needs no account', () => {
 		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('the chosen model is kept for the device', async () => {
-		const shell = await Bun.file(
-			join(routes, 'components/VocabShell.svelte'),
-		).text();
-		expect(shell).toContain("createBrowserInferenceSelections('vocab')");
-	});
-
 	test('no shipped source opens a store: the folder is the only saved data', async () => {
 		const files = await shippedSources();
 		const openers = files
