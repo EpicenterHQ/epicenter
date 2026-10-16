@@ -90,6 +90,7 @@ function gitignoreStorage(text: string | undefined) {
 		) => {
 			expect(path).toBe('.gitignore');
 			writes.push({ text: decode(bytes ?? new Uint8Array()), ifMatch });
+			text = bytes === null ? undefined : decode(bytes);
 			return Ok('landed');
 		},
 	} as unknown as Parameters<typeof publishLocalPatterns>[1];
@@ -120,6 +121,32 @@ test("a person's own lines are kept and only missing patterns are appended", asy
 			ifMatch: await hashBytes(encode(mine)),
 		},
 	]);
+	expect(events).toEqual([]);
+});
+
+test('a pattern another writer removes while publication writes is named again', async () => {
+	let text = 'audio/\n';
+	let reads = 0;
+	const storage = {
+		read: async () => {
+			// Another writer removes `audio/` after publication read the file
+			// and before its write reads it again.
+			if (++reads === 2) text = '';
+			const bytes = encode(text);
+			return Ok({ bytes, sha256: await hashBytes(bytes) });
+		},
+		put: async (_path: string, bytes: Uint8Array | null) => {
+			text = decode(bytes ?? new Uint8Array());
+			return Ok('landed');
+		},
+	} as unknown as Parameters<typeof publishLocalPatterns>[1];
+	await publishLocalPatterns(['audio/', 'cache/'], storage);
+	expect(
+		text
+			.split('\n')
+			.filter((line) => line !== '')
+			.sort(),
+	).toEqual(['audio/', 'cache/']);
 	expect(events).toEqual([]);
 });
 

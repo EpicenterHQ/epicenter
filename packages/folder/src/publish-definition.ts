@@ -22,7 +22,7 @@ import { formatDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
 import { localPatterns } from './merge-file.js';
 import { DECLARATION_PATH } from './paths.js';
-import { writeFile } from './write.js';
+import { WRITE_ATTEMPTS, writeFile } from './write.js';
 
 const log = createLogger('folder/definition');
 /** What a publication reads and writes: the storage port's read and put, not a handle's writes. */
@@ -90,20 +90,25 @@ export async function publishDefinition(
  * patterns as lines at its end; nothing in it is reordered, rewritten, or
  * removed, so a person's own lines stay. The addition is written with the
  * one write, from the file as it was read, so a line another writer adds
- * meanwhile stays too. A failure is logged and never refuses the write it
- * precedes.
+ * meanwhile stays too; the file is read again until it names every pattern,
+ * since a line another writer removed meanwhile stays removed in that merge.
+ * A failure is logged and never refuses the write it precedes.
  */
 export async function publishLocalPatterns(
 	local: readonly string[],
 	storage: Publisher,
 ): Promise<void> {
 	if (local.length === 0) return;
-	let failure: unknown;
+	let failure: unknown = 'another writer kept removing the patterns';
 	try {
-		const read = await storage.read(GITIGNORE_PATH);
-		if (read.error !== null && read.error.name !== 'NotFound') {
-			failure = read.error;
-		} else {
+		// Read again after each write: the merge keeps a line another writer
+		// removed meanwhile, so a landed write is not yet every pattern.
+		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+			const read = await storage.read(GITIGNORE_PATH);
+			if (read.error !== null && read.error.name !== 'NotFound') {
+				failure = read.error;
+				break;
+			}
 			const current = read.error === null ? read.data.bytes : null;
 			const text = current === null ? '' : new TextDecoder().decode(current);
 			const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
@@ -118,8 +123,10 @@ export async function publishLocalPatterns(
 				`${text}${separator}${missing.join('\n')}\n`,
 				{ joining: true },
 			);
-			if (error === null) return;
-			failure = error;
+			if (error !== null) {
+				failure = error;
+				break;
+			}
 		}
 	} catch (cause) {
 		failure = cause;
