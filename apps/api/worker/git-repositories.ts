@@ -7,8 +7,8 @@
  * never reaches Artifacts and no URL shows an id. The Worker authorizes each
  * request itself, then reaches Artifacts with a token it mints: 24 hours,
  * for one repository and one scope (`read` for a fetch, `write` for a push),
- * cached in the isolate and renewed an hour before it ends. The client's
- * credential never crosses.
+ * cached in the isolate, renewed an hour before it ends, and dropped when
+ * Artifacts refuses it. The client's credential never crosses.
  */
 
 import type { GitHost } from '@epicenter/server';
@@ -93,22 +93,30 @@ export function createArtifactsGitHost({
 			}
 		},
 		async serve(id, { service, advertisement, headers, body, signal }) {
-			const credential = await token(
-				id,
-				service === 'git-receive-pack' ? 'write' : 'read',
-			);
+			const scope = service === 'git-receive-pack' ? 'write' : 'read';
+			const pending = token(id, scope);
+			const credential = await pending;
 			const upstreamHeaders = new Headers(headers);
 			upstreamHeaders.set('authorization', `Basic ${btoa(`x:${credential}`)}`);
 			const path = advertisement
 				? `/info/refs?service=${service}`
 				: `/${service}`;
-			return fetch(`${upstream}/${id}.git${path}`, {
+			const response = await fetch(`${upstream}/${id}.git${path}`, {
 				method: advertisement ? 'GET' : 'POST',
 				headers: upstreamHeaders,
 				body,
 				signal,
 				redirect: 'manual',
 			});
+			// A refused token is not kept, or every request for a day would
+			// present it again: the next request mints a new one.
+			const key = `${scope}:${id}`;
+			if (
+				(response.status === 401 || response.status === 403) &&
+				tokens.get(key)?.token === pending
+			)
+				tokens.delete(key);
+			return response;
 		},
 	};
 }

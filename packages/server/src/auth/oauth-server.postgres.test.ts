@@ -104,7 +104,7 @@ const testMetadataFetch: ClientMetadataResourceFetch = (input, init) => {
 	});
 };
 
-/** A Git store that answers every repository with an empty advertisement. */
+/** A Git store that records what it creates and answers every request with an empty body. */
 const createdRepositories: string[] = [];
 const recordingHost: GitHost = {
 	async create(id) {
@@ -619,7 +619,24 @@ describe('the protected routes', () => {
 			'openid folders:read folders:write',
 		);
 		const before = createdRepositories.length;
-		const pushed = await push(git.token, git.person.personal);
+		// The advertisement of a name nobody holds is empty and creates nothing.
+		const advertised = await push(git.token, git.person.personal);
+		expect(advertised.status).toBe(200);
+		expect(createdRepositories.length).toBe(before);
+		// The push itself creates the repository.
+		const pushed = await app.fetch(
+			new Request(
+				`${origin}/git/${git.person.personal}/todos.git/git-receive-pack`,
+				{
+					method: 'POST',
+					headers: {
+						authorization: `Bearer ${git.token}`,
+						'content-type': 'application/x-git-receive-pack-request',
+					},
+					body: '0000',
+				},
+			),
+		);
 		expect(pushed.status).toBe(200);
 		expect(createdRepositories.length).toBe(before + 1);
 	}, 60_000);

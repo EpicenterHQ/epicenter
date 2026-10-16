@@ -17,7 +17,8 @@ import {
 const SERVER = 'https://api.test';
 const APP = 'https://todos.test';
 const CLIENT_ID = 'so.epicenter.todos';
-const RESOURCE = 'https://api.test/git';
+// The hosted cloud serves Git from an origin of its own.
+const RESOURCE = 'https://git.test';
 const SCOPE = 'openid folders:read folders:write';
 const REDIRECT_URI = `${APP}/auth/callback`;
 const TOKEN_KEY = `${CLIENT_ID}.oauth:${SERVER}`;
@@ -469,7 +470,7 @@ test('an unsolicited login_required callback cannot sign the person out', async 
 	expect(world.storage.getItem(TOKEN_KEY)).not.toBeNull();
 });
 
-test('Account.fetch attaches the bearer only for its own server', async () => {
+test("Account.fetch attaches the bearer only for its own server and its token's resource", async () => {
 	const world = createWorld();
 	const { auth } = await signIn(world);
 	const account = auth.getState().account!;
@@ -485,10 +486,22 @@ test('Account.fetch attaches the bearer only for its own server', async () => {
 	expect(sent.init?.credentials).toBe('omit');
 	expect(sent.init?.redirect).toBe('manual');
 
+	await account.fetch(`${RESOURCE}/abcdefghij12/notes.git/info/refs`);
+	const toResource = world.requests.at(-1)!;
+	expect(toResource.url).toBe(`${RESOURCE}/abcdefghij12/notes.git/info/refs`);
+	expect(new Headers(toResource.init?.headers).get('authorization')).toBe(
+		'Bearer token-1',
+	);
+
 	const count = world.requests.length;
 	await expect(account.fetch('https://elsewhere.test/steal')).rejects.toThrow(
 		TypeError,
 	);
+	// A look-alike host is another origin.
+	await expect(account.fetch('https://git.test.evil/x')).rejects.toThrow(
+		TypeError,
+	);
+	await expect(account.fetch('http://git.test/x')).rejects.toThrow(TypeError);
 	await expect(account.fetch('https://user:pass@api.test/x')).rejects.toThrow(
 		TypeError,
 	);

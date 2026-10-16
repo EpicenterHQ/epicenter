@@ -5,7 +5,7 @@
  * ```txt
  * <git>/<namespace>/<name>.git/info/refs?service=…   GET    folders:read, read  (receive-pack: folders:write, push)
  * <git>/<namespace>/<name>.git/git-upload-pack       POST   folders:read, read
- * <git>/<namespace>/<name>.git/git-receive-pack      POST   folders:write, push; creates on first push
+ * <git>/<namespace>/<name>.git/git-receive-pack      POST   folders:write, push; the first creates it
  * <api>/api/repos                                    GET    folders:read: the caller's repositories by namespace
  * ```
  *
@@ -21,13 +21,17 @@
  * repository keeps working. Nothing is cached, so a revoked token or a
  * removed member is refused on the next request.
  *
- * A receive-pack to a name nobody has used, by a member whose role may push,
- * creates the repository: its row, then its storage. That happens on the
- * push's first request, the receive-pack advertisement, since the push needs
- * an answer from the repository before it sends anything; a push that stops
- * there leaves an empty repository, listed like any other. Unrelated history
- * to an existing name is refused because it is not a fast-forward, which the
- * store enforces.
+ * A name nobody has used is not a repository until something is pushed to
+ * it. Its advertisement, for either service, answers a member whose role may
+ * push as an empty repository would, so a sync that fetches before it pushes
+ * finds nothing to fetch, and making that request creates nothing. Only
+ * `POST git-receive-pack` creates, at its start and after the same
+ * authorization: the storage (`GitHost.create`), then the row. Two first
+ * pushes at once insert one row (the `(namespace_id, name)` unique key); the
+ * one that loses pushes into the winner's repository, where its ref update
+ * fails as any stale push does, and leaves an empty store entry no row names.
+ * Unrelated history to an existing name is refused because it is not a
+ * fast-forward, which the store enforces.
  *
  * The store (`GitHost`) is the replaceable part: Cloudflare Artifacts on the
  * Worker, bare repositories on disk for the Bun entry. It names a repository
@@ -43,7 +47,8 @@
  *   - 403 `insufficient_scope`   the token lacks the operation's scope;
  *   - 403 `forbidden`            the namespace is outside the grant, the account
  *                                is not a member, or its role may not do this;
- *   - 404 `not_found`            a read of a repository that does not exist;
+ *   - 404 `not_found`            a missing repository's advertisement, for a
+ *                                role that may not push, or its upload-pack;
  *   - 502 `store_failed`         storage failed or refused this server;
  *   - 503 `git_unavailable`      this deployment has no store, or its database
  *                                could not decide.
@@ -72,8 +77,8 @@ import {
 import { roleAllows } from '../namespace-roles.js';
 import {
 	createRepository,
-	forgetRepository,
 	listRepositories,
+	newRepositoryId,
 } from '../repositories.js';
 import type { CloudEnv } from '../types.js';
 
@@ -100,7 +105,11 @@ export type GitRequest = {
 export type GitHost = {
 	/** Answer one authorized request for repository `id`. Throws when storage cannot be reached. */
 	serve(id: string, request: GitRequest): Promise<Response>;
-	/** Make an empty repository `id`, whose default branch is `main`. Making one that exists is not an error. */
+	/**
+	 * Make an empty repository `id`, whose default branch is `main`, at the
+	 * start of the first push to its name. Making one that exists is not an
+	 * error.
+	 */
 	create(id: string): Promise<void>;
 };
 
@@ -202,6 +211,39 @@ export function readGitTarget(
 	};
 }
 
+/** One pkt-line (`gitprotocol-common`) holding `line`, which is ASCII. */
+const pktLine = (line: string) =>
+	`${(line.length + 4).toString(16).padStart(4, '0')}${line}`;
+
+/**
+ * Capabilities the empty advertisement offers. The push that follows goes to
+ * the store, which receives only what the client chose from these, so the
+ * list stays at what a push needs to stream and report its result: no
+ * `ofs-delta`, `atomic`, or `object-format`, whose absence means SHA-1.
+ */
+const EMPTY_CAPABILITIES: Record<GitService, string> = {
+	'git-upload-pack': 'agent=epicenter',
+	'git-receive-pack': 'report-status side-band-64k agent=epicenter',
+};
+
+/**
+ * The protocol v0 advertisement of a repository with no refs
+ * (`gitprotocol-pack`, "no-refs"). A client that asked for protocol v2 reads
+ * it as a server that speaks v0, and finds nothing to fetch.
+ */
+function emptyAdvertisement(service: GitService): Response {
+	const capabilities = `${'0'.repeat(40)} capabilities^{}\0${EMPTY_CAPABILITIES[service]}\n`;
+	return new Response(
+		`${pktLine(`# service=${service}\n`)}0000${pktLine(capabilities)}0000`,
+		{
+			headers: {
+				'content-type': `application/x-${service}-advertisement`,
+				'cache-control': 'no-cache, max-age=0, must-revalidate',
+			},
+		},
+	);
+}
+
 function refuse(
 	c: Context<CloudEnv>,
 	status: 401 | 403 | 404 | 502 | 503,
@@ -296,6 +338,10 @@ export function mountGitHost(
 
 		let repository = access.repository;
 		if (repository === null) {
+			// Reading a name nobody holds creates nothing: one who may push to it
+			// sees an empty repository, and anyone else a missing one.
+			if (target.advertisement && roleAllows(access.role, 'push'))
+				return emptyAdvertisement(target.service);
 			if (!push)
 				return refuse(
 					c,
@@ -303,13 +349,16 @@ export function mountGitHost(
 					'not_found',
 					`No repository is named ${target.namespaceId}/${target.name}.`,
 				);
-			let made: Awaited<ReturnType<typeof createRepository>> | undefined;
+			// The first push. Storage comes first, so no row ever names a
+			// repository that has none.
+			const id = newRepositoryId();
 			try {
-				made = await createRepository(c.var.db, {
+				await host.create(id);
+				repository = await createRepository(c.var.db, {
+					id,
 					namespaceId: access.namespaceId,
 					name: target.name,
 				});
-				await host.create(made.id);
 			} catch (cause) {
 				log.error(
 					GitHostError.CreateFailed({
@@ -317,8 +366,6 @@ export function mountGitHost(
 						cause,
 					}).error,
 				);
-				if (made?.created)
-					await forgetRepository(c.var.db, made.id).catch(() => {});
 				return refuse(
 					c,
 					502,
@@ -326,7 +373,6 @@ export function mountGitHost(
 					'The repository could not be created.',
 				);
 			}
-			repository = { id: made.id, name: made.name };
 		}
 
 		const headers = new Headers();

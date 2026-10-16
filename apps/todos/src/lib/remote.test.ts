@@ -28,7 +28,6 @@ mock.module('#platform/auth', () => ({
 		getState: () =>
 			signedIn ? { status: 'signed-in', account } : { status: 'signed-out' },
 	} as unknown as AuthClient,
-	pageReachesGit: true,
 }));
 // The Git origin of an Epicenter-hosted server is not the API's.
 mock.module('@epicenter/constants/apps', () => ({
@@ -59,18 +58,16 @@ test('the proposed name is the folder directory, made a valid name', () => {
 	expect(proposedName).toBe('so.epicenter.todos');
 });
 
-test('Connect finds the personal namespace, creates the repository, and answers its remote', async () => {
+test('Connect finds the personal namespace and answers its remote, creating nothing', async () => {
 	requests.length = 0;
 	answers = (url) =>
 		url.endsWith('/api/repos')
 			? Response.json(listing)
-			: new Response('0000', { status: 200 });
+			: new Response(null, { status: 500 });
 	const result = await connectEpicenter('notes');
 	expect(result.data).toBe(`${GIT}/${NAMESPACE}/notes.git`);
-	expect(requests.map(({ url }) => url)).toEqual([
-		`${SERVER}/api/repos`,
-		`${GIT}/${NAMESPACE}/notes.git/info/refs?service=git-receive-pack`,
-	]);
+	// The first sync's push creates the repository; Connect sends no Git request.
+	expect(requests.map(({ url }) => url)).toEqual([`${SERVER}/api/repos`]);
 });
 
 test('Connect reports a refusal, and a signed-out page asks for sign-in', async () => {

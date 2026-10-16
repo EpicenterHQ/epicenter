@@ -77,11 +77,18 @@ and grant target; the namespace membership and role; and `<namespace>/<name>`
 resolved through `repository`, then `repository_alias`. A repository that has
 moved is checked against the namespace it lives in now. Nothing is cached.
 
-The first receive-pack request to a name nobody holds, by a member whose role
-may push, creates the repository: its row (`createRepository`), then its
-storage (`GitHost.create`). A read of a missing name is 404 and creates
-nothing. Unrelated history pushed to an existing name is refused because the
-store refuses anything but a fast-forward.
+A name nobody holds is not a repository until something is pushed to it.
+Reading it creates nothing: a member whose role may push gets the empty
+advertisement of a repository with no refs, for either service, so a sync that
+fetches before it pushes finds nothing to take; anyone else gets 404. Only
+`POST git-receive-pack` creates, at its start and after the same authorization:
+the storage (`GitHost.create`) under a new id, then the row
+(`createRepository`), so no row names a repository without storage. Two first
+pushes at once insert one row, through the `(namespace_id, name)` unique key;
+the one that loses pushes into the winner's repository, where its ref update
+fails as a stale push does, and leaves an empty store entry that no row names.
+Unrelated history pushed to an existing name is refused because the store
+refuses anything but a fast-forward.
 
 Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 `WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for

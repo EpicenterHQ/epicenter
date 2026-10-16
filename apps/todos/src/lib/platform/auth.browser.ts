@@ -27,10 +27,3 @@ if (import.meta.hot) {
 	import.meta.hot.dispose(() => auth?.[Symbol.dispose]());
 	import.meta.hot.accept(() => import.meta.hot?.invalidate());
 }
-
-/**
- * Whether the page itself reaches Epicenter's Git origin with its account.
- * The browser does; the desktop window does not, and `epicenter sync` makes
- * the repository there.
- */
-export const pageReachesGit = true;
