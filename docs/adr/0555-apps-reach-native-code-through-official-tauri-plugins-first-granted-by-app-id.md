@@ -104,7 +104,7 @@ registers them. A hidden window keeps its chords live
 
 - `replace_global_shortcuts`, `GlobalShortcutRegistry`, `GlobalShortcutTriggered`, and `WHISPERING_WINDOW` (`apps/epicenter/src-tauri/src/shell.rs:16-39`, `:83-158`), once ADR-0563's 30-minute test passes on every platform. On a platform where it fails, Rust keeps starting a recording on the chord.
 - `is_autostart_enabled` and `set_autostart_enabled` (`shell.rs:160-177`); Rust enables autostart once on first run, as ADR-0328 decides.
-- `open_accessibility_settings` (`apps/epicenter/src-tauri/src/command.rs:14`), replaced by the opener's `openUrl`.
+- `open_accessibility_settings` (in `command.rs`, since deleted), replaced by the opener's `openUrl`.
 - `MAIN_WINDOW` in `apps/epicenter/src-tauri/src/keyboard/mod.rs:49` and its `emit_to` at `:132`.
 - `create_recording_overlay`'s fixed label and URL (`apps/epicenter/src-tauri/src/overlay.rs:24`, `:39`), which become `open_panel`'s.
 

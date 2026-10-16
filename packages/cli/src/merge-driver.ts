@@ -28,6 +28,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
+import { resolveAppPaths } from './app-paths.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 /** The driver's name in Git's configuration and in the attribute. */
@@ -108,8 +109,8 @@ async function driverCommand(command: readonly string[]) {
 /**
  * Make the repository at `dir`, whose `.git` is its own, merge every path
  * with this driver. Idempotent: the attribute line is added once, and the
- * configuration names `command`, by default `gitCommand()`: the per-user
- * link, remade first, so moving the app does not break the driver.
+ * configuration names `command`, by default the per-user command link
+ * (`AppPaths.commandLink`), so moving the app does not break the driver.
  */
 export async function configureMergeDriver(
 	dir: string,
@@ -130,7 +131,7 @@ export async function configureMergeDriver(
 		);
 	const run = createGitRunner(root);
 	const driver = await driverCommand(
-		command ?? (await import('./install-command.ts')).gitCommand(),
+		command ?? [resolveAppPaths().commandLink],
 	);
 	await run([
 		'config',

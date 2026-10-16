@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toastStatus } from '@epicenter/svelte/status-popover';
 	import SyncReview from '@epicenter/svelte/sync-review';
 	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
@@ -74,9 +74,7 @@
 				onSettled: (outcome, error) => {
 					if (error?.name === 'InvalidChoices') return;
 					cancelReview();
-					const line = syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot);
-					const notify = line.tone === 'good' ? toast.success : line.tone === 'error' ? toast.error : toast.warning;
-					notify(line.label, { description: line.detail });
+					toastStatus(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
 				},
 			},
 		);

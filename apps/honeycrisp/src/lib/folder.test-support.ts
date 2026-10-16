@@ -27,7 +27,6 @@ import {
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { honeycrispDefinition } from './data.js';
 import { setUpFolder } from './platform/first-open.js';
-import type { NotesHost } from './platform/types.js';
 
 const ID = 'so.epicenter.honeycrisp.test';
 /** A browser folder lives at the OPFS root under its ID. */
@@ -51,11 +50,6 @@ export async function openNotesFolder() {
 		);
 	const folder = await openTab();
 	const tabs: { close(): Promise<void> }[] = [];
-	/** Close the other tabs, then the app's folder. */
-	async function closeAll() {
-		for (const tab of tabs.splice(0)) await tab.close();
-		await folder.close();
-	}
 	await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
 	const key = (path: string) => `${ROOT}/${path}`;
 
@@ -86,16 +80,9 @@ export async function openNotesFolder() {
 	};
 	opfs.faults.close = (at) => (losing && ours(at) ? 'lost' : undefined);
 
-	const host: NotesHost = {
-		folder,
-		location: 'This browser',
-		reveal: undefined,
-		close: closeAll,
-	};
-
 	return {
+		/** The app's folder, for `createNotes`; `notes.close()` releases it. */
 		folder,
-		host,
 		/**
 		 * Another tab of the same folder. Its writes are reported to the app's
 		 * folder on its change channel; it closes with the fixture.
@@ -159,7 +146,11 @@ export async function openNotesFolder() {
 		loseReplies(on = true) {
 			losing = on;
 		},
-		close: closeAll,
+		/** Close the other tabs, then the app's folder, if the notes have not. */
+		async close() {
+			for (const tab of tabs.splice(0)) await tab.close();
+			await folder.close();
+		},
 	};
 }
 

@@ -101,6 +101,38 @@ words a result for a toast or a status line. It is a plain module, so status
 helpers import it without loading runes. The rest of what a person is told
 stays with the page.
 
+### Header status (`@epicenter/svelte/status-line`, `status-popover`, `status-row`)
+
+Honeycrisp, Todos, and Whispering show their folder's state as one summary
+button with details. Each app words its own lines; this package holds what
+they share.
+
+`status-line` is a plain module: the `StatusLine` shape (`label`, optional
+`short` for narrow screens, `detail`, and a `Tone`), `mostSevere(lines)`
+(the most severe line, the earlier one on a tie), `withTime`, `localTime`,
+`shortOid`, and `changeList` for the changed paths a check saw. Each app
+decides which lines may lead its summary and what a calm header says.
+
+`StatusPopover` renders the button and the details: one row per
+`{ name, testid, line }` in `details`, then the app's own `StatusRow`s as
+children, then a `footer` snippet for actions. `bind:open` is there for an
+app that reads something while the details show. `toastStatus(line)` shows an
+outcome line as a toast in its tone, so the toast and the details agree.
+
+```svelte
+<StatusPopover {summary} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
+	<StatusRow name="Folder" class="font-mono text-xs break-all" data-testid="status-folder">
+		{location}
+	</StatusRow>
+	{#snippet footer()}
+		<Button size="sm" onclick={saveVersion}>Save version</Button>
+	{/snippet}
+</StatusPopover>
+```
+
+`packages/ui/src/app.css` scans this package's sources, so its Tailwind
+classes reach every app that loads the shared stylesheet.
+
 ## Contributing
 
 When adding new utilities to this package:

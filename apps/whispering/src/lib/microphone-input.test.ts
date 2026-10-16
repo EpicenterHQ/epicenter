@@ -28,7 +28,7 @@
  *   same name is not taken for it, and a recording with it refuses
  * - Fixture mode has no input: nothing is listed, tested, or asked for
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -461,7 +461,9 @@ test('refused access is reported, and enabling lists inputs by name once it is a
 	});
 	await input.allow();
 	expect(input.denied).toBe(true);
-	expect(input.problem).toContain('Microphone access was denied');
+	expect(input.problem).toBe(
+		'Microphone access was denied. Allow microphone access in System Settings, under Privacy and Security, or in this browser’s site settings, then try again.',
+	);
 	await input.startTest();
 	expect(input.test).toEqual({ phase: 'idle' });
 	expect(microphone.open.meters).toBe(0);

@@ -1,6 +1,6 @@
 # 0568. A folder takes every writer in turn under its save lock and refuses none
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` and `.<name>.epicenter-lock` are deleted, and a second shell takes turns under the save lock like the CLI.
 - **Amends:** [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "a second scope on one root is refused `Busy`" and its consequence "The cross-process lock stays, one per folder": two scopes on one root share its publishing mutex, and a second Epicenter process shares its save lock.

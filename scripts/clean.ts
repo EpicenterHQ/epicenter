@@ -7,18 +7,14 @@
  *
  * Usage:
  *   bun run clean        # Remove build artifacts, caches, node_modules
- *   bun run clean --nuke # Above + Rust targets + dev webview cache (full reset)
+ *   bun run clean --nuke # Above + Rust targets (full reset)
  */
 
 import { rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { workspaces } from '../package.json';
 
 const isNuke = process.argv.includes('--nuke');
-
-// Only clear webview cache for dev apps, never production (would delete user's API keys/settings)
-const DEV_BUNDLE_ID = 'com.tauri.dev';
 
 const subDirs = [
 	// Build outputs
@@ -65,43 +61,6 @@ async function main() {
 		dirsToRemove.map((path) => rm(path, { recursive: true, force: true })),
 	);
 	console.log(`  ✓ Processed ${dirsToRemove.length} directories\n`);
-
-	// Nuke mode: also clear dev app webview cache (contains localStorage, so never touch production)
-	if (isNuke) {
-		const home = homedir();
-
-		let devCacheDirs: string[];
-		switch (process.platform) {
-			case 'darwin':
-				devCacheDirs = [join(home, 'Library/WebKit', DEV_BUNDLE_ID)];
-				break;
-			case 'linux':
-				devCacheDirs = [
-					join(home, '.local/share', DEV_BUNDLE_ID),
-					join(home, '.cache', DEV_BUNDLE_ID),
-				];
-				break;
-			case 'win32':
-				devCacheDirs = [
-					join(
-						process.env.LOCALAPPDATA ?? join(home, 'AppData/Local'),
-						DEV_BUNDLE_ID,
-						'EBWebView',
-					),
-				];
-				break;
-			default:
-				devCacheDirs = [];
-		}
-
-		if (devCacheDirs.length) {
-			console.log('Clearing dev app webview cache...');
-			await Promise.all(
-				devCacheDirs.map((p) => rm(p, { recursive: true, force: true })),
-			);
-			console.log(`  ✓ Cleared ${DEV_BUNDLE_ID} cache\n`);
-		}
-	}
 
 	console.log('✨ Clean complete!\n');
 

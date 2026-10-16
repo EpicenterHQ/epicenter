@@ -5,12 +5,8 @@
  * same engine, `runHistory`, runs with the CLI's own author.
  */
 
+import { type HistoryOptions, historyExitCode, runHistory } from './bun.js';
 import { GitMissingError } from './git/native-host.js';
-import {
-	type HistoryOptions,
-	historyExitCode,
-	runHistory,
-} from './history-command.js';
 import {
 	decodeHistory,
 	encodeHistory,

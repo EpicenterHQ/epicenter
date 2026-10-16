@@ -4,7 +4,7 @@
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command list: it adds the top-level folder command `epicenter merge-driver <dir>`, which Git also runs with four arguments; and at `install-command`, which points the one command link `~/.local/bin/epicenter` at the running binary, never with `sudo`.
 - **Relates:** [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md) (macOS only), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (all desktop Git runs in the CLI; Sync never runs `git merge`), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (`mergeFile`, the one merge by kind).
-- **Built:** `epicenter merge-driver` (`packages/cli/src/merge-driver.ts`) over `gitMergeKind` and `mergeForGit` (`packages/folder/src/merge-driver.ts`) and `markConflicts` (`packages/folder/src/git/merge-lines.ts`); the configuration written by `epicenter merge-driver <dir>`, by `epicenter sync <dir> --to <namespace>/<name> | <url>`, and by `epicenter clone`; the command link `~/.local/bin/epicenter` (`gitCommand` and `install-command` in `packages/cli/src/install-command.ts`, and the launch call `spawn_command_link_refresh` in `apps/epicenter/src-tauri/src/cli.rs`).
+- **Built:** `epicenter merge-driver` (`packages/cli/src/merge-driver.ts`) over `gitMergeKind` and `mergeForGit` (`packages/folder/src/merge-driver.ts`) and `markConflicts` (`packages/folder/src/git/merge-lines.ts`); the configuration written by `epicenter merge-driver <dir>`, by `epicenter sync <dir> --to <namespace>/<name> | <url>`, and by `epicenter clone`; the command link `~/.local/bin/epicenter` (`AppPaths.commandLink`, `install-command` in `packages/cli/src/install-command.ts`, and the launch call `spawn_command_link_refresh` in `apps/epicenter/src-tauri/src/cli.rs`).
 - **Unbuilt:** Settings showing that a launch under App Translocation, or a regular file at `~/.local/bin/epicenter`, left the link alone, which today only the log records; Settings telling a person whose `PATH` lacks `~/.local/bin` to add it.
 
 ## Context
@@ -80,7 +80,7 @@ line in their shell profile.
   (`spawn_command_link_refresh`). A development build runs the CLI from
   source and leaves the link to the release build.
 - Every command that writes Git configuration names the link and makes
-  nothing (`gitCommand`), whether it runs from the bundle, the link, or
+  nothing (`AppPaths.commandLink`), whether it runs from the bundle, the link, or
   source, so a development run never writes a checkout into the global
   configuration.
 - A binary under macOS's App Translocation

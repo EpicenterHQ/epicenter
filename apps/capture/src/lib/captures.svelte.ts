@@ -65,7 +65,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type CaptureForm, createCaptureForm } from './capture-form.svelte.js';
-import type { CaptureHost } from './platform/types.js';
+import type { CaptureFolder } from './platform/types.js';
 
 export type Captures = ReturnType<typeof createCaptures>;
 
@@ -259,7 +259,7 @@ export function timelineOf(listing: CaptureListing) {
 }
 
 export function createCaptures(
-	host: Pick<CaptureHost, 'folder' | 'location'>,
+	folder: CaptureFolder,
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
@@ -271,7 +271,6 @@ export function createCaptures(
 		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
-	const { folder } = host;
 	const folder$ = folderOptions(folder);
 	const table = folder.tables.captures;
 	const pathOf = (stem: string) => rowPath(CAPTURES_TABLE, stem);
@@ -481,7 +480,6 @@ export function createCaptures(
 	}
 
 	return {
-		location: host.location,
 		folder,
 		/** The folder's query options: every read the views show is keyed under it. */
 		folder$,

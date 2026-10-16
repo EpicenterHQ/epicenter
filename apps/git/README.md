@@ -15,7 +15,7 @@ tab. It has no desktop shell. A desktop page's history runs in the `epicenter`
 CLI, which only the Epicenter shell starts
 ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
 The development command starts or reuses one loopback smart HTTP backend on
-port 5191. The command that starts that backend owns its lifetime.
+port 5191 (`packages/folder/src/git-demo-server.test-support.ts`). The command that starts that backend owns its lifetime.
 The printed temporary root contains the bare remote and seed checkout.
 `GIT_LAB_DEMO_ROOT` reopens a marked experiment. Fresh experiments have distinct
 remote URLs, so their browser working copies start separately.

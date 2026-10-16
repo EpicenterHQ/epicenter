@@ -121,7 +121,7 @@ function sameIndexEntries(left: Uint8Array, right: Uint8Array): boolean {
 	);
 }
 
-export type OpfsGitSession = GitFsSession & {
+type OpfsGitSession = GitFsSession & {
 	/** The index bytes this session wrote and has not flushed. */
 	unflushedIndex(): Uint8Array | undefined;
 };
@@ -134,9 +134,7 @@ async function readGitFile(root: OpfsDirectoryHandle, path: string) {
 	return bytes;
 }
 
-export function createOpfsGitSession(
-	root: OpfsDirectoryHandle,
-): OpfsGitSession {
+function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 	/** Private writes not yet stored, by `/git/...` path; `null` removes. */
 	const pending = new Map<string, Uint8Array | null>();
 

@@ -107,7 +107,7 @@ export type {
 	HttpFetch,
 } from './git/http.js';
 export type { SettledRegion } from './git/merge-lines.js';
-export { commitSubject, escapePath, type PathChange } from './git/messages.js';
+export type { PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type {
 	SyncAttempt,

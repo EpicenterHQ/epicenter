@@ -22,6 +22,7 @@
 
 import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	decodeHistory,
 	encodeHistory,
@@ -33,15 +34,13 @@ import {
 	runHistory,
 } from '@epicenter/folder/bun';
 import { resolveAppPaths } from './app-paths.ts';
+import type { GrantKind } from './auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
 
 /** Who commits where the folder's Git configuration names nobody. */
 const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
-
-/** Epicenter's own folder (ADR-0539), named by Epicenter's id. */
-const EPICENTER_FOLDER = 'so.epicenter';
 
 /**
  * Whether `dir` is an application's own folder, by the shell's rule
@@ -55,11 +54,11 @@ export async function isApplicationFolder(
 ): Promise<boolean> {
 	const [resolved, folderRoot] = await Promise.all([
 		realpath(dir).catch(() => undefined),
-		realpath(dirname(paths.appsDir)).catch(() => undefined),
+		realpath(paths.folderDir).catch(() => undefined),
 	]);
 	if (resolved === undefined || dirname(resolved) !== folderRoot) return false;
 	const name = basename(resolved);
-	if (name === EPICENTER_FOLDER) return true;
+	if (name === CONNECTIONS_FOLDER_ID) return true;
 	return stat(join(paths.appsDir, name)).then(
 		(found) => found.isDirectory(),
 		() => false,
@@ -222,7 +221,7 @@ export async function historyCommand(
 	dir: string,
 	options: Options,
 	json: boolean,
-	desktop = false,
+	grant: GrantKind,
 ): Promise<number> {
 	let request: HistoryRequest;
 	try {
@@ -240,10 +239,7 @@ export async function historyCommand(
 					import('./auth.ts'),
 					import('./repository-commands.ts'),
 				]);
-				return hostedCredentials(authContext(), desktop ? 'desktop' : 'device')(
-					url,
-					signal,
-				);
+				return hostedCredentials(authContext(), grant)(url, signal);
 			},
 		});
 	} catch (error) {

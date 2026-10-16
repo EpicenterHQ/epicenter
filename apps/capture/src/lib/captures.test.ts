@@ -32,7 +32,7 @@
  * - Saves never commit; Save version records one
  * - Close fences input and waits for every mutation
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openCaptures } from './browser-folder.test-support.js';

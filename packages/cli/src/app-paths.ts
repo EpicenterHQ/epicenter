@@ -33,6 +33,8 @@ export const APPS_DIRECTORY = 'Apps';
 export type AppPaths = {
 	/** One repository per installed app, at `<app-id>/`. */
 	readonly appsDir: string;
+	/** The Epicenter folder: `Apps/` and Epicenter's own `so.epicenter/`. */
+	readonly folderDir: string;
 	/** Built bundles, at `<app-id>/<commit>/`. */
 	readonly buildsDir: string;
 	/** Which app commits may run on this machine. */
@@ -80,6 +82,7 @@ export function resolveAppPaths(
 	);
 	return {
 		appsDir: join(folderDir, APPS_DIRECTORY),
+		folderDir,
 		buildsDir: join(cacheDir, 'builds'),
 		approvalsFile: join(dataDir, 'approvals.json'),
 		dataDir,

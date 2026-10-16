@@ -1,6 +1,14 @@
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { searchForWorkspaceRoot, type UserConfig } from 'vite';
+import {
+	defaultClientConditions,
+	mergeConfig,
+	searchForWorkspaceRoot,
+	type UserConfig,
+} from 'vite';
+import { isInstalledAppBuild } from './installed-app.js';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -40,4 +48,55 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
 		},
 	};
+}
+
+/**
+ * Base Vite config for a folder app Epicenter installs: `workspaceAppViteConfig`
+ * plus the choice between its installed build (`EPICENTER_HOST=1`, see
+ * `isInstalledAppBuild`) and its browser build. An app adds its own settings
+ * with `mergeConfig`.
+ *
+ * - The installed build turns on the `epicenter-host` condition, which selects
+ *   the host leaf of each `#platform/*` seam in the app's package.json
+ *   "imports". The `...defaultClientConditions` spread is load-bearing:
+ *   custom conditions REPLACE Vite's defaults.
+ * - Shared code imports the folder contract from the bare `@epicenter/folder`.
+ *   Each build resolves that exact specifier to its one adapter entry, so the
+ *   installed build carries no browser storage or Git implementation and the
+ *   browser build carries no desktop adapter. Subpaths are left alone.
+ * - isomorphic-git and its SHA-1 dependency expect Node's Buffer.
+ *   `@epicenter/folder` owns that dependency, so `buffer` resolves from there.
+ *   The replacement is the package directory, so `buffer/` resolves too.
+ * - `import.meta.env.EPICENTER_HOST` is `'1'` in the installed build, which
+ *   each app's `src/routes/+layout.ts` reads to prerender every page.
+ *
+ * The answer is read when this is called, so a process that sets
+ * `EPICENTER_HOST` before importing the app's `vite.config.ts` gets the build
+ * it asked for (`scripts/module-graph.ts` does).
+ */
+export function installedAppViteConfig(app: { port: number }): UserConfig {
+	const installed = isInstalledAppBuild();
+	// SvelteKit already requires the app folder as the working directory.
+	const fromApp = createRequire(join(process.cwd(), 'package.json'));
+	const fromFolder = createRequire(fromApp.resolve('@epicenter/folder'));
+	return mergeConfig(workspaceAppViteConfig(app), {
+		resolve: {
+			...(installed && {
+				conditions: ['epicenter-host', ...defaultClientConditions],
+			}),
+			alias: [
+				{
+					find: /^@epicenter\/folder$/,
+					replacement: installed
+						? '@epicenter/folder/tauri'
+						: '@epicenter/folder/browser',
+				},
+				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
+			],
+		},
+		define: {
+			'import.meta.env.EPICENTER_HOST': JSON.stringify(installed ? '1' : ''),
+		},
+		optimizeDeps: { include: ['buffer'] },
+	} satisfies UserConfig);
 }

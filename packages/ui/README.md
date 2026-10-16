@@ -58,16 +58,17 @@ apps.
   composed confirmations. Use `Dialog` for other simple overlays.
 - Use `Modal` for forms and input workflows. It renders a Dialog on desktop
   and a Drawer below 768px. Use `Sheet` or `Drawer` for secondary panels.
-- Use `Command` or `CommandPalette` for filtered actions and search.
+- Use `Command` for filtered actions and search.
 - Use `Field` and shared input components for forms. Put Select options inside
   `Select.Group`, which owns their padding.
-- Use `Item`, `SectionHeader`, `ButtonGroup`, `InputGroup`, and `Sidebar` for
-  repeated rows, sections, grouped controls, and navigation.
+- Use `Item`, `SectionHeader`, `InputGroup`, and `Sidebar` for repeated rows,
+  sections, grouped controls, and navigation.
 
 Dialog, Modal, Sheet, and Drawer need accessible titles. Use an `sr-only` title
 when the visual design already supplies equivalent context. Keep interaction
-policy with the caller: for example, a completed account switch sets
-`closeOnSelect`, while a multi-toggle menu keeps the upstream open behavior.
+policy with the caller: for example, the API user menu's theme toggle sets
+`closeOnSelect={false}` so the menu stays open, while ordinary items keep the
+upstream close-on-select behavior.
 
 ### Tooltips
 

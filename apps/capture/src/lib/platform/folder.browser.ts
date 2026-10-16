@@ -9,10 +9,10 @@
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
-import { CAPTURE_FOLDER_ID, type OpenCaptureHost } from './types.js';
+import { CAPTURE_FOLDER_ID, type OpenCaptureFolder } from './types.js';
 
 /** Called from a mounted component; importing this module opens nothing. */
-export const openCaptureHost: OpenCaptureHost = async () => {
+export const openCaptureFolder: OpenCaptureFolder = async () => {
 	const { data: folder, error } = await openFolder({
 		id: CAPTURE_FOLDER_ID,
 		definition: captureDefinition,
@@ -23,11 +23,7 @@ export const openCaptureHost: OpenCaptureHost = async () => {
 		},
 	});
 	if (error) throw new Error(error.message, { cause: error });
-	return {
-		folder,
-		location: folder.location,
-		close: () => folder.close(),
-	};
+	return folder;
 };
 
 /** A tab has no host to quit; its leave warning covers a reload or a close. */

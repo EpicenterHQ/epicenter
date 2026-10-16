@@ -16,37 +16,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import {
+	BUNDLE_TIMEOUT,
+	bundledModules,
+} from '@epicenter/vite-config/module-graph';
 
 const appDir = join(import.meta.dir, '..', '..');
-/**
- * Each test runs a Vite production build of the app's resolution graph. It
- * takes under a second alone, but `bun run check` tests every package at
- * once, and on CI's 4-vCPU runner one build outlasted the default 5s.
- */
-const BUNDLE_TIMEOUT = 30_000;
-
-/** Every module that reaches a bundle of `entry`, as paths. Built in its own process. */
-async function inputs(
-	entry: string,
-	platform: 'browser' | 'epicenter-host',
-): Promise<string[]> {
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			join(appDir, 'scripts', 'module-graph.ts'),
-			entry,
-			platform,
-		],
-		{ cwd: appDir, stdout: 'pipe', stderr: 'pipe' },
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`Bundling ${entry} failed:\n${stderr}`);
-	return JSON.parse(stdout) as string[];
-}
 
 const SEAM_ENTRY = 'src/lib/platform-selection.test-support.ts';
 
@@ -54,7 +29,11 @@ describe('#platform/folder', () => {
 	test(
 		'the host build opens through the desktop adapter and carries no browser folder',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
+			const modules = await bundledModules(
+				appDir,
+				SEAM_ENTRY,
+				'epicenter-host',
+			);
 			for (const required of [
 				'platform/folder.epicenter-host.ts',
 				'folder/src/tauri.ts',
@@ -89,7 +68,7 @@ describe('#platform/folder', () => {
 	test(
 		'the browser build opens through the browser adapter, with no desktop adapter',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'browser');
+			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 			for (const required of [
 				'platform/folder.browser.ts',
 				'folder/src/browser.ts',

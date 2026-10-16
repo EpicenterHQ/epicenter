@@ -8,7 +8,6 @@ export type {
 } from './auth-contract.js';
 export { isCallbackAuthClient } from './auth-contract.js';
 export * from './auth-errors.js';
-export type { AuthIdentityState } from './auth-identity-state.js';
 export {
 	type AuthServer,
 	epicenterCloud,
@@ -20,4 +19,3 @@ export {
 	type CreateBrowserOAuthOptions,
 	createBrowserOAuth,
 } from './browser-oauth.js';
-export { normalizeInstanceServer } from './instance-server.js';

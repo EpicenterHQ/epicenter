@@ -11,14 +11,10 @@
 import {
 	APPS,
 	localUrl,
-	prodOrigins,
 	resolveOAuthAudiences,
 } from '@epicenter/constants/apps';
 import type { FirstPartyClient } from '@epicenter/server';
-
-function isLoopback(origin: string) {
-	return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
-}
+import { isLocalDeployment } from './trusted-origins.js';
 
 /**
  * Each browser build signs in as its own app id. Installed apps read their id
@@ -47,7 +43,7 @@ const BROWSER_APPS = [
  */
 export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 	const audiences = resolveOAuthAudiences(origin);
-	const local = isLoopback(origin);
+	const local = isLocalDeployment(origin);
 	const firstPartyResources = [audiences.api, audiences.git];
 	return [
 		// A browser build: one access token per origin, no refresh token,
@@ -56,10 +52,9 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 			({ clientId, name, app }): FirstPartyClient => ({
 				clientId,
 				name,
-				redirectUris: [
-					...prodOrigins(app),
-					...(local ? [localUrl(app)] : []),
-				].map((appOrigin) => `${appOrigin}/auth/callback`),
+				redirectUris: [app.url, ...(local ? [localUrl(app)] : [])].map(
+					(appOrigin) => `${appOrigin}/auth/callback`,
+				),
 				grantTypes: ['authorization_code'],
 				scopes: [
 					'openid',

@@ -20,33 +20,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import {
+	BUNDLE_TIMEOUT,
+	bundledModules,
+} from '@epicenter/vite-config/module-graph';
 
 const appDir = join(import.meta.dir, '..', '..');
-/** Each test runs a Vite production build of the seam's resolution graph. */
-const BUNDLE_TIMEOUT = 30_000;
-
-/** Every module a build of `entry` pulls in, as paths. Built in its own process. */
-async function inputs(
-	entry: string,
-	build: 'browser' | 'epicenter-host',
-): Promise<string[]> {
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			join(appDir, 'scripts', 'module-graph.ts'),
-			entry,
-			build,
-		],
-		{ cwd: appDir, stdout: 'pipe', stderr: 'pipe' },
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`Bundling ${entry} failed:\n${stderr}`);
-	return JSON.parse(stdout) as string[];
-}
 
 const SEAM_ENTRY = 'src/lib/platform-selection.test-support.ts';
 
@@ -68,7 +47,11 @@ describe('#platform/workspace', () => {
 	test(
 		'the host build resolves the desktop workspace over the desktop adapter, never the browser workspace or its Git',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
+			const modules = await bundledModules(
+				appDir,
+				SEAM_ENTRY,
+				'epicenter-host',
+			);
 
 			expect(reaches(modules, 'lib/workspace/desktop.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
@@ -94,7 +77,7 @@ describe('#platform/workspace', () => {
 	test(
 		'the browser build resolves the browser workspace over OPFS, never the desktop workspace or adapter',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'browser');
+			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 
 			expect(reaches(modules, 'lib/workspace/browser.ts')).toBe(true);
 			expect(modules.some(folderModule('browser.ts'))).toBe(true);

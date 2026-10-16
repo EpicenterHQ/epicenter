@@ -21,11 +21,6 @@ import {
 } from '@epicenter/ai/send';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
 
-/** All of stdin, as bytes. */
-export async function readStdin(): Promise<Uint8Array> {
-	return new Uint8Array(await Bun.stdin.arrayBuffer());
-}
-
 /**
  * `epicenter auth key set|remove|state <id>`. `set` reads
  * `{"endpoint", "key"}` as JSON on stdin, so a key never appears in a
@@ -36,7 +31,6 @@ export async function authKey(
 	connection: string,
 	json: boolean,
 	secrets: SecretStore,
-	stdin: () => Promise<Uint8Array> = readStdin,
 ): Promise<number> {
 	switch (action) {
 		case 'state': {
@@ -54,7 +48,7 @@ export async function authKey(
 		case 'set': {
 			let input: unknown;
 			try {
-				input = JSON.parse(new TextDecoder().decode(await stdin()));
+				input = JSON.parse(await Bun.stdin.text());
 			} catch {
 				input = undefined;
 			}
@@ -101,7 +95,6 @@ export async function send(
 	secrets: SecretStore,
 	epicenter: EpicenterAccess,
 	account: AccountAccess,
-	stdin: () => Promise<Uint8Array> = readStdin,
 ): Promise<number> {
 	const out = Bun.stdout.writer();
 	const write = async (event: SendEvent) => {
@@ -113,7 +106,9 @@ export async function send(
 		return EXIT.unusable;
 	};
 
-	const { data: input, error: inputError } = decodeSendInput(await stdin());
+	const { data: input, error: inputError } = decodeSendInput(
+		new Uint8Array(await Bun.stdin.arrayBuffer()),
+	);
 	if (inputError !== null) return refuse(inputError);
 	const { data: response, error } = await sendRequest({
 		...input,

@@ -8,8 +8,8 @@
  * observed as the timeline observes it, and records every write that failed
  * and every save that replaced a change made elsewhere.
  *
- * Import a runes-module loader first (`svelte-modules.test-support.js` or
- * `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
+ * Import a runes-module loader first (`packages/svelte/src/svelte-modules.test-support.js`
+ * or `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
@@ -111,14 +111,10 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	const failures: WriteFailure[] = [];
 	const replaced: ReplacedChange[] = [];
 	const queryClient = createQueryClient();
-	const captures: Captures = createCaptures(
-		{ folder, location: folder.location },
-		queryClient,
-		{
-			onWriteFailed: (failure) => failures.push(failure),
-			onReplaced: (change) => replaced.push(change),
-		},
-	);
+	const captures: Captures = createCaptures(folder, queryClient, {
+		onWriteFailed: (failure) => failures.push(failure),
+		onReplaced: (change) => replaced.push(change),
+	});
 	// As the page wires it. One page per folder here, so it reports nothing;
 	// `reportChange` stands in for another page's report.
 	const stopChanges = captures.folder$.invalidateOnChange(queryClient);

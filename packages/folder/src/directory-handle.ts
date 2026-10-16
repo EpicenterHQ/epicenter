@@ -116,7 +116,7 @@ export const SCRATCH_DIRECTORY = '.git/epicenter/scratch';
  * that stopped (a crash, a quit). Younger ones may belong to another process
  * writing the same directory: a script and a desktop window share no lock.
  */
-export const STALE_SCRATCH_MS = 60 * 60 * 1000;
+const STALE_SCRATCH_MS = 60 * 60 * 1000;
 
 /**
  * A staged file's name: its creation time and a per-call counter in base 36,

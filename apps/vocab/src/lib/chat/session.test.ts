@@ -17,7 +17,7 @@
  * - A closed or unreadable folder asks the tutor nothing
  * - A finished chat is there when the folder is opened again
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
 import OpenAI from 'openai';

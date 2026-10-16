@@ -25,20 +25,15 @@
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openHandedFolder } from '@epicenter/folder/tauri';
-import { CAPTURE_FOLDER_ID, type OpenCaptureHost } from './types.js';
+import { CAPTURE_FOLDER_ID, type OpenCaptureFolder } from './types.js';
 
 /** Called from a mounted component; importing this module opens nothing. */
-export const openCaptureHost: OpenCaptureHost = async () => {
+export const openCaptureFolder: OpenCaptureFolder = async () => {
 	const { data, error } = await openHandedFolder({
 		ownId: CAPTURE_FOLDER_ID,
 		definition: captureDefinition,
 		appTitle: 'Capture',
 	});
 	if (error) throw new Error(error.message, { cause: error });
-	const { folder } = data;
-	return {
-		folder,
-		location: folder.location,
-		close: () => folder.close(),
-	};
+	return data.folder;
 };

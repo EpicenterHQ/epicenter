@@ -30,14 +30,14 @@ import { testBrowserStorage } from './browser-storage.test-support.js';
 import {
 	type CanonicalDocument,
 	formatCanonicalDocument,
-	parseCanonicalDocument,
+	parseRowSource,
 } from './canonical.js';
 
 /** A todos table's declared field order. */
 const DECLARED = ['title', 'done', 'priority'] as const;
 
 function parse(source: string): CanonicalDocument {
-	return expectOk(parseCanonicalDocument(source));
+	return expectOk(parseRowSource(source)).document;
 }
 
 function format(document: CanonicalDocument): string {
@@ -212,7 +212,7 @@ test.each([
 	['a duplicate key', 'n: 1\nn: 2', 'not supported YAML'],
 ])('refuses %s', (_, yaml, reason) => {
 	const source = `---\n${yaml}\n---\nbody\n`;
-	const result = parseCanonicalDocument(source);
+	const result = parseRowSource(source);
 	expect(expectErr(result).reason).toContain(reason);
 });
 
@@ -291,7 +291,7 @@ test('safe aliases expand; alias expansion is bounded', () => {
 			`${name}: &${name} [${Array(10).fill(`*${previous}`).join(', ')}]`,
 		);
 	laughs.push('---', '');
-	const result = parseCanonicalDocument(laughs.join('\n'));
+	const result = parseRowSource(laughs.join('\n'));
 	expect(expectErr(result).reason).toContain('too many');
 });
 
@@ -388,9 +388,9 @@ test('schema-invalid values survive: validation is outside the codec', () => {
 
 test('a body that UTF-8 encoding would change is refused rather than rewritten', () => {
 	const body = 'before\ud800after';
-	expect(
-		expectErr(parseCanonicalDocument(`---\ntitle: T\n---\n${body}`)).path,
-	).toEqual(['body']);
+	expect(expectErr(parseRowSource(`---\ntitle: T\n---\n${body}`)).path).toEqual(
+		['body'],
+	);
 	expect(
 		expectErr(formatCanonicalDocument({ fields: {}, body }, DECLARED)).path,
 	).toEqual(['body']);
@@ -422,7 +422,7 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 		const invalid = expectErr(await folder.tables.todos.get('milk'));
 		if (invalid.name !== 'InvalidRow') throw new Error(invalid.message);
 		expect(invalid.text).toBe(source);
-		const document = expectOk(parseCanonicalDocument(invalid.text));
+		const document = parse(invalid.text);
 		const edited = {
 			...document,
 			fields: { ...document.fields, title: 'Oat milk' },
@@ -443,7 +443,7 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 		const repaired = expectErr(await folder.tables.todos.get('milk'));
 		if (repaired.name !== 'InvalidRow') throw new Error(repaired.message);
 		expect(repaired.text).toBe(text);
-		expect(expectOk(parseCanonicalDocument(repaired.text))).toEqual({
+		expect(parse(repaired.text)).toEqual({
 			fields: { title: 'Oat milk', done: 'invalid', owner: { agent: 'alice' } },
 			body: 'Body\r\n',
 		});

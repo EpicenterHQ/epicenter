@@ -257,6 +257,7 @@ test("paths follow the shell's rule: an absolute override wins, else the release
 		),
 	).toEqual({
 		appsDir: '/f/Apps',
+		folderDir: '/f',
 		buildsDir: '/c/builds',
 		approvalsFile: '/d/approvals.json',
 		dataDir: '/d',

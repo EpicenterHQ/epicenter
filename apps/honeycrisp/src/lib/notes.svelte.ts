@@ -29,6 +29,7 @@
  * until every save and action settled before it releases the folder. Saves never commit (ADR-0529); a version is recorded only by
  * Save version.
  */
+import { InstantString } from '@epicenter/definition';
 import {
 	type CommitOutcome,
 	type FileCapture,
@@ -84,12 +85,11 @@ import {
 	type NoteEntry,
 	type NoteFields,
 	noteIdOf,
-	instantNow as now,
 } from './data.js';
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
 import { displayTitle, withBody } from './note-source.js';
-import type { NotesHost } from './platform/types.js';
+import type { NotesFolder } from './platform/types.js';
 
 export type Notes = ReturnType<typeof createNotes>;
 
@@ -270,7 +270,7 @@ export function unreadableOf(
 }
 
 export function createNotes(
-	host: NotesHost,
+	folder: NotesFolder,
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
@@ -282,7 +282,6 @@ export function createNotes(
 		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
-	const { folder } = host;
 	const folder$ = folderOptions(folder);
 	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
@@ -746,7 +745,7 @@ export function createNotes(
 		> => {
 			const why = refused();
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
-			const at = now();
+			const at = InstantString.now();
 			return folder.tables.notes.create(
 				{
 					fields: {
@@ -978,7 +977,8 @@ export function createNotes(
 	}
 
 	return {
-		host,
+		/** The opened folder; `close` releases it. */
+		folder,
 		queryClient,
 		/** The folder's query and mutation options; views read through these. */
 		folder$,
@@ -1158,7 +1158,8 @@ export function createNotes(
 		/** Set some fields of a note as its file is now: pin, move to a folder, trash, restore. */
 		patchNote,
 		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
-		trashNote: (path: string) => patchNote(path, { deletedAt: now() }),
+		trashNote: (path: string) =>
+			patchNote(path, { deletedAt: InstantString.now() }),
 		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
 		/** Set a folder's fields as its file is now; answers why not, if not. */
 		patchFolder(path: string, fields: Partial<FolderFields>) {
@@ -1278,7 +1279,7 @@ export function createNotes(
 				released = true;
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: folder$.key });
-				await host.close();
+				await folder.close();
 			})();
 			return closing;
 		},

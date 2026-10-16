@@ -15,6 +15,11 @@ const origin = 'https://api.example.com';
 const identity = {
 	resolveOrigin: () => origin,
 	resolveTrustedOrigins: () => [origin],
+	resolveAudiences: () => ({
+		api: origin,
+		git: `${origin}/git`,
+		mcp: `${origin}/mcp`,
+	}),
 };
 const authOptions = {
 	resolveAuthSecrets: () => ({
@@ -23,10 +28,7 @@ const authOptions = {
 };
 
 test('public shells and unrelated 404s bypass failing acquisition and auth setup', async () => {
-	const app = createServerApp<CloudEnv>({
-		resolveOrigin: () => origin,
-		resolveTrustedOrigins: () => [origin],
-	});
+	const app = createServerApp<CloudEnv>(identity);
 	app.onError((_error, c) => c.text('Unavailable', 503));
 	let acquisitions = 0;
 	let drains = 0;
@@ -46,11 +48,6 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	mountAuthRoutes(app, {
 		setup,
 		serveAuthUiShell: (c) => c.html('<html>Sign in</html>'),
-		resolveAudiences: () => ({
-			api: origin,
-			git: `${origin}/git`,
-			mcp: `${origin}/mcp`,
-		}),
 	});
 	app.on(['GET', 'POST'], '/api/protected', setup, (c) => c.text('secret'));
 	// Registered after all relational routes, just like the Worker dashboard.

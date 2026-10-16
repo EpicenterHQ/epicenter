@@ -151,7 +151,7 @@ never touch the real one.
 
 Every Git configuration the CLI writes, the credential helper and
 `merge.epicenter.driver`, names that link by its absolute path
-(`gitCommand`), whether the CLI runs from the bundle, the link, or source, so
+(`AppPaths.commandLink`), whether the CLI runs from the bundle, the link, or source, so
 moving the app breaks neither past its next launch and a development run
 never writes a checkout into the global configuration. A release build runs
 `install-command --json` at every launch. A binary under macOS's App
@@ -313,7 +313,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/commands.ts` | Every command, with its usage. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
-| `src/install-command.ts` | `install-command`, and `gitCommand`: the one link Git's configuration runs. |
+| `src/install-command.ts` | `install-command`: the one link Git's configuration runs. |
 | `src/epicenter-folder.ts` | `so.epicenter`'s definition and `declare-epicenter-folder`. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |

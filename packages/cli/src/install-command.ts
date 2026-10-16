@@ -10,7 +10,7 @@
  * The app runs `install-command --json` at every launch, so moving the app
  * breaks nothing past its next launch. Every Git configuration Epicenter
  * writes (the credential helper and `merge.epicenter.driver`) names the link
- * by its absolute path (`gitCommand`), because a Git client started from the
+ * by its absolute path (`AppPaths.commandLink`), because a Git client started from the
  * Finder gets launchd's `PATH`. A terminal reaches it on `PATH` once a person
  * adds `~/.local/bin` there.
  *
@@ -90,17 +90,6 @@ export function applyCommandLink({ action, binary, link }: CommandLinkPlan) {
 		} catch {}
 		throw error;
 	}
-}
-
-/**
- * The command every Git configuration Epicenter writes runs: the link, by
- * its absolute path. It is the same path whether this process runs from the
- * bundle, the link, or source, so a development run never writes a checkout
- * into the global configuration; the app's launch keeps the link pointed at
- * the bundle.
- */
-export function gitCommand(link = resolveAppPaths().commandLink): string[] {
-	return [link];
 }
 
 export async function installCommand({

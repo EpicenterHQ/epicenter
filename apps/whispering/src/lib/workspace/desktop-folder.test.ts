@@ -17,7 +17,7 @@
  * - `desktop.test.ts` for the rest of the desktop workspace
  * - `packages/folder/src/lens.test.ts` for the containment check
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

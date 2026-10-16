@@ -25,7 +25,7 @@ export const CaptureError = defineErrors({
 	}),
 	PermissionDenied: () => ({
 		message:
-			'Microphone access was denied. Allow it for Whispering in System Settings, under Privacy and Security, then try again.',
+			'Microphone access was denied. Allow microphone access in System Settings, under Privacy and Security, or in this browser’s site settings, then try again.',
 	}),
 	/**
 	 * The microphone the person chose cannot be opened. Nothing was captured

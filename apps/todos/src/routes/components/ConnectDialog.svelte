@@ -10,8 +10,8 @@
 	import { Alert, AlertDescription, AlertTitle } from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as Dialog from '@epicenter/ui/dialog';
-	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
+	import { toastStatus } from '@epicenter/svelte/status-popover';
 	import type { CreateMutationResult } from '@tanstack/svelte-query';
 	import { Err, Ok } from 'wellcrafted/result';
 	import type { TodosError } from '$lib/session.js';
@@ -46,9 +46,7 @@
 				open = false;
 				// The review the page shows answers a sync that needs choices.
 				if (error?.name === 'NeedsChoices') return;
-				const line = syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot);
-				const notify = line.tone === 'good' ? toast.success : line.tone === 'error' ? toast.error : toast.warning;
-				notify(line.label, { description: line.detail });
+				toastStatus(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
 			},
 		});
 	}

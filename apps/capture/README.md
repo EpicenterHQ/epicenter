@@ -218,9 +218,9 @@ folder to the same store the
 browser build uses. The browser leaf calls `openFolder`
 from `@epicenter/folder/browser` and states its own history policy: a local
 author and no remote. Each entry refuses in the
-other environment. `vite.config.ts` points the bare `@epicenter/folder`
-specifier, which `@epicenter/capture` imports, at the same entry, so a build
-emits one adapter.
+other environment. `installedAppViteConfig` (from `@epicenter/vite-config`)
+points the bare `@epicenter/folder` specifier, which `@epicenter/capture`
+imports, at the same entry, so a build emits one adapter.
 
 Capture uses the folder's captures table (`list`, `create`, `save`, and
 `delete`, each write guarded by the version it replaces, `save` merging
@@ -248,7 +248,7 @@ with no plugin installed, opening fails and the page shows the reason.
 
 | Event | What happens |
 | --- | --- |
-| The page is destroyed or reloaded | The page stops hearing the folder's changes, and `captures.close()` refuses input and waits until every edit held is saved and no write or action is running before `host.close()` closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
+| The page is destroyed or reloaded | The page stops hearing the folder's changes, and `captures.close()` refuses input and waits until every edit held is saved and no write or action is running before `folder.close()` closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
 | The Capture window is closed | The shell destroys it, as it does any installed app's window. Text typed and not added is lost. |
 | Epicenter's Bun service stops | The shell destroys the window; open Capture again from the Folders window. Text typed and not added is lost. |
 

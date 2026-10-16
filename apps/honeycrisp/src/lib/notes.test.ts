@@ -36,7 +36,7 @@
  * - Closing stops input and actions, waits for every save and action, a
  *   whole folder delete included, and every call shares it
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { type Row, rowStemOf } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
@@ -73,10 +73,11 @@ async function open() {
 	await disk.write(B, noteText({ title: 'Beta', body: 'Two.\n' }));
 	const failures: WriteFailure[] = [];
 	const replaced: ReplacedChange[] = [];
-	const notes = createNotes(disk.host, createQueryClient(), {
+	const notes = createNotes(disk.folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
 		onReplaced: (change) => replaced.push(change),
 	});
+	cleanup.push(() => disk.close());
 	let closed = false;
 	cleanup.push(() => (closed ? undefined : notes.close()));
 	// A test that failed while writes were held still closes.
@@ -127,12 +128,12 @@ const writesTo = (disk: NotesFolderFixture, path: string) =>
 const shown = (notes: Notes, path: string) => notes.noteBody(path).row;
 
 async function sha(notes: Notes, path: string) {
-	return expectOk(await notes.host.folder.files.read(path)).sha256;
+	return expectOk(await notes.folder.files.read(path)).sha256;
 }
 
 /** Saved versions in history, newest first; none before the first. */
 async function versions(notes: Notes) {
-	const { data } = await notes.host.folder.git.log(20);
+	const { data } = await notes.folder.git.log(20);
 	return data ?? [];
 }
 
@@ -648,7 +649,7 @@ test('Save version waits for saves still running, and records what they wrote', 
 	disk.release({ all: true });
 	const outcome = expectOk(await saving);
 	expect(outcome.status).toBe('committed');
-	const { data: committed } = await notes.host.folder.git.status();
+	const { data: committed } = await notes.folder.git.status();
 	expect(committed?.changes.some((change) => change.path === A)).toBe(false);
 });
 

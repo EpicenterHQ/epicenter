@@ -789,10 +789,10 @@ When you add an ADR, add its row here.
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Accepted (amends 0541; amended by 0568) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
 | [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557; amended by 0570) |
-| [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Proposed (amends 0549 and 0558) |
+| [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Accepted (amends 0549 and 0558) |
 | [0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md) | Plain git merges an Epicenter folder's files by kind through a merge driver every connect and clone configures | Proposed (amends 0558) |
-| [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Proposed (amends 0559) |
-| [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Proposed (amends 0535 and 0562) |
-| [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Proposed (amends 0539 and 0552) |
-| [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Proposed (amends 0555, 0561, and 0564) |
+| [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Accepted (amends 0559) |
+| [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Accepted (amends 0535 and 0562) |
+| [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Accepted (amends 0539 and 0552) |
+| [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Accepted (amends 0555, 0561, and 0564) |
 | [0571](0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md) | On desktop, Rust owns the microphone and the page never opens one | Proposed (amends 0561) |

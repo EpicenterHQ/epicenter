@@ -11,6 +11,7 @@
  * credential protocol and takes no `--json`.
  */
 
+import { resolveAppPaths } from './app-paths.ts';
 import {
 	type AuthContext,
 	type AuthError,
@@ -26,13 +27,9 @@ import {
 	logout,
 	type StoredGrant,
 } from './auth.ts';
-import { gitCommand } from './install-command.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
-
-const grantOf = (desktop: boolean): GrantKind =>
-	desktop ? 'desktop' : 'device';
 
 const who = (account: StoredGrant['account']) =>
 	account === null
@@ -41,16 +38,10 @@ const who = (account: StoredGrant['account']) =>
 			? `${account.name} (${account.id})`
 			: account.id;
 
-/** Open `url` in the person's browser with the platform's own command. */
+/** Open `url` in the person's browser with macOS's `open` (ADR-0567). */
 function openInBrowser(url: string) {
-	const command =
-		process.platform === 'darwin'
-			? ['open', url]
-			: process.platform === 'win32'
-				? ['rundll32', 'url.dll,FileProtocolHandler', url]
-				: ['xdg-open', url];
 	try {
-		Bun.spawn(command, { stdio: ['ignore', 'ignore', 'ignore'] });
+		Bun.spawn(['open', url], { stdio: ['ignore', 'ignore', 'ignore'] });
 	} catch {
 		// The URL is printed as well; a person can open it by hand.
 	}
@@ -77,12 +68,10 @@ function signedInResult(
  */
 export async function authLogin(
 	json: boolean,
-	desktop: boolean,
-	ctx: AuthContext = authContext(),
-	helperCommand?: readonly string[],
-	env: Record<string, string | undefined> = process.env,
+	grant: GrantKind,
 ): Promise<number> {
-	if (desktop) {
+	const ctx = authContext();
+	if (grant === 'desktop') {
 		const { data, error } = await loginWithLoopback(ctx, {
 			onUrl: (url) => {
 				if (json) writeJson({ open: url });
@@ -116,12 +105,8 @@ export async function authLogin(
 		},
 	});
 	if (error !== null) return fail(error.message, json);
-	// The link is remade only now, once the sign-in it serves exists.
-	const helper = await configureGitHelper(
-		ctx,
-		helperCommand ?? gitCommand(),
-		env,
-	);
+	// Git's helper is configured only now, once the sign-in it serves exists.
+	const helper = await configureGitHelper(ctx, [resolveAppPaths().commandLink]);
 	if (json)
 		writeJson({
 			signedIn: {
@@ -148,14 +133,14 @@ export async function authLogin(
 export async function authToken(
 	options: Options,
 	json: boolean,
-	desktop: boolean,
-	ctx: AuthContext = authContext(),
+	grant: GrantKind,
 ): Promise<number> {
+	const ctx = authContext();
 	const resource =
 		typeof options.resource === 'string'
 			? options.resource
 			: ctx.deployment.audiences.api;
-	const { data, error } = await accessToken(ctx, grantOf(desktop), resource);
+	const { data, error } = await accessToken(ctx, grant, resource);
 	if (error !== null) return fail(error.message, json);
 	if (json)
 		writeJson({
@@ -178,10 +163,8 @@ function statusLine(status: GrantStatus) {
 }
 
 /** `epicenter auth status`: each grant on this machine, from the keychain alone. */
-export async function authStatusCommand(
-	json: boolean,
-	ctx: AuthContext = authContext(),
-): Promise<number> {
+export async function authStatusCommand(json: boolean): Promise<number> {
+	const ctx = authContext();
 	const { data, error } = await authStatus(ctx);
 	if (error !== null) return fail(error.message, json);
 	if (json) writeJson({ origin: ctx.deployment.origin, grants: data });
@@ -195,10 +178,9 @@ export async function authStatusCommand(
 /** `epicenter auth logout`: the device grant, or with `--desktop` the app's. */
 export async function authLogout(
 	json: boolean,
-	desktop: boolean,
-	ctx: AuthContext = authContext(),
+	grant: GrantKind,
 ): Promise<number> {
-	const grant = grantOf(desktop);
+	const ctx = authContext();
 	const { data, error } = await logout(ctx, grant);
 	if (error !== null) return fail(error.message, json);
 	if (json) writeJson({ grant, ...data });
@@ -230,11 +212,9 @@ export async function authLogout(
  */
 export async function authGitCredential(
 	action: string,
-	desktop: boolean,
-	ctx: AuthContext = authContext(),
-	stdin: () => Promise<string> = () => Bun.stdin.text(),
+	grant: GrantKind,
 ): Promise<number> {
-	const request = await stdin();
+	const request = await Bun.stdin.text();
 	if (action === 'store' || action === 'erase') return EXIT.ok;
 	if (action !== 'get') {
 		writeErr(
@@ -242,7 +222,7 @@ export async function authGitCredential(
 		);
 		return EXIT.unusable;
 	}
-	const { data, error } = await gitCredential(ctx, grantOf(desktop), request);
+	const { data, error } = await gitCredential(authContext(), grant, request);
 	if (error !== null) {
 		writeErr(`epicenter: ${(error as AuthError).message}`);
 		return EXIT.unusable;

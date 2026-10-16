@@ -2,9 +2,9 @@
 	import type { CommitSummary } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
-	import * as Popover from '@epicenter/ui/popover';
 	import { toast } from '@epicenter/ui/sonner';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import StatusPopover, { toastStatus } from '@epicenter/svelte/status-popover';
+	import StatusRow from '@epicenter/svelte/status-row';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -15,7 +15,6 @@
 		commitOutcomeLine,
 		historyLine,
 		savesLine,
-		type StatusLine,
 		summaryLine,
 	} from '$lib/status.js';
 
@@ -38,20 +37,7 @@
 	const changes = $derived(changesLine(notes.git));
 	const history = $derived(historyLine(notes.git));
 	const summary = $derived(summaryLine({ saves, changes, history }));
-	const details = $derived<[string, string, StatusLine][]>([
-		['Saves', 'status-saves', saves],
-		['Changes', 'status-changes', changes],
-		['Versions', 'status-history', history],
-	]);
 	const savingVersion = $derived(notes.mutating({ mutationKey: notesKeys.saveVersion }) > 0);
-
-	const tones: Record<StatusLine['tone'], string> = {
-		neutral: 'bg-muted-foreground/50',
-		busy: 'bg-primary animate-pulse',
-		good: 'bg-success',
-		warning: 'bg-warning',
-		error: 'bg-destructive',
-	};
 
 	let open = $state(false);
 	let log = $state.raw<CommitSummary[] | string>([]);
@@ -61,7 +47,7 @@
 		if (!open) return;
 		notes.git.lastCommit;
 		const signal = getAbortSignal();
-		void notes.host.folder.git.log(8).then(
+		void notes.folder.git.log(8).then(
 			({ data: commits, error: historyError }) => {
 				if (signal.aborted) return;
 				log = historyError ? historyError.message : commits;
@@ -80,72 +66,34 @@
 			toast.warning('Version not saved', { description: describeError(error) });
 			return;
 		}
-		const line = commitOutcomeLine(outcome);
-		const notify =
-			line.tone === 'good'
-				? toast.success
-				: line.tone === 'error'
-					? toast.error
-					: line.tone === 'warning'
-						? toast.warning
-						: toast.info;
-		notify(line.label, { description: line.detail });
+		toastStatus(commitOutcomeLine(outcome));
 	}
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 	<h1 class="text-sm font-semibold">Honeycrisp</h1>
 
-	<Popover.Root bind:open>
-		<Popover.Trigger>
-			{#snippet child({ props })}
-				<Button
-					{...props}
-					variant="ghost"
-					size="sm"
-					class="min-w-0 shrink font-normal text-muted-foreground"
-					aria-label="Status: {summary.label}. Show details"
-					data-testid="status-summary"
-				>
-					<span class="size-2 shrink-0 rounded-full {tones[summary.tone]}" aria-hidden="true"></span>
-					<span class="truncate">{summary.label}</span>
-					<ChevronDownIcon class="text-muted-foreground" />
-				</Button>
-			{/snippet}
-		</Popover.Trigger>
-		<Popover.Content align="start" class="w-96 max-w-[calc(100vw-1rem)] p-0">
-			<dl class="divide-y text-sm">
-				{#each details as [name, testid, line] (name)}
-					<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-						<dt class="text-xs text-muted-foreground">{name}</dt>
-						<dd class="min-w-0">
-							<span class="flex items-center gap-1.5 font-medium" data-testid={testid}>
-								<span class="size-2 shrink-0 rounded-full {tones[line.tone]}" aria-hidden="true"></span>
-								{line.label}
-							</span>
-							{#if line.detail}
-								<span class="mt-0.5 block text-xs break-words whitespace-pre-line text-muted-foreground">{line.detail}</span>
-							{/if}
-						</dd>
-					</div>
+	<StatusPopover
+		bind:open
+		{summary}
+		details={[
+			{ name: 'Saves', testid: 'status-saves', line: saves },
+			{ name: 'Changes', testid: 'status-changes', line: changes },
+			{ name: 'Versions', testid: 'status-history', line: history },
+		]}
+	>
+		<StatusRow name="Recent versions" class="font-mono text-xs" data-testid="status-log">
+			{#if typeof log === 'string'}
+				<span class="text-destructive">{log}</span>
+			{:else}
+				{#each log as commit (commit.oid)}
+					<span class="block truncate">{commit.oid.slice(0, 7)} {commit.message.split('\n')[0]}</span>
+				{:else}
+					<span class="font-sans text-muted-foreground">No versions yet</span>
 				{/each}
-				<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-					<dt class="text-xs text-muted-foreground">Recent versions</dt>
-					<dd class="min-w-0 font-mono text-xs" data-testid="status-log">
-						{#if typeof log === 'string'}
-							<span class="text-destructive">{log}</span>
-						{:else}
-							{#each log as commit (commit.oid)}
-								<span class="block truncate">{commit.oid.slice(0, 7)} {commit.message.split('\n')[0]}</span>
-							{:else}
-								<span class="font-sans text-muted-foreground">No versions yet</span>
-							{/each}
-						{/if}
-					</dd>
-				</div>
-			</dl>
-		</Popover.Content>
-	</Popover.Root>
+			{/if}
+		</StatusRow>
+	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
 		<Button

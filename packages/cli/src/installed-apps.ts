@@ -57,6 +57,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
+import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import { createGitRunner, holdingFileLock } from '@epicenter/folder/bun';
 import type { AppPaths } from './app-paths.ts';
 
@@ -64,8 +65,6 @@ import type { AppPaths } from './app-paths.ts';
 export const MANIFEST = 'epicenter.app.json';
 /** The key in a clone's `.git/config` naming the folder the app is in. */
 export const FOLDER_KEY = 'epicenter.folder';
-/** Epicenter's own folder id, which no app may take (ADR-0552). */
-const EPICENTER_ID = 'so.epicenter';
 /** How many directories deep a repository's apps are looked for. */
 const MAX_FOLDER_DEPTH = 4;
 /** Folder names never searched for apps. */
@@ -221,7 +220,8 @@ export function appIdProblem(id: string): string | undefined {
 		/^[a-z]/.test(id);
 	if (!wellFormed)
 		return 'is not a lowercase reverse-domain name such as com.example.board';
-	if (id === EPICENTER_ID) return 'belongs to Epicenter itself';
+	// Epicenter's own folder id, which no app may take (ADR-0552).
+	if (id === CONNECTIONS_FOLDER_ID) return 'belongs to Epicenter itself';
 	return undefined;
 }
 
@@ -419,7 +419,6 @@ async function buildEnvironment(cacheDir: string) {
 		BUN_BE_BUN: '1',
 		CI: '1',
 	};
-	if (process.platform === 'win32') return env;
 	const shim = join(cacheDir, 'bin');
 	const link = join(shim, 'bun');
 	try {
@@ -456,12 +455,11 @@ function runBun(
 			env,
 			stdio: ['ignore', log, log],
 			// Its own process group, so the timeout stops what it started too.
-			detached: process.platform !== 'win32',
+			detached: true,
 		});
 		const timer = setTimeout(() => {
 			try {
-				if (child.pid !== undefined && process.platform !== 'win32')
-					process.kill(-child.pid, 'SIGKILL');
+				if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
 				else child.kill('SIGKILL');
 			} catch {}
 			reject(

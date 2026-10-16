@@ -8,6 +8,15 @@ parent app with `createServerApp`, guards each mount with `requireAccessToken`
 for that mount's audience and scope, and mounts the surfaces it wants with the matching `mount*` primitive. `apps/api/worker/index.ts` is the
 composition to read first.
 
+`createServerApp` takes the deployment's identity: its origin
+(`resolveOrigin`), the origins it trusts (`resolveTrustedOrigins`), and its
+token audiences (`resolveAudiences`, from the resolved origin). The deployment
+names its audiences once there (ADR-0326), and every request carries them as
+`c.var.audiences`: the guards, the Git and MCP mounts, the protected resource
+metadata, and the authorization server all read that one value. `apps/api`
+passes `resolveOAuthAudiences`, which puts the hosted cloud's Git and MCP
+audiences on their own hosts and any other deployment's under its origin.
+
 ## The surfaces
 
 Each `mount*` bundles its own auth wiring; the deployment passes only the auth
@@ -106,6 +115,9 @@ type GitHost = {
 };
 ```
 
+`GitRequest` is internal to `src/routes/git.ts`; an implementation receives it
+through `GitHost['serve']` rather than importing it from the package.
+
 The route resolves names to ids and lists from Postgres, so the store takes
 an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
 or a move is a row update and an alias, with no storage call. `apps/api` binds
@@ -152,9 +164,10 @@ Every call copies the whole repository, which bounds the size of a folder MCP
 can serve. The module runs in workerd (`workers/mcp.test.ts`) but has not run
 against the Artifacts store.
 
-`renameRepository`, `moveRepository`, and `changeRepository`
-(`src/repositories.ts`) are the `manage` role's rename and move, each leaving
-an alias for the old `<namespace>/<name>`; no route or screen mounts them yet.
+`renameRepository` and `moveRepository` (`src/repositories.ts`) are the
+`manage` role's rename and move, each leaving an alias for the old
+`<namespace>/<name>`. They are internal: the package does not export them, and
+no route or screen mounts them yet.
 A move also needs `push` in the destination.
 
 ## The authorization server
@@ -163,7 +176,7 @@ A move also needs `push` in the destination.
 makes Epicenter one OAuth 2.1 authorization server. `oauthServerPlugins` in
 `src/auth/plugins.ts` composes it, and `createAuth` adds it only when the
 deployment passes `oauth` (through `createCloudContextMiddleware`'s
-`resolveOAuthServer`). The provider seeds its resources each time an instance
+`oauthServer`, with the request's `c.var.audiences`). The provider seeds its resources each time an instance
 initializes, and a Worker builds one per request, so only the context that
 serves `/auth/*` composes it. Beside it are only passkeys: a Better Auth
 session is the authorization server's own cookie, never a resource credential,
@@ -177,7 +190,7 @@ so there is no `bearer()`.
 | Offline grants | `src/auth/offline-detach.ts` | Clears `sessionId` on a grant with a refresh token, so it outlives the browser session that approved it. |
 | Registrations | `src/auth/oauth-registrations.ts` | `registerFirstPartyClients`, the one writer of the `oauth_client`, `oauth_resource`, and `oauth_client_resource` rows a deployment's first-party clients need: insert-only for resources, idempotent with no transaction, so concurrent writers converge. The Bun entry calls it at boot and the Worker once per isolate; no migration seeds a client. |
 | Resource check | `src/auth/resource-access.ts` | `authorizeResourceRequest`: one SQL statement from a token, an audience, a scope, and a namespace to the account and its role, or a 401 or 403 with `resource_metadata`. `authorizeAccountRequest`: the same without a namespace, for resources that act on the account (inference, transcription, personal blobs, the repository listing). |
-| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
+| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, where `audience` names one of `c.var.audiences` (`api`, `git`, or `mcp`), and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
 | Account session | `src/auth/session-policy.ts` | `requireAccountSession`, the Better Auth hook that holds its account-management endpoints (`/link-social`, `/unlink-account`, `/delete-user`, and the passkey changes) to the same rules plus ten-minute freshness. `/delete-user` then refuses with `ACCOUNT_DELETION_UNAVAILABLE` (`src/auth/base-config.ts`). |
 | CIMD transports | `src/auth/client-metadata-fetch.ts`, `@better-auth/cimd/node` | The Worker's `redirect: "manual"` fetch and the Bun host's resolve-once, address-pinned fetch. |
 
@@ -194,7 +207,7 @@ signing out revokes each access token it holds as well.
 
 A resource that acts on a namespace calls `authorizeResourceRequest` with its
 own audience, the scope the operation needs, and the namespace in its path,
-then decides the operation from the role with `roleAllows`
+then decides the operation from the role with the internal `roleAllows`
 (`src/namespace-roles.ts`); `mountGitHost` and `mountMcpServer` do (LFS is
 ADR-0544's). The other mounted resources act on the account and sit
 behind `requireAccessToken`, which runs `authorizeAccountRequest`. The
@@ -220,7 +233,8 @@ test-only route for the namespace check.
 `namespace_member` tables. The `user_personal_namespace` trigger in
 `apps/api/drizzle` gives each account its personal namespace, with the account
 as its only `owner`, inside the statement that inserts the account. Roles are
-`owner` and `member`; `NAMESPACE_ROLES` says what each may do.
+`owner` and `member`; `NAMESPACE_ROLES`, internal to `src/namespace-roles.ts`,
+says what each may do.
 
 ## Tests that need Postgres
 

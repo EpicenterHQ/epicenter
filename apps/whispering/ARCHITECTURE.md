@@ -157,9 +157,10 @@ storages are never substitutes: nothing that is missing or refuses inside a
 desktop app is replaced by browser storage, and the browser opener itself
 refuses there (`InsideTauri`).
 
-Page code names types and helpers from `@epicenter/folder`. `vite.config.ts`
-aliases that exact specifier to `@epicenter/folder/tauri` in the host build
-and to `@epicenter/folder/browser` otherwise, so a browser build carries no
+Page code names types and helpers from `@epicenter/folder`.
+`installedAppViteConfig` (from `@epicenter/vite-config`, which `vite.config.ts`
+builds on) aliases that exact specifier to `@epicenter/folder/tauri` in the
+host build and to `@epicenter/folder/browser` otherwise, so a browser build carries no
 desktop adapter or Epicenter's generated bindings, and the host build no
 browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
 bundles both builds and reads what each pulls in.
@@ -628,11 +629,11 @@ obstacle in that write's way so the folder itself fails it
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
-| `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
+| `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
 | `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held as drafts and their saves, selections, the live recording, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
-| `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, container detection, the transcription and transformation requests. |
+| `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
 | `src/lib/status.ts`, `files.ts`, `terminal.svelte.ts` | Status lines, the file tree, and a terminal session no workspace offers today. |

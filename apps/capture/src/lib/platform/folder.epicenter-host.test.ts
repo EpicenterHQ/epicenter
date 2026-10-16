@@ -26,7 +26,7 @@
  * - `packages/folder/src/tauri-directory.test.ts` for the granted opener
  * - `packages/folder/src/directory-folder.test.ts` for the directory engine
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -80,7 +80,7 @@ function handWindow(folder: string) {
 	});
 }
 
-const { openCaptureHost } = await import('./folder.epicenter-host.js');
+const { openCaptureFolder } = await import('./folder.epicenter-host.js');
 const { createCaptures } = await import('../captures.svelte.ts');
 const { createQueryClient, observe, quiet } = await import(
 	'../query.test-support.js'
@@ -106,14 +106,14 @@ const withText = (body: string) => FORMATTED.replace('\nText\n', `\n${body}\n`);
 const LOST = 'the webview lost its IPC connection';
 
 async function opened() {
-	const host = await openCaptureHost();
+	const folder = await openCaptureFolder();
 	const failures: WriteFailure[] = [];
-	const captures = createCaptures(host, createQueryClient(), {
+	const captures = createCaptures(folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
 	});
 	observe(captures);
 	await quiet(captures);
-	return { host, captures, failures };
+	return { folder, captures, failures };
 }
 
 /** The capture at PATH, opened, and its form. */
@@ -145,7 +145,7 @@ const refuse = (error: unknown): never => {
 test('outside the desktop shell, opening fails with the reason and invokes nothing', async () => {
 	inShell = false;
 
-	await expect(openCaptureHost()).rejects.toThrow('desktop app');
+	await expect(openCaptureFolder()).rejects.toThrow('desktop app');
 
 	expect(calls).toEqual([]);
 });
@@ -182,13 +182,13 @@ test.each([
 ] as const)('%s fails the open with its reason', async (_name, refusal, reason) => {
 	grant = refusal;
 
-	await expect(openCaptureHost()).rejects.toThrow(reason);
+	await expect(openCaptureFolder()).rejects.toThrow(reason);
 
 	expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 });
 
 test('a window handed no folder names the Capture scope and is told the directory', async () => {
-	const host = await openCaptureHost();
+	const folder = await openCaptureFolder();
 
 	expect(calls[0]).toEqual({
 		cmd: 'grant_directory',
@@ -198,8 +198,8 @@ test('a window handed no folder names the Capture scope and is told the director
 	// Everything after the grant is for the granted scope.
 	for (const call of calls.slice(1))
 		expect(call.args.scope).toBe(CAPTURE_FOLDER_ID);
-	expect(host.location).toEqual({ kind: 'directory', root });
-	await host.close();
+	expect(folder.location).toEqual({ kind: 'directory', root });
+	await folder.close();
 });
 
 const STRING = { type: 'string', 'x-field': { kind: 'string' } };
@@ -232,7 +232,7 @@ test('a window handed another folder opens it through the shape and keeps its de
 	await put('epicenter.json', NOTES);
 	await put(PATH, SAVED);
 
-	const { host, captures } = await opened();
+	const { folder, captures } = await opened();
 
 	expect(calls[0]).toEqual({
 		cmd: 'grant_directory',
@@ -244,7 +244,7 @@ test('a window handed another folder opens it through the shape and keeps its de
 	// The folder's own declaration stays; Capture's is never published over it.
 	expect(await text('epicenter.json')).toBe(NOTES);
 	await captures.close();
-	await host.close();
+	await folder.close();
 });
 
 test('a handed folder without the captures Capture reads is refused by name', async () => {
@@ -258,7 +258,7 @@ test('a handed folder without the captures Capture reads is refused by name', as
 	});
 	await put('epicenter.json', recipes);
 
-	await expect(openCaptureHost()).rejects.toThrow(
+	await expect(openCaptureFolder()).rejects.toThrow(
 		"Capture cannot open the folder 'Recipes': The folder declares no 'captures' table.",
 	);
 	expect(await text('epicenter.json')).toBe(recipes);
@@ -266,7 +266,7 @@ test('a handed folder without the captures Capture reads is refused by name', as
 
 test('a write saves the row on disk and keeps undeclared metadata', async () => {
 	await put(PATH, SAVED);
-	const { host, captures, failures } = await opened();
+	const { folder, captures, failures } = await opened();
 	const { form } = await openOne(captures);
 
 	form.inputNewThought('second');
@@ -276,12 +276,12 @@ test('a write saves the row on disk and keeps undeclared metadata', async () => 
 	expect(failures).toEqual([]);
 	expect(await text(PATH)).toBe(`${FORMATTED}- second\n`);
 	await captures.close();
-	await host.close();
+	await folder.close();
 });
 
 test('an edit made elsewhere merges with this one: both survive', async () => {
 	await put(PATH, SAVED);
-	const { host, captures, failures } = await opened();
+	const { folder, captures, failures } = await opened();
 	const { form } = await openOne(captures);
 	const theirs = `${SAVED}- from another window\n`;
 	await put(PATH, theirs);
@@ -294,12 +294,12 @@ test('an edit made elsewhere merges with this one: both survive', async () => {
 	expect(await text(PATH)).toContain('\nMine\n');
 	expect(await text(PATH)).toContain('- from another window');
 	await captures.close();
-	await host.close();
+	await folder.close();
 });
 
 test('closing waits for a save already sent and the latest edit after it', async () => {
 	await put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { folder, captures } = await opened();
 	const { form } = await openOne(captures);
 	// The first save of the capture is held just before it lands.
 	const landing = Promise.withResolvers<void>();
@@ -314,7 +314,7 @@ test('closing waits for a save already sent and the latest edit after it', async
 	let closed = false;
 	const closing = captures
 		.close()
-		.then(() => host.close())
+		.then(() => folder.close())
 		.then(() => {
 			closed = true;
 		});
@@ -328,7 +328,7 @@ test('closing waits for a save already sent and the latest edit after it', async
 });
 
 test('Save version commits and rewrites no file', async () => {
-	const { host, captures } = await opened();
+	const { folder, captures } = await opened();
 	captures.inputNewCapture('Saved before history');
 	expectOk(await captures.create('Saved before history'));
 	await quiet(captures);
@@ -358,5 +358,5 @@ test('Save version commits and rewrites no file', async () => {
 	);
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await captures.close();
-	await host.close();
+	await folder.close();
 });

@@ -96,12 +96,16 @@ test('the MCP endpoint answers 401 with resource metadata, then initialize and t
 		}),
 	} as unknown as Db;
 	const app = new Hono<CloudEnv>();
+	// What `createServerApp` resolves for every request.
+	app.use(async (c, next) => {
+		c.set('audiences', audiences);
+		await next();
+	});
 	mountMcpServer(app, {
 		setup: async (c, next) => {
 			c.set('db', db);
 			await next();
 		},
-		resolveAudiences: () => audiences,
 		resolveHost: () => host,
 	});
 	const post = (body: object, token?: string) =>

@@ -18,7 +18,7 @@
  * - A message file that cannot be read is reported, never dropped silently
  * - A refused or closed folder fails the write and the tutor is not asked
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import {
 	type AgentEngine,

@@ -9,6 +9,7 @@
  */
 
 import packageJson from '../package.json' with { type: 'json' };
+import type { GrantKind } from './auth.ts';
 import { COMMANDS } from './commands.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
@@ -33,23 +34,23 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./folder-commands.ts')).query(dir as string, sql, json),
 	generate: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).generate(dir as string, json),
-	status: async ({ positionals: [dir], options, json }) =>
-		history('status', dir as string, options, json),
-	history: async ({ positionals: [dir], options, json }) =>
-		history('history', dir as string, options, json),
-	'save-version': async ({ positionals: [dir], options, json }) =>
-		history('save-version', dir as string, options, json),
-	sync: async ({ positionals: [dir], options, json, desktop }) =>
-		history('sync', dir as string, options, json, desktop),
-	clone: async ({ positionals: [source, dir], json, desktop }) =>
+	status: async ({ positionals: [dir], options, json, grant }) =>
+		history('status', dir as string, options, json, grant),
+	history: async ({ positionals: [dir], options, json, grant }) =>
+		history('history', dir as string, options, json, grant),
+	'save-version': async ({ positionals: [dir], options, json, grant }) =>
+		history('save-version', dir as string, options, json, grant),
+	sync: async ({ positionals: [dir], options, json, grant }) =>
+		history('sync', dir as string, options, json, grant),
+	clone: async ({ positionals: [source, dir], json, grant }) =>
 		(await import('./repository-commands.ts')).clone(
 			source as string,
 			dir,
 			json,
-			desktop,
+			grant,
 		),
-	repos: async ({ json, desktop }) =>
-		(await import('./repository-commands.ts')).repos(json, desktop),
+	repos: async ({ json, grant }) =>
+		(await import('./repository-commands.ts')).repos(json, grant),
 	'merge-driver': async ({ positionals, json }) => {
 		const driver = await import('./merge-driver.ts');
 		// Git's `%O %A %B %P`, or the folder to configure.
@@ -78,7 +79,7 @@ const HANDLERS: Record<string, Run> = {
 		]);
 		return authKey(action as string, connection as string, json, keychain());
 	},
-	send: async ({ desktop }) => {
+	send: async ({ grant }) => {
 		const [
 			{ send },
 			{ keychain },
@@ -89,25 +90,24 @@ const HANDLERS: Record<string, Run> = {
 			import('./auth.ts'),
 		]);
 		const ctx = authContext();
-		const grant = desktop ? 'desktop' : 'device';
 		return send(
 			keychain(),
 			epicenterAccess(ctx, grant),
 			accountAccess(ctx, grant),
 		);
 	},
-	'auth login': async ({ json, desktop }) =>
-		(await import('./auth-commands.ts')).authLogin(json, desktop),
-	'auth logout': async ({ json, desktop }) =>
-		(await import('./auth-commands.ts')).authLogout(json, desktop),
+	'auth login': async ({ json, grant }) =>
+		(await import('./auth-commands.ts')).authLogin(json, grant),
+	'auth logout': async ({ json, grant }) =>
+		(await import('./auth-commands.ts')).authLogout(json, grant),
 	'auth status': async ({ json }) =>
 		(await import('./auth-commands.ts')).authStatusCommand(json),
-	'auth token': async ({ options, json, desktop }) =>
-		(await import('./auth-commands.ts')).authToken(options, json, desktop),
-	'auth git-credential': async ({ positionals: [action], desktop }) =>
+	'auth token': async ({ options, json, grant }) =>
+		(await import('./auth-commands.ts')).authToken(options, json, grant),
+	'auth git-credential': async ({ positionals: [action], grant }) =>
 		(await import('./auth-commands.ts')).authGitCredential(
 			action as string,
-			desktop,
+			grant,
 		),
 	'declare-epicenter-folder': async ({ json }) =>
 		(await import('./epicenter-folder.ts')).declareEpicenterFolder(json),
@@ -126,7 +126,7 @@ async function history(
 	dir: string,
 	options: Record<string, string | true>,
 	json: boolean,
-	desktop = false,
+	grant: GrantKind,
 ) {
 	const [{ historyCommand }, { endGitCommands }, { onStop }] =
 		await Promise.all([
@@ -135,7 +135,7 @@ async function history(
 			import('./stop.ts'),
 		]);
 	onStop(endGitCommands);
-	return historyCommand(command, dir, options, json, desktop);
+	return historyCommand(command, dir, options, json, grant);
 }
 
 /** What `epicenter <command> --help` adds below the usage line. */
