@@ -10,10 +10,16 @@
 //! it reads stdout, so a child that prints before it finishes reading cannot
 //! deadlock on a full pipe. Lines are read whole, however long, and the run
 //! ends only when stdout closes and the child exits.
+//!
+//! A run that ends early, because its listener refused a line or its future
+//! was dropped, asks the child to stop and kills it only after
+//! [`STOP_GRACE`], so a refresh the child already sent reaches the keychain
+//! (ADR-0565).
 
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
+use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -23,10 +29,78 @@ use tauri::ipc::Channel;
 use tauri::{Runtime, Webview};
 use tauri_plugin_epicenter_folder::{FolderExt, GrantError};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 
 /// How much of the child's stderr a result keeps: the end, where the reason is.
 const STDERR_TAIL_BYTES: usize = 64 * 1024;
+
+/// How long a child asked to stop has before it is killed with its process
+/// group. The CLI waits at most two seconds for a refresh it sent to reach
+/// the keychain before it exits (ADR-0565), so this is longer.
+pub(crate) const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// A child this run owns until it is waited for. Dropped before then, it is
+/// asked to stop and killed only after [`STOP_GRACE`].
+struct Running(Option<Child>);
+
+impl Running {
+    fn child(&mut self) -> &mut Child {
+        self.0
+            .as_mut()
+            .expect("the child is owned until it is waited for")
+    }
+
+    async fn wait(mut self) -> std::io::Result<ExitStatus> {
+        let status = self.child().wait().await;
+        self.0 = None;
+        status
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let Some(child) = self.0.take() else {
+            return;
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(stop(child));
+            }
+            Err(_) => {
+                let mut child = child;
+                let _ = child.start_kill();
+            }
+        }
+    }
+}
+
+/// Ask `child` and its process group to stop, then kill them if they still
+/// run after [`STOP_GRACE`]. Windows has no stop signal, so the child is
+/// killed at once there.
+async fn stop(mut child: Child) {
+    #[cfg(unix)]
+    {
+        signal_group(&child, libc::SIGTERM);
+        if tokio::time::timeout(STOP_GRACE, child.wait()).await.is_ok() {
+            return;
+        }
+        signal_group(&child, libc::SIGKILL);
+    }
+    let _ = child.kill().await;
+}
+
+/// Signal the process group `child` leads (`process_group(0)`), while it is
+/// not yet reaped, so the ID cannot name another process.
+#[cfg(unix)]
+fn signal_group(child: &Child, signal: libc::c_int) {
+    let Some(group) = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
+        return;
+    };
+    // SAFETY: `kill` takes no pointers; the group is the child's own.
+    unsafe {
+        libc::kill(-group, signal);
+    }
+}
 
 /// How to start the `epicenter` binary: a program and the arguments that
 /// come before a command's own.
@@ -101,7 +175,7 @@ pub(crate) fn failed(message: impl Into<String>) -> CliError {
 /// Run `program` with `args`, write `stdin` (or nothing) on its own task, and
 /// hand each line of stdout to `on_line` as it arrives. A line is passed
 /// without its line ending. When `on_line` refuses a line, the child is
-/// killed and the run fails.
+/// stopped, gracefully (`STOP_GRACE`), and the run fails.
 pub async fn run(
     program: &Program,
     args: &[OsString],
@@ -145,16 +219,16 @@ pub(crate) async fn run_child(
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        .stderr(Stdio::piped());
     #[cfg(unix)]
     command.process_group(0);
-    let mut child = command.spawn().map_err(|error| {
+    let mut running = Running(Some(command.spawn().map_err(|error| {
         failed(format!(
             "{} could not be started: {error}",
             program.program.display()
         ))
-    })?;
+    })?));
+    let child = running.child();
     if let Some(pid) = child.id() {
         started(pid);
     }
@@ -225,11 +299,11 @@ pub(crate) async fn run_child(
         }
     }
     if let Some(message) = refused {
-        let _ = child.kill().await;
+        // Dropping `running` stops the child.
         return Err(failed(message));
     }
 
-    let status = child
+    let status = running
         .wait()
         .await
         .map_err(|error| failed(format!("the CLI could not be waited for: {error}")))?;
@@ -911,6 +985,48 @@ process.exitCode = 1;
                 message: "the page went away".into()
             }
         );
+    }
+
+    /// A run that ends early asks the child to stop and gives it
+    /// `STOP_GRACE`: a child that finishes a write after the stop signal, as
+    /// the CLI finishes a refresh it sent, still finishes it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_run_that_ends_early_lets_the_child_finish_before_killing_it() {
+        let dir = scratch("grace");
+        let marker = dir.join("finished");
+        let script = dir.join("child.sh");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ntrap 'sleep 1; echo done > \"{}\"; exit 0' TERM\necho '{{}}'\nwhile :; do sleep 0.05; done\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        let program = Program {
+            program: PathBuf::from("/bin/sh"),
+            prefix: vec![script.into_os_string()],
+        };
+        let ended = run(&program, &[], None, |_| Err("the page went away".into()))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            ended,
+            CliError::Failed {
+                message: "the page went away".into()
+            }
+        );
+        let mut finished = false;
+        for _ in 0..100 {
+            if marker.exists() {
+                finished = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(finished, "the child was killed before it finished");
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

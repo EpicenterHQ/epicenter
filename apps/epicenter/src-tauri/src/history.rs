@@ -29,17 +29,14 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{Manager, Runtime, Webview};
 use tauri_plugin_epicenter_folder::{FolderExt, FolderKind};
 
-use crate::cli::{self, failed, CliError, Program};
+use crate::cli::{self, failed, CliError, Program, STOP_GRACE};
 
-/// How long a child asked to stop has before its process group is killed.
-const STOP_GRACE: Duration = Duration::from_secs(1);
 
 /// The `epicenter` children each window's page started, by window label.
 #[derive(Default)]
@@ -380,6 +377,7 @@ pub async fn install_git<R: Runtime>(webview: Webview<R>) -> Result<(), String> 
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::time::Duration;
 
     use serde_json::Value;
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
