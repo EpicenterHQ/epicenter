@@ -5,6 +5,11 @@
  * folder nobody writes to is never touched, and a folder written to says
  * which definition last wrote it. A file that already holds the declaration's
  * bytes is left as it is.
+ *
+ * With the declaration, the handle makes the root `.gitignore` name the
+ * definition's `local` patterns, so files that stay on the machine that
+ * wrote them never enter a commit. It only adds lines: a person's own lines
+ * stay as they are.
  */
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
@@ -16,10 +21,17 @@ import { createFiles, type FolderFiles } from './files.js';
 import { DECLARATION_PATH } from './paths.js';
 
 const log = createLogger('folder/definition');
+/** The folder's root `.gitignore`, where `local` patterns are written. */
+const GITIGNORE_PATH = '.gitignore';
 const PublicationError = defineErrors({
 	DefinitionPublicationUnconfirmed: ({ cause }: { cause: unknown }) => ({
 		message: `Publication of ${DECLARATION_PATH} did not confirm a complete save.`,
 		path: DECLARATION_PATH,
+		cause,
+	}),
+	LocalPatternsUnconfirmed: ({ cause }: { cause: unknown }) => ({
+		message: `Adding the folder's local patterns to ${GITIGNORE_PATH} did not confirm a complete save.`,
+		path: GITIGNORE_PATH,
 		cause,
 	}),
 });
@@ -67,9 +79,54 @@ export async function publishDefinition(
 }
 
 /**
- * `storage`, publishing the declaration once before the first change this
- * handle makes. Reads publish nothing. The publication's own write goes to
- * `storage` directly, and its failure is logged without refusing the write.
+ * Await one attempt to make the root `.gitignore` name each `local`
+ * pattern, skipped when every pattern is already one of its lines. A missing
+ * file is created holding the patterns. A present one gains the missing
+ * patterns as lines at its end; nothing in it is reordered, rewritten, or
+ * removed, so a person's own lines stay. The save never merges: when another
+ * writer saved first, the file is read once more. A failure is logged and
+ * never refuses the write it precedes.
+ */
+export async function publishLocalPatterns(
+	local: readonly string[],
+	files: Pick<FolderFiles, 'read' | 'create' | 'save'>,
+): Promise<void> {
+	if (local.length === 0) return;
+	let failure: unknown;
+	try {
+		for (let reads = 0; reads < 2; reads++) {
+			const { data: current, error: readError } =
+				await files.read(GITIGNORE_PATH);
+			if (readError !== null && readError.name !== 'NotFound') {
+				failure = readError;
+				break;
+			}
+			const text =
+				readError === null ? new TextDecoder().decode(current.bytes) : '';
+			const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
+			const missing = local.filter((pattern) => !lines.has(pattern));
+			if (missing.length === 0) return;
+			const separator = text === '' || text.endsWith('\n') ? '' : '\n';
+			const next = `${text}${separator}${missing.join('\n')}\n`;
+			const { error } =
+				readError === null
+					? await files.save(current, next, { merge: false })
+					: await files.create(GITIGNORE_PATH, next);
+			if (error === null) return;
+			failure = error;
+			if (error.name !== 'Conflict' && error.name !== 'Exists') break;
+		}
+	} catch (cause) {
+		failure = cause;
+	}
+	log.error(PublicationError.LocalPatternsUnconfirmed({ cause: failure }));
+}
+
+/**
+ * `storage`, publishing the declaration and the `local` patterns once before
+ * the first change this handle makes. Reads publish nothing. The
+ * publications' own writes go to `storage` directly, and their failures are
+ * logged without refusing the write.
  */
 export function declaring(
 	storage: FolderStorage,
@@ -78,7 +135,9 @@ export function declaring(
 	let published: Promise<void> | undefined;
 	const files = createFiles({ storage });
 	const first = () => {
-		published ??= publishDefinition(prepared, files);
+		published ??= publishDefinition(prepared, files).then(() =>
+			publishLocalPatterns(prepared.local ?? [], files),
+		);
 		return published;
 	};
 	return {

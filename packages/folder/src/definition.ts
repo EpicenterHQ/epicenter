@@ -61,7 +61,15 @@ type PreparedFolderDefinition<TDefinition extends FolderDefinition> = {
 		: TDefinition[K];
 };
 
-/** What a folder reads its files through: a schema that names no dataset. */
+/**
+ * What a folder reads its files through: a schema that names no dataset.
+ *
+ * Its `local` patterns name files that stay on the machine that wrote them.
+ * Every commit leaves out a path they match, and untracks one already
+ * committed, whatever `.gitignore` says (`git/local.ts`). Before its first
+ * write a handle also adds each pattern the root `.gitignore` lacks, so plain
+ * `git` agrees (`publish-definition.ts`). `epicenter.json` does not carry them.
+ */
 export type FolderDefinition = DataSchema & { readonly id?: never };
 
 /**
@@ -199,14 +207,17 @@ export function defineFolder<const TDefinition extends DataSchema>(
 				? TDefinition['tables'][Name]
 				: FolderTable;
 		};
-	} & Record<Exclude<keyof TDefinition, keyof DataSchema>, never>,
+		local?: readonly string[];
+	} & Record<Exclude<keyof TDefinition, keyof DataSchema | 'local'>, never>,
 ): PreparedFolderDefinition<
-	Pick<TDefinition & Pick<DataSchema, 'title'>, 'title' | 'kv' | 'tables'>
+	Pick<TDefinition & Pick<DataSchema, 'title'>, 'title' | 'kv' | 'tables'> &
+		Pick<FolderDefinition, 'local'>
 > {
 	type Definition = Pick<
 		TDefinition & Pick<DataSchema, 'title'>,
 		'title' | 'kv' | 'tables'
-	>;
+	> &
+		Pick<FolderDefinition, 'local'>;
 	if (Object.hasOwn(schema, 'id'))
 		throw new Error(
 			'A folder definition names no folder. Pass the folder ID to openFolder instead.',
@@ -214,17 +225,19 @@ export function defineFolder<const TDefinition extends DataSchema>(
 	// The types refuse other keys; an untyped caller, such as a generated
 	// epicenter.ts, is refused here rather than having a misspelling dropped.
 	const unknown = Object.keys(schema).filter(
-		(key) => key !== 'title' && key !== 'kv' && key !== 'tables',
+		(key) =>
+			key !== 'title' && key !== 'kv' && key !== 'tables' && key !== 'local',
 	);
 	if (unknown.length > 0)
 		throw new Error(
-			`A folder definition declares title, kv, and tables; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
+			`A folder definition declares title, kv, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
 		);
-	const { title, kv, tables } = schema;
+	const { title, kv, tables, local } = schema;
 	const declaration: Definition = {
 		...(title === undefined ? {} : { title }),
 		kv,
 		tables,
+		...(local === undefined ? {} : { local }),
 	};
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(declaration);

@@ -197,8 +197,15 @@ export type GitBackend = {
 	/** The index file's stored bytes, or `undefined` when there is none. */
 	readIndex(): Promise<Uint8Array | undefined>;
 	pathStatus(): Promise<PathStatus[]>;
-	/** Stage current contents of `paths`, including deletions; `'all'` stages everything. */
-	stage(paths: readonly string[] | 'all'): Promise<void>;
+	/**
+	 * Stage current contents of `paths`, including deletions; `'all'` stages
+	 * everything. A path `except` matches is left out of the index, as
+	 * `git rm --cached` leaves it, whether or not it was tracked.
+	 */
+	stage(
+		paths: readonly string[] | 'all',
+		options?: { readonly except?: (path: string) => boolean },
+	): Promise<void>;
 	/**
 	 * Commit the index's tree onto the branch head pinned when the commit
 	 * starts. A tree equal to the parent's is `nothing`. The branch moves only
