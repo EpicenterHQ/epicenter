@@ -64,7 +64,7 @@ import {
 	rowStemOf,
 } from '@epicenter/folder';
 import {
-	ancestorsOf,
+	ancestors,
 	dirname,
 	joinPath,
 	type OpenedFile,
@@ -917,7 +917,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** Show `path`: a transformation on its page, anything else beside the recordings. Opening never waits or asks. */
 	function open(path: string) {
 		if (closing) return;
-		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
+		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (rowTableOf(path) === TRANSFORMATIONS) selectedTransformationPath = path;
 		else selectedPath = path;
 	}

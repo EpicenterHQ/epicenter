@@ -50,7 +50,7 @@ import {
 	type WrittenRow,
 } from '@epicenter/folder';
 import {
-	ancestorsOf,
+	ancestors,
 	basename,
 	dirname,
 	joinPath,
@@ -740,7 +740,7 @@ export function createNotes(
 	/** Show `path` in the detail. Opening never waits, writes, or asks. */
 	function open(path: string, as: OpenAs = defaultAs(path)) {
 		if (as === 'note') focusRequest += 1;
-		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
+		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (selected?.path === path && selected.as === as) return;
 		selected = { path, as, id: ++openings };
 	}
