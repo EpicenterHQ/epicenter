@@ -1415,8 +1415,9 @@ writes each file holding the folder's save lock (`storage.lock`), one file
 at a time, so a save waits for one file, never for the whole publish, and
 its editor keeps what is typed. Each changed path takes one write, the live file as the writer acting, so text
 typed after the checkpoint keeps the units it changed. Removals go first,
-guarded by the checkpoint's bytes, then the directories they emptied, so a
-file can take a directory's place and the reverse. Every write lands whole,
+in one hold of the lock: each is checked against the checkpoint's bytes,
+then all are made, with the directories they emptied, so a file can take a
+directory's place and the reverse. Every write lands whole,
 so a publish cut off partway leaves each file at its old bytes or its new
 ones (ADR-0545). `refs/epicenter/publishing` names the publish, as a commit
 whose parents are where the branch was and what it publishes, until the

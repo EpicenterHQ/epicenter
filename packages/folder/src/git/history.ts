@@ -721,18 +721,24 @@ export function createHistory({
 			: backend.withObjects((access) => readBlob(access, entry.oid));
 
 	/**
-	 * Why `storage`, as it is now, cannot take the files of `to`: a file of
-	 * this folder where `to` needs a directory, files where it needs a file,
-	 * or a file `from` never tracked (ignored, or new since) where `to` adds
-	 * different bytes. Sync never merges such a file into history, so it
-	 * stops and names it. `undefined` when nothing stands in the way.
+	 * What in `storage`, as it is now, stands where the files of `to` go.
+	 * `occupied`: a file of this folder where `to` needs a directory, files
+	 * where it needs a file, or a name held under another spelling.
+	 * `untracked`: a file `from` never tracked (ignored, or new since) where
+	 * `to` adds different bytes, which Sync never merges into history on its
+	 * own. `failed` when the folder cannot be listed.
 	 */
 	async function inTheWay(
 		storage: Pick<FolderStorage, 'list' | 'read'>,
 		{ before, after, changes }: Between,
-	): Promise<string | undefined> {
+	): Promise<{
+		readonly occupied: readonly string[];
+		readonly untracked: readonly string[];
+		readonly failed?: string;
+	}> {
 		const { data: listed, error } = await storage.list();
-		if (error !== null) return error.message;
+		if (error !== null)
+			return { occupied: [], untracked: [], failed: error.message };
 		const leaving = new Set(
 			changes
 				.filter((change) => change.kind === 'delete')
@@ -749,7 +755,7 @@ export function createHistory({
 		for (const path of staying)
 			for (const directory of ancestors(path))
 				directories.set(collisionKey(directory), directory);
-		const blocked = changes
+		const occupied = changes
 			.filter((change) => change.kind !== 'delete')
 			.map((change) => change.path)
 			.filter((path) => {
@@ -768,6 +774,7 @@ export function createHistory({
 					})
 				);
 			});
+		const untracked: string[] = [];
 		for (const { path } of changes) {
 			if (before.has(path) || !after.has(path) || !present.has(path)) continue;
 			const read = await storage.read(path);
@@ -775,10 +782,16 @@ export function createHistory({
 				read.error !== null ||
 				!sameContent(read.data.bytes, await blobOf(after.get(path)))
 			)
-				blocked.push(path);
+				untracked.push(path);
 		}
-		if (blocked.length === 0) return undefined;
-		return `files of this folder stand where the remote has ${blocked.map((path) => `'${path}'`).join(', ')}; move them, then sync again`;
+		return { occupied, untracked };
+	}
+
+	/** Why Sync stops for what stands in the way, or `undefined`. */
+	function wayProblem(failed: string | undefined, paths: readonly string[]) {
+		if (failed !== undefined) return failed;
+		if (paths.length === 0) return undefined;
+		return `files of this folder stand where the remote has ${paths.map((path) => `'${path}'`).join(', ')}; move them, then sync again`;
 	}
 
 	/**
@@ -845,20 +858,22 @@ export function createHistory({
 	 * Each file is checked and written holding the folder's save lock
 	 * (`lock`), one file at a time, so no cooperating save lands between its
 	 * check and its write, and a save waits for one file, never for the whole
-	 * publish. Removals go first, each guarded by `from`'s bytes, with the
-	 * directories they empty after them, so a file can take a directory's
-	 * place and the reverse; an empty directory where a file goes is removed
-	 * too.
+	 * publish. Removals go first, in one hold of the lock: every one is
+	 * checked against `from`'s bytes, then all are made, with the directories
+	 * they empty after them, so a file can take a directory's place and the
+	 * reverse; an empty directory where a file goes is removed too.
 	 *
-	 * `edited` when a file `to` removes holds an edit no commit has: Sync
-	 * records it and merges again, so the delete wins and the edit stays in
-	 * history. Every write lands whole, so a publish that stops partway
-	 * leaves each file at its old bytes or its new ones, and
-	 * `refs/epicenter/publishing` says which publish they belong to until the
-	 * branch moves: the next commit finishes it first (`finishPublishing`).
-	 * `resuming` is that second run, which keeps a file `to` removes when it
-	 * was edited after the cut, since the files hold part of `to` already
-	 * and recording the edit first would record that part as this device's.
+	 * `edited` when a file `to` removes holds an edit no commit has, answered
+	 * before anything changed: Sync records it and merges again, so the
+	 * delete wins and the edit stays in history. Every write lands whole, so
+	 * a publish that stops partway leaves each file at its old bytes or its
+	 * new ones, and `refs/epicenter/publishing` says which publish they
+	 * belong to until the branch moves: the next commit finishes it first
+	 * (`finishPublishing`). `resuming` is that second run. The files hold part
+	 * of `to` already, so recording an edit first would record that part as
+	 * this device's: a file `to` removes that was edited after the cut stays,
+	 * and a file the person made where `to` adds one, ignored aside, takes
+	 * `to`'s as an addition on both sides, the live file winning.
 	 */
 	async function publishWithin(
 		from: string | undefined,
@@ -880,7 +895,21 @@ export function createHistory({
 		if (localProblem !== null)
 			return SyncError.Blocked({ reason: localProblem });
 		const plan = await between(from, to, isLocal);
-		const refused = await inTheWay(boundary, plan);
+		const way = await inTheWay(boundary, plan);
+		// Resuming, a file the person made where `to` adds one is theirs, not
+		// this publish's: it merges, unless ignored, which Sync never takes
+		// into history.
+		const ignored =
+			resuming && way.untracked.length > 0
+				? await backend.ignoredPaths(way.untracked, await capture())
+				: new Set<string>();
+		const adopted = new Set(
+			resuming ? way.untracked.filter((path) => !ignored.has(path)) : [],
+		);
+		const refused = wayProblem(way.failed, [
+			...way.occupied,
+			...way.untracked.filter((path) => !adopted.has(path)),
+		]);
 		if (refused !== undefined) return SyncError.Blocked({ reason: refused });
 		// Read from history before any lock: only each file's check and
 		// write need it.
@@ -899,17 +928,6 @@ export function createHistory({
 		const writes = plan.changes
 			.filter((change) => change.kind !== 'delete')
 			.map(({ path }) => path);
-		// Before anything is written: an edit no commit has, in a file `to`
-		// removes, is recorded first.
-		if (!resuming)
-			for (const path of removals) {
-				const read = await boundary.read(path);
-				if (
-					read.error === null &&
-					!sameContent(read.data.bytes, blobs.get(path)!.was)
-				)
-					return Ok({ kind: 'edited' } as const);
-			}
 		// A publish that changes no file has nothing to finish, and one
 		// resuming is already named.
 		const marked = resuming || plan.changes.length > 0;
@@ -923,12 +941,10 @@ export function createHistory({
 		const failed = (path: string, error: { message: string }) =>
 			SyncError.Publish({ path, error: error.message });
 		try {
-			for (const path of removals) {
-				const { was } = blobs.get(path)!;
-				const step = await boundary.lock(
-					async (
-						held,
-					): Promise<Result<'removed' | 'kept' | 'edited', SyncError>> => {
+			const removed = await boundary.lock(
+				async (held): Promise<Result<'removed' | 'edited', SyncError>> => {
+					const targets: { path: string; sha256: string }[] = [];
+					for (const path of removals) {
 						const read = await held.read(path);
 						// No file there: gone already, or a directory a cut
 						// publish made in its place.
@@ -936,34 +952,33 @@ export function createHistory({
 							read.error?.name === 'NotFound' ||
 							read.error?.name === 'NotAFile'
 						)
-							return Ok('removed');
+							continue;
 						if (read.error !== null) return failed(path, read.error);
-						if (!sameContent(read.data.bytes, was))
-							return Ok(resuming ? 'kept' : 'edited');
-						const removed = await confirmedPut(
-							held,
-							path,
-							null,
-							read.data.sha256,
-							null,
-						);
-						if (removed.error !== null) return failed(path, removed.error);
+						if (sameContent(read.data.bytes, blobs.get(path)!.was))
+							targets.push({ path, sha256: read.data.sha256 });
+						else if (resuming) kept = true;
+						else return Ok('edited');
+					}
+					for (const { path, sha256 } of targets) {
+						const put = await confirmedPut(held, path, null, sha256, null);
+						if (put.error !== null) return failed(path, put.error);
 						// Changed by a program outside the save lock: it stays.
-						if (removed.data === 'stale') return Ok('kept');
+						if (put.data === 'stale') {
+							kept = true;
+							continue;
+						}
+						reached.push(path);
 						for (const directory of ancestors(path).reverse())
 							if ((await held.rmdir(directory)).error !== null) break;
-						return Ok('removed');
-					},
-				);
-				if (step.error !== null) return Err(step.error);
-				if (step.data === 'edited') {
-					// Only removals ran, each of a file `to` removes too, so
-					// recording them as this device's is what `to` holds.
-					await unmark();
-					return Ok({ kind: 'edited' } as const);
-				}
-				if (step.data === 'kept') kept = true;
-				else reached.push(path);
+					}
+					return Ok('removed');
+				},
+			);
+			if (removed.error !== null) return Err(removed.error);
+			if (removed.data === 'edited') {
+				// Answered before anything changed.
+				await unmark();
+				return Ok({ kind: 'edited' } as const);
 			}
 			for (const path of writes) {
 				const { was, next } = blobs.get(path)!;
@@ -977,8 +992,11 @@ export function createHistory({
 						)
 						.sort((a, b) => b.length - a.length))
 						await held.rmdir(directory);
+					// A file the person made where `to` adds one joins `to`'s as
+					// an addition on both sides.
 					return writeFile(held, kindOf(path), path, was, next, {
 						winner: 'theirs',
+						joining: adopted.has(path),
 					});
 				});
 				// A file this folder cannot take there, from a program outside
@@ -1237,10 +1255,14 @@ export function createHistory({
 				const unsendable = await representable(merged, 'folder');
 				if (unsendable.error !== null) return unsendable;
 				// What stands in the way stops Sync before the merge is sent.
-				const inWay = await inTheWay(
+				const way = await inTheWay(
 					boundary,
 					await between(mine, merged, isLocal),
 				);
+				const inWay = wayProblem(way.failed, [
+					...way.occupied,
+					...way.untracked,
+				]);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });
 				const pushed = await pushCommit(merged);
 				// Nothing here changed, so merging again from `local` is safe.

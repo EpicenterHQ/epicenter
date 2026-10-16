@@ -218,14 +218,15 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    written once, by the one write: `write(path, from: L, to: T)` with the
    live file as the writer acting, so a live file still at `L` takes `T`
    exactly, and text typed after the checkpoint, which no commit holds,
-   keeps the units it changed. Removals go first, each guarded by `L`'s
-   bytes, with the directories they empty after them, so a file can take a
-   directory's place and the reverse. Before writing anything it stops at
+   keeps the units it changed. Removals go first, in one hold of the lock:
+   each is checked against `L`'s bytes, then all are made, with the
+   directories they empty after them, so a file can take a directory's
+   place and the reverse. Before writing anything it stops at
    a file of this folder's own where `T` needs a directory, files where `T`
    needs a file, and a file `L` never tracked (ignored, or new since) where
    `T` adds different bytes, which Sync never merges into history. And when
-   a file `T` removes holds an edit no commit has, it stops, records the
-   files again as `K`, and merges `K` with what it pushed: the delete wins,
+   a file `T` removes holds an edit no commit has, it stops before any
+   removal, records the files again as `K`, and merges `K` with what it pushed: the delete wins,
    and the edit stays in history as a parent, named by a trailer. Names
    compare as APFS folds them, so a name held under another spelling stops
    it too, and a tree this device would send is checked as an incoming one
@@ -239,7 +240,9 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    finishes a publish the ref still names while the branch is at `L`: the
    same writes run again, so a file already at `T` stays, one still at `L`
    takes `T`, and one edited since keeps its edit; a file `T` removes that
-   was edited after the cut stays, as this device's. Only then does it
+   was edited after the cut stays, as this device's, and a file the person
+   made where `T` adds one joins `T`'s as an addition on both sides, the
+   live file winning, unless it is ignored, which stops the commit. Only then does it
    record the files, so bytes that arrived are never recorded as this
    device's edits, which a later merge would let win over another device's
    newer ones. A branch that moved since drops the ref. No record of
