@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing the "Restore theirs" notice: where a save meets another writer's change to the same unit, the saver wins and nothing is shown. That Save and Sync share one merge, and that Sync asks the person, remains.
+- **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing the "Restore theirs" notice: where a save meets another writer's change to the same unit, the saver wins and nothing is shown. That Save and Sync share one merge remains.
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)
 - **Unbuilt:** retiring `table.save` and `folderOptions(folder).<table>.save`, whose remaining callers are `table.update`'s own write, `publish-definition.ts`, the Git lab (`apps/git/src/lib/workspace.svelte.ts`), `apps/todos/scripts/native.ts`, the folder package's evidence apps, and its tests; Whispering's library drafts, held in its store rather than a view, still call `createBodyDraftState` directly over `setBody`.
 
