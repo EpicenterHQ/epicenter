@@ -98,7 +98,9 @@ it is now and merges the change from `from` to `to` into it, by unit:
 and `lock`. `ifMatch` is the SHA-256 the path must hold, or `null` for no
 file; `put` answers `'landed'` or `'stale'` and lands whole, so a reader and
 a crash see the old file or the new one, and a new file never appears empty
-first. The host checks the condition where the bytes land, under the
+first, except in a browser whose file handles cannot move (Chrome before
+102), where a new file is written in place and a cut write can leave it
+empty. The host checks the condition where the bytes land, under the
 folder's save lock: the browser's Web Lock over the origin private file
 system, where a new file is written to `.git/epicenter/scratch` and moved
 into place; a directory's save lock, which the desktop shell and Bun share
