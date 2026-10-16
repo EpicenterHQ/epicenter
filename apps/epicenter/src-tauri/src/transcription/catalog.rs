@@ -2,9 +2,11 @@
 //! local models exist, their Hugging Face coordinate, their static capabilities,
 //! and their download/cache status.
 //!
-//! A model is identified by a stable `modelId` string rendered from its Hugging
-//! Face coordinate as `"{repo_id}@{revision}/{filename}"`. That id is an opaque
-//! catalog key. Epicenter Home names it when it administers models, and the host
+//! A model is identified by a stable `modelId` string such as
+//! `"handy-computer/whisper-small-gguf@main/whisper-small-Q4_K_M.gguf"`. That id
+//! is an opaque catalog key, frozen once shipped: the stored active choice and
+//! every transcript name it. It is not a coordinate; the `@main` in shipped ids
+//! predates pinning and no longer says what is downloaded. Epicenter Home names it when it administers models, and the host
 //! stores the active dictation choice. Explicit file inference lists cached IDs
 //! and passes the selected ID to `transcribe_audio_bytes`; `prewarm_model` and
 //! `ModelCache::transcribe` resolve the active choice. An unknown ID is refused
@@ -12,10 +14,18 @@
 //! compatibility path.)
 //!
 //! Storage is the shared Hugging Face cache (`~/.cache/huggingface/hub`,
-//! overridable by `HF_HOME`), owned by `hf-hub`: downloads stage, resume, and
-//! integrity-check through it, and a file already in the cache (from this app or
-//! any other HF tool) is reused. Rust never stores a path; it resolves the
-//! coordinate to a cache path at point of use.
+//! overridable by `HF_HOME`), owned by `hf-hub`: downloads stage and resume
+//! through it, and a file already in the cache (from this app or any other HF
+//! tool) is reused. Epicenter downloads into that cache and never deletes from
+//! it: other tools share the cache, so removing files is the user's call, made
+//! with Hugging Face's own tools. Rust never stores a path; it resolves the
+//! coordinate to a cache path at point of use, so a file removed outside
+//! Epicenter reads as not downloaded on the next look.
+//!
+//! Each model is pinned to a commit and to its file's content hash. Downloads
+//! fetch that commit, and presence is decided by the bytes, so another HF tool
+//! moving `refs/main`, or fetching the same file at a different commit, never
+//! makes a model read as missing.
 
 use super::error::error_chain_message;
 use crate::download::{DownloadManager, DownloadProgress};
@@ -29,12 +39,17 @@ use tauri::ipc::Channel;
 use tauri::State;
 use thiserror::Error;
 
-/// A Hugging Face coordinate: the single source of a model's identity and its
-/// download/resolve location.
+/// A Hugging Face coordinate: where a model's file is downloaded from and how
+/// its presence in the cache is resolved.
 struct ModelCoord {
     repo_id: &'static str,
-    revision: &'static str,
+    /// The commit downloads fetch. Pinned so a moving branch cannot change the
+    /// bytes Epicenter runs.
+    commit: &'static str,
     filename: &'static str,
+    /// The file's Git LFS SHA-256, which `hf-hub` uses as the blob name in the
+    /// cache. The same bytes fetched at any commit satisfy the model.
+    sha256: &'static str,
 }
 
 /// One curated catalog entry. Capabilities are static per model (a UI hint for
@@ -42,6 +57,8 @@ struct ModelCoord {
 /// prompt support via `session.model().supports(Feature::InitialPrompt)` at use,
 /// so a slightly-off flag can only hide a field, never misfeed the model.
 struct CatalogEntry {
+    /// The stored model id. Frozen once shipped (see the module docs).
+    id: &'static str,
     coord: ModelCoord,
     name: &'static str,
     description: &'static str,
@@ -59,14 +76,17 @@ struct CatalogEntry {
 /// org (quantizations tested against transcribe.cpp). A build-time generator
 /// from the org is deferred until this list is large enough to need it.
 ///
-/// Filenames and sizes are the real repo contents (verified against HF). The
-/// `whisper-small` entry keeps the exact anchor the spike and preview CI proved.
+/// Filenames, sizes, commits, and hashes are the real repo contents (verified
+/// against HF on 2026-10-16; each commit was `main` then). The `whisper-small`
+/// entry keeps the exact anchor the spike and preview CI proved.
 static CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
+        id: "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf",
         coord: ModelCoord {
             repo_id: "handy-computer/whisper-tiny-gguf",
-            revision: "main",
+            commit: "1bd61cda36bbd22c88fc5a33842498a6e1d30f45",
             filename: "whisper-tiny-Q8_0.gguf",
+            sha256: "325b9c7997cd1eff81ef709d55766565e71be696130cc3a3d444713798706834",
         },
         name: "Whisper Tiny",
         description: "Fastest, multilingual, basic accuracy",
@@ -76,10 +96,12 @@ static CATALOG: &[CatalogEntry] = &[
         recommended: false,
     },
     CatalogEntry {
+        id: "handy-computer/whisper-small-gguf@main/whisper-small-Q4_K_M.gguf",
         coord: ModelCoord {
             repo_id: "handy-computer/whisper-small-gguf",
-            revision: "main",
+            commit: "4afdc7942ecf1997f359deae48a63506b062eac4",
             filename: "whisper-small-Q4_K_M.gguf",
+            sha256: "b204d2005a3e5d4fe6153bd61e5e8b32e757ff7b017ac8f61c6f051c2f80e939",
         },
         name: "Whisper Small",
         description: "Fast, multilingual, good accuracy",
@@ -89,10 +111,12 @@ static CATALOG: &[CatalogEntry] = &[
         recommended: true,
     },
     CatalogEntry {
+        id: "handy-computer/parakeet-tdt-0.6b-v3-gguf@main/parakeet-tdt-0.6b-v3-Q4_K_M.gguf",
         coord: ModelCoord {
             repo_id: "handy-computer/parakeet-tdt-0.6b-v3-gguf",
-            revision: "main",
+            commit: "d8d8c32cb2017c57e5307767343e97870f8a7f53",
             filename: "parakeet-tdt-0.6b-v3-Q4_K_M.gguf",
+            sha256: "b68557be1e3c40207fd7c4bd9d63f1d3316b963f15325bfb0cc16a8bb0ffd181",
         },
         name: "Parakeet TDT 0.6B v3",
         description: "Fast multilingual model with automatic language detection",
@@ -104,27 +128,48 @@ static CATALOG: &[CatalogEntry] = &[
 ];
 
 impl CatalogEntry {
-    /// The stable, storable model id: `"{repo_id}@{revision}/{filename}"`.
     fn id(&self) -> String {
-        format!(
-            "{}@{}/{}",
-            self.coord.repo_id, self.coord.revision, self.coord.filename
-        )
+        self.id.to_string()
     }
 
-    /// The `hf-hub` repo handle for this entry (a model repo at a pinned revision).
+    /// The `hf-hub` repo handle for this entry (a model repo at its pinned commit).
     fn repo(&self) -> Repo {
         Repo::with_revision(
             self.coord.repo_id.to_string(),
             RepoType::Model,
-            self.coord.revision.to_string(),
+            self.coord.commit.to_string(),
         )
     }
 
     /// The cache path if this model's file is already present in the shared HF
     /// cache; `None` when it still needs downloading.
+    ///
+    /// The file at the pinned commit counts, and so does the same file at any
+    /// other commit whose bytes are this model's blob. `hf-hub`'s own lookup goes
+    /// through `refs/<revision>`, which another tool can move or never write, so
+    /// presence is resolved from the snapshots and the blob directly.
     fn cached_path(&self) -> Option<PathBuf> {
-        Cache::from_env().repo(self.repo()).get(self.coord.filename)
+        self.cached_path_in(Cache::from_env())
+    }
+
+    fn cached_path_in(&self, cache: Cache) -> Option<PathBuf> {
+        let cache = cache.repo(self.repo());
+        let pinned = cache
+            .pointer_path(self.coord.commit)
+            .join(self.coord.filename);
+        if pinned.is_file() {
+            return Some(pinned);
+        }
+        let blob = std::fs::canonicalize(cache.blob_path(self.coord.sha256)).ok()?;
+        let snapshots = cache
+            .pointer_path(self.coord.commit)
+            .parent()?
+            .to_path_buf();
+        std::fs::read_dir(snapshots)
+            .ok()?
+            .flatten()
+            .map(|snapshot| snapshot.path().join(self.coord.filename))
+            .find(|pointer| std::fs::canonicalize(pointer).ok().as_ref() == Some(&blob))
     }
 }
 
@@ -134,7 +179,7 @@ fn find(model_id: &str) -> Option<&'static CatalogEntry> {
 }
 
 /// Resolve a model id to its catalog entry, or the `UnknownModel` error the
-/// `download_model`/`delete_model` commands both return for an id not in the
+/// `download_model`/`reveal_model` commands both return for an id not in the
 /// catalog. One place owns that message so the two commands cannot drift.
 fn find_or_unknown(model_id: &str) -> Result<&'static CatalogEntry, CatalogError> {
     find(model_id).ok_or_else(|| CatalogError::UnknownModel {
@@ -213,7 +258,7 @@ pub fn model_names() -> Vec<&'static str> {
 
 /// A catalog model as Home's administration view sees it: identity, display
 /// fields, static capabilities, and whether it is already downloaded. Home names
-/// `id` when it activates, downloads, or deletes a model; it never learns the
+/// `id` when it activates, downloads, or reveals a model; it never learns the
 /// Hugging Face coordinate. Applications see none of this.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -240,8 +285,8 @@ pub enum CatalogError {
     #[error("Download failed: {message}")]
     DownloadFailed { message: String },
 
-    #[error("Delete failed: {message}")]
-    DeleteFailed { message: String },
+    #[error("Could not show the model file: {message}")]
+    RevealFailed { message: String },
 }
 
 /// The full local GGUF catalog with per-model download status. The picker's one
@@ -306,7 +351,7 @@ impl Progress for ChannelProgress {
 /// cumulative progress on `on_progress`. Registered under `download_id` so
 /// `cancel_download(download_id)` can abort the in-flight transfer (the aborted
 /// task drops mid-download; hf-hub leaves a temp file, never a corrupt final).
-/// A no-op-fast when the file is already cached (hf-hub reuses it).
+/// A no-op when the file is already cached, at any commit.
 #[tauri::command]
 #[specta::specta]
 pub async fn download_model(
@@ -316,6 +361,10 @@ pub async fn download_model(
     manager: State<'_, DownloadManager>,
 ) -> Result<(), CatalogError> {
     let entry = find_or_unknown(&model_id)?;
+    // `hf-hub` fetches the file again even when it is cached.
+    if entry.cached_path().is_some() {
+        return Ok(());
+    }
 
     let api = ApiBuilder::from_env()
         .with_progress(false)
@@ -346,60 +395,103 @@ pub async fn download_model(
         })
 }
 
-/// Remove a downloaded model's file from the shared HF cache, reclaiming its
-/// space, and stand down the active choice if this was it.
-///
-/// One host operation, not two invokes, because the host owns both halves: the
-/// file and the active-model setting live on the same side of the boundary, and
-/// splitting them would let a caller succeed at deleting and then fail (or
-/// forget) to clear, leaving an active model that cannot run and a UI that never
-/// learned. Clearing is deliberate rather than promoting another installed
-/// model: there is no substitution, so the next transcription fails with an
-/// actionable error until the user chooses again.
-///
-/// Best-effort on the file: removes the snapshot pointer and its backing blob. A
-/// no-op when the model is not downloaded. Other quantizations in the same repo
-/// are untouched (each is its own blob + pointer).
+/// Show a downloaded model's file in the system file manager, so the user can
+/// see where it lives in the shared Hugging Face cache and remove it with the
+/// tools that own that cache. Epicenter itself never deletes a model file.
 #[tauri::command]
 #[specta::specta]
-pub fn delete_model(
+pub fn reveal_model<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     model_id: String,
-    model_cache: State<'_, crate::transcription::ModelCache>,
 ) -> Result<(), CatalogError> {
+    use tauri_plugin_opener::OpenerExt;
     let entry = find_or_unknown(&model_id)?;
-    let settings = model_cache.settings();
+    let path = entry
+        .cached_path()
+        .ok_or_else(|| CatalogError::RevealFailed {
+            message: format!("{} is not downloaded.", entry.name),
+        })?;
+    app.opener()
+        .reveal_item_in_dir(&path)
+        .map_err(|error| CatalogError::RevealFailed {
+            message: error.to_string(),
+        })
+}
 
-    let clear_active_choice = || -> Result<(), CatalogError> {
-        if settings.active_model_id().as_deref() != Some(model_id.as_str()) {
-            return Ok(());
-        }
-        settings
-            .set_active_model_id(None)
-            .map_err(|error| CatalogError::DeleteFailed {
-                message: format!(
-                    "Removed the model file, but could not clear it as the active model: {error}"
-                ),
-            })
-    };
+// The fixtures lay out `hf-hub`'s symlinked cache, which needs Unix symlinks.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
 
-    let Some(pointer) = entry.cached_path() else {
-        // Nothing on disk, but it may still be the stored choice: a file deleted
-        // outside Epicenter leaves exactly that state, and this is where it gets
-        // reconciled.
-        return clear_active_choice();
-    };
-
-    // The pointer is a symlink into `blobs/{etag}`; resolve it before unlinking
-    // so we can reclaim the blob too. `canonicalize` fails once the link is gone,
-    // so read it first.
-    let blob = std::fs::canonicalize(&pointer).ok();
-    std::fs::remove_file(&pointer).map_err(|e| CatalogError::DeleteFailed {
-        message: format!("Failed to remove model file: {e}"),
-    })?;
-    if let Some(blob) = blob {
-        // Blob removal is best-effort: a failure here only leaks disk, and the
-        // model already reads as not-downloaded (its pointer is gone).
-        let _ = std::fs::remove_file(blob);
+    /// The ids stored as the active choice and named on transcripts. A change
+    /// here strands every saved choice, so it must be deliberate.
+    #[test]
+    fn shipped_model_ids_never_change() {
+        assert_eq!(
+            model_ids(),
+            [
+                "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf",
+                "handy-computer/whisper-small-gguf@main/whisper-small-Q4_K_M.gguf",
+                "handy-computer/parakeet-tdt-0.6b-v3-gguf@main/parakeet-tdt-0.6b-v3-Q4_K_M.gguf",
+            ]
+        );
     }
-    clear_active_choice()
+
+    fn entry() -> &'static CatalogEntry {
+        &CATALOG[0]
+    }
+
+    /// Lay a file out the way `hf-hub` does: bytes in `blobs/<hash>`, and a
+    /// `snapshots/<commit>/<filename>` link to them.
+    fn place(root: &Path, commit: &str, hash: &str) {
+        let repo = root.join("models--handy-computer--whisper-tiny-gguf");
+        let blob = repo.join("blobs").join(hash);
+        fs::create_dir_all(blob.parent().unwrap()).unwrap();
+        fs::write(&blob, b"model").unwrap();
+        let snapshot = repo.join("snapshots").join(commit);
+        fs::create_dir_all(&snapshot).unwrap();
+        std::os::unix::fs::symlink(&blob, snapshot.join(entry().coord.filename)).unwrap();
+    }
+
+    #[test]
+    fn an_empty_cache_has_no_model() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(entry().cached_path_in(Cache::new(root.path().into())), None);
+    }
+
+    #[test]
+    fn the_file_at_the_pinned_commit_is_present() {
+        let root = tempfile::tempdir().unwrap();
+        place(root.path(), entry().coord.commit, entry().coord.sha256);
+        assert!(entry()
+            .cached_path_in(Cache::new(root.path().into()))
+            .is_some());
+    }
+
+    #[test]
+    fn the_same_bytes_at_another_commit_are_present() {
+        let root = tempfile::tempdir().unwrap();
+        place(
+            root.path(),
+            "0000000000000000000000000000000000000000",
+            entry().coord.sha256,
+        );
+        let found = entry()
+            .cached_path_in(Cache::new(root.path().into()))
+            .unwrap();
+        assert!(found.ends_with(entry().coord.filename));
+    }
+
+    #[test]
+    fn other_bytes_at_another_commit_are_not_the_model() {
+        let root = tempfile::tempdir().unwrap();
+        place(
+            root.path(),
+            "0000000000000000000000000000000000000000",
+            "different",
+        );
+        assert_eq!(entry().cached_path_in(Cache::new(root.path().into())), None);
+    }
 }

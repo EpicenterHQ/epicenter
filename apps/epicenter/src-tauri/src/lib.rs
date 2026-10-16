@@ -27,8 +27,8 @@ pub mod audio;
 
 pub mod transcription;
 use transcription::{
-    delete_model, download_model, get_active_model, get_local_transcription_readiness,
-    get_unload_policy, list_inference_models, list_models, prewarm_model, set_active_model,
+    download_model, get_active_model, get_local_transcription_readiness, get_unload_policy,
+    list_inference_models, list_models, prewarm_model, reveal_model, set_active_model,
     set_unload_policy, transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
 };
 
@@ -154,7 +154,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             set_unload_policy,
             list_models,
             download_model,
-            delete_model,
+            reveal_model::<tauri::Wry>,
             cancel_download,
             pause_playback,
             resume_playback,
@@ -1080,7 +1080,7 @@ mod tests {
             "allow-list-models",
             "allow-download-model",
             "allow-cancel-download",
-            "allow-delete-model",
+            "allow-reveal-model",
             "allow-get-active-model",
             "allow-set-active-model",
             "allow-get-unload-policy",

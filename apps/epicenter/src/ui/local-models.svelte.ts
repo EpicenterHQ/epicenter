@@ -3,8 +3,10 @@
  *
  * Epicenter has exactly one **active** local transcription model per device.
  * The host owns it; Home is the window that administers it (ADR-0180): which
- * model is active, downloading and deleting model files, and when the host
- * drops the resident model. Applications ask for transcription and never for a
+ * model is active, downloading model files, and when the host drops the
+ * resident model. Model files live in the shared Hugging Face cache, which
+ * other tools use too, so Epicenter never deletes them; Home shows where a
+ * file lives instead. Applications ask for transcription and never for a
  * model, so this store is the only place in the product where a model is chosen.
  *
  * Three kinds of truth, deliberately kept apart:
@@ -225,27 +227,13 @@ function createLocalModels() {
 			await commands.cancelDownload(transfer.id);
 		},
 
-		/**
-		 * Remove a downloaded model's file from the shared HF cache.
-		 *
-		 * One invoke, not two. Deleting the file and standing down the active
-		 * choice are one host operation, so this cannot half-succeed into a state
-		 * where the file is gone but the host still points at it. The host clears
-		 * rather than promoting another installed model: there is no substitution,
-		 * so the next transcription fails with an actionable error until the user
-		 * picks again.
-		 */
-		async remove(model: ModelInfo) {
-			const { error: commandError } = await commands.deleteModel(model.id);
-			if (commandError !== null) {
-				error = commandError.message;
-				// The host may have removed the file before failing to clear the
-				// choice, so re-read rather than assuming nothing changed.
-				await refresh();
-				return;
-			}
-			error = null;
-			await refresh();
+		/** Show a downloaded model's file in the system file manager. */
+		async reveal(model: ModelInfo) {
+			const { error: commandError } = await commands.revealModel(model.id);
+			error = commandError?.message ?? null;
+			// A file removed outside Epicenter fails here; re-read so the view
+			// shows it as not downloaded.
+			if (commandError !== null) await refresh();
 		},
 	};
 }
