@@ -30,6 +30,7 @@ import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
 import { put } from './put.test-support.js';
 import { parseRow } from './row-text.js';
+import { mustRow } from './row-write.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
@@ -42,13 +43,6 @@ const definition = defineFolder({
 });
 
 const author = { name: 'Browser', email: 'browser@example.test' };
-
-/** The row a write left, which these writes always leave. */
-function must<T>(result: { data: T | null; error: unknown }): T {
-	const written = expectOk(result as never) as T | null;
-	if (written === null) throw new Error('the write left no row');
-	return written;
-}
 
 let environment: TestStorage;
 const opened: Folder<typeof definition>[] = [];
@@ -122,7 +116,7 @@ describe('browser folder tables', () => {
 
 	test('creates, lists, sets, renames, and deletes canonical Markdown rows', async () => {
 		const folder = await open();
-		const created = must(
+		const created = mustRow(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Buy milk', done: false }, body: 'Two liters.\n' },
 				{ stem: 'milk' },
@@ -138,7 +132,7 @@ describe('browser folder tables', () => {
 		).toEqual(created.row);
 		expect(raw.sha256).toEqual(created.sha256);
 
-		const completed = must(
+		const completed = mustRow(
 			await folder.tables.todos.set('milk', { done: true }),
 		);
 		expect(completed.row).toEqual({
@@ -147,7 +141,9 @@ describe('browser folder tables', () => {
 		});
 		expect(expectOk(await folder.tables.todos.get('milk'))).toEqual(completed);
 
-		const renamed = must(await folder.tables.todos.rename('milk', 'groceries'));
+		const renamed = mustRow(
+			await folder.tables.todos.rename('milk', 'groceries'),
+		);
 		expect(renamed).toEqual({ ...completed, path: 'todos/groceries.md' });
 
 		expect((await folder.tables.todos.get('milk')).data).toBeUndefined();
@@ -160,24 +156,26 @@ describe('browser folder tables', () => {
 		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
 	});
 
-	test('create merges at an occupied stem, keeps names exactly, and refuses a path outside its table', async () => {
+	test('create refuses an occupied stem, keeps names exactly, and refuses a path outside its table', async () => {
 		const folder = await open();
 		await folder.tables.todos.create(
 			{ fields: { title: 'P', done: false }, body: '' },
 			{ stem: 'Plan' },
 		);
-		// The row already there merges with the create, which wins the title.
 		expect(
-			must(
+			expectErr(
 				await folder.tables.todos.create(
 					{ fields: { title: 'Q', done: false }, body: '' },
 					{ stem: 'Plan' },
 				),
-			).row.fields,
-		).toEqual({ title: 'Q', done: false });
+			).name,
+		).toBe('InvalidPath');
+		expect(expectOk(await folder.tables.todos.get('Plan'))?.row.fields).toEqual(
+			{ title: 'P', done: false },
+		);
 		// Browser storage keeps names exactly: another spelling is another row.
 		expect(
-			must(
+			mustRow(
 				await folder.tables.todos.create(
 					{ fields: { title: 'Q', done: false }, body: '' },
 					{ stem: 'plan' },
@@ -270,7 +268,7 @@ describe('browser folder tables', () => {
 		// The audio exists first. It does not block the row that shares its stem.
 		const opus = expectOk(await folder.files.create('todos/rec.opus', audio));
 		expectOk(await folder.files.create('todos/rec.wav', new Uint8Array([9])));
-		const receipt = must(
+		const receipt = mustRow(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Recording', done: false }, body: '' },
 				{ stem: 'rec' },

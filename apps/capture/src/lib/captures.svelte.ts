@@ -43,6 +43,7 @@ import {
 	type CommitOutcome,
 	FileError,
 	type FileSaveError,
+	isStoredRow,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
@@ -554,7 +555,7 @@ export function createCaptures(
 			onSuccess: (created, text) => {
 				if (newCapture === text) newCapture = '';
 				// The file written does not read as a row: the listing says why.
-				if (created === null)
+				if (!isStoredRow(created))
 					return queryClient.invalidateQueries({
 						queryKey: listKey,
 						exact: true,

@@ -26,7 +26,7 @@ import { defineFolder, defineTable, field } from '../contract.js';
 import type { SaveTextVariables } from '../draft.js';
 import type { Row } from '../row-text.js';
 import type { SavedFile } from '../save-file.js';
-import { createTable, type StoredRow } from '../table.js';
+import { createTable, isStoredRow, type StoredRow } from '../table.js';
 
 const { flushSync } = await import('svelte');
 const { createBodyEditor, createTextDraftState } = await import(
@@ -232,7 +232,7 @@ test("an agent's lines merged into the body stay, and typing after a save appear
 		write: async ({ from, to }) => {
 			const { data, error } = await notes.write('a', from, to);
 			if (error !== null) throw error;
-			if (data !== null) cached = data;
+			if (isStoredRow(data)) cached = data;
 			return data;
 		},
 	});

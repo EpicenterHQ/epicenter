@@ -928,13 +928,14 @@ line, and written in the standard form. The helpers build the change:
 await todos.set('milk', { done: true });               // from: the row as it is now
 await todos.create({ fields, body: '' }, { stem: 'milk' }); // from: no file
 await todos.delete('milk');                            // no base: the deleter wins
-await todos.rename('milk', 'groceries');               // a create at the new stem, then a delete
+await todos.rename('milk', 'groceries');               // a move: refused if 'groceries' is taken
 await todos.write('milk', opened.row, { ...opened.row, body: 'New notes\n' }); // what a body editor sends
 ```
 
-Each resolves with the row the write left at the stem, or `null` when no
-row stands there: the write deleted it, or merged with a file that does not
-read as a row, which is left to repair. Every failure is one `WriteError`:
+Each resolves with what the write left at the stem: the row; the file as an
+`InvalidRow` or `InvalidUtf8` value, when the write merged into a file that
+does not read as a row and left it to repair; or `null` when no file is
+there. `isStoredRow(written)` tells the first apart. Every failure is one `WriteError`:
 `InvalidValues` for a row that cannot be written (nothing is written),
 `KeptChanging` when the file changed on every attempt, `Io`, `Closed`, or
 `InvalidPath`.
@@ -947,8 +948,9 @@ read as a row, which is left to repair. Every failure is one `WriteError`:
   not made: `null`, and nothing is written. A file that is not a row has no
   fields to set, and is `InvalidValues`.
 - `create(row, { stem? })` writes at `stem`, or a generated one, from no
-  file. A row already at the stem merges with it, the created row winning
-  each field both set; generated stems make that a non-event. A lens that
+  file, placed only where none is: a file already at the stem is
+  `InvalidPath`, unless it holds this row's exact text, which is the same
+  create landed before. A lens that
   cannot supply a field the folder requires is `InvalidValues`, and
   `canCreate` says so beforehand.
 - `delete(stem)` removes whatever is at the stem, row or not.
@@ -1243,7 +1245,7 @@ const stopChanges = folder$.invalidateOnChange(queryClient);
 
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
-| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `rename({ stem, next })`, `delete(stem)` |
+| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `delete(stem)`; a rename is `table.rename` |
 | `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
 | `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
@@ -1268,7 +1270,7 @@ back.
 A write keeps the cache in step inside its own `mutationFn`, so a caller's
 `onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
 puts its result where it can: `set`, `create`, and `write` set the row's query and
-its entry in the listing, `delete` drops them, `rename` does both, `kv.set` sets the reading,
+its entry in the listing, `delete` drops them, `kv.set` sets the reading,
 and `files.write` sets the file's `read` and `text`. The folder does not
 report a page's own writes to it, so the write marks stale the rest of what
 a change to its paths would, the history's status included. A read still
