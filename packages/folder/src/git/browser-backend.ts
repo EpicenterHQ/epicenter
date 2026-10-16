@@ -76,13 +76,6 @@ export type BrowserGitStore<TSession extends GitFsSession> = {
 };
 
 /** isomorphic-git's view of private Git state. */
-/**
- * A backend over a private repository it creates when first needed: by the
- * first Git write (a commit, staging, or setting a remote), never by
- * opening or a file save. Until then reads find no history.
- */
-export type StoredGitBackend = GitBackend;
-
 export const GITDIR = '/git';
 /** isomorphic-git's read-only view of the folder's files. */
 export const WORKDIR = '/files';
@@ -109,7 +102,7 @@ export function refValue(value: Uint8Array | undefined): string | undefined {
  * `resetIndex` alone would keep a removed file's entry where the commit has
  * a directory of the same name.
  */
-export async function indexTo(
+async function indexTo(
 	fs: PromiseFsClient,
 	commit: string,
 	paths: readonly string[],
@@ -136,6 +129,11 @@ export async function indexTo(
 			});
 }
 
+/**
+ * A backend over a private repository it creates when first needed: by the
+ * first Git write (a commit, staging, or setting a remote), never by
+ * opening or a file save. Until then reads find no history.
+ */
 export async function createStoredGitBackend<TSession extends GitFsSession>({
 	store,
 	locks,
@@ -158,7 +156,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	branch: string;
 	httpFetch?: HttpFetch;
 	credentials?: GitCredentials;
-}): Promise<StoredGitBackend> {
+}): Promise<GitBackend> {
 	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const indexKey = `${GITDIR}/index`;
 	const mergeHeadKey = `${GITDIR}/MERGE_HEAD`;
@@ -373,7 +371,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		return { text: decoder.decode(blob), binary: blob.includes(0) };
 	}
 
-	const backend: StoredGitBackend = {
+	const backend: GitBackend = {
 		branch,
 		get remote() {
 			return remote;

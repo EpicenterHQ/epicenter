@@ -33,7 +33,7 @@ import {
 import { frameRowText } from './markdown.js';
 
 /** A JSON value with an exact YAML and JSON form. */
-export type CanonicalValue =
+type CanonicalValue =
 	| null
 	| boolean
 	| number
@@ -332,7 +332,7 @@ function numberValue(
 }
 
 /** An own data property, so `__proto__` is a key and never a prototype. */
-export function defineOwn(
+function defineOwn(
 	record: Record<string, unknown>,
 	key: string,
 	value: unknown,

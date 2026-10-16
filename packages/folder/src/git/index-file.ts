@@ -8,7 +8,7 @@
  * understood; other bytes read as `undefined`.
  */
 
-export type IndexEntry = {
+type IndexEntry = {
 	readonly mode: number;
 	readonly oid: string;
 	/** 0 for a merged entry; 1, 2, 3 for an unmerged path's base, ours, and theirs. */

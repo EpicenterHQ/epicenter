@@ -186,7 +186,7 @@ export async function readHandle(handle: OpfsFileHandle): Promise<Uint8Array> {
 }
 
 /** What a literal path names in a directory tree. */
-export type Lookup =
+type Lookup =
 	| { readonly kind: 'file'; readonly handle: OpfsFileHandle }
 	| { readonly kind: 'directory'; readonly handle: OpfsDirectoryHandle }
 	| { readonly kind: 'absent' }
@@ -404,7 +404,7 @@ export async function captureFiles(
 }
 
 /** What a write requires of its path when its bytes land. */
-export type WriteTarget =
+type WriteTarget =
 	/** A file must be there; with `expectedSha256` the absence is a conflict. */
 	| { readonly kind: 'replace'; readonly expectedSha256?: string }
 	/** Nothing may be there: a new file, or a move's destination. */
@@ -658,7 +658,7 @@ async function plan(
  * refused it for finding something other than `target` there
  * (`UnexpectedTarget`), which published nothing.
  */
-export async function writeFileAt(
+async function writeFileAt(
 	root: OpfsDirectoryHandle,
 	path: string,
 	bytes: Uint8Array,
@@ -783,7 +783,7 @@ async function pruneEmptied(root: OpfsDirectoryHandle, path: string) {
 }
 
 /** Remove the file at `path`; with `expectedSha256`, only if it holds those bytes. */
-export async function removeFileAt(
+async function removeFileAt(
 	root: OpfsDirectoryHandle,
 	path: string,
 	expectedSha256?: string,
