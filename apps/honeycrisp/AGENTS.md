@@ -139,7 +139,8 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   are the repository's Git configuration, which the page's engine reads. Do
   not give the shell a remote.
 - Honeycrisp has no desktop shell and no native commands of its own (ADR-0552).
-  A native need is a host function Epicenter grants by app id (ADR-0555); do
+  A native need is a host function Epicenter grants every installed app
+  (ADR-0555, ADR-0570); do
   not add a Tauri shell back to this app. Neither leaf gives `NotesHost` a
   `reveal` today; ADR-0555's `reveal_folder` folder action will supply it,
   and `FileBrowser` shows **Reveal folder** once one does.

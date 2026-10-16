@@ -779,18 +779,19 @@ When you add an ADR, add its row here.
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Accepted |
 | [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Accepted (amends 0548; drafts amended by 0554) |
 | [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Accepted (amends 0548 and 0553) |
-| [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Accepted (amends 0552) |
+| [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Accepted (amends 0552; amended by 0570) |
 | [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Accepted (supersedes 0323; amends 0112, 0226, 0155, 0549, and 0080) |
 | [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Accepted (amends 0552 and 0539; endpoint storage, kind name, and app admission amended by 0564) |
 | [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549; amended by 0565; command list amended by 0566) |
 | [0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) | All desktop Git runs in the epicenter CLI, over system git | Accepted (amends 0531, 0533, 0540, 0546, and 0549; amended by 0567) |
 | [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Accepted (amends 0540, 0538, 0552, and 0539) |
-| [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Accepted (amends 0118 and 0540) |
+| [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Accepted (amends 0118 and 0540; amended by 0570) |
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Accepted (amends 0541; amended by 0568) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
-| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557) |
+| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557; amended by 0570) |
 | [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Proposed (amends 0549 and 0558) |
 | [0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md) | Plain git merges an Epicenter folder's files by kind through a merge driver every connect and clone configures | Proposed (amends 0558) |
 | [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Proposed (amends 0559) |
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Proposed (amends 0535 and 0562) |
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Proposed (amends 0539 and 0552) |
+| [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Proposed (amends 0555, 0561, and 0564) |

@@ -44,9 +44,9 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   ownership.
 - **Native services are Epicenter's.** Whispering has no desktop shell or
   host process of its own (ADR-0493). A native service it needs is an
-  Epicenter command, granted to Whispering's windows by its app id in
-  `apps/epicenter/src-tauri/capabilities/installed-whispering-*.json`, listing
-  only what the page calls, and exposed through the workspace with a browser
+  Epicenter command, granted to every installed app's windows in
+  `apps/epicenter/src-tauri/capabilities/installed-app.json` (ADR-0570), and
+  exposed through the workspace with a browser
   implementation or an explicit `undefined`. Load the `tauri` skill before
   changing a grant. Nothing native opens the folder, takes its lock, or
   initializes Git for the page; a failed desktop acquisition is visible and
