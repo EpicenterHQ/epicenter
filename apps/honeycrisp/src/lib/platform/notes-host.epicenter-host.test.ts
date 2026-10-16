@@ -16,7 +16,6 @@
  *   layout or settings are added
  * - A handed folder whose declaration lacks Honeycrisp's shape is refused by
  *   name
- * - The installed leaf gives no reveal
  *
  * See also:
  * - `packages/folder/src/lens.test.ts` for the containment check
@@ -33,7 +32,7 @@ import type {
 } from '@epicenter/folder';
 import * as bun from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
-import { HONEYCRISP_FOLDER_ID, type NotesHost } from './types.js';
+import { HONEYCRISP_FOLDER_ID } from './types.js';
 
 const AUTHOR = { name: 'Honeycrisp', email: 'honeycrisp@localhost' };
 
@@ -63,7 +62,7 @@ mock.module('../../../../../packages/folder/src/tauri-adapter.js', () => ({
 	},
 }));
 
-const { openNotes } = await import('./notes-host.epicenter-host.js');
+const { openNotesFolder } = await import('./notes-host.epicenter-host.js');
 
 /** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
 function openWindow(folder?: string) {
@@ -87,11 +86,6 @@ async function register(scope: string, files: Record<string, string> = {}) {
 	}
 	roots[scope] = root;
 	return root;
-}
-
-/** Open the notes host and keep it, closing it once the test has looked. */
-function openHost(): Promise<NotesHost> {
-	return openNotes({ create: async (host) => host });
 }
 
 const STRING = { type: 'string', 'x-field': { kind: 'string' } };
@@ -121,10 +115,10 @@ test("a window handed no folder opens Honeycrisp's own with its definition and s
 	openWindow();
 	const root = await register(HONEYCRISP_FOLDER_ID);
 
-	const host = await openHost();
+	const folder = await openNotesFolder();
 
 	expect(opened).toEqual([{ opener: 'openFolder', id: HONEYCRISP_FOLDER_ID }]);
-	expect(host.location).toBe(root);
+	expect(folder.location).toEqual({ kind: 'directory', root });
 	expect((await readdir(root)).sort()).toEqual([
 		'.git',
 		'epicenter.json',
@@ -132,17 +126,17 @@ test("a window handed no folder opens Honeycrisp's own with its definition and s
 		'kv.json',
 		'notes',
 	]);
-	await host.close();
+	await folder.close();
 });
 
 test("a window handed Honeycrisp's own folder opens it the same way", async () => {
 	openWindow(HONEYCRISP_FOLDER_ID);
 	await register(HONEYCRISP_FOLDER_ID);
 
-	const host = await openHost();
+	const folder = await openNotesFolder();
 
 	expect(opened).toEqual([{ opener: 'openFolder', id: HONEYCRISP_FOLDER_ID }]);
-	await host.close();
+	await folder.close();
 });
 
 test('a window handed another folder reads its notes and writes nothing to it', async () => {
@@ -193,18 +187,18 @@ test('a window handed another folder reads its notes and writes nothing to it', 
 		].join('\n'),
 	});
 
-	const host = await openHost();
+	const folder = await openNotesFolder();
 
 	expect(opened).toEqual([{ opener: 'openDataFolder', id: 'data:Journal' }]);
-	expect(host.location).toBe(root);
-	const rows = expectOk(await host.folder.tables.notes.list());
+	expect(folder.location).toEqual({ kind: 'directory', root });
+	const rows = expectOk(await folder.tables.notes.list());
 	expect(rows.map(({ result }) => result.data?.row.fields.title)).toEqual([
 		'Monday',
 	]);
 	// Its own declaration stays, and setup made no `folders/` or `kv.json`.
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(journal);
 	expect((await readdir(root)).sort()).toEqual(['epicenter.json', 'notes']);
-	await host.close();
+	await folder.close();
 });
 
 test('a handed folder without the notes Honeycrisp reads is refused by name', async () => {
@@ -218,18 +212,8 @@ test('a handed folder without the notes Honeycrisp reads is refused by name', as
 	});
 	const root = await register('data:Recipes', { 'epicenter.json': recipes });
 
-	await expect(openHost()).rejects.toThrow(
+	await expect(openNotesFolder()).rejects.toThrow(
 		"Honeycrisp cannot open the folder 'Recipes': ",
 	);
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(recipes);
-});
-
-test('the installed window has no reveal', async () => {
-	openWindow();
-	await register(HONEYCRISP_FOLDER_ID);
-
-	const host = await openHost();
-
-	expect(host.reveal).toBeUndefined();
-	await host.close();
 });

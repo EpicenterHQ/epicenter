@@ -5,7 +5,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { openCaptureHost } from '#platform/folder';
+	import { openCaptureFolder } from '#platform/folder';
 	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import {
 		createCaptures,
@@ -42,22 +42,22 @@
 	}
 
 	const opening = (async () => {
-		const host = await openCaptureHost();
-		const captures = createCaptures(host, queryClient, {
+		const folder = await openCaptureFolder();
+		const captures = createCaptures(folder, queryClient, {
 			onWriteFailed: writeFailed,
 			onReplaced: replacedChange,
 		});
 		// Files changed outside this page mark what the views show as stale.
 		const stopChanges = captures.folder$.invalidateOnChange(queryClient);
-		return { host, captures, stopChanges };
+		return { folder, captures, stopChanges };
 	})();
 
 	onDestroy(() => {
 		void opening
-			.then(async ({ host, captures, stopChanges }) => {
+			.then(async ({ folder, captures, stopChanges }) => {
 				stopChanges();
 				await captures.close();
-				return host.close();
+				return folder.close();
 			})
 			.catch(() => {});
 	});

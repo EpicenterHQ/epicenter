@@ -53,9 +53,10 @@ async function view() {
 	const fixture = await openNotesFolder();
 	await fixture.write(PATH, noteText({ title: 'Alpha' }));
 	const failures: WriteFailure[] = [];
-	const notes = createNotes(fixture.host, createQueryClient(), {
+	const notes = createNotes(fixture.folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
 	});
+	cleanup.push(() => fixture.close());
 	cleanup.push(() => notes.close());
 	await notes.load();
 	notes.open(PATH);

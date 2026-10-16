@@ -1,39 +1,21 @@
 /**
  * The browser leaf: a folder in this browser's OPFS, with the same
- * files and Git history as the desktop directory. A browser has no file
- * manager, so there is no reveal. Nothing native is imported here, and this
- * entry refuses inside the desktop app.
+ * files and Git history as the desktop directory. Nothing native is imported
+ * here, and this entry refuses inside the desktop app.
+ *
+ * A tab's leave guards are the page's own, in `NotesView`.
  */
 import { openFolder } from '@epicenter/folder/browser';
 import { honeycrispDefinition } from '../data.js';
-import {
-	HONEYCRISP_FOLDER_ID,
-	type NotesHost,
-	type OpenNotes,
-} from './types.js';
+import { HONEYCRISP_FOLDER_ID, type OpenNotesFolder } from './types.js';
 
-async function acquire(): Promise<NotesHost> {
+/** Called from the mounted page; importing this module opens nothing. */
+export const openNotesFolder: OpenNotesFolder = async () => {
 	const { data: folder, error } = await openFolder({
 		id: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
 		browser: { author: { name: 'Honeycrisp', email: 'honeycrisp@localhost' } },
 	});
 	if (error) throw new Error(error.message);
-	return {
-		folder,
-		location: 'This browser',
-		reveal: undefined,
-		close: () => folder.close(),
-	};
-}
-
-// A tab's leave guards are the page's own, in `NotesView`.
-export const openNotes: OpenNotes = async ({ create }) => {
-	const host = await acquire();
-	try {
-		return await create(host);
-	} catch (cause) {
-		await host.close();
-		throw cause;
-	}
+	return folder;
 };

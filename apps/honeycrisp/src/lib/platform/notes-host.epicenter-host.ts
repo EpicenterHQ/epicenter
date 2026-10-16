@@ -16,9 +16,7 @@
  *
  * The page names the folder by its scope and nothing else; the shell chose
  * the directory, the fallback author, and the windows that may use it. The
- * author and any `origin` come from Git's configuration. Epicenter gives an
- * installed window no reveal command yet, so `reveal` stays absent here, as in
- * the browser.
+ * author and any `origin` come from Git's configuration.
  *
  * A folder that cannot be opened is an error on screen. There is no browser
  * folder to fall back to in this build. Quitting Epicenter asks this window
@@ -27,14 +25,10 @@
 import { openHandedFolder } from '@epicenter/folder/tauri';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
-import {
-	HONEYCRISP_FOLDER_ID,
-	type NotesFolder,
-	type NotesHost,
-	type OpenNotes,
-} from './types.js';
+import { HONEYCRISP_FOLDER_ID, type OpenNotesFolder } from './types.js';
 
-async function openNotesFolder(): Promise<NotesFolder> {
+/** Called from the mounted page; importing this module opens nothing. */
+export const openNotesFolder: OpenNotesFolder = async () => {
 	const { data, error } = await openHandedFolder({
 		ownId: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
@@ -52,27 +46,4 @@ async function openNotesFolder(): Promise<NotesFolder> {
 		throw cause;
 	}
 	return folder;
-}
-
-async function acquire(): Promise<NotesHost> {
-	const folder = await openNotesFolder();
-	const { location } = folder;
-	return {
-		folder,
-		location:
-			location.kind === 'directory' ? location.root : location.directory,
-		reveal: undefined,
-		close: () => folder.close(),
-	};
-}
-
-// Called from the mounted page; importing this module opens nothing.
-export const openNotes: OpenNotes = async ({ create }) => {
-	const host = await acquire();
-	try {
-		return await create(host);
-	} catch (cause) {
-		await host.close();
-		throw cause;
-	}
 };

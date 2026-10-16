@@ -14,7 +14,7 @@ import { compileModule, parse } from 'svelte/compiler';
 import { Ok } from 'wellcrafted/result';
 import type { Notes } from '$lib/notes.svelte.js';
 
-type LogReply = Awaited<ReturnType<Notes['host']['folder']['git']['log']>>;
+type LogReply = Awaited<ReturnType<Notes['folder']['git']['log']>>;
 type Header = {
 	readonly log: CommitSummary[] | string;
 	open(value: boolean): void;
@@ -77,7 +77,7 @@ Bun.plugin({
 					let revision = $state(0);
 					const notes = {
 						git: { get lastCommit() { return revision; } },
-						host: { folder: { git: { log: read } } }
+						folder: { git: { log: read } }
 					};
 					${states.join('\n')}
 					const stop = $effect.root(() => {

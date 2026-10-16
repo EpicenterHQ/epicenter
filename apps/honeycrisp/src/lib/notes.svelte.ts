@@ -89,7 +89,7 @@ import {
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
 import { displayTitle, withBody } from './note-source.js';
-import type { NotesHost } from './platform/types.js';
+import type { NotesFolder } from './platform/types.js';
 
 export type Notes = ReturnType<typeof createNotes>;
 
@@ -270,7 +270,7 @@ export function unreadableOf(
 }
 
 export function createNotes(
-	host: NotesHost,
+	folder: NotesFolder,
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
@@ -282,7 +282,6 @@ export function createNotes(
 		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
-	const { folder } = host;
 	const folder$ = folderOptions(folder);
 	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
@@ -978,7 +977,8 @@ export function createNotes(
 	}
 
 	return {
-		host,
+		/** The opened folder; `close` releases it. */
+		folder,
 		queryClient,
 		/** The folder's query and mutation options; views read through these. */
 		folder$,
@@ -1279,7 +1279,7 @@ export function createNotes(
 				released = true;
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: folder$.key });
-				await host.close();
+				await folder.close();
 			})();
 			return closing;
 		},

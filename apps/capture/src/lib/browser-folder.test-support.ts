@@ -111,14 +111,10 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	const failures: WriteFailure[] = [];
 	const replaced: ReplacedChange[] = [];
 	const queryClient = createQueryClient();
-	const captures: Captures = createCaptures(
-		{ folder, location: folder.location },
-		queryClient,
-		{
-			onWriteFailed: (failure) => failures.push(failure),
-			onReplaced: (change) => replaced.push(change),
-		},
-	);
+	const captures: Captures = createCaptures(folder, queryClient, {
+		onWriteFailed: (failure) => failures.push(failure),
+		onReplaced: (change) => replaced.push(change),
+	});
 	// As the page wires it. One page per folder here, so it reports nothing;
 	// `reportChange` stands in for another page's report.
 	const stopChanges = captures.folder$.invalidateOnChange(queryClient);

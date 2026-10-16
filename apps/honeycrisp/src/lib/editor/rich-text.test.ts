@@ -69,9 +69,10 @@ async function noteOver(text: string) {
 	const folder = await openNotesFolder();
 	await folder.write(PATH, text);
 	const failures: WriteFailure[] = [];
-	const notes = createNotes(folder.host, createQueryClient(), {
+	const notes = createNotes(folder.folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
 	});
+	cleanup.push(() => folder.close());
 	cleanup.push(() => notes.close());
 	cleanup.push(() => folder.release({ all: true }));
 	cleanup.push(observe(notes));
