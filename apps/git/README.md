@@ -27,7 +27,7 @@ list and status again, and the open file when the change names it. The page
 also reads again after each of its own actions. An outside change cannot
 discard typed input: an edited buffer keeps the version it started from, and
 a save that finds the file changed merges with it by line, and the typed text
-wins the lines both changed, with no notice (ADR-0575).
+wins the lines both changed, with no notice (ADR-0576).
 **New file** creates an empty file at a path and opens it. The Git panel below the editor keeps its
 output while hidden. Binary files stay visible with an explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
