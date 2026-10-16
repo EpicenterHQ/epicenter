@@ -11,7 +11,6 @@ import {
  */
 export const todosDefinition = defineFolder({
 	title: 'Todos',
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },

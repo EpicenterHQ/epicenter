@@ -1,16 +1,16 @@
 # @epicenter/folder
 
-A folder whose current files are the saved data: Markdown rows, `kv.json`, and
-any other file, with Git history beside them. There is no document store
+A folder whose current files are the saved data: Markdown rows and any other
+file, with Git history beside them. There is no document store
 behind it. The package does not depend on `@epicenter/app`.
 
 ```ts
 import { defineFolder, defineTable, field, openFolder } from '@epicenter/folder';
 
 const definition = defineFolder({
-  kv: { theme: field.string() },
   tables: {
     todos: defineTable({ fields: { title: field.string(), done: field.boolean() } }),
+    settings: defineTable({ fields: { theme: field.optional(field.select(['light', 'dark'])) } }),
   },
 });
 
@@ -28,6 +28,12 @@ const { error: setError } = await folder.tables.todos.set('milk', { done: true }
 if (setError !== null) show(setError.message);         // invalid values, or kept changing
 await folder.close();                                  // closed either way
 ```
+
+Settings are rows too: a table named `settings`, one row per concern, such as
+`settings/display.md` (ADR-0576). Every field it declares is `field.optional`,
+so a setting may always be unset and the app's own default applies;
+preparation refuses a required one. Reading and writing it is reading and
+writing any table.
 
 Declared tables are available as `folder.tables.<name>` without creating their
 directories. Listing a missing table directory returns an empty list. Creating
@@ -65,14 +71,17 @@ Opening writes nothing. A handle publishes root `epicenter.json`, with
 `formatDeclaration(definition)`, just before its first write, through every
 opener (ADR-0508). Each
 table is one JSON Schema object, `{ type: 'object', properties, required }`,
-whose properties are the table's fields as the prepared definition holds them;
-`kv` is `{ type: 'object', properties }`, since every setting may be unset:
+whose properties are the table's fields as the prepared definition holds them:
 
 ```json
 {
   "title": "Vault",
-  "kv": { "type": "object", "properties": { "theme": { "enum": ["light", "dark"], "x-field": { "kind": "select" } } } },
   "tables": {
+    "settings": {
+      "type": "object",
+      "properties": { "theme": { "enum": ["light", "dark"], "x-field": { "kind": "select" } } },
+      "required": []
+    },
     "pages": {
       "type": "object",
       "properties": {
@@ -92,7 +101,7 @@ trailing newline. Opening uses the application declaration; it never reads
 this file as configuration.
 
 Publication replaces manual descriptions and descriptions from another app
-version. It migrates no saved rows or settings. A prepared definition is
+version. It migrates no saved rows. A prepared definition is
 plain JSON, so formatting cannot fail; a failed write is logged through
 `wellcrafted/logger`, with the destination and actual failure, while the
 folder remains usable. A failed attempt can leave discovery missing, stale, or
@@ -111,7 +120,6 @@ A definition can name files that stay on the machine that wrote them, as
 
 ```ts
 const definition = defineFolder({
-	kv: {},
 	tables: { recordings: defineTable({ fields: { title: field.string() } }) },
 	local: ['audio/'],
 });
@@ -250,7 +258,7 @@ openDataFolder({
 | --- | --- | --- |
 | Schema | the caller's `definition` | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
 | `epicenter.json` | published before the first write, if its bytes differ | never written |
-| No `epicenter.json` | published on the first write | no tables and no settings; files, history, and Sync work |
+| No `epicenter.json` | published on the first write | no tables; files, history, and Sync work |
 | An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens |
 | Repository on disk | created when the folder opens | created by the first commit (Save version, or Sync's checkpoint), staging, or `sync.connect`; until then status is an empty history with every file uncommitted |
 | Tables | typed by the definition | keyed by any name, rows checked at run time; with a `lens`, the lens's tables, typed by it ([below](#opening-another-apps-folder-through-a-lens)) |
@@ -273,11 +281,10 @@ first commit creates its repository.
 An app that reads a folder it did not create passes the shape it reads as
 `lens`, a `defineFolder` definition of only the tables and fields it knows
 (ADR-0538). The folder opens when its own declaration contains that shape,
-and its tables and settings are typed by the lens:
+and its tables are typed by the lens:
 
 ```ts
 const board = defineFolder({
-  kv: {},
   tables: {
     todos: defineTable({ fields: { title: field.string(), status: field.select(['todo', 'done']) } }),
   },
@@ -289,8 +296,7 @@ await folder.tables.todos.set('milk', { status: 'done' }); // fields the lens do
 ```
 
 The folder contains the lens when, for every table of the lens, it declares a
-table of that name, and for every field the lens reads, in a table or in `kv`,
-it declares that field with a schema whose every value the lens's field
+table of that name, and for every field the lens reads, it declares that field with a schema whose every value the lens's field
 accepts (`schemaContainment` in `@epicenter/definition`). A lens `string`
 accepts a folder `string`, a select of strings, or a date; a lens `number`
 accepts an `integer`; a nullable lens field accepts a field that is never
@@ -300,7 +306,7 @@ A closed folder table (`additionalProperties: false`) contains a lens that
 reads some of its fields; a closed lens table needs a closed folder table with
 no other field. The check is conservative: a pair it cannot decide is a
 problem with the reason, and the app widens its lens. A folder without
-`epicenter.json` contains only a lens with no tables and no settings.
+`epicenter.json` contains only a lens with no tables.
 
 | | Through a lens |
 | --- | --- |
@@ -618,24 +624,24 @@ const { data: reading, error } = await readFolder('/path/to/a/data/folder');
 if (error !== null) return show(error.message); // NotDataFolder, InvalidDeclaration, or a file error
 reading.definition; // the prepared declaration from epicenter.json
 reading.tables.todos; // exactly what tables.todos.list() returns
-reading.kv; // exactly what kv.get() returns
 ```
 
 A data folder is a directory holding `epicenter.json` (ADR-0517), the
 declaration an opener publishes as `DECLARATION_PATH`. `readFolder` reads it,
-prepares it, and reads every declared table and `kv.json` through the same
-tables, settings, and native file boundary an opened folder uses, so a tool
+prepares it, and reads every declared table through the same tables and
+native file boundary an opened folder uses, so a tool
 and an application reach the same verdict on every file. A symbolically
 linked table directory is that table's `InvalidPath`, never followed.
 
 `parseDeclaration(text)` reads the file's grammar and nothing else: a
 top-level `$schema` (which only helps an editor offer completion), `title`,
-`kv`, and `tables`, each table `{ type: 'object', properties, required? }`
-with every `required` name declared, and `kv` without `required`. A table
-without `required` has only optional fields. Any other key, a visible `~` key
-on a field, or a field preparation refuses, such as one with an unknown
-`format` or a `$ref` that names nothing in the field, is
-`InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
+`local`, and `tables`, each table `{ type: 'object', properties, required? }`
+with every `required` name declared. A table without `required` has only
+optional fields. A `kv` section, which an earlier build wrote for the
+settings it kept as keys, is admitted and not read, so a folder that build
+published still opens (ADR-0576). Any other key, a visible `~` key on a
+field, or a field preparation refuses, such as one with an unknown `format`
+or a `$ref` that names nothing in the field, is `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.
 
 It writes nothing: no Git repository, lock, or declaration. It can read a folder an application has open, or one
@@ -662,8 +668,7 @@ const { data: answer } = queryFolder(checked, 'SELECT stem FROM posts'); // { co
 await generateDeclaration(dir); // runs dir/epicenter.ts and writes epicenter.json
 ```
 
-`checkFolder` sorts what `readFolder` reports: a row or `kv.json` that does
-not conform, bytes that are not UTF-8, or a path the folder cannot hold is
+`checkFolder` sorts what `readFolder` reports: a row that does not conform, bytes that are not UTF-8, or a path the folder cannot hold is
 `invalid`; anything else that could not be read is `unreadable`. `queryFolder`
 projects only the rows that conform into an in-memory `bun:sqlite` database,
 runs exactly one statement that reads, and names in `excluded` every file it
@@ -677,12 +682,11 @@ its default export declares (ADR-0527).
 | Member | Contract |
 | --- | --- |
 | `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `write(stem, from, to)` merges the change from one row to another into the row as it is now, through the folder's one write; `set`, `create`, `delete`, and `rename` build that change. Each changes exactly one Markdown file, a rename two. See [Reading a row](#reading-a-row), [Writing a row](#writing-a-row), and [Editing a row](#editing-a-row). |
-| `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` changes one key of the file as read at the set, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and saves with the one save loop, merging by key with another writer's save. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. See [One write](#one-write). |
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. |
 | `sync` | `run()` records saved files, fetches, merges both heads into one commit this device wins, and pushes; `connect(url)` sets the remote first. It asks nothing. See [Sync](#sync). |
-| `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, its settings `kv`, and Sync merges rows by it. |
+| `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, settings among them, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own saves. Returns the function that stops listening. See [Changes](#changes). |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
@@ -707,8 +711,7 @@ The verb states the condition. `save`, `remove`, and `move` act on a
 bytes captured; byte length remains inventory metadata. A capture holds nothing
 open, can be serialized, and never changes. A successful write returns a new
 capture; the one passed in stays what it was. A stored row and an
-`InvalidRow` are captures of their row file, a KV snapshot is a capture of
-`kv.json`, and so is a `read` result.
+`InvalidRow` are captures of their row file, and so is a `read` result.
 
 A save's base must also carry the content it names (ADR-0551): `read`,
 `create`, and `save` return the bytes with the capture, a `StoredRow` and an
@@ -1036,12 +1039,11 @@ written.overridden; // each unit this write won over another writer's change
 | File | Unit |
 | --- | --- |
 | a row, `<table>/<stem>.md` | one frontmatter key; one region of body lines |
-| `kv.json` | one root key |
 | other UTF-8 text | one region of lines |
 | binary, or a side absent | the whole file |
 
 - Units only one side changed all survive. On a unit both changed, the
-  writer wins, and `overridden` names it (`field`, `setting`, `lines` with
+  writer wins, and `overridden` names it (`field`, `lines` with
   its `line` and `count`, or `file` with the side whose edit did not stand). Each overwrite is logged through `wellcrafted/logger`
   (`folder/save`); nothing is shown to a person.
 - Two insertions at one place both survive, the file's first, then the
@@ -1067,8 +1069,8 @@ renamed into place, under the save lock (ADR-0562).
 
 ### One save
 
-Every save of `files.save` and `kv.set` over an existing file is one save
-loop, `saveFile` (ADR-0551).
+Every save of `files.save` over an existing file is one save loop,
+`saveFile` (ADR-0551).
 
 1. The base's content must hash to its `sha256`; otherwise `UnknownBase`.
    The save swaps on that hash.
@@ -1087,13 +1089,12 @@ what it read.
 
 | Kind | Merges by | A competing unit |
 | --- | --- | --- |
-| `kv.json` | key | one setting |
 | a row of a declared table | field, and the body by line | one field; the body |
 | other UTF-8 text | line | the file's text |
 | binary, or a side absent | none | the whole file |
 
-A row or `kv.json` version that does not read as its kind merges as text. A
-saved JSON, YAML, or CSV file merges by line, so the result may not parse. Sync
+A row version that does not read as a row merges as text. A saved JSON,
+YAML, or CSV file merges by line, so the result may not parse. Sync
 merges with the same rules (see [Sync](#sync)).
 
 Where both sides changed one unit, the edit wins (ADR-0575). The save
@@ -1101,91 +1102,6 @@ returns no record of it for a person; each overwrite that lands is logged
 through `wellcrafted/logger` (`folder/save`) with the units it replaced. It
 merges with `merge`, as `folder.write` does, so two insertions at one place
 both survive here too.
-
-### Reading and saving kv.json
-
-`kv` is one root file of independent settings (ADR-0522). A setting is an
-intent, not a document: `set('theme', 'dark')` means "the theme is dark",
-whatever the file held a moment ago.
-
-```ts
-const { data: settings, error } = await folder.kv.get();
-if (error?.name === 'InvalidKv') return openTextEditor(error); // { path, sha256, text, issues }
-if (error !== null) return showReadFailure(error);
-const kv = { ...KV_DEFAULTS, ...settings?.values }; // settings: { path, sha256, values, issues } | undefined
-
-await folder.kv.set('theme', 'dark'); // returns the reading it wrote
-await folder.kv.set('theme', undefined); // remove the key, so the default applies
-```
-
-Reading is per key. `values` holds every declared key whose stored value
-validated. A stored value that does not conform is left out and reported in
-`issues` at its line, so one hand-broken setting falls back to its default
-without hiding the others. A key the file lacks is not an issue, and an
-undeclared key stays in the file unreported. The folder has no defaults: an
-application spreads its own under `values`.
-
-`InvalidKv` is only for text a folder cannot hold: not one strict JSON object
-(comments and trailing commas do not parse), a key that appears twice at any
-depth, an unpaired surrogate, or nesting beyond 64 containers. A value over
-the nesting or width budget is an issue on read, as a set of it is refused. It carries the exact
-text and its hash, so the file is repaired as text, guarded by those bytes.
-
-`set(key, value)` changes one key:
-
-- A value that is undeclared, does not conform, is over the nesting or width
-  budget, holds an unsafe integer, or has no exact JSON form is
-  `InvalidValues` before anything is read. The value is owned at the call.
-- It reads the current file, changes the key in it, and saves over that read
-  ([One save](#one-save)). Every other key keeps its raw text, so number
-  spellings and unknown keys survive. The text is written in the merge format
-  below, so a local save and a Git merge produce the same file.
-- A missing file is created. `undefined` removes the key.
-- Sets from one handle apply in the order they were called; a later set of a
-  key waiting behind a running one replaces it.
-- When another writer published first, the save merges with them by key, so
-  two windows setting different keys both keep their changes; where both set
-  the same key, the set wins. A file that keeps changing past the merges is
-  `KeptChanging`. A create that loses to another writer, or whose reply was
-  lost, reads once more and saves over what is there.
-
-One top-level key is one fact. Settings that must change together belong in
-one key with an object value, which is set and merged as a whole.
-
-`KvReadError` and `KvWriteError` are the two error unions.
-
-### Merging kv.json
-
-`mergeKv({ base, ours, theirs })` reconciles three captured `kv.json` texts
-without opening a folder. Each input is a JSON object string or `null` for a
-missing file. `fixtures/kv-merge.json` holds its test vectors.
-
-For each root key, equal choices agree; a side unchanged from the base yields
-to the other side. Competing changes return `kind: 'conflict'` with each key's
-raw base, ours, and theirs values. Nested objects and arrays stay together as
-one value. A missing key differs from a stored JSON `null`. Deleting the file
-conflicts with a change to its values and returns `kind: 'file-conflict'`.
-
-A successful result has `kind: 'merged'` and `text`, the complete merged file
-text, which is `null` for a deleted file. It preserves selected value text and
-regenerates root formatting with sorted keys. Object key order and string escape spelling do not affect
-equality. Number tokens compare exactly, so `1` and `1.0` differ; large unknown
-numbers never round through JavaScript. Equal values choose the same raw text
-when ours and theirs swap.
-
-Malformed JSON, duplicate keys at any depth, unpaired Unicode surrogates, and
-nesting beyond 64 containers return `kind: 'invalid'` and the first invalid
-`side` in base, ours, theirs order. A leading BOM is accepted and removed from
-output. Callers must decode bytes without replacing invalid UTF-8.
-
-A save and Sync settle competing keys through the same merge (`reconcileKv`
-in `kv-merge.ts`, through `merge`): each settled key is its raw value
-text, or `null` to leave it out, and applies only where the key competes.
-
-The function does not apply field schemas, write files, or choose a winner for
-competing edits. Its module owns `kv.json` text: `kv.set` writes through the same
-formatter, so a local save and a merge produce the same file. Sync uses it
-for root `kv.json`; see [Sync](#sync).
 
 ### One file per save
 
@@ -1244,7 +1160,6 @@ const stopChanges = folder$.invalidateOnChange(queryClient);
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
 | each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `delete(stem)`; a rename is `table.rename` |
-| `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
 | `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
 
@@ -1268,8 +1183,8 @@ back.
 A write keeps the cache in step inside its own `mutationFn`, so a caller's
 `onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
 puts its result where it can: `set`, `create`, and `write` set the row's query and
-its entry in the listing, `delete` drops them, `kv.set` sets the reading,
-and `files.write` sets the file's `read` and `text`. The folder does not
+its entry in the listing, `delete` drops them, and `files.write` sets the
+file's `read` and `text`. The folder does not
 report a page's own writes to it, so the write marks stale the rest of what
 a change to its paths would, the history's status included. A read still
 running when the write lands may predate it, or a later change, so it is
@@ -1280,13 +1195,13 @@ file was not what the base said, or the reply was lost.
 invalidates each change's `pathFilter`; it returns the function that stops
 it. `pathFilter(change)`, also usable on its own to invalidate, cancel, or
 refetch, matches each row at a changed path, the listing of
-each table whose directory a path is in, the settings for `kv.json`, the
-file listing and each changed file's `read` and `text`, each `query` over a
+each table whose directory a path is in, the file listing and each changed
+file's `read` and `text`, each `query` over a
 changed path, and the history's status; a path in `.git` also matches the
 log, and `'everything'` matches every query of the folder. Invalidating
 reads again only what a view or observer holds; a store that reads with
-`getQueryData` observes what it shows. A table named like a member (`kv`,
-`files`, `history`, `tables`, `pathFilter`, `key`, `query`) is under
+`getQueryData` observes what it shows. A table named like a member
+(`files`, `history`, `tables`, `pathFilter`, `key`, `query`) is under
 `folder$.tables` only.
 
 Every read is local and changes only when the folder's channel or the
@@ -1385,7 +1300,6 @@ acting:
 
 | Path | Merged by | Where both changed one unit |
 | --- | --- | --- |
-| root `kv.json` | key | this device's value |
 | `<table>/<stem>.md` of a declared table | field and body lines | this device's field or lines |
 | any other UTF-8 text, or a version that does not read as its kind | line | this device's lines |
 | `epicenter.json` | whole file, with `local` listing every pattern either side lists | this device's file |
@@ -1468,7 +1382,7 @@ helpers build common ones. A folder refuses a table that declares a body
 conversion, because a row's body is the file's Markdown text. An opener given
 such a definition returns `InvalidDefinition` before it acquires anything.
 
-`epicenter.json` holds each table, and `kv`, as one JSON Schema object whose
+`epicenter.json` holds each table as one JSON Schema object whose
 properties are the fields, and `local`, when the definition declares it, as
 the list of patterns. A table declared with `additionalProperties: false`
 beside `fields` is closed: the file holds the same keyword beside `properties`,
@@ -1482,14 +1396,14 @@ table. Rename one definition, or give the field an `$id`. Definitions are not
 renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
-A definition is `{ title?, local?, kv, tables }` and nothing else. `defineFolder`
-throws on an `id`; an opener given an untyped definition with one returns
+A definition is `{ title?, local?, tables }` and nothing else. `defineFolder`
+throws on an `id`, and on a `kv`, naming the `settings` table that replaced
+it; an opener given an untyped definition with one returns
 `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
 
 `defineFolder` returns the prepared definition. It has the shape and type of
-what was declared: `kv` and each table's `fields` are records of native
-schemas, and a table's key is its name. Each table's type also carries the
+what was declared: each table's `fields` is a record of native schemas, and a table's key is its name. Each table's type also carries the
 `PreparedFolderTable` mark that `parseRow` and `formatRow` require; the
 mark is a type, not a property. Each schema is an owned, frozen snapshot, so
 editing a schema after `defineFolder` changes nothing an opened folder
@@ -1509,7 +1423,7 @@ dangle.
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-history.ts`, and the directory folder only then. |
-| `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
+| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
 | `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createTextDraft`. |
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
@@ -1522,7 +1436,7 @@ dangle.
 | `git/native-*.ts` | The `git` program a directory folder records history with, in Bun. |
 | `src/history-wire.ts`, `tauri-history.ts` | A desktop page's history: the reply line the `epicenter` CLI prints for what it runs (`runHistory` in `bun.ts`), and the page's `folder.git` over the shell's history commands. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
-| `fixtures/` | Vectors the tests read: `kv-merge.json` for `mergeKv`, and `commit-subjects.txt`, the subjects `commitSubject` in `src/git/messages.ts` writes (`bun run gen:vectors` rewrites it). |
+| `fixtures/` | Vectors the tests read: `commit-subjects.txt`, the subjects `commitSubject` in `src/git/messages.ts` writes (`bun run gen:vectors` rewrites it). |
 | `evidence/` | Tests that build real bundles and read real import closures; `evidence/opfs`, a page that runs the browser checks in a real browser. |
 
 ## Commands
@@ -1554,8 +1468,7 @@ in the package's exports.
 ## Limits
 
 A reference field has no integrity: nothing checks its target, and rename
-repairs no references. `kv.set`
-writes each value it sets as compact JSON. Browser bytes are stored whole.
+repairs no references. Browser bytes are stored whole.
 A whole-folder checkpoint or status scan reads and hashes the whole folder.
 Version checks on disk are best effort
 against other programs. File bytes cross the desktop bridge as JSON number
@@ -1568,17 +1481,16 @@ what the Web Locks can see.
 
 ## Internal composition
 
-Files, tables, and KV use one storage port (`boundary.ts`). Every opener
+Files and tables use one storage port (`boundary.ts`). Every opener
 wraps it so each `put` that may have landed marks history stale, under the
 save lock too, so a domain method cannot write without that.
 
 ```ts
 createFiles({ storage, definition })
 createTable({ storage }, name, definition.tables[name])
-createKv({ storage }, definition.kv)
 ```
 
-`files.save` and `kv.set` each call `saveFile` (`save-file.ts`), and every table helper calls `writeFile`
+`files.save` calls `saveFile` (`save-file.ts`), and every table helper calls `writeFile`
 with the file's kind, which merges through `merge` (`merge-file.ts`), the
 merge Sync and the merge driver use too.
 

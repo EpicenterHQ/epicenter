@@ -30,11 +30,9 @@ function prepared(schema: DataSchema): DataSchema {
 
 function schemaOf(
 	tables: Record<string, FieldMap>,
-	kv: FieldMap = {},
 	closed: readonly string[] = [],
 ): DataSchema {
 	return prepared({
-		kv,
 		tables: Object.fromEntries(
 			Object.entries(tables).map(([name, fields]) => [
 				name,
@@ -229,24 +227,25 @@ describe('field schemas', () => {
 });
 
 describe('shapes of whole schemas', () => {
-	const declared = schemaOf(
-		{
-			todos: {
-				title: field.string(),
-				status: field.select(['todo', 'done']),
-				priority: field.integer(),
-				note: field.optional(field.string()),
-			},
-			projects: { name: field.string() },
+	const declared = schemaOf({
+		todos: {
+			title: field.string(),
+			status: field.select(['todo', 'done']),
+			priority: field.integer(),
+			note: field.optional(field.string()),
 		},
-		{ theme: field.select(['light', 'dark']), density: field.number() },
-	);
+		projects: { name: field.string() },
+		settings: {
+			theme: field.optional(field.select(['light', 'dark'])),
+			density: field.optional(field.number()),
+		},
+	});
 
 	test('a shape that reads a subset of tables and fields fits', () => {
-		const shape = schemaOf(
-			{ todos: { title: field.string(), status: field.string() } },
-			{ theme: field.string() },
-		);
+		const shape = schemaOf({
+			todos: { title: field.string(), status: field.string() },
+			settings: { theme: field.optional(field.string()) },
+		});
 		expect(shapeProblems(declared, shape)).toEqual([]);
 	});
 
@@ -274,13 +273,11 @@ describe('shapes of whole schemas', () => {
 	test('every problem is listed: a missing table, a missing field, and an incompatible field', () => {
 		const problems = shapeProblems(
 			declared,
-			schemaOf(
-				{
-					todos: { title: field.number(), due: field.date() },
-					events: { title: field.string() },
-				},
-				{ accent: field.string() },
-			),
+			schemaOf({
+				todos: { title: field.number(), due: field.date() },
+				events: { title: field.string() },
+				settings: { accent: field.optional(field.string()) },
+			}),
 		);
 		expect(
 			problems.map(({ kind, table, ...rest }) => [
@@ -289,28 +286,19 @@ describe('shapes of whole schemas', () => {
 				'field' in rest ? rest.field : undefined,
 			]),
 		).toEqual([
-			['missingField', 'kv', 'accent'],
 			['incompatibleField', 'todos', 'title'],
 			['missingField', 'todos', 'due'],
 			['missingTable', 'events', undefined],
+			['missingField', 'settings', 'accent'],
 		]);
 		expect(problems.map(({ message }) => message)).toContain(
-			"The folder declares no setting 'accent'",
+			"The folder declares no field 'settings.accent'",
 		);
-	});
-
-	test('kv fields are contained like table fields', () => {
-		expect(
-			shapeProblems(declared, schemaOf({}, { density: field.integer() })),
-		).toMatchObject([
-			{ kind: 'incompatibleField', table: 'kv', field: 'density' },
-		]);
 	});
 
 	test('a closed folder table fits a shape that reads a subset of it', () => {
 		const closed = schemaOf(
 			{ pages: { title: field.string(), tags: field.tags() } },
-			{},
 			['pages'],
 		);
 		expect(
@@ -319,14 +307,13 @@ describe('shapes of whole schemas', () => {
 	});
 
 	test('a closed shape table needs a closed folder table with no other field', () => {
-		const shape = schemaOf({ pages: { title: field.string() } }, {}, ['pages']);
+		const shape = schemaOf({ pages: { title: field.string() } }, ['pages']);
 		const open = schemaOf({ pages: { title: field.string() } });
 		const wider = schemaOf(
 			{ pages: { title: field.string(), tags: field.tags() } },
-			{},
 			['pages'],
 		);
-		const same = schemaOf({ pages: { title: field.string() } }, {}, ['pages']);
+		const same = schemaOf({ pages: { title: field.string() } }, ['pages']);
 		expect(shapeProblems(open, shape)).toMatchObject([
 			{ kind: 'incompatibleTable', table: 'pages' },
 		]);

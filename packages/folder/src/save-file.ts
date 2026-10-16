@@ -9,7 +9,7 @@
  * `WRITE_ATTEMPTS` times, then `KeptChanging`. A `put` whose reply was lost
  * is read back once: the bytes it sent, or no file for a delete, mean done.
  *
- * `saveFile` is the save loop `kv.set` and `files.save` still run: it swaps first on the base's own hash, refuses a base without content
+ * `saveFile` is the save loop `files.save` still runs: it swaps first on the base's own hash, refuses a base without content
  * (`UnknownBase`) and a deleted file (`NotFound`), and merges the same way.
  *
  * Where both sides changed one unit, the writer wins. Nothing is returned to
@@ -32,8 +32,6 @@ import {
 	TableError,
 	WriteError,
 } from './errors.js';
-import { kvRefusal } from './kv.js';
-import { readKvMembers } from './kv-merge.js';
 import {
 	type FileContent,
 	type FileKind,
@@ -288,11 +286,6 @@ function unreadable(
 	const text = decoded(current.bytes);
 	const result = decoded(merged);
 	const { sha256 } = current;
-	if (kind.kind === 'kv')
-		return readKvMembers(text) === undefined
-			? TableError.InvalidKv({ path, sha256, text, issues: kvRefusal(text) })
-					.error
-			: TableError.InvalidValues({ issues: kvRefusal(result) }).error;
 	const own = parseRow(kind.table, text);
 	if (own.error !== null)
 		return TableError.InvalidRow({ path, sha256, text, issues: own.error })
@@ -312,7 +305,6 @@ function readsAs(kind: FileKind, bytes: Uint8Array): boolean {
 	} catch {
 		return false;
 	}
-	if (kind.kind === 'kv') return readKvMembers(text) !== undefined;
 	return parseRow(kind.table, text).error === null;
 }
 
@@ -369,11 +361,7 @@ export async function saveFile(
 		});
 		// The edit is present, so the merge never settles to no file.
 		const bytes = toBytes(merged.content) as Uint8Array;
-		if (
-			strictEdit &&
-			(kind.kind === 'kv' || kind.kind === 'row') &&
-			!readsAs(kind, bytes)
-		)
+		if (strictEdit && kind.kind === 'row' && !readsAs(kind, bytes))
 			return Err(unreadable(kind, path, current, bytes));
 		overwrote = merged.overridden;
 		attempt = bytes;

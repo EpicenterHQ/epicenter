@@ -38,7 +38,7 @@ type StoredAnyRow = StoredRow<Record<string, unknown>>;
 const author = { name: 'Folders', email: 'folders@localhost' };
 
 /** Hand-written, so any rewrite would change its bytes. */
-const DECLARED = `{"title":"Notes","kv":{"type":"object","properties":{}},"tables":{"notes":{"type":"object","properties":{"title":{"type":"string","x-field":{"kind":"string"}},"done":{"type":"boolean","x-field":{"kind":"boolean"}},"tags":{"type":"array","items":{"type":"string"},"x-field":{"kind":"tags"}}},"required":["title","done"]}}}`;
+const DECLARED = `{"title":"Notes","tables":{"notes":{"type":"object","properties":{"title":{"type":"string","x-field":{"kind":"string"}},"done":{"type":"boolean","x-field":{"kind":"boolean"}},"tags":{"type":"array","items":{"type":"string"},"x-field":{"kind":"tags"}}},"required":["title","done"]}}}`;
 
 const ROW =
 	'---\ntitle: One\ndone: false\ntags: [a]\n---\nfirst\nsecond\nthird\n';

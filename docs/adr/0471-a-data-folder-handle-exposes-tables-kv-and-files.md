@@ -283,6 +283,6 @@ source remains accessible through a separate raw repair workflow.
 
 The [folder package](../../packages/folder/README.md) documents the exported
 surface and openers. [Contract exports](../../packages/folder/src/contract.ts),
-[table views](../../packages/folder/src/table.ts), and
-[KV views](../../packages/folder/src/kv.ts) expose the same API across browser,
-Bun, and Tauri storage. Application consumers use the flat snapshot shape.
+[table views](../../packages/folder/src/table.ts), and KV views (since
+deleted: settings are a table, [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md))
+expose the same API across browser, Bun, and Tauri storage. Application consumers use the flat snapshot shape.

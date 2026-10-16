@@ -50,7 +50,6 @@ export const AUDIO = 'audio';
 export const whisperingDefinition = defineFolder({
 	title: 'Whispering',
 	local: [`${AUDIO}/`],
-	kv: {},
 	tables: {
 		recordings: defineTable({
 			fields: {

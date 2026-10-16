@@ -159,7 +159,6 @@ test('a handed folder without the recordings Whispering reads is refused by name
 	const recipes = `${JSON.stringify(
 		{
 			title: 'Recipes',
-			kv: { type: 'object', properties: {} },
 			tables: {
 				recipes: {
 					type: 'object',

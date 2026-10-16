@@ -11,7 +11,6 @@ import {
 } from '@epicenter/folder';
 
 const definition = defineFolder({
-	kv: {},
 	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 

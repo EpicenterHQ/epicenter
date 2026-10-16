@@ -45,7 +45,6 @@ import { useWebLocks } from './web-locks.test-support.js';
 useWebLocks();
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		notes: defineTable({ fields: { title: field.string() } }),
 	},

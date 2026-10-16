@@ -2,7 +2,6 @@
 import { defineFolder, openFolder } from '@epicenter/folder/browser';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {},
 });
 

@@ -50,7 +50,6 @@ import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 type Opened = Folder<typeof definition>;
@@ -230,7 +229,7 @@ describe('browser pages', () => {
 				),
 			);
 			expectOk(await writer.tables.notes.set('a', { title: 'B' }));
-			expectOk(await writer.kv.set('theme', 'dark'));
+			expectOk(await writer.tables.notes.delete('a'));
 		});
 		// The first save publishes the declaration before its own file.
 		expect(heard.flat()).toEqual([
@@ -238,7 +237,7 @@ describe('browser pages', () => {
 			'note.txt',
 			'notes/a.md',
 			'notes/a.md',
-			'kv.json',
+			'notes/a.md',
 		]);
 		// The writer heard none of its own writes, and its commit records them.
 		expect((await writer.git.commit()).status).toBe('committed');

@@ -2,10 +2,10 @@
  * Prepare developer declarations for reading.
  *
  * A field is a native TypeBox schema, and a prepared schema has the shape
- * it was declared in: `kv` and each table's `fields` are records of native
- * schemas. Preparation adds what a declaration cannot say by itself: usable
- * names, an owned frozen snapshot of each schema, and TypeBox's compiled
- * validator for that snapshot, held privately beside it.
+ * it was declared in: each table's `fields` is a record of native schemas.
+ * Preparation adds what a declaration cannot say by itself: usable names, an
+ * owned frozen snapshot of each schema, and TypeBox's compiled validator for
+ * that snapshot, held privately beside it.
  *
  * A prepared field is plain JSON: the schema a file holds, frozen, so a
  * declaration in code and the same declaration read from a file validate
@@ -15,8 +15,8 @@
  * The one read is {@link check}. It asks whether a value is JSON before the
  * schema's validator sees it, and never changes the value it is given. A
  * `default` annotation is inert: nothing fills a missing value. Absence is an
- * issue only for a required field; `field.optional` and every KV field may be
- * absent. The `settings` table declares only `field.optional` fields.
+ * issue only for a required field; a `field.optional` field may be absent.
+ * The `settings` table declares only `field.optional` fields.
  */
 
 import { type TSchema, Type } from 'typebox';
@@ -29,8 +29,6 @@ import {
 	type ConformanceIssue,
 	type DataSchema,
 	type FieldMap,
-	KV_ROOT,
-	RESERVED_TABLE_NAMES,
 	SETTINGS_TABLE,
 	type TableDeclaration,
 } from './declaration.js';
@@ -75,11 +73,12 @@ const preparedSchemas = new WeakMap<
  * Check one schema and return the copy every read uses (ADR-0266).
  *
  * The result has the declared shape and the declared type: an optional
- * `title`, `kv`, and `tables`, each table holding `fields` and, when it is
- * closed, `additionalProperties`. It is owned here. Every field is the declared schema's frozen JSON
- * (see `plainSchema`). `kv`, `tables`, and each `fields` are frozen
- * records without a prototype, so a name like `constructor` reads as its own
- * entry or as nothing.
+ * `title` and `local`, and `tables`, each table holding `fields` and, when it
+ * is closed, `additionalProperties`. It is owned here. Every field is the
+ * declared schema's frozen JSON (see `plainSchema`). `tables` and each
+ * `fields` are frozen records without a prototype, so a name like
+ * `constructor` reads as its own entry or as nothing. A top-level key the
+ * shape does not name is not read.
  *
  * A schema names no dataset: a declaration with an own `id` is malformed.
  *
@@ -125,11 +124,11 @@ function prepareRoot(
 	return prepareShape(value);
 }
 
-/** The prepared title, kv, and tables of a plain-object declaration. */
+/** The prepared title, local patterns, and tables of a plain-object declaration. */
 function prepareShape(
 	value: Record<string, unknown>,
 ): Result<DataSchema, DataDefinitionParseError> {
-	const { title, kv, tables, local } = value as Partial<DataSchema>;
+	const { title, tables, local } = value as Partial<DataSchema>;
 	if (
 		title !== undefined &&
 		(typeof title !== 'string' || title.trim() === '')
@@ -141,22 +140,15 @@ function prepareShape(
 	const localProblem = local === undefined ? undefined : localProblemOf(local);
 	if (localProblem !== undefined)
 		return DataDefinitionParseError.Malformed({ reason: localProblem });
-	if (!isPlainObject(kv))
-		return DataDefinitionParseError.Malformed({
-			reason: 'it declares no kv section',
-		});
 	if (!isPlainObject(tables))
 		return DataDefinitionParseError.Malformed({
 			reason: 'it declares no tables',
 		});
 
-	// Every KV field is optional: an unset key means the application's default.
-	const preparedKv = prepareFields(KV_ROOT, kv, { allOptional: true });
-	if (preparedKv.error !== null) return preparedKv;
 	const preparedTables: Record<string, TableDeclaration> = Object.create(null);
 	const foldedNames = new Set<string>();
 	for (const [tableName, declaration] of Object.entries(tables)) {
-		if (!isTableName(tableName) || RESERVED_TABLE_NAMES.includes(tableName)) {
+		if (!isTableName(tableName)) {
 			return DataDefinitionParseError.Malformed({
 				reason: `table name '${tableName}' is not usable`,
 			});
@@ -189,9 +181,7 @@ function prepareShape(
 					reason: `table '${tableName}' declares additionalProperties; the only value is false, which closes the table`,
 				});
 		}
-		const fields = prepareFields(tableName, table.fields, {
-			allOptional: false,
-		});
+		const fields = prepareFields(tableName, table.fields);
 		if (fields.error !== null) return fields;
 		// One declared table reused under two names is prepared once per name.
 		preparedTables[tableName] = Object.freeze({
@@ -209,7 +199,6 @@ function prepareShape(
 			...(local === undefined
 				? {}
 				: { local: Object.freeze([...new Set(local)].sort()) }),
-			kv: preparedKv.data,
 			// `defineTable`'s mark is a type and nothing at run time.
 			tables: Object.freeze(preparedTables) as DataSchema['tables'],
 		}),
@@ -241,7 +230,6 @@ function localProblemOf(local: unknown): string | undefined {
 function prepareFields(
 	tableName: string,
 	declaration: unknown,
-	{ allOptional }: { allOptional: boolean },
 ): Result<FieldMap, DataDefinitionParseError> {
 	if (!isPlainObject(declaration))
 		return DataDefinitionParseError.Malformed({
@@ -273,10 +261,7 @@ function prepareFields(
 			);
 		const field = trySync({
 			try: () => {
-				const schema = plainSchema(
-					declared,
-					allOptional || Type.IsOptional(declared),
-				);
+				const schema = plainSchema(declared, Type.IsOptional(declared));
 				validators.set(schema, Compile(schema));
 				return schema;
 			},

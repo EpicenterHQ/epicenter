@@ -4,8 +4,9 @@
  *
  * Reads are the folder's queries (`folderOptions`): each table's rows, the
  * listing the file browser shows, Git status, and the text of each file
- * opened as text, an earlier build's `kv.json` among them. The library observes the listings and Git status for
- * as long as it is open, so every page shows them. They are read when the
+ * opened as text, an earlier build's `kv.json` among them. The library
+ * observes the listings and Git status for as long as it is open, so every
+ * page shows them. They are read when the
  * page opens and after the app's own actions and terminal commands; changes
  * made anywhere else arrive on `folder.onFilesChanged`, which makes exactly
  * the queries they name stale. Rows that read are listed to edit; the rest

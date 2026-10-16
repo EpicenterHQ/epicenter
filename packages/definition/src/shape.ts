@@ -19,19 +19,11 @@
 
 import type { TSchema } from 'typebox';
 import { Compile } from 'typebox/compile';
-import {
-	type DataSchema,
-	type FieldMap,
-	KV_ROOT,
-	type TableDeclaration,
-} from './declaration.js';
+import type { DataSchema, FieldMap, TableDeclaration } from './declaration.js';
 import { FIELD_KEYWORD } from './field/editor.js';
 import { isOptional } from './prepare.js';
 
-/**
- * One way a declaration does not contain a shape. `table` is a table name, or
- * `kv` for the settings, which no table may be named.
- */
+/** One way a declaration does not contain a shape, in the table named `table`. */
 export type ShapeProblem =
 	| {
 			readonly kind: 'missingTable';
@@ -62,10 +54,10 @@ export type ShapeProblem =
  * Every way `declared` does not contain `shape`; empty when it does.
  *
  * - Every table of the shape is a table of the declaration.
- * - Every field the shape reads, in a table or in `kv`, is declared there with
- *   a schema the shape's field accepts (see {@link schemaContainment}).
+ * - Every field the shape reads is declared in that table with a schema the
+ *   shape's field accepts (see {@link schemaContainment}).
  * - A field the shape requires is required by the declaration too; a field
- *   the shape leaves optional may be either. Every setting is optional.
+ *   the shape leaves optional may be either.
  * - A shape table that is closed (`additionalProperties: false`) reads only
  *   from a closed table that declares no field the shape does not. A closed
  *   declared table holds no keys beyond its fields, so it contains any shape
@@ -79,7 +71,6 @@ export function shapeProblems(
 	shape: DataSchema,
 ): ShapeProblem[] {
 	const problems: ShapeProblem[] = [];
-	bucketProblems(KV_ROOT, declared.kv, shape.kv, false, problems);
 	for (const [table, wanted] of Object.entries(shape.tables)) {
 		const found = Object.hasOwn(declared.tables, table)
 			? declared.tables[table]
@@ -100,7 +91,7 @@ export function shapeProblems(
 				reason: closure,
 				message: `The '${table}' table does not fit: ${closure}`,
 			});
-		bucketProblems(table, found.fields, wanted.fields, true, problems);
+		fieldProblems(table, found.fields, wanted.fields, problems);
 	}
 	return problems;
 }
@@ -136,17 +127,14 @@ function closureProblem(
 		: `the shape closes it, and the folder declares ${extra.map((name) => `'${name}'`).join(', ')} beside the shape's fields`;
 }
 
-function bucketProblems(
+function fieldProblems(
 	table: string,
 	declared: FieldMap,
 	shape: FieldMap,
-	rows: boolean,
 	problems: ShapeProblem[],
 ): void {
-	const where = table === KV_ROOT ? 'setting' : `field '${table}.`;
 	for (const [field, wanted] of Object.entries(shape)) {
-		const name =
-			table === KV_ROOT ? `${where} '${field}'` : `${where}${field}'`;
+		const name = `field '${table}.${field}'`;
 		const found = Object.hasOwn(declared, field) ? declared[field] : undefined;
 		if (found === undefined) {
 			problems.push({
@@ -158,7 +146,7 @@ function bucketProblems(
 			continue;
 		}
 		const reason =
-			rows && !isOptional(wanted) && isOptional(found)
+			!isOptional(wanted) && isOptional(found)
 				? 'the shape requires it, and the folder lets a row leave it out'
 				: schemaContainment(wanted, found);
 		if (reason !== undefined)

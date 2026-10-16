@@ -8,7 +8,8 @@
  * Key behaviors:
  * - `defineFolder` returns an owned, frozen definition of the declared shape,
  *   and preparing it again returns it
- * - A key other than `title`, `kv`, and `tables` is refused, not dropped
+ * - A key other than `title`, `tables`, and `local` is refused, not
+ *   dropped; a leftover `kv` is told that settings are a table
  * - A definition names no folder: an `id` is refused at the declaration and
  *   at the opener, and the opener's ID selects the dataset
  * - One prepared definition opens two folders that stay apart, and another
@@ -87,7 +88,6 @@ const paths = async (folder: Pick<Awaited<ReturnType<typeof open>>, 'files'>) =>
 test('defineFolder returns the prepared definition in the declared shape', () => {
 	const declared = {
 		title: 'Definition',
-		kv: { theme: field.select(['light', 'dark']) },
 		tables: {
 			todos: defineTable({
 				fields: { title: field.string(), done: field.boolean() },
@@ -96,7 +96,7 @@ test('defineFolder returns the prepared definition in the declared shape', () =>
 	};
 	const definition = defineFolder(declared);
 
-	expect(Object.keys(definition)).toEqual(['title', 'kv', 'tables']);
+	expect(Object.keys(definition)).toEqual(['title', 'tables']);
 	expect(Object.keys(definition.tables)).toEqual(['todos']);
 	expect(Object.keys(definition.tables.todos)).toEqual(['fields']);
 	expect(Object.keys(definition.tables.todos.fields)).toEqual([
@@ -104,37 +104,44 @@ test('defineFolder returns the prepared definition in the declared shape', () =>
 		'done',
 	]);
 	// A field is the native schema, hint included, and a snapshot of it.
-	expect(definition.kv.theme).toEqual(field.select(['light', 'dark']));
-	expect(definition.kv.theme).not.toBe(declared.kv.theme);
+	const { title } = definition.tables.todos.fields;
+	expect(title).toEqual(field.string());
+	expect(title).not.toBe(declared.tables.todos.fields.title);
 	for (const owned of [
 		definition,
-		definition.kv,
-		definition.kv.theme,
+		title,
 		definition.tables,
 		definition.tables.todos,
 		definition.tables.todos.fields,
 	])
 		expect(Object.isFrozen(owned)).toBe(true);
-	expect(Object.isFrozen(declared.kv.theme)).toBe(false);
+	expect(Object.isFrozen(declared.tables.todos.fields.title)).toBe(false);
 
 	// An opener handed this definition gets it back and prepares nothing.
 	expect(expectOk(prepareFolderDefinition(definition))).toBe(definition);
 	expect(expectOk(prepareFolderDefinition(declared))).not.toBe(definition);
 	expect(
 		expectErr(
-			prepareFolderDefinition({ ...declared, kv: { id: field.string() } }),
+			prepareFolderDefinition({
+				...declared,
+				tables: { todos: { fields: { id: field.string() } } },
+			} as never),
 		).reason,
-	).toContain("field name 'kv.id' is not usable");
+	).toContain("field name 'todos.id' is not usable");
 });
 
-test('an untyped definition with a key other than title, kv, and tables is refused, not dropped', () => {
-	expect(() =>
-		defineFolder({ kv: {}, tables: {}, titel: 'Typo' } as never),
-	).toThrow("also declares 'titel'");
+test('an untyped definition with a key other than title, tables, and local is refused, not dropped', () => {
+	expect(() => defineFolder({ tables: {}, titel: 'Typo' } as never)).toThrow(
+		"also declares 'titel'",
+	);
+	// An `epicenter.ts` written for settings as keys is told where they went.
+	expect(() => defineFolder({ kv: {}, tables: {} } as never)).toThrow(
+		"also declares 'kv'. Settings are rows of a `settings` table",
+	);
 });
 
 test('a definition names no folder: an id is refused where it is written and where it is opened', async () => {
-	const declared = { kv: {}, tables: {} };
+	const declared = { tables: {} };
 	expect(() =>
 		defineFolder({ ...declared, id: 'so.epicenter.named' } as never),
 	).toThrow('Pass the folder ID to openFolder');
@@ -161,10 +168,12 @@ test('a definition names no folder: an id is refused where it is written and whe
 
 test('one prepared definition opens two folders that stay apart, and another definition keeps what it does not declare', async () => {
 	const definition = defineFolder({
-		kv: { theme: field.string() },
 		tables: {
 			todos: defineTable({
 				fields: { title: field.string(), done: field.boolean() },
+			}),
+			settings: defineTable({
+				fields: { theme: field.optional(field.string()) },
 			}),
 		},
 	});
@@ -187,7 +196,12 @@ test('one prepared definition opens two folders that stay apart, and another def
 		),
 	);
 	const made = text(expectOk(await personal.files.read('todos/milk.md')).bytes);
-	expectOk(await personal.kv.set('theme', 'dark'));
+	expectOk(
+		await personal.tables.settings.create(
+			{ fields: { theme: 'dark' }, body: '' },
+			{ stem: 'display' },
+		),
+	);
 	expectOk(
 		await work.tables.todos.create(
 			{ fields: { title: 'Report', done: false }, body: '' },
@@ -196,17 +210,16 @@ test('one prepared definition opens two folders that stay apart, and another def
 	);
 	expect(await paths(personal)).toEqual([
 		'epicenter.json',
-		'kv.json',
+		'settings/display.md',
 		'todos/milk.md',
 	]);
 	expect(await paths(work)).toEqual(['epicenter.json', 'todos/report.md']);
 	expect(expectOk(await work.tables.todos.get('milk'))).toBeUndefined();
-	expect(expectOk(await work.kv.get())).toBeUndefined();
+	expect(expectOk(await work.tables.settings.get('display'))).toBeUndefined();
 	await personal.close();
 
 	// Another tool reads the same folder through a narrower definition.
 	const titles = defineFolder({
-		kv: {},
 		tables: { todos: defineTable({ fields: { title: field.string() } }) },
 	});
 	const reopened = await open(titles, { id: 'so.epicenter.todos', storage });
@@ -222,16 +235,15 @@ test('one prepared definition opens two folders that stay apart, and another def
 	expect(text(expectOk(await reopened.files.read('todos/milk.md')).bytes)).toBe(
 		made.replace('Milk', 'Oat milk'),
 	);
-	expect(text(expectOk(await reopened.files.read('kv.json')).bytes)).toContain(
-		'"theme"',
-	);
+	expect(
+		text(expectOk(await reopened.files.read('settings/display.md')).bytes),
+	).toContain('theme: dark');
 });
 
 test('tables named like Object.prototype members, and one table under two names, each keep their own directory', async () => {
 	const row = defineTable({ fields: { title: field.string() } });
 	const folder = await open(
 		defineFolder({
-			kv: { valueOf: field.string() },
 			tables: { constructor: row, toString: row, notes: row },
 		}),
 	);
@@ -285,24 +297,17 @@ test('tables named like Object.prototype members, and one table under two names,
 		),
 	);
 	expect(refused.name).toBe('InvalidValues');
-
-	expectOk(await folder.kv.set('valueOf', 'stored'));
-	expect(expectOk(await folder.kv.get())?.values).toEqual({
-		valueOf: 'stored',
-	});
 });
 
 test('a schema edited after defineFolder changes nothing the folder accepts, and a later definition reads the edit', async () => {
 	const title = field.string({ maxLength: 4 });
 	const table = defineTable({ fields: { title } });
 	const first = defineFolder({
-		kv: {},
 		tables: { todos: table },
 	});
 	// The author still holds an ordinary mutable schema, and declares it again.
 	Object.assign(title, { maxLength: 9 });
 	const second = defineFolder({
-		kv: {},
 		tables: { todos: table },
 	});
 	expect(first.tables.todos.fields.title).not.toBe(
@@ -323,7 +328,6 @@ test('a schema edited after defineFolder changes nothing the folder accepts, and
 
 test('a prepared table rebuilt with a cloned field still type-checks, and reading a value through that field throws until defineFolder prepares it again', () => {
 	const definition = defineFolder({
-		kv: {},
 		tables: {
 			todos: defineTable({
 				fields: { title: field.string(), done: field.boolean() },
@@ -359,7 +363,6 @@ test('a prepared table rebuilt with a cloned field still type-checks, and readin
 
 	// Preparing the rebuilt declaration again is the remedy.
 	const again = defineFolder({
-		kv: {},
 		tables: { todos: defineTable({ fields: rebuilt.fields }) },
 	});
 	expect(expectOk(parseRow(again.tables.todos, text)).fields).toEqual({
@@ -385,7 +388,6 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 		$ref: name,
 	});
 	const tableOf = (fields: Record<string, object>) => ({
-		kv: {},
 		tables: { chains: defineTable({ fields: fields as never }) },
 	});
 
@@ -400,14 +402,6 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 	).toBe(
 		"Fields 'chains.a' and 'chains.b' both define the $id 'Node'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.",
 	);
-	expect(
-		expectErr(
-			prepareFolderDefinition({
-				kv: { a: cyclic('Node'), b: cyclic('Node') },
-				tables: {},
-			}),
-		).reason,
-	).toContain("Fields 'kv.a' and 'kv.b' both define the $id 'Node'");
 	// A `#` pointer outside any `$id` is the field's root in memory and the
 	// table's root in the file.
 	expect(
@@ -429,7 +423,6 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 	);
 	expectOk(
 		prepareFolderDefinition({
-			kv: { chain: cyclic('Node') },
 			tables: {
 				one: defineTable({ fields: { chain: cyclic('Node') } }),
 				two: defineTable({ fields: { chain: cyclic('Node') } }),
@@ -455,7 +448,6 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 test('a closed table reports an undeclared key at its line, and epicenter.json keeps it closed', () => {
 	const fields = { title: field.string() };
 	const definition = defineFolder({
-		kv: {},
 		tables: {
 			open: defineTable({ fields }),
 			closed: defineTable({ fields, additionalProperties: false }),
@@ -487,7 +479,6 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 		expectErr(
 			parseDeclaration(
 				JSON.stringify({
-					kv: { type: 'object', properties: {} },
 					tables: {
 						notes: { type: 'object', properties: {}, additionalProperties: {} },
 					},

@@ -1,6 +1,6 @@
 /**
- * A folder reads its tables and KV through the declaration's own lenses, and
- * every acquisition entry exports one opener signature and one contract.
+ * A folder reads its tables through the declaration's own lenses, and every
+ * acquisition entry exports one opener signature and one contract.
  */
 import { expectTypeOf } from 'bun:test';
 import { jsonValue } from '@epicenter/definition';
@@ -17,7 +17,6 @@ import {
 	defineTable,
 	type FileCapture,
 	type FileError,
-	type FileKv,
 	type FileSaveError,
 	type FileTable,
 	type Folder,
@@ -28,10 +27,6 @@ import {
 	formatRow,
 	type Issue,
 	type Issues,
-	type KvOf,
-	type KvReadError,
-	type KvReading,
-	type KvWriteError,
 	type MoveError,
 	type OpenDataFolder,
 	type OpenDataFolderOptions,
@@ -52,7 +47,6 @@ import {
 import * as tauri from './tauri.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: {
@@ -66,11 +60,6 @@ type Opened = Folder<typeof definition>;
 
 // Nested values: a list, a branded instant, a tuple, and free-form JSON.
 const nested = defineFolder({
-	kv: {
-		recent: field.tags(),
-		since: field.instant(),
-		layout: field.json(jsonValue),
-	},
 	tables: {
 		notes: defineTable({
 			fields: {
@@ -83,14 +72,19 @@ const nested = defineFolder({
 });
 type Note = CreateRowOf<typeof nested.tables.notes>;
 
-// A refinement's type says it holds a callback, which a folder setting cannot.
+// A refinement's type says it holds a callback, which a folder field cannot.
 declare const refined: ReturnType<typeof field.string> & {
 	readonly '~refine': readonly unknown[];
 };
 defineFolder({
-	// @ts-expect-error A refinement is not JSON Schema.
-	kv: { theme: refined },
-	tables: {},
+	tables: {
+		notes: defineTable({
+			fields: {
+				// @ts-expect-error A refinement is not JSON Schema.
+				theme: refined,
+			},
+		}),
+	},
 });
 
 // Only a table `defineFolder` prepared is read or formatted without a folder.
@@ -107,7 +101,7 @@ formatRow(rawTodos, { fields: { title: 'Milk', due: null }, body: '' });
 // An opener still takes a raw declaration and prepares it itself.
 void root.openFolder({
 	id: 'test.folder',
-	definition: { kv: {}, tables: { todos: rawTodos } },
+	definition: { tables: { todos: rawTodos } },
 });
 // Preparing changes no key or field type.
 expectTypeOf(definition.tables.todos).toExtend<PreparedFolderTable>();
@@ -173,17 +167,6 @@ async function nestedValues(
 		parseRow(nested.tables.notes, '').data,
 	).toEqualTypeOf<Row<Note> | null>();
 	expectTypeOf(stored.row).toEqualTypeOf<Row<Note>>();
-
-	const { data: kv, error: kvError } = await folder.kv.get();
-	if (kvError !== null || kv === undefined) return;
-	expectTypeOf(kv.values.since).toEqualTypeOf<InstantString | undefined>();
-	expectTypeOf(kv.values.recent).toEqualTypeOf<string[] | undefined>();
-	// What was read goes back in, one key at a time.
-	folder.kv.set('recent', kv.values.recent);
-	folder.kv.set('since', instant);
-	folder.kv.set('layout', { panes: [1] });
-	// @ts-expect-error An unvalidated string still does not carry the brand.
-	folder.kv.set('since', '2026-10-01T00:00:00.000Z');
 }
 void nestedValues;
 
@@ -196,7 +179,6 @@ const headed = {
 	minItems: 1,
 } as const;
 const tuples = defineFolder({
-	kv: { span: headed },
 	tables: { rows: defineTable({ fields: { span: headed } }) },
 });
 type Span = CreateRowOf<typeof tuples.tables.rows>['span'];
@@ -221,25 +203,15 @@ async function tupleValues(folder: Folder<typeof tuples>) {
 	rows.set('a', { span: [] });
 	// @ts-expect-error The rest are numbers.
 	rows.create({ fields: { span: ['a', 'b'] }, body: '' });
-
-	const { data: kv, error: kvError } = await folder.kv.get();
-	if (kvError !== null || kv === undefined) return;
-	expectTypeOf(kv.values.span).toEqualTypeOf<
-		[string, ...number[]] | undefined
-	>();
-	folder.kv.set('span', kv.values.span);
-	folder.kv.set('span', ['a', 1]);
-	// @ts-expect-error The head is a string.
-	folder.kv.set('span', [1, 'a']);
-	// @ts-expect-error The head is required.
-	folder.kv.set('span', []);
 }
 void tupleValues;
 
 expectTypeOf<Opened['tables']['todos']>().toEqualTypeOf<
 	FileTable<CreateRowOf<typeof definition.tables.todos>>
 >();
-expectTypeOf<Opened['kv']>().toEqualTypeOf<FileKv<KvOf<typeof definition>>>();
+// Settings are a table, `settings`; a folder has no handle of their own.
+// @ts-expect-error There is no `kv`.
+export type _NoKv = Opened['kv'];
 // Every handle exposes the definition it reads with.
 expectTypeOf<Opened['definition']>().toEqualTypeOf<typeof definition>();
 expectTypeOf<
@@ -266,7 +238,7 @@ void root.openFolder({ definition });
 void root.openFolder({
 	id: 'test.folder',
 	// @ts-expect-error A definition that names its data is not a folder definition.
-	definition: { id: 'test.folder', kv: {}, tables: {} },
+	definition: { id: 'test.folder', tables: {} },
 });
 
 // One data-folder opener signature at the automatic entry and at both
@@ -288,10 +260,9 @@ async function untypedRows(folder: Folder<FolderDefinition>) {
 }
 void untypedRows;
 
-// A lens types the tables and settings it reads; `definition` stays the
-// folder's own declaration, and a table may refuse to add rows.
+// A lens types the tables it reads; `definition` stays the folder's own
+// declaration, and a table may refuse to add rows.
 const board = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), status: field.select(['todo', 'done']) },
@@ -340,7 +311,6 @@ async function lensedRows() {
 		fields: { title: 'Milk', status: 'blocked' },
 		body: '',
 	});
-	expectTypeOf(folder.kv).toEqualTypeOf<FileKv<KvOf<typeof board>>>();
 }
 void lensedRows;
 
@@ -376,11 +346,7 @@ expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Folder<typeof definition, typeof definition>, OpenFolderError>>
 >();
 
-async function typedValues(
-	folder: Opened,
-	reading: KvReading<KvOf<typeof definition>>,
-	instant: InstantString,
-) {
+async function typedValues(folder: Opened, instant: InstantString) {
 	folder.tables.todos.create({
 		fields: { title: 'Milk', due: null },
 		body: '',
@@ -406,55 +372,6 @@ async function typedValues(
 	});
 	// @ts-expect-error Only declared tables exist.
 	folder.tables.lists;
-	folder.kv.set('theme', 'dark');
-	// Removing a key lets the app's default apply.
-	folder.kv.set('theme', undefined);
-	// @ts-expect-error Only declared settings exist.
-	folder.kv.set('language', 'en');
-	// @ts-expect-error Typed settings retain validation.
-	folder.kv.set('theme', 12);
-	// @ts-expect-error A set names one key, not a values object.
-	folder.kv.set({ theme: 'dark' });
-	// @ts-expect-error Complete source is saved as an ordinary file.
-	folder.kv.replace(reading, '{}');
-	// A reading names the bytes it read; absence is `undefined`.
-	// @ts-expect-error A reading keeps its version.
-	reading.sha256 = 'changed';
-	// @ts-expect-error A reading carries no text.
-	reading.text;
-	expectTypeOf(reading.path).toEqualTypeOf<'kv.json'>();
-	// Stored values are sparse and sit apart from the reading's own keys.
-	expectTypeOf(reading.values).toEqualTypeOf<
-		Partial<KvOf<typeof definition>>
-	>();
-	expectTypeOf(reading.values.theme).toEqualTypeOf<string | undefined>();
-	expectTypeOf(reading.issues).toEqualTypeOf<readonly Issue[]>();
-	// @ts-expect-error A reading carries no defaults.
-	reading.defaults;
-	// @ts-expect-error Values are not flattened beside the reading.
-	reading.theme;
-	const observed = await folder.kv.get();
-	if (observed.error === null)
-		expectTypeOf(observed.data).toEqualTypeOf<
-			KvReading<KvOf<typeof definition>> | undefined
-		>();
-	else expectTypeOf(observed.error).toEqualTypeOf<KvReadError>();
-	const { data: written, error: setError } = await folder.kv.set(
-		'theme',
-		'dark',
-	);
-	if (setError === null)
-		expectTypeOf(written).toEqualTypeOf<KvReading<KvOf<typeof definition>>>();
-	else {
-		expectTypeOf(setError).toEqualTypeOf<KvWriteError>();
-		// Text that is not one strict JSON object is repaired as text.
-		if (setError.name === 'InvalidKv')
-			expectTypeOf(setError.text).toEqualTypeOf<string>();
-		if (setError.name === 'InvalidValues')
-			expectTypeOf(setError.issues).toEqualTypeOf<readonly Issue[]>();
-	}
-	// @ts-expect-error A settings reading carries no content, so it is no base.
-	folder.files.save(reading, '{}');
 
 	// Captures are plain values; a read also carries detached bytes, the base
 	// a save merges from.
@@ -635,7 +552,6 @@ void typedValues;
 
 // A table declares fields, not a body conversion: a row's body is the file's Markdown text.
 defineFolder({
-	kv: {},
 	tables: {
 		notes: defineTable({
 			fields: { title: field.string() },
@@ -647,11 +563,9 @@ defineFolder({
 defineFolder({
 	// @ts-expect-error A folder definition names no folder; the opener does.
 	id: 'test.named',
-	kv: {},
 	tables: {},
 });
 defineFolder({
-	kv: {},
 	tables: {
 		// @ts-expect-error A table is authored with `defineTable`.
 		notes: { fields: { title: field.string() } },
@@ -660,7 +574,6 @@ defineFolder({
 
 // The settings table's fields may all be unset; a required one is refused.
 defineFolder({
-	kv: {},
 	tables: {
 		settings: defineTable({
 			fields: {
@@ -671,7 +584,6 @@ defineFolder({
 	},
 });
 defineFolder({
-	kv: {},
 	tables: {
 		// @ts-expect-error A setting may be unset, so it is field.optional.
 		settings: defineTable({

@@ -6,7 +6,7 @@
  * storage at all. A table's `get`, `list`, `create`, and `replace` run
  * exactly these; nothing else in the package parses or writes row text.
  *
- *     const definition = defineFolder({ kv: {}, tables: { todos } });
+ *     const definition = defineFolder({ tables: { todos } });
  *     const { data: row, error: issues } = parseRow(definition.tables.todos, text);
  *     const { data: saved } = formatRow(definition.tables.todos, row);
  *

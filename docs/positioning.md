@@ -48,8 +48,8 @@ Roadmap language stays out of heroes.
 
 ## What Epicenter is
 
-- Apps whose data is a folder: one Markdown file per row, `kv.json` for
-  settings, `epicenter.json` for the folder's declaration, and Git history
+- Apps whose data is a folder: one Markdown file per row, settings included,
+  `epicenter.json` for the folder's declaration, and Git history
   ([ADR-0534](adr/0534-data-folders-are-the-only-data-model.md)).
 - A desktop app that opens to your folders, lists them, edits their rows, and
   opens each in the apps whose shape it fits
@@ -74,7 +74,7 @@ Every public claim must be provable by inspecting the repository:
 | Claim | Proof |
 | --- | --- |
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Files you own" | A folder's rows are Markdown files with YAML frontmatter, its settings are `kv.json`, and its history is a Git repository (`packages/folder`). |
+| "Files you own" | A folder's rows are Markdown files with YAML frontmatter, its settings are rows too, and its history is a Git repository (`packages/folder`). |
 | "Any tool can edit them" | The desktop shell reads every change from disk; an edit made outside the app appears in it (`tauri-plugin-epicenter-folder`, ADR-0548). |
 | "Syncs over plain Git with a server you choose" | A folder's remote is `remote.origin.url` in its own Git configuration (ADR-0521, ADR-0532). |
 | "Bring your own model" | AI features accept user-provided API keys. |

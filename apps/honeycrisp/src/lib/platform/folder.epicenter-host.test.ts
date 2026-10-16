@@ -99,7 +99,7 @@ const INSTANT = {
 };
 /** A folder's `epicenter.json` with `tables`, as Epicenter writes one. */
 const declaration = (title: string, tables: Record<string, unknown>) =>
-	`${JSON.stringify({ title, kv: { type: 'object', properties: {} }, tables }, null, '\t')}\n`;
+	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
 
 beforeEach(() => {
 	opened = [];

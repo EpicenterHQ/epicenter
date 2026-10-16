@@ -4,23 +4,23 @@
  * The file is a generated, portable contract, not a source to author: an
  * application writes it from its code definition, and a folder no application
  * owns keeps its declaration in `epicenter.ts`, from which `epicenter generate`
- * writes it (ADR-0527). Every written file has `kv` and `tables`, even when
- * empty, so a reader never guesses at a missing section.
+ * writes it (ADR-0527). Every written file has `tables`, even when empty, so
+ * a reader never guesses at a missing section.
  *
  * Each table is one object schema, `{ type: 'object', properties, required }`,
  * whose properties are the table's fields exactly as a prepared definition
  * holds them. A closed table adds `"additionalProperties": false`, so a row
  * with an undeclared key does not conform, exactly as JSON Schema reads it.
- * `kv` is the same without `required`, since every setting may be unset.
- * Each field is ordinary JSON Schema plus an `x-field` editor hint, so
- * a tool can check a row's values field by field without knowing Epicenter,
- * as Epicenter itself does.
+ * Settings are a table too, `settings`, whose fields are all optional, so
+ * none is `required`. Each field is ordinary JSON Schema plus an `x-field`
+ * editor hint, so a tool can check a row's values field by field without
+ * knowing Epicenter, as Epicenter itself does.
  *
  * ```json
  * {
  *   "title": "Vault",
- *   "kv": { "type": "object", "properties": { "theme": { "enum": ["light", "dark"] } } },
  *   "tables": {
+ *     "settings": { "type": "object", "properties": { "theme": { "enum": ["light", "dark"] } }, "required": [] },
  *     "pages": {
  *       "type": "object",
  *       "properties": { "title": { "type": "string" }, "queuedAt": { "type": "string", "format": "date" } },
@@ -40,8 +40,10 @@
  * `local` keeps nothing local.
  *
  * A top-level `$schema` lets an editor offer completion and is not
- * interpreted. Anything else is refused, so a misspelled key never reads as
- * an empty declaration.
+ * interpreted. A `kv` section, which an earlier build wrote for the settings
+ * it kept as keys, declares nothing now and is not read, so a folder that
+ * build published still opens (ADR-0576). Anything else is refused, so a
+ * misspelled key never reads as an empty declaration.
  */
 
 import { type FieldMap, field, isOptional } from '@epicenter/definition';
@@ -71,7 +73,6 @@ export function formatDeclaration(definition: FolderDefinition): string {
 		{
 			...(definition.title === undefined ? {} : { title: definition.title }),
 			...(definition.local === undefined ? {} : { local: definition.local }),
-			kv: { type: 'object', properties: definition.kv },
 			tables,
 		},
 		null,
@@ -97,6 +98,7 @@ export function parseDeclaration(
 		);
 	}
 	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
+	// An earlier build's `kv` section is admitted and never read.
 	const unknown = unknownKeys(declared, [
 		'$schema',
 		'title',
@@ -106,7 +108,7 @@ export function parseDeclaration(
 	]);
 	if (unknown !== undefined)
 		return refuse(
-			`unknown top-level key ${unknown}; expected title, local, kv, tables, or $schema`,
+			`unknown top-level key ${unknown}; expected title, local, tables, or $schema`,
 		);
 	// The patterns themselves are checked when the result is prepared.
 	const { local } = declared;
@@ -117,16 +119,10 @@ export function parseDeclaration(
 	)
 		return refuse("'local' must list .gitignore patterns as strings");
 
-	const missing = (['kv', 'tables'] as const).filter(
-		(key) => declared[key] === undefined,
-	);
-	if (missing.length > 0)
+	if (declared.tables === undefined)
 		return refuse(
-			`it has no ${missing.map((key) => `'${key}'`).join(' or ')}; every generated declaration has both, so declare the folder in epicenter.ts and run \`epicenter generate\``,
+			"it has no 'tables'; every generated declaration has them, so declare the folder in epicenter.ts and run `epicenter generate`",
 		);
-
-	const kv = objectSchema(declared.kv, 'kv', false);
-	if (kv.error !== null) return kv;
 	if (!isPlainObject(declared.tables))
 		return refuse("'tables' must map table names to object schemas");
 	// Without a prototype, so a table named `__proto__` is an entry that
@@ -136,7 +132,7 @@ export function parseDeclaration(
 		{ fields: FieldMap; additionalProperties?: false }
 	> = Object.create(null);
 	for (const [name, table] of Object.entries(declared.tables)) {
-		const fields = objectSchema(table, `tables.${name}`, true);
+		const fields = objectSchema(table, `tables.${name}`);
 		if (fields.error !== null) return fields;
 		const { additionalProperties } = table as Record<string, unknown>;
 		if (additionalProperties !== undefined && additionalProperties !== false)
@@ -155,7 +151,6 @@ export function parseDeclaration(
 			? {}
 			: { title: declared.title as string }),
 		...(local === undefined ? {} : { local: local as string[] }),
-		kv: kv.data,
 		tables,
 	} as FolderDefinition);
 }
@@ -187,25 +182,24 @@ export async function readDeclaration(
 }
 
 /**
- * The fields an object schema declares: each property, made optional unless
- * `required` names it. KV has no `required`: every setting is optional.
+ * The fields a table's object schema declares: each property, made optional
+ * unless `required` names it.
  */
 function objectSchema(
 	value: unknown,
 	at: string,
-	table: boolean,
 ): Result<FieldMap, { readonly reason: string }> {
 	const refuse = (reason: string) => Err({ reason: `'${at}' ${reason}` });
 	if (!isPlainObject(value)) return refuse('must be an object schema');
-	const unknown = unknownKeys(
-		value,
-		table
-			? ['type', 'properties', 'required', 'additionalProperties']
-			: ['type', 'properties'],
-	);
+	const unknown = unknownKeys(value, [
+		'type',
+		'properties',
+		'required',
+		'additionalProperties',
+	]);
 	if (unknown !== undefined)
 		return refuse(
-			`has unknown key ${unknown}; expected type, properties${table ? ', required, or additionalProperties' : ''}`,
+			`has unknown key ${unknown}; expected type, properties, required, or additionalProperties`,
 		);
 	if (value.type !== 'object') return refuse('must say "type": "object"');
 	const { properties } = value;
@@ -231,8 +225,7 @@ function objectSchema(
 			return refuse(
 				`declares '${name}' with '${marker}', which is not JSON Schema; list required fields in "required"`,
 			);
-		fields[name] =
-			!table || required.includes(name) ? schema : field.optional(schema);
+		fields[name] = required.includes(name) ? schema : field.optional(schema);
 	}
 	return Ok(fields);
 }

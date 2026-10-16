@@ -50,7 +50,6 @@
  * from outside a component and `whenIdle` waits for writes to settle.
  * Importing this module opens nothing.
  */
-import type { KvOf } from '@epicenter/definition';
 import {
 	hashKey,
 	type InvalidateQueryFilters,
@@ -68,8 +67,6 @@ import type { FolderDefinition } from './definition.js';
 import type {
 	FileError,
 	FileSaveError,
-	KvReadError,
-	KvWriteError,
 	MoveError,
 	RowReadError,
 	TableEnumerationError,
@@ -85,7 +82,6 @@ import type {
 } from './git/history.js';
 import type { CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
-import type { FileKv, KvReading } from './kv.js';
 import { rowPath, rowStemOf } from './paths.js';
 import type { Row } from './row-text.js';
 import type { SavedFile } from './save-file.js';
@@ -105,8 +101,6 @@ export {
 	writtenFile,
 } from './draft.js';
 
-/** `kv.json`, whose reading the `kv` query holds. */
-const KV_PATH = 'kv.json';
 /** How many commits `history.log` reads when the caller names no depth. */
 const LOG_DEPTH = 50;
 
@@ -184,21 +178,6 @@ export type TableOptions<TFields> = {
 	readonly delete: MutationFactory<string, undefined, WriteError>;
 };
 
-export type KvOptions<TValues> = {
-	/** `null` when there is no `kv.json`: TanStack keeps no `undefined`. */
-	readonly get: QueryFactory<[], KvReading<TValues> | null, KvReadError>;
-	readonly set: MutationFactory<
-		{
-			readonly [TKey in keyof TValues & string]: {
-				readonly key: TKey;
-				readonly value: TValues[TKey] | undefined;
-			};
-		}[keyof TValues & string],
-		KvReading<TValues>,
-		KvWriteError
-	>;
-};
-
 export type FilesOptions = {
 	readonly list: QueryFactory<[], FileListing, FileError>;
 	readonly read: QueryFactory<[path: string], CapturedFile, FileError>;
@@ -244,7 +223,6 @@ export type HistoryOptions = {
 /** Names `folderOptions` uses itself; a table so named is under `tables` only. */
 type Reserved =
 	| 'tables'
-	| 'kv'
 	| 'files'
 	| 'history'
 	| 'pathFilter'
@@ -262,16 +240,15 @@ type TablesOptions<TTables> = {
 };
 
 /**
- * The options of an opened folder whose tables are `TTables` and whose
- * settings are `TValues`: what `folderOptions(folder)` returns.
+ * The options of an opened folder whose tables are `TTables`: what
+ * `folderOptions(folder)` returns.
  */
-export type FolderOptionsOf<TTables, TValues> = Omit<
+export type FolderOptionsOf<TTables> = Omit<
 	TablesOptions<TTables>,
 	Reserved
 > & {
 	/** Every table by name, including one named like a member below. */
 	readonly tables: TablesOptions<TTables>;
-	readonly kv: KvOptions<TValues>;
 	readonly files: FilesOptions;
 	readonly history: HistoryOptions;
 	/** The prefix of every key this folder's queries cache under. */
@@ -279,7 +256,7 @@ export type FolderOptionsOf<TTables, TValues> = Omit<
 	/**
 	 * The filter for the queries a change can have made stale: each row at
 	 * a changed path, the listing of each table whose directory it reached,
-	 * the settings for `kv.json`, the file listing and each changed file,
+	 * the file listing and each changed file,
 	 * and the history's status. A change inside `.git` (history moved) also
 	 * makes the log stale. `'everything'` is every query of this folder.
 	 */
@@ -305,15 +282,14 @@ export type FolderOptionsOf<TTables, TValues> = Omit<
 
 /** The options of a folder opened with `TDefinition`. */
 export type FolderOptions<TDefinition extends FolderDefinition> =
-	FolderOptionsOf<FolderAccess<TDefinition>['tables'], KvOf<TDefinition>>;
+	FolderOptionsOf<FolderAccess<TDefinition>['tables']>;
 
-/** What `folderOptions` reads of a folder: its tables and settings typed by inference. */
-type OptionsSource<TTables, TValues> = Pick<
+/** What `folderOptions` reads of a folder: its tables typed by inference. */
+type OptionsSource<TTables> = Pick<
 	Folder<FolderDefinition>,
 	'location' | 'files' | 'git' | 'sync' | 'onFilesChanged'
 > & {
 	readonly tables: TTables;
-	readonly kv: FileKv<TValues>;
 };
 
 /**
@@ -418,16 +394,15 @@ function readOptions<TData, TError>(
 	};
 }
 
-export function folderOptions<TTables, TValues>(
-	folder: OptionsSource<TTables, TValues>,
-): FolderOptionsOf<TTables, TValues> {
+export function folderOptions<TTables>(
+	folder: OptionsSource<TTables>,
+): FolderOptionsOf<TTables> {
 	const root = folderKey(folder);
 	const keys = {
 		table: (name: string) => [...root, 'tables', name] as const,
 		list: (name: string) => [...root, 'tables', name, 'list'] as const,
 		row: (name: string, stem: string) =>
 			[...root, 'tables', name, 'row', stem] as const,
-		kv: () => [...root, 'kv'] as const,
 		files: () => [...root, 'files'] as const,
 		fileList: () => [...root, 'files', 'list'] as const,
 		file: (path: string) => [...root, 'files', 'read', path] as const,
@@ -460,8 +435,6 @@ export function folderOptions<TTables, TValues>(
 					if (kind === 'row') return paths.has(rowPath(name, stem as string));
 					return false;
 				}
-				case 'kv':
-					return paths.has(KV_PATH);
 				case 'files': {
 					const [kind, path] = rest as [string, string?];
 					if (kind === 'list') return filesChanged;
@@ -687,28 +660,6 @@ export function folderOptions<TTables, TValues>(
 	for (const name of Object.keys(folder.tables as object))
 		tables[name] = tableOptions(name);
 
-	const settings = folder.kv as unknown as FileKv<Fields>;
-	const kv: KvOptions<Fields> = {
-		get: {
-			queryKey: () => keys.kv(),
-			queryOptions: () =>
-				readOptions(keys.kv(), async () => orNull(await settings.get())),
-		},
-		set: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.kv(), 'set'],
-					run: ({ key, value }: { key: string; value: unknown }) =>
-						settings.set(key, value),
-					wrote: async (client, reading) => {
-						await put(client, keys.kv(), () => reading);
-						ownWrite(client, [KV_PATH], [keys.kv()]);
-					},
-					touched: () => [KV_PATH],
-				}),
-		},
-	};
-
 	const files: FilesOptions = {
 		list: {
 			queryKey: () => keys.fileList(),
@@ -826,7 +777,6 @@ export function folderOptions<TTables, TValues>(
 	return Object.freeze({
 		...tables,
 		tables: Object.freeze(tables),
-		kv,
 		files,
 		history,
 		key: root,
@@ -844,5 +794,5 @@ export function folderOptions<TTables, TValues>(
 			key: readonly unknown[];
 			queryFn: () => Promise<Result<TData, TError>>;
 		}) => readOptions(keys.query(paths, key), queryFn),
-	}) as unknown as FolderOptionsOf<TTables, TValues>;
+	}) as unknown as FolderOptionsOf<TTables>;
 }

@@ -109,7 +109,6 @@ async function reply<K extends keyof HistoryResults>(
 }
 
 const DECLARATION = JSON.stringify({
-	kv: { type: 'object', properties: {} },
 	tables: {
 		posts: {
 			type: 'object',

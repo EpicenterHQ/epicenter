@@ -8,9 +8,11 @@
  * - The handle's tables are the declaration's, and `definition` is the
  *   prepared declaration
  * - The handle never writes `epicenter.json`: a hand-formatted declaration
- *   stays byte for byte through creates, writes, settings, and commits
- * - A folder without `epicenter.json` opens with no tables and no settings;
- *   files and history work
+ *   stays byte for byte through creates, writes, and commits
+ * - A declaration an earlier build wrote, with the `kv` section settings once
+ *   had, opens; the section is not read
+ * - A folder without `epicenter.json` opens with no tables; files and
+ *   history work
  * - An `epicenter.json` that cannot be used is `InvalidDeclaration`, and a
  *   missing root is `InvalidRoot`; neither creates anything
  * - Opening creates no repository: status is an empty history with every file
@@ -43,7 +45,10 @@ import { mustRow } from './row-write.test-support.js';
 
 const author = { name: 'Vault', email: 'vault@localhost' };
 
-/** Written by hand: one line, no `$schema` order a publication would keep. */
+/**
+ * Written by hand: one line, no `$schema` order a publication would keep, and
+ * the `kv` section an earlier build wrote, which is admitted and not read.
+ */
 const DECLARED = `{"title":"Vault","kv":{"type":"object","properties":{"theme":{"type":"string"}}},"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
 
 const originalEnv = { ...process.env };
@@ -102,7 +107,6 @@ test('opens with its own declaration and never writes it', async () => {
 	expect(
 		expectErr(await todos.create({ fields: { title: 3 }, body: '' })).name,
 	).toBe('InvalidValues');
-	expectOk(await folder.kv.set('theme', 'dark'));
 	expect((await folder.git.commit()).status).toBe('committed');
 
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
@@ -115,7 +119,7 @@ test('a folder without epicenter.json opens with no tables, and files and histor
 	const root = await scratch('data-folder-undeclared-');
 	await writeFile(join(root, 'notes.txt'), 'kept\n');
 	const folder = expectOk(await openDataFolder({ root, git: { author } }));
-	expect(folder.definition).toEqual({ kv: {}, tables: {} });
+	expect(folder.definition).toEqual({ tables: {} });
 	expect(folder.tables).toEqual({});
 	expectOk(await folder.files.create('more/a.md', 'a\n'));
 	expect((await folder.git.commit()).status).toBe('committed');
@@ -132,10 +136,7 @@ test('an epicenter.json that cannot be used is InvalidDeclaration, and opening c
 	expect(refused.message).toContain('not JSON');
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
-	await writeFile(
-		join(root, 'epicenter.json'),
-		'{"kv":{"type":"object","properties":{}},"tables":{},"extra":1}',
-	);
+	await writeFile(join(root, 'epicenter.json'), '{"tables":{},"extra":1}');
 	expect(expectErr(await openDataFolder({ root, git: { author } })).name).toBe(
 		'InvalidDeclaration',
 	);
@@ -261,7 +262,6 @@ test("sync merges rows by the folder's own declaration", async () => {
 test('openFolder still publishes its own definition, and exposes it', async () => {
 	const root = await dataFolder('data-folder-app-');
 	const definition = defineFolder({
-		kv: {},
 		tables: { todos: defineTable({ fields: { title: field.string() } }) },
 	});
 	const folder = expectOk(
@@ -289,7 +289,7 @@ test('a browser data folder reads with its own declaration, as of the open, and 
 	const first = await open();
 	// Nothing is created by opening; a folder nobody wrote to has no tables.
 	expect(environment.opfs.directories()).toEqual([]);
-	expect(first.definition).toEqual({ kv: {}, tables: {} });
+	expect(first.definition).toEqual({ tables: {} });
 	expectOk(await first.files.create('epicenter.json', DECLARED));
 	expect(first.tables).toEqual({});
 	await first.close();
@@ -302,7 +302,6 @@ test('a browser data folder reads with its own declaration, as of the open, and 
 			body: '',
 		}),
 	);
-	expectOk(await folder.kv.set('theme', 'dark'));
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(
 		new TextDecoder().decode(

@@ -2,7 +2,6 @@
 import { defineFolder, openFolder } from '@epicenter/folder/tauri';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {},
 });
 
