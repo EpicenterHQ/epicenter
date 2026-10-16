@@ -930,6 +930,8 @@ export const shellQuote = (value: string) =>
  * the helpers a broader configuration set, so no other helper is asked to
  * store the token. `command` is `gitCommand()` (`install-command.ts`): the
  * per-user link, so moving the app does not break the helper (ADR-0566).
+ * `git` runs through `runGit`, found by `locateGit`, with `env` as its
+ * environment.
  */
 export async function configureGitHelper(
 	ctx: AuthContext,
@@ -938,17 +940,13 @@ export async function configureGitHelper(
 ): Promise<Result<string, string>> {
 	const key = `credential.${ctx.deployment.audiences.git}.helper`;
 	const helper = `!${command.map(shellQuote).join(' ')} auth git-credential`;
+	const { runGit } = await import('@epicenter/folder/bun');
 	const run = async (args: string[]) => {
 		try {
-			const child = Bun.spawn(['git', 'config', '--global', ...args], {
-				env,
-				stdout: 'ignore',
-				stderr: 'pipe',
+			const { code, stderr } = await runGit(['config', '--global', ...args], {
+				environment: env,
+				allowFailure: true,
 			});
-			const [code, stderr] = await Promise.all([
-				child.exited,
-				new Response(child.stderr).text(),
-			]);
 			return code === 0 ? null : stderr.trim() || `git exited ${code}`;
 		} catch (cause) {
 			return describe(cause);

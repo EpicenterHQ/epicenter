@@ -325,82 +325,160 @@ function killGroup(group: number) {
 }
 
 /**
- * Run the system `git` (`locateGit`) in `root`: no hook and no fsmonitor,
- * whatever the repository configures, the environment above, and a
- * credential sent only to an `https` URL, never in the clear. Each `git`
- * leads its own process group, so an abort ends it with every helper it
- * started. Throws `GitMissingError` when this computer has no `git`.
+ * Configuration every `git` this process starts runs with, ahead of its own
+ * arguments: no hook and no fsmonitor, whatever the repository or the person
+ * configures; the `ext` and `fd` transports refused, since each runs an
+ * arbitrary command; and no color in output this process reads. A `-c`
+ * reaches every `git` the command starts in turn, such as a submodule's.
+ */
+const SAFETY = (hooksPath: string) => [
+	'-c',
+	`core.hooksPath=${hooksPath}`,
+	'-c',
+	'core.fsmonitor=false',
+	'-c',
+	'protocol.ext.allow=never',
+	'-c',
+	'protocol.fd.allow=never',
+	'-c',
+	'color.ui=never',
+];
+
+type GitRunOptions = NonNullable<Parameters<GitRun>[1]>;
+
+/**
+ * Run the system `git` (`locateGit`) in `root`: the safety configuration
+ * above, the environment above, and a credential sent only to an `https`
+ * URL, never in the clear. Each `git` leads its own process group, so an
+ * abort ends it with every helper it started. Throws `GitMissingError` when
+ * this computer has no `git`.
  */
 export function createGitRunner(root: string): GitRun {
 	return async (args, options = {}) => {
-		if (
-			options.credential !== undefined &&
-			!options.credential.url.startsWith('https://')
-		)
-			throw new Error(
-				`a token is sent only to an https remote, and ${options.credential.url} is not one; connect it with its https URL, or leave the token out so Git uses your own sign-in`,
-			);
+		refuseCleartextCredential(options);
 		options.signal?.throwIfAborted();
 		const program = locateGit();
 		const noHooks = await noHooksDirectory(root);
-		return new Promise((resolve, reject) => {
-			const child = spawn(
-				program,
-				[
-					'-c',
-					`core.hooksPath=${noHooks}`,
-					'-c',
-					'core.fsmonitor=false',
-					...args,
-				],
-				{
-					cwd: root,
-					env: {
-						...gitEnvironment(root),
-						...options.env,
-						...(options.credential &&
-							credentialEnvironment(options.credential)),
-					},
-					stdio: ['pipe', 'pipe', 'pipe'],
-					// Its own process group, which an abort ends whole.
-					detached: process.platform !== 'win32',
-				},
-			);
-			const group = child.pid;
-			if (group !== undefined) running.add(group);
-			const abort = () => {
-				if (group !== undefined) killGroup(group);
-			};
-			options.signal?.addEventListener('abort', abort, { once: true });
-			const stdout: Uint8Array[] = [];
-			const stderr: Uint8Array[] = [];
-			child.stdout.on('data', (chunk: Uint8Array) => stdout.push(chunk));
-			child.stderr.on('data', (chunk: Uint8Array) => stderr.push(chunk));
-			const settle = () => {
-				if (group !== undefined) running.delete(group);
-				options.signal?.removeEventListener('abort', abort);
-			};
-			child.on('error', (cause) => {
-				settle();
-				reject(cause);
-			});
-			child.on('close', (code) => {
-				settle();
-				if (options.signal?.aborted) {
-					reject(options.signal.reason);
-					return;
-				}
-				const out = Buffer.concat(stdout);
-				const err = Buffer.concat(stderr).toString('utf8');
-				if (code !== 0 && !options.allowFailure)
-					reject(new GitCommandError(args, code, err));
-				else resolve({ code, stdout: new Uint8Array(out), stderr: err });
-			});
-			child.stdin.on('error', () => {});
-			if (options.input !== undefined) child.stdin.end(options.input);
-			else child.stdin.end();
+		return spawnGit(program, [...SAFETY(noHooks), ...args], {
+			cwd: root,
+			env: gitEnvironment(root),
+			options,
 		});
 	};
+}
+
+/**
+ * Run the system `git` (`locateGit`) for a command that addresses no
+ * folder: a clone into a new directory, or the person's global
+ * configuration. It gets the same safety configuration as
+ * `createGitRunner`, with hooks looked for nowhere, and `environment`
+ * (this process's by default) without the variables that would point it at
+ * another repository.
+ */
+export async function runGit(
+	args: readonly string[],
+	{
+		cwd,
+		environment = process.env,
+		...options
+	}: GitRunOptions & {
+		readonly cwd?: string;
+		readonly environment?: Readonly<Record<string, string | undefined>>;
+	} = {},
+): ReturnType<GitRun> {
+	refuseCleartextCredential(options);
+	options.signal?.throwIfAborted();
+	const program = locateGit();
+	const env: NodeJS.ProcessEnv = {};
+	for (const [name, value] of Object.entries(environment))
+		if (!REPOSITORY_ENV.test(name)) env[name] = value;
+	return spawnGit(program, [...SAFETY(devNull), ...args], {
+		cwd,
+		env: {
+			...env,
+			GIT_TERMINAL_PROMPT: '0',
+			GIT_TRACE2: '0',
+			GIT_TRACE2_EVENT: '0',
+			GIT_TRACE2_PERF: '0',
+			LC_ALL: 'C',
+		},
+		options,
+	});
+}
+
+const devNull = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
+function refuseCleartextCredential(options: GitRunOptions) {
+	if (
+		options.credential !== undefined &&
+		!options.credential.url.startsWith('https://')
+	)
+		throw new Error(
+			`a token is sent only to an https remote, and ${options.credential.url} is not one; connect it with its https URL, or leave the token out so Git uses your own sign-in`,
+		);
+}
+
+function spawnGit(
+	program: string,
+	args: readonly string[],
+	{
+		cwd,
+		env,
+		options,
+	}: {
+		cwd: string | undefined;
+		env: NodeJS.ProcessEnv;
+		options: GitRunOptions;
+	},
+): ReturnType<GitRun> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(program, args, {
+			cwd,
+			env: {
+				...env,
+				...options.env,
+				...(options.credential && credentialEnvironment(options.credential)),
+			},
+			stdio: ['pipe', 'pipe', 'pipe'],
+			// Its own process group, which an abort ends whole.
+			detached: process.platform !== 'win32',
+		});
+		const group = child.pid;
+		if (group !== undefined) running.add(group);
+		const abort = () => {
+			if (group !== undefined) killGroup(group);
+		};
+		options.signal?.addEventListener('abort', abort, { once: true });
+		const stdout: Uint8Array[] = [];
+		const stderr: Uint8Array[] = [];
+		child.stdout.on('data', (chunk: Uint8Array) => stdout.push(chunk));
+		child.stderr.on('data', (chunk: Uint8Array) => stderr.push(chunk));
+		const settle = () => {
+			if (group !== undefined) running.delete(group);
+			options.signal?.removeEventListener('abort', abort);
+		};
+		child.on('error', (cause) => {
+			settle();
+			reject(cause);
+		});
+		child.on('close', (code) => {
+			settle();
+			if (options.signal?.aborted) {
+				reject(options.signal.reason);
+				return;
+			}
+			const out = Buffer.concat(stdout);
+			const err = Buffer.concat(stderr).toString('utf8');
+			// The arguments this process chose, not the safety configuration.
+			const named = args.slice(SAFETY('').length);
+			if (code !== 0 && !options.allowFailure)
+				reject(new GitCommandError(named, code, err));
+			else resolve({ code, stdout: new Uint8Array(out), stderr: err });
+		});
+		child.stdin.on('error', () => {});
+		if (options.input !== undefined) child.stdin.end(options.input);
+		else child.stdin.end();
+	});
 }
 
 /** The system `git` in `root`, and `node:fs`. */

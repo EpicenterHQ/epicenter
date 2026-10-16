@@ -26,7 +26,7 @@ import {
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
 import type { History } from './git/history.js';
-import type { GitCredential } from './git/http.js';
+import type { GitCredential, GitCredentials } from './git/http.js';
 import {
 	GitMissingError,
 	gitLayoutProblem,
@@ -56,6 +56,12 @@ export type HistoryOptions = {
 	readonly application?: boolean;
 	/** The branch history is recorded on; `main` unless the shell names one. */
 	readonly branch?: string;
+	/**
+	 * The credential for the remote a fetch or push names, asked for each
+	 * transfer with the URL the folder's history reads, when the request
+	 * carries none for that URL.
+	 */
+	readonly credentials?: GitCredentials;
 };
 
 /** The history's state as a reply carries it. */
@@ -72,13 +78,19 @@ function stateOf(history: History): HistoryState {
 	};
 }
 
-/** The credential for `url`, only when the page gave one for that exact URL. */
+/**
+ * The credential for `url`: the request's, only when it names that exact
+ * URL, and otherwise what `credentials` answers.
+ */
 const credentialFor =
-	(credential: UrlCredential | undefined) =>
-	async (url: string): Promise<GitCredential | undefined> =>
+	(credential: UrlCredential | undefined, credentials?: GitCredentials) =>
+	async (
+		url: string,
+		signal: AbortSignal,
+	): Promise<GitCredential | undefined> =>
 		credential !== undefined && credential.url === url
 			? { username: credential.username, password: credential.password }
-			: undefined;
+			: credentials?.(url, signal);
 
 /**
  * Run `request` on the folder at `root` and answer its reply. Throws when
@@ -89,7 +101,7 @@ const credentialFor =
 export async function runHistory(
 	root: string,
 	request: HistoryRequest,
-	{ author, application = false, branch }: HistoryOptions,
+	{ author, application = false, branch, credentials }: HistoryOptions,
 ): Promise<HistoryReply<unknown>> {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null)
@@ -128,7 +140,7 @@ export async function runHistory(
 		{
 			author,
 			branch,
-			credentials: credentialFor(credential),
+			credentials: credentialFor(credential, credentials),
 			// Status and the log record nothing, so they skip reading who
 			// commits.
 			commits: request.op !== 'status' && request.op !== 'log',

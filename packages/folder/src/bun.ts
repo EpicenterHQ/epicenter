@@ -73,6 +73,7 @@ export {
 	GenerateDeclarationError,
 	generateDeclaration,
 } from './generate-declaration.js';
+export { basicAuthorization } from './git/http.js';
 export { GitCommandError, type GitRun } from './git/native-backend.js';
 export {
 	createGitRunner,
@@ -81,6 +82,7 @@ export {
 	gitInstall,
 	isNetworkUrl,
 	locateGit,
+	runGit,
 } from './git/native-host.js';
 export {
 	answerShellHistory,

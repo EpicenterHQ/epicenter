@@ -7,9 +7,11 @@
  * the grant the command runs under (`--desktop` selects the desktop app's).
  * For terminal Git it arrives through the credential helper that
  * `epicenter sync --to` and `epicenter clone` register in Git's global
- * configuration (`configureGitHelper`); for the `git` this binary runs for
- * the desktop it is handed over as a header, outside every argument, and only
- * to an `https` remote (`runHistory`'s `credential`).
+ * configuration (`configureGitHelper`). Every `git` this binary runs itself,
+ * a clone or a sync's fetch and push, gets it as a header instead, outside
+ * every argument, and only for an `https` remote (`hostedCredentials`), so
+ * a refresh always runs in this process and never in a `git` it started
+ * (ADR-0565).
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -20,7 +22,11 @@ import {
 	type RepositoryListing,
 	repositoryUrl,
 } from '@epicenter/constants/repositories';
-import type { UrlCredential } from '@epicenter/folder/bun';
+import {
+	basicAuthorization,
+	type GitCredentials,
+	runGit,
+} from '@epicenter/folder/bun';
 import { resolveAppPaths } from './app-paths.ts';
 import {
 	type AuthContext,
@@ -32,69 +38,34 @@ import {
 import { gitCommand } from './install-command.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
-/** `git` with a clean environment but the person's own configuration, for the commands that touch only a path they name. */
-async function git(
-	args: readonly string[],
-	env: Record<string, string> = {},
-	cwd?: string,
-) {
-	const child = Bun.spawn(['git', ...args], {
-		cwd,
-		env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env },
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	return { code, stdout, stderr };
-}
-
-/** The `remote.origin.url` in the repository at `dir`, read from its own `.git/config` alone. */
-export async function originUrl(dir: string): Promise<string | undefined> {
-	const config = join(resolve(dir), '.git', 'config');
-	if (!existsSync(config)) return undefined;
-	const { code, stdout } = await git([
-		'config',
-		'--file',
-		config,
-		'--get',
-		'remote.origin.url',
-	]);
-	return code === 0 ? stdout.trim() || undefined : undefined;
-}
-
 const grantOf = (desktop: boolean): GrantKind =>
 	desktop ? 'desktop' : 'device';
 
 /**
- * What a sync to `url` needs when `url` is one of this deployment's hosted
- * repositories, or `undefined` for any other remote. Nothing is created here:
- * the server answers a name nobody holds as an empty repository, so the
- * sync's fetch finds nothing, and its push creates the repository.
+ * The credential for a remote of this deployment's hosted Git, asked for by
+ * URL as each transfer starts: the grant's access token for the Git
+ * audience, sent only to an `https` remote. Any other remote gets none, so
+ * Git uses the person's own sign-in. Nothing is created here: the server
+ * answers a name nobody holds as an empty repository, so the sync's fetch
+ * finds nothing, and its push creates the repository.
  */
-export async function hostedRemote(
+export function hostedCredentials(
 	ctx: AuthContext,
 	grant: GrantKind,
-	url: string | undefined,
-): Promise<{ credential?: UrlCredential } | undefined> {
-	if (
-		url === undefined ||
-		parseRepositoryUrl(ctx.deployment.audiences.git, url) === undefined
-	)
-		return undefined;
-	const { data, error } = await accessToken(
-		ctx,
-		grant,
-		ctx.deployment.audiences.git,
-	);
-	if (error !== null) throw new Error(error.message);
-	return {
-		credential: url.startsWith('https://')
-			? { url, username: 'epicenter', password: data.token }
-			: undefined,
+): GitCredentials {
+	return async (url) => {
+		if (
+			!url.startsWith('https://') ||
+			parseRepositoryUrl(ctx.deployment.audiences.git, url) === undefined
+		)
+			return undefined;
+		const { data, error } = await accessToken(
+			ctx,
+			grant,
+			ctx.deployment.audiences.git,
+		);
+		if (error !== null) throw new Error(error.message);
+		return { username: 'epicenter', password: data.token };
 	};
 }
 
@@ -197,31 +168,27 @@ export async function clone(
 	const dir = resolve(target ?? join(dirname(resolveAppPaths().appsDir), name));
 	if (existsSync(dir) && readdirSync(dir).length > 0)
 		return fail(`${dir} already exists and is not empty`, json);
-	const hosted = parseRepositoryUrl(ctx.deployment.audiences.git, url);
-	let env: Record<string, string> = {};
-	if (hosted !== undefined) {
+	if (parseRepositoryUrl(ctx.deployment.audiences.git, url) !== undefined)
 		await registerHelper(ctx);
-		if (desktop) {
-			// The desktop's grant is not the helper's: send its header for this run.
-			const { data, error } = await accessToken(
-				ctx,
-				'desktop',
-				ctx.deployment.audiences.git,
-			);
-			if (error !== null) return fail(error.message, json);
-			env = {
-				GIT_CONFIG_COUNT: '2',
-				GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
-				GIT_CONFIG_VALUE_0: `Authorization: Bearer ${data.token}`,
-				GIT_CONFIG_KEY_1: 'credential.helper',
-				GIT_CONFIG_VALUE_1: '',
-			};
-		}
+	let cloned: Awaited<ReturnType<typeof runGit>>;
+	try {
+		const credential = await hostedCredentials(ctx, grantOf(desktop))(
+			url,
+			AbortSignal.timeout(60_000),
+		);
+		cloned = await runGit(
+			['clone', '--no-recurse-submodules', '--template=', '--', url, dir],
+			{
+				allowFailure: true,
+				credential:
+					credential === undefined
+						? undefined
+						: { url, authorization: basicAuthorization(credential) },
+			},
+		);
+	} catch (error) {
+		return fail(error instanceof Error ? error.message : String(error), json);
 	}
-	const cloned = await git(
-		['clone', '--no-recurse-submodules', '--template=', '--', url, dir],
-		env,
-	);
 	if (cloned.code !== 0)
 		return fail(
 			cloned.stderr.trim() || `git clone exited ${cloned.code}`,

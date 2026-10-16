@@ -13,12 +13,13 @@
  *   folder's history lock and leave one linear history the remote holds
  * - A save-version waits while another process holds the history lock
  * - Without a usable `git`, every history command exits 2 with `GitMissing`
+ * - A sync runs only the `git` `locateGit` finds, never one from `PATH`
  *
  * They run `src/bin.ts` under Bun, or the compiled binary `EPICENTER_BIN`
  * names.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync } from 'node:fs';
 import {
 	mkdir,
 	mkdtemp,
@@ -467,4 +468,41 @@ test('without a usable git, every history command exits 2 with GitMissing', asyn
 						: 'package-manager',
 		});
 	}
+});
+
+test('a sync of a connected folder runs no git from PATH: only the one locateGit finds', async () => {
+	const { project, folder } = await synced({ 'notes/a.md': 'a\n' });
+	await write(folder, 'notes/a.md', 'b\n');
+	// Stands in for `/usr/bin/git` on a Mac without the Command Line Tools:
+	// the xcrun shim, which shows the install dialog and exits 1. It heads
+	// a Finder launch's `PATH`, so any `git` started by name reaches it.
+	const shims = join(project, 'shims');
+	await mkdir(shims);
+	const calls = join(shims, 'calls');
+	await writeFile(calls, '');
+	await writeFile(
+		join(shims, 'git'),
+		`#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\nexit 1\n`,
+	);
+	chmodSync(join(shims, 'git'), 0o755);
+	const env: Record<string, string | undefined> = {
+		...ENV,
+		PATH: `${shims}:/usr/bin:/bin`,
+	};
+	delete env.EPICENTER_GIT;
+	const child = Bun.spawn([...command, 'sync', folder, '--json'], {
+		env,
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	expect(exitCode, `${stdout}${stderr}`).toBe(0);
+	// `locateGit` may ask a `git` on `PATH` for its version, and passes over
+	// one that fails; nothing else runs one by name.
+	const ran = readFileSync(calls, 'utf8').split('\n').filter(Boolean);
+	expect(ran.filter((call) => call !== '--version')).toEqual([]);
 });

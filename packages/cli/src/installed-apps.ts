@@ -377,21 +377,6 @@ function randomSuffix() {
 // ---------------------------------------------------------------------------
 // Git and other programs
 
-/**
- * The `ext` and `fd` transports run arbitrary commands; they are refused for
- * every command, passed as configuration in the environment so the runner's
- * error names the Git command.
- */
-const REFUSED_TRANSPORTS = {
-	GIT_CONFIG_COUNT: '3',
-	GIT_CONFIG_KEY_0: 'protocol.ext.allow',
-	GIT_CONFIG_VALUE_0: 'never',
-	GIT_CONFIG_KEY_1: 'protocol.fd.allow',
-	GIT_CONFIG_VALUE_1: 'never',
-	GIT_CONFIG_KEY_2: 'color.ui',
-	GIT_CONFIG_VALUE_2: 'never',
-};
-
 const decoder = new TextDecoder();
 
 /** Run `git` in `dir` through `@epicenter/folder`'s runner and return stdout, trimmed. */
@@ -413,11 +398,7 @@ async function runGit(
 ) {
 	const signal = AbortSignal.timeout(GIT_TIMEOUT_MS);
 	try {
-		return await createGitRunner(dir)(args, {
-			signal,
-			allowFailure,
-			env: REFUSED_TRANSPORTS,
-		});
+		return await createGitRunner(dir)(args, { signal, allowFailure });
 	} catch (cause) {
 		if (signal.aborted)
 			throw new Error(

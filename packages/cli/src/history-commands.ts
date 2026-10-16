@@ -74,43 +74,33 @@ function credentialOf(value: unknown): UrlCredential | undefined {
  * connects the folder to a hosted repository (ADR-0546): it sets the remote
  * to `<git origin>/<namespace>/<name>.git`, registers the credential helper
  * for plain Git, and the merge driver follows from connecting. A sync to any
- * of this deployment's hosted repositories carries the grant's token, never
- * a page's.
+ * of this deployment's hosted repositories carries the grant's token
+ * (`hostedCredentials`), asked for with the remote the folder's history
+ * reads.
  */
-async function syncRequest(
-	dir: string,
-	options: Options,
-	desktop: boolean,
-): Promise<HistoryRequest> {
+async function syncRequest(options: Options): Promise<HistoryRequest> {
 	const resolve = options.resolve;
-	const [{ authContext }, repositories] = await Promise.all([
-		import('./auth.ts'),
-		import('./repository-commands.ts'),
-	]);
-	const ctx = authContext();
 	let connect = typeof options.remote === 'string' ? options.remote : undefined;
 	if (options.to !== undefined) {
 		if (typeof options.to !== 'string')
 			throw new Error('--to takes <namespace>/<name>');
 		if (connect !== undefined)
 			throw new Error('--to and --remote both name the remote; give one');
+		const [{ authContext }, repositories] = await Promise.all([
+			import('./auth.ts'),
+			import('./repository-commands.ts'),
+		]);
+		const ctx = authContext();
 		connect = repositories.remoteFor(ctx, options.to);
 		await repositories.registerHelper(ctx);
 	}
-	// A hosted remote carries the grant's token; the sync's push creates it.
-	const hosted = await repositories.hostedRemote(
-		ctx,
-		desktop ? 'desktop' : 'device',
-		connect ?? (await repositories.originUrl(dir)),
-	);
 	const fromStdin =
 		resolve === '-' || options['credential-stdin'] === true
 			? await stdinObject()
 			: undefined;
-	const credential =
-		credentialOf(
-			options['credential-stdin'] === true ? fromStdin?.credential : undefined,
-		) ?? hosted?.credential;
+	const credential = credentialOf(
+		options['credential-stdin'] === true ? fromStdin?.credential : undefined,
+	);
 	if (typeof resolve === 'string') {
 		const answer =
 			resolve === '-'
@@ -136,9 +126,7 @@ async function syncRequest(
 /** The request each command line makes. */
 async function requestOf(
 	command: 'status' | 'history' | 'save-version' | 'sync',
-	dir: string,
 	options: Options,
-	desktop: boolean,
 ): Promise<HistoryRequest> {
 	switch (command) {
 		case 'status':
@@ -156,7 +144,7 @@ async function requestOf(
 					typeof options.message === 'string' ? options.message : undefined,
 			};
 		case 'sync':
-			return syncRequest(dir, options, desktop);
+			return syncRequest(options);
 	}
 }
 
@@ -243,7 +231,7 @@ export async function historyCommand(
 ): Promise<number> {
 	let request: HistoryRequest;
 	try {
-		request = await requestOf(command, dir, options, desktop);
+		request = await requestOf(command, options);
 	} catch (error) {
 		return fail(error instanceof Error ? error.message : String(error), json);
 	}
@@ -253,6 +241,16 @@ export async function historyCommand(
 			author: author(),
 			application: process.env.EPICENTER_FOLDER_KIND === 'application',
 			branch: process.env.EPICENTER_BRANCH || undefined,
+			credentials: async (url, signal) => {
+				const [{ authContext }, { hostedCredentials }] = await Promise.all([
+					import('./auth.ts'),
+					import('./repository-commands.ts'),
+				]);
+				return hostedCredentials(authContext(), desktop ? 'desktop' : 'device')(
+					url,
+					signal,
+				);
+			},
 		});
 	} catch (error) {
 		if (error instanceof GitMissingError) {
