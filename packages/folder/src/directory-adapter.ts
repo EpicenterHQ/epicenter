@@ -5,8 +5,8 @@
  * (`directory-store.ts`); history is whatever the host supplies:
  * the system `git` run in this process (`git/native-history.ts`, Bun), or
  * the `epicenter` CLI the shell runs for a page (`tauri-history.ts`,
- * ADR-0559). Nothing of the browser folder's own address, claim, download,
- * or private Git is here.
+ * ADR-0559). Nothing of the browser folder's OPFS directory or private Git
+ * is here.
  */
 import type { Result } from 'wellcrafted/result';
 import {

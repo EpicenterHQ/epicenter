@@ -1,7 +1,7 @@
 /**
  * Opening a folder whose directory is already decided, shared by the browser
- * folder (an OPFS directory its ready marker claims) and the directory folder
- * (a real directory the desktop shell granted).
+ * folder (the OPFS directory its ID names) and the directory folder (a real
+ * directory the desktop shell granted, or one a Bun process names).
  *
  * The opener supplies the file storage and the history, whatever orders
  * their changes (Web Locks in the browser, the host's checks and Git's on a
