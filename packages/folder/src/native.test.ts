@@ -38,13 +38,7 @@ import {
 import { createOpfsFileBoundary } from './opfs-store.js';
 import { parseRow } from './row-text.js';
 import { useWebLocks } from './web-locks.test-support.js';
-
-/** The row a write left, which these writes always leave. */
-function must<T>(result: { data: T | null; error: unknown }): T {
-	const written = expectOk(result as never) as T | null;
-	if (written === null) throw new Error('the write left no row');
-	return written;
-}
+import { mustRow } from './row-write.test-support.js';
 
 const openNativeFolder = async <const TDefinition extends FolderDefinition>(
 	options: DirectoryFolderOptions<TDefinition>,
@@ -142,7 +136,7 @@ describe('native folder', () => {
 		);
 		const current = expectOk(await folder.tables.todos.get('walk'))!;
 		expect(current.row.fields.title).toBe('Run');
-		const done = must(await folder.tables.todos.set('walk', { done: true }));
+		const done = mustRow(await folder.tables.todos.set('walk', { done: true }));
 
 		expect(done.row.fields).toEqual({ title: 'Run', done: true });
 		// The helper trims the leading space of the unstaged column.
@@ -284,7 +278,7 @@ describe('native folder', () => {
 			).not.toBeNull();
 		const stems = ['', '.hidden', 'trailing ', 'naïve 日本'];
 		for (const stem of stems) {
-			const created = must(
+			const created = mustRow(
 				await folder.tables.todos.create(
 					{ fields: { title: stem, done: false }, body: '' },
 					{ stem },
@@ -294,7 +288,9 @@ describe('native folder', () => {
 			const bytes = await readFile(join(root, 'todos', `${stem}.md`));
 			expect(await hashBytes(bytes)).toBe(created.sha256);
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(created);
-			const updated = must(await folder.tables.todos.set(stem, { done: true }));
+			const updated = mustRow(
+				await folder.tables.todos.set(stem, { done: true }),
+			);
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(updated);
 		}
 		// An uppercase extension is an ordinary file, not a row.
@@ -430,7 +426,7 @@ describe('native folder', () => {
 			);
 			// Both changed the title: each wins it as it lands, so the file
 			// holds the one that landed last.
-			const written = results.map(must);
+			const written = results.map(mustRow);
 			expect(written.map((row) => row.row.fields.title)).toEqual([
 				'First',
 				'Second',

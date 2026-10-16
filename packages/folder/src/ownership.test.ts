@@ -29,6 +29,7 @@ import {
 } from './browser.js';
 import { testBrowserStorage } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
+import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -140,8 +141,8 @@ describe('row files', () => {
 		);
 		expectOk(await folder.files.create('todos/row.txt', 'beside'));
 		expectOk(await folder.tables.todos.set('row', { done: true }));
-		const moved = expectOk(await folder.tables.todos.rename('row', 'next'));
-		expect(moved?.row.fields).toEqual({ title: 'Row', done: true });
+		const moved = mustRow(await folder.tables.todos.rename('row', 'next'));
+		expect(moved.row.fields).toEqual({ title: 'Row', done: true });
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
 			'next.md',
 			'row.txt',

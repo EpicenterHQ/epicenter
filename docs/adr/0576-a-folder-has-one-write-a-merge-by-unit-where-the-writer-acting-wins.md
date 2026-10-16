@@ -7,7 +7,7 @@
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Relates:** [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md), [ADR-0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md)
 - **Replaces, as Proposed records:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review) and ADR-0522 (settings as `kv.json` keys). Each carries a note pointing here and is deleted when this is built.
-- **Unbuilt:** Sync and the merge driver on `merge`; the `settings` table and deleting `kv.json`'s machinery.
+- **Unbuilt:** Sync and the merge driver on `merge`; the `settings` table and deleting `kv.json`'s machinery; files on the one write and `folder.move`.
 
 ## Context
 
@@ -74,7 +74,9 @@ it is now and merges the change from `from` to `to` into it, by unit:
   its last line came from ends.
 - A delete beats an edit it never saw. Whether a file exists is decided by
   the delete; what it holds, by the writer acting. Only a write from no file
-  (`from` of `null`, a create) brings a file into existence: an edit of a
+  (`from` of `null`, a create) brings a file into existence, and only where
+  none is: a create onto a file is `InvalidPath`, unless the file holds the
+  same bytes, which is that create landed before. An edit of a
   file deleted since its `from` writes nothing and answers that no file is
   there, which is not a failure to retry. The writer's delete removes an
   edit it never saw, too.
@@ -114,18 +116,27 @@ under a delete. A write logs what it overrode; Sync's commit message lists
 it.
 
 **A table is a typed view.** It is a codec over `<table>/<stem>.md` with
-`get(stem)`, `list()`, and `write(stem, from, to)`. Helpers build the change
-and call the one write:
+`get(stem)`, `list()`, and `write(stem, from, to)`, which answers the row the
+write left, the file when it no longer reads as a row, or `null` when no file
+is there. Helpers build the change and call the one write:
 
 | Helper | `from` |
 | --- | --- |
 | `set(stem, fields)` | the file as it is now; a row that is not there is not made |
-| `create(row)` | no file, at a new stem |
+| `create(row)` | no file, placed only where none is |
 | `delete(stem)` | none; the deleter wins |
-| `rename(stem, next)` | its bytes put at `next` only where nothing is, then `stem` removed only while it holds them |
 | the body editor | the row at the first keystroke, then what each save sent |
 
-`files.move` stays for large binary files.
+`rename(stem, next)` changes where a file is, not what it holds, so it is
+not a write: its bytes are put at `next` only where nothing is, and `stem` is
+removed only while it holds them, carrying a write that lands there meanwhile.
+
+**Files take the same write.** `files.save`, `files.create`, `files.remove`,
+and `files.move`, with `saveFile` and the text draft, go: a file's text or
+bytes are written with `folder.write(path, from, to)`, any file is moved with
+`folder.move(path, next)`, which is the move `rename` makes, and one text
+editor holds `from` and `typed`, of which the body editor is the row case. A
+delete of a file is then the deleter winning, as for a row.
 
 **The query layer offers one mutation per helper.**
 `folder.<table>.get(stem)` and `.list()` give `queryOptions()`, and

@@ -59,6 +59,7 @@ import {
 } from './folder.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { formatRow, parseRow } from './row-text.js';
+import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -129,13 +130,13 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		const writing = table.write('a', from, row);
 		from.fields.title = 'Changed after the call';
 		row.fields.title = 'Changed after the call';
-		const written = expectOk(await writing);
-		expect(written?.row).toEqual({ fields: { title: 'Mine' }, body: '' });
+		const written = mustRow(await writing);
+		expect(written.row).toEqual({ fields: { title: 'Mine' }, body: '' });
 		const landed = expectOk(await folder.files.read('todos/a.md'));
-		expect<string | undefined>(landed.sha256).toEqual(written?.sha256);
+		expect(landed.sha256).toEqual(written.sha256);
 		expect(
 			expectOk(parseRow(definition.tables.todos, decoder.decode(landed.bytes))),
-		).toEqual(written?.row as never);
+		).toEqual(written.row);
 
 		const renamed = expectOk(await table.rename('a', 'b'));
 		expect(renamed?.path).toBe('todos/b.md');
@@ -491,14 +492,14 @@ describe('a save never reads its bytes back', () => {
 		const saved = expectOk(await folder.files.save(created, 'two')).stored;
 		const moved = expectOk(await folder.files.move(saved, 'b.md'));
 		expectOk(await folder.files.remove(moved));
-		const row = expectOk(
+		const row = mustRow(
 			await folder.tables.todos.create(
 				{ fields: { title: 'R' }, body: '' },
 				{ stem: 'r' },
 			),
 		);
 		expectOk(
-			await folder.tables.todos.write('r', row?.row ?? null, {
+			await folder.tables.todos.write('r', row.row, {
 				fields: { title: 'S' },
 				body: '',
 			}),
@@ -550,13 +551,12 @@ describe('a save never reads its bytes back', () => {
 		expect(expectErr(await folder.files.remove(moved)).name).toBe('Conflict');
 
 		raceNextSave('todos/r.md', '---\ntitle: Theirs\n---\n');
-		const row = expectOk(
+		const row = mustRow(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Mine' }, body: '' },
 				{ stem: 'r' },
 			),
 		);
-		if (row === null) throw new Error('the create left no row');
 		expect(row.row).toEqual({ fields: { title: 'Mine' }, body: '' });
 		expect(row.sha256).toEqual(
 			await versionOf(expectOk(formatRow(definition.tables.todos, row.row))),
