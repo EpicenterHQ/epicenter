@@ -14,14 +14,14 @@
  * A sync that connects a remote also configures the repository for
  * `epicenter merge-driver`, so terminal merges use the same merge.
  *
- * Who commits comes from the folder's Git configuration, then
- * `EPICENTER_AUTHOR_NAME` and `EPICENTER_AUTHOR_EMAIL`, which the shell sets
- * to the folder's fallback author. `EPICENTER_BRANCH` names the branch
- * (`main` by default), and `EPICENTER_FOLDER_KIND=application` marks an
- * application's own folder, which may get a repository inside another
- * repository's working tree.
+ * Who commits comes from the folder's Git configuration, and otherwise is
+ * `Epicenter <epicenter@localhost>`. History is recorded on `main`. An
+ * application's own folder (`isApplicationFolder`) may get a repository
+ * inside another repository's working tree; a data folder may not.
  */
 
+import { realpath, stat } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import {
 	decodeHistory,
 	encodeHistory,
@@ -31,18 +31,39 @@ import {
 	type HistoryResults,
 	historyExitCode,
 	runHistory,
-	type UrlCredential,
 } from '@epicenter/folder/bun';
+import { resolveAppPaths } from './app-paths.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
 
-/** The author for commits where the folder's Git configuration names none. */
-function author() {
-	return {
-		name: process.env.EPICENTER_AUTHOR_NAME || 'Epicenter',
-		email: process.env.EPICENTER_AUTHOR_EMAIL || 'epicenter@localhost',
-	};
+/** Who commits where the folder's Git configuration names nobody. */
+const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
+
+/** Epicenter's own folder (ADR-0539), named by Epicenter's id. */
+const EPICENTER_FOLDER = 'so.epicenter';
+
+/**
+ * Whether `dir` is an application's own folder, by the shell's rule
+ * (`data_folders.rs`): directly under the Epicenter folder root and named
+ * `so.epicenter` or the id of an app installed in `Apps/`. Any other folder
+ * is a data folder.
+ */
+export async function isApplicationFolder(
+	dir: string,
+	paths = resolveAppPaths(),
+): Promise<boolean> {
+	const [resolved, folderRoot] = await Promise.all([
+		realpath(dir).catch(() => undefined),
+		realpath(dirname(paths.appsDir)).catch(() => undefined),
+	]);
+	if (resolved === undefined || dirname(resolved) !== folderRoot) return false;
+	const name = basename(resolved);
+	if (name === EPICENTER_FOLDER) return true;
+	return stat(join(paths.appsDir, name)).then(
+		(found) => found.isDirectory(),
+		() => false,
+	);
 }
 
 /** Read all of standard input as one JSON object, or `undefined` when empty. */
@@ -55,56 +76,31 @@ async function stdinObject(): Promise<Record<string, unknown> | undefined> {
 	return value as Record<string, unknown>;
 }
 
-function credentialOf(value: unknown): UrlCredential | undefined {
-	if (value === undefined || value === null) return undefined;
-	const { url, username, password } = value as Record<string, unknown>;
-	if (
-		typeof url !== 'string' ||
-		typeof username !== 'string' ||
-		typeof password !== 'string'
-	)
-		throw new Error(
-			'a credential is {"url", "username", "password"}, each a string',
-		);
-	return { url, username, password };
-}
-
 /**
- * The request `sync`'s options and input make. `--to <namespace>/<name>`
- * connects the folder to a hosted repository (ADR-0546): it sets the remote
- * to `<git origin>/<namespace>/<name>.git`, registers the credential helper
- * for plain Git, and the merge driver follows from connecting. A sync to any
- * of this deployment's hosted repositories carries the grant's token
- * (`hostedCredentials`), asked for with the remote the folder's history
- * reads.
+ * The request `sync`'s options and input make. `--to` connects the folder
+ * first, and the merge driver follows from connecting: `<namespace>/<name>`
+ * names a hosted repository on this deployment (ADR-0546), whose remote is
+ * `<git origin>/<namespace>/<name>.git`; anything else is the remote's URL,
+ * as the desktop app passes it. A sync to any of this deployment's hosted
+ * repositories carries the grant's token (`hostedCredentials`), asked for
+ * with the remote the folder's history reads.
  */
 async function syncRequest(options: Options): Promise<HistoryRequest> {
 	const resolve = options.resolve;
-	let connect = typeof options.remote === 'string' ? options.remote : undefined;
+	let connect: string | undefined;
 	if (options.to !== undefined) {
 		if (typeof options.to !== 'string')
-			throw new Error('--to takes <namespace>/<name>');
-		if (connect !== undefined)
-			throw new Error('--to and --remote both name the remote; give one');
-		const [{ authContext }, repositories] = await Promise.all([
+			throw new Error('--to takes <namespace>/<name> or a URL');
+		const [{ authContext }, { remoteFor }] = await Promise.all([
 			import('./auth.ts'),
 			import('./repository-commands.ts'),
 		]);
-		const ctx = authContext();
-		connect = repositories.remoteFor(ctx, options.to);
-		await repositories.registerHelper(ctx);
+		connect = remoteFor(authContext(), options.to);
 	}
-	const fromStdin =
-		resolve === '-' || options['credential-stdin'] === true
-			? await stdinObject()
-			: undefined;
-	const credential = credentialOf(
-		options['credential-stdin'] === true ? fromStdin?.credential : undefined,
-	);
 	if (typeof resolve === 'string') {
 		const answer =
 			resolve === '-'
-				? fromStdin
+				? await stdinObject()
 				: decodeHistory<Record<string, unknown>>(
 						await Bun.file(resolve).text(),
 					);
@@ -113,13 +109,12 @@ async function syncRequest(options: Options): Promise<HistoryRequest> {
 			throw new Error(
 				`${resolve === '-' ? 'standard input' : resolve} must hold {"attempt": "<id>", "choices": {...}}, as the last sync printed them`,
 			);
-		return { op: 'settle', attempt, choices: answer.choices, credential };
+		return { op: 'settle', attempt, choices: answer.choices };
 	}
 	return {
 		op: 'sync',
 		connect,
 		allowUnrelatedHistories: options['allow-unrelated'] === true,
-		credential,
 	};
 }
 
@@ -238,9 +233,8 @@ export async function historyCommand(
 	let reply: HistoryReply<unknown>;
 	try {
 		reply = await runHistory(dir, request, {
-			author: author(),
-			application: process.env.EPICENTER_FOLDER_KIND === 'application',
-			branch: process.env.EPICENTER_BRANCH || undefined,
+			author: AUTHOR,
+			application: await isApplicationFolder(dir),
 			credentials: async (url, signal) => {
 				const [{ authContext }, { hostedCredentials }] = await Promise.all([
 					import('./auth.ts'),

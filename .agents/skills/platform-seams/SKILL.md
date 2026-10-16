@@ -29,14 +29,14 @@ persistence. Keep resource composition at the product boundary; do not restore
 Whispering's removed `#platform/runtime` seam. For constructors and ownership,
 read the [resource contracts](../../../packages/app/README.md).
 
-## Whispering is not a seam app
+## Folder apps use the seam for their folder entry
 
-Whispering is a standalone desktop app whose data is a folder of files. It has
-no `#platform/*` map and no build condition. Its one boundary is the workspace
-type in `apps/whispering/src/lib/workspace/`, chosen at runtime by whether the
-desktop shell injected a bridge, and its native code runs in a separate folder
-host process. The "storage is not a seam" rule above is about store-backed apps
-and does not describe it. See `apps/whispering/ARCHITECTURE.md`.
+Todos, Capture, Honeycrisp, and Whispering keep their data in a folder of
+files. Each picks its folder leaf at build time through `#platform/*` (for
+Whispering, `#platform/workspace`), and its Vite config aliases the bare
+`@epicenter/folder` to `@epicenter/folder/tauri` in the `epicenter-host` build
+and to `@epicenter/folder/browser` otherwise. The "storage is not a seam" rule
+above is about store-backed apps and does not describe them.
 
 ## Declaring one
 

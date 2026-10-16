@@ -449,18 +449,9 @@ test('the CLI rejects missing or extra arguments', async () => {
 // The command surface (ADR-0558)
 // ============================================================================
 
-test('every command ADR-0558 names parses, and one not built exits 2 naming its record', async () => {
+test('a command line the grammar refuses exits 2 and says why', async () => {
 	const { folder, run } = await setup();
-	for (const args of [['open', folder, '--app', 'so.epicenter.todos']]) {
-		const text = run(...args);
-		expect(text.exitCode).toBe(2);
-		expect(text.stdout).toBe('');
-		expect(text.stderr).toContain(`epicenter ${args[0]}`);
-		expect(text.stderr).toMatch(/is not built yet; see ADR-055[89]/);
-		const json = run(...args, '--json');
-		expect(json.exitCode).toBe(2);
-		expect(JSON.parse(json.stdout).error).toContain('is not built yet');
-	}
+	expect(run('open', folder).stderr).toContain("Unknown command 'open'");
 	expect(run('sync', folder, '--onto', 'x').stderr).toContain(
 		'epicenter sync does not take --onto',
 	);
@@ -485,13 +476,9 @@ test('--help lists every command but send and install-command, and --json descri
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('epicenter send');
 	expect(help.stdout).not.toContain('install-command');
-	expect(help.stdout).not.toContain('--loopback');
+	expect(help.stdout).not.toContain('--desktop');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
-	expect(
-		described
-			.filter((c: { built: boolean }) => c.built)
-			.map((c: { command: string }) => c.command),
-	).toEqual([
+	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'check',
 		'query',
 		'generate',
@@ -578,7 +565,6 @@ test('auth commands on a machine with no sign-in: status says so, and the rest r
 		signedOut: false,
 		revoked: false,
 	});
-	expect(run(['auth', 'login', '--desktop']).stderr).toContain('--loopback');
 
 	// Git's protocol: another host gets no answer; this deployment's Git, when
 	// signed out, an explanation on stderr; store and erase do nothing.
@@ -602,7 +588,7 @@ test('auth commands on a machine with no sign-in: status says so, and the rest r
 test('install-command refuses to link a CLI that runs from source', async () => {
 	if (binary) return;
 	const { run } = await setup();
-	const result = run('install-command', '--dry-run', '--json');
+	const result = run('install-command', '--json');
 	expect(result.exitCode).toBe(2);
 	expect(JSON.parse(result.stdout).error).toContain('runs from source');
 });

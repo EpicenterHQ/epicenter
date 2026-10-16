@@ -9,7 +9,7 @@
  */
 
 import packageJson from '../package.json' with { type: 'json' };
-import { adrPointer, COMMANDS } from './commands.ts';
+import { COMMANDS } from './commands.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	type CommandSpec,
@@ -23,7 +23,7 @@ type Run = (
 ) => Promise<number>;
 
 /**
- * The commands built so far. Each loads its package only when it runs, so
+ * Each command's handler. Each loads its package only when it runs, so
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
@@ -96,8 +96,8 @@ const HANDLERS: Record<string, Run> = {
 			accountAccess(ctx, grant),
 		);
 	},
-	'auth login': async ({ options, json, desktop }) =>
-		(await import('./auth-commands.ts')).authLogin(options, json, desktop),
+	'auth login': async ({ json, desktop }) =>
+		(await import('./auth-commands.ts')).authLogin(json, desktop),
 	'auth logout': async ({ json, desktop }) =>
 		(await import('./auth-commands.ts')).authLogout(json, desktop),
 	'auth status': async ({ json }) =>
@@ -109,18 +109,17 @@ const HANDLERS: Record<string, Run> = {
 			action as string,
 			desktop,
 		),
-	'install-command': async ({ options, json }) =>
-		(await import('./install-command.ts')).installCommand({
-			json,
-			dryRun: options['dry-run'] === true,
-			userOnly: options['user-only'] === true,
-		}),
+	'declare-epicenter-folder': async ({ json }) =>
+		(await import('./epicenter-folder.ts')).declareEpicenterFolder(json),
+	'install-command': async ({ json }) =>
+		(await import('./install-command.ts')).installCommand({ json }),
 };
 
 /**
  * Run a history command. When the shell ends this process (a page reloaded,
  * or its window closed), every `git` it started ends too, with the helpers
- * each started (ADR-0559), and a refresh it sent finishes first (ADR-0565).
+ * each started (ADR-0559), and a refresh it sent finishes first (ADR-0565;
+ * `stop.ts`).
  */
 async function history(
 	command: 'status' | 'history' | 'save-version' | 'sync',
@@ -129,22 +128,13 @@ async function history(
 	json: boolean,
 	desktop = false,
 ) {
-	const [{ historyCommand }, { endGitCommands }, { refreshesSettled }] =
+	const [{ historyCommand }, { endGitCommands }, { onStop }] =
 		await Promise.all([
 			import('./history-commands.ts'),
 			import('@epicenter/folder/bun'),
-			import('./auth.ts'),
+			import('./stop.ts'),
 		]);
-	for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
-		process.once(signal, () => {
-			endGitCommands();
-			// A refresh this process sent finishes its keychain write first.
-			void refreshesSettled().then(() =>
-				process.exit(
-					128 + (signal === 'SIGTERM' ? 15 : signal === 'SIGINT' ? 2 : 1),
-				),
-			);
-		});
+	onStop(endGitCommands);
 	return historyCommand(command, dir, options, json, desktop);
 }
 
@@ -200,9 +190,8 @@ the desktop app reads. Exits 0, or 2 when the folder cannot be used or git
 is not installed ({"error": "GitMissing"} with --json).`,
 	clone: `Clones <namespace>/<name> from this deployment's Git origin, or any
 other URL as given with your own Git credentials, into <dir>, by default
-~/Epicenter/<name>, then makes the clone merge by file kind. It registers
-this command as Git's credential helper for the deployment's Git origin.
-Run epicenter repos to list the names. Exits 2 when it cannot clone.`,
+~/Epicenter/<name>, then makes the clone merge by file kind. Run epicenter
+repos to list the names. Exits 2 when it cannot clone.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.
 With --json, {"namespaces": [{"id", "title", "personal", "role",
@@ -212,7 +201,8 @@ it by each file's kind, and pushes, under the folder's history lock, so two
 syncs or a sync and save-version never interleave. --to <namespace>/<name>
 connects the folder to that repository on this deployment's Git origin:
 the first sync creates it, and the folder's remote becomes
-<git origin>/<namespace>/<name>.git. Changes both sides made to
+<git origin>/<namespace>/<name>.git. --to also takes any remote's URL.
+Changes both sides made to
 one setting, field, body, or file are not written: the command exits 1 with
 the conflicts and records the attempt under .git/epicenter. --resolve <file>
 settles it with {"attempt": "<id>", "choices": {"<conflict id>": choice}},
@@ -239,7 +229,6 @@ and then git diff --exit-code -- <dir>/epicenter.json.`,
 };
 
 const name = (command: CommandSpec) => command.path.join(' ');
-const built = (command: CommandSpec) => name(command) in HANDLERS;
 
 function helpText(group?: string) {
 	const visible = COMMANDS.filter(
@@ -247,7 +236,7 @@ function helpText(group?: string) {
 	);
 	const width = Math.max(...visible.map((c) => usageLine(c).length));
 	const line = (c: CommandSpec) =>
-		`  ${usageLine(c).padEnd(width)}  ${c.summary}${built(c) ? '' : ' (not built yet)'}`;
+		`  ${usageLine(c).padEnd(width)}  ${c.summary}`;
 	const folder = visible.filter((c) => c.path.length === 1);
 	const app = visible.filter((c) => c.path[0] === 'app');
 	const auth = visible.filter((c) => c.path[0] === 'auth');
@@ -262,7 +251,7 @@ function helpText(group?: string) {
 		'Every command takes --json: one JSON value on stdout, or NDJSON progress',
 		'lines ending in one result for sync, clone, app install, and app update.',
 		'Stderr is for people. Exit codes: 0 done, 1 a finding to act on, 2 input',
-		'the command cannot use. A command not built yet exits 2.',
+		'the command cannot use.',
 		'',
 		'  --json     machine-readable output on stdout',
 		"  --help     this help, or one command's with epicenter <command> --help",
@@ -276,9 +265,6 @@ function commandHelp(command: CommandSpec) {
 		'',
 		`${command.summary}.`,
 		...(DETAILS[name(command)] ? ['', DETAILS[name(command)] as string] : []),
-		...(built(command)
-			? []
-			: ['', `Not built yet; see ${adrPointer(command.adr)}.`]),
 	].join('\n');
 }
 
@@ -287,8 +273,6 @@ function describe(command: CommandSpec) {
 		command: name(command),
 		usage: usageLine(command),
 		summary: command.summary,
-		built: built(command),
-		adr: command.adr,
 		...(command.long ? { output: 'ndjson' } : {}),
 	};
 }
@@ -332,12 +316,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 			);
 			return EXIT.unusable;
 		case 'command': {
-			const run = HANDLERS[name(invocation.command)];
-			if (run === undefined)
-				return fail(
-					`epicenter ${name(invocation.command)} is not built yet; see ${adrPointer(invocation.command.adr)}`,
-					invocation.json,
-				);
+			const run = HANDLERS[name(invocation.command)] as Run;
 			// Bun 1.3.14 can end the process while a command still awaits
 			// `crypto.subtle` work started after a child process exited, as
 			// isomorphic-git's hashing does between two `git` runs; a ref'd

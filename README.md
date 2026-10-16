@@ -180,7 +180,7 @@ bun run test
 bun run check:structure # doc paths, catalog pins, API paths, licenses, UI boundary, boot purity
 ```
 
-Two checks sit outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge. `bun run smoke:local` boots the API against local services.
+One check sits outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge.
 
 ## Design Notes
 

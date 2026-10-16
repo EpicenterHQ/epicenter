@@ -8,15 +8,16 @@
  * <folderDir>/Apps/<app-id>/                 a full clone of the app's repository
  * <dataDir>/approvals.json                   { [appId]: { commit, approvedAt } }
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
- * <dataDir>/bin/epicenter                    the link Git's configuration runs (install-command.ts)
+ * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
  * <cacheDir>/builds/<app-id>/<commit>/       the built bundle the app window loads
  * ```
  *
  * Each directory is its environment variable when set, which must be an
- * absolute path, and otherwise the release app's: `so.epicenter`'s platform
- * directories and `~/Epicenter`. The shell sets all three when it runs the
- * CLI, so a development build's CLI uses `so.epicenter.dev` and
- * `~/Epicenter Dev` as the shell does.
+ * absolute path, and otherwise the release app's: `so.epicenter` under
+ * macOS's `~/Library` and `~/Epicenter`. Epicenter ships for macOS only
+ * (ADR-0567). The shell sets all three when it runs the CLI, so a
+ * development build's CLI uses `so.epicenter.dev` and `~/Epicenter Dev` as
+ * the shell does. The command link is one per person, whichever build runs.
  */
 
 import { homedir } from 'node:os';
@@ -36,11 +37,11 @@ export type AppPaths = {
 	readonly buildsDir: string;
 	/** Which app commits may run on this machine. */
 	readonly approvalsFile: string;
-	/** Machine state worth keeping: approvals, the sign-in locks, and `commandLink`. */
+	/** Machine state worth keeping: approvals and the sign-in locks. */
 	readonly dataDir: string;
 	/**
-	 * The `epicenter` every Git configuration Epicenter writes runs, on macOS
-	 * and Linux: a link to the binary the app bundles, or an AppImage's copy.
+	 * The `epicenter` every Git configuration Epicenter writes runs, and a
+	 * terminal finds on `PATH`: a link to the binary the app bundles.
 	 */
 	readonly commandLink: string;
 	/** Disposable machine state: builds, the work lock, and the `bun` link. */
@@ -62,44 +63,27 @@ function directory(
 	return value;
 }
 
-/** Tauri's `app_local_data_dir` and `app_cache_dir` parents for this platform. */
-function platformDirectories(env: Environment, home: string) {
-	if (process.platform === 'darwin')
-		return {
-			data: join(home, 'Library', 'Application Support'),
-			cache: join(home, 'Library', 'Caches'),
-		};
-	if (process.platform === 'win32') {
-		const local = env.LOCALAPPDATA || join(home, 'AppData', 'Local');
-		return { data: local, cache: local };
-	}
-	return {
-		data: env.XDG_DATA_HOME || join(home, '.local', 'share'),
-		cache: env.XDG_CACHE_HOME || join(home, '.cache'),
-	};
-}
-
 /** The paths installing apps and signing in use, from `env` (the process's by default). */
 export function resolveAppPaths(
 	env: Environment = process.env,
 	home: string = homedir(),
 ): AppPaths {
-	const platform = platformDirectories(env, home);
+	// Tauri's `app_local_data_dir` and `app_cache_dir` on macOS.
 	const dataDir = directory(env, 'EPICENTER_DATA_DIR', () =>
-		join(platform.data, IDENTIFIER),
+		join(home, 'Library', 'Application Support', IDENTIFIER),
 	);
 	const folderDir = directory(env, 'EPICENTER_FOLDER_DIR', () =>
 		join(home, FOLDER_NAME),
 	);
 	const cacheDir = directory(env, 'EPICENTER_CACHE_DIR', () =>
-		join(platform.cache, IDENTIFIER),
+		join(home, 'Library', 'Caches', IDENTIFIER),
 	);
 	return {
 		appsDir: join(folderDir, APPS_DIRECTORY),
 		buildsDir: join(cacheDir, 'builds'),
 		approvalsFile: join(dataDir, 'approvals.json'),
 		dataDir,
-		commandLink: join(dataDir, 'bin', 'epicenter'),
+		commandLink: join(home, '.local', 'bin', 'epicenter'),
 		cacheDir,
 	};
 }

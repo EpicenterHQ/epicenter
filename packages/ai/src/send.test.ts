@@ -166,13 +166,13 @@ test('an account request goes below /api/ on the deployment, with the token for 
 
 	const connected = await sendRequest({
 		target: { kind: 'account', audience: 'git' },
-		request: request('api/git/connect'),
+		request: request('api/repos'),
 		secrets,
 		account,
 		fetch,
 	});
 	expect(connected.error).toBeNull();
-	expect(sent[0]?.url).toBe('https://api.example.test/api/git/connect');
+	expect(sent[0]?.url).toBe('https://api.example.test/api/repos');
 	expect(sent[0]?.headers.get('authorization')).toBe('Bearer at_git');
 	expect(sent[0]?.headers.get('cookie')).toBeNull();
 	expect(sent[0]?.redirect).toBe('error');
@@ -220,13 +220,13 @@ test('an account request goes below /api/ on the deployment, with the token for 
 		target: { kind: 'account', audience: 'api' },
 		request: request('api/repos'),
 		secrets,
-		account: async () => Err('run epicenter auth login --loopback'),
+		account: async () => Err('sign in from Settings'),
 		fetch,
 	});
 	expect(signedOut.error).toMatchObject({
 		name: 'NoAccountToken',
 		audience: 'api',
-		reason: 'run epicenter auth login --loopback',
+		reason: 'sign in from Settings',
 	});
 	expect(sent.length).toBe(2);
 });

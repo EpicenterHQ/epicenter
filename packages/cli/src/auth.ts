@@ -26,7 +26,7 @@
  * A replay after the reuse interval ends every grant of the client for the
  * person, on every machine (ADR-0565). So a refresh this process has sent is
  * finished before the process exits: a stop signal waits for its keychain
- * write, at most {@link REFRESH_EXIT_GRACE_MS}.
+ * write, at most `STOP_GRACE_MS` (`stop.ts`).
  */
 
 import { join } from 'node:path';
@@ -42,8 +42,8 @@ import {
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';
-import { withFileLock } from './file-lock.ts';
 import { AUTH_KEYCHAIN_SERVICE, keychain } from './secrets.ts';
+import { finishBeforeExit } from './stop.ts';
 
 /** Which of the CLI's two sign-ins a command uses. */
 export type GrantKind = 'device' | 'desktop';
@@ -61,12 +61,6 @@ const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 
 /** A cached access token is replaced this long before it expires. */
 export const REUSE_MARGIN_MS = 5 * 60 * 1000;
-
-/**
- * How long a stop signal waits for a refresh in flight before the process
- * exits anyway. The desktop shell waits longer before it kills (ADR-0565).
- */
-export const REFRESH_EXIT_GRACE_MS = 2_000;
 
 /** How long a loopback sign-in waits for the browser. */
 const LOOPBACK_TIMEOUT_MS = 10 * 60 * 1000;
@@ -238,8 +232,28 @@ async function writeGrant(
 	}
 }
 
-const lockPath = (ctx: AuthContext, grant: GrantKind) =>
-	join(ctx.lockDir, `${grant}.lock`);
+/**
+ * Run `work` holding `grant`'s lock, one process at a time on this machine
+ * (`holdingFileLock`), so two processes never spend one refresh token
+ * (ADR-0549). The folder engine loads only when a refresh or a sign-in
+ * needs the lock, so a cached token answers without it.
+ */
+async function holdingGrantLock<T>(
+	ctx: AuthContext,
+	grant: GrantKind,
+	work: () => Promise<T>,
+): Promise<T> {
+	const path = join(ctx.lockDir, `${grant}.lock`);
+	const { holdingFileLock } = await import('@epicenter/folder/bun');
+	return holdingFileLock(
+		path,
+		{
+			waitMs: 60_000,
+			held: `another epicenter process has held ${path} for over 60 seconds`,
+		},
+		work,
+	);
+}
 
 // ---------------------------------------------------------------------------
 // Requests to the authorization server
@@ -332,60 +346,6 @@ export function knownAudiences(ctx: AuthContext) {
 const usable = (ctx: AuthContext, cached: CachedToken | undefined) =>
 	cached !== undefined && cached.expiresAt - ctx.now() > REUSE_MARGIN_MS;
 
-/** Refreshes this process has sent and not yet written to the keychain. */
-const refreshesInFlight = new Set<Promise<void>>();
-const STOP_SIGNALS = { SIGTERM: 15, SIGINT: 2, SIGHUP: 1 } as const;
-const STOP_SIGNAL_NAMES = Object.keys(
-	STOP_SIGNALS,
-) as (keyof typeof STOP_SIGNALS)[];
-let stopping = false;
-
-function stopAfterRefreshes(signal: keyof typeof STOP_SIGNALS) {
-	if (stopping) return;
-	stopping = true;
-	void refreshesSettled().then(() => process.exit(128 + STOP_SIGNALS[signal]));
-}
-
-/**
- * Resolves when no refresh is in flight in this process, or after
- * `graceMs`. A command with its own stop handler awaits it before exiting.
- */
-export async function refreshesSettled(
-	graceMs = REFRESH_EXIT_GRACE_MS,
-): Promise<void> {
-	if (refreshesInFlight.size === 0) return;
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	await Promise.race([
-		Promise.allSettled([...refreshesInFlight]),
-		new Promise((done) => {
-			timer = setTimeout(done, graceMs);
-		}),
-	]);
-	clearTimeout(timer);
-}
-
-/**
- * Run a refresh so that a stop signal waits for it. The server rotates the
- * refresh token when it answers, so exiting before the keychain write keeps a
- * spent token, and the next refresh would be a replay.
- */
-async function finishBeforeExit<T>(work: () => Promise<T>): Promise<T> {
-	const done = Promise.withResolvers<void>();
-	refreshesInFlight.add(done.promise);
-	if (refreshesInFlight.size === 1)
-		for (const signal of STOP_SIGNAL_NAMES)
-			process.on(signal, stopAfterRefreshes);
-	try {
-		return await work();
-	} finally {
-		done.resolve();
-		refreshesInFlight.delete(done.promise);
-		if (refreshesInFlight.size === 0 && !stopping)
-			for (const signal of STOP_SIGNAL_NAMES)
-				process.off(signal, stopAfterRefreshes);
-	}
-}
-
 /** One refresh for `audience` with `stored`'s refresh token, written back on success. */
 function refreshOnce(
 	ctx: AuthContext,
@@ -393,6 +353,9 @@ function refreshOnce(
 	stored: StoredGrant,
 	audience: string,
 ): Promise<Result<StoredGrant, AuthError | 'invalid_grant'>> {
+	// The server rotates the refresh token when it answers, so exiting before
+	// the keychain write keeps a spent token, and the next refresh would be
+	// a replay: a stop signal waits for it.
 	return finishBeforeExit(() => sendRefresh(ctx, grant, stored, audience));
 }
 
@@ -460,7 +423,7 @@ export async function accessToken(
 	const cached = outside.data.access[audience];
 	if (cached && usable(ctx, cached)) return Ok(cached);
 
-	return withFileLock(lockPath(ctx, grant), async () => {
+	return holdingGrantLock(ctx, grant, async () => {
 		// Another process may have refreshed while this one waited.
 		const inside = await readGrant(ctx, grant);
 		if (inside.error !== null) return Err(inside.error);
@@ -568,14 +531,14 @@ async function keepGrant(
 					}
 				: {},
 	};
-	const written = await withFileLock(lockPath(ctx, grant), () =>
+	const written = await holdingGrantLock(ctx, grant, () =>
 		writeGrant(ctx, grant, stored),
 	);
 	if (written.error !== null) return Err(written.error);
 	const api = await accessToken(ctx, grant, ctx.deployment.audiences.api);
 	if (api.error !== null) return Err(api.error);
 	const account = await readAccount(ctx, api.data.token);
-	return withFileLock(lockPath(ctx, grant), async () => {
+	return holdingGrantLock(ctx, grant, async () => {
 		const current = await readGrant(ctx, grant);
 		if (current.error !== null) return Err(current.error);
 		const next = { ...(current.data ?? stored), account };
@@ -679,7 +642,7 @@ const CALLBACK_PAGE = (heading: string, text: string) =>
 	);
 
 /**
- * `epicenter auth login --loopback`: the desktop app's sign-in as
+ * `epicenter auth login --desktop`: the desktop app's sign-in as
  * `so.epicenter`, authorization code with S256 PKCE. A one-shot listener on
  * `http://127.0.0.1:<random port>/callback` receives the code; `onUrl` gets
  * the page to open in the browser.
@@ -829,7 +792,7 @@ export async function logout(
 	ctx: AuthContext,
 	grant: GrantKind,
 ): Promise<Result<{ signedOut: boolean; revoked: boolean }, AuthError>> {
-	return withFileLock(lockPath(ctx, grant), async () => {
+	return holdingGrantLock(ctx, grant, async () => {
 		const { data: stored, error } = await readGrant(ctx, grant);
 		if (error !== null) return Err(error);
 		if (stored === null) return Ok({ signedOut: false, revoked: false });

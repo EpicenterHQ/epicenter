@@ -241,8 +241,11 @@ test("paths follow the shell's rule: an absolute override wins, else the release
 	const home = '/home/me';
 	const release = resolveAppPaths({}, home);
 	expect(release.appsDir).toBe('/home/me/Epicenter/Apps');
-	expect(release.approvalsFile).toEndWith('/so.epicenter/approvals.json');
-	expect(release.buildsDir).toEndWith('/so.epicenter/builds');
+	expect(release.approvalsFile).toBe(
+		'/home/me/Library/Application Support/so.epicenter/approvals.json',
+	);
+	expect(release.buildsDir).toBe('/home/me/Library/Caches/so.epicenter/builds');
+	expect(release.commandLink).toBe('/home/me/.local/bin/epicenter');
 	expect(
 		resolveAppPaths(
 			{
@@ -257,7 +260,7 @@ test("paths follow the shell's rule: an absolute override wins, else the release
 		buildsDir: '/c/builds',
 		approvalsFile: '/d/approvals.json',
 		dataDir: '/d',
-		commandLink: '/d/bin/epicenter',
+		commandLink: '/home/me/.local/bin/epicenter',
 		cacheDir: '/c',
 	});
 	expect(resolveAppPaths({ EPICENTER_FOLDER_DIR: '' }, home).appsDir).toBe(

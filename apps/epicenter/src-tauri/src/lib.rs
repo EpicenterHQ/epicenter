@@ -291,7 +291,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             history::save_version::<tauri::Wry>,
             history::sync::<tauri::Wry>,
             history::settle_sync::<tauri::Wry>,
-            history::install_git::<tauri::Wry>,
+            history::install_git,
             installed_apps::list_installed_apps,
             installed_apps::list_repository_apps,
             installed_apps::install_app,
@@ -485,9 +485,12 @@ pub fn run() {
                 }
                 Err(message) => log::warn!("the data folder listing is not watched: {message}"),
             }
-            // Git's configuration runs `<dataDir>/bin/epicenter`; point it
+            // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
+            // An installed app may read `so.epicenter` through a lens, so its
+            // declaration is published before any app opens.
+            app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
             app.manage(desktop_paths);
 
             // The active local model and the unload policy are device-local host
@@ -2048,6 +2051,52 @@ mod tests {
                 &capability,
                 &installed_window_label("so.epicenter.whispering", None)
             ));
+        }
+    }
+
+    /// `AI_CONNECTION_APPS` (whose windows are let into `so.epicenter`) and
+    /// the capabilities that grant `ai_send` name the same apps: every listed
+    /// app's windows are granted it, and every capability that grants it
+    /// selects a listed app's windows (ADR-0564).
+    #[test]
+    fn the_apps_let_into_so_epicenter_are_the_apps_granted_ai_send() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        let granting: Vec<serde_json::Value> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+            .map(|path| serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap())
+            .filter(|capability: &serde_json::Value| {
+                capability["permissions"]
+                    .as_array()
+                    .is_some_and(|permissions| permissions.iter().any(|p| p == "allow-ai-send"))
+            })
+            .collect();
+        for id in AI_CONNECTION_APPS {
+            let label = installed_window_label(id, None);
+            for build in ["development", "production"] {
+                assert!(
+                    granting.iter().any(|capability| {
+                        selects(capability, &label)
+                            && capability["identifier"]
+                                .as_str()
+                                .is_some_and(|name| name.ends_with(build))
+                    }),
+                    "{id}'s {build} windows are granted ai_send"
+                );
+            }
+        }
+        for capability in &granting {
+            let identifier = capability["identifier"].as_str().unwrap();
+            if !identifier.starts_with("installed-") {
+                continue;
+            }
+            assert!(
+                AI_CONNECTION_APPS
+                    .iter()
+                    .any(|id| selects(capability, &installed_window_label(id, None))),
+                "{identifier} grants ai_send to an app not in AI_CONNECTION_APPS"
+            );
         }
     }
 

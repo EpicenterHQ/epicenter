@@ -1,32 +1,9 @@
 /**
- * Every command ADR-0558 names, in the order `--help` lists them. A command
- * with no handler in `cli.ts` parses, shows in `--help` as not built, and
- * exits 2 pointing at its record.
+ * Every command the CLI runs (ADR-0558), in the order `--help` lists them.
+ * Each has a handler in `cli.ts`.
  */
 
 import type { CommandSpec } from './parse.ts';
-
-const ADR_PATHS: Record<string, string> = {
-	'ADR-0520': 'docs/adr/0520-the-cli-acts-on-a-data-folder-by-its-path.md',
-	'ADR-0527':
-		'docs/adr/0527-a-data-folder-may-keep-its-declaration-as-typescript.md',
-	'ADR-0556':
-		'docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md',
-	'ADR-0557':
-		'docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md',
-	'ADR-0558':
-		'docs/adr/0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md',
-	'ADR-0559':
-		'docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md',
-	'ADR-0566':
-		'docs/adr/0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md',
-};
-
-/** `ADR-0558 (docs/adr/0558-….md)`, where a record lives in the repository. */
-export function adrPointer(adr: string) {
-	const path = ADR_PATHS[adr];
-	return path ? `${adr} (${path})` : adr;
-}
 
 export const COMMANDS: readonly CommandSpec[] = [
 	{
@@ -35,7 +12,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 1,
 		summary: 'report each file in a data folder that does not conform',
-		adr: 'ADR-0520',
 	},
 	{
 		path: ['query'],
@@ -44,7 +20,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 2,
 		summary:
 			'describe the tables, or answer one read-only SQL statement over the files that conform',
-		adr: 'ADR-0520',
 	},
 	{
 		path: ['generate'],
@@ -52,7 +27,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 1,
 		summary: 'run <dir>/epicenter.ts and write the epicenter.json it declares',
-		adr: 'ADR-0527',
 	},
 	{
 		path: ['status'],
@@ -60,7 +34,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 1,
 		summary: 'changed files, ahead and behind, and the remote',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['history'],
@@ -69,7 +42,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 1,
 		options: [{ name: 'depth', value: '<n>' }],
 		summary: 'the versions of the folder',
-		adr: 'ADR-0559',
 		hidden: true,
 	},
 	{
@@ -79,7 +51,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 1,
 		options: [{ name: 'message', value: '<text>', short: 'm' }],
 		summary: "commit the folder's edits as a version",
-		adr: 'ADR-0559',
 		hidden: true,
 	},
 	{
@@ -90,14 +61,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		options: [
 			{ name: 'to', value: '<namespace>/<name>' },
 			{ name: 'resolve', value: '<choices.json>' },
-			// Connect to any network remote, as a page's `sync.connect` does.
-			{ name: 'remote', value: '<url>', hidden: true },
 			{ name: 'allow-unrelated', hidden: true },
-			// A page's token for one remote, as `{"credential": …}` on stdin.
-			{ name: 'credential-stdin', hidden: true },
 		],
 		summary: 'fetch, merge by file kind, commit, and push',
-		adr: 'ADR-0558',
 		long: true,
 	},
 	{
@@ -107,7 +73,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		// Git runs it with four: `-- %O %A %B %P`.
 		maxArgs: 4,
 		summary: "make git merge and git pull merge the folder's files by kind",
-		adr: 'ADR-0566',
 	},
 	{
 		path: ['clone'],
@@ -115,7 +80,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 2,
 		summary: 'clone into <dir>, by default ~/Epicenter/<name>',
-		adr: 'ADR-0558',
 		long: true,
 	},
 	{
@@ -124,16 +88,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 0,
 		maxArgs: 0,
 		summary: "the caller's repositories",
-		adr: 'ADR-0558',
-	},
-	{
-		path: ['open'],
-		args: '<dir>',
-		minArgs: 1,
-		maxArgs: 1,
-		options: [{ name: 'app', value: '<id>' }],
-		summary: 'open the folder in Epicenter',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['app', 'list'],
@@ -143,7 +97,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		options: [{ name: 'repository', value: '<url>' }],
 		summary:
 			'the apps installed on this machine, or with --repository the apps in a repository',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['app', 'install'],
@@ -152,7 +105,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 1,
 		options: [{ name: 'folder', value: '<path>' }, { name: 'approve' }],
 		summary: 'install an app from a folder in a Git repository',
-		adr: 'ADR-0558',
 		long: true,
 	},
 	{
@@ -165,7 +117,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 			{ name: 'commit', value: '<sha>', hidden: true },
 		],
 		summary: 'update an installed app',
-		adr: 'ADR-0558',
 		long: true,
 	},
 	{
@@ -174,16 +125,13 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 1,
 		summary: 'remove an installed app',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['auth', 'login'],
 		args: '',
 		minArgs: 0,
 		maxArgs: 0,
-		options: [{ name: 'loopback', hidden: true }],
 		summary: 'sign in with a device code',
-		adr: 'ADR-0558',
 		long: true,
 	},
 	{
@@ -192,7 +140,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 0,
 		maxArgs: 0,
 		summary: 'sign this computer out and revoke its tokens',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['auth', 'status'],
@@ -200,7 +147,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 0,
 		maxArgs: 0,
 		summary: 'who is signed in on this machine',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['auth', 'token'],
@@ -209,7 +155,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 0,
 		options: [{ name: 'resource', value: '<url>' }],
 		summary: 'print an access token, by default for the API',
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['auth', 'git-credential'],
@@ -217,7 +162,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 1,
 		summary: "Git's credential helper for the deployment's Git origin",
-		adr: 'ADR-0558',
 	},
 	{
 		path: ['auth', 'key'],
@@ -226,7 +170,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 2,
 		summary:
 			"an AI connection's endpoint and key in this computer's keychain; set reads them on stdin",
-		adr: 'ADR-0557',
 	},
 	{
 		path: ['send'],
@@ -235,8 +178,15 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 0,
 		summary:
 			'send one request over an AI connection for the desktop app, request on stdin',
-		adr: 'ADR-0557',
 		long: true,
+		hidden: true,
+	},
+	{
+		path: ['declare-epicenter-folder'],
+		args: '',
+		minArgs: 0,
+		maxArgs: 0,
+		summary: "publish so.epicenter's declaration, as the app does at launch",
 		hidden: true,
 	},
 	{
@@ -244,10 +194,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '',
 		minArgs: 0,
 		maxArgs: 0,
-		// `--user-only` is the app's launch call: the per-user link, never `sudo`.
-		options: [{ name: 'dry-run' }, { name: 'user-only', hidden: true }],
-		summary: 'link this binary onto PATH as epicenter',
-		adr: 'ADR-0556',
+		summary: 'link ~/.local/bin/epicenter to this binary',
 		hidden: true,
 	},
 ];

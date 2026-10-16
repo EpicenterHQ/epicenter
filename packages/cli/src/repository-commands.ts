@@ -5,13 +5,11 @@
  *
  * The credential is an access token for the deployment's Git audience, from
  * the grant the command runs under (`--desktop` selects the desktop app's).
- * For terminal Git it arrives through the credential helper that
- * `epicenter sync --to` and `epicenter clone` register in Git's global
- * configuration (`configureGitHelper`). Every `git` this binary runs itself,
- * a clone or a sync's fetch and push, gets it as a header instead, outside
- * every argument, and only for an `https` remote (`hostedCredentials`), so
- * a refresh always runs in this process and never in a `git` it started
- * (ADR-0565).
+ * Every `git` this binary runs itself, a clone or a sync's fetch and push,
+ * gets it as a header, outside every argument, and only for an `https`
+ * remote (`hostedCredentials`), so a refresh always runs in this process and
+ * never in a `git` it started (ADR-0565). A person's own `git` gets it from
+ * the credential helper, which only `epicenter auth login` writes.
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -32,10 +30,8 @@ import {
 	type AuthContext,
 	accessToken,
 	authContext,
-	configureGitHelper,
 	type GrantKind,
 } from './auth.ts';
-import { gitCommand } from './install-command.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 const grantOf = (desktop: boolean): GrantKind =>
@@ -77,33 +73,27 @@ async function refusal(response: Response, url: string): Promise<string> {
 }
 
 /**
- * Register this binary, through its per-user link, as Git's credential
- * helper for the deployment's Git origin, so a plain `git` in this folder
- * signs in too.
+ * The remote `--to` names: `<namespace>/<name>` on this deployment, or any
+ * other remote by its URL.
  */
-export async function registerHelper(ctx: AuthContext) {
-	const configured = await configureGitHelper(ctx, gitCommand());
-	if (configured.error !== null)
-		writeErr(`Plain git will not sign in to Epicenter: ${configured.error}`);
-}
-
-/** The remote `--to <namespace>/<name>` names on this deployment. */
 export function remoteFor(ctx: AuthContext, to: string): string {
 	const path = parseRepositoryPath(to);
-	if (path === undefined)
-		throw new Error(
-			`'${to}' is not <namespace>/<name>: a namespace is 12 characters of a-z and 0-9, and a name is lowercase a-z, 0-9, '.', '_', and '-', starting with a letter or digit`,
-		);
-	return repositoryUrl(ctx.deployment.audiences.git, path);
+	if (path !== undefined)
+		return repositoryUrl(ctx.deployment.audiences.git, path);
+	if (URL.canParse(to)) return to;
+	throw new Error(
+		`'${to}' is neither a URL nor <namespace>/<name>: a namespace is 12 characters of a-z and 0-9, and a name is lowercase a-z, 0-9, '.', '_', and '-', starting with a letter or digit`,
+	);
 }
 
 /** `epicenter repos`: the caller's repositories by namespace. */
 export async function repos(json: boolean, desktop: boolean) {
 	const ctx = authContext();
+	// The listing is folder metadata, served at the Git audience (ADR-0549).
 	const { data, error } = await accessToken(
 		ctx,
 		grantOf(desktop),
-		ctx.deployment.audiences.api,
+		ctx.deployment.audiences.git,
 	);
 	if (error !== null) return fail(error.message, json);
 	let response: Response;
@@ -168,8 +158,6 @@ export async function clone(
 	const dir = resolve(target ?? join(dirname(resolveAppPaths().appsDir), name));
 	if (existsSync(dir) && readdirSync(dir).length > 0)
 		return fail(`${dir} already exists and is not empty`, json);
-	if (parseRepositoryUrl(ctx.deployment.audiences.git, url) !== undefined)
-		await registerHelper(ctx);
 	let cloned: Awaited<ReturnType<typeof runGit>>;
 	try {
 		const credential = await hostedCredentials(ctx, grantOf(desktop))(

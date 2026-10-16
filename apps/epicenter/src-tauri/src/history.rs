@@ -5,44 +5,31 @@
 //! folder this window was granted:
 //!
 //! ```txt
-//! status        epicenter status <root> --json
-//! history       epicenter history <root> --depth <n> --json
-//! save_version  epicenter save-version <root> [--message <text>] --json
-//! sync          epicenter sync <root> [--remote <url>] [--allow-unrelated] --json
-//! settle_sync   epicenter sync <root> --resolve - --json
+//! status        epicenter status <root> --json --desktop
+//! history       epicenter history <root> --depth <n> --json --desktop
+//! save_version  epicenter save-version <root> [--message <text>] --json --desktop
+//! sync          epicenter sync <root> [--to <url>] [--allow-unrelated] --json --desktop
+//! settle_sync   epicenter sync <root> --resolve - --json --desktop
 //! ```
 //!
-//! A page names a scope and nothing else; the root, the fallback author, the
-//! branch, and whether it is an application's folder come from the shell's
-//! registration (`Folders::granted_folder`). A token the page holds for its
-//! remote, and the choices that settle a sync, cross on the child's standard
-//! input, never in its arguments. Each command answers the child's exit code
-//! and its one reply line, which the page decodes (`history-wire.ts` in
-//! `@epicenter/folder`).
+//! A page names a scope and nothing else; the root comes from the shell's
+//! grant (`Folders::granted_root`). The CLI decides the rest itself: who
+//! commits, the branch, whether the folder is an application's own, and
+//! the token for the deployment's Git. The choices that settle a sync cross
+//! on the child's standard input, never in its arguments. Each command
+//! answers the child's exit code and its one reply line, which the page
+//! decodes (`history-wire.ts` in `@epicenter/folder`).
 //!
 //! Each runs through `cli::window_invocation`, with the shell's deployment
 //! and directories, so the shell ends it when its page reloads or the window
-//! closes (`cli::CliChildren`): each child leads its own process group, and
-//! is asked to stop, which ends every `git` it started, then killed with its
-//! group if it has not.
+//! closes (`cli::CliChildren`).
 
 use std::ffi::OsString;
 
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tauri::{Runtime, Webview};
-use tauri_plugin_epicenter_folder::{FolderExt, FolderKind};
+use tauri_plugin_epicenter_folder::FolderExt;
 
 use crate::cli::{failed, window_invocation, CliError, CliExit};
-
-/// A credential the page holds for exactly one remote URL, which the child
-/// sends only to that URL, and only when it is `https`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, specta::Type)]
-pub struct GitCredential {
-    pub url: String,
-    pub username: String,
-    pub password: String,
-}
 
 /// Run one history invocation for `webview`'s grant of `scope`: `command`,
 /// the root, `options`, then `--json`, with `stdin`, as the app's grant. The
@@ -55,32 +42,17 @@ async fn run_history<R: Runtime>(
     options: Vec<OsString>,
     stdin: Option<Vec<u8>>,
 ) -> Result<CliExit, CliError> {
-    let folder = webview
+    let root = webview
         .folders()
-        .granted_folder(scope, webview.label())
+        .granted_root(scope, webview.label())
         .map_err(|grant| CliError::NotGranted { grant })?;
-    let mut args: Vec<OsString> = vec![command.into(), folder.root.into_os_string()];
+    let mut args: Vec<OsString> = vec![command.into(), root.into_os_string()];
     args.extend(options);
     args.push("--json".into());
     window_invocation(webview)?
         .desktop()
-        .env("EPICENTER_AUTHOR_NAME", folder.author.name)
-        .env("EPICENTER_AUTHOR_EMAIL", folder.author.email)
-        .env("EPICENTER_BRANCH", folder.branch)
-        .env(
-            "EPICENTER_FOLDER_KIND",
-            match folder.kind {
-                FolderKind::Application => "application",
-                FolderKind::Data => "data",
-            },
-        )
         .run(&args, stdin, |_| Ok(()))
         .await
-}
-
-/// One JSON object for the child's standard input.
-fn stdin_json(value: serde_json::Value) -> Result<Vec<u8>, CliError> {
-    serde_json::to_vec(&value).map_err(|error| failed(error.to_string()))
 }
 
 /// The folder's changed files, its head, and its remote, ahead and behind.
@@ -120,29 +92,18 @@ pub async fn save_version<R: Runtime>(
     run_history(&webview, &scope, "save-version", options, None).await
 }
 
-/// `sync`'s options and input: `remote` connects first, which the CLI
-/// refuses unless it is a network URL.
-fn sync_invocation(
-    remote: Option<String>,
-    allow_unrelated: bool,
-    credential: Option<GitCredential>,
-) -> Result<(Vec<OsString>, Option<Vec<u8>>), CliError> {
+/// `sync`'s options: `remote` connects first, which the CLI refuses unless
+/// it is a network URL.
+fn sync_options(remote: Option<String>, allow_unrelated: bool) -> Vec<OsString> {
     let mut options: Vec<OsString> = Vec::new();
     if let Some(remote) = remote {
-        options.push("--remote".into());
+        options.push("--to".into());
         options.push(remote.into());
     }
     if allow_unrelated {
         options.push("--allow-unrelated".into());
     }
-    let stdin = match credential {
-        Some(credential) => {
-            options.push("--credential-stdin".into());
-            Some(stdin_json(json!({ "credential": credential }))?)
-        }
-        None => None,
-    };
-    Ok((options, stdin))
+    options
 }
 
 /// Record the folder's edits, fetch, merge by each file's kind, and push. A
@@ -155,32 +116,22 @@ pub async fn sync<R: Runtime>(
     scope: String,
     remote: Option<String>,
     allow_unrelated: bool,
-    credential: Option<GitCredential>,
 ) -> Result<CliExit, CliError> {
-    let (options, stdin) = sync_invocation(remote, allow_unrelated, credential)?;
-    run_history(&webview, &scope, "sync", options, stdin).await
+    let options = sync_options(remote, allow_unrelated);
+    run_history(&webview, &scope, "sync", options, None).await
 }
 
-/// `settle_sync`'s input: the attempt's ID, the choices as the page encoded
-/// them, unparsed so nothing in them changes, and the credential.
-fn settle_input(
-    attempt: &str,
-    choices: &str,
-    credential: Option<&GitCredential>,
-) -> Result<Vec<u8>, CliError> {
+/// `settle_sync`'s input: the attempt's ID and the choices as the page
+/// encoded them, unparsed so nothing in them changes.
+fn settle_input(attempt: &str, choices: &str) -> Result<Vec<u8>, CliError> {
     serde_json::from_str::<serde::de::IgnoredAny>(choices).map_err(|error| CliError::Refused {
         message: format!("the choices are not JSON: {error}"),
     })?;
-    let mut input = format!(
-        "{{\"attempt\":{},\"choices\":{choices}",
+    Ok(format!(
+        "{{\"attempt\":{},\"choices\":{choices}}}",
         serde_json::to_string(attempt).map_err(|error| failed(error.to_string()))?
-    );
-    if let Some(credential) = credential {
-        input.push_str(",\"credential\":");
-        input.push_str(&serde_json::to_string(credential).map_err(|error| failed(error.to_string()))?);
-    }
-    input.push('}');
-    Ok(input.into_bytes())
+    )
+    .into_bytes())
 }
 
 /// Settle the sync attempt this folder recorded, named by its ID, with one
@@ -193,50 +144,25 @@ pub async fn settle_sync<R: Runtime>(
     scope: String,
     attempt: String,
     choices: String,
-    credential: Option<GitCredential>,
 ) -> Result<CliExit, CliError> {
-    let mut options: Vec<OsString> = vec!["--resolve".into(), "-".into()];
-    if credential.is_some() {
-        options.push("--credential-stdin".into());
-    }
-    let input = settle_input(&attempt, &choices, credential.as_ref())?;
+    let options: Vec<OsString> = vec!["--resolve".into(), "-".into()];
+    let input = settle_input(&attempt, &choices)?;
     run_history(&webview, &scope, "sync", options, Some(input)).await
 }
 
-/// Start what gives this computer a `git`, after the CLI answered
-/// `GitMissing` (ADR-0559): on macOS the Command Line Tools installer, a
-/// one-time step; on Windows the Git for Windows download page. Elsewhere a
-/// package manager installs it, which this cannot start.
+/// Start the Command Line Tools installer, which gives this Mac a `git`,
+/// after the CLI answered `GitMissing` (ADR-0559). It is a one-time step.
 #[tauri::command]
 #[specta::specta]
-pub async fn install_git<R: Runtime>(webview: Webview<R>) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = webview;
-        let status = tokio::process::Command::new("/usr/bin/xcode-select")
-            .arg("--install")
-            .status()
-            .await
-            .map_err(|error| format!("the Command Line Tools installer could not start: {error}"))?;
-        // It exits 1 when the tools are already installed or the installer
-        // is already open; either way there is nothing more to start.
-        let _ = status;
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        webview
-            .app_handle()
-            .opener()
-            .open_url("https://gitforwindows.org/", None::<String>)
-            .map_err(|error| error.to_string())
-    }
-    #[cfg(not(any(target_os = "macos", windows)))]
-    {
-        let _ = webview;
-        Err("Install git with your system's package manager, then try again.".to_string())
-    }
+pub async fn install_git() -> Result<(), String> {
+    // It exits 1 when the tools are already installed or the installer is
+    // already open; either way there is nothing more to start.
+    tokio::process::Command::new("/usr/bin/xcode-select")
+        .arg("--install")
+        .status()
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("the Command Line Tools installer could not start: {error}"))
 }
 
 #[cfg(test)]
@@ -249,7 +175,8 @@ mod tests {
     use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
     use tauri::utils::acl::ExecutionContext;
     use tauri::WebviewWindowBuilder;
-    use tauri_plugin_epicenter_folder::{Author, FolderConfig, ScopeConfig};
+    use serde_json::json;
+    use tauri_plugin_epicenter_folder::{FolderConfig, ScopeConfig};
 
     use super::*;
     use crate::app_data::DesktopPaths;
@@ -311,9 +238,9 @@ mod tests {
     }
 
     /// Each history command runs only for a folder this window was granted,
-    /// as the one fixed invocation, with the shell's author and kind; save
-    /// version and sync reach a local bare remote; and a sync that needs
-    /// choices is settled by a second child from the attempt's ID alone.
+    /// as the one fixed invocation, with the CLI's own author; save version
+    /// and sync reach a local bare remote; and a sync that needs choices is
+    /// settled by a second child from the attempt's ID alone.
     #[tokio::test]
     async fn the_history_commands_run_the_cli_on_the_granted_folder_only() {
         std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
@@ -327,13 +254,7 @@ mod tests {
         git(&root, &["init", "--quiet", "--initial-branch=main"]);
         git(&root, &["config", "remote.origin.url", bare.to_str().unwrap()]);
         let app = app_with(
-            FolderConfig::data(
-                &root,
-                Author {
-                    name: "Shell Author".into(),
-                    email: "shell@example.test".into(),
-                },
-            ),
+            FolderConfig::data(&root),
             DesktopPaths {
                 data_dir: project.join("data"),
                 folder_dir: project.join("Epicenter"),
@@ -390,10 +311,9 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(saved.code, 0, "{}", saved.stderr);
-        assert_eq!(git(&root, &["log", "-1", "--format=%an %s"]), "Shell Author First");
+        assert_eq!(git(&root, &["log", "-1", "--format=%an %s"]), "Epicenter First");
 
-        let (options, stdin) = sync_invocation(None, false, None).unwrap();
-        let synced = run_history(&webview(&folders), "data:notes", "sync", options, stdin)
+        let synced = run_history(&webview(&folders), "data:notes", "sync", sync_options(None, false), None)
             .await
             .unwrap();
         assert_eq!(synced.code, 0, "{}", synced.stderr);
@@ -410,8 +330,7 @@ mod tests {
         git(&device, &["commit", "--quiet", "-am", "Theirs"]);
         git(&device, &["push", "--quiet", "origin", "main"]);
         fs::write(root.join("a.txt"), "mine\n").unwrap();
-        let (options, stdin) = sync_invocation(None, false, None).unwrap();
-        let held = run_history(&webview(&folders), "data:notes", "sync", options, stdin)
+        let held = run_history(&webview(&folders), "data:notes", "sync", sync_options(None, false), None)
             .await
             .unwrap();
         assert_eq!(held.code, 1, "{}", held.stderr);
@@ -419,7 +338,7 @@ mod tests {
         let attempt = &held["result"]["error"]["attempt"];
         let conflict = attempt["conflicts"][0]["id"].as_str().unwrap();
         let choices = json!({ conflict: { "kind": "replace", "value": "both\n" } }).to_string();
-        let input = settle_input(attempt["id"].as_str().unwrap(), &choices, None).unwrap();
+        let input = settle_input(attempt["id"].as_str().unwrap(), &choices).unwrap();
         let settled = run_history(
             &webview(&folders),
             "data:notes",
@@ -443,13 +362,13 @@ mod tests {
     #[test]
     fn settle_input_carries_the_choices_unparsed_and_refuses_what_is_not_json() {
         let choices = r#"{"[\"setting\",\"kv.json\",\"n\"]":{"kind":"replace","value":1.00000000000000000001}}"#;
-        let input = settle_input("id-1", choices, None).unwrap();
+        let input = settle_input("id-1", choices).unwrap();
         assert_eq!(
             String::from_utf8(input).unwrap(),
             format!(r#"{{"attempt":"id-1","choices":{choices}}}"#)
         );
         assert!(matches!(
-            settle_input("id-1", "{", None),
+            settle_input("id-1", "{"),
             Err(CliError::Refused { .. })
         ));
     }

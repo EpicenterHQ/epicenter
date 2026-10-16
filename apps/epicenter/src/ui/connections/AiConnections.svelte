@@ -3,7 +3,10 @@
 	import { openFolder } from '@epicenter/folder/tauri';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
-	import { EPICENTER_FOLDER_ID, epicenterDefinition } from '../../folders/epicenter-folder.ts';
+	import {
+		EPICENTER_FOLDER_ID,
+		epicenterDefinition,
+	} from '@epicenter/cli/epicenter-folder';
 	import ConnectionList from './ConnectionList.svelte';
 
 	/**

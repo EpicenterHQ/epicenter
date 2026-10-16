@@ -50,8 +50,6 @@ const ENV = {
 	GIT_AUTHOR_EMAIL: 'remote@example.test',
 	GIT_COMMITTER_NAME: 'Remote',
 	GIT_COMMITTER_EMAIL: 'remote@example.test',
-	EPICENTER_AUTHOR_NAME: 'Desktop',
-	EPICENTER_AUTHOR_EMAIL: 'desktop@example.test',
 };
 
 const temporary: string[] = [];
@@ -189,7 +187,7 @@ test('status, save-version, and history read and record the folder', async () =>
 		message: 'Add b',
 	});
 	expect(await git(folder, 'log', '-1', '--format=%an <%ae> %s')).toBe(
-		'Desktop <desktop@example.test> Add b',
+		'Epicenter <epicenter@localhost> Add b',
 	);
 	const again = await reply('saveVersion', ['save-version', folder]);
 	expect(again.reply.result.status).toBe('unchanged');

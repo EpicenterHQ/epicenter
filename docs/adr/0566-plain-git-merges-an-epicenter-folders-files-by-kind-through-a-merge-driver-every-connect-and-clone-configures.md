@@ -2,10 +2,10 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command list: it adds the top-level folder command `epicenter merge-driver <dir>`, which Git also runs with four arguments; and at `install-command`, which always remakes `<dataDir>/bin/epicenter` at the running binary and links `/usr/local/bin/epicenter` (`~/.local/bin/epicenter` on Linux) to that link rather than into the bundle.
-- **Relates:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (all desktop Git runs in the CLI; Sync never runs `git merge`), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (`mergeFile`, the one merge by kind).
-- **Built:** `epicenter merge-driver` (`packages/cli/src/merge-driver.ts`) over `gitMergeKind` and `mergeForGit` (`packages/folder/src/merge-driver.ts`) and `markConflicts` (`packages/folder/src/git/merge-lines.ts`); the configuration written by `epicenter merge-driver <dir>`, by `epicenter sync <dir>` with `--remote <url>` or `--to <namespace>/<name>`, and by `epicenter clone`; the per-user link `<dataDir>/bin/epicenter` (`gitCommand` and `install-command --user-only` in `packages/cli/src/install-command.ts`, and the launch call `spawn_command_link_refresh` in `apps/epicenter/src-tauri/src/cli.rs`).
-- **Unbuilt:** an `NSIS_HOOK_PREUNINSTALL` that removes the credential helper and the driver on Windows uninstall; `install-command` on Windows; Settings showing that a launch under App Translocation left the link alone, which today only the log records.
+- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command list: it adds the top-level folder command `epicenter merge-driver <dir>`, which Git also runs with four arguments; and at `install-command`, which points the one command link `~/.local/bin/epicenter` at the running binary, never with `sudo`.
+- **Relates:** [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md) (macOS only), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (all desktop Git runs in the CLI; Sync never runs `git merge`), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (`mergeFile`, the one merge by kind).
+- **Built:** `epicenter merge-driver` (`packages/cli/src/merge-driver.ts`) over `gitMergeKind` and `mergeForGit` (`packages/folder/src/merge-driver.ts`) and `markConflicts` (`packages/folder/src/git/merge-lines.ts`); the configuration written by `epicenter merge-driver <dir>`, by `epicenter sync <dir> --to <namespace>/<name> | <url>`, and by `epicenter clone`; the command link `~/.local/bin/epicenter` (`gitCommand` and `install-command` in `packages/cli/src/install-command.ts`, and the launch call `spawn_command_link_refresh` in `apps/epicenter/src-tauri/src/cli.rs`).
+- **Unbuilt:** Settings showing that a launch under App Translocation, or a regular file at `~/.local/bin/epicenter`, left the link alone, which today only the log records; Settings telling a person whose `PATH` lacks `~/.local/bin` to add it.
 
 ## Context
 
@@ -48,7 +48,7 @@ folder without a remote can be configured too.
 ```txt
 .git/info/attributes   * merge=epicenter
 .git/config            merge.epicenter.name   = Epicenter folder merge
-                       merge.epicenter.driver = '<dataDir>/bin/epicenter' merge-driver -- %O %A %B %P
+                       merge.epicenter.driver = '/Users/<you>/.local/bin/epicenter' merge-driver -- %O %A %B %P
 ```
 
 Nothing is committed. A committed `.gitattributes` could not define the
@@ -58,47 +58,37 @@ on that machine. The engine's own Sync is unchanged: it never runs
 `git merge`, and its `git check-attr` calls ask only for the attributes that
 normalize bytes, not `merge`.
 
-**Every Git configuration Epicenter writes runs one per-user link,
-`<dataDir>/bin/epicenter`, which each launch points at the running binary.**
+**Every Git configuration Epicenter writes runs one command link,
+`~/.local/bin/epicenter`, which each launch points at the running binary.**
 That covers `merge.epicenter.driver` and the global credential helper
-(ADR-0565). `<dataDir>` is `resolveAppPaths().dataDir`
-(`packages/cli/src/app-paths.ts`), and the link is its `commandLink`:
+(ADR-0565). The link is `resolveAppPaths().commandLink`
+(`packages/cli/src/app-paths.ts`), one per person whichever build runs:
 
 ```txt
-~/Library/Application Support/so.epicenter/bin/epicenter -> /Applications/Epicenter.app/Contents/MacOS/epicenter-cli
-/usr/local/bin/epicenter                                 -> ~/Library/Application Support/so.epicenter/bin/epicenter
+~/.local/bin/epicenter -> /Applications/Epicenter.app/Contents/MacOS/epicenter-cli
 ```
 
 The configured path is absolute because a Git client started from the Finder
-gets launchd's `PATH` (ADR-0559), and single-quoted for `sh` because it holds
-a space.
+gets launchd's `PATH` (ADR-0559), and single-quoted for `sh`. A terminal
+reaches the same link on `PATH` once a person adds `~/.local/bin` to it, one
+line in their shell profile.
 
-- `epicenter install-command` always remakes the per-user link at the
-  running binary's real path, as a link staged beside it and renamed over
-  it. It then points the `PATH` link (`/usr/local/bin/epicenter`, or
-  `~/.local/bin/epicenter` on Linux) at the per-user link, asking before
-  `sudo` only when that directory cannot be written or made. Once made, the
-  `PATH` link never changes again when the app moves.
-- The app runs `epicenter install-command --user-only --json` at every
-  launch (`spawn_command_link_refresh`), which remakes only the per-user link
-  and never asks for `sudo`.
-- `auth login`, `merge-driver <dir>`, and every other command that writes
-  Git configuration remake the link first (`gitCommand`), so a terminal that
-  never opened the app gets the same path.
+- `epicenter install-command` points the link at the running binary's real
+  path, as a link staged beside it and renamed over it. It never needs
+  `sudo`. A regular file at the link's path is someone else's and is refused.
+- A release build runs `epicenter install-command --json` at every launch
+  (`spawn_command_link_refresh`). A development build runs the CLI from
+  source and leaves the link to the release build.
+- Every command that writes Git configuration names the link and makes
+  nothing (`gitCommand`), whether it runs from the bundle, the link, or
+  source, so a development run never writes a checkout into the global
+  configuration.
 - A binary under macOS's App Translocation
   (`/private/var/folders/.../AppTranslocation/`) leaves the link as it is: its
   path disappears when the app quits. The command says so, and the launch
   call exits 1 and is logged.
 - A `git` the CLI itself spawns may name the running binary's own path, which
   exists as long as the process does.
-
-**Windows and Linux differ only where a link cannot serve.**
-
-| Platform | What Git's configuration names |
-| --- | --- |
-| macOS, Linux `.deb` or `.rpm` | `<dataDir>/bin/epicenter`, linked to the installed binary |
-| Linux AppImage (`APPIMAGE` set) | `<dataDir>/bin/epicenter`, a copy of the binary, recopied when its size or modification time differs, because the AppImage's own path is a mount that disappears when it quits |
-| Windows | the installed `epicenter-cli.exe` itself: the NSIS installer puts it in a fixed per-user directory, and a link needs Developer Mode or an administrator |
 
 **The `--` keeps the path a path.** Git substitutes `%P` as one quoted
 argument, but the CLI's parser would still read a file at the repository
@@ -129,9 +119,8 @@ failure of the driver's own. The driver's exits are 0 and 1 only, and it
 never reaches the network.
 
 **Connecting configures the driver; nobody opts in.** The CLI writes the
-configuration after every sync that connects a remote (`sync --remote`,
-which the desktop app runs, and `sync --to`) and after every `epicenter
-clone`, and when a person runs `epicenter merge-driver <dir>`. A repository
+configuration after every sync that connects a remote (`sync --to`,
+which the desktop app runs with a URL) and after every `epicenter clone`, and when a person runs `epicenter merge-driver <dir>`. A repository
 Epicenter neither connected nor cloned keeps Git's text merge until that
 command runs. A failure to configure is a line on stderr, not a failed sync
 or clone, since Git's text merge loses nothing.
@@ -145,8 +134,8 @@ or clone, since Git's text merge loses nothing.
   9 ms for `git merge-file`. A merge where both sides changed 100 rows took
   4.07 seconds.
 - Moving the app breaks the driver and the credential helper only until its
-  next launch, which remakes the per-user link; no repository and no global
-  configuration is rewritten, and the `PATH` link needs no `sudo` again.
+  next launch, which points the command link at it again; no repository and
+  no global configuration is rewritten.
 - After Epicenter is uninstalled, the link points at nothing. The credential
   helper fails with `sh`'s "No such file or directory", and Git asks for a
   username, or fails with "terminal prompts disabled" where it cannot ask.
@@ -155,13 +144,14 @@ or clone, since Git's text merge loses nothing.
   would have succeeded. Nothing is lost; the person resolves each by hand
   until they remove the entry, and `git config --unset merge.epicenter.driver`
   returns the repository to Git's text merge.
-- The `PATH` link is machine-wide but points into one person's
-  `~/Library`, which other accounts cannot read. Another account on the same
-  Mac runs `install-command` to point it at their own link.
-- An AppImage keeps a copy of the binary, about 79 MB, in each person's
-  `<dataDir>/bin`, and Git can still run it after the AppImage is deleted.
-- A development build runs the CLI from source, has no binary to link, and
-  writes `bun` and the entry instead.
+- A person whose `PATH` lacks `~/.local/bin` adds it once to their shell
+  profile before a terminal finds `epicenter`; Git's configuration does not
+  depend on it.
+- The link is per person: each account on one Mac has its own, pointed by
+  its own launches.
+- A development build's Git configuration names the same link, which the
+  release build keeps pointed at the bundle; with no release build on the
+  machine, it points at nothing until one launches.
 - A machine or clone that is not configured, and GitHub's merges, still
   merge these files as text.
 
@@ -181,20 +171,19 @@ or clone, since Git's text merge loses nothing.
   still need the review path to re-derive units; Sync keeps merging in
   process (ADR-0559).
 - **The bundle's own path (`process.execPath`) in the configuration.** It
-  breaks when the app moves, and under App Translocation or an AppImage it
-  names a path that disappears when the app quits.
+  breaks when the app moves, and under App Translocation it names a path
+  that disappears when the app quits.
 - **Bare `epicenter`, found on `PATH`.** A Git client started from the
-  Finder gets launchd's `PATH`, which lacks `/usr/local/bin` (ADR-0559).
-- **`/usr/local/bin/epicenter` as the configured path.** It needs `sudo` to
-  make, is shared by every account, and linked into the bundle it breaks on
-  a move like the bundle's path.
-- **A copy of the binary in `<dataDir>/bin` on every platform.** It survives
-  an uninstall, but costs about 79 MB per person, and Git keeps running a
-  binary that mints tokens after the person removed Epicenter. Only an
-  AppImage copies, because its own path is temporary.
+  Finder gets launchd's `PATH`, which lacks `~/.local/bin` (ADR-0559).
+- **A per-user link under `<dataDir>/bin`, with `/usr/local/bin/epicenter`
+  linked to it.** Two links and two refreshers, and the `PATH` link needs
+  `sudo`, is shared by every account, and points into one person's
+  `~/Library`.
+- **A copy of the binary instead of a link.** It survives an uninstall, but
+  costs about 79 MB per person, and Git keeps running a binary that mints
+  tokens after the person removed Epicenter.
 - **A shell wrapper in `merge.epicenter.driver` that runs `git merge-file`
   when the link points at nothing (exit 127).** It gives Git's text merge
-  after an uninstall, but puts shell syntax in `.git/config`, depends on
-  Git's `sh` under MinGit on Windows (ADR-0559's open check), and leaves the
+  after an uninstall, but puts shell syntax in `.git/config` and leaves the
   credential helper failing the same way. Plain conflicts after an uninstall
   are accepted instead.

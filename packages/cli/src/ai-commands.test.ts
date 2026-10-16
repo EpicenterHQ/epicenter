@@ -268,10 +268,7 @@ test('a missing key, an Epicenter connection, a signed-out account, a redirect, 
 	expect(JSON.stringify(account.events[0])).toContain('epicenter auth login');
 
 	const signedOut = await send(
-		encodeSendInput(
-			{ kind: 'account', audience: 'git' },
-			request('api/git/connect'),
-		),
+		encodeSendInput({ kind: 'account', audience: 'git' }, request('api/repos')),
 	);
 	expect(signedOut.code).toBe(2);
 	expect(signedOut.events).toEqual([

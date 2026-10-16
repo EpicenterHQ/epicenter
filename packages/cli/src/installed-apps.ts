@@ -38,7 +38,6 @@
  * `apps` table, as it records any row.
  */
 
-import { Database } from 'bun:sqlite';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
@@ -58,7 +57,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
-import { createGitRunner } from '@epicenter/folder/bun';
+import { createGitRunner, holdingFileLock } from '@epicenter/folder/bun';
 import type { AppPaths } from './app-paths.ts';
 
 /** The file that makes the folder holding it an app. */
@@ -494,28 +493,15 @@ function runBun(
  * exclusive SQLite transaction on `<cacheDir>/apps.lock`, which the system
  * releases if the process dies.
  */
-async function exclusively<T>(paths: AppPaths, work: () => Promise<T>) {
-	await mkdir(paths.cacheDir, { recursive: true });
-	const lock = new Database(join(paths.cacheDir, 'apps.lock'), {
-		create: true,
-	});
-	try {
-		lock.exec('PRAGMA busy_timeout = 0');
-		try {
-			lock.exec('BEGIN EXCLUSIVE');
-		} catch {
-			throw new Error(
-				'Epicenter is already installing or building an app. Try again when it finishes.',
-			);
-		}
-		try {
-			return await work();
-		} finally {
-			lock.exec('COMMIT');
-		}
-	} finally {
-		lock.close();
-	}
+function exclusively<T>(paths: AppPaths, work: () => Promise<T>) {
+	return holdingFileLock(
+		join(paths.cacheDir, 'apps.lock'),
+		{
+			waitMs: 0,
+			held: 'Epicenter is already installing or building an app. Try again when it finishes.',
+		},
+		work,
+	);
 }
 
 // ---------------------------------------------------------------------------

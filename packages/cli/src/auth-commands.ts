@@ -6,7 +6,7 @@
  * passes.
  *
  * `auth login --json` prints NDJSON: `{"device": {...}}` with the code and
- * link, or `{"open": "<url>"}` for `--loopback`, then one result line,
+ * link, or `{"open": "<url>"}` with `--desktop`, then one result line,
  * `{"signedIn": {...}}` or `{"error"}`. `auth git-credential` speaks Git's
  * credential protocol and takes no `--json`.
  */
@@ -70,16 +70,19 @@ function signedInResult(
 	};
 }
 
-/** `epicenter auth login [--loopback]`. */
+/**
+ * `epicenter auth login`: the device grant. With `--desktop`, the desktop
+ * app's sign-in as `so.epicenter` through a loopback redirect, which only
+ * Settings runs.
+ */
 export async function authLogin(
-	options: Options,
 	json: boolean,
 	desktop: boolean,
 	ctx: AuthContext = authContext(),
 	helperCommand?: readonly string[],
 	env: Record<string, string | undefined> = process.env,
 ): Promise<number> {
-	if (options.loopback === true) {
+	if (desktop) {
 		const { data, error } = await loginWithLoopback(ctx, {
 			onUrl: (url) => {
 				if (json) writeJson({ open: url });
@@ -99,11 +102,6 @@ export async function authLogin(
 			);
 		return EXIT.ok;
 	}
-	if (desktop)
-		return fail(
-			'The Epicenter app signs in with epicenter auth login --loopback.',
-			json,
-		);
 	const { data, error } = await loginWithDevice(ctx, {
 		onCode: (code) => {
 			if (json) writeJson({ device: code });

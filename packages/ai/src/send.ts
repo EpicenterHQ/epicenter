@@ -822,3 +822,100 @@ export function createResponseReader() {
 		response: settled.promise,
 	};
 }
+
+/**
+ * The desktop shell's own last line on a send's Channel, after the CLI's
+ * lines: the run ended (`end_channel` in `apps/epicenter/src-tauri/src/cli.rs`).
+ * Channel lines can arrive after the command resolves, so this line, not the
+ * command's result, says that no other line is coming.
+ */
+export type ShellExitLine = {
+	readonly type: 'exit';
+	readonly code: number;
+	readonly stderr: string;
+};
+
+/** A {@link SendRequest} as the shell's send commands take it: the body in base64. */
+export type ShellSendRequest = {
+	method: string;
+	path: string;
+	headers: [string, string][];
+	body: string | null;
+};
+
+/**
+ * What a shell command's rejection says: the shell's refusal when it is one
+ * (Tauri rejects with a command's `Err` value), and `Failed` with the reason
+ * otherwise.
+ */
+function rejectionOf(cause: unknown): SendFailure {
+	if (
+		typeof cause === 'object' &&
+		cause !== null &&
+		!(cause instanceof Error) &&
+		'name' in cause &&
+		typeof cause.name === 'string' &&
+		'message' in cause &&
+		typeof cause.message === 'string'
+	)
+		return { name: cause.name, message: cause.message };
+	return { name: 'Failed', message: describe(cause) };
+}
+
+/**
+ * Send `request` through a desktop shell command that runs `epicenter send`
+ * and streams its lines back over a Channel, and resolve with the response
+ * as it streams in.
+ *
+ * `run` starts the command with the request and the handler for its
+ * Channel's lines, and resolves with the command's refusal, or null. Rejects,
+ * named, when no response came back: the CLI's error line, the command's
+ * refusal or rejection, a line that does not read, or the shell's exit line
+ * before a head. After the head, those fail the body instead.
+ */
+export async function sendThroughShell(
+	request: SendRequest,
+	run: (
+		request: ShellSendRequest,
+		onLine: (line: string) => void,
+	) => Promise<SendFailure | null>,
+): Promise<Response> {
+	const reader = createResponseReader();
+	function onLine(line: string) {
+		let event: SendEvent | ShellExitLine;
+		try {
+			event = JSON.parse(line);
+		} catch {
+			reader.fail({
+				name: 'InvalidResponse',
+				message: 'Epicenter answered with a line that does not read',
+			});
+			return;
+		}
+		// The run ended, so a response not ended by now never will be.
+		if (event.type === 'exit')
+			reader.fail({
+				name: 'Incomplete',
+				message: `the epicenter command exited ${event.code}${event.stderr.trim() ? `: ${event.stderr.trim()}` : ''}`,
+			});
+		else reader.push(event);
+	}
+	run(
+		{
+			method: request.method,
+			path: request.path,
+			headers: request.headers.map(([name, value]) => [name, value]),
+			body: request.body ? bytesToBase64(request.body) : null,
+		},
+		onLine,
+	).then(
+		(refusal) => {
+			if (refusal !== null) reader.fail(refusal);
+		},
+		(cause: unknown) => reader.fail(rejectionOf(cause)),
+	);
+	const { data: response, error } = await reader.response;
+	if (error !== null)
+		throw Object.assign(new Error(error.message), { name: error.name });
+	return response;
+}

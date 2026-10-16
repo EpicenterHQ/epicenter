@@ -19,16 +19,15 @@
 //! deadlock on a full pipe. Lines are read whole, however long, and the run
 //! ends only when stdout closes and the child exits.
 //!
-//! A run that ends early, because its listener refused a line or its future
-//! was dropped, asks the child to stop and kills it only after
-//! [`STOP_GRACE`], so a refresh the child already sent reaches the keychain
-//! (ADR-0565).
+//! A run that ends early, because its listener refused a line, its page
+//! ended, or its future was dropped, asks the child to stop and kills it
+//! only after [`STOP_GRACE`], so a refresh the child already sent reaches
+//! the keychain (ADR-0565).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -41,6 +40,7 @@ use tauri::{AppHandle, Manager, Runtime, Webview};
 use tauri_plugin_epicenter_folder::{FolderExt, GrantError};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio::sync::Notify;
 
 use crate::app_data::DesktopPaths;
 
@@ -52,8 +52,10 @@ const STDERR_TAIL_BYTES: usize = 64 * 1024;
 /// the keychain before it exits (ADR-0565), so this is longer.
 pub(crate) const STOP_GRACE: Duration = Duration::from_secs(3);
 
-/// A child this run owns until it is waited for. Dropped before then, it is
-/// asked to stop and killed only after [`STOP_GRACE`].
+/// A child this run owns until it is waited for. Dropped before then, because
+/// its listener refused a line, its page ended, or its future was dropped,
+/// it is asked to stop and killed only after [`STOP_GRACE`]. This is the
+/// shell's one way of ending a CLI child.
 struct Running(Option<Child>);
 
 impl Running {
@@ -88,8 +90,7 @@ impl Drop for Running {
 }
 
 /// Ask `child` and its process group to stop, then kill them if they still
-/// run after [`STOP_GRACE`]. Windows has no stop signal, so the child is
-/// killed at once there.
+/// run after [`STOP_GRACE`].
 async fn stop(mut child: Child) {
     #[cfg(unix)]
     {
@@ -115,34 +116,34 @@ fn signal_group(child: &Child, signal: libc::c_int) {
     }
 }
 
-/// The `epicenter` children each window's page started, by window label.
-/// Cloning shares the one record, so a run can hold it across its awaits.
+/// The `epicenter` children each window's page started, by window label,
+/// each as the signal that ends its run. Cloning shares the one record, so a
+/// run can hold it across its awaits.
 #[derive(Clone, Default)]
 pub struct CliChildren {
-    running: Arc<Mutex<HashMap<String, Vec<(u32, Arc<AtomicBool>)>>>>,
+    running: Arc<Mutex<HashMap<String, Vec<Arc<Notify>>>>>,
 }
 
 impl CliChildren {
-    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<(u32, Arc<AtomicBool>)>>> {
+    fn state(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Arc<Notify>>>> {
         self.running
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn start(&self, window: &str, pid: u32) -> Arc<AtomicBool> {
-        let live = Arc::new(AtomicBool::new(true));
+    fn start(&self, window: &str) -> Arc<Notify> {
+        let end = Arc::new(Notify::new());
         self.state()
             .entry(window.to_string())
             .or_default()
-            .push((pid, Arc::clone(&live)));
-        live
+            .push(Arc::clone(&end));
+        end
     }
 
-    fn finish(&self, window: &str, live: &Arc<AtomicBool>) {
-        live.store(false, Ordering::SeqCst);
+    fn finish(&self, window: &str, end: &Arc<Notify>) {
         let mut state = self.state();
         if let Some(children) = state.get_mut(window) {
-            children.retain(|(_, other)| !Arc::ptr_eq(other, live));
+            children.retain(|other| !Arc::ptr_eq(other, end));
             if children.is_empty() {
                 state.remove(window);
             }
@@ -150,12 +151,13 @@ impl CliChildren {
     }
 
     /// The page in `window` is over: it reloaded, navigated, or the window
-    /// was destroyed. End every child it started, with the processes each
-    /// started.
+    /// was destroyed. Every run it started ends the way a run that ends
+    /// early does ([`Running`]): its child and the processes the child
+    /// started are asked to stop, and killed after [`STOP_GRACE`].
     pub fn page_ended(&self, window: &str) {
-        let children = self.state().remove(window).unwrap_or_default();
-        for (pid, live) in children {
-            end_group(pid, live);
+        for end in self.state().remove(window).unwrap_or_default() {
+            // A run not yet waiting keeps the permit and ends when it waits.
+            end.notify_one();
         }
     }
 
@@ -163,45 +165,6 @@ impl CliChildren {
     #[cfg(test)]
     pub(crate) fn running(&self, window: &str) -> usize {
         self.state().get(window).map_or(0, Vec::len)
-    }
-}
-
-/// Ask the child `pid` to stop, which ends the `git` it runs, then kill its
-/// process group if it is still running after `STOP_GRACE`.
-fn end_group(pid: u32, live: Arc<AtomicBool>) {
-    #[cfg(unix)]
-    {
-        let Ok(group) = libc::pid_t::try_from(pid) else {
-            return;
-        };
-        // SAFETY: `kill` takes no pointers. The group is the one the child
-        // leads (`process_group(0)`); `live` says it has not been reaped.
-        unsafe {
-            libc::kill(-group, libc::SIGTERM);
-        }
-        std::thread::spawn(move || {
-            std::thread::sleep(STOP_GRACE);
-            if live.load(Ordering::SeqCst) {
-                // SAFETY: as above.
-                unsafe {
-                    libc::kill(-group, libc::SIGKILL);
-                }
-            }
-        });
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        if live.load(Ordering::SeqCst) {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/T", "/F", "/PID", &pid.to_string()])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .creation_flags(CREATE_NO_WINDOW)
-                .status();
-        }
     }
 }
 
@@ -223,13 +186,8 @@ pub(crate) fn bundled_program() -> Result<Program, String> {
     let directory = executable
         .parent()
         .ok_or("the Epicenter executable has no parent directory")?;
-    let filename = if cfg!(windows) {
-        "epicenter-cli.exe"
-    } else {
-        "epicenter-cli"
-    };
     Ok(Program {
-        program: directory.join(filename),
+        program: directory.join("epicenter-cli"),
         prefix: Vec::new(),
     })
 }
@@ -356,6 +314,7 @@ impl Invocation {
     }
 
     /// One more variable in the child's environment.
+    #[cfg(test)]
     pub(crate) fn env(mut self, name: &str, value: impl Into<OsString>) -> Self {
         self.env.push((name.into(), value.into()));
         self
@@ -381,15 +340,13 @@ impl Invocation {
         if self.desktop {
             args.push("--desktop".into());
         }
-        let mut live = None;
-        let exit = run_child(&self.program, &args, &self.env, stdin, on_line, |pid| {
-            if let Some((children, window)) = &self.owner {
-                live = Some(children.start(window, pid));
-            }
-        })
-        .await;
-        if let (Some((children, window)), Some(live)) = (&self.owner, &live) {
-            children.finish(window, live);
+        let end = self
+            .owner
+            .as_ref()
+            .map(|(children, window)| children.start(window));
+        let exit = run_child(&self.program, &args, &self.env, stdin, on_line, end.clone()).await;
+        if let (Some((children, window)), Some(end)) = (&self.owner, &end) {
+            children.finish(window, end);
         }
         exit
     }
@@ -430,17 +387,25 @@ pub(crate) fn window_invocation<R: Runtime>(webview: &Webview<R>) -> Result<Invo
     Ok(invocation(webview.app_handle())?.owned_by(&children, webview.label()))
 }
 
-/// Run `program` with `args` and `env`, calling `started` with the child's
-/// process ID once it runs. On Unix the child leads its own process group,
-/// so the shell can end it with every process it started ([`CliChildren`]).
+/// Run `program` with `args` and `env` until it exits, or until `end` is
+/// signalled ([`CliChildren::page_ended`]). The child leads its own process
+/// group, so stopping it ends every process it started.
 async fn run_child(
     program: &Program,
     args: &[OsString],
     env: &[(OsString, OsString)],
     stdin: Option<Vec<u8>>,
     mut on_line: impl FnMut(String) -> Result<(), String>,
-    started: impl FnOnce(u32),
+    end: Option<Arc<Notify>>,
 ) -> Result<CliExit, CliError> {
+    let ended = async move {
+        match end {
+            Some(end) => end.notified().await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(ended);
+    const PAGE_ENDED: &str = "the page that started the CLI ended";
     let mut command = Command::new(&program.program);
     command
         .args(&program.prefix)
@@ -462,9 +427,6 @@ async fn run_child(
         ))
     })?));
     let child = running.child();
-    if let Some(pid) = child.id() {
-        started(pid);
-    }
 
     let writer = match (stdin, child.stdin.take()) {
         (Some(body), Some(mut pipe)) => Some(tokio::spawn(async move {
@@ -507,10 +469,12 @@ async fn run_child(
     let mut refused = None;
     loop {
         line.clear();
-        let read = reader
-            .read_until(b'\n', &mut line)
-            .await
-            .map_err(|error| failed(format!("the CLI's output could not be read: {error}")))?;
+        let read = tokio::select! {
+            read = reader.read_until(b'\n', &mut line) => read
+                .map_err(|error| failed(format!("the CLI's output could not be read: {error}")))?,
+            // Dropping `running` stops the child.
+            () = &mut ended => return Err(failed(PAGE_ENDED)),
+        };
         if read == 0 {
             break;
         }
@@ -538,10 +502,11 @@ async fn run_child(
         return Err(failed(message));
     }
 
-    let status = running
-        .wait()
-        .await
-        .map_err(|error| failed(format!("the CLI could not be waited for: {error}")))?;
+    let status = tokio::select! {
+        status = running.wait() => status
+            .map_err(|error| failed(format!("the CLI could not be waited for: {error}")))?,
+        () = &mut ended => return Err(failed(PAGE_ENDED)),
+    };
     if let Some(writer) = writer {
         let _ = writer.await;
     }
@@ -558,19 +523,14 @@ async fn run_child(
     }
 }
 
-/// The arguments for the launch call: remake `<dataDir>/bin/epicenter`, the
-/// path every Git configuration Epicenter writes runs (ADR-0566), at the
-/// binary this launch bundles. `--user-only` leaves the `PATH` link alone,
-/// so it never needs an administrator.
+/// The arguments for the launch call: point `~/.local/bin/epicenter`, the
+/// path every Git configuration Epicenter writes runs (ADR-0566, ADR-0567),
+/// at the binary this launch bundles. It never needs an administrator.
 fn command_link_args() -> Vec<OsString> {
-    vec![
-        "install-command".into(),
-        "--user-only".into(),
-        "--json".into(),
-    ]
+    vec!["install-command".into(), "--json".into()]
 }
 
-/// Run `epicenter install-command --user-only --json`. A run that does not
+/// Run `epicenter install-command --json`. A run that does not
 /// exit 0, such as one from an App Translocation copy, is an error naming
 /// what the CLI printed.
 pub(crate) async fn refresh_command_link(invocation: &Invocation) -> Result<(), String> {
@@ -595,10 +555,10 @@ pub(crate) async fn refresh_command_link(invocation: &Invocation) -> Result<(), 
 
 /// The launch call, in the background so a launch never waits on it, with
 /// this shell's `paths`, which the app does not manage yet. A development
-/// build runs the CLI from source, which has no binary to link, and Windows
-/// writes the installed `.exe` path instead of a link.
+/// build runs the CLI from source, which has no binary to link, so it
+/// leaves the link to the release build.
 pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
-    if cfg!(debug_assertions) || cfg!(windows) {
+    if cfg!(debug_assertions) {
         return;
     }
     let invocation = bundled_program().and_then(|program| {
@@ -613,6 +573,47 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
             log::warn!("the epicenter command link was not refreshed: {message}");
         }
     });
+}
+
+/// Whether this launch's `epicenter declare-epicenter-folder` has finished,
+/// one way or the other. An installed app may read `so.epicenter` through a
+/// lens its declaration must contain (ADR-0538), so no installed app opens
+/// before it, whichever window opened first.
+#[derive(Clone)]
+pub struct EpicenterFolderDeclared(tokio::sync::watch::Receiver<bool>);
+
+impl EpicenterFolderDeclared {
+    /// Resolves once the launch's declaration has finished.
+    pub async fn finished(&self) {
+        let mut receiver = self.0.clone();
+        let _ = receiver.wait_for(|done| *done).await;
+    }
+}
+
+/// The second launch call, in the background: publish `so.epicenter`'s
+/// declaration through the CLI (`packages/cli/src/epicenter-folder.ts`),
+/// with this shell's `paths`, in every build. A failure is logged; apps
+/// that read the folder then refuse it as `ShapeMismatch`, which they say.
+pub(crate) fn spawn_epicenter_folder_declaration(paths: &DesktopPaths) -> EpicenterFolderDeclared {
+    let (sender, receiver) = tokio::sync::watch::channel(false);
+    let invocation = bundled_program().and_then(|program| {
+        crate::deployment_origin().map(|origin| Invocation::new(program, &origin, paths))
+    });
+    tauri::async_runtime::spawn(async move {
+        let result = match invocation {
+            Ok(invocation) => invocation
+                .answer::<Value>(&["declare-epicenter-folder", "--json"], None)
+                .await
+                .map(|_| ())
+                .map_err(|error| format!("{error:?}")),
+            Err(message) => Err(message),
+        };
+        if let Err(message) = result {
+            log::warn!("Epicenter's own folder was not declared: {message}");
+        }
+        let _ = sender.send(true);
+    });
+    EpicenterFolderDeclared(receiver)
 }
 
 /// The arguments for `epicenter check <root> --json`.
@@ -682,7 +683,7 @@ impl AiTarget {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, specta::Type)]
 pub struct AiRequest {
     pub method: String,
-    /// Below the target, such as `audio/transcriptions` or `api/git/connect`.
+    /// Below the target, such as `audio/transcriptions` or `api/repos`.
     pub path: String,
     pub headers: Vec<(String, String)>,
     /// The body in base64, decoded here and written to the CLI as raw bytes.
@@ -1006,7 +1007,7 @@ fn authorization_page(url: &str, origin: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `epicenter auth login --loopback --json --desktop`: hand `open` the
+/// `epicenter auth login --json --desktop`: hand `open` the
 /// authorization page the CLI prints, and every line to `on_line`. The page
 /// must be on `origin`, the deployment the invocation names.
 async fn login_with(
@@ -1019,7 +1020,7 @@ async fn login_with(
         .clone()
         .desktop()
         .run(
-            &["auth".into(), "login".into(), "--loopback".into(), "--json".into()],
+            &["auth".into(), "login".into(), "--json".into()],
             None,
             |line| {
                 if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&line) {
@@ -1091,7 +1092,7 @@ mod tests {
     use tauri::utils::acl::ExecutionContext;
     use tauri::webview::InvokeRequest;
     use tauri::WebviewWindowBuilder;
-    use tauri_plugin_epicenter_folder::{Author, FolderConfig, ScopeConfig};
+    use tauri_plugin_epicenter_folder::{FolderConfig, ScopeConfig};
 
     use super::*;
 
@@ -1162,11 +1163,30 @@ mod tests {
         assert_eq!(refresh_command_link(&env("0")).await, Ok(()));
         assert_eq!(
             fs::read_to_string(&seen).unwrap(),
-            "install-command --user-only --json\n/support/so.epicenter\n"
+            "install-command --json\n/support/so.epicenter\n"
         );
         let refused = refresh_command_link(&env("1")).await.unwrap_err();
         assert!(refused.starts_with("exit 1: "), "{refused}");
         assert!(refused.contains("translocated"), "{refused}");
+    }
+
+    /// A deep link opens a built-in window without the Folders window, so the
+    /// launch, not a window, publishes `so.epicenter`'s declaration: with no
+    /// window at all, the launch call runs the CLI (from source, as a
+    /// development build does) and writes it under the shell's folder root.
+    #[tokio::test]
+    async fn the_launch_declares_epicenters_folder_with_no_window_open() {
+        let dir = scratch("declare");
+        let paths = paths_in(&dir);
+        let declared = spawn_epicenter_folder_declaration(&paths);
+        tokio::time::timeout(Duration::from_secs(60), declared.finished())
+            .await
+            .expect("the declaration finished");
+        let declaration =
+            fs::read_to_string(paths.folder_dir.join("so.epicenter").join("epicenter.json"))
+                .expect("so.epicenter/epicenter.json was written");
+        assert!(declaration.contains("\"connections\""), "{declaration}");
+        let _ = fs::remove_dir_all(dir);
     }
 
     /// A child that prints a megabyte and a 300 KB line before it reads any
@@ -1353,13 +1373,7 @@ process.exitCode = 1;
         app.folders()
             .register(ScopeConfig {
                 scope: "data:notes".into(),
-                folder: FolderConfig::data(
-                    &root,
-                    Author {
-                        name: "Test".into(),
-                        email: "test@localhost".into(),
-                    },
-                ),
+                folder: FolderConfig::data(&root),
                 windows: vec!["folders".into()],
             })
             .unwrap();
@@ -1646,7 +1660,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         };
         let request = AiRequest {
             method: "POST".into(),
-            path: "api/git/connect".into(),
+            path: "api/repos".into(),
             headers: vec![("content-type".into(), "application/json".into())],
             body: Some(STANDARD.encode(br#"{"folder":"so.epicenter.todos"}"#)),
         };
@@ -1666,7 +1680,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
                 "target": { "kind": "account", "audience": "git" },
                 "request": {
                     "method": "POST",
-                    "path": "api/git/connect",
+                    "path": "api/repos",
                     "headers": [["content-type", "application/json"]],
                 },
             })
@@ -1916,7 +1930,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         let _ = fs::remove_dir_all(dir);
     }
 
-    /// `auth_login` runs exactly the loopback sign-in with `--desktop`, opens
+    /// `auth_login` runs exactly the desktop sign-in, `--desktop`, opens
     /// the page the CLI names only when it is the deployment's authorization
     /// endpoint, and passes every line on. A child stands in for the CLI.
     #[tokio::test]
@@ -1966,7 +1980,7 @@ console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
         assert_eq!(
             lines[0],
             json!({
-                "argv": ["auth", "login", "--loopback", "--json", "--desktop"],
+                "argv": ["auth", "login", "--json", "--desktop"],
                 "origin": origin,
             })
         );

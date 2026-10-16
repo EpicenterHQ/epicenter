@@ -57,8 +57,8 @@ The one binary has three uses:
   Development runs the CLI's source under `bun` instead of the binary.
 - Settings' Account section runs the CLI's desktop sign-in through three
   fixed commands, granted to the `home` window by `home-account-*`
-  (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --loopback
-  --desktop --json`: the CLI listens once on
+  (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --desktop
+  --json`: the CLI listens once on
   `http://127.0.0.1:<random port>/callback` and prints `{"open": "<url>"}`,
   which the shell opens with the opener only when it is the deployment's
   `/auth/oauth2/authorize`, then `{"signedIn"}` or `{"error"}`; every line
@@ -80,12 +80,20 @@ The one binary has three uses:
   cached access tokens are in the CLI's keychain entry; no token reaches a
   page or Rust.
 
-At every launch a release build runs `epicenter install-command --user-only
---json`, which points `<data dir>/bin/epicenter` at the bundled binary, so the
-Git configuration that names that link survives moving the app (ADR-0566).
-`epicenter install-command`, run from the bundled binary, also links
-`/usr/local/bin/epicenter` to it, asking before `sudo` when that directory is
-not writable. Settings does not offer it yet.
+At every launch a release build runs `epicenter install-command --json`,
+which points `~/.local/bin/epicenter` at the bundled binary, so the Git
+configuration that names that link survives moving the app (ADR-0566,
+ADR-0567). It never needs `sudo`. To run `epicenter` in a terminal, add
+`~/.local/bin` to your `PATH` once:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+Every launch, in every build, also runs `epicenter declare-epicenter-folder`,
+which publishes `so.epicenter`'s declaration; the shell opens no installed
+app before it finishes, so an app's lens on `connections` fits whichever
+window opened first.
 
 ## Configure the server
 
@@ -129,9 +137,8 @@ Files split by what they cost to lose (ADR-0539):
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
   so.epicenter/                               Epicenter's own folder
-    epicenter.json                            declares the apps table and settings
-    kv.json                                   settings: defaultApp, by folder id
-    apps/<app-id>.md                          one row per installed app
+    epicenter.json                            declares the connections table
+    connections/<id>.md                       one row per AI connection
   Apps/<app-id>/                              an installed app's source repository
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   approvals.json                              which app commits may run here (the CLI writes it)
@@ -179,7 +186,7 @@ bun dev:epicenter
 This starts the local API on `http://localhost:8787` and the desktop host.
 It requires the API's [local Postgres and Infisical setup](../api/README.md#development).
 Settings' Sign in is the CLI's desktop sign-in (`epicenter auth login
---loopback`, client `so.epicenter`): finish it in your browser and Settings
+--desktop`, client `so.epicenter`): finish it in your browser and Settings
 shows who the app is signed in as. Nothing restarts. It is a separate grant
 from a terminal's `epicenter auth login`, and signing one out leaves the
 other signed in.
@@ -187,7 +194,7 @@ other signed in.
 An installed app uses the same account. Todos' desktop leaf
 (`apps/todos/src/lib/platform/auth.epicenter-host.ts`, over
 `@epicenter/auth/desktop`) reads who is signed in with `auth_status`, sends
-`POST /api/git/connect` through `account_send` with the `git` resource, and
+`GET /api/repos` through `account_send` with the `git` resource, and
 sends the person to Settings with `open_home` to sign in; it signs out only
 from Settings. The host has no account routes and stamps nothing into a
 page.
@@ -223,11 +230,11 @@ Installed Todos opens `so.epicenter.todos`, installed Capture
 installed Honeycrisp `so.epicenter.honeycrisp`. The shell registers that scope the first time the app
 is opened that way or the Folders window lists a folder named by an installed
 app's id, whichever comes first (`own_folder` in `src-tauri/src/data_folders.rs`).
-The first grant creates the directory and takes the cross-process lock until
-shutdown. A folder the Folders window listed as `data:<app-id>` before its app
-was installed moves to the app's scope when the app is first opened; if the
-Folders window had already opened it in that run, the app's grant is refused
-`Busy` until Epicenter restarts.
+The first grant creates the directory. A folder the Folders window listed as
+`data:<app-id>` before its app was installed moves to the app's scope when the
+app is first opened; if the Folders window already holds it under the data
+scope, both scopes share the one root and publish under its one mutex
+(ADR-0568).
 
 The page opens the folder with `@epicenter/folder`'s own engine: reads and
 writes through the shell (`read_folder_file`, `write_folder_file`), which read
@@ -265,10 +272,9 @@ folder's root from the plugin's grant, as every app does.
 
 - **An installed app's own folder**, a directory named by the id of an app
   under `Apps/`, is listed under the app's scope (`so.epicenter.todos`), as
-  [An app's own folder](#an-apps-own-folder) describes. The plugin holds one
-  cross-process lock per folder, so the `folders` window and the app's window
-  share that one scope, and both windows' saves are checked and published
-  under the plugin's one mutex per root (ADR-0535).
+  [An app's own folder](#an-apps-own-folder) describes. The `folders` window
+  and the app's window share that one scope, and both windows' saves are
+  checked and published under the plugin's one mutex per root (ADR-0535).
 - **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
   `folders` and `home` windows and listed under that scope. `Apps/` is not
   listed: it holds no `epicenter.json`.
@@ -424,12 +430,9 @@ refuses if the clone moved since, then records the commit in
 repository's root (when it has a `package.json`), runs
 `bun run build:installed` in the app's folder, and copies its `dist/` to
 `builds/<app-id>/<commit>/`. Approval covers the whole repository's commit.
-The page then writes the app's row, `so.epicenter/apps/<app-id>.md`, with its
-title, source, folder, and commit, through the folder engine
-(`src/folders/epicenter-folder.ts`). `epicenter app remove <id>` deletes the
-clone, its builds, and its approval, refusing while the clone holds
-uncommitted changes or commits no remote has; the window has no Remove yet,
-and the row stays.
+`epicenter app remove <id>` deletes the clone, its builds, and its approval,
+refusing while the clone holds uncommitted changes or commits no remote has;
+the window has no Remove yet.
 
 What runs is decided per commit:
 
@@ -497,7 +500,7 @@ Two apps have one:
   for its AI connections (ADR-0557).
 - Todos (`so.epicenter.todos`, `installed-todos-*`): `auth_status`, to know
   who Epicenter is signed in as; `account_send`, for its one account request,
-  `POST /api/git/connect` with the `git` resource; and `open_home`, to send
+  `GET /api/repos` with the `git` resource; and `open_home`, to send
   the person to Settings to sign in (ADR-0558).
 
 Whispering's page has no recording overlay and registers no global shortcuts,

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A refresh family is one grant's lineage": a refresh family is every grant of one client for one person, a replay after 60 seconds ends all of them, and the desktop and the CLI are separate families; the vendored patch and "A refresh row without a lineage is an error" are withdrawn; at the consequences "No other installation is affected", which becomes "every installation of that client signs in again", and "The patch is re-verified on every Better Auth upgrade", which is withdrawn; at the resource table, where `api` and `git` accept every first-party scope and only `mcp` limits scopes; at the Unbuilt item "sending the lineage patch upstream", which is withdrawn; at the `so.epicenter.cli` row, whose grant includes `openid`; and at "Its issuer and resources are its own origin", which is `<origin>`, `<origin>/git`, and `<origin>/mcp`, resolved by `resolveOAuthAudiences`.
-- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "`epicenter auth login` sets `credential.https://git.epicenter.so.helper=!epicenter auth git-credential`": the key is `credential.<the deployment's Git audience>.helper`, its value is `!'<absolute path to the CLI>' auth git-credential`, and an empty value is written before it; and at "When the CLI spawns `git`, it passes the helper on that one command", which is refused: every `git` the CLI starts gets the CLI's own access token as a header, minted in the CLI's process, and the helper serves only the person's own `git`.
+- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "`epicenter auth login` sets `credential.https://git.epicenter.so.helper=!epicenter auth git-credential`": the key is `credential.<the deployment's Git audience>.helper`, its value is `!'<absolute path to the CLI>' auth git-credential`, and an empty value is written before it; at "When the CLI spawns `git`, it passes the helper on that one command", which is refused: every `git` the CLI starts gets the CLI's own access token as a header, minted in the CLI's process, and the helper serves only the person's own `git`, written only by `epicenter auth login`; and at the hidden `--loopback`, which is withdrawn: `epicenter auth login --desktop` is the desktop app's loopback sign-in, so `--desktop` is the one flag that selects the desktop grant.
 - **Relates:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) (the Git audience a folder syncs to), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment names the authority), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (a window's children end with the window).
 - **Unbuilt:** moving from Better Auth `1.8.0-beta.0` to 1.8 stable before the first deploy; `epicenter auth status` reporting a grant as signed in after its sign-in has ended (a refresh answered `invalid_grant` twice) until `epicenter auth logout`.
 
@@ -79,9 +79,9 @@ and fits its own behavior to the library's:
     the library also treats as a replay.
 - **The CLI and the shell narrow the first path.** The CLI finishes a
   refresh it has sent before it exits: a stop signal waits for the keychain
-  write, at most two seconds (`REFRESH_EXIT_GRACE_MS` in
-  `packages/cli/src/auth.ts`), and a history command's own stop handler
-  waits for it too. The shell stops a CLI child with SIGTERM to its process
+  write, at most two seconds (`STOP_GRACE_MS` in
+  `packages/cli/src/stop.ts`, the CLI's one stop handler, which a history
+  command shares). The shell stops a CLI child with SIGTERM to its process
   group and kills it only after three seconds (`STOP_GRACE` in
   `apps/epicenter/src-tauri/src/cli.rs`), both when a window's page ends
   (ADR-0559's rule stands: a window's children end with the window) and when
@@ -98,9 +98,8 @@ and fits its own behavior to the library's:
   `reference_id`, `auth_time`, `acr`, and `amr`; `oauth_client` gains
   `sector_identifier` and the front-channel logout columns; and
   `oauth_refresh_token` gains `acr` and `amr` (migration
-  `0006_better_auth_1_8`). The same migration gives `api` and `git` every
-  first-party scope, by the resources `so.epicenter.cli` links to, so it
-  covers every deployment's rows.
+  `0005_better_auth_1_8`). `registerFirstPartyClients` writes each
+  first-party resource with every first-party scope, on every deployment.
 - **The profile is Better Auth's userinfo.** `getProfile` in every client
   reads `/auth/oauth2/userinfo`, which answers `sub` for any token with
   `openid` and the email only with `email`; `/api/session` is deleted.
@@ -122,9 +121,17 @@ and fits its own behavior to the library's:
   so a broader helper such as the system `osxkeychain` is never asked to
   `store` the token. This relies on Git resetting its helper list at an empty
   value, which covers helpers configured earlier (the system file); a helper
-  the person adds later in their global file is still asked. The absolute path is the per-user link
-  `<dataDir>/bin/epicenter` (ADR-0566), or `bun` and the entry when run from
-  source, so the helper never depends on `PATH` and survives moving the app. This replaces ADR-0558's `!epicenter auth git-credential`.
+  the person adds later in their global file is still asked. The absolute
+  path is the command link `~/.local/bin/epicenter` (ADR-0566, ADR-0567),
+  the same path when the CLI runs from source, so the helper never depends
+  on `PATH`, survives moving the app, and never names a checkout. Only
+  `auth login` writes it; `sync --to` and `clone` do not. This replaces
+  ADR-0558's `!epicenter auth git-credential`.
+- **`--desktop` is the one flag for the desktop grant.** Rust runs every
+  command with it, and `epicenter auth login --desktop` is the desktop app's
+  loopback sign-in as `so.epicenter`, which Settings runs. ADR-0558's hidden
+  `--loopback` meant the same grant and is gone; `auth login` without
+  `--desktop` is the device grant.
 - **Audiences come from one function.** `resolveOAuthAudiences` in
   `@epicenter/constants/apps` maps a deployment's API origin to its three
   audiences. The API seeds and checks them, and the CLI requests and presents

@@ -12,9 +12,8 @@
 //!   finds a folder named by an installed app's id, whichever comes first,
 //!   for the Folders window; opening the app permits its window too. Like
 //!   each built-in app's folder before it, the first grant creates its
-//!   directory when it is missing (`FolderConfig::new`). The folder plugin
-//!   keeps one cross-process lock per folder, so both windows share the one
-//!   scope and publish under the plugin's one mutex per root.
+//!   directory when it is missing (`FolderConfig::new`). Both windows share
+//!   the one scope and publish under the plugin's one mutex per root.
 //! - Epicenter's own folder, `so.epicenter` (ADR-0539), is registered at
 //!   setup for the Folders window and Settings, which hold its `apps` table
 //!   and settings, and is listed under that scope.
@@ -47,7 +46,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, Folders, ScopeConfig};
+use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfig};
 
 use crate::app_data::DesktopPaths;
 use crate::{BuiltInApp, DesktopAppHandle};
@@ -59,28 +58,16 @@ pub const EPICENTER_FOLDER: &str = "so.epicenter";
 /// The windows that hold Epicenter's own folder.
 const EPICENTER_FOLDER_WINDOWS: [BuiltInApp; 2] = [BuiltInApp::Folders, BuiltInApp::Home];
 
-/// The fallback author of a folder the shell registers.
-const DATA_FOLDER_AUTHOR: (&str, &str) = ("Epicenter", "epicenter@localhost");
-
 /// The file that makes a directory a data folder (ADR-0517).
 const DECLARATION: &str = "epicenter.json";
 
 /// Register Epicenter's own folder for the Folders window and Settings. Each
 /// page runs `@epicenter/folder`'s own engine over its directory; the shell
-/// locks it and grants it to the windows registered for it, and owns nothing
-/// else. The repository's own author and origin are read there; this author
-/// is the fallback.
+/// grants it to the windows registered for it, and owns nothing else.
 pub fn register_epicenter_folder(folders: &Folders, folder_dir: &Path) -> Result<(), String> {
-    let (name, email) = DATA_FOLDER_AUTHOR;
     folders.register(ScopeConfig {
         scope: EPICENTER_FOLDER.into(),
-        folder: FolderConfig::new(
-            folder_dir.join(EPICENTER_FOLDER),
-            Author {
-                name: name.into(),
-                email: email.into(),
-            },
-        ),
+        folder: FolderConfig::new(folder_dir.join(EPICENTER_FOLDER)),
         windows: EPICENTER_FOLDER_WINDOWS
             .iter()
             .map(|window| window.id().into())
@@ -148,9 +135,8 @@ fn own_folder_in(
         // A folder listed before its app was installed has a data scope. The
         // app opens its folder by its id, so it gets its own scope over the
         // same directory, which later listings name instead. The data scope
-        // stays registered; if this run's Folders window already holds it,
-        // the folder's lock refuses the app's grant `Busy` until Epicenter
-        // restarts.
+        // stays registered, and both scopes publish under the one mutex the
+        // plugin keeps per root (ADR-0568).
         register_own_folder(folders, folder_dir, id)?;
         registered.insert(id.to_string(), id.to_string());
     }
@@ -160,16 +146,9 @@ fn own_folder_in(
 /// Register the scope `id` over `<folder_dir>/<id>` for the Folders window, as
 /// an app's own folder, which the first grant creates when it is missing.
 fn register_own_folder(folders: &Folders, folder_dir: &Path, id: &str) -> Result<(), String> {
-    let (name, email) = DATA_FOLDER_AUTHOR;
     folders.register(ScopeConfig {
         scope: id.into(),
-        folder: FolderConfig::new(
-            folder_dir.join(id),
-            Author {
-                name: name.into(),
-                email: email.into(),
-            },
-        ),
+        folder: FolderConfig::new(folder_dir.join(id)),
         windows: vec![BuiltInApp::Folders.id().into()],
     })
 }
@@ -235,14 +214,7 @@ fn list_in(
             }
             None => {
                 let id = format!("data:{name}");
-                let (author, email) = DATA_FOLDER_AUTHOR;
-                let folder = FolderConfig::data(
-                    root,
-                    Author {
-                        name: author.into(),
-                        email: email.into(),
-                    },
-                );
+                let folder = FolderConfig::data(root);
                 if let Err(error) = folders.register(ScopeConfig {
                     scope: id.clone(),
                     folder,
@@ -516,7 +488,7 @@ mod tests {
             "books/b1.md",
             "books/.git/HEAD",
             "books/nested/epicenter.json",
-            ".books.epicenter-lock",
+            ".books.epicenter-save-lock",
             ".hidden/epicenter.json",
         ] {
             assert!(!changes_listing(&root, &root.join(path)), "{path}");
@@ -534,7 +506,7 @@ mod tests {
         // that is itself a directory.
         data_folder(&fixture, ".hidden", "{}");
         fs::write(fixture.folder_dir.join("loose.json"), "{}").unwrap();
-        fs::write(fixture.folder_dir.join(".vault.epicenter-lock"), "").unwrap();
+        fs::write(fixture.folder_dir.join(".vault.epicenter-save-lock"), "").unwrap();
         fs::create_dir_all(fixture.folder_dir.join("odd").join(DECLARATION)).unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(
@@ -673,13 +645,7 @@ mod tests {
             .folders()
             .register(ScopeConfig {
                 scope: "data:vault".into(),
-                folder: FolderConfig::data(
-                    fixture.folder_dir.join("vault"),
-                    Author {
-                        name: "Elsewhere".into(),
-                        email: "elsewhere@localhost".into(),
-                    },
-                ),
+                folder: FolderConfig::data(fixture.folder_dir.join("vault")),
                 windows: vec!["elsewhere".into()],
             })
             .unwrap();
@@ -726,14 +692,31 @@ mod tests {
         assert_eq!(granted_names(&todos, &id), ["epicenter.json", "one.md"]);
     }
 
+    /// The Folders window opens a folder under its data scope before the
+    /// folder's app is installed; the app then opens it under its own scope
+    /// in its own window, while the Folders window still holds it. Both are
+    /// granted the one root, and later listings name the app's scope.
     #[test]
     fn a_folder_listed_before_its_app_was_installed_moves_to_the_apps_scope() {
         let fixture = fixture("listed-first");
         data_folder(&fixture, "so.epicenter.todos", "{}");
         assert_eq!(fixture.list()[0].id, "data:so.epicenter.todos");
-        assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");
-        assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
         let folders = fixture.window("folders");
+        assert_eq!(
+            granted_names(&folders, "data:so.epicenter.todos"),
+            ["epicenter.json"]
+        );
+
+        assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");
+        let label = "app:so_epicenter_todos";
+        fixture
+            .app
+            .folders()
+            .permit("so.epicenter.todos", label)
+            .unwrap();
+        let todos = fixture.window(label);
+        assert_eq!(granted_names(&todos, "so.epicenter.todos"), ["epicenter.json"]);
+        assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
         assert_eq!(
             granted_names(&folders, "so.epicenter.todos"),
             ["epicenter.json"]

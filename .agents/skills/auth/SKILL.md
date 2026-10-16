@@ -167,10 +167,10 @@ implicit same-email linking separately; they have different policy gates.
 
 ## Resource validation and socket bounds
 
-Hosted resource routes use `requireBearerPrincipal` with
-`resolveRequestSessionPrincipal`. The resolver calls Better Auth with only
-the explicit bearer and live session lookup. No cookie fallback or JWT verifier
-remains. The profile is Better Auth's `/auth/oauth2/userinfo`; Epicenter
+Hosted resource routes take only an opaque OAuth access token for their
+audience and scope: `requireAccessToken` runs `authorizeAccountRequest`, and a
+namespace route runs `authorizeResourceRequest`. A Better Auth session never
+reaches a resource, and no JWT verifier remains. The profile is Better Auth's `/auth/oauth2/userinfo`; Epicenter
 serves no profile route of its own.
 
 Unknown, expired, or revoked credentials are 401. Database and infrastructure

@@ -31,25 +31,23 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 | `epicenter merge-driver <dir>` | built | `src/merge-driver.ts`, over `mergeForGit` in `@epicenter/folder/bun` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
-| `epicenter open <dir> [--app <id>]` | not built | |
 | `epicenter app list [--repository <url>]` | built | `src/installed-apps.ts` |
 | `epicenter app install <url> [--folder <path>] [--approve]` | built | `src/installed-apps.ts` |
 | `epicenter app update <id> [--approve]` | built | `src/installed-apps.ts` |
 | `epicenter app remove <id>` | built | `src/installed-apps.ts` |
-| `epicenter auth login [--loopback]` | built | `src/auth.ts` |
+| `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
 | `epicenter auth status` | built | `src/auth.ts` |
 | `epicenter auth token [--resource <url>]` | built | `src/auth.ts` |
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
-| `epicenter install-command [--dry-run]` | built, hidden | `src/install-command.ts` |
+| `epicenter install-command` | built, hidden | `src/install-command.ts` |
+| `epicenter declare-epicenter-folder` | built, hidden | `src/epicenter-folder.ts` |
 
-A command not built yet parses its arguments, shows in `--help` marked
-"not built yet", and exits 2 naming its ADR. `send`, `history`,
-`save-version`, `install-command`, `auth login --loopback`,
-`app update --commit`, and `sync`'s `--remote`, `--allow-unrelated`, and
-`--credential-stdin` are left out of `--help`: the desktop app runs them.
+`send`, `history`, `save-version`, `install-command`,
+`declare-epicenter-folder`, `app update --commit`, `sync --allow-unrelated`,
+and `--desktop` are left out of `--help`: the desktop app runs them.
 
 ## Hosted repositories
 
@@ -59,13 +57,13 @@ cloud and `<origin>/git` for any other deployment, and `<namespace>` is the
 owner's 12-character id (`epicenter repos` lists them).
 
 - `epicenter sync <dir> --to <namespace>/<name>` sets `remote.origin.url`,
-  registers this binary as Git's credential helper for the git origin, sets the
-  merge driver, and syncs. The server answers a name nobody holds as an
-  empty repository, so the sync's fetch finds nothing to take, and its push
-  creates the repository. Any sync whose remote
-  is one of the deployment's hosted repositories carries the grant's token to
-  `git` as a header (an `https` remote only; an `http` one, as a local
-  server, uses the helper). `--to` and `--remote` are one choice, not two.
+  sets the merge driver, and syncs. The server answers a name nobody holds
+  as an empty repository, so the sync's fetch finds nothing to take, and its
+  push creates the repository. `--to` also takes any remote's URL, as the
+  desktop app passes it. Any sync whose remote is one of the deployment's
+  hosted repositories carries the grant's token to `git` as a header (an
+  `https` remote only; an `http` one, as a local server, uses the helper).
+  Neither `sync` nor `clone` writes Git's global configuration.
 - `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>`, by default
   `~/Epicenter/<name>`, and configures the merge driver. A URL is cloned as
   given.
@@ -74,8 +72,8 @@ owner's 12-character id (`epicenter repos` lists them).
   `{"namespaces": [{"id", "title", "personal", "role", "repositories":
   [{"id", "name", "url"}]}]}`.
 
-`hosted-git.postgres.test.ts` runs these against the real server, with Git
-signing in through `epicenter auth git-credential`; it seeds the processes'
+`hosted-git.postgres.test.ts` runs these against the real server, and a
+plain `git` signing in through `epicenter auth git-credential`; it seeds the processes'
 in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s
 `$auth` member.
 
@@ -86,25 +84,26 @@ the system `git` (ADR-0559), each a thin wrapper over `runHistory` in
 `@epicenter/folder/bun`, the engine a desktop page's history runs in. The
 desktop shell runs them for a page, one child per operation, with `--json`;
 the one reply line is `history-wire.ts`'s encoding, which the page decodes.
-The shell sets `EPICENTER_AUTHOR_NAME`, `EPICENTER_AUTHOR_EMAIL`,
-`EPICENTER_BRANCH`, and `EPICENTER_FOLDER_KIND` from the folder's
-registration; a terminal leaves them unset, and Git's own configuration
-names the author. When the shell ends the child (a page reloaded, or its
-window closed), the child ends every `git` it started, with their helpers.
+Git's own configuration names the author, and otherwise it is
+`Epicenter <epicenter@localhost>`; history is recorded on `main`. A folder
+directly under the Epicenter folder root named `so.epicenter` or an
+installed app's id is that app's own folder (`isApplicationFolder`), which
+may get a repository inside another repository's working tree; any other
+folder may not. When the shell ends the child (a page reloaded, or its
+window closed), the child ends every `git` it started, with their helpers
+(`src/stop.ts`).
 
 - `status` reads only, and takes no lock.
 - `save-version` records the folder's edits as one commit, with `-m` as its
   message when given, under the folder's history lock.
 - `sync` records the edits, fetches, merges by each file's kind (ADR-0551),
-  and pushes, under the same lock. `--remote <url>` connects first, to a
+  and pushes, under the same lock. `--to <url>` connects first, to a
   network URL only. Changes both sides made to one unit exit 1 with the
   conflicts and record the attempt as `.git/epicenter/sync-attempt.json`:
   its ID and the commits it merged. `--resolve <file>`, or `-` for standard
   input, settles it with `{"attempt": "<id>", "choices": {...}}`; the
   conflicts are merged again from the recorded commits. A later sync
-  retires the attempt. `--credential-stdin` reads
-  `{"credential": {"url", "username", "password"}}` from standard input,
-  sent by Git only to that exact `https` URL. `--to` is not built.
+  retires the attempt.
 
 The history lock is an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder, the mechanism of the
@@ -144,30 +143,28 @@ so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the AI connections' seeded from its JSON and the sign-ins' empty, so tests
 never touch the real one.
 
-`install-command` is ADR-0558's hidden command. It keeps two links (ADR-0566):
+`install-command` is ADR-0558's hidden command. It keeps one link
+(ADR-0566, ADR-0567), and never needs `sudo`:
 
 ```txt
-<data dir>/bin/epicenter    -> the compiled binary        always remade, never with sudo
-/usr/local/bin/epicenter    -> <data dir>/bin/epicenter   ~/.local/bin/epicenter on Linux
+~/.local/bin/epicenter   -> the compiled binary
 ```
 
 Every Git configuration the CLI writes, the credential helper and
-`merge.epicenter.driver`, runs `<data dir>/bin/epicenter`
-(`~/Library/Application Support/so.epicenter/bin/epicenter` on macOS), so
-moving the app breaks neither past its next launch. The desktop app runs
-`install-command --user-only --json` at every launch, which remakes only that
-link; `auth login`, `merge-driver <dir>`, `sync --to`, and `clone` remake it
-(`gitCommand`) before they write configuration. A binary under macOS's App
-Translocation (`/private/var/folders/.../AppTranslocation/`) leaves the link as
-it is and says so. A Linux AppImage copies the binary there instead of
-linking, since its own path disappears when it quits. On Windows the
-configuration names the installed `.exe`.
+`merge.epicenter.driver`, names that link by its absolute path
+(`gitCommand`), whether the CLI runs from the bundle, the link, or source, so
+moving the app breaks neither past its next launch and a development run
+never writes a checkout into the global configuration. A release build runs
+`install-command --json` at every launch. A binary under macOS's App
+Translocation (`/private/var/folders/.../AppTranslocation/`) leaves the link
+as it is and says so, and a regular file at the link's path is refused. Run
+from source under `bun`, it refuses, since it would link `bun` itself. A
+terminal finds `epicenter` once `~/.local/bin` is on `PATH`: add
+`export PATH="$HOME/.local/bin:$PATH"` to your shell profile once.
 
-The `PATH` link is a symbolic link only, and a regular file there is refused.
-When its directory cannot be written or made, it asks a person at a terminal
-before running `sudo`; with `--json` or without a terminal it exits 1 and
-names the `sudo` command. Run from source under `bun`, it refuses, since it
-would link `bun` itself.
+`declare-epicenter-folder` publishes `so.epicenter`'s declaration
+(`src/epicenter-folder.ts`), which the desktop app runs at every launch so an
+installed app's lens on its `connections` table fits before any app opens.
 
 ## Signing in
 
@@ -182,7 +179,7 @@ for each audience:
 | Grant | Client | Flow | Used by |
 | --- | --- | --- | --- |
 | `device` | `so.epicenter.cli` | `auth login`: device authorization (RFC 8628). It prints the link and code, or `{"device": {...}}` with `--json`, and polls until the person approves on the server's page. | Every command run without `--desktop`: a terminal, an agent, Git. |
-| `desktop` | `so.epicenter` | `auth login --loopback`: authorization code with S256 PKCE, received once on `http://127.0.0.1:<random port>/callback`. It opens the browser, or prints `{"open": "<url>"}` with `--json` for Rust to open. | Only commands Rust runs with `--desktop`. |
+| `desktop` | `so.epicenter` | `auth login --desktop`: authorization code with S256 PKCE, received once on `http://127.0.0.1:<random port>/callback`. It opens the browser, or prints `{"open": "<url>"}` with `--json` for Rust to open. | Only commands Rust runs with `--desktop`. |
 
 Both ask for `openid offline_access profile ai folders:read folders:write`
 and both audiences. Each refresh names one audience, and the server narrows
@@ -190,14 +187,15 @@ that access token to the audience's scopes while the grant keeps all of
 them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
 request. The device login also sets, in Git's global configuration, an empty
-`credential.<git audience>.helper` and then `!'<data dir>/bin/epicenter' auth
-git-credential`, so no broader helper is asked to store the token.
+`credential.<git audience>.helper` and then `!'<home>/.local/bin/epicenter'
+auth git-credential`, so no broader helper is asked to store the token. Only
+`auth login` writes it.
 
 `auth token [--resource <url>]` prints an access token for the API or the
 Git audience. A cached token is reused until five minutes before it
 expires; otherwise one refresh runs under `<data dir>/auth/<grant>.lock`, an
 exclusive SQLite transaction the system releases if the process dies
-(`src/file-lock.ts`), and rereads the entry inside it, so concurrent callers
+(`holdingFileLock` in `@epicenter/folder/bun`), and rereads the entry inside it, so concurrent callers
 share one refresh. A refresh whose answer was lost is sent again, which the
 server's 60-second reuse interval answers with the same tokens; one answered
 `invalid_grant` is retried once with what the entry then holds, and a second
@@ -238,8 +236,7 @@ remote has.
 
 Git runs through `@epicenter/folder`'s runner (`createGitRunner`), with no
 hooks and the `ext` and `fd` transports refused. One install, update, or
-build runs at a time (`<cache>/apps.lock`). The Folders window writes each
-app's row in `so.epicenter`; the CLI does not.
+build runs at a time (`<cache>/apps.lock`, `holdingFileLock`).
 
 ## Merging with plain Git
 
@@ -251,10 +248,10 @@ text by line. It writes two things, neither committed:
 ```txt
 .git/info/attributes   * merge=epicenter
 .git/config            merge.epicenter.name   = Epicenter folder merge
-                       merge.epicenter.driver = '<data dir>/bin/epicenter' merge-driver -- %O %A %B %P
+                       merge.epicenter.driver = '<home>/.local/bin/epicenter' merge-driver -- %O %A %B %P
 ```
 
-A sync that connects a remote (`--remote` or `--to`) writes the same, and `clone` does after cloning. A plain `git clone` does not
+A sync that connects a remote (`--to`) writes the same, and `clone` does after cloning. A plain `git clone` does not
 carry it: Git reads a driver only from the repository's own configuration,
 and a committed `merge=` attribute is one the folder engine refuses. Without
 it, Git merges these files as text, which loses nothing.
@@ -298,13 +295,13 @@ stderr without it.
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
 does not conform, an app waiting for approval, a sync that needs choices), 2
 input the command cannot use (a folder that is not one, a refused statement,
-an unknown option, a command not built yet, no `git`).
+an unknown option, no `git`).
 
 Options are matched exactly, so a SQL statement that starts with `--` stays a
 statement. A token shaped like an option the command does not take is
 refused. After `--`, every token is a positional. The CLI never calls
 `process.exit`, so stdout drains before the process ends, except when a
-signal ends a history command, whose output nobody reads then. A running
+stop signal ends it (`src/stop.ts`), whose output nobody reads then. A running
 command holds a timer, since Bun 1.3.14 can otherwise end the process while
 `crypto.subtle` work started after a child process exited is still pending.
 
@@ -314,19 +311,20 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | --- | --- |
 | `src/bin.ts` | The command run from source. |
 | `src/cli.ts` | `runCli`: help, version, and dispatch to the built commands. |
-| `src/commands.ts` | Every command ADR-0558 names, with its usage and ADR. |
+| `src/commands.ts` | Every command, with its usage. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
-| `src/install-command.ts` | `install-command`, and `gitCommand`: the per-user link Git's configuration runs. |
-| `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names, the credential helper, and the repository's first creation. |
+| `src/install-command.ts` | `install-command`, and `gitCommand`: the one link Git's configuration runs. |
+| `src/epicenter-folder.ts` | `so.epicenter`'s definition and `declare-epicenter-folder`. |
+| `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
+| `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |
 | `src/merge-driver.ts` | `merge-driver`: Git's merge driver, and the repository configuration that names it. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
-| `src/app-paths.ts` | Where installed apps, approvals, builds, the sign-in locks, and the per-user link live, by the shell's rule. |
+| `src/app-paths.ts` | Where installed apps, approvals, builds, the sign-in locks, and the command link live, by the shell's rule. |
 | `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
-| `src/auth.ts` | The two grants: device and loopback sign-in, the one refresh, status, sign-out, and Git's credential helper. |
+| `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
-| `src/file-lock.ts` | The cross-process lock a grant refreshes under. |
 | `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |
 | `src/output.ts` | Stdout, stderr, `{"error"}`, and the exit codes. |
 

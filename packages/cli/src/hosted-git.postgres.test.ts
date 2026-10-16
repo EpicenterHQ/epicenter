@@ -2,9 +2,10 @@
  * Hosted Git end to end through the `epicenter` command (ADR-0546): the real
  * authorization server and Git routes on a disposable Postgres cluster behind
  * a real listener, bare repositories on disk, and fresh CLI processes for
- * `sync --to`, `clone`, and `repos`. Git reaches the server through
- * `epicenter auth git-credential`, the credential helper that `sync --to`
- * registers in Git's global configuration. The processes share a sign-in the
+ * `sync --to`, `clone`, and `repos`. Git reaches this `http` server through
+ * `epicenter auth git-credential`, the credential helper `auth login`
+ * writes, which the test writes the same way; `sync --to` and `clone` leave
+ * Git's global configuration alone. The processes share a sign-in the
  * test seeds into their in-memory keychain (`EPICENTER_TEST_SECRETS`), with
  * the Git and API tokens already cached, so none refreshes and the rotating
  * refresh token is never replayed. Requires initdb, pg_ctl, and git on PATH;
@@ -37,6 +38,7 @@ import {
 import {
 	type AuthContext,
 	accessToken,
+	configureGitHelper,
 	loginWithDevice,
 	resolveDeployment,
 } from './auth.ts';
@@ -168,9 +170,15 @@ beforeAll(async () => {
 		EPICENTER_CACHE_DIR: join(scratch, 'cache'),
 		EPICENTER_FOLDER_DIR: join(scratch, 'Epicenter'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
-		EPICENTER_AUTHOR_NAME: 'Test',
-		EPICENTER_AUTHOR_EMAIL: 'test@example.test',
 	};
+	// What `auth login` writes. An `http` server like this one gets no token
+	// as a header, so the CLI's own `git` signs in through the helper too.
+	const helper = await configureGitHelper(
+		{ deployment: resolveDeployment(origin) } as AuthContext,
+		[process.execPath, '--no-install', bin],
+		env,
+	);
+	if (helper.error !== null) throw new Error(helper.error);
 }, 60_000);
 
 afterAll(async () => {
@@ -215,6 +223,7 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 	await writeFile(join(folder, 'a.md'), 'one\n');
 
 	const url = `${origin}/git/${person.personal}/notes.git`;
+	const globalBefore = await readFile(globalConfig, 'utf8');
 	const connected = await epicenter(
 		'sync',
 		folder,
@@ -224,14 +233,13 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 	);
 	expect(connected.stderr).toBe('');
 	expect(connected.code).toBe(0);
-	// The remote, the merge driver, and the credential helper are all set.
+	// The remote and the merge driver are set; the global configuration is
+	// left as it was, since only `auth login` writes the credential helper.
 	expect((await git(folder, 'remote', 'get-url', 'origin')).stdout.trim()).toBe(
 		url,
 	);
 	expect((await git(folder, 'config', 'merge.epicenter.driver')).code).toBe(0);
-	const helper = await readFile(globalConfig, 'utf8');
-	expect(helper).toContain('auth git-credential');
-	expect(helper).toContain(`${origin}/git`);
+	expect(await readFile(globalConfig, 'utf8')).toBe(globalBefore);
 
 	const listing = await epicenter('repos', '--json');
 	expect(listing.code).toBe(0);
@@ -245,7 +253,8 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 		`${person.personal}/notes`,
 	);
 
-	// Plain Git signs in through the same helper.
+	// Plain Git signs in through the helper `auth login` wrote.
+	expect(globalBefore).toContain(`${origin}/git`);
 	expect((await git(scratch, 'ls-remote', url)).code).toBe(0);
 
 	const copy = join(scratch, 'Epicenter', 'notes');

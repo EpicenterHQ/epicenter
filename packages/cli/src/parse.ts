@@ -12,7 +12,7 @@
 export type OptionSpec = {
 	readonly name: string;
 	readonly value?: string;
-	/** Left out of `--help`, as `--loopback` is (ADR-0558). */
+	/** Left out of `--help`, as `--allow-unrelated` is. */
 	readonly hidden?: boolean;
 	/** A one-letter spelling, as `-m` is for `--message`. */
 	readonly short?: string;
@@ -28,8 +28,6 @@ export type CommandSpec = {
 	readonly maxArgs: number;
 	readonly options?: readonly OptionSpec[];
 	readonly summary: string;
-	/** The record that decides the command, as `ADR-0558`. */
-	readonly adr: string;
 	/** Prints NDJSON progress lines and one result line with `--json`. */
 	readonly long?: boolean;
 	/** Left out of `--help`: run by the desktop app, not typed. */
