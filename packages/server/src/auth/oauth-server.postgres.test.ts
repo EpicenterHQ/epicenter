@@ -265,9 +265,9 @@ test('a client that names a metadata document is unknown', async () => {
 	});
 	// No client identifies itself by URL: there is no metadata document
 	// support and no dynamic registration (ADR-0578).
-	expect(
-		new URL(authorized.location, origin).searchParams.get('error'),
-	).toBe('invalid_client');
+	expect(new URL(authorized.location, origin).searchParams.get('error')).toBe(
+		'invalid_client',
+	);
 }, 60_000);
 
 test('one grant serves the API and Git, in any order of refreshes', async () => {

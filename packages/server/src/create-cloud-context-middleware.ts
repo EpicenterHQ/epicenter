@@ -48,9 +48,7 @@ export function createCloudContextMiddleware(opts: {
 					env: opts.resolveAuthSecrets(c),
 					baseURL: c.var.authBaseURL,
 					trustedOrigins: c.var.trustedOrigins,
-					oauth: opts.oauthServer
-						? { audiences: c.var.audiences }
-						: undefined,
+					oauth: opts.oauthServer ? { audiences: c.var.audiences } : undefined,
 				}),
 			);
 			await next();

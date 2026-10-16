@@ -411,9 +411,9 @@ test('saves and history go through the shell', async () => {
 	expect(sent('rename_folder_path').map((call) => call.args.to)).toContainEqual(
 		join(root, 'audio', 'a.wav'),
 	);
-	expect(
-		new Uint8Array(await readFile(join(root, 'audio', 'a.wav'))),
-	).toEqual(audio);
+	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
+		audio,
+	);
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await workspace.close();
 });
@@ -780,18 +780,17 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	const transcriber = workspace.localTranscription!;
 
 	expect(await transcriber.readiness()).toEqual({ ready: true });
-	expect(expectOk(await transcriber.transcribe('audio/take.wav'))).toEqual(
-		{ text: 'a local tone', model: 'parakeet-tdt-0.6b-v3' },
-	);
+	expect(expectOk(await transcriber.transcribe('audio/take.wav'))).toEqual({
+		text: 'a local tone',
+		model: 'parakeet-tdt-0.6b-v3',
+	});
 	// The active model, never another installed one, and exactly the file's bytes.
 	expect(local.asked).toEqual([
 		{ modelId: 'parakeet-tdt-0.6b-v3', bytes: Array.from(toneWav()) },
 	]);
 
 	// Audio that cannot be read is not handed to the model.
-	const { error: unreadable } = await transcriber.transcribe(
-		'audio/gone.wav',
-	);
+	const { error: unreadable } = await transcriber.transcribe('audio/gone.wav');
 	expect(unreadable?.name).toBe('AudioUnreadable');
 	expect(local.asked).toHaveLength(1);
 
@@ -844,9 +843,8 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		const workspace = expectOk(
 			await openDesktopWorkspace({ commands: local.commands }),
 		);
-		const { error } = await workspace.localTranscription!.transcribe(
-			'audio/take.wav',
-		);
+		const { error } =
+			await workspace.localTranscription!.transcribe('audio/take.wav');
 		expect(error?.name).toBe(expected);
 		expect(error?.message).toContain(outcome.error.message);
 		await workspace.close();
@@ -860,9 +858,7 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		await openDesktopWorkspace({ commands: empty.commands }),
 	);
 	expect(
-		expectOk(
-			await workspace.localTranscription!.transcribe('audio/take.wav'),
-		),
+		expectOk(await workspace.localTranscription!.transcribe('audio/take.wav')),
 	).toEqual({ text: '', model: 'whisper-small' });
 	await workspace.close();
 });
