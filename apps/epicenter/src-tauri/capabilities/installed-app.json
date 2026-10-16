@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "installed-app",
-	"description": "Every installed app's window, whatever the app (ADR-0570): every label open_installed_window makes, `app:<id>` and `app:<id>:<folder>`. Approving an app trusts it fully (ADR-0540), so this is wiring, not a sandbox, and every app gets the same grant. Its window opens the folder it is handed at launch with the page's own engine through the folder plugin and hears its change event; the shell runs that folder's history as one `epicenter` child per operation, only for a folder the window was granted (status, history, save_version, sync, settle_sync, ADR-0559). It records into a granted folder (ADR-0543), transcribes with the one active local model and reads whether that model is ready (ADR-0180), and opens Settings, where that model is chosen and where the app signs in (ADR-0558). It sends AI requests over the connections in so.epicenter, which its window is permitted into, with the key this computer saved, which it never reads (ADR-0557). It reads who Epicenter is signed in as (auth_status) and sends an account request through `epicenter send`, which adds the token outside the page (ADR-0549, ADR-0556). Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "Every installed app's window, whatever the app (ADR-0570): every label open_installed_window makes, `app:<id>` and `app:<id>:<folder>`. Approving an app trusts it fully (ADR-0540), so this is wiring, not a sandbox, and every app gets the same grant. Its window opens the folder it is handed at launch with the page's own engine through the folder plugin and hears its change event; the shell runs that folder's history as one `epicenter` child per operation, only for a folder the window was granted (status, history, save_version, sync, settle_sync, ADR-0559). It lists the microphones, reads one's level, and records into a granted folder through the recorder plugin, which opens every microphone itself and asks macOS for microphone access first (ADR-0543, ADR-0571), opens System Settings at a privacy pane through the opener (`x-apple.systempreferences:` only, ADR-0555), transcribes with the one active local model and reads whether that model is ready (ADR-0180), and opens Settings, where that model is chosen and where the app signs in (ADR-0558). It sends AI requests over the connections in so.epicenter, which its window is permitted into, with the key this computer saved, which it never reads (ADR-0557). It reads who Epicenter is signed in as (auth_status) and sends an account request through `epicenter send`, which adds the token outside the page (ADR-0549, ADR-0556). Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["app:*"],
 	"permissions": [
@@ -14,6 +14,10 @@
 		"allow-sync",
 		"allow-settle-sync",
 		"epicenter-recorder:default",
+		{
+			"identifier": "opener:allow-open-url",
+			"allow": [{ "url": "x-apple.systempreferences:*" }]
+		},
 		"allow-list-inference-models",
 		"allow-transcribe-audio-bytes",
 		"allow-get-local-transcription-readiness",

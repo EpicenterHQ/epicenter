@@ -37,53 +37,6 @@ export const commands = {
 	 */
 	prewarmModel: () => typedError<null, TranscriptionError>(__TAURI_INVOKE("prewarm_model")),
 	/**
-	 *  Open macOS Accessibility settings.
-	 * 
-	 *  This is intentionally a fixed command instead of a general command
-	 *  runner. The app only needs this one OS handoff, so the frontend should
-	 *  not receive shell or process execution privileges.
-	 */
-	openAccessibilitySettings: () => typedError<null, string>(__TAURI_INVOKE("open_accessibility_settings")),
-	/**
-	 *  Show the macOS Accessibility permission prompt.
-	 * 
-	 *  macOS never lets an app grant itself Accessibility, so this only surfaces the
-	 *  system prompt (which also adds the app to the Accessibility list, toggled
-	 *  off); the live grant is observed by the Rust tap supervisor, not returned
-	 *  here. Off macOS there is no such prompt, so this does nothing. Pairs with
-	 *  `open_accessibility_settings` the way `request_microphone_permission` does
-	 *  with the microphone privacy page.
-	 */
-	requestAccessibilityPermission: () => __TAURI_INVOKE<void>("request_accessibility_permission"),
-	/**
-	 *  Read the microphone authorization the OS records up front.
-	 * 
-	 *  One owner for every platform. macOS reads AVFoundation's
-	 *  `authorizationStatusForMediaType:` directly, so all four Apple states arrive
-	 *  intact and a not-yet-asked user is reported as `NotDetermined` instead of
-	 *  being flattened into a denial. Windows reads the CapabilityAccessManager
-	 *  ConsentStore. Every other platform (Linux) returns `Unknown`, where there is
-	 *  no such store and the stream-open fallback stays the sole classifier.
-	 */
-	getMicrophonePermission: () => __TAURI_INVOKE<MicrophonePermission>("get_microphone_permission"),
-	/**
-	 *  Elicit a microphone grant the way each platform allows, and answer with the
-	 *  authorization that holds once there is nothing left to elicit.
-	 * 
-	 *  Returning the status is what lets the caller ask once. macOS is the only
-	 *  platform that can move the answer inside this call: when the status is
-	 *  `NotDetermined` it raises the system prompt and awaits the real completion
-	 *  handler, so the returned value is the user's decision, not a guess. Every
-	 *  other status is already final, so prompting is a documented no-op and the
-	 *  call short-circuits.
-	 * 
-	 *  Windows has no programmatic grant for an unpackaged desktop app, so a
-	 *  `Denied` consent store deep-links the privacy page and reports `Denied`: the
-	 *  toggle happens in Settings, outside this call. Other platforms (Linux) have
-	 *  no such affordance and report `Unknown`.
-	 */
-	requestMicrophonePermission: () => typedError<MicrophonePermission, string>(__TAURI_INVOKE("request_microphone_permission")),
-	/**
 	 *  The active local model's identity and whether it can run right now, or
 	 *  `None` when nobody has chosen one.
 	 * 
@@ -348,8 +301,6 @@ export const commands = {
 	 *  command for the FE to call.
 	 */
 	getDictationCapability: () => __TAURI_INVOKE<DictationCapability>("get_dictation_capability"),
-	isAutostartEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("is_autostart_enabled")),
-	setAutostartEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_autostart_enabled", { enabled })),
 };
 
 /** Events */
@@ -661,25 +612,6 @@ supportsPrompt: boolean;
 supportsLanguage: boolean } | { status: "unavailable"; reason: UnavailableReason; 
 /**  A user-facing sentence that names no model. */
 message: string };
-
-/**
- *  The OS-level microphone authorization, read from the platform privacy store.
- * 
- *  Only `Granted` and `Unknown` are usable. `Unknown` (no entry in the store, or
- *  a platform with no such gate) means "can't tell from here": the caller treats
- *  it as available and lets the recorder's stream-open fallback
- *  (`RecorderError::classify_cpal` in `tauri-plugin-epicenter-recorder`)
- *  classify any real denial from the error itself. So this signal can only
- *  *add* a pre-record denial; it never newly blocks a setup that was already
- *  working.
- * 
- *  `NotDetermined` is the one state that is neither usable nor final: the user
- *  has not been asked yet. It is not `Unknown` (we know exactly what the OS
- *  thinks) and not `Denied` (nothing has been refused). It exists so
- *  `request_microphone_permission` can tell the one state that can still raise a
- *  system prompt from the states where prompting is a silent no-op.
- */
-export type MicrophonePermission = "granted" | "denied" | "not_determined" | "unknown";
 
 /**
  *  A catalog model as Home's administration view sees it: identity, display

@@ -480,7 +480,11 @@ Every installed app's window gets the same grant, one capability file,
 - Its `permissions` are the union of what any installed app's page calls: the
   folder plugin and its change event; the folder's history (`status`,
   `history`, `save_version`, `sync`, `settle_sync`); the recorder plugin,
-  which writes into the folder the window was granted (ADR-0543);
+  which lists the microphones, reads one's level, and writes into the folder
+  the window was granted, asking macOS for microphone access before it opens
+  one (ADR-0543, ADR-0571); the opener's `allow-open-url`, scoped to
+  `x-apple.systempreferences:`, to open a privacy pane in System Settings
+  (ADR-0555);
   `list_inference_models`, `transcribe_audio_bytes`, and
   `get_local_transcription_readiness`, for transcription with the one active
   local model (ADR-0180); `open_home`, to open Settings; `ai_send`,
@@ -501,12 +505,15 @@ because its page is served on the scheme: `folders.json`, `home.json`, and
 Whispering's page has no recording overlay and registers no global shortcuts,
 so neither is created or granted.
 The shell's overlay panel (`src-tauri/src/overlay.rs`) and the dictation
-commands (keyboard delivery, the paste capability, playback pause,
-accessibility, and autostart) are compiled but granted to no window; ADR-0555
-wires them for push-to-talk. Global shortcuts come from the global-shortcut
+commands (keyboard delivery, the paste capability, and playback pause) are
+compiled but granted to no window; ADR-0555 wires them for push-to-talk.
+There is no shell command for permissions: the recorder plugin asks for
+microphone access itself, the keyboard supervisor watches the Accessibility
+grant, and a page opens System Settings through the opener. Autostart is not
+registered; enabling it once on first run (ADR-0328) is unbuilt. Global shortcuts come from the global-shortcut
 plugin, not a shell command. The shell registers the
-clipboard-manager, global-shortcut, opener, and autostart plugins and grants
-none of them to a page; the notification plugin is a dependency but stays
+clipboard-manager, global-shortcut, and opener plugins and grants a page only
+the opener's System Settings URLs; the notification plugin is a dependency but stays
 unregistered until a capability grants it (ADR-0555).
 
 ## Quitting Epicenter
