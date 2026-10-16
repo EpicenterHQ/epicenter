@@ -85,7 +85,7 @@ export type GitRun = (
 ) => Promise<{ code: number | null; stdout: Uint8Array; stderr: string }>;
 
 /** One `Authorization` header value, for exactly one URL. */
-export type GitAuthorization = {
+type GitAuthorization = {
 	readonly url: string;
 	readonly authorization: string;
 };

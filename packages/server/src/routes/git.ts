@@ -67,7 +67,6 @@ import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import type { OAuthAudiences } from '../auth/oauth-policy.js';
 import {
 	authorizeAccountRequest,
 	authorizeResourceRequest,
@@ -266,17 +265,15 @@ export function mountGitHost(
 	app: Hono<CloudEnv>,
 	{
 		setup,
-		resolveAudiences,
 		resolveHost,
 	}: {
 		setup: MiddlewareHandler<CloudEnv>;
-		resolveAudiences: (c: Context<CloudEnv>) => OAuthAudiences;
 		/** `null` answers 503 `git_unavailable` on every Git request. */
 		resolveHost: (env: CloudEnv['Bindings']) => GitHost | null;
 	},
 ): void {
 	const serve = createMiddleware<CloudEnv>(async (c) => {
-		const audience = resolveAudiences(c).git;
+		const audience = c.var.audiences.git;
 		const target = readGitTarget(c.req.method, new URL(c.req.url), audience);
 		if (target?.kind !== 'repository')
 			return refuse(
@@ -427,7 +424,7 @@ export function mountGitHost(
 		const target = readGitTarget(
 			c.req.method,
 			new URL(c.req.url),
-			resolveAudiences(c).git,
+			c.var.audiences.git,
 		);
 		if (target === undefined) return next();
 		return handleGit(c, next);
@@ -437,7 +434,7 @@ export function mountGitHost(
 		'/api/repos',
 		setup,
 		createMiddleware<CloudEnv>(async (c) => {
-			const audiences = resolveAudiences(c);
+			const { audiences } = c.var;
 			let decided: Awaited<ReturnType<typeof authorizeAccountRequest>>;
 			try {
 				// The listing is folder metadata, so it takes the token a client

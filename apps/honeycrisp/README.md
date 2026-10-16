@@ -268,8 +268,8 @@ Page (dist, served by Epicenter) runs @epicenter/folder's own engine over the
 ```
 
 The page chooses where its folder lives at build time through
-`#platform/notes-host`. The Epicenter host leaf
-(`notes-host.epicenter-host.ts`) opens the folder Epicenter handed the window
+`#platform/folder`. The Epicenter host leaf
+(`folder.epicenter-host.ts`) opens the folder Epicenter handed the window
 as `?folder=<scope>`, or Honeycrisp's own, `so.epicenter.honeycrisp`, when
 none was handed. Its own folder opens with `openFolder` from
 `@epicenter/folder/tauri`, which publishes Honeycrisp's declaration; any other
@@ -279,7 +279,8 @@ holding the notes and their `.git`, with `openFolder` from
 `@epicenter/folder/browser`. A browser folder an earlier version kept in
 IndexedDB is not read, copied, or deleted; the browser opens the OPFS
 directory alone. Shared code imports the folder contract from the bare
-`@epicenter/folder`, which `vite.config.ts` aliases to the build's one entry.
+`@epicenter/folder`, which `installedAppViteConfig` (from
+`@epicenter/vite-config`) aliases to the build's one entry.
 A folder Epicenter hands that cannot be opened is an error on screen, never a
 fallback to browser storage. `src/lib/platform-selection.test.ts` checks that
 the installed bundle holds no browser store and no Git implementation, that
@@ -389,7 +390,7 @@ view and delivers events to it.
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The query cache and its change wiring, the updates fields are set with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
-| `src/lib/platform/` | The `#platform/notes-host` seam and its two leaves: `notes-host.epicenter-host.ts`, the folder Epicenter hands the window, and `notes-host.browser.ts`, the OPFS folder. |
+| `src/lib/platform/` | The `#platform/folder` seam and its two leaves: `folder.epicenter-host.ts`, the folder Epicenter hands the window, and `folder.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
 | `epicenter.app.json` | What Epicenter installs: the app id, which `src/lib/platform/types.ts` imports, and the title. |

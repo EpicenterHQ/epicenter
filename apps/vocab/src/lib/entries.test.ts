@@ -23,7 +23,7 @@
  * - Nothing commits on its own after edits
  * - Close waits for every write and action, and afterwards nothing changes
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from './data.js';

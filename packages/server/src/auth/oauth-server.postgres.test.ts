@@ -200,6 +200,7 @@ beforeAll(async () => {
 	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
+		resolveAudiences: () => audiences,
 	});
 	const context = {
 		connect: async () => ({ db, close: async () => {} }),
@@ -209,25 +210,17 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			resolveOAuthServer: () => ({
-				audiences,
-				clientMetadataFetch: testMetadataFetch,
-			}),
+			oauthServer: { clientMetadataFetch: testMetadataFetch },
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
-		resolveAudiences: () => audiences,
 	});
 	// The real protected mounts, guarded the way both deployments guard them.
 	const resourceContext = createCloudContextMiddleware(context);
 	const resource = (audience: keyof typeof audiences, scope: OAuthScope) =>
-		every(
-			resourceContext,
-			requireAccessToken({ audience: () => audiences[audience], scope }),
-		);
+		every(resourceContext, requireAccessToken({ audience, scope }));
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	mountGitHost(app, {
 		setup: resourceContext,
-		resolveAudiences: () => audiences,
 		resolveHost: () => recordingHost,
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
@@ -553,8 +546,7 @@ describe('the protected routes', () => {
 			new Request(`${origin}${path}`, {
 				method: init.method ?? 'GET',
 				headers: {
-					// A browser names its origin on every cross-origin POST; the
-					// cookie-mutation guard on /api/* refuses a POST without one.
+					// A browser names its origin on every cross-origin request.
 					origin,
 					...(token ? { authorization: `Bearer ${token}` } : {}),
 					...(init.body ? { 'content-type': 'application/json' } : {}),

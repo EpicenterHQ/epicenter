@@ -25,7 +25,7 @@
  * - Nothing commits on its own; Save version records a version
  * - Close waits for an edit being written
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { folderOptions } from '@epicenter/folder/query';

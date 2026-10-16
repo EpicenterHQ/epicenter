@@ -30,7 +30,7 @@
  *   keep their names
  * - Closing waits for admitted commands
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import {
@@ -48,7 +48,6 @@ import { pathProblem } from '@epicenter/folder';
 import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { formatFromMimeType } from './audio-format.js';
 import { loadAudio } from './audio-source.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { recordingAudioStem } from './definition.js';
@@ -58,7 +57,7 @@ import type { Library } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
 import {
 	commitLine,
-	filesLineOf,
+	filesLine,
 	summaryLine,
 	uncommittedLine,
 } from './status.js';
@@ -197,7 +196,7 @@ async function record(library: Library) {
 
 /** The header's lines, from the same function AppHeader calls. */
 function status(library: Library) {
-	const files = filesLineOf(library);
+	const files = filesLine(library);
 	return {
 		files,
 		summary: summaryLine({
@@ -217,16 +216,8 @@ test('a new recording’s audio and row are paths every folder accepts, the desk
 		new Date('2026-01-02T03:04:05.678Z'),
 		new Date('1999-12-31T23:59:59.999Z'),
 	])
-		for (const mimeType of [
-			'audio/wav',
-			'audio/webm',
-			'audio/mp4',
-			'audio/ogg',
-			'audio/mpeg',
-			'audio/flac',
-		]) {
+		for (const extension of ['wav', 'webm', 'm4a', 'ogg', 'mp3', 'flac']) {
 			const id = recordingId(at);
-			const extension = formatFromMimeType(mimeType)!.extension;
 			expect(
 				pathProblem(`${recordingAudioStem(id)}.${extension}`),
 			).toBeUndefined();

@@ -179,10 +179,14 @@ on a narrow window. Each opens its own popover.
 
 **Microphone input.** System default, or one microphone by name.
 
-- Opening the popover lists the inputs the app is already allowed to see. It
-  never asks for microphone access. Until access is allowed, inputs are not
-  listed by name; **Enable microphones** asks for it, which opens the system
-  default microphone for a moment and records nothing.
+- Opening the popover lists the inputs. It never asks for microphone access.
+  In Epicenter every input is listed by name, and Epicenter asks macOS for
+  microphone access the first time you test or record. If access was denied,
+  **Open Microphone Settings** takes you to the place in System Settings to
+  allow it; with no microphone connected, the popover says so. In a browser, inputs
+  are not listed by name until access is allowed; **Enable microphones** asks
+  for it, which opens the system default microphone for a moment and records
+  nothing.
 - A microphone you choose is the only one a recording will use. If it is not
   connected, the recording does not start and says so. No other microphone is
   used in its place; connect it or choose another input.
@@ -192,7 +196,8 @@ on a narrow window. Each opens its own popover.
 - **Test microphone** opens the chosen input and shows its level. Nothing is
   recorded, sent, or saved. The test, and a pending Enable microphones, end
   when you close the popover, leave Home, start a recording, or close the app.
-  Only one of the two runs at a time, and never beside a recording.
+  Only one of the two runs at a time, and never beside a recording. A test
+  whose microphone is unplugged or loses access ends and says why.
 - The choice is kept on this device and is never written to `kv.json`. It is
   in the page's `localStorage`, in Epicenter and in a browser tab; Epicenter
   serves every app from one fixed address, so the choice lasts between
@@ -201,13 +206,11 @@ on a narrow window. Each opens its own popover.
   name: two microphones can share a name. If the saved ID is not among the
   listed inputs, the choice is shown as "not listed" and nothing is chosen
   for you. Not being listed does not prove the microphone is gone, since the
-  list can be limited by permission, so a recording in a browser still asks
-  for exactly that ID. Epicenter records through its shell, which knows
-  microphones by name, so there a recording asks for the chosen input by the
-  name it was listed under. If it cannot be opened, the recording does not
-  start and no other microphone is used. Choose the input again, or System
-  default, to change it. Whether Epicenter's WebView gives a microphone the
-  same ID on a later launch has not been checked on hardware.
+  list can be limited by permission, so a recording still asks for exactly
+  that ID. In Epicenter the ID is the one macOS keeps for the device, so it
+  lasts across launches and reconnections. If it cannot be opened, the
+  recording does not start and no other microphone is used. Choose the input
+  again, or System default, to change it.
 - With fixture audio there is no real input: the popover says so, and no
   microphone is listed, asked for, or opened.
 

@@ -22,7 +22,7 @@
  * - `desktop.test.ts` for the workspace over the shell and the host
  * - `editing.test.ts` for editing over a browser folder
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';

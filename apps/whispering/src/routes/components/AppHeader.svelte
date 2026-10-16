@@ -4,8 +4,9 @@
 	import * as Popover from '@epicenter/ui/popover';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
+	import StatusPopover, { toastStatus } from '@epicenter/svelte/status-popover';
+	import StatusRow from '@epicenter/svelte/status-row';
 	import BugIcon from '@lucide/svelte/icons/bug';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -19,9 +20,8 @@
 	import {
 		commitLine,
 		commitOutcomeLine,
-		filesLineOf,
+		filesLine,
 		headLine,
-		type StatusLine,
 		summaryLine,
 		uncommittedLine,
 	} from '$lib/status.js';
@@ -41,42 +41,20 @@
 		onToggleTerminal: () => void;
 	} = $props();
 
-	const files = $derived(filesLineOf(library));
+	const files = $derived(filesLine(library));
 	/** The home page has the large recorder; every other page gets this compact one. */
 	const onHome = $derived(page.route.id === '/');
 	const uncommitted = $derived(uncommittedLine(library.git));
 	const commit = $derived(commitLine(library.git));
 	const head = $derived(headLine(library.git));
 	const summary = $derived(summaryLine({ files, uncommitted, commit }));
-	const details = $derived<[string, string, StatusLine][]>([
-		['Files', 'status-files', files],
-		['Changes', 'status-history', uncommitted],
-		['Last version', 'status-last-commit', commit],
-		['History', 'status-head', head],
-	]);
-
-	const tones: Record<StatusLine['tone'], string> = {
-		neutral: 'bg-muted-foreground/50',
-		busy: 'bg-primary animate-pulse',
-		good: 'bg-success',
-		warning: 'bg-warning',
-		error: 'bg-destructive',
-	};
-	const notify: Record<StatusLine['tone'], typeof toast.info> = {
-		good: toast.success,
-		neutral: toast.info,
-		busy: toast.info,
-		warning: toast.warning,
-		error: toast.error,
-	};
 
 	/** Record a version of the saved files: the only thing that commits besides the terminal. */
 	let committing = $state(false);
 	async function saveVersion() {
 		committing = true;
 		try {
-			const line = commitOutcomeLine(await library.saveVersion());
-			notify[line.tone](line.label, { description: line.detail });
+			toastStatus(commitOutcomeLine(await library.saveVersion()));
 		} finally {
 			committing = false;
 		}
@@ -129,53 +107,23 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={library.recorderError}>{library.recorderError}</span>
 	{/if}
 
-	<Popover.Root>
-		<Popover.Trigger>
-			{#snippet child({ props })}
-				<Button
-					{...props}
-					variant="ghost"
-					size="sm"
-					class="min-w-0 shrink font-normal text-muted-foreground"
-					aria-label="Status: {summary.label}. Show details"
-					data-testid="status-summary"
-				>
-					<span class="size-2 shrink-0 rounded-full {tones[summary.tone]}" aria-hidden="true"></span>
-					<span class="truncate sm:hidden">{summary.short ?? summary.label}</span>
-					<span class="truncate max-sm:hidden">{summary.label}</span>
-					<ChevronDownIcon class="text-muted-foreground max-sm:hidden" />
-				</Button>
-			{/snippet}
-		</Popover.Trigger>
-		<Popover.Content align="start" class="w-96 max-w-[calc(100vw-1rem)] p-0">
-			<dl class="divide-y text-sm">
-				{#each details as [name, testid, line] (name)}
-					<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-						<dt class="text-xs text-muted-foreground">{name}</dt>
-						<dd class="min-w-0">
-							<span class="flex items-center gap-1.5 font-medium" data-testid={testid}>
-								<span class="size-2 shrink-0 rounded-full {tones[line.tone]}" aria-hidden="true"></span>
-								{line.label}
-							</span>
-							{#if line.detail}
-								<span class="mt-0.5 block text-xs break-words whitespace-pre-line text-muted-foreground">{line.detail}</span>
-							{/if}
-						</dd>
-					</div>
-				{/each}
-				<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-					<dt class="text-xs text-muted-foreground">Folder</dt>
-					<dd class="min-w-0 font-mono text-xs break-all" data-testid="status-folder">{library.workspace.location}</dd>
-				</div>
-			</dl>
-			<div class="flex items-center gap-2 border-t px-3 py-2">
-				<Button size="sm" disabled={committing || library.git.activity.commit.active} onclick={saveVersion} data-testid="save-version">
-					{#if committing}<Spinner class="size-3.5" />{/if}
-					Save version
-				</Button>
-			</div>
-		</Popover.Content>
-	</Popover.Root>
+	<StatusPopover
+		{summary}
+		details={[
+			{ name: 'Files', testid: 'status-files', line: files },
+			{ name: 'Changes', testid: 'status-history', line: uncommitted },
+			{ name: 'Last version', testid: 'status-last-commit', line: commit },
+			{ name: 'History', testid: 'status-head', line: head },
+		]}
+	>
+		<StatusRow name="Folder" class="font-mono text-xs break-all" data-testid="status-folder">{library.workspace.location}</StatusRow>
+		{#snippet footer()}
+			<Button size="sm" disabled={committing || library.git.activity.commit.active} onclick={saveVersion} data-testid="save-version">
+				{#if committing}<Spinner class="size-3.5" />{/if}
+				Save version
+			</Button>
+		{/snippet}
+	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
 		{#if library.workspace.debugControls}

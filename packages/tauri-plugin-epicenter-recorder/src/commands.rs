@@ -1,5 +1,8 @@
-//! The IPC surface: start, stop, and cancel one recording, and recover cut-off
-//! ones.
+//! The IPC surface: list the microphones, read one's level, start, stop, and
+//! cancel one recording, and recover cut-off ones.
+//!
+//! A microphone is named by the id `inputs` answers, never by the name a
+//! WebView gives it: on the desktop the page opens no microphone of its own.
 //!
 //! A page names a folder scope and a folder-relative path, never a root. The
 //! folder plugin decides whether the invoking window was granted the scope and
@@ -16,7 +19,8 @@ use tauri_plugin_epicenter_folder::FolderExt;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
-use crate::recorder::{Result, StartedRecording, StoppedRecording};
+use crate::meter::OpenedMeter;
+use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
 use crate::{refresh_capturing, Recorders};
 
 /// The directory this window was granted for `scope`.
@@ -27,12 +31,74 @@ fn granted_root<R: Runtime>(webview: &Webview<R>, scope: &str) -> Result<std::pa
         .map_err(|refusal| RecorderError::refused(format!("{refusal:?}")))
 }
 
+/// The microphones connected now, each with the id to ask for it by. Opens
+/// nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn inputs() -> Result<Vec<Input>> {
+    tauri::async_runtime::spawn_blocking(|| crate::recorder::list_inputs(&cpal::default_host()))
+        .await
+        .map_err(|error| RecorderError::failed(error.to_string()))?
+}
+
+/// Open the microphone whose id is `device`, or the system default, to send
+/// its level on `levels` until `close_meter`, or until this window's page
+/// reloads or the window is destroyed. Nothing is recorded. Microphone access
+/// is asked for first, and a denial opens nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_meter<R: Runtime>(
+    webview: Webview<R>,
+    device: Option<String>,
+    levels: Channel<RecordingSignal>,
+) -> Result<OpenedMeter> {
+    let app = webview.app_handle().clone();
+    let owner = webview.label().to_string();
+    let recorders = webview.state::<Recorders<R>>();
+    let page = recorders.lock().page(&owner);
+    let access = recorders.access;
+    let id = crate::recorder::next_id();
+    let gone_app = app.clone();
+    let gone_id = id.clone();
+    let on_gone = move || {
+        let removed = gone_app
+            .try_state::<Recorders<R>>()
+            .is_some_and(|recorders| recorders.lock().remove_meter(&gone_id));
+        if removed {
+            refresh_capturing(&gone_app);
+        }
+    };
+    let (meter, device) = tauri::async_runtime::spawn_blocking(move || {
+        access()?;
+        crate::meter::open(device.as_deref(), levels, on_gone)
+    })
+    .await
+    .map_err(|error| RecorderError::failed(error.to_string()))??;
+    recorders.lock().add_meter(&id, page, &owner, meter)?;
+    refresh_capturing(&app);
+    Ok(OpenedMeter { id, device })
+}
+
+/// Close the meter `id` this window opened, releasing its microphone.
+#[tauri::command]
+#[specta::specta]
+pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<()> {
+    let app = webview.app_handle().clone();
+    let result = app
+        .state::<Recorders<R>>()
+        .lock()
+        .close_meter(&id, webview.label());
+    refresh_capturing(&app);
+    result
+}
+
 /// Start recording into `<path>.wav` in the folder this window was granted for
-/// `scope`, from the microphone named `device` or the system default. Levels,
+/// `scope`, from the microphone whose id is `device` or the system default. Levels,
 /// and an ending nobody asked for, arrive on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
-/// it yet; missing directories on the way are made. A refusal opens nothing.
+/// it yet; missing directories on the way are made. Microphone access is
+/// asked for before the device is resolved. A refusal opens nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn start<R: Runtime>(
@@ -64,6 +130,13 @@ pub async fn start<R: Runtime>(
     if let Some((parent, _)) = relative.rsplit_once('/') {
         page_files::mkdir(&root, &root.join(parent)).map_err(RecorderError::refused)?;
     }
+
+    // Asked before any device is resolved, off the async runtime: a person
+    // not yet asked answers a system prompt.
+    let access = recorders.access;
+    tauri::async_runtime::spawn_blocking(access)
+        .await
+        .map_err(|error| RecorderError::failed(error.to_string()))??;
 
     let started = {
         let mut recorder = recorders.lock();

@@ -32,12 +32,6 @@ use transcription::{
     set_unload_policy, transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
 };
 
-pub mod command;
-use command::{
-    get_microphone_permission, open_accessibility_settings, request_accessibility_permission,
-    request_microphone_permission,
-};
-
 pub mod download;
 use download::{cancel_download, DownloadManager};
 
@@ -50,7 +44,6 @@ use media::{pause_playback, resume_playback};
 pub mod timing;
 
 mod shell;
-use shell::{is_autostart_enabled, set_autostart_enabled};
 
 #[cfg(desktop)]
 pub mod keyboard;
@@ -131,10 +124,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             transcribe_audio_bytes,
             list_inference_models,
             prewarm_model,
-            open_accessibility_settings,
-            request_accessibility_permission,
-            get_microphone_permission,
-            request_microphone_permission,
             get_active_model,
             set_active_model,
             get_local_transcription_readiness,
@@ -171,8 +160,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             resume_playback,
             keyboard::commands::set_auto_paste_enabled,
             keyboard::commands::get_dictation_capability,
-            is_autostart_enabled,
-            set_autostart_enabled,
         ])
         .events(tauri_specta::collect_events![
             keyboard::DictationCapabilityEvent,
@@ -336,7 +323,6 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(PendingHomeSection::default())
         .manage(data_folders::DataFolderScopes::default())
         .manage(cli::CliChildren::default())
@@ -813,7 +799,9 @@ mod tests {
     /// capability selects every label `open_installed_window` makes, for any
     /// app id, with or without a folder, and none of Epicenter's own windows.
     /// It grants the union of what any installed app's page calls: the folder
-    /// plugin and its history (ADR-0559), the recorder (ADR-0543), local
+    /// plugin and its history (ADR-0559), the recorder, which lists and opens
+    /// every microphone and asks for access first (ADR-0543, ADR-0571),
+    /// opening System Settings' privacy panes (ADR-0555), local
     /// transcription and its readiness (ADR-0180), opening Settings, the AI
     /// commands (ADR-0557), who the app is signed in as, and its account
     /// request (ADR-0549, ADR-0556).
@@ -853,6 +841,10 @@ mod tests {
                 "allow-sync",
                 "allow-settle-sync",
                 "epicenter-recorder:default",
+                {
+                    "identifier": "opener:allow-open-url",
+                    "allow": [{ "url": "x-apple.systempreferences:*" }]
+                },
                 "allow-list-inference-models",
                 "allow-transcribe-audio-bytes",
                 "allow-get-local-transcription-readiness",
@@ -993,8 +985,8 @@ mod tests {
     }
 
     /// The `tauri-plugin-macos-permissions` plugin is gone from this build:
-    /// `command.rs` owns the two OS permission capabilities Epicenter exposes,
-    /// through AVFoundation and the Accessibility API directly.
+    /// the recorder plugin asks for microphone access through AVFoundation
+    /// itself, and the keyboard supervisor watches the Accessibility grant.
     ///
     /// Its `macos-permissions:default` grant handed Whispering twelve unrelated
     /// plugin commands (screen recording, input monitoring, full disk access,
@@ -1172,7 +1164,11 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .any(|pattern| glob::Pattern::new(pattern.as_str().unwrap()).unwrap().matches(label))
+            .any(|pattern| {
+                glob::Pattern::new(pattern.as_str().unwrap())
+                    .unwrap()
+                    .matches(label)
+            })
     }
 
     /// A development build and an installed one can be running at the same time
@@ -1235,7 +1231,11 @@ mod tests {
         {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
-                let permission = permission.as_str().unwrap();
+                // A scoped grant is an object; its identifier is what is named.
+                let permission = permission
+                    .as_str()
+                    .or_else(|| permission["identifier"].as_str())
+                    .unwrap();
                 assert_ne!(
                     permission, "allow-list-data-folders",
                     "the listing belongs to the Folders window alone"

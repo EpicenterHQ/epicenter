@@ -5,7 +5,8 @@
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "Whispering's recorder and global shortcuts, and Honeycrisp's terminal and 'reveal folder', are host functions": shortcuts come from the global-shortcut plugin, reveal is a folder action every window offers, and the terminal is refused.
 - **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "granted by app id" and "Each app is granted in one file, `installed-<app>.json`": every installed app's window is granted by one file, `installed-app.json`, whose `windows` is `app:*`.
 - **Relates:** [ADR-0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md) (plugin chords only, the tap watches the paste grant), [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) (a hidden app window keeps running, and its 30-minute test), [ADR-0328](0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md) (Epicenter adds itself to login items once), [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (an approved app is trusted fully), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (one capability file per app).
-- **Unbuilt:** all of it: the plugin JS packages and grants, registering the notification plugin, `open_panel`, `reveal_folder` and `open_folder_in_terminal`, and the deletions below.
+- **Built:** the deletions of `is_autostart_enabled`, `set_autostart_enabled`, and `open_accessibility_settings`; the opener's `allow-open-url` for `x-apple.systempreferences:` in `installed-app.json`, which Whispering calls through `@tauri-apps/plugin-opener` (ADR-0571).
+- **Unbuilt:** the other plugin JS packages and grants, registering the notification plugin, `open_panel`, `reveal_folder` and `open_folder_in_terminal`, the rest of the deletions below, and autostart: the plugin is not registered, so nothing enables it once on first run (ADR-0328).
 
 ## Context
 
@@ -103,7 +104,7 @@ registers them. A hidden window keeps its chords live
 
 - `replace_global_shortcuts`, `GlobalShortcutRegistry`, `GlobalShortcutTriggered`, and `WHISPERING_WINDOW` (`apps/epicenter/src-tauri/src/shell.rs:16-39`, `:83-158`), once ADR-0563's 30-minute test passes on every platform. On a platform where it fails, Rust keeps starting a recording on the chord.
 - `is_autostart_enabled` and `set_autostart_enabled` (`shell.rs:160-177`); Rust enables autostart once on first run, as ADR-0328 decides.
-- `open_accessibility_settings` (`apps/epicenter/src-tauri/src/command.rs:14`), replaced by the opener's `openUrl`.
+- `open_accessibility_settings` (in `command.rs`, since deleted), replaced by the opener's `openUrl`.
 - `MAIN_WINDOW` in `apps/epicenter/src-tauri/src/keyboard/mod.rs:49` and its `emit_to` at `:132`.
 - `create_recording_overlay`'s fixed label and URL (`apps/epicenter/src-tauri/src/overlay.rs:24`, `:39`), which become `open_panel`'s.
 

@@ -17,6 +17,7 @@ import type { QueryClient } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createLibrary } from './library.svelte.js';
+import type { PostProcessingChoice } from './post-processing.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
 import { createSettingsDraft } from './settings-draft.svelte.js';
 import {
@@ -145,6 +146,22 @@ export async function createSession(
 		view,
 		/** The one draft of the connection settings, wherever its form is shown. */
 		settings,
+		/**
+		 * The post-processing choice read against the transformations as last
+		 * listed and the library's one recipe resolver. The folder is the truth
+		 * about the chosen transformation: it may have been deleted, or edited
+		 * into something that cannot run, since it was chosen. Nothing here runs it.
+		 */
+		get postProcessing(): PostProcessingChoice {
+			const path = view.postProcessing;
+			if (path === undefined) return { kind: 'none' };
+			const entry = library.transformations.find((item) => item.path === path);
+			if (entry === undefined) return { kind: 'missing', path };
+			const resolved = library.resolve(entry.row);
+			return resolved.kind === 'ready'
+				? { kind: 'ready', entry }
+				: { kind: 'repair', entry, reason: resolved.reason };
+		},
 		/**
 		 * Whether a navigation must be held back. A navigation between this app's
 		 * routes unloads nothing and is never held. One that unloads the document

@@ -10,9 +10,15 @@
 //!     .plugin(tauri_plugin_epicenter_recorder::init())
 //! ```
 //!
-//! A page names a folder scope its window was granted and a folder-relative
-//! path. `start` creates `<path>.wav` there and appends mono PCM16 to it as
-//! the microphone captures; `stop` finalizes its header; `cancel` deletes it.
+//! A page lists the microphones with `inputs` and names one by the id it
+//! answers; `open_meter` reads a microphone's level without recording, until
+//! `close_meter` or until the page is gone. The page opens no microphone of
+//! its own. `open_meter` and `start` ask macOS for microphone access first
+//! (`permission.rs`), for every caller.
+//!
+//! To record, a page names a folder scope its window was granted and a
+//! folder-relative path. `start` creates `<path>.wav` there and appends mono
+//! PCM16 to it as the microphone captures; `stop` finalizes its header; `cancel` deletes it.
 //! When the page that started a recording reloads, or its window is destroyed,
 //! the recording is finalized for it, never deleted. `recover` rewrites the
 //! header of any WAV a quit or crash cut off, which a page calls when it opens
@@ -32,6 +38,8 @@ mod command_names;
 mod commands;
 pub mod ended;
 pub mod error;
+mod meter;
+pub mod permission;
 pub mod recorder;
 pub mod wav;
 
@@ -41,14 +49,17 @@ pub use error::RecorderError;
 
 const PLUGIN_NAME: &str = "epicenter-recorder";
 
-/// Told whether a microphone is open whenever that may have changed, on the
-/// main thread. A shell draws its recording indicator from it.
+/// Told whether a microphone is open, by a recording or a meter, whenever that
+/// may have changed, on the main thread. A shell draws its indicator from it.
 pub type OnCapturing<R> = Arc<dyn Fn(&AppHandle<R>, bool) + Send + Sync>;
 
 /// The host's one recorder, and how the shell hears that capture changed.
 pub(crate) struct Recorders<R: Runtime> {
     recorder: Mutex<recorder::Recorder>,
     on_capturing: Option<OnCapturing<R>>,
+    /// Asked before any microphone opens: [`permission::ensure_access`],
+    /// which tests replace.
+    pub(crate) access: fn() -> recorder::Result<()>,
 }
 
 impl<R: Runtime> Recorders<R> {
@@ -62,11 +73,15 @@ impl<R: Runtime> Recorders<R> {
 /// Configures the plugin. `init` is `Builder::new().build()`.
 pub struct Builder<R: Runtime> {
     on_capturing: Option<OnCapturing<R>>,
+    access: fn() -> recorder::Result<()>,
 }
 
 impl<R: Runtime> Default for Builder<R> {
     fn default() -> Self {
-        Self { on_capturing: None }
+        Self {
+            on_capturing: None,
+            access: permission::ensure_access,
+        }
     }
 }
 
@@ -76,7 +91,8 @@ impl<R: Runtime> Builder<R> {
     }
 
     /// Hear whether a microphone is open after every start, stop, cancel,
-    /// finalized departure, and capture that ended on its own.
+    /// finalized departure, capture that ended on its own, and meter that
+    /// opened or closed.
     pub fn on_capturing(
         mut self,
         listener: impl Fn(&AppHandle<R>, bool) + Send + Sync + 'static,
@@ -85,15 +101,25 @@ impl<R: Runtime> Builder<R> {
         self
     }
 
+    /// Answer microphone access with `access` instead of asking the system,
+    /// so a test opens no prompt.
+    #[cfg(test)]
+    pub(crate) fn access(mut self, access: fn() -> recorder::Result<()>) -> Self {
+        self.access = access;
+        self
+    }
+
     pub fn build(self) -> TauriPlugin<R> {
         let handler = specta_builder::<R>().invoke_handler();
         let on_capturing = self.on_capturing;
+        let access = self.access;
         tauri::plugin::Builder::new(PLUGIN_NAME)
             .invoke_handler(handler)
             .setup(move |app, _api| {
                 app.manage(Recorders {
                     recorder: Mutex::new(recorder::Recorder::new()),
                     on_capturing,
+                    access,
                 });
                 Ok(())
             })
@@ -131,6 +157,9 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
+            commands::inputs,
+            commands::open_meter::<tauri::Wry>,
+            commands::close_meter::<tauri::Wry>,
             commands::start::<tauri::Wry>,
             commands::stop::<tauri::Wry>,
             commands::cancel::<tauri::Wry>,
@@ -160,8 +189,8 @@ fn page_ended<R: Runtime>(app: &AppHandle<R>, window: &str) {
     let Some(recorders) = app.try_state::<Recorders<R>>() else {
         return;
     };
-    let finished = recorders.lock().page_ended(window);
-    if finished.is_some() {
+    let (finished, meters_closed) = recorders.lock().page_ended(window);
+    if finished.is_some() || meters_closed {
         refresh_capturing(app);
     }
 }

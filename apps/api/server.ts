@@ -19,8 +19,8 @@
  * auth layer, the inference/blobs mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
- * Runtime skew is fenced by design: a DO-only behavior (hibernation restore,
- * alarm timing, edge placement) will not surface here, so `wrangler dev` /
+ * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive,
+ * Artifacts, edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
  *
  * The authorization server's pages (sign-in, consent, device) are the built
@@ -33,11 +33,6 @@
  * both entries: the dashboard SPA needs the Worker-only `ASSETS` binding, and
  * billing is the hosted Worker's concern. Everything the shared library can
  * mount on both runtimes is mounted on both.
- * Because this runtime cannot resolve the hosted storage allowance, first
- * contact is allowed only for workspaces already registered by the hosted
- * Worker. Existing current-state replicas in this runtime's own backend may
- * still sync; opening an old records database performs the authorized protocol
- * reset and does not resume legacy receipts.
  */
 
 import { statSync } from 'node:fs';
@@ -63,7 +58,6 @@ import {
 	type OAuthScope,
 	registerFirstPartyClients,
 	requireAccessToken,
-	resolveDeploymentBlobStore,
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
@@ -197,6 +191,7 @@ export async function startBunApiServer(): Promise<void> {
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
+		resolveAudiences: () => audiences,
 	});
 
 	const ui = uiPages(env.API_UI_DIR ?? resolve(import.meta.dir, 'ui', 'build'));
@@ -214,25 +209,18 @@ export async function startBunApiServer(): Promise<void> {
 	const cloudContext = createCloudContextMiddleware(cloudContextOptions);
 	const authServerContext = createCloudContextMiddleware({
 		...cloudContextOptions,
-		resolveOAuthServer: () => ({
-			audiences,
-			clientMetadataFetch: nodeClientMetadataFetch,
-		}),
+		oauthServer: { clientMetadataFetch: nodeClientMetadataFetch },
 	});
 	// Public auth shells bypass setup. Database-backed endpoints and resource
 	// guards explicitly install the context middleware, just like the Worker.
 	mountAuthRoutes(app, {
 		setup: authServerContext,
 		serveAuthUiShell: ui.shell,
-		resolveAudiences: () => audiences,
 	});
 	// Every resource takes only an access token for its audience and the scope
 	// its operation needs (ADR-0549).
 	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
-		every(
-			cloudContext,
-			requireAccessToken({ audience: () => audiences[audience], scope }),
-		);
+		every(cloudContext, requireAccessToken({ audience, scope }));
 	// Hosted Git (ADR-0546) keeps bare repositories on disk under
 	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
 	// the shared profile and answer 503 `git_unavailable`.
@@ -241,14 +229,12 @@ export async function startBunApiServer(): Promise<void> {
 		: null;
 	mountGitHost(app, {
 		setup: cloudContext,
-		resolveAudiences: () => audiences,
 		resolveHost: () => gitHost,
 	});
 	// The folder MCP server at `<origin>/mcp` (ADR-0550) reads and commits
 	// through the same store; without one it answers 503.
 	mountMcpServer(app, {
 		setup: cloudContext,
-		resolveAudiences: () => audiences,
 		resolveHost: () => gitHost,
 	});
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
@@ -263,20 +249,17 @@ export async function startBunApiServer(): Promise<void> {
 			read: resource('git', 'folders:read'),
 			write: resource('git', 'folders:write'),
 		},
-		resolveStore: resolveDeploymentBlobStore,
 	});
 
 	const server = Bun.serve({
 		port,
 		// Bun calls `fetch(req, server)`; route everything through the Hono app with
-		// the validated env as `c.env`. WebSocket upgrades are never intercepted
-		// ahead of the auth pipeline here.
+		// the validated env as `c.env`.
 		fetch: (req) => app.fetch(req, env),
 	});
 
-	// Nothing durable to close here any more: the store lives in the client
-	// (ADR-0223) and the authority is a Durable Object, so this process owns no
-	// database whose WAL has to be checkpointed.
+	// Nothing local needs a checkpoint: Postgres is a separate server, and the
+	// pool's connections close with the process.
 	const shutdown = () => {
 		void server.stop(true);
 		process.exit(0);

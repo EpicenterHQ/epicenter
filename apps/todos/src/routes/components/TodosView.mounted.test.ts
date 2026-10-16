@@ -20,7 +20,7 @@
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
 import '../../lib/svelte-dom.test-support.js';
-import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
@@ -34,7 +34,8 @@ import {
 	createGitHandler,
 	type GitSession,
 	prepareGitSession,
-} from '../../../server/git-server.js';
+} from '../../../../../packages/folder/src/git-demo-server.test-support.js';
+import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
 import { requestConnect } from '../../lib/connect-request.js';
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet, rowEditor } from '../../lib/query.test-support.js';
@@ -48,20 +49,6 @@ const { default: TodosViewHost } = await import(
 );
 
 const originalFetch = globalThis.fetch;
-const env = {
-	...process.env,
-	GIT_CONFIG_GLOBAL: '/dev/null',
-	GIT_CONFIG_NOSYSTEM: '1',
-	GIT_AUTHOR_NAME: 'Native',
-	GIT_AUTHOR_EMAIL: 'native@localhost',
-	GIT_COMMITTER_NAME: 'Native',
-	GIT_COMMITTER_EMAIL: 'native@localhost',
-};
-
-beforeAll(() => {
-	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-	delete process.env.TODOS_DEMO_ROOT;
-});
 afterAll(() => {
 	globalThis.fetch = originalFetch;
 });
@@ -73,22 +60,6 @@ afterEach(async () => {
 
 let count = 0;
 const MILK = 'todos/milk.md';
-
-async function run(cwd: string, command: string[]) {
-	const child = Bun.spawn(command, {
-		cwd,
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`${command.join(' ')}: ${stderr}${stdout}`);
-	return stdout.trim();
-}
 
 /** Let writes, reads, and effects run, then render. */
 async function settle(todos: Todos) {
@@ -112,7 +83,7 @@ async function eventually(done: () => boolean) {
  * milk" on the remote.
  */
 async function competing() {
-	const session = await prepareGitSession(5990);
+	const session = await prepareGitSession({ name: 'todos', port: 5990 });
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
@@ -138,14 +109,14 @@ async function competing() {
 		),
 	);
 	expectOk(await todos.sync.run());
-	await run(session.nativeCheckout, [
-		'git',
+	await git(
+		session.nativeCheckout,
 		'pull',
 		'--quiet',
 		'--ff-only',
 		session.bare,
 		'main',
-	]);
+	);
 	await pushMilk(session, '---\ntitle: Buy soy milk\ndone: false\n---\n');
 
 	const target = document.createElement('div');
@@ -164,8 +135,8 @@ async function competing() {
 async function pushMilk(session: GitSession, text: string) {
 	const native = session.nativeCheckout;
 	await writeFile(join(native, MILK), text);
-	await run(native, ['git', 'commit', '--quiet', '-am', 'Edit elsewhere']);
-	await run(native, ['git', 'push', '--quiet', session.bare, 'main']);
+	await git(native, 'commit', '--quiet', '-am', 'Edit elsewhere');
+	await git(native, 'push', '--quiet', session.bare, 'main');
 }
 
 const review = (target: Element) =>
@@ -198,7 +169,7 @@ test('Sync with competing edits opens the review in place of the workspace and w
 	expect(
 		target.querySelector<HTMLButtonElement>('[data-testid="sync"]')!.disabled,
 	).toBe(true);
-	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
+	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
 		'title: Buy soy milk',
 	);
 
@@ -242,7 +213,7 @@ test('a refused choice shows beside its row and keeps the review; Apply with a v
 	await eventually(() => review(target) === null);
 	await settle(todos);
 	expect(workspace(target)?.textContent).toContain('Buy soy milk');
-	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
+	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
 		'title: Buy soy milk',
 	);
 }, 60_000);

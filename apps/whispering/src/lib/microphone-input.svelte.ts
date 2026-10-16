@@ -2,7 +2,8 @@
  * The microphone a session records from, and the test of it.
  *
  * The choice is the system default or one microphone, identified by the ID
- * the WebView gave it. It is kept on this device through the workspace and
+ * its platform lists it under: the shell's in Epicenter, the WebView's in a
+ * browser. It is kept on this device through the workspace and
  * applies to the next recording: a recording that is running keeps the
  * microphone it opened, so the choice cannot be changed while one is
  * starting, running, or finishing. A choice whose ID is not listed stays the
@@ -11,12 +12,12 @@
  * follows, one save at a time in the order chosen.
  *
  * Nothing here asks for microphone access on its own. Listing reads what the
- * WebView already lists; `allow` and `startTest` are the actions that open a
+ * platform already lists; `allow` and `startTest` are the actions that open a
  * microphone, and each is something the person pressed.
  *
  * Those two are the only things here that open a microphone, and they share
  * one owner: at most one of them is under way, never beside a recording, and
- * `release` ends whichever it is. A microphone the WebView opens after the
+ * `release` ends whichever it is. A microphone that opens after the
  * release is released when it arrives. A test reads a level and nothing
  * else: no audio is recorded, sent, or saved.
  */
@@ -30,7 +31,7 @@ import type { Workspace } from './workspace/index.js';
 
 export type MicrophoneInput = ReturnType<typeof createMicrophoneInput>;
 
-/** What is known of the inputs the WebView lists. */
+/** What is known of the inputs the platform lists. */
 export type InputList =
 	/** Nothing has been listed yet. */
 	| { readonly kind: 'unread' }
@@ -39,8 +40,11 @@ export type InputList =
 	| {
 			readonly kind: 'listed';
 			readonly devices: readonly MicrophonePreference[];
-			/** Inputs exist, but they are not named until access is allowed. */
-			readonly namesWithheld: boolean;
+			/**
+			 * Inputs exist, but they are not named until access is allowed.
+			 * Absent where names are never withheld, as in Epicenter.
+			 */
+			readonly namesWithheld?: boolean;
 	  };
 
 export type InputTest =
@@ -142,8 +146,11 @@ export function createMicrophoneInput({
 			return;
 		}
 		list = { kind: 'listed', ...listed };
-		// Names are listed, so access is allowed, whatever an earlier attempt said.
-		if (listed.devices.length > 0) denied = false;
+		// Where names wait for access, names listed mean access is allowed,
+		// whatever an earlier attempt said. Epicenter names inputs without
+		// access, so there only a microphone that opens clears a denial.
+		if (listed.namesWithheld !== undefined && listed.devices.length > 0)
+			denied = false;
 	}
 
 	/**
@@ -191,6 +198,10 @@ export function createMicrophoneInput({
 		get allowing() {
 			return allowing;
 		},
+		/** Whether access can be asked for here: a WebView's, never Epicenter's, which asks itself. */
+		canAllow: inputs?.allow !== undefined,
+		/** Whether the system's microphone privacy settings can be opened from here. */
+		canOpenSettings: inputs?.openSettings !== undefined,
 		/**
 		 * Whether the chosen microphone's ID is among those listed. Undefined
 		 * while that cannot be told: nothing is listed by name yet, which is also
@@ -234,16 +245,18 @@ export function createMicrophoneInput({
 		refresh,
 		/**
 		 * Ask for microphone access so inputs are listed by name. The system
-		 * default microphone is opened and released at once.
+		 * default microphone is opened and released at once. Only where
+		 * `canAllow`.
 		 */
 		async allow() {
-			if (inputs === undefined || closed || !mayOpen()) return;
+			const allow = inputs?.allow;
+			if (allow === undefined || closed || !mayOpen()) return;
 			problem = undefined;
 			const attempt = new AbortController();
 			acquiring = attempt;
 			allowing = true;
-			const { error: allowError } = await inputs.allow(attempt.signal);
-			// Released while the WebView was answering. Whatever it opened is not kept.
+			const { error: allowError } = await allow.call(inputs, attempt.signal);
+			// Released while the platform was answering. Whatever it opened is not kept.
 			if (acquiring !== attempt) return;
 			release();
 			report(allowError);
@@ -275,7 +288,7 @@ export function createMicrophoneInput({
 				choice,
 				attempt.signal,
 			);
-			// Released, or released and started again, while the WebView was answering.
+			// Released, or released and started again, while the platform was answering.
 			if (acquiring !== attempt) {
 				if (meterError === null) opened.stop();
 				return;
@@ -288,6 +301,13 @@ export function createMicrophoneInput({
 			denied = false;
 			meter = opened;
 			test = { phase: 'running', label: opened.label };
+			// A microphone that stops on its own ends the test, said as a
+			// recording's ending is.
+			opened.onEnded((error) => {
+				if (meter !== opened) return;
+				release();
+				report(error);
+			});
 			levelTimer = setInterval(() => {
 				level = meter?.level() ?? 0;
 			}, LEVEL_MS);
@@ -295,6 +315,13 @@ export function createMicrophoneInput({
 			void refresh();
 		},
 		release,
+		/** Open the system's microphone privacy settings, where a denial is undone. */
+		async openSettings() {
+			const openSettings = inputs?.openSettings;
+			if (openSettings === undefined || closed) return;
+			const { error } = await openSettings.call(inputs);
+			if (error !== null) problem = error.message;
+		},
 		/** A recording could not open the microphone: say whether access was the reason. */
 		noteRecordingError(error: CaptureError) {
 			if (error.name === 'PermissionDenied') denied = true;

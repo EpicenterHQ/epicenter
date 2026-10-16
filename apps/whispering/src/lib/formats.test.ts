@@ -1,36 +1,19 @@
 /**
- * The small pure pieces the workflow rests on: the audio container check
- * that names a recording's file, and the transcription request.
+ * The small pure pieces the workflow rests on: audio file facts, recording
+ * ids, and the transcription request.
  */
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import {
-	audioMimeTypeOf,
-	resolveAudioFormat,
-	wavDurationMs,
-} from './audio-format.js';
+import { audioMimeTypeOf, wavDurationMs } from './audio-format.js';
 import { toneWav } from './capture.js';
-import { requestTranscription } from './transcription.js';
+import type { StoredConnection } from './connections.js';
+import { transcribeOverConnection } from './transcription.js';
 
 const { recordingId } = await import('./library.svelte.ts');
 
-test('the container signature names the extension, not the claimed type', () => {
-	expect(resolveAudioFormat(toneWav(), 'audio/webm').extension).toBe('wav');
-	const webm = new Uint8Array(16);
-	webm.set([0x1a, 0x45, 0xdf, 0xa3]);
-	expect(resolveAudioFormat(webm, '').extension).toBe('webm');
-	const mp4 = new Uint8Array(16);
-	mp4.set([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70]);
-	expect(resolveAudioFormat(mp4, 'audio/webm')).toEqual({
-		extension: 'm4a',
-		mimeType: 'audio/mp4',
-	});
-	// Unrecognized bytes fall back to the claim, then to a file that is still saved.
-	expect(
-		resolveAudioFormat(new Uint8Array(16), 'audio/mp4;codecs=mp4a').extension,
-	).toBe('m4a');
-	expect(resolveAudioFormat(new Uint8Array(16), '').extension).toBe('bin');
+test('a file’s extension names its playback type, ignoring case', () => {
 	expect(audioMimeTypeOf('recordings/a.M4A')).toBe('audio/mp4');
 	expect(audioMimeTypeOf('recordings/a.md')).toBeUndefined();
 });
@@ -45,21 +28,36 @@ test('recording ids encode capture time', () => {
 	expect(id).toMatch(/^20260102-030405-[0-9a-z]{4}$/);
 });
 
+const KEY = 'sk-transcription-key';
+const audio = { bytes: toneWav(), filename: 'a.wav', mimeType: 'audio/wav' };
+
+/** One transcription over a stored connection, answered by `send`. */
+const transcribe = (
+	send: (input: string, init?: RequestInit) => Promise<Response>,
+	{
+		stored = { baseUrl: 'http://127.0.0.1:18080/v1', model: 'm', apiKey: KEY },
+		model = 'verification-model',
+	}: { stored?: StoredConnection; model?: string } = {},
+) =>
+	transcribeOverConnection(
+		async () => stored,
+		{ audioPath: 'recordings/a.wav', expectedBaseUrl: stored.baseUrl, model },
+		async () => Ok(audio),
+		send,
+	);
+
 test('a transcription request posts the audio and reads the text, refusing redirects and ambient credentials', async () => {
 	let seen: Request | undefined;
 	let given: RequestInit | undefined;
 	const transcribed = expectOk(
-		await requestTranscription({
-			baseUrl: 'http://127.0.0.1:18080/v1',
-			model: 'verification-model',
-			apiKey: '',
-			audio: { bytes: toneWav(), filename: 'a.wav', mimeType: 'audio/wav' },
-			fetch: async (input, init) => {
+		await transcribe(
+			async (input, init) => {
 				given = init;
 				seen = new Request(input, init);
 				return Response.json({ text: 'hello' });
 			},
-		}),
+			{ stored: { baseUrl: 'http://127.0.0.1:18080/v1', model: 'm' } },
+		),
 	);
 	expect(transcribed).toEqual({ text: 'hello' });
 	expect(seen?.url).toBe('http://127.0.0.1:18080/v1/audio/transcriptions');
@@ -67,35 +65,25 @@ test('a transcription request posts the audio and reads the text, refusing redir
 	expect(given).toMatchObject({ redirect: 'error', credentials: 'omit' });
 });
 
-test('transcription failures say what happened', async () => {
-	const audio = { bytes: toneWav(), filename: 'a.wav', mimeType: 'audio/wav' };
-	const base = {
-		baseUrl: 'http://127.0.0.1:1/v1',
-		model: 'm',
-		apiKey: 'k',
-		audio,
+test('transcription failures say what happened, without the key', async () => {
+	const never = async () => {
+		throw new Error('nothing is sent');
 	};
-	const { error: unconfigured } = await requestTranscription({
-		...base,
-		model: ' ',
-	});
+	const { error: unconfigured } = await transcribe(never, { model: ' ' });
 	expect(unconfigured?.name).toBe('NotConfigured');
-	const { error: unreachable } = await requestTranscription({
-		...base,
-		fetch: async () => {
-			throw new Error('connection refused');
-		},
+	const { error: unreachable } = await transcribe(async () => {
+		throw new Error(`connection refused (authorization ${KEY})`);
 	});
 	expect(unreachable?.name).toBe('Unreachable');
-	const { error: rejected } = await requestTranscription({
-		...base,
-		fetch: async () => new Response('bad key', { status: 401 }),
-	});
+	expect(JSON.stringify(unreachable)).not.toContain(KEY);
+	const { error: rejected } = await transcribe(
+		async () => new Response(`bad key ${KEY}`, { status: 401 }),
+	);
 	expect(rejected?.name).toBe('Rejected');
 	expect(rejected?.message).toContain('401');
-	const { error: malformed } = await requestTranscription({
-		...base,
-		fetch: async () => new Response('<html>', { status: 200 }),
-	});
+	expect(JSON.stringify(rejected)).not.toContain(KEY);
+	const { error: malformed } = await transcribe(
+		async () => new Response('<html>', { status: 200 }),
+	);
 	expect(malformed?.name).toBe('Malformed');
 });

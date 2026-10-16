@@ -49,7 +49,7 @@ function objectName(gitdir: string, path: string): string | undefined {
  * names and checks the object itself, so no object file is ever written by
  * hand.
  */
-export type ObjectStore = {
+type ObjectStore = {
 	readonly gitdir: string;
 	write(type: string, content: Uint8Array): Promise<string>;
 };

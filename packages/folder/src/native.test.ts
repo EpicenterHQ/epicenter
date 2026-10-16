@@ -27,7 +27,7 @@ import { directoryHandle } from './directory-handle.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createHistory } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
-import { nodeGitHost } from './git/native-host.js';
+import { createGitRunner } from './git/native-host.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -368,7 +368,7 @@ describe('native folder', () => {
 			root,
 			branch: 'main',
 			boundary,
-			host: nodeGitHost(root),
+			host: { run: createGitRunner(root), files: nodeDirectoryPrimitives },
 		});
 		const history = createHistory({
 			backend: {

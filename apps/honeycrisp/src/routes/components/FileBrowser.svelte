@@ -15,7 +15,6 @@
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import NotebookTextIcon from '@lucide/svelte/icons/notebook-text';
-	import FolderSearchIcon from '@lucide/svelte/icons/folder-search';
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -27,6 +26,10 @@
 
 	const listing = createQuery(() => notes.folder$.files.list.queryOptions());
 	const rows = $derived(listing.data ? visibleRows(listing.data, notes.expanded) : []);
+	/** Where the notes are, in words a person can act on: a path, or the browser. */
+	const where = $derived(
+		notes.folder.location.kind === 'directory' ? notes.folder.location.root : 'This browser',
+	);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
 	let editing = $state<
@@ -246,20 +249,6 @@
 	<div class="flex h-11 shrink-0 items-center gap-1 border-b ps-3 pe-1.5">
 		<h2 class="text-sm font-medium">Files</h2>
 		<div class="ml-auto flex items-center">
-			{#if notes.host.reveal}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					tooltip="Reveal folder"
-					aria-label="Reveal folder"
-					onclick={async () => {
-						const problem = await notes.host.reveal?.();
-						if (problem) toast.error('Could not open the folder', { description: problem });
-					}}
-				>
-					<FolderSearchIcon />
-				</Button>
-			{/if}
 			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('', 'file')}>
 				<FilePlusIcon />
 			</Button>
@@ -269,8 +258,8 @@
 		</div>
 	</div>
 
-	<p class="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground" title={notes.host.location}>
-		{notes.host.location}
+	<p class="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground" title={where}>
+		{where}
 	</p>
 	{#if listing.data === undefined}
 		{#if listing.isError}

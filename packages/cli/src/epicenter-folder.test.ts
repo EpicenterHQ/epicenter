@@ -13,13 +13,15 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { connectionsLens } from '@epicenter/ai/connection-table';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsLens,
+} from '@epicenter/ai/connection-table';
 import { openDataFolder, openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 import { resolveAppPaths } from './app-paths.ts';
 import {
 	declareEpicenterFolder,
-	EPICENTER_FOLDER_ID,
 	epicenterDefinition,
 } from './epicenter-folder.ts';
 
@@ -48,7 +50,7 @@ async function folderRoot() {
 		EPICENTER_DATA_DIR: join(dir, '.data'),
 		EPICENTER_CACHE_DIR: join(dir, '.cache'),
 	});
-	return { paths, root: join(dir, EPICENTER_FOLDER_ID) };
+	return { paths, root: join(dir, CONNECTIONS_FOLDER_ID) };
 }
 
 test('an AI connection is a row of kind, title, and model, which an app reads through its lens', async () => {

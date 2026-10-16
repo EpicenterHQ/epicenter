@@ -37,7 +37,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { gitCommand, installCommand } from './install-command.ts';
+import { installCommand } from './install-command.ts';
 import { configureMergeDriver } from './merge-driver.ts';
 
 const binary = process.env.EPICENTER_BIN;
@@ -385,7 +385,7 @@ test('Git runs the driver through the command link, which a moved app re-points'
 	);
 	const link = join(dir, '.local', 'bin', 'epicenter');
 	expect(await installCommand({ json: true, binary: bundled, link })).toBe(0);
-	const configured = await configureMergeDriver(repo, gitCommand(link));
+	const configured = await configureMergeDriver(repo, [link]);
 	const driver = `'${link}' merge-driver -- %O %A %B %P`;
 	expect(configured.driver).toBe(driver);
 

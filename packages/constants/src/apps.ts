@@ -1,10 +1,9 @@
 /**
  * Single source of truth for all Epicenter app URLs and ports.
  *
- * Each app declares its dev `port` and canonical production `url`. Apps
- * reachable at more than one domain add `aliases`. The canonical `url` is
- * used by Vite prod builds; `url` plus `aliases` together are included in
- * CORS and trusted origins (see {@link appOrigins}).
+ * Each app declares its dev `port` and its one production `url`. Vite prod
+ * builds, trusted origins, and sign-in callbacks all read `url`; the dev
+ * origin is derived from `port` by {@link localUrl}.
  *
  * To add an app: add an entry here. TypeScript enforces that every
  * consumer picks it up automatically.
@@ -63,9 +62,10 @@ export const APPS = {
  * not applications with an id at all: `API` is the hosted server and `SH` is the
  * marketing site, so neither carries `id`. An app id is the
  * reverse-domain string an application stores under (`so.epicenter.vocab`),
- * validated by `isAppId` in `#app-id` and spent by `defineStore` and by
- * `createBrowserOAuth` as the app's OAuth client id. A reader who met `AppId` here and grepped
- * for it found the wrong concept.
+ * validated by `isAppId` in `@epicenter/constants/app-id` and spent by
+ * `appDataDir` as the app's data directory and by `createBrowserOAuth` as the
+ * app's OAuth client id. A reader who met `AppId` here and grepped for it
+ * found the wrong concept.
  *
  * A row carries an id only for an app that names itself from it. An installed
  * app (Todos, Capture, Whispering, Honeycrisp) reads its id from its own
@@ -96,31 +96,6 @@ export const API_BUN_DEV_PORT = 8788;
  */
 export const localUrl = <Port extends number>(app: { port: Port }) =>
 	`http://localhost:${app.port}` as const;
-
-/**
- * Every origin an app answers on: its dev origin ({@link localUrl}) plus the
- * canonical `url` and any `aliases`. Single owner for the every-origin list
- * both CORS trusted origins and sign-in callbacks want. Only apps reachable
- * at more than one domain declare `aliases`; for everyone else this is the dev
- * origin plus the one canonical url. No app declares `aliases` today.
- */
-export const appOrigins = (app: {
-	port: number;
-	url: string;
-	aliases?: readonly string[];
-}): readonly string[] => [localUrl(app), app.url, ...(app.aliases ?? [])];
-
-/**
- * An app's production origins: its canonical `url` plus any `aliases`, without
- * the localhost dev origin. The typed parameter (with optional `aliases`) is
- * what lets `trusted-origins.ts` read `aliases` off `Object.values(APPS)`
- * without an `as` cast: the union members carry it as `readonly string[] |
- * undefined` here.
- */
-export const prodOrigins = (app: {
-	url: string;
-	aliases?: readonly string[];
-}): readonly string[] => [app.url, ...(app.aliases ?? [])];
 
 /**
  * Default API base URL for Node consumers (CLI, daemon, tests). The constant

@@ -37,7 +37,7 @@ the window, and its `files`, through which a browser writes. A handle from
 | | Desktop | Browser |
 | --- | --- | --- |
 | `recording.path` | `<path>.wav`, already in the folder | `<path>.webm`, or `.mp4` or `.ogg` where the browser records those, written on stop |
-| Chosen microphone | Asked for by its name (`input.label`) | Asked for by its ID (`input.deviceId`) |
+| Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | `stop` | Finalizes the WAV | Writes the file with `files.create` |
 | `cancel` | Deletes the WAV | Writes nothing |
 | Quit, crash, closed window | Audio kept up to the cut | Lost |
@@ -49,13 +49,35 @@ on both; no other microphone is opened in its place. Every failure is a
 recording is running: that is the handle `startRecording` returns, and it
 ends with the page.
 
+## Inputs and levels on the desktop
+
+A desktop page opens no microphone of its own
+([ADR-0571](../../docs/adr/0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md)).
+`@epicenter/recorder/tauri` asks the shell for the inputs and for a level:
+
+```ts
+import { listInputs, openMeter } from '@epicenter/recorder/tauri';
+
+const { data: inputs } = await listInputs(); // [{ id, name, isDefault }]
+const { data: meter } = await openMeter({ input: { deviceId: inputs[0].id, label: inputs[0].name } });
+meter.onLevel((rms) => bar.set(rms)); // about twenty times a second
+await meter.close(); // the shell also closes it when the page reloads or its window closes
+```
+
+The ID is cpal's device ID (`coreaudio:<device UID>` on macOS), which stays
+the same across launches and reconnections. Listing needs no microphone
+permission; the shell's recorder asks macOS for it before it opens a meter
+or records, and a denial is `PermissionDenied`.
+
 ## Streams and voice activity detection
+
+These call `getUserMedia`, so they are for a browser page; a desktop build
+imports `@epicenter/recorder/tauri` instead of this entry.
 
 ```ts
 import {
-	// Device stream (navigator.mediaDevices)
+	// Device stream (navigator.mediaDevices): browser only
 	getRecordingStream,
-	enumerateDevices,
 	cleanupRecordingStream,
 	DeviceStreamError,
 
@@ -67,7 +89,7 @@ import {
 } from '@epicenter/recorder';
 ```
 
-Types: `Device`, `DeviceIdentifier`, `DeviceAcquisitionOutcome`,
+Types: `DeviceIdentifier`, `DeviceAcquisitionOutcome`,
 `VadRecorder`, `VadRecorderError`, `StartActiveListeningOptions`.
 
 Transient dictation captures utterances without a folder. The core is callback

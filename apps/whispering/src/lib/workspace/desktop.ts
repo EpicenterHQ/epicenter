@@ -19,8 +19,10 @@
  * Everything else native is Epicenter's, granted to every installed app's
  * windows (`installed-app.json` in Epicenter's capabilities):
  *
- * - the recorder plugin, which writes a recording into the granted folder as
- *   it captures (ADR-0543);
+ * - the recorder plugin, which owns the microphone: it lists the inputs,
+ *   reads one's level, and writes a recording into the granted folder as it
+ *   captures, and the page opens no microphone of its own (ADR-0543,
+ *   ADR-0571, `desktop-microphone.ts`);
  * - the two connections, rows of Epicenter's own folder `so.epicenter`, whose
  *   endpoints and keys stay in this computer's keychain; requests go through
  *   the `epicenter` CLI, which adds the key (`desktop-connections.ts`);
@@ -46,7 +48,6 @@ import {
 	DEFAULT_TRANSCRIPTION_CONNECTION,
 	whisperingDefinition,
 } from '../definition.js';
-import { createMicrophoneDevice } from '../microphone.js';
 import { commands } from '../tauri/bindings.gen.js';
 import {
 	TranscriptionError,
@@ -63,6 +64,7 @@ import {
 	createDesktopConnections,
 	type DesktopConnections,
 } from './desktop-connections.js';
+import { createDesktopMicrophone } from './desktop-microphone.js';
 import {
 	createLocalTranscription,
 	type LocalTranscriptionCommands,
@@ -129,7 +131,7 @@ export async function openDesktopWorkspace({
 		folderId,
 		location: root,
 		terminal: undefined,
-		capture: createMicrophoneDevice(),
+		capture: createDesktopMicrophone(),
 		captureNotice: undefined,
 		reveal: undefined,
 		async transcribe(request) {

@@ -18,37 +18,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import {
+	BUNDLE_TIMEOUT,
+	bundledModules,
+} from '@epicenter/vite-config/module-graph';
 
 const appDir = join(import.meta.dir, '..', '..');
-/**
- * Each test runs a Vite production build of the app's resolution graph. It
- * takes under a second alone, but `bun run check` tests every package at
- * once, and on CI's 4-vCPU runner one build outlasted the default 5s.
- */
-const BUNDLE_TIMEOUT = 30_000;
-
-/** Every module a build of `entry` pulls in, as paths. Built in its own process. */
-async function inputs(
-	entry: string,
-	build: 'browser' | 'epicenter-host',
-): Promise<string[]> {
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			join(appDir, 'scripts', 'module-graph.ts'),
-			entry,
-			build,
-		],
-		{ cwd: appDir, stdout: 'pipe', stderr: 'pipe' },
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`Bundling ${entry} failed:\n${stderr}`);
-	return JSON.parse(stdout) as string[];
-}
 
 const SEAM_ENTRY = 'src/lib/platform-selection.test-support.ts';
 
@@ -63,7 +38,11 @@ describe('#platform/folder', () => {
 	test(
 		'the host build resolves the desktop adapter and the directory folder over the granted directory, never the browser folder or a Bun or Node module',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
+			const modules = await bundledModules(
+				appDir,
+				SEAM_ENTRY,
+				'epicenter-host',
+			);
 
 			expect(
 				modules.some((path) =>
@@ -89,7 +68,6 @@ describe('#platform/folder', () => {
 				'git/native-backend.ts',
 				'git/history.ts',
 				'git/objects.ts',
-				'history-command.ts',
 			])
 				expect(modules.some(folderModule(engine))).toBe(false);
 			// It reads through the folder plugin's commands, not the fs plugin.
@@ -130,7 +108,7 @@ describe('#platform/folder', () => {
 	test(
 		'the browser build resolves the OPFS adapter without the desktop adapter or its bindings',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'browser');
+			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 
 			expect(
 				modules.some((path) => path.endsWith('platform/folder.browser.ts')),

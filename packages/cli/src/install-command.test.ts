@@ -28,11 +28,7 @@ import {
 	configureGitHelper,
 	resolveDeployment,
 } from './auth.ts';
-import {
-	gitCommand,
-	installCommand,
-	planCommandLink,
-} from './install-command.ts';
+import { installCommand, planCommandLink } from './install-command.ts';
 
 const scratch: string[] = [];
 afterEach(() => {
@@ -91,12 +87,6 @@ test('a regular file at the link is refused and kept', async () => {
 	expect(readFileSync(link, 'utf8')).toBe('someone else');
 });
 
-test('every Git configuration names the link and makes nothing', () => {
-	const { link } = setup();
-	expect(gitCommand(link)).toEqual([link]);
-	expect(lstatSync(link, { throwIfNoEntry: false })).toBeUndefined();
-});
-
 test("Git's credential helper runs through the link, before and after a move", async () => {
 	// Stands in for the bundled binary, answering as `auth git-credential get` does.
 	const answering = (password: string) =>
@@ -116,7 +106,7 @@ test("Git's credential helper runs through the link, before and after a move", a
 
 	await installCommand({ json: true, binary, link });
 	// What `auth login` writes.
-	const configured = await configureGitHelper(ctx, gitCommand(link), env);
+	const configured = await configureGitHelper(ctx, [link], env);
 	expect(configured.data).toBe(`!'${link}' auth git-credential`);
 
 	const url = new URL(deployment.audiences.git);

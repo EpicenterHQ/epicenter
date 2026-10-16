@@ -14,8 +14,8 @@
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 
 	/**
-	 * The microphone the next recording uses. Opening this lists what the
-	 * WebView already knows and asks for nothing; Enable microphones and Test
+	 * The microphone the next recording uses. Opening this lists the inputs
+	 * already known and asks for nothing; Enable microphones and Test
 	 * microphone are the two actions that open one, and whichever is under
 	 * way ends when this closes or the page is left. The recorder owns which
 	 * option popover is open.
@@ -31,7 +31,11 @@
 	const devices = $derived(library.input.list.kind === 'listed' ? library.input.list.devices : []);
 	/** Whether the choice's own ID is listed. A listed input with the same name is not it. */
 	const listed = $derived(devices.some((device) => device.deviceId === library.input.choice?.deviceId));
-	/** Inputs are named only after access is allowed; until then enabling is the one thing to do. */
+	/**
+	 * Nothing is listed by name. In a browser that is usually access not yet
+	 * allowed, and enabling is the one thing to do; in Epicenter, which names
+	 * every input, it means no microphone is connected.
+	 */
 	const unnamed = $derived(library.input.list.kind === 'listed' && devices.length === 0);
 	const name = $derived(
 		!library.input.available ? 'Fixture audio' : library.input.choice === undefined ? 'System default' : library.input.choice.label || 'Chosen microphone',
@@ -164,9 +168,11 @@
 				</p>
 			{:else if unnamed}
 				<p class="text-xs text-muted-foreground" data-testid="microphone-unnamed">
-					{library.input.list.kind === 'listed' && library.input.list.namesWithheld
-						? 'Microphones are listed by name once you allow access.'
-						: 'No microphone is listed. Allowing access may show them.'}
+					{!library.input.canAllow
+						? 'No microphone is connected.'
+						: library.input.list.kind === 'listed' && library.input.list.namesWithheld
+							? 'Microphones are listed by name once you allow access.'
+							: 'No microphone is listed. Allowing access may show them.'}
 				</p>
 			{/if}
 
@@ -179,6 +185,11 @@
 			{#if library.input.problem}
 				<p class="text-xs text-destructive" role="alert" data-testid="microphone-problem">{library.input.problem}</p>
 			{/if}
+			{#if library.input.denied && library.input.canOpenSettings}
+				<Button size="sm" variant="outline" onclick={() => void library.input.openSettings()} data-testid="microphone-settings">
+					Open Microphone Settings
+				</Button>
+			{/if}
 			{#if library.input.preferenceProblem}
 				<p class="text-xs text-destructive" role="alert">Microphone setting: {library.input.preferenceProblem}</p>
 			{/if}
@@ -189,10 +200,12 @@
 					{#if library.input.test.phase === 'opening'}<Spinner class="size-3.5" />{/if}
 					Stop test
 				</Button>
+			{:else if unnamed && !library.input.canAllow}
+				<!-- Nothing is connected, so there is nothing to enable or test. -->
 			{:else if unnamed}
 				<Button
 					size="sm"
-					tooltip="Opens the default microphone for a moment. Nothing is recorded."
+					tooltip="Asks for microphone access. Nothing is recorded."
 					disabled={locked || library.input.allowing}
 					onclick={() => void library.input.allow()}
 					data-testid="microphone-enable"

@@ -268,6 +268,42 @@
 					"markdownDescription": "Denies the cancel command without any pre-configured scope."
 				},
 				{
+					"description": "Enables the close_meter command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-close-meter",
+					"markdownDescription": "Enables the close_meter command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the close_meter command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-close-meter",
+					"markdownDescription": "Denies the close_meter command without any pre-configured scope."
+				},
+				{
+					"description": "Enables the inputs command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-inputs",
+					"markdownDescription": "Enables the inputs command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the inputs command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-inputs",
+					"markdownDescription": "Denies the inputs command without any pre-configured scope."
+				},
+				{
+					"description": "Enables the open_meter command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-open-meter",
+					"markdownDescription": "Enables the open_meter command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the open_meter command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-open-meter",
+					"markdownDescription": "Denies the open_meter command without any pre-configured scope."
+				},
+				{
 					"description": "Enables the recover command without any pre-configured scope.",
 					"type": "string",
 					"const": "allow-recover",
@@ -304,10 +340,10 @@
 					"markdownDescription": "Denies the stop command without any pre-configured scope."
 				},
 				{
-					"description": "Record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-cancel`\n- `allow-recover`",
+					"description": "List the microphones and read one's level, record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-cancel`\n- `allow-recover`",
 					"type": "string",
 					"const": "default",
-					"markdownDescription": "Record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-start`\n- `allow-stop`\n- `allow-cancel`\n- `allow-recover`"
+					"markdownDescription": "List the microphones and read one's level, record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-cancel`\n- `allow-recover`"
 				}
 			]
 		}

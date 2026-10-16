@@ -14,7 +14,6 @@
 	},
 	"dependencies": {
 		"@epicenter/agent-protocol": "workspace:*",
-		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

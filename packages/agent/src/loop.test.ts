@@ -13,9 +13,9 @@
  *   saving it again runs neither the model nor a tool
  */
 import { describe, expect, test } from 'bun:test';
+import type { AgentEngine, EngineChunk } from '@epicenter/agent-protocol';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { AgentEngine, EngineChunk } from './engine.js';
 import {
 	type AgentMessageStore,
 	AgentMessageStoreError,

@@ -6,7 +6,6 @@ import {
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import {
 	asDeviceIdentifier,
-	type Device,
 	type DeviceAcquisitionOutcome,
 	type DeviceIdentifier,
 } from './devices';
@@ -46,33 +45,6 @@ export const DeviceStreamError = defineErrors({
 	}),
 });
 export type DeviceStreamError = InferErrors<typeof DeviceStreamError>;
-
-export async function enumerateDevices(): Promise<
-	Result<Device[], DeviceStreamError>
-> {
-	return tryAsync({
-		try: async () => {
-			// Acquiring a stream is what prompts the permission grant and unlocks
-			// device labels; we only need it long enough to enumerate, so stop it
-			// in `finally` even when enumeration throws.
-			const stream = await navigator.mediaDevices.getUserMedia({
-				audio: SPEECH_MEDIA_TRACK_CONSTRAINTS,
-			});
-			try {
-				// On Web: Return Device objects with both ID and label
-				return (await navigator.mediaDevices.enumerateDevices())
-					.filter((device) => device.kind === 'audioinput')
-					.map((device) => ({
-						id: asDeviceIdentifier(device.deviceId),
-						label: device.label,
-					}));
-			} finally {
-				cleanupRecordingStream(stream);
-			}
-		},
-		catch: (error) => DeviceStreamError.PermissionDenied({ cause: error }),
-	});
-}
 
 export async function getRecordingStream({
 	selectedDeviceId,

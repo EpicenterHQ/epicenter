@@ -28,7 +28,7 @@
  *   same name is not taken for it, and a recording with it refuses
  * - Fixture mode has no input: nothing is listed, tested, or asked for
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -69,6 +69,8 @@ function scriptedMicrophone(
 	};
 	const open = { meters: 0, captures: 0 };
 	const changeListeners = new Set<() => void>();
+	/** Whoever hears the open meter's microphone stop on its own. */
+	const meterEndings = new Set<(error: CaptureError) => void>();
 	/** Set to hold the next meter or start until the test lets it answer. */
 	const gate: { next?: Promise<void> } = {};
 	const state = { connected, named: true, denied: false };
@@ -123,6 +125,10 @@ function scriptedMicrophone(
 				return Ok({
 					label: input?.label ?? 'System default',
 					level: () => 0.5,
+					onEnded(listener) {
+						meterEndings.add(listener);
+						return () => meterEndings.delete(listener);
+					},
 					stop() {
 						if (!stopped) open.meters -= 1;
 						stopped = true;
@@ -164,7 +170,31 @@ function scriptedMicrophone(
 			});
 		},
 	};
-	return { device, calls, open, gate, state, changeListeners };
+	return { device, calls, open, gate, state, changeListeners, meterEndings };
+}
+
+/**
+ * A microphone shaped as Epicenter's: every input named, no `allow`, and
+ * access asked for by the shell when a microphone opens.
+ */
+function shellMicrophone(connected: MicrophonePreference[] = [BUILT_IN, USB]) {
+	const microphone = scriptedMicrophone(connected);
+	const inputs = microphone.device.inputs;
+	if (inputs === undefined) throw new Error('A microphone has inputs');
+	microphone.device = {
+		...microphone.device,
+		inputs: {
+			async list() {
+				const { data, error } = await inputs.list();
+				if (error !== null) return Err(error);
+				return Ok({ devices: data.devices });
+			},
+			meter: inputs.meter,
+			onChange: inputs.onChange,
+			openSettings: async () => Ok(undefined),
+		},
+	};
+	return microphone;
 }
 
 /** Preferences kept in memory, as one device would across sessions. */
@@ -431,7 +461,9 @@ test('refused access is reported, and enabling lists inputs by name once it is a
 	});
 	await input.allow();
 	expect(input.denied).toBe(true);
-	expect(input.problem).toContain('Microphone access was denied');
+	expect(input.problem).toBe(
+		'Microphone access was denied. Allow microphone access in System Settings, under Privacy and Security, or in this browser’s site settings, then try again.',
+	);
 	await input.startTest();
 	expect(input.test).toEqual({ phase: 'idle' });
 	expect(microphone.open.meters).toBe(0);
@@ -808,4 +840,35 @@ test('an unreadable saved microphone reports the failure without opening a devic
 		meter: [],
 		start: [],
 	});
+});
+
+test('a test whose microphone stops on its own ends and says why', async () => {
+	const { input, microphone } = await open();
+	await input.startTest();
+	expect(input.test.phase).toBe('running');
+
+	for (const listener of microphone.meterEndings)
+		listener(CaptureError.InputUnavailable({ label: 'USB Microphone' }).error);
+
+	expect(input.test).toEqual({ phase: 'idle' });
+	expect(input.problem).toContain('“USB Microphone” is not available');
+	expect(microphone.open.meters).toBe(0);
+});
+
+test('in Epicenter there is no enabling, listing never clears a denial, and settings can be opened', async () => {
+	const microphone = shellMicrophone();
+	microphone.state.denied = true;
+	const { input } = await open({ microphone });
+
+	expect(input.canAllow).toBe(false);
+	expect(input.canOpenSettings).toBe(true);
+	await input.startTest();
+	expect(input.denied).toBe(true);
+	await input.refresh();
+	expect(input.list).toEqual({ kind: 'listed', devices: [BUILT_IN, USB] });
+	expect(input.denied).toBe(true);
+
+	microphone.state.denied = false;
+	await input.startTest();
+	expect(input.denied).toBe(false);
 });

@@ -51,7 +51,7 @@ import {
 } from './objects.js';
 
 /** The one file merged by key rather than by line. */
-export const ROOT_KV = 'kv.json';
+const ROOT_KV = 'kv.json';
 
 const PLAIN = '100644';
 
@@ -69,7 +69,7 @@ export type MergePath = (
 	| undefined
 >;
 
-export type PreparedMerge =
+type PreparedMerge =
 	| {
 			readonly kind: 'merged';
 			/** The merge commit; its parents are the head and the fetched commit. */

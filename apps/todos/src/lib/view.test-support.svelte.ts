@@ -8,7 +8,7 @@
  * stays stale here exactly as it would on screen.
  *
  * Load this module with a dynamic `import()` after
- * `svelte-modules.test-support.js`, like any runes module.
+ * `packages/svelte/src/svelte-modules.test-support.js`, like any runes module.
  */
 export function showing<T>(read: () => T) {
 	const shown: T[] = [];

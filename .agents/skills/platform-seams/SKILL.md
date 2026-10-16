@@ -33,10 +33,11 @@ read the [resource contracts](../../../packages/app/README.md).
 
 Todos, Capture, Honeycrisp, and Whispering keep their data in a folder of
 files. Each picks its folder leaf at build time through `#platform/*` (for
-Whispering, `#platform/workspace`), and its Vite config aliases the bare
-`@epicenter/folder` to `@epicenter/folder/tauri` in the `epicenter-host` build
-and to `@epicenter/folder/browser` otherwise. The "storage is not a seam" rule
-above is about store-backed apps and does not describe them.
+Whispering, `#platform/workspace`), and `installedAppViteConfig` from
+`@epicenter/vite-config` aliases the bare `@epicenter/folder` to
+`@epicenter/folder/tauri` in the `epicenter-host` build and to
+`@epicenter/folder/browser` otherwise. The "storage is not a seam" rule above
+is about store-backed apps and does not describe them.
 
 ## Declaring one
 
@@ -47,7 +48,6 @@ plus a `default`:
 "imports": {
   "#platform/auth": {
     "epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
-    "tauri": "./src/lib/platform/auth.tauri.ts",
     "default": "./src/lib/platform/auth.browser.ts"
   }
 }
@@ -61,18 +61,33 @@ Condition order in the map is match order.
 import { auth } from '#platform/auth';
 ```
 
-**3. Activate the condition in `vite.config.ts`:**
+**3. Activate the condition in Vite.** A folder app gets the `epicenter-host`
+condition from `installedAppViteConfig` in `@epicenter/vite-config`, which
+turns it on in the installed build (`EPICENTER_HOST=1`):
+
+```ts
+// apps/honeycrisp/vite.config.ts
+export default defineConfig(installedAppViteConfig(APPS.HONEYCRISP));
+```
+
+Inside, the condition list keeps Vite's defaults:
 
 ```ts
 resolve: {
 	// Custom conditions REPLACE Vite's defaults, so the
 	// ...defaultClientConditions spread is LOAD-BEARING: drop it and all
 	// dependency resolution breaks.
-	...(isEpicenterSurface && {
-		conditions: ['tauri', ...defaultClientConditions],
+	...(installed && {
+		conditions: ['epicenter-host', ...defaultClientConditions],
 	}),
 },
 ```
+
+The same package owns the rest of the installed build's choice:
+`installedAppAdapterOptions` (from `@epicenter/vite-config/installed-app`) gives
+each `svelte.config.js` its adapter-static output, and each
+`src/routes/+layout.ts` prerenders when `import.meta.env.EPICENTER_HOST` is
+`'1'`.
 
 **4. Typecheck every leaf.** Bundler `moduleResolution` reads the `imports`
 field and lands on `default` for the editor, so the browser leaf is free. Every
@@ -99,7 +114,8 @@ concrete type and breaks the lockstep that keeps every leaf the same shape.
 `tauri` means **this build runs in a Tauri WebView**, so a leaf may call a native
 command. `epicenter-host` means **the desktop Epicenter host serves this build**,
 so a leaf may reach the host for a credential, a deployment choice, or an asset
-base.
+base. The only Tauri shell is Epicenter's own, so no build turns on `tauri`
+today and `epicenter-host` is the only condition in use.
 
 They used to be conflated because `epicenter-host` also meant the host owned the
 build's replica. ADR-0226 removed that, so the condition is now about brokered
@@ -118,8 +134,10 @@ other (ADR-0177). Every build owns its own storage, so this is now always true.
 
 This is the one hazard worth remembering. Removing an `epicenter-host` key from
 a seam breaks no build: resolution falls back silently to `default`, and the
-hosted build quietly runs the browser leaf. `apps/honeycrisp/src/lib/platform-selection.test.ts`
-reads the declarations and names the broken seam, and
+hosted build quietly runs the browser leaf. Each folder app's
+`src/lib/platform-selection.test.ts` bundles both builds with `bundledModules`
+from `@epicenter/vite-config/module-graph`, reads every module they pull in,
+and names the broken seam, and
 `apps/epicenter/scripts/build-applications.test.ts` runs the real build and reads
 the emitted bytes.
 
@@ -145,7 +163,10 @@ of the import graph stays ordinary.
   browser leaf off Tauri; import it directly from the `.tauri` module inside
   another `.tauri.ts` file.
 - Reintroducing `resolve.extensions` suffixes or tsconfig `moduleSuffixes`.
-- Dropping `...defaultClientConditions` from the Tauri `conditions` array.
+- Dropping `...defaultClientConditions` from the `epicenter-host`
+  `conditions` array.
+- Copying the installed-build switch into an app's `vite.config.ts` or
+  `svelte.config.js` instead of using `@epicenter/vite-config`.
 - Adding a condition leaf with no `tsconfig.<condition>.json`, which means it is
   never typechecked.
 - A `#platform/*` seam over identity. Whether a person is signed in is runtime

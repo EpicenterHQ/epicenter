@@ -23,7 +23,7 @@
  * - A key saved by an earlier build moves only into the connections chosen,
  *   at the base URL each form shows
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -33,7 +33,6 @@ import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
-import { resolvePostProcessing } from './post-processing.js';
 import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
@@ -92,16 +91,10 @@ async function cleanup(session: Session, model?: string) {
 }
 
 test('a session starts with post-processing set to None and seeds no transformation', async () => {
-	const { library, view, root, transformed } = await open();
+	const { session, library, view, root, transformed } = await open();
 
 	expect(view.postProcessing).toBeUndefined();
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		),
-	).toEqual({ kind: 'none' });
+	expect(session.postProcessing).toEqual({ kind: 'none' });
 	expect(library.transformations).toEqual([]);
 	expect(await names(root, 'transformations')).toEqual([]);
 	expect(transformed).toEqual([]);
@@ -113,13 +106,7 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	const profile = await cleanup(session, 'chat-model');
 
 	view.postProcessing = profile.path;
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		).kind,
-	).toBe('ready');
+	expect(session.postProcessing.kind).toBe('ready');
 	await library.startRecording();
 	await library.stopRecording();
 	// Nothing is transcribed by recording either.
@@ -159,13 +146,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	view.postProcessing = profile.path;
 
 	// A new transformation uses the text connection, and none is set up.
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		),
-	).toMatchObject({
+	expect(session.postProcessing).toMatchObject({
 		kind: 'repair',
 		reason: 'Set up the text connection in Settings to run this.',
 	});
@@ -176,13 +157,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	await rm(join(root, profile.path));
 	await settle(library);
 
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		),
-	).toEqual({
+	expect(session.postProcessing).toEqual({
 		kind: 'missing',
 		path: profile.path,
 	});

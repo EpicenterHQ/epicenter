@@ -60,6 +60,7 @@ beforeAll(async () => {
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
+		resolveAudiences: () => audiences,
 	});
 	server = Bun.serve({
 		port: 0,
@@ -102,18 +103,15 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			resolveOAuthServer: () => ({
-				audiences,
+			oauthServer: {
 				clientMetadataFetch: async () => new Response('', { status: 404 }),
-			}),
+			},
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
-		resolveAudiences: () => audiences,
 	});
 	const host = createDiskGitHost({ root: storeRoot });
 	mountGitHost(app, {
 		setup: createCloudContextMiddleware(context),
-		resolveAudiences: () => audiences,
 		resolveHost: () => host,
 	});
 	client = new OAuthTestClient(origin, sql, secret, async (url, init) =>

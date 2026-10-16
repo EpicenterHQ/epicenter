@@ -1,52 +1,37 @@
 /**
  * Platform Selection Tests
  *
- * Bundles the `#platform/workspace` seam and the bare `@epicenter/folder`
- * specifier the way each build resolves them, with the conditions and
+ * Bundles the `#platform/workspace` seam and the bare `@epicenter/folder` and
+ * `@epicenter/recorder` specifiers the way each build resolves them, with the conditions and
  * aliases `vite.config.ts` declares, and reads every module the bundle pulls
  * in. A dropped leaf or alias fails no build: resolution falls back silently,
  * so the selection is proved here.
  *
  * Key behaviors:
- * - The host build reaches the desktop workspace, the desktop adapter, and
- *   the generated bindings, and no browser workspace, OPFS Git, or
- *   isomorphic-git
- * - The browser build reaches the browser workspace and isomorphic-git, and
- *   no desktop workspace, desktop adapter, or generated bindings
+ * - The host build reaches the desktop workspace, the desktop adapter, the
+ *   shell's recorder, and the generated bindings, and no browser workspace,
+ *   OPFS Git, isomorphic-git, or code that opens a microphone in the WebView
+ *   (`getUserMedia`, `enumerateDevices`, `MediaRecorder`, `AudioContext`)
+ * - The browser build reaches the browser workspace, isomorphic-git, and the
+ *   WebView microphone, and no desktop workspace, desktop adapter, shell
+ *   recorder, or generated bindings
  * - Neither build reaches the automatic entry, which loads either adapter,
  *   or a Bun or Node module
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import {
+	BUNDLE_TIMEOUT,
+	bundledModules,
+} from '@epicenter/vite-config/module-graph';
 
 const appDir = join(import.meta.dir, '..', '..');
-/** Each test runs a Vite production build of the seam's resolution graph. */
-const BUNDLE_TIMEOUT = 30_000;
-
-/** Every module a build of `entry` pulls in, as paths. Built in its own process. */
-async function inputs(
-	entry: string,
-	build: 'browser' | 'epicenter-host',
-): Promise<string[]> {
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			join(appDir, 'scripts', 'module-graph.ts'),
-			entry,
-			build,
-		],
-		{ cwd: appDir, stdout: 'pipe', stderr: 'pipe' },
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`Bundling ${entry} failed:\n${stderr}`);
-	return JSON.parse(stdout) as string[];
-}
 
 const SEAM_ENTRY = 'src/lib/platform-selection.test-support.ts';
+
+/** Modules of `@epicenter/recorder`, by their path below its `src/`. */
+const recorderModule = (name: string) => (path: string) =>
+	path.endsWith(`packages/recorder/src/${name}`);
 
 /** Modules of `@epicenter/folder`, by their path below its `src/`. */
 const folderModule = (name: string) => (path: string) =>
@@ -54,25 +39,33 @@ const folderModule = (name: string) => (path: string) =>
 const reaches = (modules: string[], suffix: string) =>
 	modules.some((path) => path.endsWith(suffix));
 
-/** The automatic entry, which can load either adapter, and Bun or Node. */
+/** The automatic entries, which can load either adapter, and Bun or Node. */
 const SHARED_FORBIDDEN =
-	/packages\/folder\/src\/(index|bun|directory-node)\.ts$|^node:|^bun:/;
+	/packages\/(folder|recorder)\/src\/index\.ts$|packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
 
 describe('#platform/workspace', () => {
 	test(
 		'the host build resolves the desktop workspace over the desktop adapter, never the browser workspace or its Git',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
+			const modules = await bundledModules(
+				appDir,
+				SEAM_ENTRY,
+				'epicenter-host',
+			);
 
 			expect(reaches(modules, 'lib/workspace/desktop.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
+			expect(modules.some(recorderModule('tauri.ts'))).toBe(true);
+			expect(reaches(modules, 'lib/workspace/desktop-microphone.ts')).toBe(
+				true,
+			);
 			expect(
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/lib\/workspace\/browser\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|isomorphic-git/.test(
+						/lib\/workspace\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|device-stream|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
 							path,
 						),
 				),
@@ -84,11 +77,13 @@ describe('#platform/workspace', () => {
 	test(
 		'the browser build resolves the browser workspace over OPFS, never the desktop workspace or adapter',
 		async () => {
-			const modules = await inputs(SEAM_ENTRY, 'browser');
+			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 
 			expect(reaches(modules, 'lib/workspace/browser.ts')).toBe(true);
 			expect(modules.some(folderModule('browser.ts'))).toBe(true);
 			expect(modules.some(folderModule('browser-adapter.ts'))).toBe(true);
+			expect(modules.some(recorderModule('browser.ts'))).toBe(true);
+			expect(reaches(modules, 'lib/webview-microphone.ts')).toBe(true);
 			expect(modules.some((path) => path.includes('isomorphic-git'))).toBe(
 				true,
 			);
@@ -96,7 +91,7 @@ describe('#platform/workspace', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/lib\/workspace\/desktop(-connections)?\.ts$|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/folder\/src\/native\//.test(
+						/lib\/workspace\/desktop(-connections|-microphone)?\.ts$|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/(folder|recorder)\/src\/native\/|packages\/recorder\/src\/tauri\.ts$/.test(
 							path,
 						),
 				),

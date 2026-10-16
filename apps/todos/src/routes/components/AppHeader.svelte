@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import * as Popover from '@epicenter/ui/popover';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import type { SyncError, SyncOutcome } from '@epicenter/folder';
-	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import StatusPopover, { toastStatus } from '@epicenter/svelte/status-popover';
+	import StatusRow from '@epicenter/svelte/status-row';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderGitIcon from '@lucide/svelte/icons/folder-git-2';
 	import LinkIcon from '@lucide/svelte/icons/link';
@@ -22,7 +22,6 @@
 		lastVersionLine,
 		pushLine,
 		remoteLabel,
-		type StatusLine,
 		summaryLine,
 		syncOutcomeLine,
 		versionLine,
@@ -62,12 +61,6 @@
 	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
 	const remote = $derived(pushLine(todos.git.snapshot));
 	const summary = $derived(summaryLine({ files, versions, lastVersion, remote }));
-	const details = $derived<[string, string, StatusLine | undefined][]>([
-		['Files', 'status-files', files],
-		['Changes', 'status-history', versions],
-		['Last version', 'status-last-version', lastVersion],
-		['Remote', 'status-remote', remote],
-	]);
 
 	async function copyPath(path: string) {
 		try {
@@ -84,40 +77,22 @@
 	);
 	const connected = $derived(todos.git.snapshot.remote);
 
-	const tones: Record<StatusLine['tone'], string> = {
-		neutral: 'bg-muted-foreground/50',
-		busy: 'bg-primary animate-pulse',
-		good: 'bg-success',
-		warning: 'bg-warning',
-		error: 'bg-destructive',
-	};
-
 	/** Sync and Save version wait for each other and the review. */
 	const busy = $derived(sync.isPending || saveVersion.isPending || reviewing);
-
-	/** Outcome toasts use the status lines' wording, so the toast and the details agree. */
-	const notify: Record<StatusLine['tone'], typeof toast.info> = {
-		good: toast.success,
-		neutral: toast.info,
-		busy: toast.info,
-		warning: toast.warning,
-		error: toast.error,
-	};
-	const show = (line: StatusLine) => notify[line.tone](line.label, { description: line.detail });
 
 	/** Sync; conflicts open the review instead of a toast. */
 	function runSync() {
 		sync.mutate(undefined, {
 			onSettled: (outcome, error) => {
 				if (error?.name === 'NeedsChoices') return;
-				show(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
+				toastStatus(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
 			},
 		});
 	}
 
 	function runSaveVersion() {
 		saveVersion.mutate(undefined, {
-			onSuccess: (outcome) => show(versionOutcomeLine(outcome)),
+			onSuccess: (outcome) => toastStatus(versionOutcomeLine(outcome)),
 			onError: (error) => toast.error('Version not saved', { description: describeError(error) }),
 		});
 	}
@@ -160,70 +135,38 @@
 		<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url, isEpicenter)}</span>
 	</Button>
 
-	<Popover.Root>
-		<Popover.Trigger>
-			{#snippet child({ props })}
-				<Button
-					{...props}
-					variant="ghost"
-					size="sm"
-					class="min-w-0 shrink font-normal text-muted-foreground"
-					aria-label="Status: {summary.label}. Show details"
-					data-testid="status-summary"
-				>
-					<span class="size-2 shrink-0 rounded-full {tones[summary.tone]}" aria-hidden="true"></span>
-					<span class="truncate sm:hidden">{summary.short ?? summary.label}</span>
-					<span class="truncate max-sm:hidden">{summary.label}</span>
-					<ChevronDownIcon class="text-muted-foreground max-sm:hidden" />
-				</Button>
-			{/snippet}
-		</Popover.Trigger>
-		<Popover.Content align="start" class="w-80 max-w-[calc(100vw-1rem)] p-0">
-			<dl class="divide-y text-sm">
-				<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-					<dt class="text-xs text-muted-foreground">Folder</dt>
-					<dd class="min-w-0">
-						{#if directory !== undefined}
-							<span class="block font-mono text-xs break-all select-all" data-testid="status-folder">{directory}</span>
-							<span class="mt-0.5 block text-xs text-muted-foreground">
-								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up here as they happen.
-							</span>
-							<Button class="mt-1.5" variant="outline" size="sm" onclick={() => void copyPath(directory)}>Copy path</Button>
-						{:else}
-							<span class="font-medium" data-testid="status-folder">This browser</span>
-							<span class="mt-0.5 block text-xs text-muted-foreground">Saved in this browser's storage, not in a folder on this computer.</span>
-						{/if}
-					</dd>
-				</div>
-				{#each details as [name, testid, line] (name)}
-					{#if line}
-						<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-							<dt class="text-xs text-muted-foreground">{name}</dt>
-							<dd class="min-w-0">
-								<span class="flex items-center gap-1.5 font-medium" data-testid={testid}>
-									<span class="size-2 shrink-0 rounded-full {tones[line.tone]}" aria-hidden="true"></span>
-									{line.label}
-								</span>
-								{#if line.detail}
-									<span class="mt-0.5 block text-xs break-words whitespace-pre-line text-muted-foreground">{line.detail}</span>
-								{/if}
-							</dd>
-						</div>
-					{/if}
-				{/each}
-			</dl>
-			<div class="flex items-center gap-2 border-t px-3 py-2">
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={status.isFetching}
-					onclick={() => void todos.refresh()}
-				>
-					Check again
-				</Button>
-			</div>
-		</Popover.Content>
-	</Popover.Root>
+	<StatusPopover
+		{summary}
+		details={[
+			{ name: 'Files', testid: 'status-files', line: files },
+			{ name: 'Changes', testid: 'status-history', line: versions },
+			{ name: 'Last version', testid: 'status-last-version', line: lastVersion },
+			{ name: 'Remote', testid: 'status-remote', line: remote },
+		]}
+	>
+		<StatusRow name="Folder">
+			{#if directory !== undefined}
+				<span class="block font-mono text-xs break-all select-all" data-testid="status-folder">{directory}</span>
+				<span class="mt-0.5 block text-xs text-muted-foreground">
+					Each todo is a file in <code>todos/</code> here. Edits made by other programs show up here as they happen.
+				</span>
+				<Button class="mt-1.5" variant="outline" size="sm" onclick={() => void copyPath(directory)}>Copy path</Button>
+			{:else}
+				<span class="font-medium" data-testid="status-folder">This browser</span>
+				<span class="mt-0.5 block text-xs text-muted-foreground">Saved in this browser's storage, not in a folder on this computer.</span>
+			{/if}
+		</StatusRow>
+		{#snippet footer()}
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={status.isFetching}
+				onclick={() => void todos.refresh()}
+			>
+				Check again
+			</Button>
+		{/snippet}
+	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1.5">
 		<Button

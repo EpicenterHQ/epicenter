@@ -33,6 +33,7 @@
 		"@tailwindcss/vite": "catalog:",
 		"@tanstack/query-core": "catalog:",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-opener": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"jsdom": "26.1.0",

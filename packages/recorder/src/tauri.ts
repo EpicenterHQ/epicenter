@@ -8,13 +8,17 @@
  * itself: the file is kept and its row, written at start, already names it.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
- * hears. The microphone is chosen by the name it gives itself, which is how
- * a WebView labels it too.
+ * hears.
+ *
+ * The page opens no microphone of its own: the shell lists the inputs
+ * (`listInputs`), reads one's level without recording (`openMeter`), and
+ * records from one, each named by the id the shell lists it under.
  */
 import { Channel } from '@tauri-apps/api/core';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import {
 	commands,
+	type Input,
 	type RecorderError as NativeRecorderError,
 	type RecordingSignal,
 } from './native/bindings.gen.js';
@@ -26,6 +30,7 @@ import {
 } from './recording.js';
 
 export * from './recording.js';
+export type { Input };
 
 /** A refusal from the shell, as this package names it. */
 function fromNative(error: NativeRecorderError, label = '') {
@@ -71,7 +76,7 @@ export const startRecording: StartRecording = async ({
 		answer = await commands.start(
 			folder.id,
 			path,
-			input?.label ?? null,
+			input?.deviceId ?? null,
 			signals,
 		);
 	} catch (cause) {
@@ -136,3 +141,79 @@ export const recoverRecordings: RecoverRecordings = async ({
 		return RecorderError.Failed({ cause });
 	}
 };
+
+/** The microphones connected now, each with the id to record or meter it by. Opens nothing. */
+export async function listInputs(): Promise<Result<Input[], RecorderError>> {
+	try {
+		const { data, error } = await commands.inputs();
+		if (error !== null) return fromNative(error);
+		return Ok(data);
+	} catch (cause) {
+		return RecorderError.Failed({ cause });
+	}
+}
+
+/** A microphone open for its level only: nothing is recorded or written. */
+export type Meter = {
+	/** The name of the microphone that is open. */
+	readonly device: string;
+	/** Hear how loud the input is, from 0 to 1, about twenty times a second. Returns the unsubscribe. */
+	onLevel(listener: (level: number) => void): () => void;
+	/** Hear that the microphone stopped on its own. Returns the unsubscribe. */
+	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;
+	/** Release the microphone. */
+	close(): Promise<void>;
+};
+
+/**
+ * Open `input`, or the system default, for its level until `close`. The
+ * shell also closes it when this page reloads or its window closes. A chosen
+ * input that is not connected is refused, never replaced.
+ */
+export async function openMeter({
+	input,
+	signal,
+}: {
+	input?: { readonly deviceId: string; readonly label: string };
+	/** Withdraws the request. A meter that opens afterward is closed. */
+	signal?: AbortSignal;
+} = {}): Promise<Result<Meter, RecorderError>> {
+	if (signal?.aborted) return RecorderError.Cancelled();
+	const levels = new Set<(level: number) => void>();
+	const endings = new Set<(reason: RecordingEndedReason) => void>();
+	const channel = new Channel<RecordingSignal>();
+	channel.onmessage = (message) => {
+		if (message.kind === 'level')
+			for (const listener of levels) listener(message.level ?? 0);
+		else for (const listener of endings) listener(message.reason);
+	};
+	let answer: Awaited<ReturnType<typeof commands.openMeter>>;
+	try {
+		answer = await commands.openMeter(input?.deviceId ?? null, channel);
+	} catch (cause) {
+		return RecorderError.Failed({ cause });
+	}
+	if (answer.error !== null) return fromNative(answer.error, input?.label);
+	const { id, device } = answer.data;
+	const close = async () => {
+		levels.clear();
+		endings.clear();
+		await commands.closeMeter(id).catch(() => {});
+	};
+	if (signal?.aborted) {
+		await close();
+		return RecorderError.Cancelled();
+	}
+	return Ok({
+		device,
+		onLevel(listener) {
+			levels.add(listener);
+			return () => levels.delete(listener);
+		},
+		onEnded(listener) {
+			endings.add(listener);
+			return () => endings.delete(listener);
+		},
+		close,
+	});
+}

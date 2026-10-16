@@ -20,7 +20,6 @@
 	"scripts": {
 		"dev": "bun scripts/dev.ts",
 		"dev:ui": "vite dev",
-		"dev:git": "bun server/git-server.ts",
 		"native": "bun scripts/native.ts",
 		"build": "NODE_ENV=production vite build",
 		"build:installed": "EPICENTER_HOST=1 bun run build",
@@ -57,7 +56,6 @@
 		"@tanstack/query-core": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"buffer": "^6.0.3",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},

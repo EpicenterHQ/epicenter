@@ -9,13 +9,11 @@
  * The body is plain Markdown text. The rich-text editor reads and writes it
  * through `editor/markdown.ts`; no codec is declared here.
  */
-import { InstantString } from '@epicenter/definition';
 import {
 	type CreateRowOf,
 	defineFolder,
 	defineTable,
 	field,
-	rowPath,
 	rowStemOf,
 	type StoredRow,
 } from '@epicenter/folder';
@@ -62,10 +60,6 @@ export type FolderEntry = StoredRow<FolderFields> & { readonly stem: string };
 
 export const NOTES = 'notes';
 
-export function notePath(id: NoteId): string {
-	return rowPath(NOTES, id);
-}
-
 /**
  * The note id of a row path, or undefined when the path is not a note row.
  * The id is the literal stem, so it may be empty (`notes/.md`): compare it
@@ -82,6 +76,3 @@ export function folderLabel(folder: FolderEntry): string {
 	// An empty stem (`folders/.md`) is not a readable label.
 	return folder.stem === '' ? folder.path : folder.stem;
 }
-
-/** The current time as the files store it. */
-export const instantNow = (): InstantString => InstantString.now();

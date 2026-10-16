@@ -33,7 +33,7 @@ import {
 import { frameRowText } from './markdown.js';
 
 /** A JSON value with an exact YAML and JSON form. */
-export type CanonicalValue =
+type CanonicalValue =
 	| null
 	| boolean
 	| number
@@ -106,9 +106,12 @@ function lineOf(walk: Walk, node: unknown): number | undefined {
 }
 
 /**
- * Parsed row source and where its top-level keys are. A refusal inside a
- * top-level field names that `field`. Internal to the package: diagnostics
- * locate issues with it; `parseCanonicalDocument` is its public form.
+ * Parse framed Markdown into its complete document, and say where its
+ * top-level keys are. Every field is kept, declared or not, without schema
+ * validation. A refusal carries no partial document, and the line of the
+ * source it points at; keep the original text available for raw repair.
+ * Parsing does not retain frontmatter comments or presentation. A refusal
+ * inside a top-level field names that `field`. Internal to the package.
  */
 export function parseRowSource(source: string): Result<
 	{
@@ -203,21 +206,6 @@ export function parseRowSource(source: string): Result<
 			return lineOf(walk, node) ?? lineOf(walk, pair.key);
 		},
 	});
-}
-
-/**
- * Parse framed Markdown into its complete document. Every field is kept,
- * declared or not, without schema validation. A refusal carries no partial
- * document, and the line of the source it points at; keep the original text
- * available for raw repair. Parsing does not retain frontmatter comments or
- * presentation.
- */
-export function parseCanonicalDocument(
-	source: string,
-): Result<CanonicalDocument, CanonicalRefusal> {
-	const { data: parsed, error } = parseRowSource(source);
-	if (error !== null) return Err(error);
-	return Ok(parsed.document);
 }
 
 /**
@@ -344,7 +332,7 @@ function numberValue(
 }
 
 /** An own data property, so `__proto__` is a key and never a prototype. */
-export function defineOwn(
+function defineOwn(
 	record: Record<string, unknown>,
 	key: string,
 	value: unknown,

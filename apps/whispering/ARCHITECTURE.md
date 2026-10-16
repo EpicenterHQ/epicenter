@@ -157,9 +157,10 @@ storages are never substitutes: nothing that is missing or refuses inside a
 desktop app is replaced by browser storage, and the browser opener itself
 refuses there (`InsideTauri`).
 
-Page code names types and helpers from `@epicenter/folder`. `vite.config.ts`
-aliases that exact specifier to `@epicenter/folder/tauri` in the host build
-and to `@epicenter/folder/browser` otherwise, so a browser build carries no
+Page code names types and helpers from `@epicenter/folder`.
+`installedAppViteConfig` (from `@epicenter/vite-config`, which `vite.config.ts`
+builds on) aliases that exact specifier to `@epicenter/folder/tauri` in the
+host build and to `@epicenter/folder/browser` otherwise, so a browser build carries no
 desktop adapter or Epicenter's generated bindings, and the host build no
 browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
 bundles both builds and reads what each pulls in.
@@ -301,10 +302,13 @@ There are two capture devices, and a workspace has exactly one, chosen when it
 opens; neither falls back to the other.
 
 - The microphone device (`src/lib/microphone.ts`) records with
-  `@epicenter/recorder`. Inside the desktop app the shell's
-  `tauri-plugin-epicenter-recorder` writes `<path>.wav` into the granted
-  folder as it captures and finalizes it on stop, and on a page reload or a
-  closed window. In a browser tab `MediaRecorder` holds the audio and the
+  `@epicenter/recorder`, over the inputs each workspace supplies. Inside the
+  desktop app (`src/lib/workspace/desktop-microphone.ts`) Rust owns the
+  microphone (ADR-0571): the shell's `tauri-plugin-epicenter-recorder` lists
+  the inputs, reads a level, and writes `<path>.wav` into the granted folder
+  as it captures, finalizing it on stop and on a page reload or a closed
+  window; the page opens no microphone. In a browser tab
+  (`src/lib/webview-microphone.ts`) `MediaRecorder` holds the audio and the
   page writes `<path>.webm` (or the browser's container) on stop.
 - The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
   the fixture's own extension, and marks the row `fixture`.
@@ -320,16 +324,27 @@ The microphone device also has `inputs`: listing, asking for access, and a
 level reading. The fixture device has none, so in fixture mode nothing lists,
 asks for, or opens a microphone.
 
-- For a test and in a browser, a chosen microphone is asked for as
-  `{ deviceId: { exact } }`. A WebView that cannot open exactly that one
-  answers with a refusal (`InputUnavailable`), and a stream that reports
-  another device is released and refused. The desktop recorder asks the shell
-  for the chosen input by the name it was listed under, and the shell refuses
-  a name it cannot find the same way. The system default is asked for only
-  when nothing is chosen.
-- Listing is `enumerateDevices` and nothing else. It never asks for access, so
-  before access is allowed it names no input. `allow` is the separate action:
-  it opens the default microphone and releases it at once.
+- In Epicenter, listing is the recorder plugin's `inputs`: every input with
+  cpal's device ID (`coreaudio:<device UID>`) and its name, which needs no
+  microphone permission. A test is the plugin's meter and a recording its
+  `start`, each asking for the chosen input by that ID; the shell refuses an
+  ID that is not connected (`InputUnavailable`) and opens nothing in its
+  place. The plugin asks macOS for microphone access before either resolves a
+  device, raising the prompt once and otherwise reading the stored decision;
+  a denial is `PermissionDenied` and nothing opens. There is no `allow`, and
+  listing never clears a denial: only a microphone that opens does. A denied
+  control offers to open System Settings at the microphone pane
+  (`openSettings`, through the opener). A meter that stops on its own ends the
+  test with its reason. No `getUserMedia`, `enumerateDevices`,
+  `MediaRecorder`, or `AudioContext` runs; `platform-selection.test.ts` proves
+  the build reaches none of them.
+- In a browser, a chosen microphone is asked for as `{ deviceId: { exact } }`.
+  A WebView that cannot open exactly that one answers with a refusal
+  (`InputUnavailable`), and a stream that reports another device is released
+  and refused. Listing is `enumerateDevices` and nothing else. It never asks
+  for access, so before access is allowed it names no input. `allow` is the
+  separate action: it opens the default microphone and releases it at once.
+- On both, the system default is asked for only when nothing is chosen.
 - Every request takes an `AbortSignal`. A stream that arrives after its
   request was withdrawn is released there, so a late answer leaves nothing
   open.
@@ -346,7 +361,8 @@ choice it read at that moment; the choice, a test, and `allow` are refused
 while a recording is starting, running, or finishing. A recording cancelled or
 closed while its microphone is opening aborts that request. Closing the
 library releases the microphone first, before it waits for file commands it
-had accepted, and stops listening for `devicechange`.
+had accepted, and stops listening for `devicechange` (a browser announces
+connected inputs; the shell does not, so there the person lists again).
 
 Nothing here runs at launch. The session reads the saved choice through
 `workspace.preferences` and opens nothing; the first listing is when the
@@ -358,10 +374,10 @@ saved ID that is not listed is never matched to a listed input by name. The
 choice stays as it is, the control shows it as not listed, and it changes only
 when the person chooses again. A listing can be limited by permission, so
 absence from it proves nothing about the microphone: a recording still asks
-for exactly that ID, and refuses only if the WebView cannot open it. A WebView may give
-the same microphone another ID in a new origin; Epicenter serves the page from
-one fixed origin, so whether a choice survives a restart there depends on the
-WebView, which has not been checked on hardware.
+for exactly that ID, and refuses only if it cannot be opened. In Epicenter the
+ID is the device's CoreAudio UID, which macOS keeps across launches and
+reconnections. A WebView may give the same microphone another ID in a new
+origin.
 
 ## Transformations
 
@@ -608,16 +624,16 @@ obstacle in that write's way so the folder itself fails it
 | Path | Role |
 | --- | --- |
 | `src/lib/definition.ts` | The inert folder declaration. |
-| `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections and local transcription, and the microphone preference. |
+| `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections, local transcription, and microphone, and the microphone preference. |
 | `src/lib/session.svelte.ts` | The one session a mounted layout owns, and its context. It holds what the shell shows, the post-processing choice, the pasted text, and the settings draft. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
-| `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
+| `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
 | `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held as drafts and their saves, selections, the live recording, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
-| `src/lib/capture.ts`, `microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder`, container detection, the transcription and transformation requests. |
+| `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
 | `src/lib/status.ts`, `files.ts`, `terminal.svelte.ts` | Status lines, the file tree, and a terminal session no workspace offers today. |

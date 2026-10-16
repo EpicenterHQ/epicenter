@@ -13,7 +13,7 @@
  * - A failed opening closes what it opened before it rejects, and a layout
  *   released early leaves nothing open
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { OpenFolderError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';

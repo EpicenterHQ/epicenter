@@ -25,7 +25,7 @@
  * - Close waits for every mutation, and every close call shares one
  *   completion
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { folderOptions } from '@epicenter/folder/query';

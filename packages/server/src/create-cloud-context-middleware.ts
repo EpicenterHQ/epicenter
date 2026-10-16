@@ -15,12 +15,12 @@ export function createCloudContextMiddleware(opts: {
 	/** Auth secrets stay in the deployment's bindings, outside ServerBindings. */
 	resolveAuthSecrets: (c: Context<CloudEnv>) => CloudAuthBindings;
 	/**
-	 * The authorization server's audiences and metadata-document transport,
-	 * for the context that serves `/auth/*`. Omit it for a context that only
-	 * resolves sessions. Build the transport once per process: the CIMD cache
-	 * is keyed by it.
+	 * The authorization server, for the context that serves `/auth/*`: its
+	 * metadata-document transport, with the request's `c.var.audiences`. Omit
+	 * it for a context that only resolves sessions. Build the transport once
+	 * per process: the CIMD cache is keyed by it.
 	 */
-	resolveOAuthServer?: (c: Context<CloudEnv>) => Omit<OAuthServerConfig, 'db'>;
+	oauthServer?: Omit<OAuthServerConfig, 'db' | 'audiences'>;
 	/**
 	 * Acquire a per-request database handle and how to close it. The returned
 	 * `close` runs after the after-response queue drains. The library depends on
@@ -50,7 +50,10 @@ export function createCloudContextMiddleware(opts: {
 					env: opts.resolveAuthSecrets(c),
 					baseURL: c.var.authBaseURL,
 					trustedOrigins: c.var.trustedOrigins,
-					oauth: opts.resolveOAuthServer?.(c),
+					oauth: opts.oauthServer && {
+						...opts.oauthServer,
+						audiences: c.var.audiences,
+					},
 				}),
 			);
 			await next();

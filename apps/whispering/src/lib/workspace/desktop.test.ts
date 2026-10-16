@@ -17,7 +17,7 @@
  * the CLI really checks and sends.
  * Local transcription answers with scripted shell commands.
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';

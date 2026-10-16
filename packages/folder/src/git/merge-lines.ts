@@ -33,7 +33,7 @@ type Hunk = {
 };
 
 /** A base and two sides' texts, merged by line. */
-export type LineVersions = {
+type LineVersions = {
 	readonly base: string;
 	readonly ours: string;
 	readonly theirs: string;

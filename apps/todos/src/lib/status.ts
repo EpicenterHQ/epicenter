@@ -14,48 +14,21 @@ import type {
 	SyncError,
 	SyncOutcome,
 } from '@epicenter/folder';
+import {
+	changeList,
+	localTime,
+	mostSevere,
+	type StatusLine,
+	shortOid,
+	withTime,
+} from '@epicenter/svelte/status-line';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { TodosError } from './session.js';
 
-export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
-export type StatusLine = {
-	readonly label: string;
-	/** A compact label for narrow screens, when `label` is long. */
-	readonly short?: string;
-	readonly detail?: string;
-	readonly tone: Tone;
-};
-
 /** Guidance when local and remote each have versions the other lacks. */
 export const DIVERGED =
 	'Local and remote history have diverged; local versions are kept. Sync combines them.';
-
-const short = (oid: string | undefined) => oid?.slice(0, 7) ?? 'none';
-
-function at(time: number) {
-	const date = new Date(time);
-	return date.toDateString() === new Date().toDateString()
-		? date.toLocaleTimeString()
-		: date.toLocaleString();
-}
-
-const SEVERITY: Record<Tone, number> = {
-	error: 4,
-	busy: 3,
-	warning: 2,
-	neutral: 1,
-	good: 0,
-};
-
-function withTime(
-	line: StatusLine,
-	event: 'Checked' | 'Last attempt',
-	time: number,
-): StatusLine {
-	const when = `${event} at ${at(time)}`;
-	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
-}
 
 /** Whether the last remote check saw commits on both sides. */
 function diverged(git: GitSnapshot) {
@@ -101,7 +74,7 @@ export function versionLine(git: GitSnapshot): StatusLine {
 						tone: 'neutral',
 					};
 	const count = files.value.changes.length;
-	const last = `Last check at ${at(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
+	const last = `Last check at ${localTime(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
 	if (files.error)
 		return {
 			label: 'Check failed',
@@ -117,17 +90,11 @@ export function versionLine(git: GitSnapshot): StatusLine {
 					detail: `Files changed after the last check. ${last}`,
 					tone: 'neutral',
 				};
-	const changes = files.value.changes
-		.slice(0, 8)
-		.map(
-			(change) =>
-				`${change.kind === 'add' ? 'new' : change.kind === 'delete' ? 'deleted' : 'modified'} ${change.path}`,
-		);
 	return withTime(
 		{
 			label: changesLabel(count),
 			short: count === 0 ? undefined : `${count} changed`,
-			detail: changes.join('\n') || undefined,
+			detail: changeList(files.value.changes).join('\n') || undefined,
 			tone: count === 0 ? 'good' : 'neutral',
 		},
 		'Checked',
@@ -141,13 +108,13 @@ export function versionOutcomeLine(outcome: CommitOutcome): StatusLine {
 		case 'committed':
 			return outcome.indexWarning
 				? {
-						label: `Saved version ${short(outcome.oid)} · index not updated`,
+						label: `Saved version ${shortOid(outcome.oid)} · index not updated`,
 						short: 'Index issue',
 						detail: `${outcome.message}\nIndex not updated: ${outcome.indexWarning}`,
 						tone: 'warning',
 					}
 				: {
-						label: `Saved version ${short(outcome.oid)}`,
+						label: `Saved version ${shortOid(outcome.oid)}`,
 						detail: outcome.message,
 						tone: 'good',
 					};
@@ -210,7 +177,7 @@ export function lastVersionLine(git: GitSnapshot): StatusLine {
 function pushOutcomeLine(outcome: PushOutcome, git: GitSnapshot): StatusLine {
 	switch (outcome.status) {
 		case 'pushed':
-			return { label: `Pushed ${short(outcome.oid)}`, tone: 'good' };
+			return { label: `Pushed ${shortOid(outcome.oid)}`, tone: 'good' };
 		case 'failed':
 			return diverged(git)
 				? {
@@ -299,7 +266,7 @@ export function pushLine(git: GitSnapshot): StatusLine {
 					short: 'Not checked',
 					tone: 'neutral',
 				};
-	const seen = `Remote ${short(git.sync.value.remote)} · local ${short(git.sync.value.head)}, as of ${at(git.sync.checkedAt)}`;
+	const seen = `Remote ${shortOid(git.sync.value.remote)} · local ${shortOid(git.sync.value.head)}, as of ${localTime(git.sync.checkedAt)}`;
 	if (git.sync.error)
 		return {
 			label: 'Remote check failed',
@@ -337,7 +304,7 @@ export function pushLine(git: GitSnapshot): StatusLine {
 		label: 'Matches the remote as last seen',
 		detail:
 			last?.status === 'pushed' && last.oid === git.sync.value.head
-				? `${seen}\nPushed at ${at(last.at)}`
+				? `${seen}\nPushed at ${localTime(last.at)}`
 				: seen,
 		tone: 'good',
 	};
@@ -378,18 +345,12 @@ export function summaryLine(lines: {
 	lastVersion: StatusLine;
 	remote: StatusLine;
 }): StatusLine {
-	let chosen: StatusLine | undefined;
-	for (const line of [
+	const chosen = mostSevere([
 		lines.files,
 		lines.versions,
 		lines.lastVersion,
 		lines.remote,
-	])
-		if (
-			line &&
-			(chosen === undefined || SEVERITY[line.tone] > SEVERITY[chosen.tone])
-		)
-			chosen = line;
+	]);
 	if (
 		chosen === undefined ||
 		chosen.tone === 'good' ||

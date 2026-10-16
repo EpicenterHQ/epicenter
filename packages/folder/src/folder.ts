@@ -283,7 +283,7 @@ export type GitOf<THistory extends FolderHistory> =
 export type FilesChanged = readonly string[] | 'everything';
 
 /** Reports of file changes for one opened folder. */
-export type FileHints = {
+type FileHints = {
 	/** Files changed: tell every listener. An empty list is no change. */
 	report(change: FilesChanged): void;
 	subscribe(listener: (change: FilesChanged) => void): () => void;

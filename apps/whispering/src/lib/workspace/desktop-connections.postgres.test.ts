@@ -11,7 +11,7 @@
  * `epicenter send` and `epicenter auth status` run. Requires initdb and
  * pg_ctl on PATH; never connects to a configured database.
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -118,6 +118,7 @@ beforeAll(async () => {
 	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
+		resolveAudiences: resolveOAuthAudiences,
 	});
 	const context = {
 		connect: async () => ({ db, close: async () => {} }),
@@ -127,17 +128,16 @@ beforeAll(async () => {
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
 			...context,
-			resolveOAuthServer: () => ({ audiences }),
+			oauthServer: {},
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
-		resolveAudiences: () => audiences,
 	});
 	// The inference gateway's guard, in front of a route that answers as a
 	// transcription would.
 	app.post(
 		'/v1/*',
 		createCloudContextMiddleware(context),
-		requireAccessToken({ audience: () => audiences.api, scope: 'ai' }),
+		requireAccessToken({ audience: 'api', scope: 'ai' }),
 		async (c) => {
 			reached.push({
 				path: new URL(c.req.url).pathname,

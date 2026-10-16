@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readdirSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
 	parseRepositoryPath,
 	parseRepositoryUrl,
@@ -33,9 +33,6 @@ import {
 	type GrantKind,
 } from './auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
-
-const grantOf = (desktop: boolean): GrantKind =>
-	desktop ? 'desktop' : 'device';
 
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
@@ -87,12 +84,12 @@ export function remoteFor(ctx: AuthContext, to: string): string {
 }
 
 /** `epicenter repos`: the caller's repositories by namespace. */
-export async function repos(json: boolean, desktop: boolean) {
+export async function repos(json: boolean, grant: GrantKind) {
 	const ctx = authContext();
 	// The listing is folder metadata, served at the Git audience (ADR-0549).
 	const { data, error } = await accessToken(
 		ctx,
-		grantOf(desktop),
+		grant,
 		ctx.deployment.audiences.git,
 	);
 	if (error !== null) return fail(error.message, json);
@@ -140,7 +137,7 @@ export async function clone(
 	source: string,
 	target: string | undefined,
 	json: boolean,
-	desktop: boolean,
+	grant: GrantKind,
 ) {
 	const ctx = authContext();
 	let url: string;
@@ -155,12 +152,12 @@ export async function clone(
 		name = hosted?.name ?? basename(new URL(url).pathname, '.git');
 	}
 	if (name === '') return fail(`'${source}' names no repository`, json);
-	const dir = resolve(target ?? join(dirname(resolveAppPaths().appsDir), name));
+	const dir = resolve(target ?? join(resolveAppPaths().folderDir, name));
 	if (existsSync(dir) && readdirSync(dir).length > 0)
 		return fail(`${dir} already exists and is not empty`, json);
 	let cloned: Awaited<ReturnType<typeof runGit>>;
 	try {
-		const credential = await hostedCredentials(ctx, grantOf(desktop))(
+		const credential = await hostedCredentials(ctx, grant)(
 			url,
 			AbortSignal.timeout(60_000),
 		);

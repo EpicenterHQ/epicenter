@@ -1,8 +1,7 @@
 use tauri::image::Image;
 use tauri::menu::MenuBuilder;
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Wry};
-use tauri_plugin_autostart::ManagerExt as AutostartExt;
+use tauri::AppHandle;
 
 use crate::{request_window, BuiltInApp, DesktopAppHandle};
 
@@ -48,23 +47,4 @@ fn tray_icon(recording: bool) -> tauri::Result<Image<'static>> {
         include_bytes!("../recorder-state-icons/studio_microphone.png").as_slice()
     };
     Image::from_bytes(bytes)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn is_autostart_enabled(app: AppHandle<Wry>) -> Result<bool, String> {
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn set_autostart_enabled(app: AppHandle<Wry>, enabled: bool) -> Result<(), String> {
-    if enabled {
-        app.autolaunch().enable()
-    } else {
-        app.autolaunch().disable()
-    }
-    .map_err(|error| error.to_string())
 }

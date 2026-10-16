@@ -10,7 +10,7 @@
  * `read` is fetch and LFS download; `push` is push and LFS upload; `manage`
  * deletes, renames, or moves a repository and changes members.
  */
-export const NAMESPACE_ROLES = {
+const NAMESPACE_ROLES = {
 	owner: ['read', 'push', 'manage'],
 	member: ['read', 'push'],
 } as const satisfies Record<string, readonly NamespaceOperation[]>;

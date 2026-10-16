@@ -4,7 +4,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { openNotes } from '#platform/notes-host';
+	import { openNotesFolder } from '#platform/folder';
 	import { onDestroy } from 'svelte';
 	import {
 		createNotes,
@@ -32,17 +32,22 @@
 	}
 
 	// The mounted page acquires the folder; importing modules opens nothing.
-	// On the desktop, closing the window quits at once: every save is an
-	// atomic rename into the folder, so nothing waits here (ADR-0542).
-	const opening = openNotes({
-		async create(host) {
-			const notes = createNotes(host, queryClient, {
+	// Once the notes are built over it, `notes.close()` releases it. On the
+	// desktop, closing the window quits at once: every save is an atomic
+	// rename into the folder, so nothing waits here (ADR-0542).
+	const opening = (async () => {
+		const folder = await openNotesFolder();
+		try {
+			const notes = createNotes(folder, queryClient, {
 				onWriteFailed: writeFailed,
 			});
 			await notes.load();
 			return notes;
-		},
-	});
+		} catch (cause) {
+			await folder.close();
+			throw cause;
+		}
+	})();
 
 	onDestroy(() => {
 		void opening.then((notes) => notes.close()).catch(() => {});

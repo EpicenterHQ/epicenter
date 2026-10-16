@@ -10,7 +10,6 @@
  */
 import type { Result } from 'wellcrafted/result';
 import type { FileBoundary } from './boundary.js';
-import { ensureBufferGlobal } from './buffer-global.js';
 import {
 	type FolderDefinition,
 	prepareFolderDefinition,
@@ -44,6 +43,15 @@ export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
 		readonly boundary: FileBoundary;
 		readonly landed: (paths: readonly string[]) => void;
 	}) => Promise<(definition?: FolderDefinition) => THistory>;
+
+/**
+ * The lock a directory folder's file saves take turns under in one process.
+ * Its name comes from the directory alone, so every opener takes turns with
+ * the others, whatever ID it opened the directory by.
+ */
+export function directoryFilesLock(rootPath: string): string {
+	return `epicenter-folder-directory-files:${JSON.stringify(['directory', rootPath])}`;
+}
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given
@@ -125,10 +133,6 @@ export async function openDirectoryFolder<
 		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
 		shape = prepared;
 	}
-	ensureBufferGlobal();
-	// The lock name comes from the directory alone, so every opener in this
-	// process takes turns with the others, whatever ID it opened it by.
-	const address = JSON.stringify(['directory', rootPath]);
 	// A write that stopped before its rename (a crash, a quit) leaves its
 	// staged bytes behind. Another handle or process may be writing the
 	// directory now, so only files staged long enough ago to be abandoned are
@@ -155,7 +159,7 @@ export async function openDirectoryFolder<
 					: createOpfsFileBoundary({
 							root,
 							locks,
-							filesLock: `epicenter-folder-directory-files:${address}`,
+							filesLock: directoryFilesLock(rootPath),
 							landed: relay,
 						});
 			return { boundary, history: await history({ boundary, landed }) };

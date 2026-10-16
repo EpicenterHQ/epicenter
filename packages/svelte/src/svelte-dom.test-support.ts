@@ -7,9 +7,11 @@
  * own files fails the load, while components from other packages, such as
  * `@epicenter/ui`, compile as they ship.
  *
- * Run with `--conditions=browser` (`bun run test:mounted`): Bun's default
+ * Run with `--conditions=browser` (`bun run test`): Bun's default
  * conditions select Svelte's server runtime, which cannot mount. Loading
- * this module under other conditions throws.
+ * this module under other conditions throws. `--conditions=svelte` resolves
+ * packages that ship only Svelte sources, such as `mode-watcher` behind
+ * `@epicenter/ui/sonner`.
  *
  * jsdom is the copy `@epicenter/folder` installs for its own mounted tests;
  * this package adds no dependency of its own. jsdom lays nothing out, so

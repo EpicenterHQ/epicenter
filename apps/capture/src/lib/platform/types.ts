@@ -7,11 +7,7 @@
  */
 
 import type { captureDefinition } from '@epicenter/capture';
-import type {
-	Folder,
-	FolderDefinition,
-	FolderLocation,
-} from '@epicenter/folder';
+import type { Folder, FolderDefinition } from '@epicenter/folder';
 import manifest from '../../../epicenter.app.json';
 
 /**
@@ -31,16 +27,11 @@ export const CAPTURE_FOLDER_ID = manifest.id;
  */
 export type CaptureFolder = Folder<typeof captureDefinition, FolderDefinition>;
 
-export type CaptureHost = {
-	readonly folder: CaptureFolder;
-	/** Where the folder says its files are. For showing; never joined onto. */
-	readonly location: FolderLocation;
-	/**
-	 * Let go of this page's use of the folder after the collection has finished
-	 * its intended saves. Calls that reach storage after this are refused.
-	 * On the desktop the folder stays open for the shell and its other windows.
-	 */
-	close(): Promise<void>;
-};
-
-export type OpenCaptureHost = () => Promise<CaptureHost>;
+/**
+ * Opens the build's folder. A folder that cannot be opened throws; a leaf
+ * never opens another kind of storage instead. The page closes the folder
+ * once the collection has finished its intended saves; calls that reach
+ * storage after that are refused. On the desktop, closing lets go of this
+ * page's use, and the folder stays open for the shell and its other windows.
+ */
+export type OpenCaptureFolder = () => Promise<CaptureFolder>;

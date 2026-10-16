@@ -15,7 +15,7 @@ import type { Row } from './row-text.js';
 export type AnyRow = Row<Record<string, unknown>>;
 
 /** One field both sides changed differently; `undefined` is no such field. */
-export type FieldUnit = {
+type FieldUnit = {
 	readonly kind: 'field';
 	readonly field: string;
 	readonly base: unknown;

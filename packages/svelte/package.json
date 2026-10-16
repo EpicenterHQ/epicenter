@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: reactive data, agent conversations, and the sync review.",
+	"description": "Svelte 5 bindings for Epicenter: reactive data, agent conversations, the sync review, and the header status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -14,6 +14,9 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
+		"./status-line": "./src/status-line.ts",
+		"./status-popover": "./src/status-popover.svelte",
+		"./status-row": "./src/status-row.svelte",
 		"./sync-line": "./src/sync-line.ts",
 		"./sync-review": "./src/sync-review.svelte"
 	},
@@ -21,6 +24,7 @@
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
@@ -31,7 +35,7 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --conditions=browser"
+		"test": "bun test --isolate --conditions=browser --conditions=svelte"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -1,6 +1,6 @@
 # 0569. The installed apps are the clones in Apps/, not rows in so.epicenter
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the `apps` table, the `defaultApp` setting, "Every app is a row", and the consequences that an agent lists apps by editing `so.epicenter` and that connecting it carries a person's apps to another machine: `so.epicenter` holds the `connections` table only, and the installed apps are the clones in `Apps/` with `approvals.json`.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "every app is a row, and the row gains `folder`" and the `apps` row's `folder` that lets another machine install the same app: there is no row, and `epicenter.folder` in the clone is the only record of the folder.

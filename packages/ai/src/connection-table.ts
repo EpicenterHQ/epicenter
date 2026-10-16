@@ -7,8 +7,8 @@
  * (`send.ts`), so an edit synced from elsewhere cannot send a key somewhere
  * new.
  *
- * `so.epicenter`'s declaration (`apps/epicenter/src/folders/epicenter-folder.ts`)
- * includes this table. An installed app that uses connections opens
+ * `so.epicenter`'s declaration (`epicenterDefinition` in
+ * `packages/cli/src/epicenter-folder.ts`) includes this table. An installed app that uses connections opens
  * `so.epicenter` through {@link connectionsLens}.
  */
 

@@ -124,7 +124,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 
 ## The boundary
 
-- The page reaches its folder only through `#platform/notes-host`. Do not
+- The page reaches its folder only through `#platform/folder`. Do not
   detect the platform at runtime, and do not import a Node or Bun module
   under `src/`.
 - The installed build's folder is the one Epicenter hands the window as
@@ -134,7 +134,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   scope only. Never publish Honeycrisp's declaration over another folder's. Shared code imports
   the folder contract from the bare `@epicenter/folder`, which each build
   aliases to its one adapter entry in `vite.config.ts`; keep
-  `apps/honeycrisp/scripts/module-graph.ts` doing the same. Do not add another folder
+  `packages/vite-config/scripts/module-graph.ts` doing the same. Do not add another folder
   engine, a Git implementation, or a history scheduler to the desktop page,
   and do not fall back to browser storage when the grant fails.
 - The root, the commit author, and the windows allowed to use them are
@@ -147,9 +147,10 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 - Honeycrisp has no desktop shell and no native commands of its own (ADR-0552).
   A native need is a host function Epicenter grants every installed app
   (ADR-0555, ADR-0570); do
-  not add a Tauri shell back to this app. Neither leaf gives `NotesHost` a
-  `reveal` today; ADR-0555's `reveal_folder` folder action will supply it,
-  and `FileBrowser` shows **Reveal folder** once one does.
+  not add a Tauri shell back to this app. Each leaf returns the folder
+  itself, and `notes.close()` releases it. A future reveal, ADR-0555's
+  `reveal_folder`, arrives as `folder.reveal`; `FileBrowser` would add a
+  **Reveal folder** button back then.
 - Do not describe the native conditional save as atomic. It compares, then
   replaces; another program can write in between.
 - Do not add fault injection to Epicenter's shell or wrap the folder's writes to

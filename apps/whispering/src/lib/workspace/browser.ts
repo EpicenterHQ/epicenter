@@ -29,12 +29,12 @@ import {
 	DEFAULT_TRANSCRIPTION_CONNECTION,
 	whisperingDefinition,
 } from '../definition.js';
-import { createMicrophoneDevice } from '../microphone.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
+import { createWebViewMicrophone } from '../webview-microphone.js';
 import { localPreferences } from './microphone-preference.js';
 import {
 	type OpenWorkspace,
@@ -128,7 +128,7 @@ export const openWorkspace: OpenWorkspace = async () => {
 					name: 'generated tone',
 					load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 				})
-			: createMicrophoneDevice(),
+			: createWebViewMicrophone(),
 		captureNotice: undefined,
 		reveal: undefined,
 		transcribe: (request) =>

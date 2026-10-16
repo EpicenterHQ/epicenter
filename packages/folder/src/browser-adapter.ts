@@ -21,8 +21,8 @@
  */
 
 import { isTauri } from '@tauri-apps/api/core';
+import { Buffer } from 'buffer/';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { ensureBufferGlobal } from './buffer-global.js';
 import { browserChangeDetector } from './changes-browser.js';
 import type {
 	OpenDataFolder,
@@ -39,11 +39,7 @@ import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory, type History } from './git/history.js';
 import type { Author } from './git/objects.js';
 import { createOpfsGitStore } from './git/opfs-git.js';
-import {
-	type FolderAddress,
-	type FolderSchema,
-	openAtRoot,
-} from './open-at-root.js';
+import { type FolderSchema, openAtRoot } from './open-at-root.js';
 import {
 	createOpfsFileBoundary,
 	errorName,
@@ -99,10 +95,20 @@ const isFolderName = (id: unknown): id is string =>
 	id !== '..' &&
 	!UNNAMEABLE.test(id);
 
+/** One folder's directory and every name derived from its ID. */
+type FolderAddress = {
+	readonly directory: string;
+	/** Held while deciding whether the directory is the folder, and by a download throughout. */
+	readonly openLock: string;
+	readonly filesLock: string;
+	readonly gitLock: string;
+	/** The `BroadcastChannel` pages of this origin tell each other their writes on. */
+	readonly hintChannel: string;
+};
+
 /** The directory, Web Locks, and change channel of the folder named `id`. */
 function folderAddress(id: string): FolderAddress {
 	return {
-		address: id,
 		directory: id,
 		openLock: `epicenter-folder:${id}:open`,
 		filesLock: `epicenter-folder:${id}:files`,
@@ -232,7 +238,10 @@ async function openBrowserFolder<
 		if (environmentError !== null) return Err(environmentError);
 		environment = found;
 	}
-	ensureBufferGlobal();
+	// isomorphic-git reads a global `Buffer` at call time, and browsers have
+	// none; install the `buffer` package's before the first Git call.
+	const scope = globalThis as { Buffer?: unknown };
+	if (scope.Buffer === undefined) scope.Buffer = Buffer;
 	const at = folderAddress(id);
 	const { locks } = environment;
 	// The first write makes the directory, so no read ever writes.
