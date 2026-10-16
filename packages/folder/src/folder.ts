@@ -17,9 +17,9 @@
  */
 import { type CreateRowOf, requiredOutsideShape } from '@epicenter/definition';
 import type { Result } from 'wellcrafted/result';
-import type { FolderStorage } from './boundary.js';
+import { type FolderStorage, mayHaveChanged } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
-import type { WriteError } from './errors.js';
+import { FileError, type WriteError } from './errors.js';
 import { createFiles, type FolderFiles } from './files.js';
 import type { SyncError } from './git/errors.js';
 import type {
@@ -33,8 +33,10 @@ import type { Author, CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
-import { declaring } from './publish-definition.js';
-import { fenceStorage } from './storage.js';
+import {
+	publishDefinition,
+	publishLocalPatterns,
+} from './publish-definition.js';
 import { createTable, type FileTable } from './table.js';
 import { movePath, type Written, writeFile } from './write.js';
 
@@ -258,6 +260,63 @@ export function createFileHints(): FileHints {
 	};
 }
 
+/**
+ * The storage a handle's files, tables, and writes go through, over the
+ * host's. A call made once closing started is `Closed`; one already begun
+ * owns its result. With `published`, the handle publishes that definition
+ * just before its first change (`publish-definition.ts`), through the same
+ * accounting. Each put that changed a file, or may have, makes the history's
+ * observations stale; it is not reported to the handle's own listeners
+ * (ADR-0548), since whoever saved holds the result.
+ */
+function handleStorage(
+	storage: FolderStorage,
+	{
+		signal,
+		history,
+		published,
+	}: {
+		signal: AbortSignal;
+		history: Pick<FolderHistory, 'noteEdit'>;
+		published: FolderDefinition | undefined;
+	},
+): FolderStorage {
+	const closed = () => Promise.resolve(FileError.Closed());
+	const noting: Pick<FolderStorage, 'read' | 'put'> = {
+		read: (path) => storage.read(path),
+		async put(path, bytes, ifMatch) {
+			const result = await storage.put(path, bytes, ifMatch);
+			if (mayHaveChanged(result)) history.noteEdit();
+			return result;
+		},
+	};
+	let publishing: Promise<void> | undefined;
+	const publish = async () => {
+		if (published === undefined) return;
+		publishing ??= publishDefinition(published, noting).then(() =>
+			publishLocalPatterns(published.local ?? [], noting),
+		);
+		await publishing;
+	};
+	return {
+		list: () => (signal.aborted ? closed() : storage.list()),
+		children: (directory) =>
+			signal.aborted ? closed() : storage.children(directory),
+		read: (path) => (signal.aborted ? closed() : storage.read(path)),
+		async put(path, bytes, ifMatch) {
+			if (signal.aborted) return closed();
+			await publish();
+			return noting.put(path, bytes, ifMatch);
+		},
+		async mkdir(path) {
+			if (signal.aborted) return closed();
+			await publish();
+			return storage.mkdir(path);
+		},
+		rmdir: (path) => (signal.aborted ? closed() : storage.rmdir(path)),
+	};
+}
+
 /** The handle's `git`, frozen, over `history`. */
 function createFolderGit(history: FolderHistory): FolderGit {
 	return Object.freeze({
@@ -306,6 +365,7 @@ export function assembleFolder<
 	 * definition is that file, never write it.
 	 */
 	publishes: boolean;
+	/** The host's storage, which the history shares. */
 	storage: FolderStorage;
 	history: THistory;
 	location: FolderLocation;
@@ -316,10 +376,11 @@ export function assembleFolder<
 	const controller = new AbortController();
 	let closing: Promise<void> | undefined;
 
-	const storage = fenceStorage(
-		publishes ? declaring(suppliedStorage, prepared) : suppliedStorage,
-		controller.signal,
-	);
+	const storage = handleStorage(suppliedStorage, {
+		signal: controller.signal,
+		history,
+		published: publishes ? prepared : undefined,
+	});
 	const tables: Record<string, FileTable<unknown>> = {};
 	// A table's key is its name and its directory.
 	// The opener prepared every table, which is what the type's mark records.

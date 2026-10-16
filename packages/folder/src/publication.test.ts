@@ -1,64 +1,78 @@
 /**
- * Publication accounting over a folder's storage.
+ * A handle's save accounting.
  *
- * A change that landed, or may have, notes one edit, so the history's
- * observations go stale, and the storage's answer passes through unchanged.
- * A change that changed nothing
- * notes none. Accounting asks for no commit (ADR-0529) and tells no change
- * listener: a handle's own saves are not reported to it (ADR-0548).
+ * A write that landed, or whose put may have landed (its reply was lost),
+ * makes the history's file observation stale. A write that changed nothing,
+ * or failed before anything could land, leaves it fresh. Accounting asks for
+ * no commit (ADR-0529) and tells no change listener: a handle's own saves are
+ * not reported to it (ADR-0548).
  */
-import { expect, test } from 'bun:test';
-import { rawBrowserFolder } from './browser-storage.test-support.js';
-import { FileError } from './errors.js';
-import { withPublication } from './storage.js';
+import { afterEach, expect, test } from 'bun:test';
+import { expectOk } from 'wellcrafted/testing';
+import { openFolder } from './browser.js';
+import { defineFolder } from './contract.js';
+import {
+	type MemoryOpfs,
+	memoryOpfs,
+	opfsEnvironment,
+} from './opfs.test-support.js';
+import { useWebLocks } from './web-locks.test-support.js';
 
-const bytes = new TextEncoder().encode('x');
+useWebLocks();
 
-async function counted(id: string) {
-	const { boundary } = await rawBrowserFolder({ id });
-	let edits = 0;
-	return {
-		boundary,
-		edits: () => edits,
-		wrap: (storage = boundary) =>
-			withPublication({
-				storage,
-				history: {
-					noteEdit: () => {
-						edits++;
-					},
-				},
-			}),
-	};
-}
+const definition = defineFolder({ tables: {} });
+let opfs: MemoryOpfs;
+const opened: { close(): Promise<void> }[] = [];
 
-test('a change that landed, or whose reply was lost, notes one edit', async () => {
-	const { boundary, edits, wrap } = await counted('publication-landed');
-	const storage = wrap();
-	expect((await storage.put('a.md', bytes, null)).data).toBe('landed');
-	expect(edits()).toBe(1);
-	const lost = FileError.Unconfirmed({
-		path: 'c.md',
-		operation: 'write',
-		cause: new Error('lost reply'),
-	});
-	const unconfirmed = wrap({ ...boundary, put: async () => lost });
-	expect(await unconfirmed.put('c.md', bytes, null)).toBe(lost);
-	expect(edits()).toBe(2);
+afterEach(async () => {
+	for (const folder of opened.splice(0)) await folder.close();
 });
 
-test('a change that changed nothing notes no edit', async () => {
-	const { boundary, edits, wrap } = await counted('publication-refusal');
-	const storage = wrap();
-	expect((await storage.put('a.md', bytes, null)).data).toBe('landed');
-	expect((await storage.put('a.md', bytes, null)).data).toBe('stale');
-	expect(edits()).toBe(1);
-	const refusal = FileError.Io({
-		path: 'b.md',
-		operation: 'write',
-		cause: new Error('disk full'),
-	});
-	const refusing = wrap({ ...boundary, put: async () => refusal });
-	expect(await refusing.put('b.md', bytes, null)).toBe(refusal);
-	expect(edits()).toBe(1);
+async function observed() {
+	opfs = memoryOpfs();
+	const folder = expectOk(
+		await openFolder({
+			id: 'publication',
+			definition,
+			browser: {
+				author: { name: 'Saver', email: 'saver@example.test' },
+				opfs: opfsEnvironment(opfs),
+			},
+		}),
+	);
+	opened.push(folder);
+	expectOk(await folder.write('a.md', null, 'a'));
+	const heard: unknown[] = [];
+	folder.onFilesChanged((change) => heard.push(change));
+	expectOk(await folder.git.status());
+	const stale = () => {
+		const { files } = folder.git.snapshot;
+		return files.state === 'observed' && files.stale;
+	};
+	expect(stale()).toBe(false);
+	return { folder, stale, heard };
+}
+
+test('a write that landed makes the observation stale and tells no listener', async () => {
+	const { folder, stale, heard } = await observed();
+	expectOk(await folder.write('a.md', 'a', 'b'));
+	expect(stale()).toBe(true);
+	expect(folder.git.snapshot.lastCommit).toBeUndefined();
+	expect(heard).toEqual([]);
+});
+
+test('a put whose reply was lost makes the observation stale', async () => {
+	const { folder, stale } = await observed();
+	opfs.faults.close = (path) => (path.endsWith('/a.md') ? 'fail' : undefined);
+	const failed = await folder.write('a.md', 'a', 'b');
+	expect(failed.error?.name).toBe('Io');
+	expect(stale()).toBe(true);
+});
+
+test('a write that changed nothing, or failed before anything landed, leaves it fresh', async () => {
+	const { folder, stale } = await observed();
+	expectOk(await folder.write('a.md', 'a', 'a'));
+	opfs.faults.write = (path) => (path.endsWith('/a.md') ? 'fail' : undefined);
+	expect((await folder.write('a.md', 'a', 'b')).error?.name).toBe('Io');
+	expect(stale()).toBe(false);
 });

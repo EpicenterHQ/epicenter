@@ -42,16 +42,6 @@ export type FileListing = {
 	readonly directories: readonly string[];
 };
 
-/** Every portable file's bytes, captured for a commit or status observation. */
-export type CapturedFiles = {
-	readonly files: ReadonlyMap<string, Uint8Array>;
-	/** Paths enumeration found but whose bytes could not be read. */
-	readonly unreadable: readonly {
-		readonly path: string;
-		readonly error: FileError;
-	}[];
-};
-
 /** A folder's files, as each host stores them. */
 export type FolderStorage = {
 	/** Every entry below the folder, `.git` aside. */
@@ -111,6 +101,11 @@ export type HostFiles = Pick<
 > & {
 	change: FolderStorage['put'];
 };
+
+/** Whether a put changed its file, or may have: it landed, or its reply was lost. */
+export const mayHaveChanged = (
+	result: Result<'landed' | 'stale', FileError>,
+): boolean => result.data === 'landed' || result.error?.name === 'Unconfirmed';
 
 /** The folder's private Git directory, which no portable path names and no listing shows. */
 export const PRIVATE_DIRECTORY = '.git';
@@ -214,8 +209,7 @@ export function hostStorage(
 			} catch (cause) {
 				result = FileError.Io({ path, operation: 'write', cause });
 			}
-			if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
-				relay([path]);
+			if (mayHaveChanged(result)) relay([path]);
 			return result;
 		},
 		async mkdir(path) {

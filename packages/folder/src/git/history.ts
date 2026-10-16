@@ -40,9 +40,9 @@ import {
 	ancestors,
 	collisionKey,
 	DECLARATION_PATH,
+	isPortablePath,
 	pathProblem,
 } from '../paths.js';
-import { captureFiles } from '../storage.js';
 import { confirmedPut, writeFile } from '../write.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
@@ -295,17 +295,27 @@ export function createHistory({
 		}
 	}
 
+	/**
+	 * Every portable file's bytes, read now, for a commit or a status. A file
+	 * removed while it is read is left out, as if the listing had missed it;
+	 * a file that cannot be read throws, naming it.
+	 */
 	async function capture() {
-		const { data: captured, error: captureError } =
-			await captureFiles(boundary);
-		if (captureError !== null) throw new Error(captureError.message);
-		if (captured.unreadable.length > 0)
+		const { data: listed, error } = await boundary.list();
+		if (error !== null) throw new Error(error.message);
+		const files = new Map<string, Uint8Array>();
+		const unreadable: string[] = [];
+		for (const { path } of listed.files) {
+			if (!isPortablePath(path)) continue;
+			const read = await boundary.read(path);
+			if (read.error === null) files.set(path, read.data.bytes);
+			else if (read.error.name !== 'NotFound') unreadable.push(path);
+		}
+		if (unreadable.length > 0)
 			throw new Error(
-				`${captured.unreadable.length} files could not be read: ${captured.unreadable
-					.map((item) => item.path)
-					.join(', ')}`,
+				`${unreadable.length} files could not be read: ${unreadable.join(', ')}`,
 			);
-		return captured.files;
+		return files;
 	}
 
 	type IsLocal = (path: string) => boolean;

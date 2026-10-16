@@ -1411,13 +1411,13 @@ dangle.
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-history.ts`, and the directory folder only then. |
-| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds the typed row view over the one write. |
+| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter: the handle's storage (save accounting, the close fence, and publishing the definition before the first change), and `table.ts`, the typed row view over the one write. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
 | `src/query.ts` | `@epicenter/folder/query`: `folderOptions`, with `folder$.write` and `folder$.move`. |
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`editor.svelte.ts`: `createTextEditor` and `createBodyEditor`), its tests, and the Svelte boundary tests. |
-| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, and `lock` where Sync publishes), the part of it every host shares (the path rule, owned bytes, the relay to other pages, sorted listings, holding the lock, and staged names), and what folders build on it: save accounting, the close fence, and the reads composed from `read` and `list`. |
+| `src/boundary.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, and `lock` where Sync publishes), and the part of it every host shares: the path rule, owned bytes, the relay to other pages, sorted listings, holding the lock, and staged names. |
 | `src/write.ts`, `hash.ts` | The one write (`writeFile`, `folder.write`) and the one move (`movePath`, `folder.move`), with the guarded put they share; and the SHA-256 that names a file's bytes. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-store.ts`, `directory-primitives.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: its storage over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
@@ -1470,9 +1470,9 @@ what the Web Locks can see.
 
 ## Internal composition
 
-Files and tables use one storage port (`boundary.ts`). Every opener
-wraps it so each `put` that may have landed marks history stale, so a
-domain method cannot write without that.
+Files and tables use one storage port (`boundary.ts`). The handle wraps
+it once (`handleStorage` in `folder.ts`) so each `put` that may have landed
+marks history stale, so a domain method cannot write without that.
 
 ```ts
 createFiles({ storage })
@@ -1484,9 +1484,9 @@ file's kind, which merges through `merge` (`merge-file.ts`), the merge Sync
 and the merge driver use too; `folder.move` and `table.rename` call
 `movePath`.
 
-Every opener wraps raw storage with publication accounting. Assembly fences
-the resulting storage with the handle's close signal. These wrappers retain
-no file-operation collection.
+The same wrapper fences the storage with the handle's close signal and
+publishes the definition before the first change. It retains no
+file-operation collection.
 
 Git keeps raw storage because Sync's publish updates files and history
 under its own policy, each file under the save lock, and is not recorded

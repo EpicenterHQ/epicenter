@@ -179,33 +179,3 @@ export async function publishLocalPatterns(
 	}
 	log.error(PublicationError.LocalPatternsUnconfirmed({ cause: failure }));
 }
-
-/**
- * `storage`, publishing the declaration and the `local` patterns once before
- * the first change this handle makes. Reads publish nothing. The
- * publications' own writes go to `storage` directly, and their failures are
- * logged without refusing the write.
- */
-export function declaring(
-	storage: FolderStorage,
-	prepared: FolderDefinition,
-): FolderStorage {
-	let published: Promise<void> | undefined;
-	const first = () => {
-		published ??= publishDefinition(prepared, storage).then(() =>
-			publishLocalPatterns(prepared.local ?? [], storage),
-		);
-		return published;
-	};
-	return {
-		...storage,
-		async put(path, bytes, ifMatch) {
-			await first();
-			return storage.put(path, bytes, ifMatch);
-		},
-		async mkdir(path) {
-			await first();
-			return storage.mkdir(path);
-		},
-	};
-}

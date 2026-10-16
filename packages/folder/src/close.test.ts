@@ -33,7 +33,6 @@ import { assembleFolder, createFileHints } from './folder.js';
 import type { GitBackend } from './git/backend.js';
 import { createHistory, type History } from './git/history.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
-import { withPublication } from './storage.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
@@ -158,7 +157,7 @@ async function held() {
 	const folder = assembleFolder<typeof definition, typeof definition, History>({
 		prepared: definition,
 		publishes: true,
-		storage: withPublication({ storage: boundary, history }),
+		storage: boundary,
 		history,
 		location: locationOf('close'),
 		hints,

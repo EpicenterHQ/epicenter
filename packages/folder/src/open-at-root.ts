@@ -25,7 +25,6 @@ import {
 	type FolderHistory,
 	type FolderLocation,
 } from './folder.js';
-import { withPublication } from './storage.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -134,7 +133,7 @@ export async function openAtRoot<
 			prepared,
 			lens: schema === 'declared' ? captured.lens : undefined,
 			publishes: schema !== 'declared',
-			storage: withPublication({ storage: boundary, history: opened }),
+			storage: boundary,
 			history: opened,
 			location: captured.location,
 			hints,
