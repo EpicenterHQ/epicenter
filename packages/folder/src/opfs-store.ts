@@ -135,12 +135,6 @@ export type OpfsFolder = {
 	made(): Promise<OpfsDirectoryHandle>;
 };
 
-/** A folder whose directory is `handle`, already there. */
-export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
-	existing: async () => handle,
-	made: async () => handle,
-});
-
 /** The folder `name` in `origin`, made by the first change that needs it. */
 export function folderIn(
 	origin: OpfsDirectoryHandle,

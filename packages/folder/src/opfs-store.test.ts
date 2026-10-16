@@ -24,12 +24,12 @@
  */
 import { beforeEach, expect, test } from 'bun:test';
 import { hashBytes } from './hash.js';
-import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
 import {
-	createOpfsStorage,
-	type OpfsDirectoryHandle,
+	type MemoryOpfs,
+	memoryOpfs,
 	presentFolder,
-} from './opfs-store.js';
+} from './opfs.test-support.js';
+import { createOpfsStorage, type OpfsDirectoryHandle } from './opfs-store.js';
 import { createWebLocks } from './web-locks.test-support.js';
 
 const encoder = new TextEncoder();

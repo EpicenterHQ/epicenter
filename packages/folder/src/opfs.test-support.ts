@@ -29,9 +29,16 @@ import type {
 	OpfsEnvironment,
 	OpfsFile,
 	OpfsFileHandle,
+	OpfsFolder,
 	OpfsLocks,
 	OpfsWritable,
 } from './opfs-store.js';
+
+/** A folder whose directory is `handle`, already there. */
+export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
+	existing: async () => handle,
+	made: async () => handle,
+});
 
 type FileNode = {
 	kind: 'file';

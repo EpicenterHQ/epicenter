@@ -45,12 +45,9 @@ import {
 	type MemoryOpfs,
 	memoryOpfs,
 	opfsEnvironment,
-} from '../opfs.test-support.js';
-import {
-	createOpfsStorage,
-	ensureDirectory,
 	presentFolder,
-} from '../opfs-store.js';
+} from '../opfs.test-support.js';
+import { createOpfsStorage, ensureDirectory } from '../opfs-store.js';
 import { overwrite } from '../put.test-support.js';
 import { useWebLocks } from '../web-locks.test-support.js';
 import { createStoredGitBackend } from './browser-backend.js';
