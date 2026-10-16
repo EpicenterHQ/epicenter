@@ -46,6 +46,8 @@ export {
 } from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 export { createDb } from './db/create-db.js';
+// Bare repositories on disk behind `git http-backend`, the Bun entry's store.
+export { createDiskGitHost } from './git-disk-store.js';
 export {
 	requireAccessToken,
 	requireBearerPrincipal,
@@ -57,15 +59,24 @@ export {
 	type NamespaceRole,
 	roleAllows,
 } from './namespace-roles.js';
+// Hosted repositories as rows (ADR-0546): the manage role's rename and move,
+// each leaving an alias. No route mounts them yet.
+export {
+	changeRepository,
+	moveRepository,
+	RepositoryChangeError,
+	renameRepository,
+} from './repositories.js';
 export { mountAuthRoutes } from './routes/auth.js';
 export {
 	type HostedBlobStore,
 	mountPersonalAuthorityBlobs,
 } from './routes/authority-blobs.js';
 export {
-	type GitRepositoryStore,
+	type GitHost,
+	type GitRequest,
 	type GitService,
-	mountGitApp,
+	mountGitHost,
 } from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';

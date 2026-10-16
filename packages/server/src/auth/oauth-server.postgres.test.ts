@@ -11,14 +11,14 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { ClientMetadataResourceFetch } from '@better-auth/oauth-provider';
-import { every } from 'hono/combine';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { every } from 'hono/combine';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
 import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
-import { type GitRepositoryStore, mountGitApp } from '../routes/git.js';
+import { type GitHost, mountGitHost } from '../routes/git.js';
 import { mountInferenceApp } from '../routes/inference.js';
 import { mountSessionApp } from '../routes/session.js';
 import { createServerApp } from '../server-app.js';
@@ -104,17 +104,18 @@ const testMetadataFetch: ClientMetadataResourceFetch = (input, init) => {
 	});
 };
 
-/** A repository store that only connects, for the guarded connect route. */
-const connectOnlyStore: GitRepositoryStore = {
-	async connect(principal, folder) {
-		return {
-			name: `${folder}.${principal}`,
-			token: 'repository-token',
-			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-		};
+/** A Git store that answers every repository with an empty advertisement. */
+const createdRepositories: string[] = [];
+const recordingHost: GitHost = {
+	async create(id) {
+		createdRepositories.push(id);
 	},
 	async serve() {
-		return new Response(null, { status: 501 });
+		return new Response('0000', {
+			headers: {
+				'content-type': 'application/x-git-receive-pack-advertisement',
+			},
+		});
 	},
 };
 
@@ -226,9 +227,10 @@ beforeAll(async () => {
 		);
 	mountSessionApp(app, { auth: resource('api', 'profile') });
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
-	mountGitApp(app, {
-		auth: resource('git', 'folders:write'),
-		resolveStore: () => connectOnlyStore,
+	mountGitHost(app, {
+		setup: resourceContext,
+		resolveAudiences: () => audiences,
+		resolveHost: () => recordingHost,
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
 	app.get('/test/resource/:namespace', async (c) => {
@@ -518,6 +520,8 @@ describe('the resource check', () => {
 			accountId: person.id,
 			role: 'owner',
 			clientId: desktop.clientId,
+			namespaceId: person.personal,
+			repository: null,
 		});
 	}, 60_000);
 });
@@ -555,11 +559,12 @@ describe('the protected routes', () => {
 	const profile = (token: string | null) => call('/api/session', token);
 	const inference = (token: string | null) =>
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
-	const connect = (token: string | null) =>
-		call('/api/git/connect', token, {
-			method: 'POST',
-			body: { folder: 'so.epicenter.todos' },
-		});
+	/** The first request of a push: the receive-pack advertisement. */
+	const push = (token: string | null, namespace = 'aaaaaaaaaaaa') =>
+		call(
+			`/git/${namespace}/todos.git/info/refs?service=git-receive-pack`,
+			token,
+		);
 
 	test('answer 401 with resource_metadata without a token, or with a session token', async () => {
 		const person = await harness.client.person('no-token');
@@ -569,7 +574,7 @@ describe('the protected routes', () => {
 		for (const [response, metadata] of [
 			[await profile(null), ''],
 			[await inference(null), ''],
-			[await connect(null), '/git'],
+			[await push(null), '/git'],
 			[await profile(sessionToken), ''],
 		] as const) {
 			expect(response.status).toBe(401);
@@ -589,7 +594,7 @@ describe('the protected routes', () => {
 		expect((await profile(git.token)).status).toBe(401);
 		expect((await inference(git.token)).status).toBe(401);
 		const api = await browserToken(audiences.api, 'openid profile');
-		expect((await connect(api.token)).status).toBe(401);
+		expect((await push(api.token, api.person.personal)).status).toBe(401);
 		const refused = await inference(api.token);
 		expect(refused.status).toBe(403);
 		expect(refused.headers.get('www-authenticate')).toBe(
@@ -597,7 +602,9 @@ describe('the protected routes', () => {
 		);
 		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
 		const readOnly = await browserToken(audiences.git, 'openid folders:read');
-		expect((await connect(readOnly.token)).status).toBe(403);
+		expect((await push(readOnly.token, readOnly.person.personal)).status).toBe(
+			403,
+		);
 	}, 60_000);
 
 	test('admit a token for the audience with the scope, as its account', async () => {
@@ -611,11 +618,10 @@ describe('the protected routes', () => {
 			audiences.git,
 			'openid folders:read folders:write',
 		);
-		const connected = await connect(git.token);
-		expect(connected.status).toBe(200);
-		expect(await connected.json()).toMatchObject({
-			remote: `${origin}/git/so.epicenter.todos.${git.person.id}.git`,
-		});
+		const before = createdRepositories.length;
+		const pushed = await push(git.token, git.person.personal);
+		expect(pushed.status).toBe(200);
+		expect(createdRepositories.length).toBe(before + 1);
 	}, 60_000);
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {
