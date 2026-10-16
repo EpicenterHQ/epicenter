@@ -2,7 +2,7 @@
  * A directory folder's history over the system `git` this process runs
  * (`native-backend.ts`): the Bun host's, and so the `epicenter` CLI's, which
  * runs it for desktop pages (ADR-0559). Git's own configuration decides the
- * remote (`remote.origin.url`, on `branch`) and the author (`user.name` and
+ * remote (`remote.origin.url`, on `main`) and the author (`user.name` and
  * `user.email`, with `author` for whichever is missing).
  */
 import type { DirectoryHistory } from '../directory-adapter.js';
@@ -19,7 +19,6 @@ export function nativeHistory({
 	rootPath,
 	host,
 	author,
-	branch = 'main',
 	credentials,
 	initProblem,
 	attempts,
@@ -30,7 +29,6 @@ export function nativeHistory({
 	readonly host: NativeGitHost;
 	/** Who commits, where Git's configuration does not say. */
 	readonly author: Author;
-	readonly branch?: string;
 	/** Asked before each push and fetch; see `GitCredentials`. */
 	readonly credentials?: GitCredentials;
 	/** Why the first commit of a folder with no repository must not create one here. */
@@ -66,7 +64,7 @@ export function nativeHistory({
 		// compare-and-swap.
 		const backend = await createNativeGitBackend({
 			root: rootPath,
-			branch,
+			branch: 'main',
 			boundary,
 			host,
 			credentials,
