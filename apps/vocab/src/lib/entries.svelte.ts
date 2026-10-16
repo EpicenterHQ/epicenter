@@ -30,6 +30,7 @@ import { InstantString } from '@epicenter/definition/field';
 import {
 	FileError,
 	hashBytes,
+	isStoredRow,
 	rowPath,
 	type StoredRow,
 	type TableListing,
@@ -256,19 +257,6 @@ export function createEntries(
 					return Ok({ outcome: 'present', id: listed.id, stored: current });
 			}
 			const stem = await hashBytes(new TextEncoder().encode(exact));
-			// A create merges into a file already at the stem. Another add,
-			// another tab, or an earlier attempt whose answer was lost may have
-			// made it: it is this word only if it holds this text.
-			const { data: current, error: readError } = await table.get(stem);
-			if (readError !== null) {
-				if (readError.name !== 'InvalidRow' && readError.name !== 'InvalidUtf8')
-					return EntryError.NotSaved({ cause: readError });
-				return EntryError.Taken({ path: pathOf(stem) });
-			}
-			if (current !== undefined)
-				return current.row.fields.text === exact
-					? Ok({ outcome: 'present', id: stem, stored: current })
-					: EntryError.Taken({ path: current.path });
 			const { data: created, error } = await table.create(
 				{
 					fields: {
@@ -281,9 +269,28 @@ export function createEntries(
 				},
 				{ stem },
 			);
-			if (error !== null) return EntryError.NotSaved({ cause: error });
-			// A file written meanwhile that is not a word.
-			if (created === null) return EntryError.Taken({ path: pathOf(stem) });
+			if (error !== null) {
+				if (error.name !== 'InvalidPath')
+					return EntryError.NotSaved({ cause: error });
+				// A create refuses a file already at the stem. Another add, another
+				// tab, or an earlier attempt whose answer was lost may have made
+				// it: it is this word only if it holds this text.
+				const { data: current, error: readError } = await table.get(stem);
+				if (readError === null && current === undefined)
+					return EntryError.NotSaved({ cause: error });
+				if (
+					readError !== null &&
+					readError.name !== 'InvalidRow' &&
+					readError.name !== 'InvalidUtf8'
+				)
+					return EntryError.NotSaved({ cause: readError });
+				if (current?.row.fields.text === exact)
+					return Ok({ outcome: 'present', id: stem, stored: current });
+				return EntryError.Taken({ path: pathOf(stem) });
+			}
+			// Only a row this create wrote can stand at a stem it found vacant.
+			if (!isStoredRow(created))
+				return EntryError.Taken({ path: pathOf(stem) });
 			return Ok({ outcome: 'added', id: stem, stored: created });
 		},
 		onSuccess: ({ id, stored }) => received(id, stored),

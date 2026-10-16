@@ -15,7 +15,7 @@
  *   changed the same lines the write wins there, and their other lines and
  *   fields survive
  * - Another writer's text that is not a row merges by line, and a result
- *   that is not a row is written for repair, leaving no row
+ *   that is not a row is written for repair and answered as the file it is
  * - A value the field does not admit is `InvalidValues`, and nothing is
  *   written
  * - `epicenter.json` keeps its bytes throughout
@@ -213,8 +213,8 @@ test('another writer left text that is not a row: it merges by line, and a resul
 		}),
 	);
 
-	expect(written).toBeNull();
 	const text = await readFile(join(root, 'notes/one.md'), 'utf8');
+	expect(written).toMatchObject({ name: 'InvalidRow', text });
 	expect(text.startsWith('--- broken\n')).toBe(true);
 	expect(text.endsWith('third\nfourth\n')).toBe(true);
 	await folder.close();

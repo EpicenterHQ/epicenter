@@ -44,7 +44,7 @@ import {
 } from '../draft.js';
 import type { Row } from '../row-text.js';
 import type { SavedFile } from '../save-file.js';
-import type { StoredRow } from '../table.js';
+import type { StoredRow, WrittenRow } from '../table.js';
 
 export type TextDraftState<TBase extends ContentCapture = ContentCapture> =
 	Pick<TextDraft<TBase>, 'base' | 'text' | 'change' | 'discard'> & {
@@ -175,12 +175,14 @@ export function createBodyEditor<TFields>({
 	/**
 	 * Write the change from `from` to `to`, rejecting on failure:
 	 * `mutateAsync` of `folder.<table>.write` with the row's stem. It
-	 * resolves with the row written, or `null` when the row is gone.
+	 * resolves with what the write left: `null` when the row is gone, which
+	 * stops the editor; a file that does not read as a row still holds what
+	 * was sent.
 	 */
 	write: (change: {
 		readonly from: Row<TFields>;
 		readonly to: Row<TFields>;
-	}) => Promise<StoredRow<TFields> | null>;
+	}) => Promise<WrittenRow<TFields>>;
 }): BodyEditor {
 	/** The row the edit started from, then the row each landed save sent. */
 	let from: Row<TFields> | undefined = $state.raw();

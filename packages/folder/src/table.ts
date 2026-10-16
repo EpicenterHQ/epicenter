@@ -7,17 +7,20 @@
  * and the row they hold. Text that is not a valid row is `InvalidRow`, which
  * keeps the exact text and its hash for raw repair.
  *
- * Every write is `write(stem, from, to)`: the change from the row `from` to
- * the row `to`, merged into the file as it is now by field and the body by
- * line, the writer winning a unit both changed, and written in canonical
- * form. The helpers build the change and call it:
+ * Every change of a row's content is `write(stem, from, to)`: the change
+ * from the row `from` to the row `to`, merged into the file as it is now by
+ * field and the body by line, the writer winning a unit both changed, and
+ * written in canonical form. The helpers build the change and call it:
  *
  * | Helper | `from` |
  * | --- | --- |
  * | `set(stem, fields)` | the row as it is now |
- * | `create(row)` | no file, at a new stem |
+ * | `create(row)` | no file: placed only where none is |
  * | `delete(stem)` | none: the deleter wins |
- * | `rename(stem, next)` | a create at `next`, then a delete of `stem` |
+ *
+ * `rename(stem, next)` changes where a file is, not what it holds, so it is
+ * not a write: its bytes are put at `next` only where nothing is, and `stem`
+ * is removed only while it holds them.
  *
  * A table reads and writes exactly one Markdown file per row (ADR-0480). A
  * sibling that shares a row's stem is an ordinary file: it is not part of the
@@ -69,11 +72,26 @@ export type TableListing<TFields> = readonly {
 }[];
 
 /**
- * What a row write leaves at its stem: the row, or `null` when no row stands
- * there, because the write deleted it or merged with a file that does not
- * read as a row, which is left to repair (ADR-0503).
+ * A file at a row's path that does not read as a row: what `get` answers
+ * for it, held as a value.
  */
-export type WrittenRow<TFields> = StoredRow<TFields> | null;
+export type UnreadableRow = Extract<
+	RowReadError,
+	{ name: 'InvalidRow' | 'InvalidUtf8' }
+>;
+
+/**
+ * What a row write leaves at its stem: the row; the file, when the write
+ * merged into a file that does not read as a row and left it to repair
+ * (ADR-0503); or `null` when no file is there, because the write deleted it
+ * or found it deleted.
+ */
+export type WrittenRow<TFields> = StoredRow<TFields> | UnreadableRow | null;
+
+/** Whether a row write left a row that reads as one. */
+export const isStoredRow = <TFields>(
+	written: WrittenRow<TFields>,
+): written is StoredRow<TFields> => written !== null && 'row' in written;
 
 export type FileTable<TFields> = {
 	readonly name: string;
@@ -112,9 +130,9 @@ export type FileTable<TFields> = {
 		fields: Partial<TFields>,
 	): Promise<Result<WrittenRow<TFields>, WriteError>>;
 	/**
-	 * Add `row` at `stem`, or a generated stem. A row already at `stem`
-	 * merges with it, this row winning each field both set. A row that
-	 * cannot be written is `InvalidValues`.
+	 * Add `row` at `stem`, or a generated stem. A file already at `stem` is
+	 * `InvalidPath`, unless it holds this row's exact text, which is this
+	 * create landed before. A row that cannot be written is `InvalidValues`.
 	 */
 	create(
 		row: Row<TFields>,
@@ -189,6 +207,17 @@ export function createTable<TFields>(
 		return Ok(Object.freeze({ path, sha256, text, row: row as Row<TFields> }));
 	}
 
+	/** What a write left at `path`, read as a row. */
+	function readBack(
+		path: string,
+		file: { bytes: Uint8Array; sha256: string },
+	): StoredRow<TFields> | UnreadableRow {
+		const stored = storedRow(path, file);
+		if (stored.error === null) return stored.data;
+		// A written file was read, so its failure is about its text.
+		return stored.error as UnreadableRow;
+	}
+
 	/** The canonical text of a valid row, or why it cannot be written. */
 	function textOf(row: Row<TFields>): Result<string, WriteError> {
 		const { data: written, error: issues } = writeRow(
@@ -208,8 +237,7 @@ export function createTable<TFields>(
 		const { data, error } = await writeFile(storage, kind, path, from, to);
 		if (error !== null) return Err(error);
 		if (data.file === null) return Ok(null);
-		const stored = storedRow(path, data.file);
-		return Ok(stored.error === null ? stored.data : null);
+		return Ok(readBack(path, data.file));
 	}
 
 	/**
@@ -334,10 +362,8 @@ export function createTable<TFields>(
 						})
 					: Err(writeFailure(from, read.error));
 			if (to === from) return written(from, read.data.bytes, read.data.bytes);
-			const movedRow = (moved: { bytes: Uint8Array; sha256: string }) => {
-				const stored = storedRow(to, moved);
-				return Ok(stored.error === null ? stored.data : null);
-			};
+			const movedRow = (moved: { bytes: Uint8Array; sha256: string }) =>
+				Ok(readBack(to, moved));
 			// The bytes land at `next` only where nothing is, so two renames
 			// onto one stem never fuse two rows.
 			let moved = read.data;

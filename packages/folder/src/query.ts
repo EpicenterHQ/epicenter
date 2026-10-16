@@ -180,11 +180,6 @@ export type TableOptions<TFields> = {
 		WrittenRow<TFields>,
 		WriteError
 	>;
-	readonly rename: MutationFactory<
-		{ readonly stem: string; readonly next: string },
-		WrittenRow<TFields>,
-		WriteError
-	>;
 	/** Delete the row at the stem it is sent. */
 	readonly delete: MutationFactory<string, undefined, WriteError>;
 };
@@ -591,7 +586,9 @@ export function folderOptions<TTables, TValues>(
 			written: WrittenRow<Fields>,
 		) {
 			const path = rowPath(name, stem);
-			if (written === null) return ownWrite(client, [path]);
+			// No row stands there, or the file does not read as one: read again.
+			if (written === null || !('row' in written))
+				return ownWrite(client, [path]);
 			const item = Object.freeze({ stem, result: Ok(written) });
 			await Promise.all([
 				put(client, keys.row(name, stem), () => written),
@@ -671,24 +668,6 @@ export function folderOptions<TTables, TValues>(
 						},
 						touched: ({ stem }) =>
 							stem === undefined ? [] : [rowPath(name, stem)],
-					}),
-			},
-			rename: {
-				mutationOptions: () =>
-					writeOptions({
-						mutationKey: [...keys.table(name), 'rename'],
-						file: ({ stem }: { stem: string; next: string }) =>
-							rowPath(name, stem),
-						run: ({ stem, next }: { stem: string; next: string }) =>
-							table.rename(stem, next),
-						wrote: async (client, row, { stem, next }) => {
-							if (next !== stem) await deletedRow(client, stem);
-							await wroteRow(client, next, row);
-						},
-						touched: ({ stem, next }) => [
-							rowPath(name, stem),
-							rowPath(name, next),
-						],
 					}),
 			},
 			delete: {

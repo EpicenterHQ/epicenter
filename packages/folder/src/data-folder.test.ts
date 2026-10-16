@@ -39,6 +39,7 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
+import { mustRow } from './row-write.test-support.js';
 
 const author = { name: 'Vault', email: 'vault@localhost' };
 
@@ -87,9 +88,9 @@ test('opens with its own declaration and never writes it', async () => {
 		stem: 'one',
 		result: { data: { row: { fields: { title: 'One', done: false } } } },
 	});
-	const created = expectOk(
+	const created = mustRow(
 		await todos.create({ fields: { title: 'Two', done: false }, body: '' }),
-	)!;
+	);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	expectOk(
 		await todos.write(stem, created.row, {

@@ -32,6 +32,7 @@ import {
 	saveKey,
 	sendRequest,
 } from '@epicenter/ai/send';
+import { isStoredRow } from '@epicenter/folder';
 import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
@@ -464,7 +465,7 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 			body: 'Tidy it.\n',
 		}),
 	);
-	if (confirmed === null) throw new Error('Expected the row to be there');
+	if (!isStoredRow(confirmed)) throw new Error('Expected the row to be there');
 	expect(confirmed.row.body).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
 
