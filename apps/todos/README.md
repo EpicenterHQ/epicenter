@@ -180,12 +180,11 @@ Todos window (WebView)
 ~/Epicenter/so.epicenter.todos          (locked and granted by the Rust shell)
 ```
 
-The page reads and writes files through an OPFS-shaped directory handle
-(`directory-handle.ts` in `@epicenter/folder`); a write's bytes are staged
-under `.git/epicenter/scratch` and renamed into place. History is the native
-Git backend a Bun directory folder uses, with its `git` run by the shell:
-only the operations the folder engine needs, with no hook, fsmonitor, or
-terminal prompt. Several Todos windows share the folder without waiting on
+The page reads and writes files through the directory's storage
+(`directory-store.ts` in `@epicenter/folder`); a write's bytes are staged
+under `.git/epicenter/scratch` and renamed into place, so another program
+sees the old file or the new one. History runs in the `epicenter` CLI, one
+child per operation, over the system `git` (ADR-0559). Several Todos windows share the folder without waiting on
 each other (ADR-0541): the shell checks each save where it lands, a commit
 whose branch another window moved retries once, and a save another window
 overtook merges with it (`table.save`, ADR-0548). Todos follows

@@ -247,7 +247,12 @@ test('a refused add lists nothing; an add that landed without its answer is foun
 	expect(expectErr(await vocab.entries.add('subtle')).name).toBe('NotSaved');
 	const files = await tableFiles(folder, 'entries');
 	expect(files).toHaveLength(1);
-	expect(expectOk(await vocab.entries.add('subtle'))).toBe('present');
+	// The retry writes the same row again: within the same millisecond its
+	// bytes match and the earlier create counts as landed (`added`); later,
+	// the stem holds this word (`present`). Either way nothing changes.
+	expect(['added', 'present']).toContain(
+		expectOk(await vocab.entries.add('subtle')),
+	);
 	await quiet(vocab);
 	expect(await tableFiles(folder, 'entries')).toEqual(files);
 	expect(words(vocab)).toEqual([{ text: 'subtle', note: '', stage: 'new' }]);

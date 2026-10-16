@@ -1,8 +1,8 @@
 /**
  * A folder in an ordinary directory a trusted host has given this code: the
  * desktop page's granted directory, or a directory a Bun process names.
- * Files go through the browser folder's file storage over directory
- * primitives (`directory-handle.ts`); history is whatever the host supplies:
+ * Files go through the directory's storage over its host's primitives
+ * (`directory-store.ts`); history is whatever the host supplies:
  * the system `git` run in this process (`git/native-history.ts`, Bun), or
  * the `epicenter` CLI the shell runs for a page (`tauri-history.ts`,
  * ADR-0559). Nothing of the browser folder's own address, claim, download,

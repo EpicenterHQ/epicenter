@@ -58,7 +58,7 @@ describe('#platform/folder', () => {
 			for (const engine of [
 				'tauri-directory.ts',
 				'directory-adapter.ts',
-				'directory-handle.ts',
+				'directory-store.ts',
 				'directory-tauri.ts',
 				'tauri-history.ts',
 				'history-wire.ts',

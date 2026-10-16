@@ -1,16 +1,12 @@
-import {
-	type FileListing,
-	type GitSnapshot,
-	type PathStatus,
-	type SavedFile,
-	type SyncAttempt,
-	type SyncChoiceProblem,
-	type SyncChoices,
-	type SyncError,
-	type SyncOutcome,
-	type TextCapture,
+import type {
+	FileListing,
+	FilesObservation,
+	GitSnapshot,
+	SavedFile,
+	SyncError,
+	SyncOutcome,
+	TextCapture,
 } from '@epicenter/folder';
-// The lab drives Git one step at a time, which only the browser folder offers.
 import { openDataFolder } from '@epicenter/folder/browser';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
 import {
@@ -54,7 +50,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const folder = opened.data;
 	let listing = $state.raw<FileListing>({ files: [], directories: [] });
-	let paths = $state.raw<PathStatus[]>([]);
+	let changes = $state.raw<FilesObservation['changes']>([]);
 	let snapshot = $state.raw<GitSnapshot>(folder.git.snapshot);
 	let selected = $state('');
 	let buffer = $state('');
@@ -76,16 +72,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let running = $state(false);
 	let output = $state('');
 	/**
-	 * Sync with the remote: commit, fetch, merge, and push, asking before a
-	 * conflict is written. A run or Apply in flight, and the attempt a sync
-	 * that needs choices left for the review. The review is modal: the
-	 * editor and the Git actions take no input until it is applied or
-	 * cancelled. Nothing outlives an attempt.
+	 * Sync with the remote: commit, fetch, merge, and push. It asks nothing:
+	 * what both copies changed merges, this copy's version winning (ADR-0576).
 	 */
 	let syncing = $state(false);
-	let attempt = $state.raw<SyncAttempt | undefined>();
-	let problems = $state.raw<readonly SyncChoiceProblem[]>([]);
-	const syncLocked = () => syncing || attempt !== undefined;
+	const syncLocked = () => syncing;
 
 	/** One folder sync call: saved text lands first, and the copy is read again after. */
 	async function syncStep(
@@ -143,16 +134,15 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	}
 
 	async function refreshOnce(readFile: boolean) {
-		const [files, statuses] = await Promise.all([
+		const [files, status] = await Promise.all([
 			folder.files.list(),
-			folder.git.paths(),
+			folder.git.status(),
 		]);
 		if (closed) return;
 		if (files.error !== null) throw new Error(files.error.message);
-		if (statuses.error !== null) throw new Error(statuses.error.message);
+		if (status.error !== null) throw new Error(status.error.message);
 		listing = files.data;
-		paths = statuses.data;
-		await folder.git.status();
+		changes = status.data.changes;
 		if (readFile) await readSelected();
 	}
 	/**
@@ -283,8 +273,9 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		get listing() {
 			return listing;
 		},
-		get paths() {
-			return paths;
+		/** What changed since the last version, by path. */
+		get changes() {
+			return changes;
 		},
 		get snapshot() {
 			return snapshot;
@@ -311,58 +302,24 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		get readError() {
 			return readError;
 		},
-		/** The attempt whose review shows, while one waits for choices. */
-		get syncAttempt() {
-			return attempt;
-		},
-		/** What the folder refused in the last Apply, shown beside its rows. */
-		get syncProblems() {
-			return problems;
-		},
-		/** Whether an Apply is in flight. */
+		/** Whether a Sync is in flight. */
 		get syncing() {
 			return syncing;
 		},
-		/** Whether anything but the review takes input now. */
+		/** Whether the editor and the Git actions wait for work in flight. */
 		get locked() {
 			return running || syncLocked();
 		},
-		/** Sync, reporting the result in the output. A conflict opens the review. */
+		/** Sync, reporting the result in the output. */
 		async sync() {
 			if (running || closed || syncLocked()) return;
 			running = true;
 			output += '\n$ Sync\n';
 			try {
-				const ran = await syncStep(() => folder.sync.run());
-				if (ran.error?.name === 'NeedsChoices') attempt = ran.error.attempt;
-				report(ran);
+				report(await syncStep(() => folder.sync.run()));
 			} finally {
 				running = false;
 			}
-		},
-		/**
-		 * Apply the review's choices, reporting the result in the
-		 * output. Refused choices stay in the review with what to fix; any
-		 * other result ends the attempt.
-		 */
-		async applySync(answered: SyncAttempt, choices: SyncChoices) {
-			if (syncing || closed) return;
-			const resolved = await syncStep(() =>
-				folder.sync.resolve(answered, choices),
-			);
-			if (resolved.error?.name === 'InvalidChoices')
-				problems = resolved.error.problems;
-			else if (attempt?.id === answered.id) {
-				attempt = undefined;
-				problems = [];
-			}
-			report(resolved);
-		},
-		/** Forget the waiting attempt and its choices; nothing is written. */
-		cancelSync() {
-			if (syncing) return;
-			attempt = undefined;
-			problems = [];
 		},
 		get output() {
 			return output;
@@ -401,10 +358,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		flush,
 		status: action('Status', () => folder.git.status()),
 		commit: action('Save version', () => folder.git.commit()),
-		fetch: action('Fetch', () => folder.git.fetch()),
-		pull: action('Pull', () => folder.git.pullFastForward()),
-		merge: action('Merge', () => folder.git.mergeIncoming()),
-		push: action('Push', () => folder.git.push()),
 		/** Create an empty file at a folder-relative path and open it. */
 		async create(path: string) {
 			path = path.trim();
