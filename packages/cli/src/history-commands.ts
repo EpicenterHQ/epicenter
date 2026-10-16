@@ -69,20 +69,49 @@ function credentialOf(value: unknown): UrlCredential | undefined {
 	return { url, username, password };
 }
 
-/** The request `sync`'s options and input make. */
-async function syncRequest(options: Options): Promise<HistoryRequest> {
-	if (options.to !== undefined)
-		throw new Error(
-			'epicenter sync --to is not built yet; see ADR-0558 (docs/adr/0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md)',
-		);
+/**
+ * The request `sync`'s options and input make. `--to <namespace>/<name>`
+ * connects the folder to a hosted repository (ADR-0546): it sets the remote
+ * to `<git origin>/<namespace>/<name>.git`, registers the credential helper
+ * for plain Git, and the merge driver follows from connecting. A sync to any
+ * of this deployment's hosted repositories carries the grant's token, never
+ * a page's.
+ */
+async function syncRequest(
+	dir: string,
+	options: Options,
+	desktop: boolean,
+): Promise<HistoryRequest> {
 	const resolve = options.resolve;
+	const [{ authContext }, repositories] = await Promise.all([
+		import('./auth.ts'),
+		import('./repository-commands.ts'),
+	]);
+	const ctx = authContext();
+	let connect = typeof options.remote === 'string' ? options.remote : undefined;
+	if (options.to !== undefined) {
+		if (typeof options.to !== 'string')
+			throw new Error('--to takes <namespace>/<name>');
+		if (connect !== undefined)
+			throw new Error('--to and --remote both name the remote; give one');
+		connect = repositories.remoteFor(ctx, options.to);
+		await repositories.registerHelper(ctx);
+	}
+	// A hosted remote is created by its first sync and carries the grant's token.
+	const hosted = await repositories.hostedRemote(
+		ctx,
+		desktop ? 'desktop' : 'device',
+		connect ?? (await repositories.originUrl(dir)),
+		{ create: connect !== undefined },
+	);
 	const fromStdin =
 		resolve === '-' || options['credential-stdin'] === true
 			? await stdinObject()
 			: undefined;
-	const credential = credentialOf(
-		options['credential-stdin'] === true ? fromStdin?.credential : undefined,
-	);
+	const credential =
+		credentialOf(
+			options['credential-stdin'] === true ? fromStdin?.credential : undefined,
+		) ?? hosted?.credential;
 	if (typeof resolve === 'string') {
 		const answer =
 			resolve === '-'
@@ -99,7 +128,7 @@ async function syncRequest(options: Options): Promise<HistoryRequest> {
 	}
 	return {
 		op: 'sync',
-		connect: typeof options.remote === 'string' ? options.remote : undefined,
+		connect,
 		allowUnrelatedHistories: options['allow-unrelated'] === true,
 		credential,
 	};
@@ -108,7 +137,9 @@ async function syncRequest(options: Options): Promise<HistoryRequest> {
 /** The request each command line makes. */
 async function requestOf(
 	command: 'status' | 'history' | 'save-version' | 'sync',
+	dir: string,
 	options: Options,
+	desktop: boolean,
 ): Promise<HistoryRequest> {
 	switch (command) {
 		case 'status':
@@ -126,7 +157,7 @@ async function requestOf(
 					typeof options.message === 'string' ? options.message : undefined,
 			};
 		case 'sync':
-			return syncRequest(options);
+			return syncRequest(dir, options, desktop);
 	}
 }
 
@@ -209,10 +240,11 @@ export async function historyCommand(
 	dir: string,
 	options: Options,
 	json: boolean,
+	desktop = false,
 ): Promise<number> {
 	let request: HistoryRequest;
 	try {
-		request = await requestOf(command, options);
+		request = await requestOf(command, dir, options, desktop);
 	} catch (error) {
 		return fail(error instanceof Error ? error.message : String(error), json);
 	}

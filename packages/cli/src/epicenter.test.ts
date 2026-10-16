@@ -451,12 +451,7 @@ test('the CLI rejects missing or extra arguments', async () => {
 
 test('every command ADR-0558 names parses, and one not built exits 2 naming its record', async () => {
 	const { folder, run } = await setup();
-	for (const args of [
-		['sync', folder, '--to', 'braden/notes'],
-		['clone', 'braden/notes'],
-		['repos'],
-		['open', folder, '--app', 'so.epicenter.todos'],
-	]) {
+	for (const args of [['open', folder, '--app', 'so.epicenter.todos']]) {
 		const text = run(...args);
 		expect(text.exitCode).toBe(2);
 		expect(text.stdout).toBe('');
@@ -503,6 +498,8 @@ test('--help lists every command but send and install-command, and --json descri
 		'status',
 		'sync',
 		'merge-driver',
+		'clone',
+		'repos',
 		'app list',
 		'app install',
 		'app update',

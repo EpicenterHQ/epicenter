@@ -8,9 +8,10 @@
  *
  * `EPICENTER_TEST_SECRETS` replaces the keychain with stores held in memory
  * for one process, the AI connections' seeded from its JSON (`{ "<id>": {
- * "endpoint", "key" } }`) and the sign-ins' empty, so tests and a compiled
- * binary's smoke run never touch the real keychain. Nothing in them is ever
- * written anywhere.
+ * "endpoint", "key" } }`) and the sign-ins' seeded from its `$auth` member
+ * (`{ "$auth": { "<entry name>": <stored grant> } }`, empty by default), so
+ * tests and a compiled binary's smoke run never touch the real keychain.
+ * Nothing in them is ever written anywhere.
  */
 
 import { createMemorySecrets, type SecretStore } from '@epicenter/ai/send';
@@ -47,8 +48,9 @@ export function keychain(service: string = KEYCHAIN_SERVICE): SecretStore {
 		let store = testStores.get(service);
 		if (store === undefined) {
 			try {
+				const { $auth, ...connections } = JSON.parse(seed);
 				store = createMemorySecrets(
-					service === KEYCHAIN_SERVICE ? JSON.parse(seed) : {},
+					service === KEYCHAIN_SERVICE ? connections : ($auth ?? {}),
 				);
 			} catch {
 				return unavailable('EPICENTER_TEST_SECRETS is not JSON');

@@ -39,8 +39,17 @@ const HANDLERS: Record<string, Run> = {
 		history('history', dir as string, options, json),
 	'save-version': async ({ positionals: [dir], options, json }) =>
 		history('save-version', dir as string, options, json),
-	sync: async ({ positionals: [dir], options, json }) =>
-		history('sync', dir as string, options, json),
+	sync: async ({ positionals: [dir], options, json, desktop }) =>
+		history('sync', dir as string, options, json, desktop),
+	clone: async ({ positionals: [source, dir], json, desktop }) =>
+		(await import('./repository-commands.ts')).clone(
+			source as string,
+			dir,
+			json,
+			desktop,
+		),
+	repos: async ({ json, desktop }) =>
+		(await import('./repository-commands.ts')).repos(json, desktop),
 	'merge-driver': async ({ positionals, json }) => {
 		const driver = await import('./merge-driver.ts');
 		// Git's `%O %A %B %P`, or the folder to configure.
@@ -117,6 +126,7 @@ async function history(
 	dir: string,
 	options: Record<string, string | true>,
 	json: boolean,
+	desktop = false,
 ) {
 	const [{ historyCommand }, { endGitCommands }] = await Promise.all([
 		import('./history-commands.ts'),
@@ -129,7 +139,7 @@ async function history(
 				128 + (signal === 'SIGTERM' ? 15 : signal === 'SIGINT' ? 2 : 1),
 			);
 		});
-	return historyCommand(command, dir, options, json);
+	return historyCommand(command, dir, options, json, desktop);
 }
 
 /** What `epicenter <command> --help` adds below the usage line. */
@@ -182,9 +192,21 @@ version, and the remote with how far ahead and behind it is. Reads only: it
 runs Git and writes nothing. With --json, one line in the history encoding
 the desktop app reads. Exits 0, or 2 when the folder cannot be used or git
 is not installed ({"error": "GitMissing"} with --json).`,
+	clone: `Clones <namespace>/<name> from this deployment's Git origin, or any
+other URL as given with your own Git credentials, into <dir>, by default
+~/Epicenter/<name>, then makes the clone merge by file kind. It registers
+this command as Git's credential helper for the deployment's Git origin.
+Run epicenter repos to list the names. Exits 2 when it cannot clone.`,
+	repos: `Lists the repositories of every namespace this sign-in may reach: the
+personal namespace first, then each group by title, as <namespace>/<name>.
+With --json, {"namespaces": [{"id", "title", "personal", "role",
+"repositories": [{"id", "name", "url"}]}]}.`,
 	sync: `Records the folder's edits as a version, fetches the remote branch, merges
 it by each file's kind, and pushes, under the folder's history lock, so two
-syncs or a sync and save-version never interleave. Changes both sides made to
+syncs or a sync and save-version never interleave. --to <namespace>/<name>
+connects the folder to that repository on this deployment's Git origin:
+the first sync creates it, and the folder's remote becomes
+<git origin>/<namespace>/<name>.git. Changes both sides made to
 one setting, field, body, or file are not written: the command exits 1 with
 the conflicts and records the attempt under .git/epicenter. --resolve <file>
 settles it with {"attempt": "<id>", "choices": {"<conflict id>": choice}},
