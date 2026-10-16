@@ -432,7 +432,10 @@ fn stop_and_cancel_reach_only_a_recording_this_window_started() {
         stopped,
         json!({ "path": "recordings/a.wav", "durationMs": 1000 })
     );
-    assert_eq!(hound::WavReader::open(&path).unwrap().duration(), 48_000);
+    assert_eq!(
+        hound::WavReader::open(&path).unwrap().duration(),
+        crate::recorder::RECORDING_RATE
+    );
 }
 
 #[test]
@@ -485,7 +488,10 @@ fn a_destroyed_window_finalizes_its_recording() {
         .lock()
         .held_path()
         .is_none());
-    assert_eq!(hound::WavReader::open(&path).unwrap().duration(), 48_000);
+    assert_eq!(
+        hound::WavReader::open(&path).unwrap().duration(),
+        crate::recorder::RECORDING_RATE
+    );
 }
 
 #[test]

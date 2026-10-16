@@ -6,18 +6,22 @@ records: a page in the shell opens no microphone of its own
 A recording is a WAV in the folder
 the recording window was granted, written from the first sample
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
-`start` creates `<path>.wav` and appends mono PCM16 as the microphone
+`start` creates `<path>.wav` and appends 16 kHz mono PCM16 as the microphone
 captures, `stop` finalizes its header, and `cancel` deletes it. A quit, a
 crash, or a closed window keeps the audio up to the cut.
 
-A page reaches it through `@epicenter/recorder`, whose bare entry uses it
-inside a desktop app (or `@epicenter/recorder/tauri`).
+A microphone is opened at the rate it already runs at, never another: on
+macOS a stream at another rate changes the device's rate for every app using
+it, and leaves it changed. The writer converts to 16 kHz.
+
+A page reaches it through `@epicenter/recorder/tauri`.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
 | `src/recorder.rs` | The CPAL and `hound` pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that appends to the WAV, updates its header about once a second, and sends the level. One recording at a time, owned by the window that started it. |
+| `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
 | `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length. |
 | `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
 | `src/permission.rs` | Microphone access through AVFoundation, asked before any microphone opens. |
@@ -77,7 +81,7 @@ folder-relative path, never a root.
   Another is never opened in its place. `open_meter` refuses the same way.
 - `Busy`: another recording holds the host's one recorder.
 
-`signals` carries `{ kind: 'level', level }` about twenty times a second, and
+`signals` carries `{ kind: 'level', level }` at most twenty times a second, and
 `{ kind: 'ended', reason }` once if the capture ends on its own: the
 microphone went away, permission was withdrawn, the stream failed, or the
 file could not be written. What was captured stays the owner's to `stop` or

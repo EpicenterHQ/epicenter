@@ -4,9 +4,10 @@
 //! cpal callback thread            writer worker thread
 //! ┌──────────────────────┐  chan  ┌──────────────────────┐
 //! │ build_input_stream   │ ─────▶ │ run_capture          │
-//! │  - downmix to mono   │ bound  │  - hound WavWriter   │
-//! │  - convert to PCM16  │   ed   │  - pad short clips   │
-//! │  - try_send, or drop │        │  - send mic level    │
+//! │  - downmix to mono   │ bound  │  - convert to 16 kHz │
+//! │  - convert to PCM16  │   ed   │  - hound WavWriter   │
+//! │  - try_send, or drop │        │  - pad short clips   │
+//! │                      │        │  - send mic level    │
 //! └──────────────────────┘        └──────────────────────┘
 //! ```
 //!
@@ -33,13 +34,16 @@
 //! file's length the next time the folder opens. Nothing deletes the file but
 //! `cancel`.
 //!
-//! # The file is at the device's rate
+//! # The microphone keeps its rate; the file is 16 kHz
 //!
-//! Capture writes mono PCM16 at whatever rate the microphone actually opened.
-//! Nothing resamples during capture, because a streaming resampler in the write
-//! path buys nothing: transcription already decodes arbitrary rates down to
-//! 16 kHz, and cloud upload already resamples to 48 kHz for Opus. So the rate a
-//! recording happens to be at is mechanism, not contract; no caller chooses it.
+//! The microphone is opened at the rate and format it already runs at
+//! ([`input_config`]). Asking a macOS device for another rate sets that
+//! device's nominal rate for every process using it, and it stays set after
+//! the stream closes, so a call in progress on the same microphone would go
+//! silent. The writer converts each chunk to 16 kHz mono PCM16 instead
+//! ([`crate::rate`]): the rate local transcription reads, and a third of the
+//! bytes a 48 kHz file would send to a cloud transcription endpoint, whose
+//! upload caps are in megabytes.
 //!
 //! # One recorder, owned by the window that started it
 //!
@@ -95,18 +99,17 @@ use tauri::ipc::Channel;
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
 use crate::meter::Meter;
+use crate::rate::RateConverter;
 
 /// Recorder result type. Errors cross the IPC boundary as the internally
 /// tagged `RecorderError` enum (`{ name, message }`) so the JS side switches
 /// on `error.name` instead of matching message text.
 pub type Result<T> = std::result::Result<T, RecorderError>;
 
-/// The rate to ask a microphone for, when it can oblige. Local GGUF
-/// transcription consumes 16 kHz mono, so a device that opens there produces a
-/// file transcription can read without resampling at all. A device that
-/// cannot is opened at its own rate and nothing is lost: the decode path
-/// resamples whatever it finds.
-const PREFERRED_CAPTURE_RATE: u32 = 16_000;
+/// The rate every recording is written at, whatever rate its microphone runs
+/// at: the rate local transcription reads, so it reads a recording without
+/// converting it again.
+pub(crate) const RECORDING_RATE: u32 = 16_000;
 
 /// Bytes one PCM16 sample occupies in the recording's file.
 const BYTES_PER_SAMPLE: u32 = 2;
@@ -120,7 +123,7 @@ const BYTES_PER_SAMPLE: u32 = 2;
 /// computes `data_len_offset + 4 - 8`, which is 36 for the PCM `fmt ` chunk this
 /// spec produces).
 ///
-/// At 48 kHz mono PCM16 the ceiling is about 12.4 hours, well past any meeting
+/// At 16 kHz mono PCM16 the ceiling is about 37 hours, well past any meeting
 /// this path is meant to carry, so it is a guard rail rather than a mode.
 const MAX_WAV_DATA_BYTES: u32 = u32::MAX - 36;
 
@@ -161,24 +164,18 @@ fn would_exceed_wav_limit(written_samples: u32, samples: usize) -> bool {
         > MAX_WAV_DATA_BYTES as u64
 }
 
-/// Event name for live mic levels, emitted to the window that owns the
-/// recording so its meter can reflect mic activity. The JS side never sees the
-/// PCM, so the level has to originate here.
+/// The least time between two levels sent to a page.
 ///
-/// The owner window is the only recipient. An application that draws the meter
-/// somewhere else too (Whispering's recording overlay is a second webview)
-/// forwards it from there, which is what its VAD recorder already does for its
-/// How the owner hears its microphone's level: over the channel its page
-/// passed to `start`, which reaches that page alone. The JS side never sees
-/// the PCM, so the level has to originate here.
+/// The owner hears its microphone's level over the channel its page passed to
+/// `start`, which reaches that page alone; the JS side never sees the PCM, so
+/// the level has to originate here. An application that draws the meter
+/// somewhere else too forwards it from there.
 ///
-/// An application that draws the meter somewhere else too forwards it from
-/// there. The host does not name another application's windows.
-///
-/// Minimum gap between levels. ~20 Hz is smooth for a meter and keeps the
-/// channel off the IPC hot path (per Tauri's guidance to throttle
-/// high-frequency messages). Levels between sends are averaged, not dropped, so
-/// a brief loud transient still registers.
+/// A level is sent with the first audio callback after this much time, so at
+/// most twenty a second, and fewer when the device's callbacks are long. That
+/// is smooth for a meter and keeps the channel off the IPC hot path (per
+/// Tauri's guidance to throttle high-frequency messages). Levels between
+/// sends are averaged, not dropped, so a brief loud transient still registers.
 const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The microphone's loudness since the last level was sent: the root mean
@@ -245,7 +242,9 @@ struct CaptureFile {
     /// `None` only after finalization, so the writer can be consumed by value
     /// without leaving a half-alive one behind.
     writer: Option<WavWriter<BufWriter<File>>>,
-    device_rate: u32,
+    /// From the microphone's rate to [`RECORDING_RATE`]; `None` when they are
+    /// the same, and after the stream's tail is written.
+    converter: Option<Box<RateConverter>>,
     write_failed: bool,
 }
 
@@ -253,14 +252,26 @@ impl CaptureFile {
     /// Start the WAV for a recording about to start, in the file just created
     /// for it.
     ///
-    /// Mono PCM16 at the device's own rate. Mono because a dictation microphone
-    /// is one voice and the transcriber downmixes anyway; PCM16 because it
-    /// halves the file against f32 at a noise floor two orders of magnitude
-    /// below anything a microphone produces.
+    /// Mono PCM16 at [`RECORDING_RATE`], from samples at `device_rate`. Mono
+    /// because a dictation microphone is one voice and the transcriber
+    /// downmixes anyway; PCM16 because it halves the file against f32 at a
+    /// noise floor two orders of magnitude below anything a microphone
+    /// produces.
     fn open(path: PathBuf, file: File, device_rate: u32) -> Result<Self> {
+        let converter = if device_rate == RECORDING_RATE {
+            None
+        } else {
+            match RateConverter::new(device_rate, RECORDING_RATE) {
+                Ok(converter) => Some(Box::new(converter)),
+                Err(error) => {
+                    remove_recording(&path);
+                    return Err(error);
+                }
+            }
+        };
         let spec = WavSpec {
             channels: 1,
-            sample_rate: device_rate,
+            sample_rate: RECORDING_RATE,
             bits_per_sample: 16,
             sample_format: WavSampleFormat::Int,
         };
@@ -268,7 +279,7 @@ impl CaptureFile {
             Ok(writer) => Ok(Self {
                 path,
                 writer: Some(writer),
-                device_rate,
+                converter,
                 write_failed: false,
             }),
             // A file nothing can write a header to is debris, not a recording
@@ -283,11 +294,30 @@ impl CaptureFile {
         }
     }
 
-    /// Append one callback's worth of mono PCM16.
+    /// Append one callback's worth of mono PCM16 at the microphone's rate.
     ///
     /// The worker buffers samples; only Stop finalizes the WAV header.
     fn write(&mut self, samples: &[i16]) -> Result<()> {
-        let result = self.write_samples(samples);
+        let result = match self.converter.as_mut() {
+            Some(converter) => converter
+                .push(samples)
+                .and_then(|converted| self.write_samples(&converted)),
+            None => self.write_samples(samples),
+        };
+        if result.is_err() {
+            self.write_failed = true;
+        }
+        result
+    }
+
+    /// Write what the converter still holds: the end of the stream.
+    fn write_tail(&mut self) -> Result<()> {
+        let Some(converter) = self.converter.take() else {
+            return Ok(());
+        };
+        let result = converter
+            .finish()
+            .and_then(|tail| self.write_samples(&tail));
         if result.is_err() {
             self.write_failed = true;
         }
@@ -330,10 +360,7 @@ impl CaptureFile {
     /// Pad a sub-second recording with silence to 1.25 seconds.
     ///
     /// A product behavior, not a format requirement: Whisper hallucinates
-    /// sentences into near-silent clips shorter than about a second. Expressed
-    /// in the device's rate because that is what the file is at; it used to be a
-    /// flat 20 000 samples, which was the same 1.25 s back when every recording
-    /// was resampled to 16 kHz before it was written.
+    /// sentences into near-silent clips shorter than about a second.
     ///
     /// A recording that captured nothing is left empty. There is no speech to
     /// protect, and padding it would turn "we heard nothing" into 1.25 s of
@@ -342,12 +369,12 @@ impl CaptureFile {
         // Straight from the writer's own count, so the padding decision can
         // never disagree with the file.
         let captured = self.writer.as_ref().map_or(0, |writer| writer.len());
-        if captured == 0 || captured >= self.device_rate {
+        if captured == 0 || captured >= RECORDING_RATE {
             return Ok(());
         }
-        let target = self.device_rate + self.device_rate / 4;
+        let target = RECORDING_RATE + RECORDING_RATE / 4;
         let padding = vec![0i16; (target - captured) as usize];
-        self.write(&padding)
+        self.write_samples(&padding)
     }
 
     /// Finalize the WAV in place and report how long it is.
@@ -369,7 +396,7 @@ impl CaptureFile {
             // over the rate it was captured at. Bounded by the RIFF ceiling the
             // writer enforces, so it always fits in `u32`.
             Ok(sample_count) => {
-                (sample_count as f64 / self.device_rate as f64 * 1000.0).round() as u32
+                (sample_count as f64 / RECORDING_RATE as f64 * 1000.0).round() as u32
             }
             Err(error) => {
                 // Dropped before the repair, so a buffered tail lands first.
@@ -401,6 +428,7 @@ impl CaptureFile {
     }
 
     fn finalize_wav(&mut self) -> Result<u32> {
+        self.write_tail()?;
         self.pad_if_short()?;
         let Some(writer) = self.writer.take() else {
             return Err(RecorderError::failed("the recording is already finalized"));
@@ -642,7 +670,7 @@ impl Recorder {
 
         let host = cpal::default_host();
         let (device, device_name) = resolve_device(&host, requested_device)?;
-        let config = get_optimal_config(&device)?;
+        let config = input_config(&device)?;
         let sample_format = config.sample_format();
         let device_rate = config.sample_rate();
         let device_channels = config.channels();
@@ -1196,9 +1224,6 @@ fn close_capture_and_drain<S>(
 
 /// Report and reset the chunks the callback had to drop, if any.
 ///
-
-/// Report and reset the chunks the callback had to drop, if any.
-///
 /// Swapped rather than read, so no count is lost between reports.
 fn report_dropped_chunks(dropped_chunks: &AtomicU32, id: &str) {
     let dropped = dropped_chunks.swap(0, Ordering::Relaxed);
@@ -1312,104 +1337,34 @@ fn device_name(device: &Device) -> Result<String> {
         .map_err(|e| RecorderError::classify_cpal("Failed to read the input device name", e))
 }
 
-/// Get the best supported configuration for voice recording.
+/// The configuration to open `device` with: the one it is running at now.
 ///
-/// Prefers mono at the host's 16 kHz target, falls back to stereo at that rate,
-/// then to the closest supported rate.
-pub(crate) fn get_optimal_config(device: &Device) -> Result<cpal::SupportedStreamConfig> {
-    let target_sample_rate = PREFERRED_CAPTURE_RATE;
-
-    // A device that yields no input configs is unusable as an input, whether the
-    // query *errors* or returns *empty*: both mean "this mic can't tell us how to
-    // record from it," so both classify as NoInputDevice ("connect a microphone")
-    // rather than a generic Failed the user can't act on.
-    //
-    // A query error here means the device can't describe how to record from it,
-    // which for the user is indistinguishable from "no mic," so collapse it to
-    // NoInputDevice. cpal 0.18 types a true denial as PermissionDenied and often
-    // routes a vanished-mic config query to a generic kind (macOS sends the
-    // OSStatus failure to BackendError), so only a Failed is remapped; a
-    // PermissionDenied passes through untouched.
-    let configs: Vec<_> = device
-        .supported_input_configs()
-        .map_err(
-            |e| match RecorderError::classify_cpal("Failed to query input configs", e) {
-                RecorderError::Failed { message } => RecorderError::NoInputDevice { message },
-                classified => classified,
-            },
-        )?
-        .collect();
-    if configs.is_empty() {
-        return Err(RecorderError::no_input_device(
-            "No supported input configurations",
-        ));
-    }
-
-    let supported_formats = [SampleFormat::F32, SampleFormat::I16, SampleFormat::U16];
-    let compatible_configs: Vec<_> = configs
-        .iter()
-        .filter(|config| supported_formats.contains(&config.sample_format()))
-        .collect();
-    if compatible_configs.is_empty() {
-        return Err(RecorderError::failed(
-            "No configurations with supported sample formats (F32, I16, U16)",
-        ));
-    }
-
-    // Mono at target rate if possible.
-    for config in &compatible_configs {
-        if config.channels() == 1 {
-            let (min, max) = (config.min_sample_rate(), config.max_sample_rate());
-            if min <= target_sample_rate && max >= target_sample_rate {
-                return Ok(config.with_sample_rate(target_sample_rate));
-            }
+/// Opening at any other rate makes cpal set the device's nominal rate, which on
+/// macOS changes it for every process using the microphone and outlasts the
+/// stream (`build_input_stream_raw` in cpal 0.18's CoreAudio host). The rate is
+/// converted afterwards, by the writer, never by the device.
+pub(crate) fn input_config(device: &Device) -> Result<cpal::SupportedStreamConfig> {
+    // A device that cannot describe how it is running is unusable as an
+    // input, which for the person is indistinguishable from "no mic," so a
+    // generic failure collapses to NoInputDevice ("connect a microphone").
+    // cpal 0.18 types a true denial as PermissionDenied and often routes a
+    // vanished mic to a generic kind (macOS sends the OSStatus failure to
+    // BackendError), so only a Failed is remapped; a PermissionDenied passes
+    // through untouched.
+    let config = device.default_input_config().map_err(|e| {
+        match RecorderError::classify_cpal("Failed to read the input configuration", e) {
+            RecorderError::Failed { message } => RecorderError::NoInputDevice { message },
+            classified => classified,
         }
+    })?;
+    match config.sample_format() {
+        // CoreAudio describes every input as F32 or I16
+        // (`default_config` in cpal 0.18's macOS host).
+        SampleFormat::F32 | SampleFormat::I16 => Ok(config),
+        other => Err(RecorderError::failed(format!(
+            "The microphone runs in {other:?}; recording supports F32 and I16"
+        ))),
     }
-
-    // Any channel count at target rate.
-    for config in &compatible_configs {
-        let (min, max) = (config.min_sample_rate(), config.max_sample_rate());
-        if min <= target_sample_rate && max >= target_sample_rate {
-            return Ok(config.with_sample_rate(target_sample_rate));
-        }
-    }
-
-    // Closest-rate fallback, preferring mono.
-    let mut best_config: Option<cpal::SupportedStreamConfig> = None;
-    let mut best_diff = u32::MAX;
-    for config in &compatible_configs {
-        if config.channels() != 1 {
-            continue;
-        }
-        let (min, max) = (config.min_sample_rate(), config.max_sample_rate());
-        let closest = if target_sample_rate < min {
-            min
-        } else if target_sample_rate > max {
-            max
-        } else {
-            target_sample_rate
-        };
-        let diff = (closest as i32 - target_sample_rate as i32).unsigned_abs();
-        if diff < best_diff {
-            best_diff = diff;
-            best_config = Some(config.with_sample_rate(closest));
-        }
-    }
-
-    // No mono config matched a rate window above; fall back to the first
-    // compatible config. `compatible_configs` is non-empty here (guarded
-    // earlier), so a config always exists: there is no "no suitable
-    // configuration" failure left to model.
-    Ok(best_config.unwrap_or_else(|| {
-        let config = compatible_configs[0];
-        let (min, max) = (config.min_sample_rate(), config.max_sample_rate());
-        let rate = if min <= target_sample_rate && max >= target_sample_rate {
-            target_sample_rate
-        } else {
-            min
-        };
-        config.with_sample_rate(rate)
-    }))
 }
 
 /// Where a cpal callback puts a chunk: into the writer's queue, or on the floor.
@@ -1493,14 +1448,6 @@ pub(crate) fn build_input_stream(
                 None,
             )
             .map_err(|e| RecorderError::classify_cpal("Failed to build I16 stream", e))?,
-        SampleFormat::U16 => device
-            .build_input_stream(
-                config,
-                move |data: &[u16], _: &_| sink.hand_off(downmix_u16(data, n_channels)),
-                on_error,
-                None,
-            )
-            .map_err(|e| RecorderError::classify_cpal("Failed to build U16 stream", e))?,
         _ => {
             return Err(RecorderError::failed(format!(
                 "Unsupported sample format: {sample_format:?}"
@@ -1514,8 +1461,8 @@ pub(crate) fn build_input_stream(
 /// Average interleaved frames down to one channel.
 ///
 /// Written per input format rather than through a shared f32 intermediate,
-/// because two of the three formats are already integers: routing them through
-/// f32 and back would add a rounding step to a conversion that has none.
+/// because i16 is already PCM16: routing it through f32 and back would add a
+/// rounding step to a conversion that has none.
 fn downmix_f32(interleaved: &[f32], channels: usize) -> Vec<i16> {
     let to_pcm16 = |sample: f32| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
     if channels <= 1 {
@@ -1539,29 +1486,21 @@ fn downmix_i16(interleaved: &[i16], channels: usize) -> Vec<i16> {
         .collect()
 }
 
-fn downmix_u16(interleaved: &[u16], channels: usize) -> Vec<i16> {
-    // u16 PCM is offset binary: 32768 is silence, so the conversion to signed
-    // PCM16 is exactly that subtraction.
-    let to_pcm16 = |sample: u16| sample as i32 - 32_768;
-    if channels <= 1 {
-        return interleaved.iter().map(|&s| to_pcm16(s) as i16).collect();
-    }
-    interleaved
-        .chunks_exact(channels)
-        .map(|frame| (frame.iter().map(|&s| to_pcm16(s)).sum::<i32>() / channels as i32) as i16)
-        .collect()
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use hound::WavReader;
     use tempfile::TempDir;
 
-    /// The rate these tests capture at, chosen to be the common device rate
-    /// rather than the preferred one, so nothing accidentally passes because
-    /// capture and transcription happen to agree.
-    const TEST_RATE: u32 = 48_000;
+    /// The rate these tests hand the writer, the recording's own, so what a
+    /// test writes is exactly what the file holds. A capture from a device at
+    /// another rate has its own test, and the conversion its own in `rate.rs`.
+    const TEST_RATE: u32 = RECORDING_RATE;
+
+    /// The least loudness a live input has. Digital silence, which a stream
+    /// that delivers nothing real produces, is exactly zero; a microphone's own
+    /// noise floor, or the tone a loopback device is fed, is above this.
+    const MIN_LIVE_RMS: f64 = 1e-4;
 
     #[test]
     #[ignore = "opens the physical default microphone for a second; run only for explicit native acceptance"]
@@ -1569,7 +1508,7 @@ pub(crate) mod tests {
         let root = folder_root();
         for name in ["first.wav", "second.wav"] {
             let (device, name_of_device) = resolve_device(&cpal::default_host(), None).unwrap();
-            let config = get_optimal_config(&device).unwrap();
+            let config = input_config(&device).unwrap();
             let rate = config.sample_rate();
             let path = root.path().join(name);
             let file = File::options()
@@ -1597,20 +1536,43 @@ pub(crate) mod tests {
             )
             .unwrap();
             stream.play().unwrap();
-            let until = Instant::now() + Duration::from_secs(1);
+            let mut captured = 0usize;
+            let mut sum_of_squares = 0f64;
+            let until = Instant::now() + Duration::from_millis(1_500);
             while Instant::now() < until {
                 if let Ok(samples) = rx.recv_timeout(Duration::from_millis(20)) {
+                    captured += samples.len();
+                    sum_of_squares += samples
+                        .iter()
+                        .map(|&sample| (sample as f64 / 32_768.0).powi(2))
+                        .sum::<f64>();
                     capture.write(&samples).unwrap();
                 }
             }
             close_capture_and_drain(stream, &mut capture, &rx);
             let finished = capture.finish().unwrap();
-            let samples = WavReader::open(&finished.path).unwrap().len();
-            assert!(samples > 0, "physical input delivered no audio");
-            assert_eq!(dropped.load(Ordering::Relaxed), 0);
+            let reader = WavReader::open(&finished.path).unwrap();
+            let samples = reader.len();
+            let rms = (sum_of_squares / captured.max(1) as f64).sqrt();
             eprintln!(
-                "NATIVE_CAPTURE_RESULT device={name_of_device}, rate={rate}, duration_ms={}, samples={samples}",
+                "NATIVE_CAPTURE_RESULT device={name_of_device}, rate={rate}, captured={captured}, rms={rms:.5}, duration_ms={}, samples={samples}",
                 finished.duration_ms
+            );
+            assert_eq!(dropped.load(Ordering::Relaxed), 0);
+            // Longer than the 1 s below which a recording is padded, so the
+            // duration is what the microphone delivered, not the padding.
+            assert!(
+                captured as f64 >= rate as f64 * 1.3,
+                "the microphone delivered {captured} samples at {rate} Hz in 1.5 s"
+            );
+            assert!(finished.duration_ms >= 1_300, "{} ms", finished.duration_ms);
+            assert_eq!(reader.spec().sample_rate, RECORDING_RATE);
+            assert!(rms > MIN_LIVE_RMS, "the input was silent: rms {rms}");
+            // Opening the microphone left its rate alone, for every other app.
+            let after = input_config(&device).unwrap().sample_rate();
+            assert_eq!(
+                after, rate,
+                "the device's rate changed from {rate} to {after}"
             );
         }
     }
@@ -2086,11 +2048,6 @@ pub(crate) mod tests {
     fn downmix_stereo_to_mono_averages_pairs() {
         assert_eq!(downmix_f32(&[0.5, -0.5, 1.0, -1.0], 2), vec![0, 0]);
         assert_eq!(downmix_i16(&[1000, 2000, -400, -600], 2), vec![1500, -500]);
-        // Offset binary: 32768 is silence, so an all-silence stereo frame is 0.
-        assert_eq!(
-            downmix_u16(&[32_768, 32_768, 65_535, 32_768], 2),
-            vec![0, 16_383]
-        );
     }
 
     #[test]
@@ -2102,10 +2059,6 @@ pub(crate) mod tests {
             vec![0, i16::MAX, -i16::MAX, i16::MAX, -i16::MAX]
         );
         assert_eq!(downmix_i16(&[7, -7, 32_767], 1), vec![7, -7, 32_767]);
-        assert_eq!(
-            downmix_u16(&[0, 32_768, 65_535], 1),
-            vec![-32_768, 0, 32_767]
-        );
     }
 
     /// The bounded queue is the reason capture cannot be stalled by a disk, so
@@ -2137,9 +2090,8 @@ pub(crate) mod tests {
     }
 
     /// Whisper hallucinates sentences into near-silent clips shorter than about
-    /// a second, so short recordings are padded. It is expressed at the
-    /// device's rate, which is why the assertion is in seconds rather than
-    /// samples.
+    /// a second, so short recordings are padded to 1.25 s of the recording's
+    /// rate.
     #[test]
     fn short_clips_are_padded_and_empty_ones_are_left_alone() {
         let root = folder_root();
@@ -2164,8 +2116,30 @@ pub(crate) mod tests {
         assert_eq!(long.duration_ms, 2_000);
     }
 
-    /// A finished recording is a canonical PCM WAV at the device's rate, whose
-    /// samples are the ones written.
+    /// A microphone at another rate is converted as it is written: two seconds
+    /// at 48 kHz are two seconds at the recording's rate.
+    #[test]
+    fn a_capture_from_a_device_at_another_rate_is_written_at_the_recording_rate() {
+        let root = folder_root();
+        let path = root.path().join("a.wav");
+        let file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let mut capture = CaptureFile::open(path.clone(), file, 48_000).unwrap();
+        for chunk in tone(48_000, 2).chunks(480) {
+            capture.write(chunk).unwrap();
+        }
+        let finished = capture.finish().unwrap();
+        assert_eq!(finished.duration_ms, 2_000);
+        let reader = WavReader::open(&path).unwrap();
+        assert_eq!(reader.spec().sample_rate, RECORDING_RATE);
+        assert_eq!(reader.len(), 2 * RECORDING_RATE);
+    }
+
+    /// A finished recording is a canonical PCM WAV at the recording's rate,
+    /// whose samples are the ones written.
     #[test]
     fn a_finished_capture_is_a_canonical_wav_of_what_was_written() {
         let root = folder_root();
@@ -2175,7 +2149,7 @@ pub(crate) mod tests {
         assert_eq!(finished.duration_ms, 1_000);
 
         let bytes = std::fs::read(&finished.path).expect("read the recording");
-        // 44-byte canonical PCM header plus one second of 48 kHz mono PCM16.
+        // 44-byte canonical PCM header plus one second of 16 kHz mono PCM16.
         assert_eq!(bytes.len(), 44 + (TEST_RATE as usize * 2));
 
         let reader = WavReader::open(&finished.path).unwrap();

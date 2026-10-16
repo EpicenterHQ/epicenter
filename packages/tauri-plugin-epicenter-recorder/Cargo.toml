@@ -20,6 +20,8 @@ epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
 cpal = "0.18.1"
 hound = "3.5"
+# Converts the microphone's own rate to the recording's 16 kHz; the shell's decoder uses the same crate.
+rubato = "0.15"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
