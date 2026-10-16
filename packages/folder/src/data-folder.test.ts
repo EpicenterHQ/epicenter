@@ -117,7 +117,7 @@ test('a folder without epicenter.json opens with no tables, and files and histor
 	const folder = expectOk(await openDataFolder({ root, git: { author } }));
 	expect(folder.definition).toEqual({ kv: {}, tables: {} });
 	expect(folder.tables).toEqual({});
-	expectOk(await folder.files.create('more/a.md', 'a\n'));
+	expectOk(await folder.write('more/a.md', null, 'a\n'));
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
 	expect(await git(root, 'ls-files')).toBe('more/a.md\nnotes.txt');
@@ -270,7 +270,7 @@ test('openFolder still publishes its own definition, and exposes it', async () =
 	expect(folder.definition).toBe(definition);
 	// Opening creates no repository; the first commit does.
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
-	expectOk(await folder.files.create('notes.txt', 'a\n'));
+	expectOk(await folder.write('notes.txt', null, 'a\n'));
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).not.toBe(
 		DECLARED,
 	);
@@ -290,7 +290,7 @@ test('a browser data folder reads with its own declaration, as of the open, and 
 	// Nothing is created by opening; a folder nobody wrote to has no tables.
 	expect(environment.opfs.directories()).toEqual([]);
 	expect(first.definition).toEqual({ kv: {}, tables: {} });
-	expectOk(await first.files.create('epicenter.json', DECLARED));
+	expectOk(await first.write('epicenter.json', null, DECLARED));
 	expect(first.tables).toEqual({});
 	await first.close();
 

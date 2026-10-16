@@ -36,7 +36,7 @@ import { FileError } from './errors.js';
 import { createFiles } from './files.js';
 import { createKv } from './kv.js';
 import { mergeKv } from './kv-merge.js';
-import { put } from './put.test-support.js';
+import { overwrite } from './put.test-support.js';
 import { WRITE_ATTEMPTS } from './save-file.js';
 
 const definition = defineFolder({
@@ -72,7 +72,7 @@ async function setup(initial?: string | Uint8Array) {
 		},
 	};
 	const files = createFiles({ storage: base });
-	if (initial !== undefined) expectOk(await files.create('kv.json', initial));
+	if (initial !== undefined) await overwrite(base, 'kv.json', initial);
 	return {
 		kv: createKv<Values>({ storage }, definition.kv),
 		files,
@@ -84,7 +84,7 @@ async function setup(initial?: string | Uint8Array) {
 		},
 		/** Write kv.json as another program would, with no guard. */
 		async elsewhere(text: string) {
-			expectOk(await put(files, 'kv.json', text));
+			await overwrite(base, 'kv.json', text);
 		},
 	};
 }
@@ -254,7 +254,7 @@ test('a file that keeps changing past the merges is KeptChanging, and the other 
 test('two creators of a missing file both keep their keys', async () => {
 	const s = await setup();
 	s.afterNextReads(async () => {
-		expectOk(await s.files.create('kv.json', '{"size": 4}'));
+		await s.elsewhere('{"size": 4}');
 	});
 	expect(expectOk(await s.kv.set('theme', 'dark')).values).toEqual({
 		theme: 'dark',

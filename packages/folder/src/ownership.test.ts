@@ -62,40 +62,42 @@ afterEach(async () => {
 });
 
 describe('byte ownership', () => {
-	test('create and save each own their bytes before the caller can mutate them', async () => {
+	test('a write owns its bytes, from and to, before the caller can mutate them', async () => {
 		const folder = await open();
 		const first = await hashBytes(encoder.encode('AAAA'));
 
 		const content = encoder.encode('AAAA');
-		const creating = folder.files.create('bytes.txt', content);
+		const creating = folder.write('bytes.txt', null, content);
 		content.set(encoder.encode('BBBB'));
 		const created = expectOk(await creating);
 		expect(created).toEqual({
 			path: 'bytes.txt',
-			sha256: first,
-			bytes: encoder.encode('AAAA'),
+			file: { sha256: first, bytes: encoder.encode('AAAA') },
+			overridden: [],
 		});
 		const read = expectOk(await folder.files.read('bytes.txt'));
 		expect(new TextDecoder().decode(read.bytes)).toBe('AAAA');
 		expect(read.sha256).toEqual(first);
 
 		const next = encoder.encode('CCCC');
-		const saving = folder.files.save(created, next);
+		const saving = folder.write('bytes.txt', 'AAAA', next);
 		next.set(encoder.encode('DDDD'));
-		const replaced = expectOk(await saving).stored;
-		expect(replaced.sha256).toEqual(await hashBytes(encoder.encode('CCCC')));
+		const replaced = expectOk(await saving);
+		expect(replaced.file?.sha256).toEqual(
+			await hashBytes(encoder.encode('CCCC')),
+		);
 		expect(expectOk(await folder.files.read('bytes.txt')).bytes).toEqual(
 			encoder.encode('CCCC'),
 		);
 
-		// The base is owned too: a caller changing the bytes it passed as the
-		// base changes nothing about the save.
+		// `from` is owned too: a caller changing the bytes it passed as the
+		// version it started from changes nothing about the write.
 		const base = expectOk(await folder.files.read('bytes.txt'));
 		const last = encoder.encode('EEEE');
-		const again = folder.files.save(base, last);
+		const again = folder.write('bytes.txt', base.bytes, last);
 		base.bytes.set(encoder.encode('XXXX'));
 		last.set(encoder.encode('FFFF'));
-		expect(expectOk(await again).stored.sha256).toEqual(
+		expect(expectOk(await again).file?.sha256).toEqual(
 			await hashBytes(encoder.encode('EEEE')),
 		);
 		expect(
@@ -109,9 +111,9 @@ describe('byte ownership', () => {
 		const folder = await open();
 		const backing = encoder.encode('--middle--');
 		const view = backing.subarray(2, 8);
-		const saving = folder.files.create('view.txt', view);
+		const saving = folder.write('view.txt', null, view);
 		backing.fill(0x21);
-		expect(expectOk(await saving).sha256).toEqual(
+		expect(expectOk(await saving).file?.sha256).toEqual(
 			await hashBytes(encoder.encode('middle')),
 		);
 		expect(expectOk(await folder.files.read('view.txt')).bytes).toEqual(
@@ -119,7 +121,7 @@ describe('byte ownership', () => {
 		);
 
 		const buffer = Buffer.from('buffer bytes');
-		const buffered = folder.files.create('buffer.txt', buffer);
+		const buffered = folder.write('buffer.txt', null, buffer);
 		buffer.fill(0);
 		expectOk(await buffered);
 		expect(
@@ -139,7 +141,7 @@ describe('row files', () => {
 				{ stem: 'row' },
 			),
 		);
-		expectOk(await folder.files.create('todos/row.txt', 'beside'));
+		expectOk(await folder.write('todos/row.txt', null, 'beside'));
 		expectOk(await folder.tables.todos.set('row', { done: true }));
 		const moved = mustRow(await folder.tables.todos.rename('row', 'next'));
 		expect(moved.row.fields).toEqual({ title: 'Row', done: true });
@@ -156,8 +158,9 @@ describe('row files', () => {
 	test('stems are one literal segment; nested paths are not rows', async () => {
 		const folder = await open();
 		expectOk(
-			await folder.files.create(
+			await folder.write(
 				'todos/a/b.md',
+				null,
 				'---\ntitle: Nested\ndone: false\n---\n',
 			),
 		);
@@ -191,8 +194,9 @@ describe('row files', () => {
 		).toBe('InvalidPath');
 
 		// An externally written row with an unusual name is an ordinary row.
-		await folder.files.create(
+		await folder.write(
 			'todos/bad .md',
+			null,
 			'---\ntitle: B\ndone: false\n---\n',
 		);
 		const listed = expectOk(await folder.tables.todos.list()).find(

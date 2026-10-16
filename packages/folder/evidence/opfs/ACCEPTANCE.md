@@ -57,6 +57,12 @@ found nothing, ADR-0576):
 
 Run the page in the browser under test before claiming any other result.
 
+2026-10-16, later: the file checks write with `folder.write` and move with
+`folder.move` (ADR-0576). A create onto a file is `InvalidPath`, and the
+two-context save race is now two writes from one version that both land,
+the later merged over the earlier. Not yet run in a browser; the counts
+above are from the run before this change.
+
 ### Chrome 142 behavior the replacement relies on
 
 The coordinator's probes in Chrome 142 on macOS observed what the stream

@@ -58,14 +58,13 @@ function lines(stream: ReadableStream<Uint8Array>) {
 	};
 }
 
-test('a save waits for another process holding the save lock, then conflicts with its save', async () => {
+test('a write waits for another process holding the save lock, then merges with its save', async () => {
 	const root = await scratch('bun-save-lock-');
 	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
 	const target = join(root, 'note.txt');
 	try {
 		await writeFile(target, 'old');
 		const folder = expectOk(await openDataFolder({ root, git: { author } }));
-		const base = expectOk(await folder.files.read('note.txt'));
 
 		// Another process takes the lock as the shell does, and on a line from
 		// stdin lands its own save, then lets go.
@@ -99,11 +98,9 @@ test('a save waits for another process holding the save lock, then conflicts wit
 		expect(await said()).toBe('locked');
 
 		let settled = false;
-		const saving = folder.files
-			.save(base, 'ours', { merge: false })
-			.finally(() => {
-				settled = true;
-			});
+		const saving = folder.write('note.txt', 'old', 'ours').finally(() => {
+			settled = true;
+		});
 		await Bun.sleep(200);
 		expect(settled).toBe(false);
 		expect(await readFile(target, 'utf8')).toBe('old');
@@ -113,9 +110,11 @@ test('a save waits for another process holding the save lock, then conflicts wit
 		expect(await said()).toBe('released');
 		await other.exited;
 
-		const { error } = await saving;
-		expect(error?.name).toBe('Conflict');
-		expect(await readFile(target, 'utf8')).toBe('theirs');
+		// Its put, guarded by what it read, was stale: it read theirs and won
+		// the line both changed.
+		const written = expectOk(await saving);
+		expect(written.overridden).not.toEqual([]);
+		expect(await readFile(target, 'utf8')).toBe('ours');
 		await folder.close();
 	} finally {
 		await rm(root, { recursive: true, force: true });

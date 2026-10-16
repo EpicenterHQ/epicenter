@@ -105,9 +105,7 @@ test('an opened folder reads back exactly as its tables and settings list it', a
 			{ stem: 'milk' },
 		),
 	);
-	expectOk(
-		await folder.files.create('todos/broken.md', '---\ntitle: [\n---\n'),
-	);
+	expectOk(await folder.write('todos/broken.md', null, '---\ntitle: [\n---\n'));
 	expectOk(await folder.kv.set('theme', 'dark'));
 	const listed = expectOk(await folder.tables.todos.list());
 	const kv = await folder.kv.get();

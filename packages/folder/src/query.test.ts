@@ -296,7 +296,8 @@ test('a file write puts what it wrote in the file read and text, reading nothing
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
-	const first = expectOk(await folder.files.create('note.txt', 'one\n'));
+	expectOk(await folder.write('note.txt', null, 'one\n'));
+	const first = expectOk(await folder.files.read('note.txt'));
 	await queryClient.fetchQuery(folder$.files.read.queryOptions('note.txt'));
 	await queryClient.fetchQuery(folder$.files.text.queryOptions('note.txt'));
 

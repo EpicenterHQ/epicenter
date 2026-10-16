@@ -85,7 +85,7 @@ describe('native folder', () => {
 			git: { author },
 		});
 		try {
-			expectOk(await folder.files.create('saved.txt', 'saved'));
+			expectOk(await folder.write('saved.txt', null, 'saved'));
 			expect(await folder.git.commit()).toMatchObject({
 				status: 'blocked',
 				reason: 'HEAD is not on main',
@@ -167,7 +167,7 @@ describe('native folder', () => {
 		});
 		try {
 			await writeFile(join(root, 'external.md'), 'external');
-			expectOk(await folder.files.create('saved.md', 'saved'));
+			expectOk(await folder.write('saved.md', null, 'saved'));
 			expect(folder.git.snapshot.lastCommit).toBeUndefined();
 			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 			expect((await folder.git.commit()).status).toBe('committed');
@@ -219,12 +219,12 @@ describe('native folder', () => {
 			definition,
 			git: { author },
 		});
-		expectOk(await folder.files.create('Docs/a.md', 'a'));
+		expectOk(await folder.write('Docs/a.md', null, 'a'));
 		const oneDirectory = await readFile(join(root, 'docs/a.md')).then(
 			() => true,
 			() => false,
 		);
-		const created = await folder.files.create('docs/b.md', 'b');
+		const created = await folder.write('docs/b.md', null, 'b');
 		if (oneDirectory) {
 			expect(expectErr(created).name).toBe('InvalidPath');
 			expect(await readdir(join(root, 'Docs'))).toEqual(['a.md']);
@@ -283,8 +283,9 @@ describe('native folder', () => {
 			definition,
 			git: { author },
 		});
-		await folder.files.create(
+		await folder.write(
 			'todos/Plan.md',
+			null,
 			'---\ntitle: P\ndone: false\n---\n',
 		);
 		expect((await folder.tables.todos.get('Plan')).data?.path).toBe(
@@ -386,7 +387,7 @@ describe('native folder', () => {
 		});
 		// Audio recorded under the old model sits beside the row it was saved with.
 		const audio = new Uint8Array([1, 2, 3]);
-		expectOk(await folder.files.create('todos/take.opus', audio));
+		expectOk(await folder.write('todos/take.opus', null, audio));
 		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Take', done: false }, body: '' },
@@ -527,7 +528,7 @@ describe('native folder', () => {
 			definition,
 			git: { author },
 		});
-		await folder.files.create('a.md', 'one\n');
+		await folder.write('a.md', null, 'one\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		const head = await git(root, 'rev-parse', 'main');
 		await writeFile(join(root, '.git/MERGE_HEAD'), `${head}\n`);
@@ -650,7 +651,7 @@ describe('browser and native exchange through a real bare repository', () => {
 				},
 			}),
 		);
-		expectOk(await browser.files.create('offline.txt', 'Offline'));
+		expectOk(await browser.write('offline.txt', null, 'Offline'));
 		expect(browser.git.snapshot.lastCommit).toBeUndefined();
 		expect(expectErr(await browser.sync.run()).name).toBe('Fetch');
 		expect(browser.git.snapshot.lastCommit?.status).toBe('committed');

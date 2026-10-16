@@ -1,30 +1,32 @@
 /**
  * `put`: a test's way to make a file hold exact bytes, whatever is there.
  *
- * No folder verb writes without naming what it replaces (ADR-0551). A test
- * that seeds a file, or plays another writer, reads it and saves over that
- * read without merging, or creates it when it is missing.
+ * A test that seeds a file, or plays another writer, writes through the
+ * folder's one write from the bytes it just read, or from no file
+ * (ADR-0576). With no change in between, the write leaves exactly `content`.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import type { CapturedFile } from './capture.js';
-import type { FileSaveError } from './errors.js';
+import type { FileError, WriteError } from './errors.js';
 import type { FolderFiles } from './files.js';
+import type { FileContent } from './merge-file.js';
+import type { Written } from './save-file.js';
 
 export async function put(
-	files: Pick<FolderFiles, 'read' | 'create' | 'save'>,
+	folder: {
+		readonly files: Pick<FolderFiles, 'read'>;
+		write(
+			path: string,
+			from: FileContent | null,
+			to: FileContent | null,
+		): Promise<Result<Written, WriteError>>;
+	},
 	path: string,
 	content: string | Uint8Array,
-): Promise<Result<CapturedFile, FileSaveError>> {
-	const { data: current, error: readError } = await files.read(path);
-	if (readError !== null) {
-		if (readError.name !== 'NotFound') return Err(readError);
-		return files.create(path, content);
-	}
-	const { data: saved, error } = await files.save(current, content, {
-		merge: false,
-	});
-	return error === null ? Ok(saved.stored) : Err(error);
+): Promise<Result<Written, WriteError | FileError>> {
+	const { data: current, error } = await folder.files.read(path);
+	if (error !== null && error.name !== 'NotFound') return Err(error);
+	return folder.write(path, current?.bytes ?? null, content);
 }
 
 /**

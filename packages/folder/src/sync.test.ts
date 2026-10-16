@@ -118,7 +118,7 @@ async function setup() {
 		}),
 	);
 	opened.push(local);
-	expectOk(await local.files.create(TODO, SEED));
+	expectOk(await local.write(TODO, null, SEED));
 	expectOk(await local.kv.set('theme', 'light'));
 	expectOk(await local.kv.set('size', 1));
 	// Connecting a folder with files to an empty remote sends them.
@@ -179,7 +179,7 @@ test('independent changes merge into one pushed commit, in the standard form', a
 	const { local } = context;
 	expectOk(
 		await put(
-			local.files,
+			local,
 			TODO,
 			row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
 		),
@@ -215,7 +215,7 @@ test("competing units go to this device, and each lost unit names the remote's c
 	const context = await setup();
 	const { local } = context;
 	const mine = row(['title: Mine', 'done: false'], 'Left at noon.\n');
-	expectOk(await put(local.files, TODO, mine));
+	expectOk(await put(local, TODO, mine));
 	expectOk(await local.kv.set('theme', 'dark'));
 	const theirs = await context.incoming({
 		[TODO]: row(['title: Theirs', 'done: true'], 'Left at dusk.\n'),
@@ -243,7 +243,7 @@ test("competing units go to this device, and each lost unit names the remote's c
 test('a delete beats an edit it never saw, from either side', async () => {
 	const context = await setup();
 	const { local } = context;
-	expectOk(await local.files.create('notes.txt', 'one\n'));
+	expectOk(await local.write('notes.txt', null, 'one\n'));
 	synced(expectOk(await local.sync.run()));
 
 	// This device deletes; the remote edits.
@@ -259,7 +259,7 @@ test('a delete beats an edit it never saw, from either side', async () => {
 	expect(await context.remoteFile(TODO, edited)).toContain('done: true');
 
 	// The remote deletes; this device edits.
-	expectOk(await put(local.files, 'notes.txt', 'one\ntwo\n'));
+	expectOk(await put(local, 'notes.txt', 'one\ntwo\n'));
 	const editedHere = await saved(local);
 	await context.incoming({ 'notes.txt': null });
 	synced(expectOk(await local.sync.run()));
@@ -273,13 +273,13 @@ test('a delete beats an edit it never saw, from either side', async () => {
 test('a text file merges by line, and a binary file both changed is this device’s', async () => {
 	const context = await setup();
 	const { local } = context;
-	expectOk(await local.files.create('README.md', 'one\ntwo\nthree\n'));
-	expectOk(await local.files.create('photo.bin', new Uint8Array([0, 1, 2])));
+	expectOk(await local.write('README.md', null, 'one\ntwo\nthree\n'));
+	expectOk(await local.write('photo.bin', null, new Uint8Array([0, 1, 2])));
 	synced(expectOk(await local.sync.run()));
 
-	expectOk(await put(local.files, 'README.md', 'ONE\ntwo\nthree\n'));
+	expectOk(await put(local, 'README.md', 'ONE\ntwo\nthree\n'));
 	const mine = new Uint8Array([0, 9, 9]);
-	expectOk(await put(local.files, 'photo.bin', mine));
+	expectOk(await put(local, 'photo.bin', mine));
 	const theirs = await context.incoming({
 		'README.md': 'one\ntwo\nTHREE\n',
 		'photo.bin': new Uint8Array([7, 7, 7]),
@@ -300,7 +300,7 @@ test('bytes stay exact: a lone carriage return merges by line, and invalid UTF-8
 		'latin1.txt': new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x0a]),
 	};
 	for (const [path, bytes] of Object.entries(base))
-		expectOk(await local.files.create(path, bytes));
+		expectOk(await local.write(path, null, bytes));
 	synced(expectOk(await local.sync.run()));
 
 	const mine = {
@@ -308,7 +308,7 @@ test('bytes stay exact: a lone carriage return merges by line, and invalid UTF-8
 		'latin1.txt': new Uint8Array([0x43, 0x61, 0x66, 0xe9, 0x0a, 0x0a]),
 	};
 	for (const [path, bytes] of Object.entries(mine))
-		expectOk(await put(local.files, path, bytes));
+		expectOk(await put(local, path, bytes));
 	await context.incoming({
 		'lone-cr.txt': 'one\rtwo\nTHREE\n',
 		'latin1.txt': new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x21]),
@@ -326,13 +326,13 @@ test('a change made and reverted between syncs does not override the other side'
 	const { local } = context;
 	expectOk(
 		await put(
-			local.files,
+			local,
 			TODO,
 			row(['title: Run', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
 	await saved(local);
-	expectOk(await put(local.files, TODO, SEED));
+	expectOk(await put(local, TODO, SEED));
 	await saved(local);
 	await context.incoming({
 		[TODO]: row(['title: Peer walk', 'done: false'], 'Left at dawn.\n'),
@@ -370,7 +370,7 @@ test('a row that does not read merges as text, and its frontmatter lines compete
 		['title: Walk', 'done: maybe', 'note: mine'],
 		'Left at dawn.\n',
 	);
-	expectOk(await put(local.files, TODO, mine));
+	expectOk(await put(local, TODO, mine));
 	const theirs = await context.incoming({
 		[TODO]: row(
 			['title: Walk', 'done: maybe', 'note: theirs'],
@@ -460,7 +460,7 @@ test('only the remote changed: a fast-forward; only this device: a push', async 
 	expect(synced(expectOk(await local.sync.run()))).toBe(theirs);
 	expect(await text(local, 'notes.txt')).toBe('From the peer\n');
 
-	expectOk(await put(local.files, 'notes.txt', 'From here\n'));
+	expectOk(await put(local, 'notes.txt', 'From here\n'));
 	const head = synced(expectOk(await local.sync.run()));
 	expect(await context.remoteParents()).toEqual([head, theirs]);
 	expect(await context.remoteFile('notes.txt')).toBe('From here');
@@ -480,7 +480,7 @@ test('unrelated histories are refused unless asked for', async () => {
 		}),
 	);
 	opened.push(other);
-	expectOk(await other.files.create('notes.txt', 'Other\n'));
+	expectOk(await other.write('notes.txt', null, 'Other\n'));
 	await saved(other);
 
 	expect(expectErr(await other.sync.connect(REMOTE)).name).toBe('Unrelated');
@@ -506,7 +506,7 @@ test('a folder with no history adopts the remote on its first sync, merging over
 		}),
 	);
 	opened.push(fresh);
-	expectOk(await fresh.files.create('notes.txt', 'Fresh\n'));
+	expectOk(await fresh.write('notes.txt', null, 'Fresh\n'));
 
 	const head = synced(expectOk(await fresh.sync.connect(REMOTE)));
 	expect(await context.remoteHead()).toBe(head);

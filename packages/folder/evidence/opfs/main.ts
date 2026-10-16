@@ -112,18 +112,15 @@ async function open(
 	return folder;
 }
 
-/** Save `content` at `path` over whatever is there now, without merging. */
+/** Make `path` hold `content`, whatever is there now: a write from what was read. */
 async function put(
 	folder: Folder<typeof definition>,
 	path: string,
 	content: string | Uint8Array,
 ): Promise<Result<unknown, { name: string; message: string }>> {
 	const { data: current, error } = await folder.files.read(path);
-	if (error !== null)
-		return error.name === 'NotFound'
-			? folder.files.create(path, content)
-			: { data: null, error };
-	return folder.files.save(current, content, { merge: false });
+	if (error !== null && error.name !== 'NotFound') return { data: null, error };
+	return folder.write(path, current?.bytes ?? null, content);
 }
 
 async function closeAll() {
@@ -325,9 +322,7 @@ async function publication(id: string) {
 		async () => {
 			const folder = await open(id);
 			assert(!(await rawDirectoryExists(id)), 'opening made the directory');
-			ok(
-				await folder.files.create('rows/first.md', '---\ntitle: First\n---\n'),
-			);
+			ok(await folder.write('rows/first.md', null, '---\ntitle: First\n---\n'));
 			const expected = formatDeclaration(definition);
 			const stored = decoder.decode(await rawRead(id, DECLARATION_PATH));
 			assert(stored === expected, `stored ${stored}`);
@@ -348,8 +343,9 @@ async function publication(id: string) {
 		async () => {
 			const folder = await open(id);
 			ok(
-				await folder.files.create(
+				await folder.write(
 					'rows/kept.md',
+					null,
 					'---\ntitle: Kept\n---\nSaved body\n',
 				),
 			);
@@ -363,8 +359,9 @@ async function publication(id: string) {
 				'reopening wrote',
 			);
 			ok(
-				await reopened.files.create(
+				await reopened.write(
 					'rows/second.md',
+					null,
 					'---\ntitle: Second\n---\n',
 				),
 			);
@@ -379,7 +376,7 @@ async function publication(id: string) {
 				title: 'Changed publication',
 			});
 			const third = await open(id, { definition: changed });
-			ok(await third.files.create('rows/third.md', '---\ntitle: Third\n---\n'));
+			ok(await third.write('rows/third.md', null, '---\ntitle: Third\n---\n'));
 			assert(
 				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
 					formatDeclaration(changed),
@@ -397,7 +394,7 @@ async function publication(id: string) {
 		async () => {
 			const historyId = `${id}-history`;
 			const first = await open(historyId);
-			ok(await first.files.create('rows/a.md', '---\ntitle: A\n---\n'));
+			ok(await first.write('rows/a.md', null, '---\ntitle: A\n---\n'));
 			assert(ok(await first.git.log(10)).length === 0, 'writing made a commit');
 			const made = await first.git.commit();
 			assert(made.status === 'committed', `first commit ${made.status}`);
@@ -430,7 +427,7 @@ async function filesAndLayout(id: string) {
 			folder.location.kind === 'opfs' && folder.location.directory === id,
 			`location ${JSON.stringify(folder.location)}`,
 		);
-		ok(await folder.files.create('notes/a.md', '# A\n'));
+		ok(await folder.write('notes/a.md', null, '# A\n'));
 		const raw = decoder.decode(await rawRead(id, 'notes/a.md'));
 		assert(raw === '# A\n', `stored file holds ${JSON.stringify(raw)}`);
 		const names = (await rawEntries(await rawDirectory(id))).map(
@@ -450,10 +447,10 @@ async function filesAndLayout(id: string) {
 		'exact bytes and empty directories survive reopening',
 		async () => {
 			let folder = await open(id);
-			ok(await folder.files.create('bytes.bin', allBytes));
-			ok(await folder.files.create('empty.txt', ''));
-			ok(await folder.files.create('large.bin', large));
-			ok(await folder.files.create('ünïcode/ノート.md', 'text'));
+			ok(await folder.write('bytes.bin', null, allBytes));
+			ok(await folder.write('empty.txt', null, ''));
+			ok(await folder.write('large.bin', null, large));
+			ok(await folder.write('ünïcode/ノート.md', null, 'text'));
 			ok(await folder.files.mkdir('empty/nested'));
 			await closeAll();
 			folder = await open(id);
@@ -487,7 +484,7 @@ async function filesAndLayout(id: string) {
 			const folder = await open(id);
 			const names = ['Case.md', 'case.md', 'é.md', 'é.md', 'a b%20c.md'];
 			for (const name of names)
-				ok(await folder.files.create(`names/${name}`, name));
+				ok(await folder.write(`names/${name}`, null, name));
 			for (const name of names) {
 				const read = decoder.decode(
 					ok(await folder.files.read(`names/${name}`)).bytes,
@@ -514,11 +511,11 @@ async function filesAndLayout(id: string) {
 		'an opened Blob keeps its bytes after the path is replaced',
 		async () => {
 			const folder = await open(id);
-			const saved = ok(await folder.files.create('take.bin', large));
+			ok(await folder.write('take.bin', null, large));
 			const blob = ok(await folder.files.open('take.bin'));
 			const { directory, name } = await rawParent(id, 'take.bin');
 			const snapshot = await (await directory.getFileHandle(name)).getFile();
-			ok(await folder.files.save(saved, 'replaced'));
+			ok(await folder.write('take.bin', large, 'replaced'));
 			assert(
 				sameBytes(new Uint8Array(await blob.arrayBuffer()), large),
 				'the Blob changed',
@@ -568,13 +565,13 @@ async function twoContexts(id: string) {
 				for (let round = 0; round < 10; round++) {
 					const path = `race/create-${round}.md`;
 					const [{ error: mineError }, theirs] = await Promise.all([
-						folder.files.create(path, 'main'),
-						other.ask({ kind: 'create', path, content: 'peer' }),
+						folder.write(path, null, 'main'),
+						other.ask({ kind: 'write', path, from: null, content: 'peer' }),
 					]);
 					const winners = Number(mineError === null) + Number(theirs.ok);
 					const loser = mineError?.name ?? theirs.error;
 					assert(
-						winners === 1 && loser === 'Exists',
+						winners === 1 && loser === 'InvalidPath',
 						`round ${round}: ${winners} winners, ${loser}`,
 					);
 				}
@@ -583,27 +580,28 @@ async function twoContexts(id: string) {
 		);
 
 		await check(
-			'across contexts, exactly one of two unmerged saves wins',
+			'across contexts, two writes from one version both land, the later merged over the earlier',
 			async () => {
 				const folder = await open(id);
 				for (let round = 0; round < 10; round++) {
 					const path = `race/replace-${round}.md`;
-					const base = ok(await folder.files.create(path, 'base'));
-					const [{ error: mineError }, theirs] = await Promise.all([
-						folder.files.save(base, 'main', { merge: false }),
-						other.ask({
-							kind: 'save',
-							path,
-							sha256: base.sha256,
-							base: 'base',
-							content: 'peer',
-						}),
+					ok(await folder.write(path, null, 'base'));
+					const [mine, theirs] = await Promise.all([
+						folder.write(path, 'base', 'main'),
+						other.ask({ kind: 'write', path, from: 'base', content: 'peer' }),
 					]);
-					const winners = Number(mineError === null) + Number(theirs.ok);
-					const loser = mineError?.name ?? theirs.error;
+					const landed = ok(mine);
+					assert(theirs.ok, `round ${round}: the peer's write failed`);
+					// The later one read the earlier one's bytes and overrode its line.
+					const overrides =
+						Number(landed.overridden.length > 0) +
+						Number((theirs.overridden ?? 0) > 0);
+					const stored = decoder.decode(
+						ok(await folder.files.read(path)).bytes,
+					);
 					assert(
-						winners === 1 && loser === 'Conflict',
-						`round ${round}: ${winners} winners, ${loser}`,
+						overrides === 1 && ['main', 'peer'].includes(stored),
+						`round ${round}: ${overrides} overrides, ${stored}`,
 					);
 				}
 				return '10 rounds';
@@ -612,7 +610,7 @@ async function twoContexts(id: string) {
 
 		await check('a save is hinted to the other context', async () => {
 			const folder = await open(id);
-			ok(await folder.files.create('hinted.md', 'x'));
+			ok(await folder.write('hinted.md', null, 'x'));
 			for (let wait = 0; wait < 50; wait++) {
 				const { hints = [] } = await other.ask({ kind: 'hints' });
 				if (hints.includes('hinted.md')) return `after about ${wait * 20} ms`;
@@ -631,7 +629,7 @@ async function twoContexts(id: string) {
 					await hashBytes(first),
 					await hashBytes(second),
 				]);
-				ok(await folder.files.create('big.bin', first));
+				ok(await folder.write('big.bin', null, first));
 				const reading = other.ask({
 					kind: 'readFor',
 					path: 'big.bin',
@@ -698,12 +696,12 @@ async function interrupted(id: string) {
 		'an update a closed tab cut off is changed files, and a commit goes ahead',
 		async () => {
 			const folder = await open(id);
-			ok(await folder.files.create('a.md', '1'));
-			ok(await folder.files.create('b.md', '1'));
+			ok(await folder.write('a.md', null, '1'));
+			ok(await folder.write('b.md', null, '1'));
 			const before = await folder.git.commit();
 			assert(before.status === 'committed', `first commit ${before.status}`);
 			ok(await put(folder, 'a.md', '2'));
-			ok(await folder.files.create('c.md', 'new'));
+			ok(await folder.write('c.md', null, 'new'));
 			const after = await folder.git.commit();
 			assert(after.status === 'committed', `second commit ${after.status}`);
 			await closeAll();
@@ -756,8 +754,8 @@ async function rowRepair(id: string) {
 			const folder = await open(id);
 			const brokenText = '---\ntitle: [\n---\n';
 			const untitledText = '---\nowner: sam\n---\n';
-			ok(await folder.files.create('rows/broken.md', brokenText));
-			ok(await folder.files.create('rows/untitled.md', untitledText));
+			ok(await folder.write('rows/broken.md', null, brokenText));
+			ok(await folder.write('rows/untitled.md', null, untitledText));
 			const { error: broken } = await folder.tables.rows.get('broken');
 			const { error: untitled } = await folder.tables.rows.get('untitled');
 			assert(
@@ -874,7 +872,7 @@ async function moves(id: string) {
 		"a folder's new file appears whole, and leaves nothing in its scratch directory",
 		async () => {
 			const folder = await open(id);
-			ok(await folder.files.create('new/whole.md', 'whole'));
+			ok(await folder.write('new/whole.md', null, 'whole'));
 			const git = await (await rawDirectory(id)).getDirectoryHandle('.git');
 			const epicenter = await git.getDirectoryHandle('epicenter');
 			const scratch = (
@@ -980,7 +978,7 @@ async function closing(id: string) {
 	await check('closing refuses new saves', async () => {
 		const folder = await open(id);
 		await folder.close();
-		const { error: lateError } = await folder.files.create('late.md', 'x');
+		const { error: lateError } = await folder.write('late.md', null, 'x');
 		assert(
 			lateError?.name === 'Closed',
 			`late save: ${lateError?.name ?? 'ok'}`,
@@ -999,7 +997,7 @@ const RELOAD_KEY = 'opfs-evidence-reload';
 async function reloadCheck(stage: string) {
 	if (stage === '1') {
 		const folder = await open(runId);
-		ok(await folder.files.create('persist.bin', allBytes));
+		ok(await folder.write('persist.bin', null, allBytes));
 		await folder.close();
 		sessionStorage.setItem(RELOAD_KEY, runId);
 		location.search = '?reload=2';

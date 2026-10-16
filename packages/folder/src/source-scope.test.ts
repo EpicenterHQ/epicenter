@@ -73,7 +73,7 @@ const SOURCE = [
 
 async function writeLayout(folder: Folder<typeof definition>) {
 	for (const [path, text] of Object.entries(LAYOUT))
-		expect((await put(folder.files, path, text)).error).toBeNull();
+		expect((await put(folder, path, text)).error).toBeNull();
 }
 
 describe('gitignoreMatcher', () => {
@@ -104,7 +104,7 @@ describe('browser folder scope', () => {
 			}),
 		);
 		// Committed before any rule matches it.
-		await folder.files.create('tracked.log', 'v1\n');
+		await folder.write('tracked.log', null, 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 
 		await writeLayout(folder);
@@ -112,7 +112,7 @@ describe('browser folder scope', () => {
 		expect(statusError).toBeNull();
 		expect(status?.changes.map((change) => change.path)).toEqual(SOURCE);
 
-		await put(folder.files, 'tracked.log', 'v2\n');
+		await put(folder, 'tracked.log', 'v2\n');
 		expect(
 			(await folder.git.status()).data?.changes.map((change) => change.path),
 		).toEqual([...SOURCE, 'tracked.log'].sort());
@@ -132,10 +132,10 @@ describe('native folder scope', () => {
 			definition,
 			git: { author },
 		});
-		await folder.files.create('tracked.log', 'v1\n');
+		await folder.write('tracked.log', null, 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		await writeLayout(folder);
-		await put(folder.files, 'tracked.log', 'v2\n');
+		await put(folder, 'tracked.log', 'v2\n');
 
 		expect(
 			(await folder.git.status()).data?.changes.map((change) => change.path),
@@ -175,14 +175,14 @@ describe('native folder scope', () => {
 			git: { author },
 		});
 
-		await writer.files.create('.gitignore', '*.log\n');
+		await writer.write('.gitignore', null, '*.log\n');
 		expect((await writer.sync.run()).data?.kind).toBe('synced');
 		expect((await reader.sync.run()).data?.kind).toBe('synced');
 
 		// Ignored local files do not make the reader dirty and survive updates.
 		await writeFile(join(readerRoot, 'local.log'), 'reader only\n');
 		await writeFile(join(readerRoot, 'shared.log'), 'reader copy\n');
-		await writer.files.create('readme.md', 'hello\n');
+		await writer.write('readme.md', null, 'hello\n');
 		expect((await writer.sync.run()).data?.kind).toBe('synced');
 		expect((await reader.sync.run()).data?.kind).toBe('synced');
 		expect(await readFile(join(readerRoot, 'local.log'), 'utf8')).toBe(

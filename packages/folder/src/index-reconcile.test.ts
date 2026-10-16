@@ -111,7 +111,7 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 		definition,
 		git: { author },
 	});
-	await folder.files.create('b.md', 'new\n');
+	await folder.write('b.md', null, 'new\n');
 	await writeFile(join(root, '.git', 'index.lock'), '');
 	const locked = await folder.git.commit();
 	expect(locked.status).toBe('committed');

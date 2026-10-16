@@ -221,7 +221,7 @@ test('a browser folder defaults to a local author and no remote', async () => {
 		remote: undefined,
 		branch: 'main',
 	});
-	expectOk(await folder.files.create('a.md', 'a'));
+	expectOk(await folder.write('a.md', null, 'a'));
 	expect(folder.git.snapshot.lastCommit).toBeUndefined();
 	expect((await folder.git.commit()).status).toBe('committed');
 	const [commit] = expectOk(await folder.git.log(1));
@@ -248,15 +248,15 @@ test('handles sharing browser storage hear each other, when the storage carries 
 	const first = await open();
 	const second = await open();
 	// Each handle's first write publishes the declaration; drain those hints.
-	expectOk(await first.files.create('first.md', 'x'));
-	expectOk(await second.files.create('second.md', 'x'));
+	expectOk(await first.write('first.md', null, 'x'));
+	expectOk(await second.write('second.md', null, 'x'));
 	await Bun.sleep(20);
 	const heardByFirst: FilesChanged[] = [];
 	const heardBySecond: FilesChanged[] = [];
 	first.onFilesChanged((change) => heardByFirst.push(change));
 	second.onFilesChanged((change) => heardBySecond.push(change));
 
-	expectOk(await first.files.create('from-first.md', 'x'));
+	expectOk(await first.write('from-first.md', null, 'x'));
 	for (let waited = 0; waited < 200 && heardBySecond.length === 0; waited++)
 		await Bun.sleep(5);
 	// A handle's own write is not reported to it; the other page hears it.
@@ -267,7 +267,7 @@ test('handles sharing browser storage hear each other, when the storage carries 
 
 	// A closed handle hears nothing more and stops relaying.
 	await second.close();
-	expectOk(await first.files.create('after-close.md', 'x'));
+	expectOk(await first.write('after-close.md', null, 'x'));
 	await Bun.sleep(20);
 	expect(heardBySecond).toEqual([['from-first.md']]);
 	await first.close();

@@ -26,7 +26,6 @@ import {
 	type TestStorage,
 	testBrowserStorage,
 } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
 import { overwrite, put } from './put.test-support.js';
 import { parseRow } from './row-text.js';
@@ -87,7 +86,7 @@ describe('browser folder tables', () => {
 		const previous = await backend.readBranch();
 		await history.close();
 		const folder = await open({ id: 'legacy-branch' });
-		expectOk(await folder.files.create('saved.txt', 'saved'));
+		expectOk(await folder.write('saved.txt', null, 'saved'));
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'blocked',
 			reason: 'HEAD is not on main',
@@ -194,10 +193,11 @@ describe('browser folder tables', () => {
 		const folder = await open();
 		const source =
 			'﻿---\r\ntitle: Kept # comment\r\ndone: maybe\r\nextra: unknown\r\n---\r\nBody\r\n';
-		await folder.files.create('todos/odd.md', source);
-		await folder.files.create('todos/broken.md', '---\ntitle: [\n---\n');
-		await folder.files.create(
+		await folder.write('todos/odd.md', null, source);
+		await folder.write('todos/broken.md', null, '---\ntitle: [\n---\n');
+		await folder.write(
 			'todos/bad.md',
+			null,
 			new Uint8Array([0xff, 0xfe, 0x00]),
 		);
 		const listed = expectOk(await folder.tables.todos.list());
@@ -256,8 +256,8 @@ describe('browser folder tables', () => {
 		const folder = await open();
 		const audio = new Uint8Array([1, 2, 3]);
 		// The audio exists first. It does not block the row that shares its stem.
-		const opus = expectOk(await folder.files.create('todos/rec.opus', audio));
-		expectOk(await folder.files.create('todos/rec.wav', new Uint8Array([9])));
+		const opus = expectOk(await folder.write('todos/rec.opus', null, audio));
+		expectOk(await folder.write('todos/rec.wav', null, new Uint8Array([9])));
 		const receipt = mustRow(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Recording', done: false }, body: '' },
@@ -265,7 +265,7 @@ describe('browser folder tables', () => {
 			),
 		);
 		// Siblings can also arrive after the row was captured.
-		expectOk(await folder.files.create('todos/rec.flac', 'late'));
+		expectOk(await folder.write('todos/rec.flac', null, 'late'));
 		const created = expectOk(await folder.tables.todos.get('rec'))!;
 		expect(created).toEqual(receipt);
 		// A stored row is the capture and its row: no attachment, no sibling.
@@ -289,14 +289,12 @@ describe('browser folder tables', () => {
 
 		const kept = expectOk(await folder.files.read('todos/rec.opus'));
 		expect(kept.bytes).toEqual(audio);
-		expect(kept.sha256).toEqual(opus.sha256);
+		expect<string | undefined>(kept.sha256).toEqual(opus.file?.sha256);
 		// Changing and moving a sibling cannot change what row deletion owns.
-		const movedAudio = expectOk(
-			await folder.files.move(opus, 'todos/rec2.opus'),
-		);
+		expectOk(await folder.move('todos/rec.opus', 'todos/rec2.opus'));
 		const changedAudio = expectOk(
-			await folder.files.save({ ...movedAudio, bytes: audio }, 'rewritten'),
-		).stored;
+			await folder.write('todos/rec2.opus', audio, 'rewritten'),
+		);
 		expectOk(await folder.tables.todos.delete('rec2'));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
 			'rec.flac',
@@ -305,12 +303,15 @@ describe('browser folder tables', () => {
 		]);
 		const surviving = expectOk(await folder.files.read('todos/rec2.opus'));
 		expect(new TextDecoder().decode(surviving.bytes)).toBe('rewritten');
-		expect(surviving.sha256).toEqual(changedAudio.sha256);
+		expect<string | undefined>(surviving.sha256).toEqual(
+			changedAudio.file?.sha256,
+		);
 
 		// `rec.take.md` is its own row, not something `rec.md` owns.
 		expectOk(
-			await folder.files.create(
+			await folder.write(
 				'todos/rec.take.md',
+				null,
 				'---\ntitle: T\ndone: false\n---\n',
 			),
 		);
@@ -387,7 +388,7 @@ describe('browser folder tables', () => {
 	test('a todo with an unresolvable alias is an InvalidRow, repaired by replacing its captured bytes', async () => {
 		const folder = await open();
 		const source = '---\ntitle: *missing\ndone: false\n---\nNotes stay.\n';
-		await folder.files.create('todos/alias.md', source);
+		await folder.write('todos/alias.md', null, source);
 		const listed = expectOk(await folder.tables.todos.list());
 		expect(listed).toHaveLength(1);
 		const invalid = expectErr(listed[0]!.result);
@@ -421,11 +422,7 @@ describe('browser folder tables', () => {
 		});
 		expect(await kvText()).toBe('{\n  "theme": "light"\n}\n');
 		expectOk(
-			await put(
-				folder.files,
-				'kv.json',
-				'{\n  "other": 1,\n  "theme": "light"\n}\n',
-			),
+			await put(folder, 'kv.json', '{\n  "other": 1,\n  "theme": "light"\n}\n'),
 		);
 		const updated = expectOk(await folder.kv.set('theme', 'dark'));
 		expect(await kvText()).toBe('{\n  "other": 1,\n  "theme": "dark"\n}\n');
@@ -464,20 +461,18 @@ describe('browser folder persistence and history', () => {
 
 	test('file create, move, and remove make no commit; an explicit commit records each', async () => {
 		const folder = await open();
-		const created = expectOk(
-			await folder.files.create('notes/raw.txt', 'hello'),
-		);
+		expectOk(await folder.write('notes/raw.txt', null, 'hello'));
 		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
 			message: 'Update 2 files',
 		});
-		const moved = expectOk(await folder.files.move(created, 'moved.txt'));
+		expectOk(await folder.move('notes/raw.txt', 'moved.txt'));
 		expect(expectOk(await folder.git.status()).changes).not.toEqual([]);
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(expectOk(await folder.git.status()).changes).toEqual([]);
-		expectOk(await folder.files.remove(moved));
+		expectOk(await folder.write('moved.txt', null, null));
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
 			message: 'Delete moved.txt',
@@ -489,18 +484,9 @@ describe('browser folder persistence and history', () => {
 		const folder = await open();
 		expectOk(await folder.files.mkdir('empty'));
 		expectOk(await folder.files.rmdir('empty'));
-		// A save never recreates a file that is not there.
-		const missing = expectErr(
-			await folder.files.save(
-				{
-					path: 'missing.txt',
-					sha256: await hashBytes(new Uint8Array()),
-					text: '',
-				},
-				'x',
-			),
-		);
-		expect(missing.name).toBe('NotFound');
+		// An edit never recreates a file that is not there: it writes nothing.
+		const missing = expectOk(await folder.write('missing.txt', '', 'x'));
+		expect(missing.file).toBeNull();
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 	});
@@ -514,7 +500,7 @@ describe('browser folder persistence and history', () => {
 		expect(seen).toEqual(['unknown']);
 		await folder.git.status();
 		expect(seen.at(-1)).toBe('observed');
-		await folder.files.create('x.txt', 'x');
+		await folder.write('x.txt', null, 'x');
 		const files = folder.git.snapshot.files;
 		expect(files.state === 'observed' && files.stale).toBe(true);
 		unsubscribe();
@@ -526,7 +512,7 @@ describe('browser folder persistence and history', () => {
 			{ fields: { title: 'M', done: false }, body: '' },
 			{ stem: 'manual' },
 		);
-		expectOk(await folder.files.create('manual.txt', 'x'));
+		expectOk(await folder.write('manual.txt', null, 'x'));
 		expectOk(await folder.kv.set('theme', 'dark'));
 		await Bun.sleep(20);
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();

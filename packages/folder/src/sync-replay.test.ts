@@ -87,21 +87,21 @@ async function diverged() {
 		}),
 	);
 	opened.push(folder);
-	const files = folder.files;
 	expectOk(
-		await files.create(
+		await folder.write(
 			'todos/walk.md',
+			null,
 			row(['title: Walk', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
 	expectOk(await folder.kv.set('theme', 'light'));
 	expectOk(await folder.kv.set('size', 1));
-	expectOk(await files.create('notes.txt', 'one\ntwo\nthree\n'));
-	expectOk(await files.create('photo.bin', new Uint8Array([0, 1, 2])));
-	expectOk(await files.create('gone.txt', 'gone\n'));
-	expectOk(await files.create('a', 'a file\n'));
-	expectOk(await files.create('d/x', 'x\n'));
-	expectOk(await files.create('keep.md', 'keep\n'));
+	expectOk(await folder.write('notes.txt', null, 'one\ntwo\nthree\n'));
+	expectOk(await folder.write('photo.bin', null, new Uint8Array([0, 1, 2])));
+	expectOk(await folder.write('gone.txt', null, 'gone\n'));
+	expectOk(await folder.write('a', null, 'a file\n'));
+	expectOk(await folder.write('d/x', null, 'x\n'));
+	expectOk(await folder.write('keep.md', null, 'keep\n'));
 	expect(expectOk(await folder.sync.connect(REMOTE)).kind).toBe('synced');
 
 	const peer = join(root, 'peer');
@@ -133,14 +133,14 @@ async function diverged() {
 
 	expectOk(
 		await put(
-			files,
+			folder,
 			'todos/walk.md',
 			row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
 	expectOk(await folder.kv.set('theme', 'dark'));
-	expectOk(await put(files, 'notes.txt', 'ONE\ntwo\nthree\n'));
-	expectOk(await put(files, 'keep.md', 'kept here\n'));
+	expectOk(await put(folder, 'notes.txt', 'ONE\ntwo\nthree\n'));
+	expectOk(await put(folder, 'keep.md', 'kept here\n'));
 	return { folder, storage, bare, hooks };
 }
 
@@ -253,7 +253,7 @@ test('an edit saved during Sync to a file the remote removes is recorded, then l
 	const run = await diverged();
 	// The save lands after Sync's checkpoint, while its merge is being sent.
 	run.hooks.afterPush = async () => {
-		expectOk(await put(run.folder.files, 'gone.txt', 'edited during Sync\n'));
+		expectOk(await put(run.folder, 'gone.txt', 'edited during Sync\n'));
 	};
 	expect(expectOk(await run.folder.sync.run()).kind).toBe('synced');
 	expect(filesOf(run.storage)['gone.txt']).toBeUndefined();
@@ -280,7 +280,7 @@ test('a file of this folder in the way stops Sync before its merge is sent', asy
 		`${ID}/.gitignore`,
 		new TextEncoder().encode('new.md\n'),
 	);
-	expectOk(await put(run.folder.files, 'new.md', 'mine, ignored\n'));
+	expectOk(await put(run.folder, 'new.md', 'mine, ignored\n'));
 	const refused = await run.folder.sync.run();
 	expect(refused.error?.name).toBe('Blocked');
 	expect(refused.error?.message).toContain("'new.md'");

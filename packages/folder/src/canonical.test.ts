@@ -418,7 +418,7 @@ test('an invalid row keeps unknown and invalid fields through a raw write from i
 	try {
 		const source =
 			'---\n# presentation\ntitle: Milk\ndone: invalid\nowner: {agent: alice}\n---\nBody\r\n';
-		expectOk(await folder.files.create('todos/milk.md', source));
+		expectOk(await folder.write('todos/milk.md', null, source));
 		const invalid = expectErr(await folder.tables.todos.get('milk'));
 		if (invalid.name !== 'InvalidRow') throw new Error(invalid.message);
 		expect(invalid.text).toBe(source);
@@ -453,11 +453,12 @@ test('an invalid row keeps unknown and invalid fields through a raw write from i
 
 		const captured = expectOk(await folder.files.read(repaired.path));
 		expectOk(await folder.tables.todos.delete('milk'));
-		expect(expectErr(await folder.files.save(captured, text)).name).toBe(
-			'NotFound',
-		);
+		// An edit of a row deleted since writes nothing: the delete stands.
+		expect(
+			expectOk(await folder.write(repaired.path, captured.bytes, text)).file,
+		).toBeNull();
 		expect(expectOk(await folder.tables.todos.get('milk'))).toBeUndefined();
-		expectOk(await folder.files.create('todos/milk.md', text));
+		expectOk(await folder.write('todos/milk.md', null, text));
 		const restored = expectErr(await folder.tables.todos.get('milk'));
 		expect(restored).toMatchObject({ name: 'InvalidRow', text });
 	} finally {
