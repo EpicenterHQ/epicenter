@@ -57,7 +57,7 @@ export type Written = {
 const encoder = new TextEncoder();
 
 /** Log that a write landed over another writer's change to `overridden`. */
-export function logOverwrite(path: string, overridden: readonly Overridden[]) {
+function logOverwrite(path: string, overridden: readonly Overridden[]) {
 	if (overridden.length === 0) return;
 	log.info(`Saved over another writer's change to ${path}`, {
 		path,
