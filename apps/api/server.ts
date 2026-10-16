@@ -53,9 +53,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
+	createDiskGitHost,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitApp,
+	mountGitHost,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -94,6 +95,8 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	DATABASE_URL: 'string',
 	'PORT?': 'string',
 	'API_PUBLIC_ORIGIN?': 'string',
+	// Where hosted Git keeps its bare repositories. Unset, Git answers 503.
+	'GIT_STORE_ROOT?': 'string',
 	GOOGLE_CLIENT_ID: 'string',
 	GOOGLE_CLIENT_SECRET: 'string',
 	GITHUB_CLIENT_ID: 'string',
@@ -149,7 +152,6 @@ export async function startBunApiServer(
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
 	});
 
-
 	const serveAuthUiShell = () =>
 		new Response(
 			'Hosted auth UI is served by the SvelteKit app in Bun dev. Use `bun run --cwd apps/api/ui dev` for browser auth surfaces, or `bun run --cwd apps/api dev` for the Worker asset shell.',
@@ -195,11 +197,16 @@ export async function startBunApiServer(
 				: requireAccessToken({ audience: () => audiences[audience], scope }),
 		);
 	mountSessionApp(app, { auth: resource('api', 'profile') });
-	// Hosted Git needs the Worker's Artifacts binding. Mounting it with no store
-	// keeps the routes in the shared profile and answers 503 `GitUnavailable`.
-	mountGitApp(app, {
-		auth: resource('git', 'folders:write'),
-		resolveStore: () => null,
+	// Hosted Git (ADR-0546) keeps bare repositories on disk under
+	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
+	// the shared profile and answer 503 `git_unavailable`.
+	const gitHost = env.GIT_STORE_ROOT
+		? createDiskGitHost({ root: env.GIT_STORE_ROOT })
+		: null;
+	mountGitHost(app, {
+		setup: cloudContext,
+		resolveAudiences: () => audiences,
+		resolveHost: () => gitHost,
 	});
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered

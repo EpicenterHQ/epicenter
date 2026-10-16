@@ -52,14 +52,15 @@
 	// a single source of truth in TypeScript instead of a duplicated string.
 	//
 	// ARTIFACTS_NAMESPACE repeats the Artifacts binding's namespace below: the
-	// binding manages repositories, while the Git data plane forwards to
-	// `https://<account>.artifacts.cloudflare.net/git/<namespace>/...` directly.
-	// worker/git-repositories.test.ts asserts the two agree.
+	// binding creates repositories and mints their tokens, while the Git data
+	// plane forwards to `https://<account>.artifacts.cloudflare.net/git/<namespace>/...`
+	// directly. worker/git-repositories.test.ts asserts the two agree.
 	"vars": {
 		"ARTIFACTS_NAMESPACE": "epicenter-production"
 	},
-	// --- Artifacts: hosted Git repositories (ADR-0521) ---
-	// One repository per principal and folder. The binding has no local
+	// --- Artifacts: hosted Git repositories (ADR-0546) ---
+	// One namespace per environment, one repository per repository id (the
+	// `repository` table's immutable id, never a URL segment). The binding has no local
 	// emulation: direct `wrangler dev` opens a remote Artifacts session.
 	// Use `bun dev:api`, whose launcher removes this production binding.
 	"artifacts": [

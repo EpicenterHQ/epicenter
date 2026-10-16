@@ -1,26 +1,29 @@
 /**
- * The hosted Git repository store: Cloudflare Artifacts behind `mountGitApp`
- * (ADR-0521).
+ * The hosted Git store on Cloudflare Artifacts, behind `mountGitHost`
+ * (ADR-0546).
  *
- * A folder's repository is named `<folder>.<tag>`, where `tag` is the first 16
- * hex characters of SHA-256 over the principal ID. The tag has no dot, so the
- * name splits back into one folder and one tag, and the principal ID never
- * appears in a URL.
- *
- * Connect uses the binding: it finds or creates the repository, then mints a
- * write token for it alone. Serving never touches the binding. The upstream
- * URL derives from the account and namespace, and Artifacts checks the token
- * the client sent.
+ * One Artifacts namespace per environment holds every repository, each named
+ * by its immutable id (`repository.id`), so a rename or a move in Postgres
+ * never reaches Artifacts and no URL shows an id. The Worker authorizes each
+ * request itself, then reaches Artifacts with a token it mints: 24 hours,
+ * for one repository and one scope (`read` for a fetch, `write` for a push),
+ * cached in the isolate and renewed an hour before it ends. The client's
+ * credential never crosses.
  */
 
-import type { GitRepositoryStore } from '@epicenter/server';
+import type { GitHost } from '@epicenter/server';
 
 /** The slice of the Artifacts binding this store calls. */
 export type ArtifactsNamespace = Pick<Artifacts, 'get' | 'create'>;
 
+/** How long a minted token lives, and how long before its end it is replaced. */
+const TOKEN_TTL_SECONDS = 24 * 60 * 60;
+const RENEW_BEFORE_MS = 60 * 60 * 1000;
+/** The most tokens one isolate keeps; the oldest go first. */
+const MAX_CACHED_TOKENS = 512;
+
 /** The message Artifacts gives each error this store handles. */
 const MESSAGES: Partial<Record<ArtifactsErrorCode, RegExp>> = {
-	NOT_FOUND: /^(?:ArtifactsError: )?Repository not found: /,
 	ALREADY_EXISTS: /^(?:ArtifactsError: )?repo already exists: /,
 };
 
@@ -28,8 +31,8 @@ const MESSAGES: Partial<Record<ArtifactsErrorCode, RegExp>> = {
  * Whether `cause` is an Artifacts binding error with `code`. The binding
  * documents `.code`, but measured on 2026-10-14 in a deployed Worker its
  * errors arrive as a plain `Error` with no code, whose message carries the
- * kind: `ArtifactsError: Repository not found: <name>.` and
- * `ArtifactsError: repo already exists: <name>`. The message is the fallback.
+ * kind: `ArtifactsError: repo already exists: <name>`. The message is the
+ * fallback.
  */
 function isArtifactsError(cause: unknown, code: ArtifactsErrorCode): boolean {
 	if (typeof cause !== 'object' || cause === null) return false;
@@ -38,61 +41,70 @@ function isArtifactsError(cause: unknown, code: ArtifactsErrorCode): boolean {
 	return typeof message === 'string' && MESSAGES[code]?.test(message) === true;
 }
 
-/** The first 16 lowercase hex characters of SHA-256 over the UTF-8 principal ID. */
-async function principalTag(principal: string): Promise<string> {
-	const digest = await crypto.subtle.digest(
-		'SHA-256',
-		new TextEncoder().encode(principal),
-	);
-	return Array.from(new Uint8Array(digest).subarray(0, 8), (byte) =>
-		byte.toString(16).padStart(2, '0'),
-	).join('');
-}
+type CachedToken = { token: Promise<string>; renewAt: number };
 
-export function createArtifactsRepositoryStore({
+export function createArtifactsGitHost({
 	artifacts,
 	accountId,
 	namespace,
-	ttlSeconds = 3600,
+	now = Date.now,
 }: {
 	artifacts: ArtifactsNamespace;
 	accountId: string;
 	namespace: string;
-	ttlSeconds?: number;
-}): GitRepositoryStore {
+	now?: () => number;
+}): GitHost {
 	const upstream = `https://${accountId}.artifacts.cloudflare.net/git/${namespace}`;
+	const tokens = new Map<string, CachedToken>();
 
-	async function findOrCreate(name: string): Promise<ArtifactsRepo> {
-		try {
-			return await artifacts.get(name);
-		} catch (cause) {
-			if (!isArtifactsError(cause, 'NOT_FOUND')) throw cause;
+	/** A token for `id` and `scope`, from this isolate's cache or newly minted. */
+	function token(id: string, scope: 'read' | 'write'): Promise<string> {
+		const key = `${scope}:${id}`;
+		const cached = tokens.get(key);
+		if (cached !== undefined && now() < cached.renewAt) return cached.token;
+		const minted = (async () => {
+			const repository = await artifacts.get(id);
+			const created = await repository.createToken(scope, TOKEN_TTL_SECONDS);
+			return created.plaintext;
+		})();
+		tokens.delete(key);
+		tokens.set(key, {
+			token: minted,
+			renewAt: now() + TOKEN_TTL_SECONDS * 1000 - RENEW_BEFORE_MS,
+		});
+		for (const oldest of tokens.keys()) {
+			if (tokens.size <= MAX_CACHED_TOKENS) break;
+			tokens.delete(oldest);
 		}
-		try {
-			// create() also mints a token; connect mints its own below so every
-			// answer carries the same scope and lifetime.
-			await artifacts.create(name, { setDefaultBranch: 'main' });
-		} catch (cause) {
-			// Another connect created it between our get() and create().
-			if (!isArtifactsError(cause, 'ALREADY_EXISTS')) throw cause;
-		}
-		return await artifacts.get(name);
+		// A failed mint is not kept: the next request asks again.
+		minted.catch(() => {
+			if (tokens.get(key)?.token === minted) tokens.delete(key);
+		});
+		return minted;
 	}
 
 	return {
-		async connect(principal, folder) {
-			const name = `${folder}.${await principalTag(principal)}`;
-			const repository = await findOrCreate(name);
-			const token = await repository.createToken('write', ttlSeconds);
-			return { name, token: token.plaintext, expiresAt: token.expiresAt };
+		async create(id) {
+			try {
+				await artifacts.create(id, { setDefaultBranch: 'main' });
+			} catch (cause) {
+				// Another first push, or an earlier one that stopped, made it.
+				if (!isArtifactsError(cause, 'ALREADY_EXISTS')) throw cause;
+			}
 		},
-		serve(name, { service, advertisement, headers, body, signal }) {
+		async serve(id, { service, advertisement, headers, body, signal }) {
+			const credential = await token(
+				id,
+				service === 'git-receive-pack' ? 'write' : 'read',
+			);
+			const upstreamHeaders = new Headers(headers);
+			upstreamHeaders.set('authorization', `Basic ${btoa(`x:${credential}`)}`);
 			const path = advertisement
 				? `/info/refs?service=${service}`
 				: `/${service}`;
-			return fetch(`${upstream}/${name}.git${path}`, {
+			return fetch(`${upstream}/${id}.git${path}`, {
 				method: advertisement ? 'GET' : 'POST',
-				headers,
+				headers: upstreamHeaders,
 				body,
 				signal,
 				redirect: 'manual',

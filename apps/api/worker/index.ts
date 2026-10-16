@@ -21,7 +21,7 @@ import {
 	createCloudContextMiddleware,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitApp,
+	mountGitHost,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -42,7 +42,7 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
-import { createArtifactsRepositoryStore } from './git-repositories.js';
+import { createArtifactsGitHost } from './git-repositories.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
 // Compile-time proof that this worker's generated Env provides every
@@ -137,19 +137,21 @@ const accountSession = every(cloudContext, requireSessionCookie());
 
 // The profile read.
 mountSessionApp(app, { auth: resource('api', 'profile') });
-// Hosted Git over Cloudflare Artifacts (ADR-0521). Unmetered like hosted
-// blobs. `POST /api/git/connect` mints write access to a repository, so it
-// takes the Git audience and `folders:write`; ADR-0546's hosted Git replaces
-// it. The local dev launcher removes the Artifacts binding and required
-// account secret, so the store resolves to null and hosted Git answers 503.
-mountGitApp(app, {
-	auth: resource('git', 'folders:write'),
-	resolveStore: (env) => {
+// Hosted Git at git.epicenter.so/<namespace>/<name>.git over Cloudflare
+// Artifacts (ADR-0546), and `GET /api/repos`. Both decide each request from
+// the access token and the namespace membership (`authorizeResourceRequest`),
+// so they take no guard here. Unmetered like hosted blobs. The local dev
+// launcher removes the Artifacts binding and required account secret, so the
+// store resolves to null and hosted Git answers 503.
+mountGitHost(app, {
+	setup: cloudContext,
+	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
+	resolveHost: (env) => {
 		const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
 			env as Partial<Cloudflare.Env>;
 		if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE)
 			return null;
-		return createArtifactsRepositoryStore({
+		return createArtifactsGitHost({
 			artifacts: ARTIFACTS,
 			accountId: ARTIFACTS_ACCOUNT_ID,
 			namespace: ARTIFACTS_NAMESPACE,

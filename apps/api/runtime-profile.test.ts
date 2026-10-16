@@ -110,16 +110,16 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'Git connect',
-		method: 'POST',
-		url: `${ORIGIN}/api/git/connect`,
+		surface: 'Repository listing',
+		method: 'GET',
+		url: `${ORIGIN}/api/repos`,
 		worker: 'served',
 		bun: 'served',
 	},
 	{
 		surface: 'Git data plane',
 		method: 'GET',
-		url: `${ORIGIN}/git/probe.git/info/refs?service=git-upload-pack`,
+		url: `${ORIGIN}/git/aaaaaaaaaaaa/probe.git/info/refs?service=git-upload-pack`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -356,8 +356,8 @@ test('both runtime compositions fail closed on protected operations during a dat
 			[worker, 'worker'],
 			[bun, 'bun'],
 		] as const) {
-			// The Git data plane holds no session: its repository token is
-			// checked by the store's backend, so it never reaches Postgres.
+			// Neither entry has a Git store here, so the Git data plane answers
+			// 503 before it reads Postgres.
 			for (const row of PROFILE.filter(
 				(row) =>
 					row[runtime] === 'served' &&
