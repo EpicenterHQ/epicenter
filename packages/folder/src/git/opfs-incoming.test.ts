@@ -282,7 +282,7 @@ for (const [stage, fault] of faults)
 		// Removals go first, so the removal landed before any write failed.
 		expect(stored(opfs, 'gone.md')).toBeUndefined();
 
-		expectOk(await folder.files.create('notes.md', 'mine'));
+		expectOk(await folder.write('notes.md', null, 'mine'));
 		const outcome = expectOk(await folder.sync.run());
 		expect(outcome.kind).toBe('synced');
 		const expected = {
@@ -311,10 +311,10 @@ for (const [stage, fault] of faults)
 			'z.md': 'new',
 		});
 		// A local commit the remote does not have makes Sync a merge.
-		const b = expectOk(await folder.files.read('b.md'));
-		expectOk(await folder.files.save(b, '2'));
-		const shared = expectOk(await folder.files.read('shared.md'));
-		expectOk(await folder.files.save(shared, 'one\ntwo\nTHREE\n'));
+		expectOk(await folder.write('b.md', '1', '2'));
+		expectOk(
+			await folder.write('shared.md', 'one\ntwo\nthree\n', 'one\ntwo\nTHREE\n'),
+		);
 		// Recorded first, so the fault reaches Sync's publish, not its checkpoint.
 		expect((await folder.git.commit()).status).toBe('committed');
 
@@ -353,7 +353,7 @@ test('a folder reopened over a cut-off publish converges on its next Sync', asyn
 	await folder.close();
 
 	const reopened = await open();
-	expectOk(await reopened.files.create('notes.md', 'mine'));
+	expectOk(await reopened.write('notes.md', null, 'mine'));
 	expect(expectOk(await reopened.sync.run()).kind).toBe('synced');
 	const expected = {
 		'epicenter.json': discovery,
@@ -429,7 +429,7 @@ test('a file this folder never committed, where Sync writes a file or needs a di
 test('a file added here where the remote added a directory stands beside it', async () => {
 	const { opfs, folder, bare, push } = await synced({ keep: 'k' });
 	await push({ 'a/b': 'child' });
-	expectOk(await folder.files.create('a', 'mine'));
+	expectOk(await folder.write('a', null, 'mine'));
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(folderFiles(opfs)).toEqual({
 		'epicenter.json': discovery,
@@ -489,8 +489,8 @@ test("a local pattern Sync brings in keeps its files out of this open folder's n
 		),
 	});
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
-	expectOk(await folder.files.create('drafts/secret.md', 'private'));
-	expectOk(await folder.files.create('notes.md', 'shared'));
+	expectOk(await folder.write('drafts/secret.md', null, 'private'));
+	expectOk(await folder.write('notes.md', null, 'shared'));
 	expect(await changedPaths(folder)).toEqual(['notes.md']);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
@@ -507,5 +507,5 @@ test("a local pattern Sync brings in keeps its files out of this open folder's n
 
 async function overwriteDeclaration(folder: Opened, text: string) {
 	const current = expectOk(await folder.files.read('epicenter.json'));
-	expectOk(await folder.files.save(current, text));
+	expectOk(await folder.write('epicenter.json', current.bytes, text));
 }

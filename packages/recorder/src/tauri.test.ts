@@ -41,10 +41,8 @@ const { listInputs, openMeter, startRecording, recoverRecordings } =
 
 const folder: RecordingFolder = {
 	id: 'so.epicenter.whispering',
-	files: {
-		create: () => {
-			throw new Error('the desktop recorder never writes through the page');
-		},
+	write: () => {
+		throw new Error('the desktop recorder never writes through the page');
 	},
 };
 

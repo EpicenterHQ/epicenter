@@ -10,6 +10,7 @@ import type {
 import {
 	defineFolder,
 	defineTable,
+	type FileContent,
 	type Folder,
 	field,
 	type Row,
@@ -17,6 +18,7 @@ import {
 	type StoredRow,
 	type TableListing,
 	type WriteError,
+	type Written,
 	type WrittenRow,
 } from './contract.js';
 import { folderOptions } from './query.js';
@@ -80,6 +82,22 @@ type Create = Variables<
 expectTypeOf<{
 	row: { fields: { name: string }; body: string };
 }>().not.toMatchTypeOf<Create>();
+
+// The folder's write and move mirror the handle's, for any path.
+type WriteFile = ReturnType<typeof folder$.write.mutationOptions>;
+expectTypeOf<Variables<WriteFile>>().toEqualTypeOf<{
+	readonly path: string;
+	readonly from: FileContent | null;
+	readonly to: FileContent | null;
+}>();
+expectTypeOf<MutationData<WriteFile>>().toEqualTypeOf<Written>();
+expectTypeOf<MutationError<WriteFile>>().toEqualTypeOf<WriteError>();
+type MoveFile = ReturnType<typeof folder$.move.mutationOptions>;
+expectTypeOf<Variables<MoveFile>>().toEqualTypeOf<{
+	readonly path: string;
+	readonly next: string;
+}>();
+expectTypeOf<MutationError<MoveFile>>().toEqualTypeOf<WriteError>();
 
 // A table named like a member is under `tables`; the member keeps its name.
 // No member is named for settings, which are a table: `kv` is a table's name.

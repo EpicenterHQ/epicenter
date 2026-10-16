@@ -38,9 +38,9 @@
 	/** The text typed and not written yet. */
 	const typed = $derived(captures.typedText(path));
 	const text = $derived(
-		file.data?.kind === 'text' ? (typed ?? file.data.file.text) : undefined,
+		file.data?.kind === 'text' ? (typed ?? file.data.text) : undefined,
 	);
-	const locked = $derived(captures.fenced || captures.isRemoving(path));
+	const locked = $derived(captures.fenced || captures.isDeleting(path));
 	const saveLater = useDebounce(() => captures.saveText(path), 1000);
 	// runed's timer outlives the view; save now instead.
 	onDestroy(() => void saveLater.runScheduledNow());

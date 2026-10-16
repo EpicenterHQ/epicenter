@@ -14,7 +14,9 @@
  * ```
  *
  * Each row helper of the folder's one write (ADR-0576) is its own mutation,
- * so each control owns its pending and error state. Writes to one file run
+ * so each control owns its pending and error state. The handle's own
+ * `write` and `move` are `folder$.write` and `folder$.move`, for any path,
+ * a row's included, as the handle has them. Writes to one file run
  * one at a time, in the order they were made, whichever control or mutation
  * made them, so a `set` reads the file the one before it wrote. The folder's options keep that order
  * themselves rather than in a TanStack mutation scope: a scoped mutation
@@ -61,13 +63,10 @@ import {
 	type QueryObserverOptions,
 } from '@tanstack/query-core';
 import { Err, isErr, Ok, type Result, unwrap } from 'wellcrafted/result';
-import type { FileListing } from './boundary.js';
-import type { CapturedFile, ContentCapture, FileCapture } from './capture.js';
+import type { FileListing, FileRead } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
 import type {
 	FileError,
-	FileSaveError,
-	MoveError,
 	RowReadError,
 	TableEnumerationError,
 	WriteError,
@@ -82,24 +81,16 @@ import type {
 } from './git/history.js';
 import type { CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
+import type { FileContent } from './merge-file.js';
 import { rowPath, rowStemOf } from './paths.js';
 import type { Row } from './row-text.js';
-import type { SavedFile } from './save-file.js';
 import type {
 	FileTable,
 	StoredRow,
 	TableListing,
 	WrittenRow,
 } from './table.js';
-
-export {
-	createTextDraft,
-	type SaveTextVariables,
-	type SentText,
-	type TextDraft,
-	type WrittenText,
-	writtenFile,
-} from './draft.js';
+import type { Written } from './write.js';
 
 /** How many commits `history.log` reads when the caller names no depth. */
 const LOG_DEPTH = 50;
@@ -178,34 +169,27 @@ export type TableOptions<TFields> = {
 	readonly delete: MutationFactory<string, undefined, WriteError>;
 };
 
+/** What a file write sends: the path, and the change from `from` to `to` (`folder.write`). */
+export type WriteFileVariables = {
+	readonly path: string;
+	readonly from: FileContent | null;
+	readonly to: FileContent | null;
+};
+
+/** What a move sends: the file's path, and where it goes (`folder.move`). */
+export type MoveFileVariables = {
+	readonly path: string;
+	readonly next: string;
+};
+
 export type FilesOptions = {
 	readonly list: QueryFactory<[], FileListing, FileError>;
-	readonly read: QueryFactory<[path: string], CapturedFile, FileError>;
+	readonly read: QueryFactory<[path: string], FileRead, FileError>;
 	/**
 	 * The file at `path` as an editor opens it (`openedFile`): its exact
 	 * text, or its kind and size when it is binary or larger than 1 MiB.
 	 */
 	readonly text: QueryFactory<[path: string], OpenedFile, FileError>;
-	/**
-	 * Write `content` at `path`: saved over `base`, the version the edit
-	 * started from, merging with any change made since (`files.save`), or
-	 * created as a new file that refuses an occupied path.
-	 */
-	readonly write: MutationFactory<
-		{
-			readonly path: string;
-			readonly content: string | Uint8Array;
-			readonly base?: ContentCapture;
-		},
-		SavedFile,
-		FileSaveError
-	>;
-	readonly move: MutationFactory<
-		{ readonly file: FileCapture; readonly to: string },
-		FileCapture,
-		FileError | MoveError
-	>;
-	readonly delete: MutationFactory<FileCapture, undefined, FileError>;
 };
 
 export type HistoryOptions = {
@@ -225,6 +209,8 @@ type Reserved =
 	| 'tables'
 	| 'files'
 	| 'history'
+	| 'write'
+	| 'move'
 	| 'pathFilter'
 	| 'invalidateOnChange'
 	| 'key'
@@ -251,6 +237,16 @@ export type FolderOptionsOf<TTables> = Omit<
 	readonly tables: TablesOptions<TTables>;
 	readonly files: FilesOptions;
 	readonly history: HistoryOptions;
+	/**
+	 * Write the change from `from` to `to` into the file at `path` as it is
+	 * now (`folder.write`): a create from `null`, an edit, or a delete to
+	 * `null`. Every cached query the path feeds is kept in step: the file's
+	 * read and text where a view holds them, the file listing, and the row
+	 * and its table's listing when the path is a row.
+	 */
+	readonly write: MutationFactory<WriteFileVariables, Written, WriteError>;
+	/** Move the file at `path` to `next`, as it is (`folder.move`); both paths' queries are read again. */
+	readonly move: MutationFactory<MoveFileVariables, Written, WriteError>;
 	/** The prefix of every key this folder's queries cache under. */
 	readonly key: readonly unknown[];
 	/**
@@ -287,7 +283,7 @@ export type FolderOptions<TDefinition extends FolderDefinition> =
 /** What `folderOptions` reads of a folder: its tables typed by inference. */
 type OptionsSource<TTables> = Pick<
 	Folder<FolderDefinition>,
-	'location' | 'files' | 'git' | 'sync' | 'onFilesChanged'
+	'location' | 'files' | 'write' | 'move' | 'git' | 'sync' | 'onFilesChanged'
 > & {
 	readonly tables: TTables;
 };
@@ -403,7 +399,6 @@ export function folderOptions<TTables>(
 		list: (name: string) => [...root, 'tables', name, 'list'] as const,
 		row: (name: string, stem: string) =>
 			[...root, 'tables', name, 'row', stem] as const,
-		files: () => [...root, 'files'] as const,
 		fileList: () => [...root, 'files', 'list'] as const,
 		file: (path: string) => [...root, 'files', 'read', path] as const,
 		text: (path: string) => [...root, 'files', 'text', path] as const,
@@ -484,7 +479,9 @@ export function folderOptions<TTables>(
 	/**
 	 * Put a write's result in the query at `key`. A read of it still running
 	 * may have read the file before the write, or after a later change, so
-	 * it is stopped and done again instead.
+	 * it is stopped and done again, and the result is put meanwhile: stopping
+	 * a read puts back what the query held before it, which an editor would
+	 * show as the text typed before the save.
 	 */
 	async function put<T>(
 		client: QueryClient,
@@ -497,6 +494,7 @@ export function folderOptions<TTables>(
 			return;
 		}
 		await client.cancelQueries(filters);
+		client.setQueryData<T>(key, update);
 		void client.invalidateQueries(filters);
 	}
 
@@ -676,62 +674,41 @@ export function folderOptions<TTables>(
 			queryOptions: (path) =>
 				readOptions(keys.text(path), () => readTextFile(folder.files, path)),
 		},
-		write: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.files(), 'write'],
-					run: async ({
-						path,
-						content,
-						base,
-					}: {
-						path: string;
-						content: string | Uint8Array;
-						base?: ContentCapture;
-					}): Promise<Result<SavedFile, FileSaveError>> => {
-						if (base !== undefined) return folder.files.save(base, content);
-						const { data: stored, error } = await folder.files.create(
-							path,
-							content,
-						);
-						if (error !== null) return Err(error);
-						return Ok({ stored, merged: false });
-					},
-					// The file read and opened, where a view holds them, is what the
-					// write wrote.
-					wrote: async (client, { stored }) => {
-						const { path } = stored;
-						await Promise.all([
-							put(client, keys.file(path), (held) => held && stored),
-							put(client, keys.text(path), (held) =>
-								held === undefined ? undefined : openedFile(stored),
-							),
-						]);
-						ownWrite(client, [path], [keys.file(path), keys.text(path)]);
-					},
-					touched: ({ path }) => [path],
-				}),
-		},
-		move: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.files(), 'move'],
-					run: ({ file, to }: { file: FileCapture; to: string }) =>
-						folder.files.move(file, to),
-					wrote: (client, moved, { file }) =>
-						ownWrite(client, [file.path, moved.path]),
-					touched: ({ file, to }) => [file.path, to],
-				}),
-		},
-		delete: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.files(), 'delete'],
-					run: (file: FileCapture) => folder.files.remove(file),
-					wrote: (client, _done, file) => ownWrite(client, [file.path]),
-					touched: (file) => [file.path],
-				}),
-		},
+	};
+
+	const write: MutationFactory<WriteFileVariables, Written, WriteError> = {
+		mutationOptions: () =>
+			writeOptions({
+				mutationKey: [...root, 'write'],
+				file: ({ path }: WriteFileVariables) => path,
+				run: ({ path, from, to }: WriteFileVariables) =>
+					folder.write(path, from, to),
+				// The file read and opened, where a view holds them, is what the
+				// write left; what else the path feeds is read again.
+				wrote: async (client, { file }, { path }) => {
+					if (file === null) return ownWrite(client, [path]);
+					await Promise.all([
+						put(client, keys.file(path), (held) => held && file),
+						put(client, keys.text(path), (held) =>
+							held === undefined ? undefined : openedFile(file.bytes),
+						),
+					]);
+					ownWrite(client, [path], [keys.file(path), keys.text(path)]);
+				},
+				touched: ({ path }) => [path],
+			}),
+	};
+	const move: MutationFactory<MoveFileVariables, Written, WriteError> = {
+		mutationOptions: () =>
+			writeOptions({
+				mutationKey: [...root, 'move'],
+				// It waits for the writes to the file it moves.
+				file: ({ path }: MoveFileVariables) => path,
+				run: ({ path, next }: MoveFileVariables) => folder.move(path, next),
+				wrote: (client, _moved, { path, next }) =>
+					ownWrite(client, [path, next]),
+				touched: ({ path, next }) => [path, next],
+			}),
 	};
 
 	/** A commit or a sync moved history, landed or not: status and log are read again. */
@@ -779,6 +756,8 @@ export function folderOptions<TTables>(
 		tables: Object.freeze(tables),
 		files,
 		history,
+		write,
+		move,
 		key: root,
 		pathFilter,
 		invalidateOnChange: (client: QueryClient) =>

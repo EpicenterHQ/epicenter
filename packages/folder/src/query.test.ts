@@ -18,7 +18,9 @@
  * - A delete drops the row and its listing entry
  * - A read running when a write lands is done again rather than landing
  *   over the write
- * - A file write puts what it wrote in the file's read and text queries
+ * - The folder write (`folder$.write`) puts what it wrote in the file's
+ *   read and text queries, and marks a row and its listing stale when its
+ *   path is a row; a move (`folder$.move`) marks both paths stale
  * - A failed write reads its path again
  * - Two controls' sets of one row run one at a time, in the order made,
  *   each over the row the one before wrote, and keep the cache
@@ -270,6 +272,12 @@ test('a read running when a write lands is read again, not kept over the write',
 		queryClient,
 		folder$.todos.set.mutationOptions(),
 	).mutate({ stem: 'milk', fields: { done: true } });
+	// What the write left is held while the read is done again, never what
+	// the query held before it.
+	const held = queryClient.getQueryData<typeof created>(
+		folder$.todos.get.queryKey('milk'),
+	);
+	expect(held?.row.fields.done).toBe(true);
 	answer();
 	await late.catch(() => undefined);
 
@@ -282,34 +290,80 @@ test('a read running when a write lands is read again, not kept over the write',
 	expect(row?.row.fields.done).toBe(true);
 });
 
-test('a file write puts what it wrote in the file read and text, reading nothing back', async () => {
+test('the folder write puts what it wrote in the file read and text, reading nothing back', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
 	const queryClient = client();
-	const first = expectOk(await folder.files.create('note.txt', 'one\n'));
+	expectOk(await folder.write('note.txt', null, 'one\n'));
 	await queryClient.fetchQuery(folder$.files.read.queryOptions('note.txt'));
 	await queryClient.fetchQuery(folder$.files.text.queryOptions('note.txt'));
 
-	const write = new MutationObserver(
+	const writeFile = new MutationObserver(
 		queryClient,
-		folder$.files.write.mutationOptions(),
+		folder$.write.mutationOptions(),
 	);
-	const saved = await write.mutate({
+	const written = await writeFile.mutate({
 		path: 'note.txt',
-		content: 'two\n',
-		base: first,
+		from: 'one\n',
+		to: 'two\n',
 	});
 
+	expect(written.file).not.toBeNull();
 	expect<unknown>(
 		queryClient.getQueryData(folder$.files.read.queryKey('note.txt')),
-	).toEqual(saved.stored);
+	).toEqual(written.file);
 	expect<unknown>(
 		queryClient.getQueryData(folder$.files.text.queryKey('note.txt')),
-	).toEqual({
-		kind: 'text',
-		file: { path: 'note.txt', text: 'two\n', sha256: saved.stored.sha256 },
-	});
+	).toEqual({ kind: 'text', text: 'two\n' });
 	expect(invalidatedIn(queryClient)).toEqual([]);
+});
+
+test("the folder write to a row's path marks the row and its listing stale", async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	const created = mustRow(
+		await folder.tables.todos.create(
+			{ fields: { title: 'Milk', done: false }, body: '' },
+			{ stem: 'milk' },
+		),
+	);
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+	await queryClient.fetchQuery(folder$.todos.get.queryOptions('milk'));
+
+	await new MutationObserver(
+		queryClient,
+		folder$.write.mutationOptions(),
+	).mutate({ path: created.path, from: created.text, to: null });
+
+	expect(invalidatedIn(queryClient)).toEqual([
+		folder$.todos.list.queryKey(),
+		folder$.todos.get.queryKey('milk'),
+	]);
+	await queryClient.refetchQueries();
+	expect(
+		queryClient.getQueryData(folder$.todos.get.queryKey('milk')),
+	).toBeNull();
+});
+
+test('a move reads both paths again', async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	expectOk(await folder.write('a.txt', null, 'one\n'));
+	await queryClient.fetchQuery(folder$.files.list.queryOptions());
+	await queryClient.fetchQuery(folder$.files.read.queryOptions('a.txt'));
+
+	const moved = await new MutationObserver(
+		queryClient,
+		folder$.move.mutationOptions(),
+	).mutate({ path: 'a.txt', next: 'b.txt' });
+
+	expect(moved.path).toBe('b.txt');
+	expect(invalidatedIn(queryClient)).toEqual([
+		folder$.files.list.queryKey(),
+		folder$.files.read.queryKey('a.txt'),
+	]);
 });
 
 test('a failed write reads its path again', async () => {

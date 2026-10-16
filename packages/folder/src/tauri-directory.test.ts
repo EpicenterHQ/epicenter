@@ -9,10 +9,11 @@
  *   through the shell's history commands: the `epicenter` CLI over `git`,
  *   which `answerShellHistory` runs in this process with the CLI's author
  * - Every refused or failed grant is an `OpenFolderError` and opens nothing
- * - A removal whose reply is lost is done if the path is gone, and
- *   `Unconfirmed` if it is still there
- * - A save the shell finds overtaken where it publishes is `Conflict`, or
- *   `Exists` for a create, never `Unconfirmed`; an overwrite still lands
+ * - A delete whose reply is lost is done if the path is gone, and `Io`
+ *   with an `Unconfirmed` cause if it is still there
+ * - A write the shell finds overtaken where it publishes reads again and
+ *   merges, a create onto the file that landed is `InvalidPath`, and a
+ *   delete reads again and wins; none is `Unconfirmed`
  * - `openDataFolder` reads with the folder's own `epicenter.json` and never
  *   writes it, asks for no history when it opens, creates no repository
  *   before the first commit, and merges rows on Sync by that declaration
@@ -384,11 +385,11 @@ test.each<[unknown, OpenFolderError['name']]>([
 
 test('a removal whose reply is lost is done once the path is gone', async () => {
 	const { root, folder } = await granted();
-	const file = expectOk(await folder.files.create('notes/a.md', 'a\n'));
+	expectOk(await folder.write('notes/a.md', null, 'a\n'));
 	afterRemove = () => {
 		throw new Error('the reply was lost');
 	};
-	expectOk(await folder.files.remove(file));
+	expectOk(await folder.write('notes/a.md', null, null));
 	expect(
 		await nodeFs.lstat(join(root, 'notes/a.md')).catch(() => undefined),
 	).toBe(undefined);
@@ -397,19 +398,19 @@ test('a removal whose reply is lost is done once the path is gone', async () => 
 
 test('a removal whose reply is lost with the path still there is unconfirmed', async () => {
 	const { root, folder } = await granted();
-	const file = expectOk(await folder.files.create('notes/a.md', 'a\n'));
+	expectOk(await folder.write('notes/a.md', null, 'a\n'));
 	afterRemove = (path) => {
 		// Another program, or the shell's own late removal, has not run yet.
 		writeFileSync(path, 'a\n');
 		throw new Error('the reply was lost');
 	};
-	const refused = expectErr(await folder.files.remove(file));
-	expect(refused.name).toBe('Unconfirmed');
+	const refused = expectErr(await folder.write('notes/a.md', null, null));
+	expect(refused).toMatchObject({ name: 'Io', cause: { name: 'Unconfirmed' } });
 	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe('a\n');
 	await folder.close();
 });
 
-test('a row write another window overtakes where it publishes merges with what is there; a create or a remove is refused', async () => {
+test('a row write another window overtakes where it publishes merges with what is there; a create is refused, and a delete reads again and wins', async () => {
 	const { root, folder } = await granted();
 	const sha256 = (text: string) =>
 		createHash('sha256').update(text).digest('hex');
@@ -445,22 +446,18 @@ test('a row write another window overtakes where it publishes merges with what i
 
 	const note = join(root, 'notes/a.md');
 	overtaken.set(note, 'theirs\n');
-	const made = await folder.files.create('notes/a.md', 'mine\n');
-	expect(made.error?.name).toBe('Exists');
+	const made = await folder.write('notes/a.md', null, 'mine\n');
+	expect(made.error?.name).toBe('InvalidPath');
 	expect(await readFile(note, 'utf8')).toBe('theirs\n');
 
-	const captured = expectOk(await folder.files.read('notes/a.md'));
 	overtaken.set(note, 'theirs again\n');
-	const removed = await folder.files.remove(captured);
-	expect(removed.error).toMatchObject({
-		name: 'Conflict',
-		actualSha256: sha256('theirs again\n'),
-	});
+	expectOk(await folder.write('notes/a.md', 'theirs\n', null));
+	expect(await nodeFs.lstat(note).catch(() => undefined)).toBe(undefined);
 
-	const again = expectOk(await folder.files.read('notes/a.md'));
+	expectOk(await folder.write('notes/a.md', null, 'base\n'));
 	overtaken.set(note, 'theirs once more\n');
-	const mine = expectOk(await folder.files.save(again, 'mine\n'));
-	expect(mine.merged).toBe(true);
+	const mine = expectOk(await folder.write('notes/a.md', 'base\n', 'mine\n'));
+	expect(mine.overridden).not.toEqual([]);
 	expect(await readFile(note, 'utf8')).toBe('mine\n');
 	expect(await nodeFs.readdir(scratchDirectory)).toEqual([]);
 	// The page told the shell what each publish expected: the declaration,
@@ -475,7 +472,8 @@ test('a row write another window overtakes where it publishes merges with what i
 		{ sha256: created.sha256 },
 		{ sha256: sha256(theirs) },
 		'absent',
-		{ sha256: sha256('theirs again\n') },
+		'absent',
+		{ sha256: sha256('base\n') },
 		{ sha256: sha256('theirs once more\n') },
 	]);
 	await folder.close();
@@ -553,7 +551,7 @@ test('a data folder without epicenter.json opens with no tables, and files work'
 	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expect(folder.definition).toEqual({ tables: {} });
 	expect(folder.tables).toEqual({});
-	expectOk(await folder.files.create('notes/a.md', 'a\n'));
+	expectOk(await folder.write('notes/a.md', null, 'a\n'));
 	expect(
 		new TextDecoder().decode(
 			expectOk(await folder.files.read('notes/a.md')).bytes,

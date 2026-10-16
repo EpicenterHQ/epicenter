@@ -64,7 +64,7 @@
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const text = $derived(
-		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.file.text) : undefined,
+		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
 	);
 	/** Why the text on screen is not a recording yet, read live from what is typed. */
 	const issues = $derived(text === undefined ? undefined : (parseRow(whisperingDefinition.tables.recordings, text).error ?? undefined));

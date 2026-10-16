@@ -2,18 +2,11 @@ import type {
 	FileListing,
 	FilesObservation,
 	GitSnapshot,
-	SavedFile,
 	SyncError,
 	SyncOutcome,
-	TextCapture,
 } from '@epicenter/folder';
 import { openDataFolder } from '@epicenter/folder/browser';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
-import {
-	createTextDraft,
-	type TextDraft,
-	writtenFile,
-} from '@epicenter/folder/query';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import type { Result } from 'wellcrafted/result';
 
@@ -54,11 +47,15 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let snapshot = $state.raw<GitSnapshot>(folder.git.snapshot);
 	let selected = $state('');
 	let buffer = $state('');
+	/** The file's text as the editor last read or wrote it. */
 	let saved = '';
-	/** The version the editor shows: its text is `saved`. */
-	let capture = $state.raw<TextCapture>();
-	/** The typed text and the version it started from, apart from `capture`. */
-	let draft: TextDraft = createTextDraft();
+	/** Whether the selected file is open as text. */
+	let editable = $state(false);
+	/**
+	 * The text the edit started from: the file's text at the first change,
+	 * then the text each landed save sent (ADR-0576). `undefined` with no edit.
+	 */
+	let from: string | undefined;
 	let saveMessage = $state('');
 	let dirty = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -113,7 +110,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		if (result.error !== null) {
 			saveMessage = result.error.message;
 			if (result.error.name === 'NotFound') {
-				capture = undefined;
+				editable = false;
 				buffer = '';
 				saved = '';
 			}
@@ -121,14 +118,14 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		}
 		if (result.data.kind !== 'text') {
 			saveMessage = 'This file is binary or too large to edit here.';
-			capture = undefined;
+			editable = false;
 			buffer = '';
 			saved = '';
 			return;
 		}
-		capture = result.data.file;
-		draft = createTextDraft();
-		saved = result.data.file.text;
+		editable = true;
+		from = undefined;
+		saved = result.data.text;
 		buffer = saved;
 		saveMessage = 'Saved';
 	}
@@ -171,33 +168,34 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			reading = undefined;
 		}
 	}
-	/** The editor shows what a save wrote: the file's text now. */
-	function showWritten(written: SavedFile) {
-		const text = new TextDecoder().decode(written.stored.bytes);
-		capture = {
-			path: written.stored.path,
-			sha256: written.stored.sha256,
-			text,
-		};
-		saved = text;
-	}
 	/**
-	 * Save the typed text over the version it started from. A file changed
-	 * elsewhere since is merged with it by line (ADR-0551): the editor shows
-	 * the merge, and text typed during the save is carried onto it.
+	 * Write the typed text as the change from the text it started from. The
+	 * write merges it with whatever changed elsewhere since, by line, and the
+	 * typed lines win where both changed the same lines (ADR-0576). With
+	 * nothing typed meanwhile, the editor shows what the file holds now;
+	 * otherwise the next save starts from what this one sent.
 	 */
 	async function saveOnce() {
-		const sent = draft.toSave();
-		if (!sent || !dirty) return;
+		const path = selected;
+		const base = from;
+		const sent = buffer;
+		if (base === undefined || !dirty) return;
 		saveMessage = 'Saving…';
-		const result = await folder.files.save(sent.base, sent.content);
+		const result = await folder.write(path, base, sent);
 		if (result.error !== null) {
 			saveMessage = result.error.message;
 			throw new Error(result.error.message);
 		}
-		await draft.saved(sent, writtenFile(result.data));
-		showWritten(result.data);
-		buffer = draft.text ?? saved;
+		// A delete beats an edit it never saw: the text stays typed.
+		if (result.data.file === null) {
+			saveMessage = `No file exists at '${path}', so the edit was not saved.`;
+			throw new Error(saveMessage);
+		}
+		saved = new TextDecoder().decode(result.data.file.bytes);
+		if (buffer === sent) {
+			from = undefined;
+			buffer = saved;
+		} else from = sent;
 		dirty = buffer !== saved;
 		saveMessage = dirty ? 'Unsaved changes' : 'Saved';
 	}
@@ -293,7 +291,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			return saveMessage;
 		},
 		get editable() {
-			return capture !== undefined;
+			return editable;
 		},
 		get running() {
 			return running;
@@ -329,17 +327,17 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await flush();
 			if (generation !== selectGeneration || closed) return;
 			selected = path;
-			capture = undefined;
-			draft = createTextDraft();
+			editable = false;
+			from = undefined;
 			buffer = '';
 			saved = '';
 			saveMessage = 'Opening…';
 			await readSelected();
 		},
 		input(text: string) {
-			if (closed || !capture || syncLocked()) return;
+			if (closed || !editable || syncLocked()) return;
 			buffer = withFileNewlines(text, saved);
-			draft.change(capture, buffer);
+			from ??= saved;
 			dirty = buffer !== saved;
 			saveMessage = dirty ? 'Unsaved changes' : 'Saved';
 			// Saved a second after the last keystroke, or at once on blur.
@@ -352,18 +350,18 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			clearTimeout(timer);
 			if (saving) await saving.catch(() => {});
 			dirty = false;
-			draft = createTextDraft();
+			from = undefined;
 			await readSelected();
 		},
 		flush,
 		status: action('Status', () => folder.git.status()),
 		commit: action('Save version', () => folder.git.commit()),
-		/** Create an empty file at a folder-relative path and open it. */
+		/** Create an empty file at a folder-relative path and open it; a file already there is refused. */
 		async create(path: string) {
 			path = path.trim();
 			if (!path) return;
 			await execute(`New file ${path}`, async () => {
-				const created = await folder.files.create(path, '');
+				const created = await folder.write(path, null, '');
 				if (created.error !== null) throw new Error(created.error.message);
 				return '';
 			});

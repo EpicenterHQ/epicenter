@@ -57,7 +57,7 @@
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const text = $derived(
-		opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.file.text) : undefined,
+		opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
 	);
 	/** Why a row file's text is not a row yet, read live from what is typed. */
 	const issues = $derived(

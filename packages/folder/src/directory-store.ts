@@ -22,7 +22,6 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing, FileRead, FolderStorage } from './boundary.js';
-import { hashBytes } from './capture.js';
 import {
 	type DirectoryPrimitives,
 	type EntryKind,
@@ -30,6 +29,7 @@ import {
 	SCRATCH_DIRECTORY,
 } from './directory-primitives.js';
 import { FileError, UnexpectedTarget } from './errors.js';
+import { hashBytes } from './hash.js';
 import { pathProblem } from './paths.js';
 
 const PRIVATE_DIRECTORY = '.git';

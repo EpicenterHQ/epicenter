@@ -5,8 +5,7 @@
  * These tests follow every runtime import from each package export through
  * the package's own modules, so a re-export or a stray helper import that
  * would make core or platform code load Svelte fails here. The Svelte entry
- * itself loads the draft and its line merge, and no host or storage
- * backend.
+ * itself loads only its editors: no host, storage backend, or Git.
  */
 import { expect, test } from 'bun:test';
 import { dirname, join } from 'node:path';
@@ -52,14 +51,11 @@ test('no core or platform entry loads Svelte or the adapter', async () => {
 	}
 });
 
-test('the Svelte entry loads the draft and its line merge, and no platform', async () => {
+test('the Svelte entry loads only its editors, and no platform', async () => {
 	const { files, outside } = await reached(manifest.exports['./svelte']);
-	// No host, storage backend, or Git beyond the line merge.
+	// No host, storage backend, or Git: the folder's write merges.
 	expect(files.map((file) => file.slice(packageRoot.length + 1))).toEqual([
-		'src/svelte/draft.svelte.ts',
-		'src/draft.ts',
-		'src/git/merge-lines.ts',
+		'src/svelte/editor.svelte.ts',
 	]);
-	// The line merge loads `diff` only when a merge runs.
-	expect(outside.sort()).toEqual(['diff', 'svelte/reactivity']);
+	expect(outside).toEqual([]);
 });

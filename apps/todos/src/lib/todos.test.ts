@@ -146,11 +146,15 @@ async function sha(todos: Todos, path: string) {
 
 /** Another program writes the file over whatever is there. */
 async function writeElsewhere(todos: Todos, path: string, content: string) {
-	const { files } = todos.folder;
-	const current = await files.read(path);
-	if (current.error?.name === 'NotFound')
-		return void expectOk(await files.create(path, content));
-	expectOk(await files.save(expectOk(current), content, { merge: false }));
+	const { folder } = todos;
+	const current = await folder.files.read(path);
+	expectOk(
+		await folder.write(
+			path,
+			current.error === null ? current.data.bytes : null,
+			content,
+		),
+	);
 }
 
 /** Add a todo through the app; answers its stem and path. */
@@ -378,7 +382,7 @@ test('a file that does not read as a todo is deleted', async () => {
 test('a delete runs after running saves and removes only the Markdown file', async () => {
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
+	expectOk(await todos.folder.write('todos/milk.png', null, 'not a todo'));
 	// Typing just before the confirmation opens is written first.
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));

@@ -7,10 +7,10 @@
  * processes take turns, so none is lost.
  *
  * Key behaviors:
- * - A save waits while another process holds the save lock, then checks
- *   against what that process saved: `Conflict`, and the other save is kept
- * - Two processes saving one file over and over, each retrying on
- *   `Conflict`, lose no update
+ * - A write waits while another process holds the save lock, then finds
+ *   its put stale against what that process saved, reads again, and merges
+ * - Two processes appending to one file through the one write keep every
+ *   line once
  *
  * See also:
  * - `registry_tests.rs` in `tauri-plugin-epicenter-folder`, where a shell
@@ -58,14 +58,13 @@ function lines(stream: ReadableStream<Uint8Array>) {
 	};
 }
 
-test('a save waits for another process holding the save lock, then conflicts with its save', async () => {
+test('a write waits for another process holding the save lock, then merges with its save', async () => {
 	const root = await scratch('bun-save-lock-');
 	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
 	const target = join(root, 'note.txt');
 	try {
 		await writeFile(target, 'old');
 		const folder = expectOk(await openDataFolder({ root, git: { author } }));
-		const base = expectOk(await folder.files.read('note.txt'));
 
 		// Another process takes the lock as the shell does, and on a line from
 		// stdin lands its own save, then lets go.
@@ -99,11 +98,9 @@ test('a save waits for another process holding the save lock, then conflicts wit
 		expect(await said()).toBe('locked');
 
 		let settled = false;
-		const saving = folder.files
-			.save(base, 'ours', { merge: false })
-			.finally(() => {
-				settled = true;
-			});
+		const saving = folder.write('note.txt', 'old', 'ours').finally(() => {
+			settled = true;
+		});
 		await Bun.sleep(200);
 		expect(settled).toBe(false);
 		expect(await readFile(target, 'utf8')).toBe('old');
@@ -113,9 +110,11 @@ test('a save waits for another process holding the save lock, then conflicts wit
 		expect(await said()).toBe('released');
 		await other.exited;
 
-		const { error } = await saving;
-		expect(error?.name).toBe('Conflict');
-		expect(await readFile(target, 'utf8')).toBe('theirs');
+		// Its put, guarded by what it read, was stale: it read theirs and won
+		// the line both changed.
+		const written = expectOk(await saving);
+		expect(written.overridden).not.toEqual([]);
+		expect(await readFile(target, 'utf8')).toBe('ours');
 		await folder.close();
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -174,63 +173,6 @@ test('two processes appending to one file through the one write keep every line 
 				Array.from({ length: ROUNDS }, (_, line) => `p${id}-${line}`),
 			);
 		expect(lines).toHaveLength(2 * ROUNDS);
-	} finally {
-		await rm(root, { recursive: true, force: true });
-		await rm(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), {
-			force: true,
-		});
-	}
-}, 60_000);
-
-test('two processes saving one file, each retrying on Conflict, lose no update', async () => {
-	const ROUNDS = 40;
-	const root = await scratch('bun-save-race-');
-	try {
-		await writeFile(join(root, 'count.txt'), '0');
-		// Each process counts up through `@epicenter/folder/bun` itself: read,
-		// add one, save over what it read, and read again on `Conflict`.
-		const counter = (id: number) =>
-			Bun.spawn(
-				[
-					'bun',
-					'-e',
-					`
-					const { openDataFolder } = await import(${JSON.stringify(join(import.meta.dir, 'bun.ts'))});
-					const [root, rounds] = process.argv.slice(-2);
-					const { data: folder, error } = await openDataFolder({
-						root,
-						git: { author: { name: 'Counter', email: 'counter@localhost' } },
-					});
-					if (error !== null) throw new Error(JSON.stringify(error));
-					let conflicts = 0;
-					for (let saved = 0; saved < Number(rounds); ) {
-						const read = await folder.files.read('count.txt');
-						if (read.error !== null) throw new Error(JSON.stringify(read.error));
-						const count = Number(new TextDecoder().decode(read.data.bytes));
-						const { error } = await folder.files.save(read.data, String(count + 1), { merge: false });
-						if (error === null) saved++;
-						else if (error.name === 'Conflict') conflicts++;
-						else throw new Error(JSON.stringify(error));
-					}
-					await folder.close();
-					console.log(JSON.stringify({ id: ${id}, conflicts }));
-					`,
-					'--',
-					root,
-					String(ROUNDS),
-				],
-				{ stdout: 'pipe', stderr: 'inherit', env: process.env },
-			);
-		const counters = [counter(0), counter(1)];
-		const codes = await Promise.all(counters.map((child) => child.exited));
-		expect(codes).toEqual([0, 0]);
-		const reports = await Promise.all(
-			counters.map((child) => new Response(child.stdout).json()),
-		);
-		expect(reports.map((report) => report.id)).toEqual([0, 1]);
-		expect(await readFile(join(root, 'count.txt'), 'utf8')).toBe(
-			String(2 * ROUNDS),
-		);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 		await rm(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), {

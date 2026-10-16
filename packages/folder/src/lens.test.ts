@@ -286,8 +286,8 @@ test('a browser folder opened through a lens reads, writes, and refuses alike', 
 	const writer = expectOk(
 		await openBrowserDataFolder({ id: 'todos', browser: storage }),
 	);
-	expectOk(await writer.files.create('epicenter.json', DECLARED));
-	expectOk(await writer.files.create('todos/milk.md', ROW));
+	expectOk(await writer.write('epicenter.json', null, DECLARED));
+	expectOk(await writer.write('todos/milk.md', null, ROW));
 	await writer.close();
 
 	const folder = expectOk(

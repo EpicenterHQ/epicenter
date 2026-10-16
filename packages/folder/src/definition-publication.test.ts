@@ -142,11 +142,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			const row = expectOk(await folder.files.read('notes/kept.md'));
 			const display = expectOk(await folder.files.read(DISPLAY));
 			expectOk(
-				await put(
-					folder.files,
-					'epicenter.json',
-					'malformed manual description',
-				),
+				await put(folder, 'epicenter.json', 'malformed manual description'),
 			);
 			await folder.close();
 			// Reopening writes nothing; the next write publishes again.
@@ -295,7 +291,7 @@ test('Bun publication failure leaves the folder usable and reports the actual de
 	await mkdir(join(root, 'epicenter.json'));
 	const folder = expectOk(await openBun({ root, definition, git: { author } }));
 	try {
-		expectOk(await folder.files.create('usable.txt', 'usable'));
+		expectOk(await folder.write('usable.txt', null, 'usable'));
 		expect(
 			events.find((event) => event.source === 'folder/definition')?.data,
 		).toMatchObject({

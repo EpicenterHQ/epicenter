@@ -1,8 +1,9 @@
 /**
  * The opened folder handle every opener returns (ADR-0471, ADR-0478).
  *
- * `write` is the one write (ADR-0576); `tables` and `files` publish through
- * the same file boundary, one file change per operation. A caller that
+ * `write` is the one write and `move` the one move (ADR-0576), and
+ * `tables` publish through the same file boundary, one file change per
+ * operation; `files` reads files and keeps directories. A caller that
  * needs several changes makes several calls; each one that succeeded stays
  * published when a later one fails.
  * `git` observes and records history. A save never commits: commits happen
@@ -33,9 +34,9 @@ import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
 import { declaring } from './publish-definition.js';
-import { type Written, writeFile } from './save-file.js';
 import { fenceStorage } from './storage.js';
 import { createTable, type FileTable } from './table.js';
+import { movePath, type Written, writeFile } from './write.js';
 
 /** History settings for a folder whose history this process records. */
 export type FolderGitOptions = {
@@ -134,6 +135,16 @@ export type FolderAccess<TDefinition extends FolderDefinition> = {
 		from: FileContent | null,
 		to: FileContent | null,
 	): Promise<Result<Written, WriteError>>;
+	/**
+	 * Move the file at `path` to `next`, as it is (ADR-0576): its bytes land
+	 * at `next` only where nothing is, then `path` is removed only while it
+	 * holds them, a write that lands there meanwhile carried along first. A
+	 * move changes where a file is, not what it holds, so it merges nothing.
+	 * No file at `path`, or one already at `next`, is `InvalidPath`;
+	 * `KeptChanging`, or a removal that failed, leaves the file at both
+	 * paths, to repair. Answers the file as it stands at `next`.
+	 */
+	move(path: string, next: string): Promise<Result<Written, WriteError>>;
 };
 
 /**
@@ -170,8 +181,8 @@ export type Folder<
 	/**
 	 * Hear that files may have changed, as a reason to read again (ADR-0548).
 	 * `change` is the paths a change reached, or `'everything'` when the
-	 * reporter cannot say which. A call carries no content and is never a
-	 * capture; read through the folder to learn what the files hold.
+	 * reporter cannot say which. A call carries no content; read through
+	 * the folder to learn what the files hold.
 	 *
 	 * Reports come from the host's one detector of changes made outside
 	 * this handle, and from incoming updates this handle's own Sync wrote.
@@ -323,7 +334,7 @@ export function assembleFolder<
 				: Object.freeze(requiredOutsideShape(table, shape)),
 		);
 	}
-	const files = createFiles({ storage, definition: prepared });
+	const files = createFiles({ storage });
 	const git = createFolderGit(history);
 
 	return Object.freeze({
@@ -333,6 +344,7 @@ export function assembleFolder<
 		git,
 		write: (path: string, from: FileContent | null, to: FileContent | null) =>
 			writeFile(storage, fileKindOf(prepared, path), path, from, to),
+		move: (path: string, next: string) => movePath(storage, path, next),
 		location: Object.freeze(location),
 		sync: history.sync,
 		onFilesChanged: (listener: (change: FilesChanged) => void) =>

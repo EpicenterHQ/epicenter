@@ -100,7 +100,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		}),
 	);
 	for (const [path, text] of Object.entries(files))
-		expectOk(await folder.files.create(path, text));
+		expectOk(await folder.write(path, null, text));
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const failures: WriteFailure[] = [];
@@ -127,10 +127,12 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		/** Another program writes the file over whatever is there. */
 		async writeElsewhere(path: string, text: string) {
 			const current = await folder.files.read(path);
-			if (current.error?.name === 'NotFound')
-				return void expectOk(await folder.files.create(path, text));
 			expectOk(
-				await folder.files.save(expectOk(current), text, { merge: false }),
+				await folder.write(
+					path,
+					current.error === null ? current.data.bytes : null,
+					text,
+				),
 			);
 		},
 		/** The folder's change channel reports `paths`, as for another page's writes. */
@@ -140,9 +142,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		},
 		/** Another program deletes the file as it is now. */
 		async deleteElsewhere(path: string) {
-			expectOk(
-				await folder.files.remove(expectOk(await folder.files.read(path))),
-			);
+			expectOk(await folder.write(path, null, null));
 		},
 		/** Hold the next published `.md` write until `release` runs. */
 		holdNextMarkdownWrite() {

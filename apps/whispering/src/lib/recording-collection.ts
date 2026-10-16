@@ -448,20 +448,21 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 }
 
 /**
- * Remove exactly what was captured and confirmed, one recording at a time.
- * Each is the library's own removal, so a recording that changed since it
- * was captured is refused there and reported here; the rest still go.
+ * Delete exactly what was captured and confirmed, one recording at a time.
+ * Each is the library's own deletion, so a recording with work under way, or
+ * a result saved since it was captured, is refused there and reported here;
+ * the rest still go.
  */
-export async function removeCaptured(
-	library: Pick<Library, 'remove'>,
+export async function deleteCaptured(
+	library: Pick<Library, 'delete'>,
 	deletions: CapturedDeletions['deletions'],
-): Promise<{ removed: number; problems: { title: string; reason: string }[] }> {
-	let removed = 0;
+): Promise<{ deleted: number; problems: { title: string; reason: string }[] }> {
+	let deleted = 0;
 	const problems: { title: string; reason: string }[] = [];
 	for (const deletion of deletions) {
-		const problem = await library.remove(deletion);
-		if (problem === undefined) removed += 1;
+		const problem = await library.delete(deletion);
+		if (problem === undefined) deleted += 1;
 		else problems.push({ title: deletion.title, reason: problem });
 	}
-	return { removed, problems };
+	return { deleted, problems };
 }

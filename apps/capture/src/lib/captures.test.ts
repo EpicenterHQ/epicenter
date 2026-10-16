@@ -133,8 +133,9 @@ test('the timeline orders by the instant across offsets, names files to repair, 
 		'captures/two-headings.md':
 			'---\ncapturedAt: 2026-10-01T03:00:00Z\n---\n\n## Thoughts\n\n## Thoughts\n',
 	});
-	await harness.folder.files.create(
+	await harness.folder.write(
 		'captures/binary.md',
+		null,
 		new Uint8Array([0xff, 0xfe]),
 	);
 	await harness.reportChange('captures/binary.md');
@@ -493,14 +494,14 @@ test('a delete runs after the edit is saved and removes what it saved', async ()
 	const { held, release } = harness.holdNextMarkdownWrite();
 	typeText(captures.formOf('one'), 'Saving while deleted');
 	await held;
-	const removing = captures.remove(deletion);
+	const deleting = captures.delete(deletion);
 	await Bun.sleep(5);
-	expect(captures.isRemoving(PATH)).toBe(true);
+	expect(captures.isDeleting(PATH)).toBe(true);
 	// Edits wait while the delete runs.
 	captures.formOf('one').inputNewThought('Later');
 	expect(captures.formOf('one').addThought()).toBe(false);
 	release();
-	expectOk(await removing);
+	expectOk(await deleting);
 	await quiet(captures);
 	expect(harness.failures).toEqual([]);
 	expect(await harness.text(PATH)).toBeUndefined();
@@ -516,7 +517,7 @@ test('a delete removes a capture changed elsewhere since it was confirmed', asyn
 		PATH,
 		`---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`,
 	);
-	expectOk(await captures.remove(deletion));
+	expectOk(await captures.delete(deletion));
 	await quiet(captures);
 	expect(await harness.text(PATH)).toBeUndefined();
 	expect(listing(captures)).toEqual([]);
