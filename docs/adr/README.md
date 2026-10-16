@@ -796,3 +796,4 @@ When you add an ADR, add its row here.
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Proposed (amends 0539 and 0552) |
 | [0570](0570-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
 | [0571](0571-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
+| [0572](0572-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
