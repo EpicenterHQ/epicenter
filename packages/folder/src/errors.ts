@@ -356,7 +356,9 @@ export type TableUpdateError = TableSaveError | TableErrorOf<'InvalidUtf8'>;
  */
 export type TableSetBodyError =
 	| FileError
-	| TableErrorOf<'KeptChanging' | 'InvalidValues' | 'InvalidRow' | 'InvalidUtf8'>;
+	| TableErrorOf<
+			'KeptChanging' | 'InvalidValues' | 'InvalidRow' | 'InvalidUtf8'
+	  >;
 
 /** A guarded row move preserves the file move's failures, its landed capture included. */
 export type TableRenameError = FileError | MoveError;

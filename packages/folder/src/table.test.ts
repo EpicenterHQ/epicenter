@@ -559,14 +559,23 @@ test('setBody keeps every byte before the body and writes the body with line fee
 	const head = STYLED.slice(0, STYLED.indexOf('---\r\n', 4) + 5);
 	expect(await s.stored('todos/a.md')).toBe(`${head}One\nTwo\nThree\n`);
 	expect(saved.stored.row.body).toBe('One\nTwo\nThree\n');
-	expect(saved.stored.row.fields).toMatchObject({ title: 'Kept', priority: 'high' });
+	expect(saved.stored.row.fields).toMatchObject({
+		title: 'Kept',
+		priority: 'high',
+	});
 });
 
 test('setBody keeps fields another writer changed and merges the body by line', async () => {
 	const s = await setup();
-	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\ntwo\nthree\n');
+	await s.put(
+		'todos/a.md',
+		'---\ntitle: A\ndone: false\ntags: []\n---\none\ntwo\nthree\n',
+	);
 	const stored = await s.row('a');
-	await s.put('todos/a.md', '---\ntitle: Renamed\ndone: true\ntags: []\n---\none\ntwo\nthree\nfour\n');
+	await s.put(
+		'todos/a.md',
+		'---\ntitle: Renamed\ndone: true\ntags: []\n---\none\ntwo\nthree\nfour\n',
+	);
 	const saved = expectOk(await s.table.setBody(stored, 'ONE\ntwo\nthree\n'));
 	expect(saved.merged).toBe(true);
 	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
@@ -579,9 +588,15 @@ test('setBody wins lines both changed', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
 	const stored = await s.row('a');
-	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n');
+	await s.put(
+		'todos/a.md',
+		'---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n',
+	);
 	const saved = expectOk(await s.table.setBody(stored, 'mine\n'));
-	expect(saved).toMatchObject({ merged: true, stored: { row: { body: 'mine\n' } } });
+	expect(saved).toMatchObject({
+		merged: true,
+		stored: { row: { body: 'mine\n' } },
+	});
 	expect(await s.stored('todos/a.md')).toBe(
 		'---\ntitle: A\ndone: false\ntags: []\n---\nmine\n',
 	);
@@ -611,7 +626,10 @@ test('setBody with ifUnchanged writes over a change to the fields alone, keeping
 	const s = await setup();
 	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
 	const stored = await s.row('a');
-	await s.put('todos/a.md', '---\ntitle: Renamed\ndone: true\ntags: []\n---\none\n');
+	await s.put(
+		'todos/a.md',
+		'---\ntitle: Renamed\ndone: true\ntags: []\n---\none\n',
+	);
 	const saved = expectOk(
 		await s.table.setBody(stored, 'mine\n', { ifUnchanged: true }),
 	);
@@ -665,9 +683,13 @@ test('setBody never recreates a deleted row and refuses a file that is not a row
 	await s.put('todos/a.md', VALID);
 	const again = await s.row('a');
 	await s.put('todos/a.md', 'no frontmatter at all\n');
-	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe('InvalidRow');
+	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe(
+		'InvalidRow',
+	);
 	await s.put('todos/a.md', MALFORMED);
-	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe('InvalidRow');
+	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe(
+		'InvalidRow',
+	);
 	expect(await s.stored('todos/a.md')).toBe(MALFORMED);
 });
 

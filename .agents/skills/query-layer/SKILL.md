@@ -155,6 +155,24 @@ Shared query adapters expose `.options` as a static object. Svelte hooks read it
 {/if}
 ```
 
+### Name handles for what they hold
+
+Name a query handle for its data and a mutation handle for its verb plus noun:
+
+```svelte
+const todo       = createQuery(() => folder.todos.get.queryOptions(stem));
+const todos      = createQuery(() => folder.todos.list.queryOptions());
+const updateTodo = createMutation(() => folder.todos.update.mutationOptions());
+const deleteTodo = createMutation(() => folder.todos.delete.mutationOptions());
+```
+
+A query holds a value, so `todo.data` reads as the data. A mutation performs
+an action, so `deleteTodo.mutate(...)` reads as the action, and the handle
+names the option it came from. Keep the option's verb: `deleteTodo` for
+`.delete`, not `remove` (`delete` alone is reserved; the noun makes it legal).
+Do not suffix handles with `Query` or `Mutation`. Give each action its own
+mutation so each control owns its pending and error state.
+
 ### Imperative Interface: Queries Choose Cache Policy, Mutations Are Callable
 
 Use outside component context, or whenever the caller needs a direct Result:

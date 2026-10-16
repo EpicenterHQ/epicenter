@@ -477,7 +477,9 @@ test('notes from a CRLF file show LF; typing in them writes an LF body and keeps
 		new TextDecoder().decode(
 			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
 		),
-	).toBe('---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\nTwo\nThree\n');
+	).toBe(
+		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\nTwo\nThree\n',
+	);
 });
 
 test('completion from the list and from the detail keeps notes and undeclared keys', async () => {

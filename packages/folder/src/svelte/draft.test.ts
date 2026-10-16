@@ -159,10 +159,8 @@ test('a body editor takes no change while there is no row', () => {
 	type Note = { title: string };
 	const body = createBodyEditor<Note>({
 		row: () => undefined,
-		save: heldSaves<
-			{ base: StoredRow<Note>; text: string },
-			SavedRow<Note>
-		>().save,
+		save: heldSaves<{ base: StoredRow<Note>; text: string }, SavedRow<Note>>()
+			.save,
 	});
 	body.change('typed\n');
 	expect(body.text).toBeUndefined();

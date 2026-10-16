@@ -407,7 +407,8 @@ test('wellFormed replaces each unpaired surrogate and keeps pairs', () => {
 });
 
 test('a body reads with line feeds, whatever the file wrote', () => {
-	const text = '---\r\ntitle: T\r\ndone: false\r\ntags: []\r\n---\r\none\r\ntwo\rthree\n';
+	const text =
+		'---\r\ntitle: T\r\ndone: false\r\ntags: []\r\n---\r\none\r\ntwo\rthree\n';
 	expect(expectOk(parseRow(todos, text)).body).toBe('one\ntwo\nthree\n');
 });
 
