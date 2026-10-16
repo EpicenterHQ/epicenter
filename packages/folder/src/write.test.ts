@@ -174,6 +174,38 @@ test('a version that does not read as a row merges as text, and binary is the wh
 	});
 });
 
+test('a row merged as text never joins two lines added at one place in its frontmatter', async () => {
+	const base = '---\ntitle: Walk\n---\nbody\n';
+	const merged = await merge(ROW, {
+		base,
+		// Neither reads as a row of this table, so the rows merge as text.
+		ours: '---\ntitle: Walk\ncolor: red\n---\nbody\nmine\n',
+		theirs: '---\ntitle: Walk\ncolor: blue\n---\nbody\nyours\n',
+	});
+	// The frontmatter lines compete, and the writer's stands alone; the
+	// body's insertions both stay.
+	expect(merged.content).toBe(
+		'---\ntitle: Walk\ncolor: red\n---\nbody\nyours\nmine\n',
+	);
+	expect(merged.overridden).toEqual([
+		{ kind: 'lines', part: 'text', line: 3, count: 1 },
+	]);
+});
+
+test('the merge driver asks for either side to win, with the same lines kept beside it', async () => {
+	const versions = {
+		base: 'a\nb\nc\n',
+		ours: 'a\nB (ours)\nc\nadded\n',
+		theirs: 'a\nB (theirs)\nc\n',
+	};
+	expect((await merge(TEXT, versions)).content).toBe(
+		'a\nB (ours)\nc\nadded\n',
+	);
+	expect((await merge(TEXT, versions, { winner: 'theirs' })).content).toBe(
+		'a\nB (theirs)\nc\nadded\n',
+	);
+});
+
 test('kv.json merges by key, the writer winning a key both set', async () => {
 	expect(
 		await merge(KV, {

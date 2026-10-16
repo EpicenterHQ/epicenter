@@ -39,6 +39,7 @@ import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { mergeLines, type SettledRegion } from './git/merge-lines.js';
 import { KV_PATH, settingText } from './kv.js';
 import { reconcileKv } from './kv-merge.js';
+import { frameRowText } from './markdown.js';
 import { ROW_EXTENSION } from './paths.js';
 import { type AnyRow, mergeRows, sameValue, setField } from './row-merge.js';
 import { parseRow, writeRow } from './row-text.js';
@@ -466,7 +467,10 @@ export function sameContent(
  * wins. Whether a file exists is decided by a delete; what it holds, by the
  * writer acting.
  */
-function wholeFile({ base, ours, theirs }: FileVersions): Merged {
+function wholeFile(
+	{ base, ours, theirs }: FileVersions,
+	winner: Winner = 'ours',
+): Merged {
 	if (sameContent(ours, theirs) || sameContent(theirs, base))
 		return { content: ours, overridden: [] };
 	if (sameContent(ours, base)) return { content: theirs, overridden: [] };
@@ -474,8 +478,17 @@ function wholeFile({ base, ours, theirs }: FileVersions): Merged {
 		return { content: null, overridden: [{ kind: 'file', lost: 'theirs' }] };
 	if (theirs === null)
 		return { content: null, overridden: [{ kind: 'file', lost: 'ours' }] };
-	return { content: ours, overridden: [{ kind: 'file', lost: 'theirs' }] };
+	return winner === 'ours'
+		? { content: ours, overridden: [{ kind: 'file', lost: 'theirs' }] }
+		: { content: theirs, overridden: [{ kind: 'file', lost: 'ours' }] };
 }
+
+/**
+ * The side whose change stands on a unit both changed differently: the
+ * writer acting, `ours`, everywhere but the Git merge driver, which also
+ * asks for `theirs` to write both sides inside its conflict markers.
+ */
+export type Winner = 'ours' | 'theirs';
 
 /** A competing region the writer's lines won, as `overridden` names it. */
 export const linesOf = (
@@ -488,16 +501,71 @@ export const linesOf = (
 	count: region.kept.split('\n').length - 1,
 });
 
-/** Three texts by line, ours winning each competing region. */
+/** Three texts by line, `winner` winning each competing region. */
 async function textWins(
 	base: string | null,
 	ours: string,
 	theirs: string,
+	winner: Winner,
 ): Promise<Merged> {
 	const merged = await mergeLines({ base: base ?? '', ours, theirs });
 	return {
-		content: merged.ours,
+		content: merged[winner],
 		overridden: merged.regions.map((region) => linesOf('text', region)),
+	};
+}
+
+/**
+ * A row version that does not read, merged as text: its frontmatter and its
+ * body apart when every version has closed frontmatter, so insertions at one
+ * place join in the body and compete in the frontmatter, where two lines
+ * added side by side could write one key twice. A version without closed
+ * frontmatter merges the whole text with no insertions joined.
+ */
+async function rowTextWins(
+	base: string | null,
+	ours: string,
+	theirs: string,
+	winner: Winner,
+): Promise<Merged> {
+	const split = (text: string) => {
+		const frame = frameRowText(text);
+		return frame.kind === 'frontmatter'
+			? {
+					head: text.slice(0, frame.bodyStart),
+					body: text.slice(frame.bodyStart),
+				}
+			: undefined;
+	};
+	const [b, o, t] = [
+		base === null ? { head: '', body: '' } : split(base),
+		split(ours),
+		split(theirs),
+	];
+	if (b === undefined || o === undefined || t === undefined) {
+		const merged = await mergeLines(
+			{ base: base ?? '', ours, theirs },
+			{ union: false },
+		);
+		return {
+			content: merged[winner],
+			overridden: merged.regions.map((region) => linesOf('text', region)),
+		};
+	}
+	const head = await mergeLines(
+		{ base: b.head, ours: o.head, theirs: t.head },
+		{ union: false },
+	);
+	const body = await mergeLines({ base: b.body, ours: o.body, theirs: t.body });
+	const headLines = head[winner].split('\n').length - 1;
+	return {
+		content: head[winner] + body[winner],
+		overridden: [
+			...head.regions.map((region) => linesOf('text', region)),
+			...body.regions.map((region) =>
+				linesOf('text', { ...region, line: region.line + headLines }),
+			),
+		],
 	};
 }
 
@@ -506,6 +574,7 @@ function settingsWin(
 	base: string | null,
 	ours: string,
 	theirs: string,
+	winner: Winner,
 ): Merged | undefined {
 	const texts = { base, ours, theirs };
 	const merged = reconcileKv(texts, new Map());
@@ -513,7 +582,7 @@ function settingsWin(
 	if (merged.kind !== 'conflict') return undefined;
 	const settled = reconcileKv(
 		texts,
-		new Map(merged.conflicts.map((key) => [key.key, key.ours])),
+		new Map(merged.conflicts.map((key) => [key.key, key[winner]])),
 	);
 	if (settled.kind !== 'merged') return undefined;
 	return {
@@ -536,6 +605,7 @@ const sameRow = (left: AnyRow, right: AnyRow) =>
 async function rowWins(
 	table: PreparedFolderTable,
 	texts: { base: string | null; ours: string | null; theirs: string | null },
+	winner: Winner,
 ): Promise<Merged | undefined> {
 	const read = (text: string | null) => {
 		if (text === null) return null;
@@ -555,15 +625,16 @@ async function rowWins(
 	if (o !== null && b !== null && sameRow(o, b))
 		return { content: texts.theirs, overridden: [] };
 	if (o === null || t === null) {
-		const whole = wholeFile(texts);
+		const whole = wholeFile(texts, winner);
 		if (whole.content === null || whole.content === texts.theirs) return whole;
 		const text = canonical(o as AnyRow);
 		return text === undefined ? undefined : { ...whole, content: text };
 	}
 	const merged = await mergeRows(b, o, t);
 	const fields = { ...merged.fields };
-	for (const unit of merged.conflicts) setField(fields, unit.field, unit.ours);
-	const text = canonical({ fields, body: merged.body.ours });
+	for (const unit of merged.conflicts)
+		setField(fields, unit.field, unit[winner]);
+	const text = canonical({ fields, body: merged.body[winner] });
 	if (text === undefined) return undefined;
 	return {
 		content: text,
@@ -585,6 +656,7 @@ async function rowWins(
 export async function merge(
 	kind: FileKind,
 	versions: FileVersions,
+	{ winner = 'ours' }: { readonly winner?: Winner } = {},
 ): Promise<Merged> {
 	const [base, ours, theirs] = [
 		textOf(versions.base),
@@ -592,13 +664,14 @@ export async function merge(
 		textOf(versions.theirs),
 	];
 	if (base === undefined || ours === undefined || theirs === undefined)
-		return wholeFile(versions);
+		return wholeFile(versions, winner);
 	if (kind.kind === 'row') {
-		const row = await rowWins(kind.table, { base, ours, theirs });
+		const row = await rowWins(kind.table, { base, ours, theirs }, winner);
 		if (row !== undefined) return row;
 	}
-	if (ours === null || theirs === null) return wholeFile(versions);
+	if (ours === null || theirs === null) return wholeFile(versions, winner);
+	if (kind.kind === 'row') return rowTextWins(base, ours, theirs, winner);
 	const structured =
-		kind.kind === 'kv' ? settingsWin(base, ours, theirs) : undefined;
-	return structured ?? textWins(base, ours, theirs);
+		kind.kind === 'kv' ? settingsWin(base, ours, theirs, winner) : undefined;
+	return structured ?? textWins(base, ours, theirs, winner);
 }

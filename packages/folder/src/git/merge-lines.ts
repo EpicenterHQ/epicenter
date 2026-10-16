@@ -86,12 +86,16 @@ export type LineMerge = {
 	readonly regions: readonly SettledRegion[];
 };
 
-/** The line merge of three texts. */
-export async function mergeLines({
-	base,
-	ours,
-	theirs,
-}: LineVersions): Promise<LineMerge> {
+/**
+ * The line merge of three texts. With `union: false`, two different
+ * insertions at one place compete like any other region, for text where two
+ * lines added side by side would mean something else, such as two values
+ * of one frontmatter key.
+ */
+export async function mergeLines(
+	{ base, ours, theirs }: LineVersions,
+	{ union = true }: { readonly union?: boolean } = {},
+): Promise<LineMerge> {
 	// Loaded when a merge needs it: the shell's diff uses the same library,
 	// and a static import would put it in this module's chunk.
 	const { diffArrays } = await import('diff');
@@ -198,7 +202,7 @@ export async function mergeLines({
 		// Both inserted different lines here, replacing nothing: keep both,
 		// theirs first as what landed first, or the longer where one extends
 		// the other, so a resent insertion is not doubled.
-		else if (start === end)
+		else if (start === end && union)
 			settled = extendsLines(right.lines, left.lines)
 				? [right]
 				: extendsLines(left.lines, right.lines)
