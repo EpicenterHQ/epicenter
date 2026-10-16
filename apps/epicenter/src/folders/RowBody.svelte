@@ -69,13 +69,20 @@
 		lose(`the notes of ${row}`, typed);
 	}
 	$effect(handOff);
-	// runed's timer outlives the panel; save now instead.
+	// runed's timer outlives the panel; save now instead. What the last save
+	// leaves typed, because the row is gone or the save failed, goes to
+	// `onlost` with the panel, or nothing would hold it.
 	onDestroy(
 		() =>
 			void saveLater
 				.runScheduledNow()
 				.then(() => body.save())
-				.then(handOff),
+				.then(() => {
+					const typed = body.typed;
+					if (typed === undefined) return;
+					body.discard();
+					lose(`the notes of ${row}`, typed);
+				}),
 	);
 </script>
 
