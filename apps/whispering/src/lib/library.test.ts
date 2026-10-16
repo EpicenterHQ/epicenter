@@ -57,7 +57,7 @@ import type { Library } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
 import {
 	commitLine,
-	filesLineOf,
+	filesLine,
 	summaryLine,
 	uncommittedLine,
 } from './status.js';
@@ -196,7 +196,7 @@ async function record(library: Library) {
 
 /** The header's lines, from the same function AppHeader calls. */
 function status(library: Library) {
-	const files = filesLineOf(library);
+	const files = filesLine(library);
 	return {
 		files,
 		summary: summaryLine({

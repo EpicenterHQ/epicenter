@@ -49,7 +49,7 @@ import {
 } from './edits.test-support.js';
 import type { Library, WriteNotice } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
-import { filesLineOf } from './status.js';
+import { filesLine } from './status.js';
 import { TransformationError } from './transformation.js';
 import {
 	deferred,
@@ -728,7 +728,7 @@ test('an answer whose write fails is written again while the page lives', async 
 		text: 'Transformed: um so a steady tone',
 		message: expect.stringContaining('disk refused the result'),
 	});
-	expect(filesLineOf(library).label).toBe('1 answer not written yet');
+	expect(filesLine(library).label).toBe('1 answer not written yet');
 
 	await eventually(() => library.unwrittenAnswers === 0);
 	await settle(library);
@@ -737,7 +737,7 @@ test('an answer whose write fails is written again while the page lives', async 
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'Transformed: um so a steady tone\n',
 	);
-	expect(filesLineOf(library).tone).toBe('good');
+	expect(filesLine(library).tone).toBe('good');
 });
 
 test('an answer for a row someone filled or deleted meanwhile writes nothing', async () => {

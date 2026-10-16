@@ -19,7 +19,7 @@
 	import {
 		commitLine,
 		commitOutcomeLine,
-		filesLineOf,
+		filesLine,
 		headLine,
 		type StatusLine,
 		summaryLine,
@@ -41,7 +41,7 @@
 		onToggleTerminal: () => void;
 	} = $props();
 
-	const files = $derived(filesLineOf(library));
+	const files = $derived(filesLine(library));
 	/** The home page has the large recorder; every other page gets this compact one. */
 	const onHome = $derived(page.route.id === '/');
 	const uncommitted = $derived(uncommittedLine(library.git));
