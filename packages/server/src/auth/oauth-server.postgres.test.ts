@@ -553,8 +553,7 @@ describe('the protected routes', () => {
 			new Request(`${origin}${path}`, {
 				method: init.method ?? 'GET',
 				headers: {
-					// A browser names its origin on every cross-origin POST; the
-					// cookie-mutation guard on /api/* refuses a POST without one.
+					// A browser names its origin on every cross-origin request.
 					origin,
 					...(token ? { authorization: `Bearer ${token}` } : {}),
 					...(init.body ? { 'content-type': 'application/json' } : {}),

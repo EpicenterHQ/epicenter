@@ -13,11 +13,10 @@
  * secret fails fast with a descriptive error instead of a downstream surprise.
  *
  * What is deliberately ABSENT, and why:
- * - Object / namespace bindings (`STORE_AUTHORITY`, `HYPERDRIVE`) are not strings
- *   and cannot be validated from
- *   `process.env`. They live on the deployment's own `Cloudflare.Env` and are
- *   read by deployment resolvers at the `apps/*` edge, never by library code
- *   reaching for a binding shape. With the assets route retired into the
+ * - Object bindings (`HYPERDRIVE`, `ARTIFACTS`) are not strings and cannot be
+ *   validated from `process.env`. They live on the deployment's own
+ *   `Cloudflare.Env` and are read by deployment resolvers at the `apps/*`
+ *   edge, never by library code reaching for a binding shape. With the assets route retired into the
  *   portable blob store, the library now names NO Cloudflare object binding,
  *   by value or by type.
  * - The relational-auth secrets (`BETTER_AUTH_SECRET` and the OAuth provider
@@ -36,10 +35,10 @@
 import { type } from 'arktype';
 
 export const ServerBindings = type({
-	// Portable S3 client over aws4fetch. Worker uses it for R2; Bun selects it
-	// only when its deployment explicitly sets BLOBS_BACKEND=s3. All fields are
-	// optional here; the Bun entry validates the selected backend at startup.
-	// `BLOBS_S3_BUCKET` defaults to `epicenter-blobs` and `BLOBS_S3_REGION` to
+	// Portable S3 client over aws4fetch, for R2 on the Worker and any
+	// S3-compatible endpoint on Bun. All fields are optional: without an
+	// endpoint and both keys, `resolveDeploymentBlobStore` returns null and the
+	// blob routes answer 503. `BLOBS_S3_BUCKET` defaults to `epicenter-blobs` and `BLOBS_S3_REGION` to
 	// `auto` (R2's region) when unset.
 	'BLOBS_S3_ENDPOINT?': 'string',
 	'BLOBS_S3_ACCESS_KEY_ID?': 'string',

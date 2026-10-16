@@ -333,7 +333,7 @@ bun run db:studio:local  # Open Drizzle Studio (local)
 bun run db:studio:remote # Open Drizzle Studio (remote, via Infisical)
 ```
 
-See `wrangler.jsonc` for the Artifacts binding, the Durable Object migration history, and Hyperdrive (Postgres connection pool) configuration.
+See `wrangler.jsonc` for the Artifacts binding, why the Worker has no Durable Objects, and Hyperdrive (Postgres connection pool) configuration.
 
 `auth:generate:remote` writes every Better Auth model into
 `packages/server/src/db/schema/auth.ts`; move the OAuth provider's models into

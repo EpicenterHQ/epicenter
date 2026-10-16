@@ -19,8 +19,8 @@
  * auth layer, the inference/blobs mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
- * Runtime skew is fenced by design: a DO-only behavior (hibernation restore,
- * alarm timing, edge placement) will not surface here, so `wrangler dev` /
+ * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive,
+ * Artifacts, edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
  *
  * The authorization server's pages (sign-in, consent, device) are the built
@@ -33,11 +33,6 @@
  * both entries: the dashboard SPA needs the Worker-only `ASSETS` binding, and
  * billing is the hosted Worker's concern. Everything the shared library can
  * mount on both runtimes is mounted on both.
- * Because this runtime cannot resolve the hosted storage allowance, first
- * contact is allowed only for workspaces already registered by the hosted
- * Worker. Existing current-state replicas in this runtime's own backend may
- * still sync; opening an old records database performs the authorized protocol
- * reset and does not resume legacy receipts.
  */
 
 import { statSync } from 'node:fs';
@@ -269,14 +264,12 @@ export async function startBunApiServer(): Promise<void> {
 	const server = Bun.serve({
 		port,
 		// Bun calls `fetch(req, server)`; route everything through the Hono app with
-		// the validated env as `c.env`. WebSocket upgrades are never intercepted
-		// ahead of the auth pipeline here.
+		// the validated env as `c.env`.
 		fetch: (req) => app.fetch(req, env),
 	});
 
-	// Nothing durable to close here any more: the store lives in the client
-	// (ADR-0223) and the authority is a Durable Object, so this process owns no
-	// database whose WAL has to be checkpointed.
+	// Nothing local needs a checkpoint: Postgres is a separate server, and the
+	// pool's connections close with the process.
 	const shutdown = () => {
 		void server.stop(true);
 		process.exit(0);

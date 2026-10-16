@@ -18,5 +18,5 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit"
 	},
-	"description": "The branded PrincipalId that keys every storage partition: server paths, R2 prefixes, Durable Object names, local database names, and HKDF labels. Plus the pinned instance constant."
+	"description": "The branded PrincipalId that keys every storage partition: server paths, R2 prefixes, local database names, and HKDF labels. Plus the pinned instance constant."
 }

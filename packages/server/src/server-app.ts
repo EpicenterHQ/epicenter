@@ -57,7 +57,7 @@ export type Identity = {
  * Installs the ordered portable request-scoped middlewares:
  *
  *   1. Origin + trust resolution (a pure read of the env binding).
- *   2. CORS (skips WS upgrades).
+ *   2. CORS.
  *
  * Cookie routes guard their own origin: `requireSessionCookie` refuses another
  * origin and a state change that names none.

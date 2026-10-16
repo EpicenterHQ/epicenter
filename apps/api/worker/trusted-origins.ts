@@ -62,8 +62,8 @@ function isLocalDeployment(baseURL: string): boolean {
 }
 
 /**
- * Origins Epicenter cloud permits for CORS, Better Auth CSRF / redirect checks,
- * and cookie-mutation guards.
+ * Origins Epicenter cloud permits for CORS and Better Auth CSRF / redirect
+ * checks.
  *
  * A local deployment additionally trusts the localhost dev origins so a
  * developer can iterate against a local API; a deployed origin trusts only the
