@@ -112,8 +112,7 @@ lives in app data; built bundles live in Caches
 Epicenter compiles in only its Folders window, served below `/apps/<id>/`.
 Todos, Capture, Whispering, and Honeycrisp are installed apps
 ([ADR-0552](adr/0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)).
-The Git lab ships its own desktop shell over the same engine. Vocab runs in
-the browser.
+The Git lab and Vocab run in the browser.
 
 An installed app is a folder holding `epicenter.app.json` in a Git
 repository, the repository's root unless installing names another folder.

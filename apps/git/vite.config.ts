@@ -7,9 +7,7 @@ export default defineConfig(
 			alias: [
 				{
 					find: /^@epicenter\/folder$/,
-					replacement: process.env.GIT_DESKTOP
-						? '@epicenter/folder/tauri'
-						: '@epicenter/folder/browser',
+					replacement: '@epicenter/folder/browser',
 				},
 				{
 					find: /^buffer$/,

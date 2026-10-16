@@ -6,11 +6,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "bun scripts/dev.ts",
-		"dev:desktop": "bun scripts/dev.ts --desktop",
 		"dev:ui": "vite dev",
 		"build": "vite build",
-		"build:desktop-ui": "GIT_DESKTOP=1 vite build",
-		"build:desktop": "bun x tauri build",
 		"preview": "vite preview",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"test": "bun test --isolate --conditions=browser"
@@ -30,13 +27,11 @@
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
-		"@tauri-apps/cli": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"dependencies": {
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"@tauri-apps/api": "catalog:",
 		"buffer": "^6.0.3"
 	},
 	"license": "AGPL-3.0-or-later"

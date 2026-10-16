@@ -154,7 +154,6 @@
       "dependencies": {
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
-        "@tauri-apps/api": "catalog:",
         "buffer": "^6.0.3",
       },
       "devDependencies": {
@@ -165,7 +164,6 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
-        "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
