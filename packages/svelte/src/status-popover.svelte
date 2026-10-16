@@ -49,6 +49,7 @@
 
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import * as Popover from '@epicenter/ui/popover';
 	import type { Snippet } from 'svelte';
 	import StatusRow from './status-row.svelte';
@@ -87,20 +88,7 @@
 				<span class="size-2 shrink-0 rounded-full {DOT[summary.tone]}" aria-hidden="true"></span>
 				<span class="truncate sm:hidden">{summary.short ?? summary.label}</span>
 				<span class="truncate max-sm:hidden">{summary.label}</span>
-				<!-- Lucide's chevron-down: this package does not depend on @lucide/svelte. -->
-				<svg
-					class="text-muted-foreground max-sm:hidden"
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true"
-				>
-					<path d="m6 9 6 6 6-6" />
-				</svg>
+				<ChevronDownIcon class="text-muted-foreground max-sm:hidden" aria-hidden="true" />
 			</Button>
 		{/snippet}
 	</Popover.Trigger>

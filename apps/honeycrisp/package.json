@@ -51,7 +51,6 @@
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"bits-ui": "catalog:",
-		"buffer": "^6.0.3",
 		"date-fns": "catalog:",
 		"markdown-it": "^14.0.0",
 		"prosemirror-commands": "^1.6.0",

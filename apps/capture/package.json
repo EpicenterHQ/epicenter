@@ -30,7 +30,6 @@
 		"@epicenter/ui": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"buffer": "^6.0.3",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
