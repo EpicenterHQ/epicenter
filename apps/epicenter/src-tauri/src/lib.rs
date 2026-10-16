@@ -27,8 +27,8 @@ pub mod audio;
 
 pub mod transcription;
 use transcription::{
-    delete_model, download_model, get_active_model, get_local_transcription_readiness,
-    get_unload_policy, list_inference_models, list_models, prewarm_model, set_active_model,
+    download_model, get_active_model, get_local_transcription_readiness, get_unload_policy,
+    list_inference_models, list_models, prewarm_model, reveal_model, set_active_model,
     set_unload_policy, transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
 };
 
@@ -153,7 +153,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             set_unload_policy,
             list_models,
             download_model,
-            delete_model,
+            reveal_model::<tauri::Wry>,
             cancel_download,
             pause_playback,
             resume_playback,
@@ -370,17 +370,15 @@ pub fn run() {
                 pages: scheme::pages_dir(app.handle())?,
                 builds: desktop_paths.builds_dir(),
             });
+            // The active local model and the unload policy are device-local host
+            // state (ADR-0180), so they live in the app's data directory beside
+            // `approvals.json`, never in a folder that could carry them to a
+            // machine without the model files or a compatible accelerator.
+            let settings = LocalTranscriptionSettings::load(
+                desktop_paths.data_dir.join("local-transcription.json"),
+            );
             app.manage(desktop_paths);
 
-            // The active local model and the unload policy are device-local host
-            // state (ADR-0180), so they live beside the app's own config rather
-            // than in any workspace that could carry them to a machine without
-            // the model files or a compatible accelerator.
-            let settings = LocalTranscriptionSettings::load(
-                app.path()
-                    .app_config_dir()?
-                    .join("local-transcription.json"),
-            );
             let cache = ModelCache::new(settings);
             cache.start_idle_watcher();
             app.manage(cache);
@@ -1077,7 +1075,7 @@ mod tests {
             "allow-list-models",
             "allow-download-model",
             "allow-cancel-download",
-            "allow-delete-model",
+            "allow-reveal-model",
             "allow-get-active-model",
             "allow-set-active-model",
             "allow-get-unload-policy",

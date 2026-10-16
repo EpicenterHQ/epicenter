@@ -43,7 +43,7 @@ pub const COMMANDS: &[&str] = &[
     "set_unload_policy",
     "list_models",
     "download_model",
-    "delete_model",
+    "reveal_model",
     "cancel_download",
     "pause_playback",
     "resume_playback",

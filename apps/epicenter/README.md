@@ -141,6 +141,7 @@ Files split by what they cost to lose (ADR-0539):
   Apps/<app-id>/                              an installed app's source repository
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   approvals.json                              which app commits may run here (the CLI writes it)
+  local-transcription.json                    the active local model and when to unload it
 ~/Library/Caches/so.epicenter/                disposable
   builds/<app-id>/<commit>/                   built app bundles
   builds/<app-id>/<commit>.log                what the install and build printed
@@ -155,16 +156,20 @@ Rust resolves the three directories once at startup and stores them for the
 desktop lifetime; the scheme serves installed apps from the cache directory,
 and every `epicenter` command the shell runs receives all three. The recorder
 writes into a folder a window was granted, not into application data
-(`tauri-plugin-epicenter-recorder`, ADR-0543). Native model settings retain
-Tauri's app-config location.
+(`tauri-plugin-epicenter-recorder`, ADR-0543). Local model files are not here:
+they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
+`$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
+Settings shows a model's folder there; deleting that folder removes the model.
+Local transcription settings, `local-transcription.json`, are in the data
+directory. A file an earlier build kept in Tauri's config directory, which
+differs from the data directory on Linux and Windows, is not read.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
 
 Earlier Windows builds used `%APPDATA%\so.epicenter`. Existing files are not
 moved automatically. To carry them forward, stop Epicenter and any CLI using
 its data, back up the old directory, then copy it to
-`%LOCALAPPDATA%\so.epicenter` before launching the new build. Retain the old
-directory: native model settings still use Roaming AppData. If the destination
+`%LOCALAPPDATA%\so.epicenter` before launching the new build. If the destination
 already contains data, do not merge or overwrite the directories. Set
 `EPICENTER_DATA_DIR` to the full path of the directory you intend to use instead.
 The same override can keep an existing installation at its old location.
