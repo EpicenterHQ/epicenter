@@ -9,16 +9,18 @@
  * removals go below it (`put`, `drop`), so nothing reports them.
  *
  * Key behaviors:
- * - Opening a note writes nothing; a field is an update of the file as it
+ * - Opening a note writes nothing; a field is a set of the file as it
  *   is now, and a body typed is held by the note's body draft and saved
- * - A body typed while its save runs is saved next, from the version the
- *   save wrote
+ * - A body typed while its save runs is saved next, from the body the
+ *   save sent
  * - A read that lands while a body is held does not replace it, and the
  *   save merges with the change the read brought
- * - An update over a change made elsewhere keeps the fields it did not set
+ * - A set over a change made elsewhere keeps the fields it did not set
  * - A body save that fails keeps the body on screen and says so; Save
- *   again, or the next change, saves it. A note deleted elsewhere drops the
- *   body, leaves the list, and offers the text
+ *   again, or the next change, saves it. A body saved over a delete not yet
+ *   reported writes the note again; a reported delete takes the note off
+ *   the list, it takes no edit, and a body typed and not yet saved is
+ *   dropped and its text offered
  * - One note's writes run one at a time; another note's do not wait
  * - A change another tab saved shows in the lists and the open note
  * - A note whose text is not a valid note is named for repair, opens as
@@ -144,7 +146,7 @@ const folderRows = (notes: Notes) =>
 // Edits and saves
 // ============================================================================
 
-test('opening a note writes nothing, and an update is saved', async () => {
+test('opening a note writes nothing, and a set is saved', async () => {
 	const { notes, disk, failures } = await open();
 	const before = disk.text(A);
 	const start = writesTo(disk, A);
@@ -165,7 +167,7 @@ test('opening a note writes nothing, and an update is saved', async () => {
 	expect(cached(notes, 'a').sha256).toBe(await sha(notes, A));
 });
 
-test('a body typed while its save runs is saved next, from the version it wrote', async () => {
+test('a body typed while its save runs is saved next, from the body it sent', async () => {
 	const { notes, disk, failures } = await open();
 	const start = writesTo(disk, A);
 	disk.hold();
@@ -216,33 +218,66 @@ test('a read that lands while a body is held does not replace it, and the save m
 	});
 });
 
-test('an update over a change made elsewhere keeps the fields it did not set', async () => {
+test('a set over a change made elsewhere keeps the fields it did not set', async () => {
 	const { notes, disk, failures } = await open();
 	disk.put(A, noteText({ title: 'Theirs', body: 'Their body.\n' }));
 
 	notes.patchNote(A, { title: 'Mine' });
 	await quiet(notes);
 	expect(failures).toEqual([]);
-	// The title is the update's; only they changed the body, so it stays.
+	// The title is the set's; only they changed the body, so it stays.
 	expect(disk.text(A)).toContain('title: Mine');
 	expect(disk.text(A)).toContain('Their body.\n');
 	expect(cached(notes, 'a').row.fields.title).toBe('Mine');
 	expect(cached(notes, 'a').row.body).toBe('Their body.\n');
 });
 
-test('a note deleted elsewhere drops the edit, leaves the list, and nothing writes it again', async () => {
+test('a body saved over a delete not yet reported writes the note again', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	disk.drop(A);
 	typeBody(notes, A, 'Mine.\n');
 	await quiet(notes);
-	expect(failures).toMatchObject([
-		{ path: A, error: { name: 'NotFound' }, kept: false },
-	]);
-	expect(failures[0]?.unsaved).toContain('Mine.');
-	expect(disk.text(A)).toBeUndefined();
-	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
+	// The save is the writer acting, so its edit stands over the delete.
+	expect(failures).toEqual([]);
+	expect(disk.text(A)).toMatch(/^"?title"?: "?Alpha"?$/m);
+	expect(disk.text(A)).toContain('Mine.\n');
+	expect(shown(notes, A)?.body).toBe('Mine.\n');
 	expect(notes.isUnsaved(A)).toBe(false);
+});
+
+test('a body typed and not yet saved when a delete is reported is dropped and offered once', async () => {
+	const { notes, disk, failures } = await open();
+	notes.open(A);
+	// Typed, and waiting for the pause before it saves.
+	expect(notes.editBody(A, 'Mine.\n')).toBeUndefined();
+	disk.drop(A);
+	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await quiet(notes);
+	expect(failures).toMatchObject([
+		{ path: A, error: { name: 'NoteDeleted' }, unsaved: 'Mine.\n', kept: false },
+	]);
+	expect(notes.isUnsaved(A)).toBe(false);
+	expect(notes.unsaved).toBe(false);
+	expect(disk.text(A)).toBeUndefined();
+	// A later read of the listing offers it no second time.
+	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([B]));
+	await quiet(notes);
+	expect(failures).toHaveLength(1);
+	expect(disk.text(A)).toBeUndefined();
+});
+
+test('a note deleted elsewhere leaves the list once reported, and takes no edit', async () => {
+	const { notes, disk, failures } = await open();
+	notes.open(A);
+	disk.drop(A);
+	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await quiet(notes);
+	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
+	expect(typeBody(notes, A, 'Mine.\n')).toBeDefined();
+	await quiet(notes);
+	expect(failures).toEqual([]);
+	expect(disk.text(A)).toBeUndefined();
 });
 
 test('a body save that fails keeps the body on screen and says so, and Save again saves it', async () => {
@@ -266,7 +301,7 @@ test('a body save that fails keeps the body on screen and says so, and Save agai
 	expect(notes.unsaved).toBe(false);
 });
 
-test('an update that fails is reported and writes nothing', async () => {
+test('a set that fails is reported and writes nothing', async () => {
 	const { notes, disk, failures } = await open();
 	const before = disk.text(A);
 	disk.failNextWrite();
@@ -290,14 +325,14 @@ test('a value a file cannot hold is refused by the folder, and the file is uncha
 	expect(cached(notes, 'a').row.fields.pinned).toBe(false);
 });
 
-test("a note's updates wait for its running write, and another note's do not", async () => {
+test("a note's sets wait for its running write, and another note's do not", async () => {
 	const { notes, disk, failures } = await open();
 	disk.hold();
 	notes.patchNote(A, { title: 'A typed' });
 	await until(() => disk.held().length === 1, 'the save to start');
 	notes.patchNote(A, { title: 'A typed again' });
 	notes.patchNote(B, { title: 'B typed' });
-	// A's second update waits its turn; B's started on its own.
+	// A's second set waits its turn; B's started on its own.
 	expect(notes.isWriting(A)).toBe(true);
 	expect(notes.isWriting(B)).toBe(true);
 	expect(disk.held()).toEqual([A]);
@@ -314,7 +349,7 @@ test('a change another tab saved shows in the lists and the open note', async ()
 	const tab = await disk.otherTab();
 	const theirs = expectOk(await tab.tables.notes.get('a'));
 	if (theirs === undefined) throw new Error('No note a');
-	expectOk(await tab.tables.notes.save(theirs, titled('Theirs')(theirs.row)));
+	expectOk(await tab.tables.notes.write('a', theirs.row, titled('Theirs')(theirs.row)));
 	expectOk(await tab.files.create('notes/c.md', noteText({ title: 'Gamma' })));
 	await until(
 		() =>
@@ -435,7 +470,7 @@ test('a note opened as its file while its save runs is read once the save lands'
 // List and folder actions
 // ============================================================================
 
-test('a list action is an update like any other, saved at once', async () => {
+test('a list action is a set like any other, saved at once', async () => {
 	const { notes, disk, failures } = await open();
 	expect(notes.trashNote(B)).toBeUndefined();
 	await quiet(notes);
@@ -502,7 +537,7 @@ test('a folder is not deleted while a note cannot say which folder it is in', as
 	expect(disk.text(work.path)).toBeDefined();
 });
 
-test('a folder name is an update of its row, saved at once', async () => {
+test('a folder name is a set of its row, saved at once', async () => {
 	const { notes, disk, failures } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);

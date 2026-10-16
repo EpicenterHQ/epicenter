@@ -35,16 +35,16 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   store, a review, or a retained editor per path. `$state` holds only input
   that is not saved yet: a title typed, body and text drafts, the search, a
   folder name being typed.
-- A field edit is an update of the file as it is now (ADR-0554): title,
+- A field edit sets fields of the file as it is now (ADR-0576): title,
   folder, pin, list actions, and folder names set their fields through the
-  folder's update options and keep every field another writer changed. The
+  folder's `set` options and keep every field another writer changed. The
   open note holds a title typed in its own `$state` until it is sent.
 - A note's body, from rich text or Source, is opened with a body editor
-  (`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0575), one per
-  note in the store. It takes the row and its version at the first change,
-  keeps the body outside the cache, and saves the body alone a second after
-  the last change, or at once when the view leaves it; `table.setBody`
-  merges by line with a file changed elsewhere since. A read never replaces a draft. A failed save keeps
+  (`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0576), one per
+  note in the store. It takes the cached row at the first change, keeps the
+  body outside the cache, and sends the change from that row a second after
+  the last change, or at once when the view leaves it; `table.write` merges
+  it by line with a file changed elsewhere since. A read never replaces a draft. A failed save keeps
   the draft and reports it through `onWriteFailed`. While a file is open as
   text, its text is a draft of its own, written whole over the version it
   started from, and row edits of it are refused.

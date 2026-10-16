@@ -194,7 +194,7 @@ test('a change another tab saved shows in the open note', async () => {
 	const tab = await otherTab();
 	const { data: theirs } = await tab.tables.notes.get('a');
 	if (theirs == null) throw new Error('No note a');
-	await tab.tables.notes.save(theirs, {
+	await tab.tables.notes.write('a', theirs.row, {
 		fields: { ...theirs.row.fields, title: 'Theirs' },
 		body: 'Their body.\n',
 	});
