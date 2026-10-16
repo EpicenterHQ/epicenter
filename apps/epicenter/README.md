@@ -161,10 +161,8 @@ they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
 `$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
 Settings shows a model's folder there; deleting that folder removes the model.
 Local transcription settings, `local-transcription.json`, are in the data
-directory. Earlier builds kept them in Tauri's config directory, which differs
-from the data directory on Linux and Windows; when the new file is missing and
-`EPICENTER_DATA_DIR` is unset, Epicenter copies the old one over and leaves the
-original there.
+directory. A file an earlier build kept in Tauri's config directory, which
+differs from the data directory on Linux and Windows, is not read.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
 
