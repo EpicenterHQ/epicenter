@@ -293,6 +293,21 @@ test('a note is written to the file; the list takes the saved version', async ()
 	);
 });
 
+test('a note set on a word deleted elsewhere writes nothing and is offered to copy', async () => {
+	const context = await setup();
+	const { vocab, folder, entries, failures } = context;
+	const entry = await context.add('lucid');
+	const path = entry.stored.path;
+	expectOk(await folder.files.remove(expectOk(await folder.files.read(path))));
+	expect(entries.setNote(entry.id, 'typed after the delete')).toBe(true);
+	await quiet(vocab);
+	// A delete beats an edit that never saw it (ADR-0576).
+	expect(await context.text(path)).toBeUndefined();
+	expect(failures).toMatchObject([
+		{ path, error: { name: 'NotFound' }, lost: 'typed after the delete' },
+	]);
+});
+
 test("one word's updates run one at a time in the order made, so a stage press does not undo a note", async () => {
 	const context = await setup();
 	const { vocab, entries, failures, counter } = context;

@@ -28,6 +28,7 @@
 
 import { InstantString } from '@epicenter/definition/field';
 import {
+	FileError,
 	hashBytes,
 	rowPath,
 	type StoredRow,
@@ -154,12 +155,6 @@ export function createEntries(
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
-	/** The word the cache holds at `id`, if it reads as one. */
-	function rowOf(id: string): StoredRow<EntryFields> | undefined {
-		const result = listingData()?.find((entry) => entry.stem === id)?.result;
-		return result?.error === null ? result.data : undefined;
-	}
-
 	/** Whether a delete of `path` is running or waiting, which pauses its edits. */
 	const removing = (path: string) =>
 		queryClient.isMutating({
@@ -168,11 +163,21 @@ export function createEntries(
 		}) > 0;
 
 	/**
-	 * Set fields of a word as its file is now. A failure is reported; the
-	 * card keeps what was typed, and a word deleted elsewhere is gone.
+	 * Set fields of a word as its file is now. A failure is reported, and the
+	 * card keeps what was typed. A set of a word deleted elsewhere writes
+	 * nothing (ADR-0576): it is reported with the note it held, to copy.
 	 */
 	const setEntry = {
 		...folder$.entries.set.mutationOptions(),
+		onSuccess: (written, { stem, fields }) => {
+			if (written !== null) return;
+			const path = pathOf(stem);
+			onWriteFailed({
+				path,
+				error: FileError.NotFound({ path }).error,
+				lost: fields.note ?? '',
+			});
+		},
 		onError: (error, { stem }) =>
 			onWriteFailed({ path: pathOf(stem), error, lost: '' }),
 	} satisfies ReturnType<typeof folder$.entries.set.mutationOptions>;
@@ -284,19 +289,10 @@ export function createEntries(
 		onSuccess: ({ id, stored }) => received(id, stored),
 	});
 
-	/**
-	 * Whether the word at `id` takes an edit now: not closing, being
-	 * deleted, or open as text, and still listed as a word. A set of a word
-	 * deleted elsewhere is refused as not a whole word, so none is sent.
-	 */
+	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
 	function canEdit(id: string) {
 		const path = pathOf(id);
-		return (
-			refused() === undefined &&
-			repair?.path !== path &&
-			!removing(path) &&
-			rowOf(id) !== undefined
-		);
+		return refused() === undefined && repair?.path !== path && !removing(path);
 	}
 
 	/** Set fields of the word at `id`; answers whether it was sent. */
