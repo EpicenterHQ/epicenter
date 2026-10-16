@@ -41,16 +41,10 @@ const who = (account: StoredGrant['account']) =>
 			? `${account.name} (${account.id})`
 			: account.id;
 
-/** Open `url` in the person's browser with the platform's own command. */
+/** Open `url` in the person's browser with macOS's `open` (ADR-0567). */
 function openInBrowser(url: string) {
-	const command =
-		process.platform === 'darwin'
-			? ['open', url]
-			: process.platform === 'win32'
-				? ['rundll32', 'url.dll,FileProtocolHandler', url]
-				: ['xdg-open', url];
 	try {
-		Bun.spawn(command, { stdio: ['ignore', 'ignore', 'ignore'] });
+		Bun.spawn(['open', url], { stdio: ['ignore', 'ignore', 'ignore'] });
 	} catch {
 		// The URL is printed as well; a person can open it by hand.
 	}
