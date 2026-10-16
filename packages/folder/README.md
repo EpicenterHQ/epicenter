@@ -630,6 +630,7 @@ its default export declares (ADR-0527).
 | --- | --- |
 | `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `save(base, row, options?)` writes an edit over the version it started from, merging with another writer's newer file. `rename` and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` changes one key of the file as read at the set, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and saves with the one save loop, merging by key with another writer's save. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
+| `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. See [One write](#one-write). |
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. A browser or Bun handle's is `FolderGitSteps`, which adds `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `paths()`, `stage()`, `commitStaged(message)`, and `diff()`; the browser entry's openers are `OpenFolder<FolderGitSteps>` and `OpenDataFolder<FolderGitSteps>`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
@@ -998,9 +999,61 @@ mutation.
 A row that is not valid is repaired as text: `files.save(invalidRow, text)`
 saves over the `InvalidRow` the read returned, which carries its text.
 
+### One write
+
+`folder.write(path, from, to)` is the write every other verb is moving onto
+(ADR-0576). `from` is the content the change started from, or `null` for no
+file; `to` is the new content, or `null` to delete the file.
+
+```ts
+const { data: written, error } = await folder.write('notes/a.md', opened.text, edited);
+if (error !== null) return show(error.message); // KeptChanging, InvalidValues, Io, Closed, InvalidPath
+written.file;       // what the path holds now: { path, sha256, bytes }, or null
+written.overridden; // each unit this write won over another writer's change
+```
+
+1. It reads the file as it is now; no file is `null`.
+2. It merges `from`, `to`, and that file with `merge(kind, { base, ours, theirs })`,
+   `to` as `ours`. A result equal to the file is done, with nothing put.
+3. It puts the result with `storage.put(path, bytes, ifMatch)`, guarded by the
+   hash it read, or by no file. Another writer landing in between makes the
+   put `'stale'`, and the write starts again from step 1, at most
+   `WRITE_ATTEMPTS` times, then `KeptChanging`. A lost reply is read back once.
+
+| File | Unit |
+| --- | --- |
+| a row, `<table>/<stem>.md` | one frontmatter key; one region of body lines |
+| `kv.json` | one root key |
+| other UTF-8 text | one region of lines |
+| binary, or a side absent | the whole file |
+
+- Units only one side changed all survive. On a unit both changed, the
+  writer wins, and `overridden` names it (`field`, `setting`, `lines` with
+  its `line` and `count`, or `file` with whether the other side `changed` or
+  `deleted` it). Each overwrite is logged through `wellcrafted/logger`
+  (`folder/save`); nothing is shown to a person.
+- Two insertions at one place both survive, the file's first, then the
+  writer's. Identical ones are one, and an insertion that holds the other at
+  its start or end stands alone. Lines compare without their line feeds,
+  and a result ends with a line feed as the version its last line came from.
+- A row is written in the standard form, so a hand-written row loses its
+  comments and quoting on its first write from an app. A row the writer left
+  as `from` had it is no change, and the file keeps its spelling.
+- A version that does not read as its kind merges as text, and any `to` is
+  written: a raw edit of a row can leave a row to repair (ADR-0503). A typed
+  table view refuses a row it cannot write before it writes (`InvalidValues`).
+- A delete needs no base: `to` of `null` removes whatever is there.
+
+Storage's `put` lands only while the path holds `ifMatch`, the SHA-256 there
+or `null` for no file, and answers `'stale'` otherwise, changing nothing. The
+browser, the desktop, and Bun share its one implementation: OPFS checks under
+the folder's Web Lock, and a directory checks where its staged file is
+renamed into place, under the save lock (ADR-0562).
+
 ### One save
 
-Every write to an existing file is one save loop, `saveFile` (ADR-0551):
+Every save over an existing file by the earlier verbs is one save loop,
+`saveFile` (ADR-0551):
 `table.save`, `kv.set`, and `files.save` are thin calls over it.
 
 1. The base's content must hash to its `sha256`; otherwise `UnknownBase`.
@@ -1031,7 +1084,9 @@ merges with the same rules (see [Sync](#sync)).
 
 Where both sides changed one unit, the edit wins (ADR-0575). The save
 returns no record of it for a person; each overwrite that lands is logged
-through `wellcrafted/logger` (`folder/save`) with the units it replaced.
+through `wellcrafted/logger` (`folder/save`) with the units it replaced. It
+merges with `merge`, as `folder.write` does, so two insertions at one place
+both survive here too.
 
 ### Reading and saving kv.json
 

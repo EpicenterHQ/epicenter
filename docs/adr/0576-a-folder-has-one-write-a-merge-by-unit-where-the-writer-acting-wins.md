@@ -4,10 +4,10 @@
 - **Date:** 2026-10-16
 - **Supersedes:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (a field edit as its own verb, `table.update`)
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing "Sync: decided by the person": an overlap in Sync is decided by the device syncing. That files are the truth, with one read path and one channel of change, remains.
-- **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ text, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
+- **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Relates:** [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md), [ADR-0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md)
 - **Replaces, as Proposed records:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review), ADR-0522 (settings as `kv.json` keys), and ADR-0575's write verbs (`table.update`, `table.setBody`, `ifUnchanged`). Each carries a note pointing here and is deleted when this is built.
-- **Unbuilt:** all of the Decision below.
+- **Unbuilt:** the table helpers and their mutations, the body editor's `from` and `typed`, and deleting the earlier verbs; Sync and the merge driver on `merge`; the `settings` table and deleting `kv.json`'s machinery.
 
 ## Context
 
@@ -65,19 +65,48 @@ it is now and merges the change from `from` to `to` into it, by unit:
 
 - Units only one side changed all survive.
 - On a unit both changed differently, the writer acting wins.
-- Two insertions at the same place both survive, and two identical
-  insertions are one.
+- Two insertions at the same place both survive, the other side's first,
+  then the writer's. Two identical insertions are one, and where one holds
+  the other at its start or end, the longer stands alone, so an insertion
+  sent again after it landed is not doubled.
+- Lines compare without their line feeds, so appending to text that ends
+  without one is an insertion. A result ends with a line feed as the version
+  its last line came from ends.
+- A side with no file makes the whole file one unit, so an edit and a delete
+  compete as one: the writer's edit stands over a delete, and the writer's
+  delete removes an edit.
 - A version that does not read as its kind merges as text. A result that
   does not read is left for repair (ADR-0503).
 - Every write parses, merges, and formats canonically. A row's frontmatter is
   always written in the standard form; there is no splice.
-- `from` is content, or no file for a create. A delete needs no `from`: the
-  deleter wins.
+- `from` is content, or `null` for no file, and is always given. A delete
+  needs no base: the deleter wins whatever `from` is, which only names the
+  file as overridden when it differs from what was there.
+- Any `to` is written, whether or not it reads as its kind; a typed view
+  refuses a row it cannot write before it calls the write.
 - The write reads, merges, and puts guarded by the hash it read, again on a
   lost race, at most `WRITE_ATTEMPTS` times. Storage is `read` and
-  `put(path, bytes | null, ifMatch)`.
+  `put(path, bytes | null, ifMatch)`, where `ifMatch` is the SHA-256 the path
+  must hold or `null` for no file, answering `'landed'` or `'stale'`.
 - Every failure is one `WriteError`: `KeptChanging`, `InvalidValues`, `Io`,
   `Closed`, or `InvalidPath`.
+
+The merge is `merge(kind, { base, ours, theirs })`, with `ours` the writer
+acting. It returns `{ content, overridden }`: the file, `null` for none, and
+each unit where the writer replaced another writer's change. A unit is named,
+never its losing content, which stays in whatever version held it:
+
+```ts
+type Overridden =
+  | { kind: 'field'; field: string }
+  | { kind: 'setting'; key: string } // until settings are a table
+  | { kind: 'lines'; part: 'body' | 'text'; line: number; count: number }
+  | { kind: 'file'; theirs: 'changed' | 'deleted' };
+```
+
+`line` is where the writer's `count` lines stand in the result, 1-based
+within the body or the file. A write logs what it overrode; Sync's commit
+message lists it.
 
 **A table is a typed view.** It is a codec over `<table>/<stem>.md` with
 `get(stem)`, `list()`, and `write(stem, from, to)`. Helpers build the change
@@ -114,7 +143,10 @@ create, a delete, a Sync, and `git pull` through the merge driver.
 same tiebreaker: the device syncing is the writer acting, and its side wins
 every unit both changed. The merge commit's message lists each unit it
 overrode, and the losing side stays reachable as the merge's other parent.
-Sync publishes each changed file through the one write, on every host. In a
+Sync publishes each changed file with the same `merge` and `put`, on every
+host. The device's side of that publish is its file as it is at the put, not
+the merge Sync computed, so text typed while Sync runs, which no commit
+holds, wins over what arrived. In a
 `git pull`, the merge driver treats the local checkout as the writer acting
 and writes no conflict markers.
 
@@ -153,7 +185,13 @@ its stems are named by concern, such as `settings/display.md` and
   version is gone, as with any save (ADR-0529).
 - Two writers who add different text at one place both keep it, so a body
   can hold both versions of an addition. A writer that fills a body once,
-  such as Whispering's answers, needs no guard: identical answers are one.
+  such as Whispering's answers, needs no guard against another fill:
+  identical answers are one.
+- A write over a file deleted since its `from` recreates it, as the writer
+  acting. A writer that runs without a person, such as a retried fill or an
+  autosave, checks that its row is still there before each write.
+- A write's `to` that does not read as its kind is written, so a raw edit of
+  a row can leave a row to repair, as a hand edit can.
 - A body edit rewrites its row's frontmatter in the standard form, so a
   hand-written file loses comments and custom quoting on its first edit from
   an app.
