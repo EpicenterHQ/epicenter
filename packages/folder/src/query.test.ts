@@ -272,6 +272,12 @@ test('a read running when a write lands is read again, not kept over the write',
 		queryClient,
 		folder$.todos.set.mutationOptions(),
 	).mutate({ stem: 'milk', fields: { done: true } });
+	// What the write left is held while the read is done again, never what
+	// the query held before it.
+	const held = queryClient.getQueryData<typeof created>(
+		folder$.todos.get.queryKey('milk'),
+	);
+	expect(held?.row.fields.done).toBe(true);
 	answer();
 	await late.catch(() => undefined);
 

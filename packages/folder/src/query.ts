@@ -479,7 +479,9 @@ export function folderOptions<TTables>(
 	/**
 	 * Put a write's result in the query at `key`. A read of it still running
 	 * may have read the file before the write, or after a later change, so
-	 * it is stopped and done again instead.
+	 * it is stopped and done again, and the result is put meanwhile: stopping
+	 * a read puts back what the query held before it, which an editor would
+	 * show as the text typed before the save.
 	 */
 	async function put<T>(
 		client: QueryClient,
@@ -492,6 +494,7 @@ export function folderOptions<TTables>(
 			return;
 		}
 		await client.cancelQueries(filters);
+		client.setQueryData<T>(key, update);
 		void client.invalidateQueries(filters);
 	}
 
