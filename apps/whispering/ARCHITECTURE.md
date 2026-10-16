@@ -44,10 +44,10 @@ bindings and no second transport.
 
 Every other native service is Epicenter's, granted to every installed app's
 windows (`installed-app.json` in `apps/epicenter/src-tauri/capabilities`):
-the recorder, local transcription with Epicenter's active model, and the AI
-commands. The two connections are rows of Epicenter's own folder
-`so.epicenter`, whose endpoints and keys stay in this computer's keychain; a
-request goes through the `epicenter` CLI, which adds the key. Nothing native opens the folder for the page, takes its lock for it, or
+the recorder, local transcription with Epicenter's local models, and the AI
+commands. Connections are rows of Epicenter's own folder `so.epicenter`,
+whose endpoints and keys stay in this computer's keychain; a request goes
+through the `epicenter` CLI, which adds the key. Nothing native opens the folder for the page, takes its lock for it, or
 saves a file the folder tracks.
 
 The two fail apart. If the `epicenter` command fails while Whispering is
@@ -78,12 +78,10 @@ What Whispering adds on top:
 - A transcription is a separate row, so a recording can have several and each is
   a readable file.
 - A transformation (a recipe) is a row in `transformations/`: title in
-  frontmatter, the instructions as its body. `model` and `endpoint` are
-  nullable: `null` or empty means "the text connection's". A string `model`
-  overrides the connection's model. A string `endpoint` (written by an earlier
-  build) is kept and read as a constraint the text connection must meet
-  exactly; it never chooses where a request goes. Its results refer to it by
-  stem, so the app never renames it either.
+  frontmatter, the instructions as its body. `model` is nullable: `null` or
+  empty means "the text connection's", and a string overrides it. An
+  `endpoint` an earlier build wrote stays in the file and is never read. Its
+  results refer to it by stem, so the app never renames it either.
 - A result on a transcript is a row in `transformation_runs/`. A table name is
   one bare identifier, which is why the folder is not `transformation-runs`.
   The row names its recording, transcription, and transformation, and carries
@@ -91,22 +89,23 @@ What Whispering adds on top:
   after any of the three changes or is deleted. Nothing mirrors it elsewhere.
 - A result on pasted text is a row in `text_runs/`, written only when the
   person saves it. It carries the same snapshot (transformation and title,
-  time, model, endpoint, prompt, input) and names no recording or
+  time, connection, model, endpoint, prompt, input) and names no recording or
   transcript, so recording deletion never counts or waits on it.
-- `kv.json` holds the transcription endpoint and model an earlier build saved.
-  It is read, to fill in the transcription form, and never written.
-- Connections are not data in Whispering's folder. There are two,
-  transcription and text, each a canonical base URL, a default model, and an
-  optional key. In Epicenter each is a row of the `connections` table in
-  Epicenter's own folder `so.epicenter`, `connections/whispering-transcription.md`
-  or `connections/whispering-text.md`, holding the kind `openai-compatible`,
-  the title "Whispering transcription" or "Whispering text", and the model.
-  The base URL and key are not in the row: they are in this computer's
-  keychain under the row's id (`src/lib/workspace/desktop-connections.ts`).
-  In a browser tab they are
-  `whispering.connections` in `localStorage`, where an earlier build's single
-  key stays, unused, until the person moves it into a connection.
-  `src/lib/connections.ts` holds the rules both storages apply.
+- Every result row records the connection its request went over, the
+  endpoint it reached, and the exact model (ADR-0582). A row made before
+  connections were rows names none, and is not sent again.
+- `kv.json` names which connection each operation uses:
+  `transcriptionConnection` and `textConnection`, ids of rows of
+  `so.epicenter` (ADR-0564). Values an earlier build wrote there are kept and
+  never read.
+- Connections are not data in Whispering's folder. Each is a row of the
+  `connections` table of this device's `so.epicenter`, holding its kind
+  (`openai-compatible`, `epicenter`, or `local`), title, and model, edited in
+  Settings with the editor Epicenter's own Settings uses (`ConnectionList` from
+  `@epicenter/ai/ui`). The endpoint and key are never in the row: in Epicenter
+  they are in this computer's keychain under the row's id; in a browser tab
+  they are in `localStorage`, beside the origin's own `so.epicenter` in OPFS
+  (ADR-0581). Nothing an earlier build kept in a browser's storage is read.
 - The chosen microphone is not folder data either: it names hardware on one
   device. It is `whispering.microphone` in the origin's `localStorage`, never
   `kv.json` (`src/lib/workspace/microphone-preference.ts`). Epicenter serves
@@ -131,8 +130,8 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 | Folder | The real directory Epicenter's shell grants, opened by the page's engine (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
-| Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
-| Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
+| Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | Rows of the origin's own `so.epicenter` in OPFS; endpoints and keys in `localStorage` |
+| Local transcription | A `local` connection: Epicenter's local models (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 | Terminal, reveal, failure injection | None | None |
 
@@ -188,60 +187,45 @@ grants the folder plugin, the recorder, local transcription and its
 readiness, opening Settings, and the AI commands. Epicenter's README states
 the rule.
 
-## Connections through Epicenter
+## Connections
 
-Opening Whispering's window permits it into Epicenter's own folder,
-`so.epicenter`. `src/lib/workspace/desktop-connections.ts` opens it with
-`openDataFolder` through `epicenterDefinition` from
-`@epicenter/ai/connection-table`, and reads and changes the two rows of its
-`connections` table, which sync with that folder. The endpoint and key are
-in this computer's keychain under the row's id, and only the `epicenter` CLI
-reads or writes them (`epicenter auth key set|remove|state`), through the
-Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page
-learns the endpoint and whether a key is saved, never the key. A save writes
-the keychain entry first, then makes or updates the row; `keep` leaves the
-entry as it is, `replace` saves the new key, and `remove` saves none.
-`applyConnectionChange` refuses keeping a key for another base URL before
-anything is saved, as in a browser tab. A row synced from another computer is
-not set up on this one until a person saves its endpoint, and key if it has
-one, here.
+`src/lib/connection-routes.ts` decides where a request goes, when it goes.
+The operation's id in `kv.json` names a row of `so.epicenter`; the route is
+that row read now: its kind, the exact model (a recipe's own, the row's, or,
+for a `local` row naming none, the active local model), and the endpoint (the
+keychain entry's for an `openai-compatible` row, the signed-in deployment's
+`/v1` for an `epicenter` row, empty for a `local` row). A missing choice,
+a gone row, a row with no model, a kind this workspace cannot send, or a
+`local` row for text, refuses with nothing sent. The result row is written
+with that connection, endpoint, and model before the request goes out.
 
-`transcribe` and `transform` take what to send, the model, and the base URL
-the page prepared the request for (`expectedBaseUrl`). The workspace reads
-the operation's row and keychain entry once, at entry; if either is missing,
-or the base URL is not exactly `expectedBaseUrl`, it answers
-`ConnectionUnavailable` or `ConnectionChanged` and sends nothing. Otherwise
-the request goes to the Rust command `ai_send`, which runs `epicenter send`.
-The CLI checks that the keychain entry still holds the endpoint the request
-was prepared for, and refuses the request, with nothing sent, rather than
-retarget it. Then it adds the key, sends with redirects refused and no
-cookie, and streams the response back as NDJSON lines over a Tauri `Channel`.
-The page reads those lines into a `Response` with `createResponseReader`
-from `@epicenter/ai/send`. The request never leaves from the page, so the
-endpoint needs no CORS headers.
+The workspace supplies the rest (`WorkspaceConnections` in
+`src/lib/workspace/types.ts`): which kinds can be added, the keys
+(`keychainKeys` over the CLI's `ai_key_*` commands in Epicenter, `browserKeys`
+over `localStorage` in a tab), opening `so.epicenter`, the Epicenter endpoint,
+and `send`. In Epicenter, `send` runs `ai_send`, which runs `epicenter send`:
+the CLI checks that the keychain entry still holds the endpoint the request
+was prepared for, refuses with nothing sent rather than retarget it, adds the
+key, sends with redirects refused and no cookie, and streams the response
+back over a Tauri `Channel`, read into a `Response` by `sendThroughShell`. A
+refusal the CLI names before sending passes through as it is; anything else
+that ends without a response, such as a lost reply, is worded as an unknown
+outcome, never as "not sent", and nothing is sent again on its own. In a tab,
+`send` is `sendFromBrowser`, the same `sendRequest`, over the page's `fetch`.
 
 A transcription reads its audio through the folder engine, from the path the
 recording's row names, and sends those bytes with the file's own name and the
-type its extension calls for. The folder plugin reads only beneath the root
-and never through a link. Audio that cannot be read is `AudioUnreadable`, and
-nothing is sent.
-
-A request whose reply never arrived from the `epicenter` command says only
-that no reply arrived: the command may have sent it and had the answer lost
-on the way back. The page reports that as `HostUnavailable`, worded as an unknown
-outcome and never as "not sent", and does not make the call again; trying
-again is the person's choice and is one more request.
+type its extension calls for. Audio that cannot be read sends nothing.
 
 ## Local transcription
 
-`src/lib/workspace/local-transcription.ts` transcribes a recording with
-Epicenter's one active local model (ADR-0180). It asks
-`list_inference_models` which installed model is active, reads the audio
-through the folder engine, and hands the bytes to `transcribe_audio_bytes`
-with that model's id; it never chooses or downloads a model. No active model
-is `ConnectionUnavailable`, naming Settings, and `openSettings` calls
-`open_home` with the transcription section. Nothing in the UI uses it yet:
-Settings has no way to choose transcription on this computer.
+A `local` connection transcribes on this computer
+(`src/lib/workspace/local-transcription.ts`), with the model its row names or,
+when it names none, Epicenter's active model (ADR-0180), whose exact id the
+transcript records. It reads the audio through the folder engine and hands the
+bytes to `transcribe_audio_bytes`; it never chooses or downloads a model. No
+active model refuses, naming Epicenter's Settings. A `local` connection is
+offered only in Epicenter, and only for transcription.
 
 ## The session and the pages
 
@@ -385,23 +369,18 @@ origin.
 
 ## Transformations
 
-`src/lib/transformation.ts` is the request: `POST <base>/chat/completions` with
-the model, the prompt as the system message, and the input as the user
-message, reading `choices[0].message.content`. It is plain `fetch` with
-`redirect: 'error'` and `credentials: 'omit'`, shared by both workspaces like
-the transcription request (in Epicenter, its `fetch` goes through
-the `epicenter` CLI), and it refuses a base URL
-that is not plain HTTP(S) before sending. `transformOverConnection` is the one
-entry both use: it reads the text connection once, refuses a request prepared
-for another base URL, and sends with that connection's key. An error never
-carries the key: an endpoint that echoes it has it removed.
+`src/lib/requests.ts` builds the two requests and reads their answers: a
+multipart `audio/transcriptions` request, and a `chat/completions` request
+with the prompt as the system message and the input as the user message,
+read from `choices[0].message.content`. A request names only a path below its
+connection's endpoint; the key, the redirect refusal, and the endpoint check
+are `sendRequest`'s.
 
 `src/lib/recipe.ts` decides whether a recipe runs and with what, from the
 recipe as read (a listed row, or its text as typed in Source) and the text connection
-as last read: the file must read without issues and have instructions; a text
-connection must be set up; an endpoint the recipe names must be exactly the
-connection's base URL (canonical spelling, no same-origin relaxation); the
-model is the recipe's if it names one, else the connection's. The library
+as last listed: the file must read without issues and have instructions; a
+text connection must be chosen and able to carry text here; the model is the
+recipe's if it names one, else the connection's. The library
 exposes it as `library.resolve`, and the Run check, the post-processing
 choice, a transcript's Transform menu, the recipe's page, and both run entry
 points call it, so they cannot disagree.
@@ -416,9 +395,9 @@ empty transcript, or a missing recording, refuses and nothing is sent.
 taken when it is called, and needs no recording.
 
 Both fix a run before anything is sent: the result's stem, and every field the
-result row will hold, including the instructions, input, model, and the text
-connection's base URL. A transcription fixes its row the same way: the
-recording, the time, the model, and the transcription connection's base URL.
+result row will hold, including the instructions, input, connection, model,
+and endpoint. A transcription fixes its row the same way: the recording, the
+time, the connection, the model, and the endpoint.
 Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
 
 1. Its result row is created with those fields and an empty body, in its
@@ -442,14 +421,14 @@ from its body and this window's live state:
 | --- | --- |
 | Has a body | The answer. An empty answer is written as one newline, so only a row nothing was written to has an empty body. |
 | No body, request out | Running. |
-| No body, request failed (refused, unreachable, answered wrongly, the transport threw, or the connection moved) | Why, with Run again and Delete. |
+| No body, request failed (refused, unreachable, answered wrongly, the transport threw, or the connection's endpoint moved) | Why, with Run again and Delete. |
 | No body, answer received and its write failing | The text, with Copy, and why the write failed. The header counts these. |
 | No body, nothing in this window | Unfinished: the window that sent it closed first. Run again and Delete. |
 
 Run again (`library.runAgain`) reads the row now and sends the request its
-fields record, into the same row, only while the connection is still the base
-URL the row names; for a transcript, the audio is the one its recording names
-now. It never reads the transcript a result came from: the row records the
+fields record, into the same row, over the connection the row names and only
+to the endpoint it recorded, whatever each operation's connection is now; for
+a transcript, the audio is the one its recording names now. It never reads the transcript a result came from: the row records the
 text that was sent. Delete is the ordinary deletion of the row's file, and is
 the only discard. Two asks for one transcript and recipe at once, two runs on
 pasted text with one recipe at once, or two Run agains of one row at once,
@@ -630,14 +609,13 @@ obstacle in that write's way so the folder itself fails it
 | `src/lib/definition.ts` | The inert folder declaration. |
 | `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections, local transcription, and microphone, and the microphone preference. |
 | `src/lib/session.svelte.ts` | The one session a mounted layout owns, and its context. It holds what the shell shows, the post-processing choice, the pasted text, and the settings draft. |
-| `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
-| `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
+| `src/lib/connection-routes.ts` | Where a request goes: the route for an operation's chosen connection, the route a result row recorded, and the two requests over a route. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
 | `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held as drafts and their saves, selections, the live recording, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
-| `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
+| `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `requests.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and chat requests and how their answers read. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
 | `src/lib/status.ts`, `files.ts`, `terminal.svelte.ts` | Status lines, the file tree, and a terminal session no workspace offers today. |

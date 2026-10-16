@@ -22,7 +22,7 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ```text
 ~/Epicenter/so.epicenter.whispering/
-├── kv.json                          transcription endpoint and model an earlier version saved; read, never written
+├── kv.json                          which connection transcribes, and which runs transformations
 ├── recordings/
 │   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
 ├── audio/
@@ -161,7 +161,7 @@ Settings, and Files.
 | Transform | On a transcript. Applies one of your transformations and saves the answer as a new file under the transcript. |
 | Status | Saved files, changes since the last version, the last version saved, and the folder path as separate lines, with Save version. |
 | Save version | In the status details. Records the saved files as a version in the folder's Git history. Nothing else records one. |
-| Settings | The two connections, transcription and text: each an endpoint, a default model, and an optional key, kept on this device and outside history. See [Connections](#connections). |
+| Settings | Which connection transcribes and which runs transformations, and the connections themselves. See [Connections](#connections). |
 | Files (Ctrl+Shift+E) | The folder's files, beside any page. A recording row opens on Recordings and a transformation on Transformations; an audio file opens a player and other text a plain editor, both on Recordings. |
 
 ### Working with recordings
@@ -223,10 +223,9 @@ on a narrow window. Each opens its own popover.
 - With fixture audio there is no real input: the popover says so, and no
   microphone is listed, asked for, or opened.
 
-**Transcription model.** The transcription connection that **Transcribe**
-uses. It is the transcription part of Settings, with the same draft, so typing
-in one shows in the other. The model is a name you type: the app keeps no list
-of models and never asks an endpoint what it serves.
+**Transcription model.** The connection that **Transcribe** uses, and the
+choice of it from Settings. The model is the one the connection names: the app
+keeps no list of models and never asks an endpoint what it serves.
 
 **Post-processing.** None, or one of the transformations in the folder. It
 starts as None each time the app opens, and the choice stays while you move
@@ -250,8 +249,8 @@ sent is the text connection in Settings, never the file.
 
 - **New** creates one. It offers three starters (Clean up, Summarize, Draft an
   email) and an empty one. Nothing is created until you choose; the app never
-  adds files on its own. A new transformation is written with `model: null`
-  and `endpoint: null`: it uses the text connection and its model.
+  adds files on its own. A new transformation is written with `model: null`:
+  it uses the text connection and its model.
 - A transformation's page has three tabs. **Instructions** opens first and
   edits the title and instructions; **Model and connection** below them holds
   the optional model and where requests go. **Try it** runs it (below).
@@ -263,13 +262,9 @@ sent is the text connection in Settings, never the file.
 - A model typed in a transformation is used instead of the text connection's;
   leave it empty to use the connection's. Whispering keeps no list of
   providers or models.
-- A transformation an earlier version wrote names an endpoint. That file still
-  reads and runs, but its endpoint is only a condition: it runs while the text
-  connection is exactly that base URL, and otherwise says so and sends
-  nothing. Its page says so at the top of Instructions, and in Try it when the
-  endpoint is what stops it; **Remove the endpoint and use the text
-  connection** sets it to `null`. The app never rewrites these files on its
-  own.
+- A transformation an earlier version wrote may name an endpoint. That line
+  stays in the file and is not read: the transformation runs over the text
+  connection like any other.
 - Run one from a transcript's **Transform** menu on Recordings, or from Try it
   on the transformation's page, on a chosen transcript or on pasted text
   (below). When it cannot run, Try it says why and offers the fix it can:
@@ -284,7 +279,7 @@ text as the user message. A run on a transcript writes a new file in
 when it arrives. The transcript's own file is never written, so the original
 text is always there.
 
-Each result file records what it came from, when, the model and endpoint, and
+Each result file records what it came from, when, the connection, model, and endpoint, and
 the exact instructions and text that were sent. A result therefore still reads
 correctly after you edit or delete its transformation. Deleting a
 transformation keeps its results. Nothing here claims an endpoint answers the
@@ -297,7 +292,7 @@ into the result of a run on it.
 
 - Running waits for edits being written to land first, then fixes the run
   before anything is sent: its file name and the exact instructions, text,
-  model, and endpoint. Editing the text, the transformation, or Settings
+  connection, model, and endpoint. Editing the text, the transformation, or Settings
   afterward changes nothing about that run.
 - The run is saved as it starts, in `text_runs/`, and its answer is written
   into that file when it arrives. There is no separate Save; **Delete** on a
@@ -324,57 +319,51 @@ shown: its request is running, its request failed, or it is unfinished
 because the window that sent it closed before the answer was written. Nothing
 in the file says which; the window knows what it is doing, and a file with no
 answer and nothing running is unfinished. **Run again** sends the same
-request, from what the file records, and writes the answer into the same
-file, only while the connection is still the endpoint the file names. If you
-changed the connection since, it is not sent: delete it and run anew.
+request, from what the file records, over the connection the file names, and
+writes the answer into the same file, whichever connection Settings chooses
+now. If that connection is gone, or now sends to another endpoint, it is not
+sent: delete it and run anew.
 **Delete** discards it.
 
 ### Connections
 
-Settings has two connections, **Transcription** and **Text**. Each is a base
-URL, the model used when a request names none, and an optional API key. They
-are never in Whispering's folder. In Epicenter each is a row of Epicenter's
-own folder `so.epicenter` ("Whispering transcription" and "Whispering
-text"), which other apps in Epicenter can use too. The row holds the model
-and syncs with that folder; the base URL and key stay in this computer's
-keychain. A connection synced from another computer is not set up on this
-one until you save its base URL, and key, here. In a browser tab they are in
-this site's `localStorage`. Nothing about them is in `kv.json` or
-history.
+A connection is somewhere requests can go: an OpenAI-compatible endpoint with
+its model and an optional key, your Epicenter account, or, in Epicenter, this
+computer's local transcription model. Settings chooses one for
+**Transcription** and one for **Text**, and lists the connections to add or
+edit them, with the same editor as Epicenter's own Settings. Which ones are
+chosen is in `kv.json`; the connections are not in Whispering's folder.
 
-- Nothing is sent until a connection is saved. A keyless local endpoint is
+In Epicenter, connections are rows of Epicenter's own folder `so.epicenter`,
+which other apps in Epicenter can use too and which syncs where that folder
+syncs; each endpoint and key stays in this computer's keychain. In a browser
+tab (`bun dev:whispering`) they are this site's own, with each endpoint and
+key saved in this browser, where code running on the site can read it; the
+form says so. A connection is never sent somewhere a file names.
+
+- Nothing is sent until a connection is chosen. A keyless local endpoint is
   set up the same way, with no key.
-- A request goes only to its connection's base URL, with that connection's
-  key. No file in the folder, and nothing the window sends, chooses the URL. A
-  request names the base URL it was prepared for, and is refused, with nothing
-  sent, if the connection no longer is that URL. One already sent keeps the
-  connection it started with.
-- The transcription key is never sent to the text endpoint, and the text key
-  never to the transcription endpoint.
-- A saved key is kept only for the endpoint it was saved for. Change the
-  endpoint and Save asks you to enter the new endpoint's key or remove the
-  key; **Keep the saved key** is offered only while the endpoint is unchanged.
+- A request goes only to its connection's saved endpoint, with that
+  connection's key, and is refused, with nothing sent, if the endpoint saved
+  for the connection changed after it was prepared. One already sent keeps
+  the connection it started with.
+- A saved key is kept only for the endpoint it was saved for.
 - A redirect from an endpoint is refused, not followed, so a key is never
-  carried to another URL. Base URLs are `http` or `https` with no user name,
-  password, query, or fragment.
-- The window is told only each connection's endpoint, model, and whether it
-  has a key. In Epicenter the key never reaches the window, a folder, or
+  carried to another URL.
+- The window is told each connection's endpoint and whether it has a key,
+  never the key. In Epicenter the key never reaches the window, a folder, or
   history: the `epicenter` CLI adds it to the request, and the endpoint needs
   no CORS headers.
-- In a browser tab (`bun dev:whispering`) the tab sends requests itself, so
-  the endpoint must allow the page's origin (CORS). Most hosted providers
-  refuse that; a local endpoint or Epicenter works. The key is saved in this
-  browser, where code running on the site can read it, and the key form says
-  so. Errors that echo the key have it removed.
+- In a browser tab the tab sends requests itself, so the endpoint must allow
+  the page's origin (CORS). Most hosted providers refuse that; a local
+  endpoint or Epicenter works.
+- A local connection transcribes on this computer with the model it names,
+  or with the model chosen in Epicenter's Settings; it never runs a
+  transformation.
 
-**From an earlier version.** An earlier version kept one key for every
-endpoint, and the endpoint and model in `kv.json`. In a browser tab, that key
-stays where it was and is sent nowhere. Settings shows it as "A key saved by an earlier version";
-tick the connections it may go to, each at the endpoint its form shows, and
-press **Use the earlier key there**. It moves into those connections and is
-removed from where it was; it is never shown. Epicenter holds no such key.
-The `kv.json` endpoint and model fill in the transcription form until you save
-it; this version never writes `kv.json`.
+Nothing an earlier version saved is carried over: its key and connections in
+a browser, and its endpoint and model in `kv.json`, stay where they were and
+are not read. Set up a connection again in Settings.
 
 One failure is different. If Epicenter stops answering partway, the window cannot tell whether the request reached the endpoint: it
 may have been sent, and even answered, with the reply lost on the way back. The
