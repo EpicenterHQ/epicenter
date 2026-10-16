@@ -36,7 +36,7 @@ import {
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
-import { createHistory, type History } from './git/history.js';
+import { createHistory } from './git/history.js';
 import type { Author } from './git/objects.js';
 import { type FolderSchema, openAtRoot } from './open-at-root.js';
 import {
@@ -185,7 +185,7 @@ async function openBrowserFolder<
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
-	return openAtRoot<TDefinition, TDeclared, History>(schema, {
+	return openAtRoot<TDefinition, TDeclared>(schema, {
 		lens,
 		detector: browserChangeDetector(environment, at.hintChannel),
 		location: { kind: 'opfs', directory: at.directory },

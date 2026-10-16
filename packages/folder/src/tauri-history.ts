@@ -105,7 +105,7 @@ export function cliHistory({
 	scope,
 }: {
 	readonly scope: string;
-}): DirectoryHistory<FolderHistory> {
+}): DirectoryHistory {
 	return async ({ landed }) =>
 		() =>
 			createCliHistory({ scope, landed });

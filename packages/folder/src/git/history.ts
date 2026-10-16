@@ -34,6 +34,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from '../boundary.js';
 import type { FolderDefinition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
+import type { FolderHistory } from '../folder.js';
 import { fileKindOf, localPatterns, sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
@@ -150,8 +151,6 @@ export type GitSnapshot = {
 	readonly closed: boolean;
 };
 
-export type History = ReturnType<typeof createHistory>;
-
 export function createHistory({
 	backend,
 	boundary,
@@ -166,7 +165,7 @@ export function createHistory({
 	definition?: FolderDefinition;
 	/** Paths a Sync wrote or removed, whether or not it completed. */
 	landed?: (paths: readonly string[]) => void;
-}) {
+}): FolderHistory {
 	let clock = 0;
 	let lastEdit = 0;
 	/**

@@ -43,8 +43,7 @@ import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderGitOptions } from './folder.js';
-import type { History } from './git/history.js';
+import type { Folder, FolderGitOptions, FolderHistory } from './folder.js';
 import type { GitCredentials } from './git/http.js';
 import { createMutex } from './git/mutex.js';
 import { nativeHistory } from './git/native-history.js';
@@ -174,7 +173,7 @@ export async function openDataFolder<
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	return openDirectoryFolder<TLens, FolderDefinition, History>({
+	return openDirectoryFolder<TLens, FolderDefinition>({
 		definition: 'declared',
 		lens,
 		...directory(resolved),
@@ -311,7 +310,7 @@ export async function runHistory(
 }
 
 /** The history's state as a reply carries it. */
-function stateOf(history: History): HistoryState {
+function stateOf(history: FolderHistory): HistoryState {
 	const { branch, remote, files, sync, lastCommit, lastPush } =
 		history.snapshot;
 	return {

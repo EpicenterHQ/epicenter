@@ -34,11 +34,10 @@ import {
  * for the definition the handle reads with; without one, Sync merges rows
  * as text.
  */
-export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
-	(wiring: {
-		readonly boundary: FolderStorage;
-		readonly landed: (paths: readonly string[]) => void;
-	}) => Promise<(definition?: FolderDefinition) => THistory>;
+export type DirectoryHistory = (wiring: {
+	readonly boundary: FolderStorage;
+	readonly landed: (paths: readonly string[]) => void;
+}) => Promise<(definition?: FolderDefinition) => FolderHistory>;
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given
@@ -71,7 +70,6 @@ export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
 export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
-	THistory extends FolderHistory = FolderHistory,
 >({
 	definition,
 	lens,
@@ -90,7 +88,7 @@ export async function openDirectoryFolder<
 	/** The host's file system, with absolute paths. */
 	readonly files: DirectoryPrimitives;
 	/** The folder's history. */
-	readonly history: DirectoryHistory<THistory>;
+	readonly history: DirectoryHistory;
 	/**
 	 * The directory's save lock, for a host whose own primitives check and
 	 * rename under it (Bun), and the primitives without it, which `lock`
@@ -133,7 +131,7 @@ export async function openDirectoryFolder<
 	} catch {
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}
-	return openAtRoot<TDefinition, TDeclared, THistory>(schema, {
+	return openAtRoot<TDefinition, TDeclared>(schema, {
 		detector,
 		lens: shape,
 		location: { kind: 'directory', root: rootPath },

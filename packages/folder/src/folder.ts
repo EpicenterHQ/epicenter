@@ -281,7 +281,6 @@ function createFolderGit(history: FolderHistory): FolderGit {
 export function assembleFolder<
 	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
-	THistory extends FolderHistory = FolderHistory,
 >({
 	prepared,
 	lens,
@@ -302,7 +301,7 @@ export function assembleFolder<
 	 */
 	publishes: boolean;
 	storage: FolderStorage;
-	history: THistory;
+	history: FolderHistory;
 	location: FolderLocation;
 	hints: FileHints;
 	/** Releases this attachment after owned Git work settles. */

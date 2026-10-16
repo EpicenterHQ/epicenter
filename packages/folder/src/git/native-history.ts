@@ -6,7 +6,7 @@
  * `user.email`, with `author` for whichever is missing).
  */
 import type { DirectoryHistory } from '../directory-adapter.js';
-import { createHistory, type History } from './history.js';
+import { createHistory } from './history.js';
 import type { GitCredentials } from './http.js';
 import {
 	createNativeGitBackend,
@@ -36,7 +36,7 @@ export function nativeHistory({
 	 * is not read: two `git` runs a status or a log does not need.
 	 */
 	readonly commits?: boolean;
-}): DirectoryHistory<History> {
+}): DirectoryHistory {
 	const configured = async (key: string) => {
 		const { code, stdout } = await host.run(['config', '--get', key], {
 			allowFailure: true,

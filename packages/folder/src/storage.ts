@@ -7,7 +7,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { CapturedFiles, FileRead, FolderStorage } from './boundary.js';
 import { type FileCapture, fileCapture, hashBytes } from './capture.js';
 import { FileError, MoveError } from './errors.js';
-import type { History } from './git/history.js';
+import type { FolderHistory } from './folder.js';
 import { isPortablePath } from './paths.js';
 import { confirmedPut } from './save-file.js';
 
@@ -22,7 +22,7 @@ export function withPublication({
 	history,
 }: {
 	storage: FolderStorage;
-	history: Pick<History, 'noteEdit'>;
+	history: Pick<FolderHistory, 'noteEdit'>;
 }): FolderStorage {
 	const noting = (inner: FolderStorage): FolderStorage => ({
 		...inner,
