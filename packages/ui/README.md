@@ -66,8 +66,9 @@ apps.
 
 Dialog, Modal, Sheet, and Drawer need accessible titles. Use an `sr-only` title
 when the visual design already supplies equivalent context. Keep interaction
-policy with the caller: for example, a completed account switch sets
-`closeOnSelect`, while a multi-toggle menu keeps the upstream open behavior.
+policy with the caller: for example, the API user menu's theme toggle sets
+`closeOnSelect={false}` so the menu stays open, while ordinary items keep the
+upstream close-on-select behavior.
 
 ### Tooltips
 
