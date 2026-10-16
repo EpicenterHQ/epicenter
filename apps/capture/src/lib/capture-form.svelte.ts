@@ -3,17 +3,18 @@
  * input not committed yet, and the commands that turn a change of text or
  * thoughts into a new body.
  *
- * A capture's body is a document, so its edit is a body draft (ADR-0548,
- * ADR-0554): it holds the version it started from and the body typed,
- * outside the cache, so reading the folder again never replaces it, and the
- * folder merges each save by line with whatever changed since that version.
+ * A capture's body is a document, so the form opens it with
+ * `createBodyEditor` (ADR-0573): a body draft that holds the version it
+ * started from and the body typed, outside the cache, so reading the folder
+ * again never replaces it, and the folder merges each save by line with
+ * whatever changed since that version.
  * A thought added, edited, deleted, or moved saves at once; the capture
  * text is saved by the view after a pause in typing, or when the person
  * leaves it (`flush`). Saves run one at a time; text typed while one runs
  * goes in the next. A failed save keeps the draft.
  *
- * Every structured change reads the body the form shows now (the draft's,
- * or the cache's), composes the complete `{ text, thoughts }`, encodes it
+ * Every structured change reads the body the form shows now (the typed
+ * body, or the cache's), composes the complete `{ text, thoughts }`, encodes it
  * over that body (`captureBody.encode`), and puts it in the draft. A change
  * the body cannot hold exactly is refused with the reason, and nothing
  * changes.
@@ -30,8 +31,8 @@ import {
 	type CaptureFields,
 	captureBody,
 } from '@epicenter/capture';
-import { type SavedRow, type StoredRow, wellFormed } from '@epicenter/folder';
-import { createBodyDraftState } from '@epicenter/folder/svelte';
+import type { Row, SavedRow, StoredRow } from '@epicenter/folder';
+import { createBodyEditor } from '@epicenter/folder/svelte';
 
 /** One edit of a thought, from Edit until it is saved or cancelled. */
 export type ThoughtEdit = {
@@ -54,21 +55,22 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 
 export function createCaptureForm(capture: {
 	/** The capture as the cache holds it now, if it reads as a row. */
-	stored(): StoredRow<CaptureFields> | undefined;
+	row(): StoredRow<CaptureFields> | undefined;
 	/**
-	 * Write the body `content` over `base`, the row the edit started from:
-	 * the table's save mutation, rejecting on failure.
+	 * Write `row` over `base`, the row the edit started from: the table's
+	 * save mutation, rejecting on failure.
 	 */
-	save(sent: {
+	save(variables: {
 		readonly base: StoredRow<CaptureFields>;
-		readonly content: string;
+		readonly row: Row<CaptureFields>;
 	}): Promise<SavedRow<CaptureFields>>;
 	/** A save landed, with the save that restores what it replaced. */
 	onSaved(saved: SavedRow<CaptureFields>, restore: () => void): void;
 	/** Whether input is refused now: closing, or deleting. */
 	locked(): boolean;
 }) {
-	const draft = createBodyDraftState<CaptureFields>({
+	const draft = createBodyEditor<CaptureFields>({
+		row: capture.row,
 		save: capture.save,
 		onSaved: capture.onSaved,
 	});
@@ -77,18 +79,16 @@ export function createCaptureForm(capture: {
 	/** Why the last change was not taken; the next change clears it. */
 	let refusal = $state<string | undefined>();
 
-	/** The body the form shows: the draft's, or the cache's. */
-	const shown = () => draft.text ?? capture.stored()?.row.body;
+	/** The body the form shows: the typed body, or the cache's. */
+	const shown = () => draft.text;
 
 	/**
 	 * Put `body` in the draft, and save it unless `later`, when the view
 	 * saves it after a pause; answers whether the change was taken.
 	 */
 	function edit(body: string, { later = false } = {}): boolean {
-		if (capture.locked()) return false;
-		const stored = capture.stored();
-		if (stored === undefined) return false;
-		draft.change(stored, body);
+		if (capture.locked() || capture.row() === undefined) return false;
+		draft.change(body);
 		if (!later) void draft.save();
 		return true;
 	}
@@ -118,7 +118,7 @@ export function createCaptureForm(capture: {
 	return {
 		/** The edited body, until its saves land; `undefined` with no edit. */
 		get body() {
-			return draft.text;
+			return draft.typed;
 		},
 		/** Whether a save of the edit is running. */
 		get saving() {
@@ -147,7 +147,7 @@ export function createCaptureForm(capture: {
 			const now = current();
 			if (now === undefined) return;
 			write(
-				{ text: wellFormed(value), thoughts: now.thoughts },
+				{ text: value, thoughts: now.thoughts },
 				{ later: true },
 			);
 		},
@@ -170,7 +170,7 @@ export function createCaptureForm(capture: {
 			if (
 				!write({
 					text: now.text,
-					thoughts: [...now.thoughts, wellFormed(newThought)],
+					thoughts: [...now.thoughts, newThought],
 				})
 			)
 				return false;
@@ -220,7 +220,7 @@ export function createCaptureForm(capture: {
 				!write({
 					text: now.text,
 					thoughts: now.thoughts.map((thought, at) =>
-						at === index ? wellFormed(edited) : thought,
+						at === index ? edited : thought,
 					),
 				})
 			)

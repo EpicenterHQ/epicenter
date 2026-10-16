@@ -78,12 +78,13 @@ are not UTF-8 text are listed apart and not opened.
   text to copy. Your next change saves it again. A save whose reply was lost
   is one of these failures: the notice says the change may or may not have
   happened.
-- Text you type is kept well formed, so a lone surrogate becomes U+FFFD as
-  you type and what is written is what you see.
 - The first write of a file written by hand rewrites its frontmatter in the
   standard form: plain YAML, `capturedAt` first, keys Capture does not
   declare kept. Comments and custom quoting in the frontmatter are not kept.
-  The body is written exactly.
+- A capture's body is written with line feeds (ADR-0570): a file written
+  with `\r\n` gets `\n` on its first save from the capture view. Half a
+  character (a lone surrogate) is written as U+FFFD, so it shows as `�` once
+  the save lands. Otherwise the body is written exactly.
 - Edit as text writes exactly what is typed, valid or not, and keeps the
   file's line endings. Issues are read live from the text, each with its
   line. It writes the whole file over the version you started typing on,
@@ -270,7 +271,7 @@ write runs.
 | --- | --- |
 | `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. |
 | `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache keyed by `folderOptions`: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and close. |
-| `src/lib/capture-form.svelte.ts` | One capture's edit, a body draft (`createBodyDraftState` from `@epicenter/folder/svelte`) saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
+| `src/lib/capture-form.svelte.ts` | One capture's edit, its body opened with `createBodyEditor` from `@epicenter/folder/svelte` and saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
 | `src/lib/components/` | `CaptureApp.svelte` shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 

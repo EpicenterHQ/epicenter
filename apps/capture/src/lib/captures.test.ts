@@ -13,6 +13,7 @@
  *   captures for repair as text, and lists unreadable files apart
  * - An edit is a body draft over the cache, saved when the view sends it,
  *   keeping metadata Capture does not declare
+ * - A body is written with LF, and a lone surrogate as U+FFFD (ADR-0570)
  * - Saves run one at a time; text typed meanwhile goes in one more save,
  *   from the version the first wrote
  * - A change reported on the folder's channel reads the view again, and
@@ -185,6 +186,19 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	expect(form.body).toBeUndefined();
 	expect(cached(captures, 'one').sha256).toBe(
 		expectOk(await harness.folder.files.read(PATH)).sha256,
+	);
+	expect(harness.failures).toEqual([]);
+});
+
+test('a capture from a CRLF file is written with LF, and half a character typed is written as U+FFFD (ADR-0570)', async () => {
+	const harness = await open({ [PATH]: HAND.replace(/\n/g, '\r\n') });
+	const { captures } = harness;
+	const form = captures.formOf('one');
+	form.inputNewThought('half \uD800 a character');
+	expect(form.addThought()).toBe(true);
+	await quiet(captures);
+	expect(await harness.text(PATH)).toBe(
+		`${FORMATTED}- half � a character\n`,
 	);
 	expect(harness.failures).toEqual([]);
 });

@@ -338,13 +338,14 @@ export function createCaptures(
 		if (existing !== undefined) return existing;
 		const path = pathOf(stem);
 		const form: CaptureForm = createCaptureForm({
-			stored: () => rowOf(stem),
-			save: ({ base, content }) =>
-				runMutation(queryClient, folder$.captures.save.mutationOptions(), {
-					base,
-					row: { fields: base.row.fields, body: content },
-				}).catch((error: TableSaveError) => {
-					const text = form.body ?? content;
+			row: () => rowOf(stem),
+			save: (variables) =>
+				runMutation(
+					queryClient,
+					folder$.captures.save.mutationOptions(),
+					variables,
+				).catch((error: TableSaveError) => {
+					const text = form.body ?? variables.row.body;
 					// The file is gone: the edit has nowhere to go but the notice.
 					if (error.name === 'NotFound') form.discard();
 					onWriteFailed({ path, error, text });
