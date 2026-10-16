@@ -339,9 +339,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		},
 		async useSavedText() {
 			clearTimeout(timer);
-			// A save already running finishes; nothing typed is sent after it.
-			if (editor?.saving) await editor.save();
+			// A save already running finishes; nothing typed is sent after it,
+			// since what is typed is dropped before waiting for it.
+			const running = editor?.saving ? editor.save() : undefined;
 			editor?.discard();
+			await running;
 			await readSelected();
 		},
 		flush,
