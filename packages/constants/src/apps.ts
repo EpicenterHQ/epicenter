@@ -111,25 +111,22 @@ export const EPICENTER_API_URL =
  * The token audiences of the deployment at `apiOrigin` (ADR-0549): the
  * resource identifiers its authorization server issues access tokens for.
  * The deployment names the authority (ADR-0326). The hosted cloud's are
- * `api`, `git`, and `mcp.epicenter.so`; any other deployment (local dev,
- * self-host) serves all three from its own origin, Git at `/git` and MCP at
- * `/mcp`. The API seeds and checks these; the `epicenter` CLI requests and
- * presents them, and its Git credential helper answers for the `git` one.
+ * `api` and `git.epicenter.so`; any other deployment (local dev, self-host)
+ * serves both from its own origin, Git at `/git`. The API seeds and checks
+ * these; the `epicenter` CLI requests and presents them, and its Git
+ * credential helper answers for the `git` one.
  */
 export function resolveOAuthAudiences(apiOrigin: string): {
 	/** Inference and transcription. */
 	api: string;
 	/** Git smart HTTP and LFS. */
 	git: string;
-	/** The folder MCP server. */
-	mcp: string;
 } {
 	const base = new URL(apiOrigin).origin;
 	if (base === PRODUCTION_API_URL)
 		return {
 			api: PRODUCTION_API_URL,
 			git: 'https://git.epicenter.so',
-			mcp: 'https://mcp.epicenter.so/mcp',
 		};
-	return { api: base, git: `${base}/git`, mcp: `${base}/mcp` };
+	return { api: base, git: `${base}/git` };
 }

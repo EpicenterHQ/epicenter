@@ -233,7 +233,7 @@ type AccountRow = {
 
 /**
  * Decide one request to a resource that acts on the person's account rather
- * than one namespace: inference, transcription, personal blobs, and the
+ * than one namespace: inference, transcription, and the
  * repository listing, which applies the grant target itself. The same
  * statement as {@link authorizeResourceRequest} without the namespace check:
  *

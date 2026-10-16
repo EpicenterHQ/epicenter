@@ -18,8 +18,9 @@
  * removed. A test decides when such a change is made (`beforeChange`),
  * whether it fails before it lands (`refuseNext`), and whether its reply is
  * lost after it landed (`loseReplies`). Reads of a path can fail
- * (`failReads`). The folder's declaration, `epicenter.json`, is outside every
- * control. Nothing here is the Rust shell; `packages/tauri-plugin-epicenter-folder`
+ * (`failReads`). What a handle publishes before its first write, the
+ * declaration `epicenter.json` and the `.gitignore` naming the audio, is
+ * outside every control. Nothing here is the Rust shell; `packages/tauri-plugin-epicenter-folder`
  * tests what it allows.
  */
 import { createHash } from 'node:crypto';
@@ -55,7 +56,8 @@ export type DataChange =
 	| { kind: 'write'; path: string; text: string }
 	| { kind: 'remove'; path: string };
 
-const DECLARATION = 'epicenter.json';
+/** What a handle publishes before its first write: outside every control. */
+const PUBLISHED = new Set(['epicenter.json', '.gitignore']);
 const SCRATCH = '/.git/epicenter/scratch/';
 
 /** The plugin's errors are text carrying the operating system's message. */
@@ -162,7 +164,7 @@ export function createGrantedShell(root: string, scope: string) {
 
 	/** One data change, under the test's controls. */
 	async function change(described: DataChange, make: () => Promise<void>) {
-		if (described.path === DECLARATION) return make();
+		if (PUBLISHED.has(described.path)) return make();
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;

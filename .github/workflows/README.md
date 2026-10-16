@@ -38,7 +38,6 @@ nowhere else. Do not re-list the steps here or in the workflow.
 |---|---|---|
 | `ci.format.yml` | Push to `main`, pull requests | The merge gate: `lint:ci`, `typecheck`, `test`, `check:structure`. Cancels older runs for the same branch or PR. |
 | `ci.autofix.yml` | Push to `main`, pull requests | Runs `bun run format` and commits fixes back via autofix-ci. This is why the gate does not check formatting. Cancels older runs for the same branch or PR. |
-| `ci.runtime-parity.yml` | Push to `main`, pull requests | Runs `apps/api/oauth-server.postgres.test.ts` with a local S3 store, so the Bun entry's personal blob round trip runs with a real access token. Needs Docker, so it runs on a GitHub-hosted runner and stays out of the main gate. |
 
 Two things stay off the gate deliberately. Formatting, because autofix owns it.
 And `bun run check:doc-hygiene`, whose ADR-staleness rule is time-based, so a

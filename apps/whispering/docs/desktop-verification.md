@@ -104,7 +104,7 @@ Not done, and needed before this can be called accepted on the desktop:
   invoke the owner at all: that Tauri's IPC is reachable under the page's
   content security policy, and that the owner's events arrive.
 - Record, play, transcribe, transform, quit, and reopen against a disposable
-  folder. Confirm the microphone permission prompt, that `recordings/<id>.wav`
+  folder. Confirm the microphone permission prompt, that `audio/<id>.wav`
   grows while recording, and that quitting mid-recording leaves a WAV that
   plays to the cut once the folder reopens and `recoverRecordings` runs.
 - Exercise both debug recording-write failures in the window, confirming an

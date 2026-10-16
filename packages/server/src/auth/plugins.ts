@@ -1,6 +1,4 @@
-import { cimd } from '@better-auth/cimd';
 import {
-	type ClientMetadataResourceFetch,
 	oauthDeviceAuthorization,
 	oauthProvider,
 } from '@better-auth/oauth-provider';
@@ -25,42 +23,10 @@ export type OAuthServerConfig = {
 	db: Db;
 	/** This deployment's token audiences. */
 	audiences: OAuthAudiences;
-	/**
-	 * The transport for client ID metadata documents. It must refuse redirects
-	 * and non-public addresses: `@better-auth/cimd/node` on Bun, a
-	 * `redirect: "manual"` fetch under `global_fetch_strictly_public` on Workers.
-	 * Omit it and no client can identify itself by URL.
-	 */
-	clientMetadataFetch?: ClientMetadataResourceFetch;
 };
 
-/**
- * One CIMD plugin per transport. Its metadata cache lives in the plugin's
- * closure, and a Worker builds Better Auth per request, so the plugin must
- * outlive the request for the cache to mean anything (ADR-0549).
- */
-const cimdPlugins = new WeakMap<
-	ClientMetadataResourceFetch,
-	ReturnType<typeof cimd>
->();
-function cimdFor(fetchClientMetadataResource: ClientMetadataResourceFetch) {
-	let plugin = cimdPlugins.get(fetchClientMetadataResource);
-	if (!plugin) {
-		plugin = cimd({
-			fetchClientMetadataResource,
-			metadataProfile: 'mcp-2026-07-28',
-		});
-		cimdPlugins.set(fetchClientMetadataResource, plugin);
-	}
-	return plugin;
-}
-
 /** The OAuth 2.1 authorization server (ADR-0549). */
-export function oauthServerPlugins({
-	db,
-	audiences,
-	clientMetadataFetch,
-}: OAuthServerConfig) {
+export function oauthServerPlugins({ db, audiences }: OAuthServerConfig) {
 	return [
 		oauthProvider({
 			// Opaque, hashed access tokens checked in the database on every
@@ -70,16 +36,13 @@ export function oauthServerPlugins({
 			consentPage: '/consent',
 			scopes: [...OAUTH_SCOPES],
 			grantTypes: ['authorization_code', 'refresh_token'],
-			// First-party clients are rows the deployment registers
-			// (`registerFirstPartyClients`); third parties identify themselves
-			// with a client ID metadata document.
+			// Every client is a first-party row the deployment registers
+			// (`registerFirstPartyClients`); no client registers itself.
 			allowDynamicClientRegistration: false,
 			resources: oauthResourceInputs(audiences),
 			// An existing row is never rewritten, as `registerFirstPartyClients`
 			// leaves it.
 			resourceSeedMode: 'insertOnly',
-			// A client discovered by its metadata document reaches only MCP.
-			clientRegistrationDefaultResources: [audiences.mcp],
 			accessTokenExpiresIn: ACCESS_TOKEN_TTL_SECONDS,
 			refreshTokenExpiresIn: REFRESH_TOKEN_TTL_SECONDS,
 			refreshTokenReuseInterval: REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
@@ -99,7 +62,6 @@ export function oauthServerPlugins({
 		oauthDeviceAuthorization({ expiresIn: '10m', verificationUri: '/device' }),
 		grantTarget({ db }),
 		offlineDetach(),
-		...(clientMetadataFetch ? [cimdFor(clientMetadataFetch)] : []),
 	] satisfies NonNullable<BetterAuthOptions['plugins']>;
 }
 

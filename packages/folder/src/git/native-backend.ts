@@ -461,10 +461,28 @@ export async function createNativeGitBackend({
 			]);
 			return parsePorcelain(result.stdout);
 		},
-		async stage(paths) {
+		async stage(paths, options) {
 			await repository();
 			if (paths === 'all') await run(['add', '--all']);
 			else await run([...literal, 'add', '--all', '--', ...paths]);
+			const except = options?.except;
+			if (except === undefined) return;
+			const indexed = text((await run(['ls-files', '-z', '--cached'])).stdout)
+				.split('\0')
+				.filter((path) => path !== '' && except(path));
+			if (indexed.length === 0) return;
+			await run(
+				[
+					...literal,
+					'rm',
+					'--cached',
+					'--quiet',
+					'--ignore-unmatch',
+					'--pathspec-from-file=-',
+					'--pathspec-file-nul',
+				],
+				{ input: `${indexed.join('\0')}\0` },
+			);
 		},
 		async commitIndex(message, author) {
 			// Nothing was staged where there is no repository.

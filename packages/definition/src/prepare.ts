@@ -128,7 +128,7 @@ function prepareRoot(
 function prepareShape(
 	value: Record<string, unknown>,
 ): Result<DataSchema, DataDefinitionParseError> {
-	const { title, kv, tables } = value as Partial<DataSchema>;
+	const { title, kv, tables, local } = value as Partial<DataSchema>;
 	if (
 		title !== undefined &&
 		(typeof title !== 'string' || title.trim() === '')
@@ -137,6 +137,9 @@ function prepareShape(
 			reason: 'its title must say something or be absent',
 		});
 	}
+	const localProblem = local === undefined ? undefined : localProblemOf(local);
+	if (localProblem !== undefined)
+		return DataDefinitionParseError.Malformed({ reason: localProblem });
 	if (!isPlainObject(kv))
 		return DataDefinitionParseError.Malformed({
 			reason: 'it declares no kv section',
@@ -200,11 +203,34 @@ function prepareShape(
 	return Ok(
 		Object.freeze({
 			...(title === undefined ? {} : { title }),
+			...(local === undefined ? {} : { local: Object.freeze([...local]) }),
 			kv: preparedKv.data,
 			// `defineTable`'s mark is a type and nothing at run time.
 			tables: Object.freeze(preparedTables) as DataSchema['tables'],
 		}),
 	);
+}
+
+/**
+ * Why `local` cannot be written as `.gitignore` lines, or `undefined`. A
+ * negation is refused because a storage appends a missing pattern after a
+ * person's own lines, so what it would re-include is not the schema's to
+ * decide.
+ */
+function localProblemOf(local: unknown): string | undefined {
+	if (!Array.isArray(local))
+		return 'its local must be a list of .gitignore patterns';
+	for (const pattern of local) {
+		if (typeof pattern !== 'string' || pattern === '')
+			return 'each local pattern must be a nonempty string';
+		if (/[\r\n]/.test(pattern))
+			return `the local pattern '${pattern}' must be one line`;
+		if (pattern.trim() !== pattern)
+			return `the local pattern '${pattern}' has surrounding whitespace`;
+		if (pattern.startsWith('#') || pattern.startsWith('!'))
+			return `the local pattern '${pattern}' must ignore files; it cannot be a comment or a negation`;
+	}
+	return undefined;
 }
 
 function prepareFields(

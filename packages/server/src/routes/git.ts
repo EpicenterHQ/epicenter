@@ -56,7 +56,7 @@
  *   - 503 `git_unavailable`      this deployment has no store, or its database
  *                                could not decide.
  *
- * Hosted Git is unmetered, like hosted blobs: Autumn denies by default without
+ * Hosted Git is unmetered: Autumn denies by default without
  * a plan, so this mount takes no billing policy.
  */
 

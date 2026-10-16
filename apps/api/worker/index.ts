@@ -23,15 +23,12 @@ import {
 	mountAuthRoutes,
 	mountGitHost,
 	mountInferenceApp,
-	mountMcpServer,
-	mountPersonalAuthorityBlobs,
 	mountTranscriptionApp,
 	type OAuthScope,
 	registerFirstPartyClients,
 	requireAccessToken,
 	requireSessionCookie,
 	type ServerBindings,
-	workerClientMetadataFetch,
 } from '@epicenter/server';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
@@ -65,8 +62,8 @@ const app = createServerApp<CloudEnv>({
 	// to this deployment's own `Cloudflare.Env` is the honest edge (ADR-0066).
 	resolveOrigin: resolveApiOrigin,
 	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
-	// The hosted origin's audiences live on their own hosts (`git.epicenter.so`,
-	// `mcp.epicenter.so`); any other origin's sit under it (ADR-0326).
+	// The hosted origin's Git audience lives on its own host
+	// (`git.epicenter.so`); any other origin's sits under it (ADR-0326).
 	resolveAudiences: resolveOAuthAudiences,
 });
 
@@ -118,7 +115,7 @@ const cloudContext = createCloudContextMiddleware(cloudContextOptions);
 // The `/auth/*` routes add the OAuth 2.1 authorization server (ADR-0549).
 const authServerContext = createCloudContextMiddleware({
 	...cloudContextOptions,
-	oauthServer: { clientMetadataFetch: workerClientMetadataFetch },
+	oauthServer: true,
 });
 
 // The first-party clients and resources are rows this code declares
@@ -159,8 +156,8 @@ const accountSession = every(cloudContext, requireSessionCookie());
 // Hosted Git at git.epicenter.so/<namespace>/<name>.git over Cloudflare
 // Artifacts (ADR-0546), and `GET /api/repos`. Git decides each request from
 // the access token and the namespace membership (`authorizeResourceRequest`),
-// and the listing from a Git-audience token, so they take no guard here. Unmetered like hosted blobs. The local dev
-// launcher removes the Artifacts binding and required account secret, so the
+// and the listing from a Git-audience token, so they take no guard here.
+// Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
 // store resolves to null and hosted Git answers 503.
 const resolveGitHost = (env: ServerBindings) => {
 	const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
@@ -175,23 +172,6 @@ const resolveGitHost = (env: ServerBindings) => {
 mountGitHost(app, {
 	setup: cloudContext,
 	resolveHost: resolveGitHost,
-});
-// The folder MCP server at mcp.epicenter.so/mcp (ADR-0550) reads and commits
-// through the same store as this server, never with the client's token.
-// Unverified against Artifacts, and that host is not yet routed here.
-mountMcpServer(app, {
-	setup: cloudContext,
-	resolveHost: resolveGitHost,
-});
-// Owner-addressed hosted blobs are currently unmetered. Autumn's check()
-// denies by default without a plan, so this route has no billing policy.
-// A blob is folder content that travels like LFS (ADR-0544), so it takes the
-// Git audience.
-mountPersonalAuthorityBlobs(app, {
-	auth: {
-		read: resource('git', 'folders:read'),
-		write: resource('git', 'folders:write'),
-	},
 });
 mountInferenceApp(app, {
 	auth: resource('api', 'ai'),

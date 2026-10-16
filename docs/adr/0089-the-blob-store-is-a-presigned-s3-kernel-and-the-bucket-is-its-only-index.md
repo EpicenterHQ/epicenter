@@ -16,6 +16,7 @@ Epicenter needs a home for bytes too large for git or a Yjs doc (media, archives
 
 ## Decision
 
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
 Blobs live in one S3-compatible bucket under owner-scoped content-addressed keys, `owners/<ownerId>/blobs/<sha256>`, and the bucket is the store's only state. The server (`packages/server/src/s3-blob-store.ts`, `routes/blobs.ts`) mints a presigned single PUT with the base64 checksum and content type pinned into the signature (the client echoes them verbatim; the store rejects bytes that do not match their address), and answers reads with a 302 to a short-TTL presigned GET. There is no blob database, no queue, no confirm endpoint: the object appearing under its hash is the record of a successful upload, and listing is a signed `ListObjectsV2`. Everything is standard SigV4 (`aws4fetch`), so the same code runs against R2, MinIO, Garage, or S3 from a Worker or a Bun process.
 
 ## Consequences

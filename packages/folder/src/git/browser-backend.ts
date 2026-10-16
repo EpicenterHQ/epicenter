@@ -489,7 +489,8 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			}
 			return result;
 		},
-		async stage(paths) {
+		async stage(paths, options) {
+			const except = options?.except ?? (() => false);
 			// A folder with no files has nothing to stage.
 			if (!(await writable())) return;
 			await withObjects(async (access) => {
@@ -509,7 +510,10 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 					}
 				}
 				for (const [filepath, , workdir, stage] of rows) {
-					if (workdir === 0) {
+					if (except(filepath)) {
+						if (stage !== 0)
+							await git.remove({ ...access, dir: WORKDIR, filepath });
+					} else if (workdir === 0) {
 						if (stage !== 0)
 							await git.remove({ ...access, dir: WORKDIR, filepath });
 					} else if (stage !== 2 || workdir !== 2) {

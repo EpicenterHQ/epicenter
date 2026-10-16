@@ -57,7 +57,7 @@ export type CaptureError = InferErrors<typeof CaptureError>;
 export type ActiveCapture = {
 	/**
 	 * The audio file this recording is, folder-relative, such as
-	 * `recordings/20260102-030405-k3f9.wav`. Named before anything is
+	 * `audio/20260102-030405-k3f9.wav`. Named before anything is
 	 * captured, so the row can name it from the start.
 	 */
 	readonly audioPath: string;

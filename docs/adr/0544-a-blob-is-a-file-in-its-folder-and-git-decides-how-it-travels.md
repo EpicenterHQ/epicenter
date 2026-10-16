@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "Epicenter's hosted blob storage is the LFS server for hosted folders" and the deletions "With the LFS wave": the hosted blob routes, `@epicenter/blobs`, and `s3-blob-store.ts` are deleted now, and the LFS store is chosen when LFS is built. Until then Whispering's audio is in `audio/`, which its definition declares local, so no commit carries it; LFS stays the later path for audio.
 - **Unbuilt:** all of it, in this order: the Worker's LFS routes; the engine's LFS client, download first, then upload. Until it uploads, the engine keeps refusing `filter` attributes.
 
 ## Context
@@ -84,6 +85,7 @@ Deleted:
   `encode_recording_for_upload`). None had a caller.
 - With the LFS wave: `@epicenter/blobs`, which by then holds only the Personal
   hosted URL grammar; the public Personal blob routes
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
   (`mountPersonalAuthorityBlobs`, `packages/server/src/routes/authority-blobs.ts`);
   and `createPersonalHostedBlobs` in `@epicenter/client`. `s3-blob-store.ts`
   stays only if it presigns `lfs/<repo>/<oid>`.

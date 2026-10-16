@@ -5,6 +5,5 @@
 		"jsxImportSource": "hono/jsx",
 		"types": ["bun", "@cloudflare/workers-types"]
 	},
-	"include": ["src"],
-	"exclude": ["workers"]
+	"include": ["src"]
 }

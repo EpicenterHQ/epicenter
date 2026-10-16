@@ -90,23 +90,17 @@ test('Account.fetch sends through the app audience and getProfile through api, w
 	const { auth, sent } = harness(signedIn(), (audience) =>
 		audience === 'api'
 			? Response.json({ sub: 'alice', email: 'alice@example.test' })
-			: Response.json({ url: 'x' }, { status: 201 }),
+			: Response.json({ namespaces: [] }),
 	);
 	await auth.refresh();
 	const account = auth.getState().account!;
-	await account.fetch(
-		new URL('/api/blobs/personal/alice/private', account.baseURL),
-		{
-			method: 'POST',
-			headers: { authorization: 'Bearer page' },
-			body: 'blob',
-		},
-	);
+	await account.fetch(new URL('/api/repos', account.baseURL), {
+		method: 'GET',
+		headers: { authorization: 'Bearer page' },
+	});
 	expect(sent[0]?.audience).toBe('git');
-	expect(sent[0]?.request.url).toBe(
-		`${origin}/api/blobs/personal/alice/private`,
-	);
-	expect(sent[0]?.request.method).toBe('POST');
+	expect(sent[0]?.request.url).toBe(`${origin}/api/repos`);
+	expect(sent[0]?.request.method).toBe('GET');
 	expect(sent[0]?.request.headers.get('authorization')).toBeNull();
 	expect(await account.getProfile()).toEqual({
 		data: { id: asPrincipalId('alice'), email: 'alice@example.test' },

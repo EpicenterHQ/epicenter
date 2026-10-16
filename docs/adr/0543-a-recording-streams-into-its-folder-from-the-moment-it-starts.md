@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-15
 - **Amended:** 2026-10-16, at "One interface, chosen by host": the bare `@epicenter/recorder` no longer chooses by `isTauri()`. It is the recording contract alone, and a build imports `/tauri` or `/browser` (Whispering through `#platform/workspace`), because the runtime branch was reached only by the type checker and tests while builds aliased it away.
+- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "`recordings/<name>.wav`": the audio is written to `audio/<name>.wav`, and rows stay in `recordings/`.
 - **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable WAV once `recoverRecordings` runs.
 
 ## Context

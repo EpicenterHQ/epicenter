@@ -153,7 +153,6 @@ test('the page imports no Yjs store, sync, or account module', () => {
 						'@epicenter/svelte/status-row',
 					].includes(specifier)) ||
 				specifier.startsWith('@epicenter/auth') ||
-				specifier.startsWith('@epicenter/blobs') ||
 				// The store package, by any entry. Folders and their declarations
 				// come from `@epicenter/folder` and `@epicenter/definition`.
 				specifier === '@epicenter/app' ||

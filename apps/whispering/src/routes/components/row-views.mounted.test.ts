@@ -51,7 +51,7 @@ const A = 'transcriptions/a.md';
 const RECIPE = 'transformations/clean.md';
 const RECORDING = 'recordings/take.md';
 const recording = (title: string, body: string) =>
-	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: recordings/take.wav\n---\n${body}`;
+	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\n${body}`;
 
 /** A library over files on disk, mounted in the fixture with `tab` showing. */
 async function open(
@@ -263,4 +263,55 @@ test('a transformation’s title, model, and instructions save from their own co
 	);
 	expect(prompt()?.value).toBe('Tidy.\nThen check.\n');
 	expect(model()?.value).toBe('');
+});
+
+test('a recording whose audio is not in the folder says it is not on this device, and offers no player, transcription, or run again until the audio arrives', async () => {
+	const { library, target, root } = await open({
+		[RECORDING]: recording('Take', ''),
+		// A transcription that never got its answer: running it again needs the audio.
+		'transcriptions/unfinished.md':
+			'---\nrecordingId: take\ncreatedAt: 2026-10-01T00:00:00.000Z\nmodel: m\nendpoint: http://127.0.0.1:18080/v1\n---\n',
+	});
+	const runAgain = () =>
+		target.querySelector<HTMLButtonElement>('[data-testid="run-again"]');
+	await show(library, RECORDING);
+	const absent = () => target.querySelector('[data-testid="audio-absent"]');
+	const transcribe = () =>
+		target.querySelector<HTMLButtonElement>('[data-testid="transcribe"]');
+	expect(absent()?.textContent).toContain(
+		'This recording’s audio isn’t on this device.',
+	);
+	expect(target.querySelector('[data-testid="audio-player"]')).toBeNull();
+	expect(transcribe()?.disabled).toBe(true);
+	expect(runAgain()?.disabled).toBe(true);
+
+	// The audio is copied in: it is this device's to play and transcribe now.
+	await Bun.write(join(root, 'audio/take.wav'), 'RIFF');
+	await reportChanged(library, 'audio/take.wav');
+	expect(absent()).toBeNull();
+	expect(transcribe()?.disabled).toBe(false);
+	expect(runAgain()?.disabled).toBe(false);
+});
+
+test('a recording just stopped never reads as missing its audio while the folder has not listed it yet', async () => {
+	const { library, target } = await open({});
+	const seen: string[] = [];
+	const look = () => {
+		flushSync();
+		const entry = library.entries[0];
+		if (entry !== undefined) seen.push(library.audioOf(entry).kind);
+		if (target.querySelector('[data-testid="audio-absent"]') !== null)
+			seen.push('shown absent');
+	};
+	await library.startRecording();
+	look();
+	const stopping = library.stopRecording();
+	look();
+	await stopping;
+	look();
+	await settle(library);
+	look();
+	expect(seen).not.toContain('absent');
+	expect(seen).not.toContain('shown absent');
+	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
 });

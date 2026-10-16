@@ -136,10 +136,8 @@ request, so a revocation takes effect on the next one (ADR-0549). The
 authorization server's own session cookie works only on its own pages, where
 sign-in, consent, and account changes happen.
 
-Carry forward `src/browser-oauth.test.ts`,
-`src/desktop-account-auth.test.ts`, and
-`../../apps/whispering/src/lib/services/blobs/account-blob-remote.test.ts`
-when changing a credential owner. After building the API UI,
+Carry forward `src/browser-oauth.test.ts` and
+`src/desktop-account-auth.test.ts` when changing a credential owner. After building the API UI,
 `bun packages/auth/smoke/dashboard.browser.mjs` exercises the built
 sign-in/callback/dashboard routes and a virtual WebAuthn authenticator while a
 different principal owns the ambient browser cookie.

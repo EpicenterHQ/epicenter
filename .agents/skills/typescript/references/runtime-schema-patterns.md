@@ -55,11 +55,11 @@ The store mints row IDs. Do not declare a reserved `id` field or provide a row-I
 
 ```typescript
 import { defineTable, field } from '@epicenter/app';
-import type { BlobId } from '@epicenter/blobs';
+import type { PrincipalId } from '@epicenter/principal';
 
 const recordings = defineTable({
 	title: field.string(),
-	blobId: field.nullable(field.string<BlobId>()),
+	recordedBy: field.nullable(field.string<PrincipalId>()),
 });
 ```
 

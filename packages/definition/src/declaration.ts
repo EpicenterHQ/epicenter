@@ -85,6 +85,13 @@ export type DeclaredTable = TableDeclaration & DeclaredMark;
  */
 export type DataSchema = {
 	readonly title?: string;
+	/**
+	 * Files that stay on the machine that wrote them, as `.gitignore` patterns
+	 * such as `audio/`. A storage that syncs commits none of them. Each is one
+	 * line that ignores something: not empty, not a comment or a negation, and
+	 * without surrounding whitespace.
+	 */
+	readonly local?: readonly string[];
 	readonly kv: FieldMap;
 	readonly tables: {
 		readonly [table: string]: DeclaredTable;

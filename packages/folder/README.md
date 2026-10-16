@@ -106,6 +106,36 @@ writer getting there first is read once more (ADR-0551). It never commits or pus
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
 
+A definition can name files that stay on the machine that wrote them, as
+`.gitignore` patterns in `local`:
+
+```ts
+const definition = defineFolder({
+	kv: {},
+	tables: { recordings: defineTable({ fields: { title: field.string() } }) },
+	local: ['audio/'],
+});
+```
+
+The engine decides this itself, on both backends, whatever `.gitignore` says.
+A path `local` matches is never history source (`git/scope.ts`): status does
+not offer it, a whole-folder commit leaves it out, and a file committed before
+the rule is removed from the next commit's tree and from the index, as
+`git rm --cached` would, its bytes kept on disk. Staging by hand never stages
+one either. A person's `!` exception in `.gitignore` does not override it.
+
+With the declaration, before the same first write, the handle also makes the
+root `.gitignore` name each pattern, so plain `git` and the `epicenter` CLI
+agree. A missing `.gitignore` is created holding the patterns. A present one
+gains each missing pattern as a line at its end, saved over as read with
+`{ merge: false }`; its other lines are never reordered, rewritten, or
+removed, and a file that already names every pattern is not written. A failed
+write is logged, and the engine's rule still holds. The `.gitignore` is source
+like any other file, so it syncs, and `epicenter.json` does not carry `local`.
+A pattern must be one line that ignores something: `defineFolder` refuses an
+empty pattern, a comment, a negation, and surrounding whitespace. Plain
+`git add -A` outside Epicenter honors only `.gitignore`.
+
 ```ts
 const personal = await openFolder({ id: 'so.epicenter.todos', definition });
 const work = await openFolder({ id: 'so.epicenter.todos.work', definition });
@@ -1289,10 +1319,12 @@ waited. If the folder closes while it still waits, it is told `closed` and
 nothing runs.
 
 Source files are tracked files plus untracked files that `.gitignore` does not
-exclude; private Git state is never source. SQLite filenames have no special
+exclude, minus every path the definition's `local` patterns match; private Git
+state is never source. SQLite filenames have no special
 exclusion: an intentionally saved database follows ordinary Git rules. Plain Git
 records binary files like any other file. There is no default audio ignore, no
-format list, and no LFS.
+format list, and no LFS; a definition's `local` patterns are the one way a
+folder ignores files of its own accord.
 
 ### Closing
 
