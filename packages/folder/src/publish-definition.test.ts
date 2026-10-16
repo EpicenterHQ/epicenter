@@ -1,7 +1,7 @@
 /**
  * Publication attempt contract: an awaited create when the file is missing,
  * a save that never merges when it holds other bytes, no write when it holds
- * the declaration's, one more read when another writer got there first, and
+ * the declaration's, every `local` pattern the file lists kept, one more read when another writer got there first, and
  * failure diagnostics retaining uncertain outcomes.
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -103,6 +103,25 @@ for (const [name, read] of [
 		]);
 		expect(events).toEqual([]);
 	});
+
+test('a local pattern the file lists, from another device, is kept', async () => {
+	const own = defineFolder({ kv: {}, tables: {}, local: ['audio/'] });
+	const theirs = defineFolder({ kv: {}, tables: {}, local: ['drafts/'] });
+	const both = defineFolder({
+		kv: {},
+		tables: {},
+		local: ['audio/', 'drafts/'],
+	});
+	const { files, writes } = recording([holding(formatDeclaration(theirs))]);
+	await publishDefinition(own, files);
+	expect(writes).toEqual([
+		{ verb: 'save', text: formatDeclaration(both), options: { merge: false } },
+	]);
+	// A file already listing them all, and this definition's, is left alone.
+	const again = recording([holding(formatDeclaration(both))]);
+	await publishDefinition(own, again.files);
+	expect(again.writes).toEqual([]);
+});
 
 test('another writer getting there first is read once more', async () => {
 	const conflict = FileError.Conflict({

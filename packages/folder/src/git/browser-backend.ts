@@ -18,7 +18,12 @@ import type { PromiseFsClient } from 'isomorphic-git';
 import * as git from 'isomorphic-git';
 import type { OpfsLocks } from '../opfs-store.js';
 import { isAttributesPath, normalizingAttribute } from './attributes.js';
-import type { CasResult, GitBackend, GitRemote } from './backend.js';
+import {
+	type CasResult,
+	type GitBackend,
+	type GitRemote,
+	REMOTE_MOVED,
+} from './backend.js';
 import {
 	abortableHttp,
 	basicAuthorization,
@@ -78,13 +83,6 @@ export function refValue(value: Uint8Array | undefined): string | undefined {
  * first Git write (a commit, staging, or setting a remote), never by
  * opening or a file save. Until then reads find no history.
  */
-/**
- * How a remote refuses a push because its branch moved since this folder
- * fetched: not a fast-forward, or, when it moved after the remote advertised
- * it, the remote's own update of the branch failing.
- */
-const MOVED = /non-fast-forward|fetch first|failed to update ref/i;
-
 export async function createStoredGitBackend<TSession extends GitFsSession>({
 	store,
 	locks,
@@ -348,7 +346,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 					// The remote moved the branch after it advertised it.
 					if (
 						cause instanceof git.Errors.GitPushError &&
-						MOVED.test(
+						REMOTE_MOVED.test(
 							cause.data.result.refs[`refs/heads/${remoteBranch}`]?.error ?? '',
 						)
 					)
@@ -357,7 +355,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 				}
 				const status = result.refs[`refs/heads/${remoteBranch}`];
 				if (result.ok && (status === undefined || status.ok)) return 'pushed';
-				if (MOVED.test(status?.error ?? '')) return 'rejected';
+				if (REMOTE_MOVED.test(status?.error ?? '')) return 'rejected';
 				throw new Error(
 					status?.error ?? result.error ?? 'The remote rejected the push',
 				);

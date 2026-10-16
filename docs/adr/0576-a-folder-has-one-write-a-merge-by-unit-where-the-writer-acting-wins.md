@@ -249,7 +249,10 @@ publish neither reads nor writes one.
 for `local`: it lists every pattern either side lists, sorted, so a path one
 device keeps local is never committed because another device's declaration
 won (ADR-0577). Sync, the one write, and the merge driver take the same
-rule, from `merge`. A side that changed nothing in any file leaves the
+rule, from `merge`. An open folder reads `local` from the file for each
+commit and Sync, joined with its definition's, so a pattern Sync brings in
+applies before the folder reopens, and a handle's publication of its
+definition keeps every pattern the file lists. A side that changed nothing in any file leaves the
 other's bytes exactly as they are. When a row version
 does not read and merges as text, insertions at one place inside its
 frontmatter compete instead of joining, so no key is written twice; its body

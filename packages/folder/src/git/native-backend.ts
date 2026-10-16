@@ -27,7 +27,7 @@
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { byCodePoint, NORMALIZING } from './attributes.js';
-import type { GitBackend, GitRemote } from './backend.js';
+import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
@@ -422,10 +422,15 @@ export async function createNativeGitBackend({
 				// `--porcelain` marks a ref the remote refused to move by a
 				// fast-forward with `!` and `[rejected]`, and one that moved after
 				// the remote advertised it with `[remote rejected]` and the
-				// remote's failed update.
+				// remote's reason.
+				const refused = text(pushed.stdout)
+					.split('\n')
+					.filter((line) => line.startsWith('!\t'));
 				if (
-					/^!\t.*\t\[rejected\]|^!\t.*\[remote rejected\] .*failed to update ref/m.test(
-						text(pushed.stdout),
+					refused.some(
+						(line) =>
+							line.includes('\t[rejected]') ||
+							(line.includes('[remote rejected]') && REMOTE_MOVED.test(line)),
 					)
 				)
 					return 'rejected';

@@ -34,9 +34,14 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from '../boundary.js';
 import type { FolderDefinition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
-import { fileKindOf, sameContent } from '../merge-file.js';
+import { fileKindOf, localPatterns, sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
-import { ancestors, collisionKey, pathProblem } from '../paths.js';
+import {
+	ancestors,
+	collisionKey,
+	DECLARATION_PATH,
+	pathProblem,
+} from '../paths.js';
 import { confirmedPut, writeFile } from '../save-file.js';
 import { captureFiles } from '../storage.js';
 import type { GitBackend, GitRemote } from './backend.js';
@@ -302,16 +307,35 @@ export function createHistory({
 		return captured.files;
 	}
 
+	type IsLocal = (path: string) => boolean;
+
 	/**
-	 * Files the definition keeps on this machine. No commit carries one,
-	 * whether or not `.gitignore` names it (ADR-0577).
+	 * Files kept on this machine now: what the definition keeps and what
+	 * `epicenter.json` lists, which a Sync can extend with another device's
+	 * patterns (ADR-0577). No commit carries one, whether or not `.gitignore`
+	 * names it. A declaration that cannot be read is the reason, since a
+	 * commit made without it could carry those files.
 	 */
-	const isLocal = localMatcher(definition?.local);
+	async function localNow(): Promise<Result<IsLocal, string>> {
+		const own = definition?.local ?? [];
+		const { data: read, error } = await boundary.read(DECLARATION_PATH);
+		if (error !== null)
+			return error.name === 'NotFound'
+				? Ok(localMatcher(own))
+				: Err(`${DECLARATION_PATH} cannot be read: ${error.message}`);
+		const declared = localPatterns(read.bytes);
+		if (declared === undefined)
+			return Err(
+				`${DECLARATION_PATH} does not list its local patterns as strings; fix the file before recording`,
+			);
+		return Ok(localMatcher([...own, ...declared]));
+	}
 
 	/** Captured files that are history source under the shared scope rule. */
 	function source(
 		current: ReadonlyMap<string, Uint8Array>,
 		tracked: ReadonlyMap<string, unknown>,
+		isLocal: IsLocal,
 	) {
 		return sourceFiles(current, tracked, backend.ignoredPaths, isLocal);
 	}
@@ -370,7 +394,13 @@ export function createHistory({
 					const captured = await capture();
 					const head = await backend.readBranch();
 					const committed = await headFiles(head);
-					const hashes = await hashFiles(await source(captured, committed));
+					// Status shows what a commit would record; with a declaration
+					// that cannot be read, by what the definition keeps.
+					const isLocal =
+						(await localNow()).data ?? localMatcher(definition?.local);
+					const hashes = await hashFiles(
+						await source(captured, committed, isLocal),
+					);
 					const value: FilesObservation = {
 						head,
 						changes: diffFileMaps(committed, hashes),
@@ -428,6 +458,9 @@ export function createHistory({
 		if (unborn !== undefined) return { status: 'blocked', reason: unborn };
 		const blocked = await wholeFolderProblem();
 		if (blocked !== undefined) return { status: 'blocked', reason: blocked };
+		const { data: isLocal, error: localProblem } = await localNow();
+		if (localProblem !== null)
+			return { status: 'blocked', reason: localProblem };
 		// Pin the parent, then capture, both inside the backend's
 		// protection. A pull or staged commit of this handle that changed
 		// files and the branch while this pass waited is part of the
@@ -439,14 +472,14 @@ export function createHistory({
 		onCapture?.(capturedAt);
 		const current = await capture();
 		const committed = await headFiles(parent);
-		const included = await source(current, committed);
+		const included = await source(current, committed, isLocal);
 		// An empty folder with no history has nothing to record, and writes
 		// nothing: not even an empty tree.
 		const built =
 			parent === undefined && included.size === 0
 				? undefined
 				: await backend.withObjects(async (access) => {
-						const tree = await writeFilesTree(access, included);
+						const tree = await writeFilesTree(access, included, committed);
 						const parentTree =
 							parent === undefined
 								? EMPTY_TREE
@@ -659,7 +692,11 @@ export function createHistory({
 	 * The files `from` and `to` hold, and the paths Sync changes between
 	 * them, local paths aside (ADR-0577).
 	 */
-	async function between(from: string | undefined, to: string) {
+	async function between(
+		from: string | undefined,
+		to: string,
+		isLocal: IsLocal,
+	) {
 		const [before, after] = await Promise.all([headFiles(from), headFiles(to)]);
 		const changes = diffFileMaps(before, after).filter(
 			(change) => !isLocal(change.path),
@@ -774,7 +811,10 @@ export function createHistory({
 			if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 			const head = await backend.readBranch();
 			if (head !== from) return Ok({ kind: 'moved', head } as const);
-			const plan = await between(from, to);
+			const { data: isLocal, error: localProblem } = await localNow();
+			if (localProblem !== null)
+				return SyncError.Blocked({ reason: localProblem });
+			const plan = await between(from, to, isLocal);
 			const refused = await inTheWay(boundary, plan);
 			if (refused !== undefined) return SyncError.Blocked({ reason: refused });
 			// Read from history before any lock: only each file's check and
@@ -1083,6 +1123,9 @@ export function createHistory({
 				if (base === undefined && !unrelated)
 					return SyncError.Unrelated({ head: local });
 				const mine = local;
+				const { data: isLocal, error: localProblem } = await localNow();
+				if (localProblem !== null)
+					return SyncError.Blocked({ reason: localProblem });
 				const merged = await backend.withObjects(async (access) => {
 					const result = await mergeHistories(access, {
 						base,
@@ -1102,7 +1145,10 @@ export function createHistory({
 					});
 				});
 				// What stands in the way stops Sync before the merge is sent.
-				const inWay = await inTheWay(boundary, await between(mine, merged));
+				const inWay = await inTheWay(
+					boundary,
+					await between(mine, merged, isLocal),
+				);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });
 				const pushed = await pushCommit(merged);
 				// Nothing here changed, so merging again from `local` is safe.

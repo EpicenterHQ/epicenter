@@ -123,9 +123,15 @@ folder's own file, the `epicenter` CLI's Sync and Save version included,
 leaves out the same paths. A declaration without `local` keeps nothing local.
 `local` is sorted and kept once each, so the file's bytes do not depend on the
 order it was declared in. When the folder's `epicenter.json` is there but
-cannot be read or prepared, the CLI's `runHistory` refuses a save version, a
-sync, and a settle, naming the problem, rather than commit without its
-`local`; status and the log still read.
+cannot be read or prepared, the CLI's `runHistory` refuses a save version and
+a sync, naming the problem, rather than commit without its `local`; status and
+the log still read.
+
+An open handle reads `local` from `epicenter.json` again for each commit and
+each Sync, joined with the opened definition's, so a pattern a Sync brings in
+from another device applies at once. Its own publication keeps every pattern
+the file already lists. An `epicenter.json` whose `local` does not read
+refuses the commit, as the CLI does.
 
 The engine decides this itself, on both backends, whatever `.gitignore` says.
 A path `local` matches is never history source (`git/scope.ts`): status does
@@ -143,14 +149,14 @@ removed, and a file that already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 
-One limit follows from `epicenter.json` merging as a whole file: if a Sync
-takes an `epicenter.json` written by an older app version, one without
-`local`, the engine stops excluding those paths until the app publishes its
-declaration again on its next write. `.gitignore` merges by line and keeps the
-patterns meanwhile, so plain Git still ignores an untracked file there;
-`.gitignore` does nothing for a file already committed. Likewise, two devices
-that publish differing `local` lists keep only one after a Sync, until
-merging `epicenter.json` unions `local` (ADR-0576 wave C).
+Two devices that publish differing `local` lists keep both: merging
+`epicenter.json` unions `local` (ADR-0576), and no publication drops a
+pattern. One limit remains: an older app version's `epicenter.json`, one
+without `local`, taken whole by a Sync, drops other devices' patterns from the
+file. Each device still excludes its own definition's patterns, and lists them
+again on its next write. `.gitignore` merges by line and keeps the patterns
+meanwhile, so plain Git still ignores an untracked file there; `.gitignore`
+does nothing for a file already committed.
 A pattern must be one line that ignores something: `defineFolder` refuses an
 empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.

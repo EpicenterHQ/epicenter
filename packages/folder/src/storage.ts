@@ -129,33 +129,6 @@ export async function createFile(
 	return Ok(fileCapture(path, sha256));
 }
 
-/**
- * Replace the captured file's bytes, only while it holds the captured ones:
- * `Conflict` otherwise.
- */
-export async function replaceFile(
-	storage: Pick<FolderStorage, 'put' | 'read'>,
-	file: FileCapture,
-	bytes: Uint8Array,
-): Promise<Result<FileCapture, FileError>> {
-	const sha256 = await hashBytes(bytes);
-	const { data: put, error } = await confirmedPut(
-		storage,
-		file.path,
-		bytes,
-		file.sha256,
-		sha256,
-	);
-	if (error !== null) return Err(error);
-	if (put === 'stale')
-		return FileError.Conflict({
-			path: file.path,
-			expectedSha256: file.sha256,
-			actualSha256: await actualAt(storage, file.path),
-		});
-	return Ok(fileCapture(file.path, sha256));
-}
-
 /** Remove the captured file, only while it holds the captured bytes. */
 export async function removeFile(
 	storage: Pick<FolderStorage, 'put' | 'read'>,

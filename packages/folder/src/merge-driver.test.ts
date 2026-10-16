@@ -1,7 +1,7 @@
 /**
  * Merge Driver Tests
  *
- * `mergeForGit` answers Git's merge driver with `mergeFile`'s merge, and
+ * `mergeForGit` answers Git's merge driver with `merge`, and
  * `gitMergeKind` finds a path's kind from the nearest declaration above it.
  *
  * Key behaviors:
