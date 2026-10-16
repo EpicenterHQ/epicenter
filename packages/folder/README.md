@@ -895,7 +895,7 @@ read as a row, which is left to repair. Every failure is one `WriteError`:
   removed; a required one so removed is `InvalidValues`. Every field it does
   not name keeps another writer's value, even one that landed between its
   read and its write, and a field it names wins. A row that is not there is
-  created when `fields` make a whole row; a file that is not a row has no
+  not made: `null`, and nothing is written. A file that is not a row has no
   fields to set, and is `InvalidValues`.
 - `create(row, { stem? })` writes at `stem`, or a generated one, from no
   file. A row already at the stem merges with it, the created row winning
@@ -903,12 +903,16 @@ read as a row, which is left to repair. Every failure is one `WriteError`:
   cannot supply a field the folder requires is `InvalidValues`, and
   `canCreate` says so beforehand.
 - `delete(stem)` removes whatever is at the stem, row or not.
-- `rename(stem, next)` moves the file, row or not. No file at `stem`, or a
-  file at `next`, is `InvalidPath`. A rename that created `next` but could
-  not delete `stem` leaves both.
-- A write over a row deleted since its `from` writes the row again, as the
-  writer acting. A writer that runs without a person, such as a retried fill
-  or an autosave, checks that its row is still there first.
+- `rename(stem, next)` moves the file, row or not, as it is. Its bytes land
+  at `next` only where nothing is, so two renames onto one stem never fuse
+  two rows, and `stem` goes only while it holds what moved: a write that
+  lands there meanwhile is carried to `next` first. No file at `stem`, or a
+  file at `next`, is `InvalidPath`. A rename that placed `next` but could
+  not remove `stem` leaves both.
+- A delete beats an edit it never saw. A write over a row deleted since its
+  `from` writes nothing and resolves `null`; only `create`, from no file,
+  brings a row into existence. So an autosave, a retried fill, or a stale
+  click never brings a deleted row back, with no check of its own.
 
 A row that is not valid is repaired as text through the folder's write:
 `folder.write(invalid.path, invalid.text, repaired)`.
@@ -932,8 +936,10 @@ well-formed text. A save that lands with nothing typed since clears both. A
 save that lands while typing continued makes `from` the row it sent, so the
 next save changes only what was typed since; one that stayed at the first
 keystroke would make a later edit of saved text a second insertion beside
-it. A failed save keeps both. Saves of one file run one at a time, and
-nothing is saved while the row is gone from the cache.
+it. A failed save keeps both. Saves of one file run one at a time. A save
+that finds the row deleted writes nothing, and nothing is sent while the row
+is gone from the cache: what is typed stays, `gone` is true, and the control
+offers the text until the person copies or discards it.
 
 ```svelte
 <script lang="ts">
@@ -987,8 +993,7 @@ written.overridden; // each unit this write won over another writer's change
 
 - Units only one side changed all survive. On a unit both changed, the
   writer wins, and `overridden` names it (`field`, `setting`, `lines` with
-  its `line` and `count`, or `file` with whether the other side `changed` or
-  `deleted` it). Each overwrite is logged through `wellcrafted/logger`
+  its `line` and `count`, or `file` with the side whose edit did not stand). Each overwrite is logged through `wellcrafted/logger`
   (`folder/save`); nothing is shown to a person.
 - Two insertions at one place both survive, the file's first, then the
   writer's. Identical ones are one, and an insertion that holds the other at
@@ -1000,7 +1005,10 @@ written.overridden; // each unit this write won over another writer's change
 - A version that does not read as its kind merges as text, and any `to` is
   written: a raw edit of a row can leave a row to repair (ADR-0503). A typed
   table view refuses a row it cannot write before it writes (`InvalidValues`).
-- A delete needs no base: `to` of `null` removes whatever is there.
+- A delete needs no base: `to` of `null` removes whatever is there. A delete
+  beats an edit it never saw: an edit of a file deleted since its `from`
+  writes nothing and answers `file: null`, and only a write from `null`
+  creates a file.
 
 Storage's `put` lands only while the path holds `ifMatch`, the SHA-256 there
 or `null` for no file, and answers `'stale'` otherwise, changing nothing. The

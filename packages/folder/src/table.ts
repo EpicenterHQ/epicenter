@@ -43,7 +43,12 @@ import {
 	rowPath,
 } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import { writeFailure, writeFile } from './save-file.js';
+import {
+	confirmedPut,
+	WRITE_ATTEMPTS,
+	writeFailure,
+	writeFile,
+} from './save-file.js';
 
 /**
  * One read or write of a row file: which bytes, their exact text, and the
@@ -103,8 +108,7 @@ export type FileTable<TFields> = {
 	/**
 	 * Set fields of the row at `stem` as it is now: every field it does not
 	 * name keeps its value, and a field set to `undefined` is removed. A row
-	 * that is not there is created with these fields and an empty body,
-	 * which is `InvalidValues` when they do not make a whole row. A file
+	 * that is not there is not made: `null`, and nothing is written. A file
 	 * that does not read as a row has no fields to set: `InvalidValues`.
 	 */
 	set(
@@ -123,10 +127,12 @@ export type FileTable<TFields> = {
 	/** Delete the row at `stem`, whatever it holds now. */
 	delete(stem: string): Promise<Result<undefined, WriteError>>;
 	/**
-	 * Move the row file at `stem` to `next`: a create of its text at `next`,
-	 * then a delete of `stem`. A file that is not a row moves as it is. No
-	 * file at `stem`, or one already at `next`, is `InvalidPath`. When the
-	 * delete fails, both stems hold the row.
+	 * Move the row file at `stem` to `next`, as it is: its bytes land at
+	 * `next` only where nothing is, then `stem` is removed only while it
+	 * holds them. A write that lands at `stem` meanwhile is carried to `next`
+	 * first. No file at `stem`, or one already at `next`, is `InvalidPath`;
+	 * either stem changing on every attempt is `KeptChanging`, and both stems
+	 * then hold the row, as they do when the removal fails.
 	 */
 	rename(
 		stem: string,
@@ -288,22 +294,19 @@ export function createTable<TFields>(
 								issues: [{ message: readError.message }],
 							})
 						: Err(writeFailure(rowPath(name, stem), readError));
+			if (current === undefined) return Ok(null);
 			const merged: Record<string, unknown> = {
-				...current?.row.fields,
+				...current.row.fields,
 				...fields,
 			};
 			for (const [field, value] of Object.entries(fields))
 				if (value === undefined) delete merged[field];
 			const next = textOf({
 				fields: merged as Row<TFields>['fields'],
-				body: current?.row.body ?? '',
+				body: current.row.body,
 			});
 			if (next.error !== null) return Err(next.error);
-			return written(
-				rowPath(name, stem),
-				current?.text ?? null,
-				next.data,
-			);
+			return written(rowPath(name, stem), current.text, next.data);
 		},
 		async create(row, options) {
 			if (unsupplied.length > 0)
@@ -335,26 +338,57 @@ export function createTable<TFields>(
 						})
 					: Err(writeFailure(from, read.error));
 			if (to === from) return written(from, read.data.bytes, read.data.bytes);
-			const occupied = await storage.read(to);
-			if (occupied.error === null)
+			const movedRow = (moved: { bytes: Uint8Array; sha256: string }) => {
+				const stored = storedRow(to, moved);
+				return Ok(stored.error === null ? stored.data : null);
+			};
+			// The bytes land at `next` only where nothing is, so two renames
+			// onto one stem never fuse two rows.
+			let moved = read.data;
+			const placed = await confirmedPut(
+				storage,
+				to,
+				moved.bytes,
+				null,
+				moved.sha256,
+			);
+			if (placed.error !== null) return Err(writeFailure(to, placed.error));
+			if (placed.data === 'stale')
 				return WriteError.InvalidPath({
 					path: to,
 					reason: 'a row is already at this stem',
 				});
-			if (occupied.error.name !== 'NotFound')
-				return Err(writeFailure(to, occupied.error));
-			const moved = await written(to, null, read.data.bytes);
-			if (moved.error !== null) return moved;
-			// A write over the old stem since the read is deleted with it, and
-			// logged as overridden.
-			const { error: deleteError } = await writeFile(
-				storage,
-				kind,
-				from,
-				read.data.bytes,
-				null,
-			);
-			return deleteError === null ? moved : Err(deleteError);
+			// The old stem goes only while it holds what moved; a write that
+			// landed there since is carried to `next` first.
+			for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+				const removed = await confirmedPut(
+					storage,
+					from,
+					null,
+					moved.sha256,
+					null,
+				);
+				if (removed.error !== null)
+					return Err(writeFailure(from, removed.error));
+				if (removed.data === 'landed') return movedRow(moved);
+				const now = await storage.read(from);
+				if (now.error !== null)
+					return now.error.name === 'NotFound'
+						? movedRow(moved)
+						: Err(writeFailure(from, now.error));
+				const carried = await confirmedPut(
+					storage,
+					to,
+					now.data.bytes,
+					moved.sha256,
+					now.data.sha256,
+				);
+				if (carried.error !== null)
+					return Err(writeFailure(to, carried.error));
+				if (carried.data === 'stale') break;
+				moved = now.data;
+			}
+			return WriteError.KeptChanging({ path: from, attempts: WRITE_ATTEMPTS });
 		},
 	};
 	return fileTable;

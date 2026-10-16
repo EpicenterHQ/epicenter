@@ -22,9 +22,10 @@
  * - `write` merges the change from one row to another into the row as it is
  *   now, written canonically; another writer landing first starts it again,
  *   and one that never stops is `KeptChanging`
- * - `set` changes the fields it names of the row as it is now; `delete`
- *   removes whatever is there; `rename` moves the file, row or not, to a
- *   vacant stem (see `save.test.ts` for each over a real directory)
+ * - `set` changes the fields it names of the row as it is now, and makes no
+ *   row; a write over a row deleted since writes nothing; `delete` removes
+ *   whatever is there; `rename` moves the file, row or not, to a vacant
+ *   stem, never fusing two rows and carrying a write that lands meanwhile (see `save.test.ts` for each over a real directory)
  * - Every literal single-segment stem is an address, the empty one included;
  *   only the exact lowercase `.md` extension is a row
  *
@@ -376,7 +377,7 @@ test('set keeps a field another writer changed between its read and its write', 
 	expect(written.row.fields).toMatchObject({ title: 'Theirs', done: true });
 });
 
-test('set removes a field set to undefined, and creates a row that is not there', async () => {
+test('set removes a field set to undefined, and makes no row that is not there', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const removed = must(
@@ -387,14 +388,10 @@ test('set removes a field set to undefined, and creates a row that is not there'
 		done: false,
 		tags: [],
 	});
-	const created = must(
-		await s.table.set('new', { title: 'New', done: false, tags: [] }),
-	);
-	expect(created.row).toEqual({ fields: todo('New').fields, body: '' });
 	expect(
-		expectErr(await s.table.set('partial', { done: true })),
-	).toMatchObject({ name: 'InvalidValues' });
-	expect(await s.stored('todos/partial.md')).toBeUndefined();
+		expectOk(await s.table.set('new', { title: 'New', done: false, tags: [] })),
+	).toBeNull();
+	expect(await s.stored('todos/new.md')).toBeUndefined();
 });
 
 test('set over a file that is not a row, or with a value its field does not admit, is InvalidValues', async () => {
@@ -449,15 +446,17 @@ test('a write keeps fields and lines another writer changed, and wins lines both
 	});
 });
 
-test('a write over a row deleted since it started writes the row again', async () => {
+test('a write over a row deleted since it started writes nothing: the delete stands', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
 	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
-	expectOk(
-		await s.table.write('a', stored.row, { ...stored.row, body: 'Back\n' }),
-	);
-	expect(expectOk(await s.table.get('a'))?.row.body).toBe('Back\n');
+	expect(
+		expectOk(
+			await s.table.write('a', stored.row, { ...stored.row, body: 'Back\n' }),
+		),
+	).toBeNull();
+	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
 
 test("every attempt merges from the write's own from, and the write logs what the last one overwrote", async () => {
@@ -530,6 +529,42 @@ test('rename moves the row file to a vacant stem, a file that is not a row as it
 	expect(expectOk(await s.table.rename('m', 'n'))).toBeNull();
 	expect(await s.stored('todos/n.md')).toBe(MALFORMED);
 	expect(await s.stored('todos/m.md')).toBeUndefined();
+});
+
+test('two renames onto one stem never fuse two rows: one moves, the other is InvalidPath', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	await s.put('todos/b.md', NEWER);
+	const [first, second] = await Promise.all([
+		s.table.rename('a', 'c'),
+		s.table.rename('b', 'c'),
+	]);
+	const outcomes = [first, second].map((result) =>
+		result.error === null ? 'moved' : result.error.name,
+	);
+	expect(outcomes.sort()).toEqual(['InvalidPath', 'moved']);
+	const moved = first.error === null ? VALID : NEWER;
+	const stayed = first.error === null ? 'todos/b.md' : 'todos/a.md';
+	expect(await s.stored('todos/c.md')).toBe(moved);
+	expect(await s.stored(stayed)).toBe(first.error === null ? NEWER : VALID);
+});
+
+test('a write that lands at the old stem during a rename is carried to the new one', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	let raced = false;
+	// Another writer lands at the old stem once the bytes reached the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+	});
+	const moved = must(await s.table.rename('a', 'b'));
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(moved.text).toBe(NEWER);
+	expect(await s.stored('todos/b.md')).toBe(NEWER);
+	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
 
 test('rename from a stem with no file, or onto an occupied one, is InvalidPath and changes nothing', async () => {

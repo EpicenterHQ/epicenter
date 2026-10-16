@@ -13,7 +13,8 @@
  *   change from the row it started from to that row with the typed body,
  *   and shows the file again once its save lands with nothing typed since
  * - Typing during a save makes the next save start from what that one sent
- * - A failed save keeps what is typed; nothing is saved while the row is gone
+ * - A failed save keeps what is typed; nothing is saved while the row is
+ *   gone, and a save that finds it deleted keeps the text, marked gone
  * - Over a real table, an agent's lines merged in between two saves stay,
  *   and text typed after the first save appears once
  */
@@ -138,7 +139,7 @@ type Change = { readonly from: Row<Note>; readonly to: Row<Note> };
 
 test('a body editor sends the change from the row it started from to that row with the typed body', async () => {
 	let cached: StoredRow<Note> | undefined = note('a', 'One', 'one\n');
-	const { calls, save: write } = heldSaves<Change, unknown>();
+	const { calls, save: write } = heldSaves<Change, StoredRow<Note> | null>();
 	const body = createBodyEditor<Note>({ row: () => cached, write });
 
 	expect(body.text).toBe('one\n');
@@ -155,7 +156,7 @@ test('a body editor sends the change from the row it started from to that row wi
 		from: started.row,
 		to: { fields: { title: 'One' }, body: 'mine\n' },
 	});
-	calls[0]?.land(undefined);
+	calls[0]?.land(cached ?? null);
 	await done;
 	cached = note('c', 'Renamed', 'mine\n');
 
@@ -165,26 +166,26 @@ test('a body editor sends the change from the row it started from to that row wi
 
 test('typing during a save makes the next save start from what that one sent', async () => {
 	const cached = note('a', 'One', 'one\n');
-	const { calls, save: write } = heldSaves<Change, unknown>();
+	const { calls, save: write } = heldSaves<Change, StoredRow<Note> | null>();
 	const body = createBodyEditor<Note>({ row: () => cached, write });
 	body.change('one\nX\n');
 	const done = body.save();
 	body.change("one\nX'\n");
-	calls[0]?.land(undefined);
+	calls[0]?.land(cached ?? null);
 	await Promise.resolve();
 	await Promise.resolve();
 	expect(calls[1]?.sent).toEqual({
 		from: { fields: { title: 'One' }, body: 'one\nX\n' },
 		to: { fields: { title: 'One' }, body: "one\nX'\n" },
 	});
-	calls[1]?.land(undefined);
+	calls[1]?.land(cached);
 	await done;
 	expect(body.typed).toBeUndefined();
 });
 
 test('a failed body save keeps what is typed, and nothing is saved while the row is gone', async () => {
 	let cached: StoredRow<Note> | undefined = note('a', 'One', 'one\n');
-	const { calls, save: write } = heldSaves<Change, unknown>();
+	const { calls, save: write } = heldSaves<Change, StoredRow<Note> | null>();
 	const body = createBodyEditor<Note>({ row: () => cached, write });
 	body.change('mine\n');
 	const failing = body.save();
@@ -203,7 +204,7 @@ test('a failed body save keeps what is typed, and nothing is saved while the row
 test('a body editor takes no change while there is no row', () => {
 	const body = createBodyEditor<Note>({
 		row: () => undefined,
-		write: heldSaves<Change, unknown>().save,
+		write: heldSaves<Change, StoredRow<Note> | null>().save,
 	});
 	body.change('typed\n');
 	expect(body.text).toBeUndefined();
@@ -229,6 +230,7 @@ test("an agent's lines merged into the body stay, and typing after a save appear
 			const { data, error } = await notes.write('a', from, to);
 			if (error !== null) throw error;
 			if (data !== null) cached = data;
+			return data;
 		},
 	});
 
@@ -264,4 +266,21 @@ test("an agent's lines merged into the body stay, and typing after a save appear
 	expect((await notes.get('a')).data?.row.body).toBe(
 		'Hello\nthere\nAgent note\nthere, friend\n',
 	);
+});
+
+test('a save that finds the row deleted keeps what is typed and marks it gone', async () => {
+	const cached = note('a', 'One', 'one\n');
+	const { calls, save: write } = heldSaves<Change, StoredRow<Note> | null>();
+	const body = createBodyEditor<Note>({ row: () => cached, write });
+	body.change('mine\n');
+	expect(body.gone).toBe(false);
+	const saving = body.save();
+	calls[0]?.land(null);
+	await saving;
+	expect(body.typed).toBe('mine\n');
+	expect(body.gone).toBe(true);
+	await body.save();
+	expect(calls).toHaveLength(1);
+	body.discard();
+	expect(body.gone).toBe(false);
 });

@@ -12,8 +12,8 @@
  * - Two insertions at one place both survive; identical ones are one
  * - A row is written canonically, except that a row the writer left as it
  *   was is no change, so the other writer's spelling stands
- * - A delete and an edit are the whole file: the writer acting wins either
- *   way, and the other side is overridden
+ * - A delete and an edit are the whole file: the delete beats an edit it
+ *   never saw, and only a write from no file creates one
  * - A version that does not read as a row merges as text
  * - `put` lands only while the path holds `ifMatch`, and is `'stale'`
  *   otherwise, changing nothing
@@ -125,7 +125,7 @@ test('a merged row is written canonically, and a row the writer left alone keeps
 	).toEqual({ content: handWritten, overridden: [] });
 });
 
-test('a delete and an edit are the whole file, and the writer acting wins either way', async () => {
+test('a delete and an edit are the whole file, and the delete beats the edit it never saw', async () => {
 	expect(
 		await merge(ROW, {
 			base: note('Walk'),
@@ -134,7 +134,7 @@ test('a delete and an edit are the whole file, and the writer acting wins either
 		}),
 	).toEqual({
 		content: null,
-		overridden: [{ kind: 'file', theirs: 'changed' }],
+		overridden: [{ kind: 'file', lost: 'theirs' }],
 	});
 	expect(
 		await merge(ROW, {
@@ -143,9 +143,13 @@ test('a delete and an edit are the whole file, and the writer acting wins either
 			theirs: null,
 		}),
 	).toEqual({
-		content: note('Run'),
-		overridden: [{ kind: 'file', theirs: 'deleted' }],
+		content: null,
+		overridden: [{ kind: 'file', lost: 'ours' }],
 	});
+	// Only a side with no base brings a file into existence.
+	expect(
+		await merge(ROW, { base: null, ours: note('Run'), theirs: null }),
+	).toEqual({ content: note('Run'), overridden: [] });
 	// A delete nobody competed with stands.
 	expect(
 		await merge(ROW, { base: note('Walk'), ours: note('Walk'), theirs: null }),
@@ -166,7 +170,7 @@ test('a version that does not read as a row merges as text, and binary is the wh
 		await merge(TEXT, { base: bytes(1), ours: bytes(2), theirs: bytes(3) }),
 	).toEqual({
 		content: bytes(2),
-		overridden: [{ kind: 'file', theirs: 'changed' }],
+		overridden: [{ kind: 'file', lost: 'theirs' }],
 	});
 });
 
@@ -373,10 +377,20 @@ test('a delete needs no base, and the deleter wins', async () => {
 	await writeFile(join(root, 'b.txt'), 'theirs\n');
 	expect(
 		expectOk(await folder.write('b.txt', 'mine\n', null)).overridden,
-	).toEqual([{ kind: 'file', theirs: 'changed' }]);
+	).toEqual([{ kind: 'file', lost: 'theirs' }]);
 	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
 	// Deleting what is already gone is done.
 	expectOk(await folder.write('a.txt', 'theirs\n', null));
+	await folder.close();
+});
+
+test('an edit of a file deleted since its version writes nothing and answers no file', async () => {
+	const { folder } = await directory();
+	const written = expectOk(
+		await folder.write('a.txt', 'mine\n', 'mine\nmore\n'),
+	);
+	expect(written).toEqual({ path: 'a.txt', file: null, overridden: [] });
+	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
 	await folder.close();
 });
 

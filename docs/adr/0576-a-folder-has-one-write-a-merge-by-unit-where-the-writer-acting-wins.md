@@ -72,9 +72,12 @@ it is now and merges the change from `from` to `to` into it, by unit:
 - Lines compare without their line feeds, so appending to text that ends
   without one is an insertion. A result ends with a line feed as the version
   its last line came from ends.
-- A side with no file makes the whole file one unit, so an edit and a delete
-  compete as one: the writer's edit stands over a delete, and the writer's
-  delete removes an edit.
+- A delete beats an edit it never saw. Whether a file exists is decided by
+  the delete; what it holds, by the writer acting. Only a write from no file
+  (`from` of `null`, a create) brings a file into existence: an edit of a
+  file deleted since its `from` writes nothing and answers that no file is
+  there, which is not a failure to retry. The writer's delete removes an
+  edit it never saw, too.
 - A version that does not read as its kind merges as text. A result that
   does not read is left for repair (ADR-0503).
 - Every write parses, merges, and formats canonically. A row's frontmatter is
@@ -101,12 +104,14 @@ type Overridden =
   | { kind: 'field'; field: string }
   | { kind: 'setting'; key: string } // until settings are a table
   | { kind: 'lines'; part: 'body' | 'text'; line: number; count: number }
-  | { kind: 'file'; theirs: 'changed' | 'deleted' };
+  | { kind: 'file'; lost: 'ours' | 'theirs' };
 ```
 
 `line` is where the writer's `count` lines stand in the result, 1-based
-within the body or the file. A write logs what it overrode; Sync's commit
-message lists it.
+within the body or the file. `file` names the side whose edit of the whole
+file did not stand: the other's under the writer acting, or either side's
+under a delete. A write logs what it overrode; Sync's commit message lists
+it.
 
 **A table is a typed view.** It is a codec over `<table>/<stem>.md` with
 `get(stem)`, `list()`, and `write(stem, from, to)`. Helpers build the change
@@ -114,18 +119,19 @@ and call the one write:
 
 | Helper | `from` |
 | --- | --- |
-| `set(stem, fields)` | the file as it is now |
+| `set(stem, fields)` | the file as it is now; a row that is not there is not made |
 | `create(row)` | no file, at a new stem |
 | `delete(stem)` | none; the deleter wins |
-| `rename(stem, next)` | `create` at `next`, then `delete` of `stem` |
+| `rename(stem, next)` | its bytes put at `next` only where nothing is, then `stem` removed only while it holds them |
 | the body editor | the row at the first keystroke, then what each save sent |
 
 `files.move` stays for large binary files.
 
 **The query layer offers one mutation per helper.**
 `folder.<table>.get(stem)` and `.list()` give `queryOptions()`, and
-`.set`, `.create`, `.rename`, and `.delete` give `mutationOptions()`. There is
-no shared `write` mutation, so each control owns its pending and error state.
+`.set`, `.create`, `.rename`, `.delete`, and the body editor's `.write` give
+`mutationOptions()`. There is no mutation shared across controls, so each
+control owns its pending and error state.
 A query is named for its data and a mutation for its verb and noun:
 
 ```ts
@@ -146,14 +152,26 @@ overrode, and the losing side stays reachable as the merge's other parent.
 Sync publishes each changed file with the same `merge` and `put`, on every
 host. The device's side of that publish is its file as it is at the put, not
 the merge Sync computed, so text typed while Sync runs, which no commit
-holds, wins over what arrived. In a
-`git pull`, the merge driver treats the local checkout as the writer acting
-and writes no conflict markers.
+holds, wins over what arrived. A delete wins over an edit the deleting side
+never saw; the edit stays in the other parent, and the merge commit lists it
+as overridden.
+
+**Plain Git keeps its conflicts.** The merge driver that `git merge`, `git
+pull`, `git rebase`, `git cherry-pick`, and `git stash pop` run uses the same
+`merge`: units only one side changed merge by field or line, and insertions
+at one place are a union. Where both sides replaced one unit differently, it
+writes Git's conflict markers and exits non-zero, so Git stops. In a rebase
+or a stash pop, Git's `ours` is not the local work, so "the writer acting
+wins" would silently drop replayed commits or stashed edits. Only Epicenter's
+Sync, which never runs `git merge`, applies the writer acting. A file with
+markers shows as one to repair.
 
 **`createBodyEditor` holds `from`, `typed`, and one write.** The first change
 takes the row as the cache holds it as `from`. A save that lands with nothing
 typed since clears both. A save that lands while typing continued makes `from`
-the text it sent. A failed save keeps both. Saves of one file run one at a
+the text it sent. A failed save keeps both. A save that finds the row deleted
+writes nothing and keeps what is typed, which the control offers until the
+person copies or discards it (`gone`). Saves of one file run one at a
 time (`inTurn`). It has no revision counter, no re-merge, and no `onSaved`.
 
 **Settings are a declared `settings` table.** Its fields are all optional, and
@@ -187,9 +205,10 @@ its stems are named by concern, such as `settings/display.md` and
   can hold both versions of an addition. A writer that fills a body once,
   such as Whispering's answers, needs no guard against another fill:
   identical answers are one.
-- A write over a file deleted since its `from` recreates it, as the writer
-  acting. A writer that runs without a person, such as a retried fill or an
-  autosave, checks that its row is still there before each write.
+- A delete stands against every edit that never saw it, so an autosave, a
+  retried fill, or a stale click never brings a row back; such a writer needs
+  no check of its own. Text typed into a row deleted elsewhere is not saved,
+  and is offered to the person instead.
 - A write's `to` that does not read as its kind is written, so a raw edit of
   a row can leave a row to repair, as a hand edit can.
 - A body edit rewrites its row's frontmatter in the standard form, so a

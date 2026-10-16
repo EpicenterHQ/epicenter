@@ -14,6 +14,8 @@
  *
  * Units only one side changed all survive. Two insertions at one place in a
  * body or a text both survive, and identical ones are one (`mergeLines`).
+ * A delete beats an edit the deleting side never saw: only a side with no
+ * base brings a file into existence.
  * A row or `kv.json` version that does not read as its kind merges as text,
  * and so does a merge of rows that does not write as one: the result is a
  * file a person can repair, never a refusal (ADR-0503).
@@ -417,8 +419,9 @@ export async function mergeFile(
  *   lines stand there from `line`, 1-based within the body or the file; a
  *   `count` of 0 is a removal at that place.
  * - `file`: the whole file, because a side has none or a version is not
- *   UTF-8 text. `theirs` says whether the other writer had `changed` the
- *   file or `deleted` it.
+ *   UTF-8 text. `lost` names the side whose edit of it did not stand: the
+ *   other writer's, under the writer acting, or either side's under a
+ *   delete, since a delete beats an edit it never saw.
  *
  * It names the unit, never the content that lost: the other version is
  * still in whatever held it, such as a commit.
@@ -432,7 +435,7 @@ export type Overridden =
 			readonly line: number;
 			readonly count: number;
 	  }
-	| { readonly kind: 'file'; readonly theirs: 'changed' | 'deleted' };
+	| { readonly kind: 'file'; readonly lost: 'ours' | 'theirs' };
 
 /** A merge's result: the file, `null` for no file, and what the writer acting overrode. */
 export type Merged = {
@@ -457,17 +460,21 @@ export function sameContent(
 	return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
 
-/** The whole file as one unit: a side that changed nothing yields, and otherwise ours wins. */
+/**
+ * The whole file as one unit: a side that changed nothing yields. Where
+ * both changed it, a delete beats the edit it never saw, and otherwise ours
+ * wins. Whether a file exists is decided by a delete; what it holds, by the
+ * writer acting.
+ */
 function wholeFile({ base, ours, theirs }: FileVersions): Merged {
 	if (sameContent(ours, theirs) || sameContent(theirs, base))
 		return { content: ours, overridden: [] };
 	if (sameContent(ours, base)) return { content: theirs, overridden: [] };
-	return {
-		content: ours,
-		overridden: [
-			{ kind: 'file', theirs: theirs === null ? 'deleted' : 'changed' },
-		],
-	};
+	if (ours === null)
+		return { content: null, overridden: [{ kind: 'file', lost: 'theirs' }] };
+	if (theirs === null)
+		return { content: null, overridden: [{ kind: 'file', lost: 'ours' }] };
+	return { content: ours, overridden: [{ kind: 'file', lost: 'theirs' }] };
 }
 
 /** A competing region the writer's lines won, as `overridden` names it. */
@@ -572,8 +579,8 @@ async function rowWins(
 /**
  * Merge three versions of one file by its kind, `ours` the writer acting.
  * A side with no file, or a version that is not UTF-8 text without a NUL
- * byte, makes the whole file one unit, except that a row is still written
- * canonically when ours wins it.
+ * byte, makes the whole file one unit, where a delete beats an edit; a row
+ * is still written canonically when ours wins it.
  */
 export async function merge(
 	kind: FileKind,

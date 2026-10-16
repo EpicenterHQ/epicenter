@@ -110,7 +110,7 @@ const toBytes = (content: FileContent | null) =>
  * `storage.put`, with a lost reply read back once: the bytes it sent, or no
  * file for a removal, are this put landing after all.
  */
-async function confirmedPut(
+export async function confirmedPut(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
 	path: string,
 	bytes: Uint8Array | null,
@@ -143,7 +143,10 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * file. `to` is the content, or `null` to delete the file. A delete needs no
  * base, since the deleter wins: its `from` only names the file as
  * overridden when another writer changed it since, and `null` names
- * nothing. Both are owned before anything is awaited.
+ * nothing. An edit, from a version that existed, of a file deleted since
+ * writes nothing and answers `file: null`: a delete beats an edit it never
+ * saw, and only a write from no file creates one. Both are owned before
+ * anything is awaited.
  *
  * Any `to` is written, whether or not it reads as its kind: a typed view
  * refuses a row it cannot write before it gets here (`InvalidValues`), and
@@ -174,11 +177,17 @@ export async function writeFile(
 						content: null,
 						overridden:
 							theirs !== null && base !== null && !sameContent(theirs, base)
-								? [{ kind: 'file', theirs: 'changed' } as const]
+								? [{ kind: 'file', lost: 'theirs' } as const]
 								: [],
 					}
 				: await merge(kind, { base, ours, theirs });
 		const bytes = toBytes(merged.content);
+		if (
+			merged.overridden.some(
+				(unit) => unit.kind === 'file' && unit.lost === 'ours',
+			)
+		)
+			log.info(`Wrote nothing to ${path}: it was deleted since`, { path });
 		if (sameContent(bytes, theirs))
 			return Ok(
 				Object.freeze({

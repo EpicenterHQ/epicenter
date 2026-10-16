@@ -142,14 +142,21 @@ export type BodyEditor = {
 	readonly typed: string | undefined;
 	/** Whether a save of the body is running. */
 	readonly saving: boolean;
+	/**
+	 * Whether the row is gone with text typed into it: deleted elsewhere,
+	 * as the cache says or a save found. Nothing saves that text; the
+	 * control offers it until the person copies or discards it.
+	 */
+	readonly gone: boolean;
 	/** Type `text`. The first change takes the row as the cache holds it as `from`. */
 	change(text: string): void;
 	/**
 	 * Save what is typed, one save at a time, until nothing typed is
 	 * unsent. Called while a save runs, it resolves when that loop ends. A
-	 * failed save keeps what is typed; its error is the mutation's. Nothing
-	 * is saved while the row is gone from the cache, so a body editor never
-	 * makes a row deleted elsewhere again.
+	 * failed save keeps what is typed; its error is the mutation's. A save
+	 * of a row deleted since writes nothing (a delete beats an edit it never
+	 * saw), and nothing is sent while the row is gone from the cache: what is
+	 * typed stays, and `gone` says so.
 	 */
 	save(): Promise<void>;
 	/** Drop what is typed. */
@@ -168,17 +175,20 @@ export function createBodyEditor<TFields>({
 	row: () => StoredRow<TFields> | undefined;
 	/**
 	 * Write the change from `from` to `to`, rejecting on failure:
-	 * `mutateAsync` of `folder.<table>.write` with the row's stem.
+	 * `mutateAsync` of `folder.<table>.write` with the row's stem. It
+	 * resolves with the row written, or `null` when the row is gone.
 	 */
 	write: (change: {
 		readonly from: Row<TFields>;
 		readonly to: Row<TFields>;
-	}) => Promise<unknown>;
+	}) => Promise<StoredRow<TFields> | null>;
 }): BodyEditor {
 	/** The row the edit started from, then the row each landed save sent. */
 	let from: Row<TFields> | undefined = $state.raw();
 	let typed: string | undefined = $state.raw();
 	let running: Promise<void> | undefined = $state.raw();
+	/** A save found the row deleted. */
+	let deleted = $state.raw(false);
 
 	/** Started only with something to send, so it awaits before it ends. */
 	async function loop() {
@@ -191,11 +201,15 @@ export function createBodyEditor<TFields>({
 					from: base,
 					to: { fields: base.fields, body: sent },
 				}).then(
-					() => true,
-					() => false,
+					(row) => (row === null ? 'gone' : 'landed'),
+					() => 'failed' as const,
 				);
 				// The mutation holds the error; what is typed stays.
-				if (!landed) return;
+				if (landed === 'failed') return;
+				if (landed === 'gone') {
+					if (from === base) deleted = true;
+					return;
+				}
 				// Discarded, or discarded and begun again, while it ran.
 				if (from !== base || typed === undefined) return;
 				if (storable(typed) === sent) {
@@ -222,6 +236,9 @@ export function createBodyEditor<TFields>({
 		get saving() {
 			return running !== undefined;
 		},
+		get gone() {
+			return typed !== undefined && (deleted || row() === undefined);
+		},
 		change(text) {
 			if (from === undefined) {
 				const current = row();
@@ -234,7 +251,12 @@ export function createBodyEditor<TFields>({
 			if (running !== undefined) return running;
 			// Nothing to send, or no row to send it to: the loop would end
 			// before it first awaits.
-			if (from === undefined || typed === undefined || row() === undefined)
+			if (
+				from === undefined ||
+				typed === undefined ||
+				deleted ||
+				row() === undefined
+			)
 				return Promise.resolve();
 			running = loop();
 			return running;
@@ -242,6 +264,7 @@ export function createBodyEditor<TFields>({
 		discard() {
 			from = undefined;
 			typed = undefined;
+			deleted = false;
 		},
 	};
 }

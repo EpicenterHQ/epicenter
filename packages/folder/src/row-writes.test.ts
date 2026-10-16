@@ -21,8 +21,8 @@
  * - `epicenter.json` keeps its bytes throughout
  * - A `set` sets fields of the row as it is now: a field another writer
  *   changed between its read and its write survives, `set` wins the field
- *   it names, a field set to `undefined` is removed, and fields that do not
- *   make a whole row create nothing
+ *   it names, a field set to `undefined` is removed, and a row that is not
+ *   there is not made
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -297,12 +297,11 @@ test('a set of a field to undefined removes it and keeps the body', async () => 
 	await folder.close();
 });
 
-test('a set of fields that do not make a whole row, where none is, creates nothing', async () => {
+test('a set where no row is makes none', async () => {
 	const { root, folder, table } = await setup();
 
-	const refused = expectErr(await table.set('two', { title: 'Two' }));
+	expect(expectOk(await table.set('two', { title: 'Two' }))).toBeNull();
 
-	expect(refused.name).toBe('InvalidValues');
 	expect(
 		await readFile(join(root, 'notes/two.md'), 'utf8').catch(() => null),
 	).toBe(null);
