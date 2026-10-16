@@ -16,7 +16,7 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { OpenFolderError } from '@epicenter/folder/bun';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { recordingEditor, settle } from './edits.test-support.js';
 import { createQueryClient } from './query.test-support.js';
@@ -67,7 +67,8 @@ test('a session opens the folder once and releases it once', async () => {
 });
 
 test('internal navigation is allowed while unloading is blocked only by a write in flight', async () => {
-	const answer = deferred<Awaited<ReturnType<Workspace['transcribe']>>>();
+	const answer =
+		deferred<Result<{ text: string }, { message: string }>>();
 	const { session, library } = await open({ transcribe: () => answer.promise });
 	expect(session.blocksNavigation(INTERNAL)).toBe(false);
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
@@ -254,8 +255,12 @@ test('a layout released while its session is starting leaves nothing open', asyn
 	finish();
 
 	await expect(mounted.opening).rejects.toThrow('released');
-	// The admitted read settled before the folder closed; nothing was seeded.
-	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
+	// The admitted read settled before the folder closed; nothing was seeded:
+	// kv.json holds only the connections the test device chose.
+	expect(await Bun.file(`${test.root}/kv.json`).json()).toEqual({
+		transcriptionConnection: 'test-transcription',
+		textConnection: 'test-text',
+	});
 	expect(test.closes).toBe(1);
 });
 

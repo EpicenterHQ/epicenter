@@ -9,7 +9,7 @@
  *
  * Key behaviors:
  * - Nothing is seeded: a transformation exists only after it is created
- * - A transformation is an ordinary Markdown row: title, model, and endpoint in
+ * - A transformation is an ordinary Markdown row: title and model in
  *   frontmatter, the prompt as its body
  * - Applying one writes a new result row and never writes the transcript
  * - A result carries the prompt and text that were sent, so it outlives edits
@@ -40,7 +40,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
 import {
@@ -52,11 +52,11 @@ import {
 import type { Library, WriteNotice } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
 import { filesLine } from './status.js';
-import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	eventually,
 	openTestWorkspace,
+	type StubAnswer,
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
 
@@ -126,33 +126,25 @@ test('opening a folder seeds no transformation; creating one writes an ordinary 
 	const entry = library.transformations[0]!;
 	expect(library.selectedTransformationPath).toBe(entry.path);
 	const source = await readFile(join(root, entry.path), 'utf8');
-	// A new recipe names no model or endpoint: it runs with the text connection.
-	expect(entry.row.fields).toEqual({
-		title: 'Clean up',
-		model: null,
-		endpoint: null,
-	});
-	expect(source).toContain('model: null\nendpoint: null\n');
+	// A new recipe names no model: it runs with the text connection's.
+	expect(entry.row.fields).toEqual({ title: 'Clean up', model: null });
+	expect(source).toContain('model: null\n');
 	expect(entry.row.body).toBe(CLEANUP.prompt);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 
-test('a new transformation copies no endpoint or model from another one', async () => {
+test('a new transformation copies no model from another one', async () => {
 	const { library } = await open();
 	const editor = await cleanupProfile(library);
 	editor.edit((row) => {
-		row.fields.endpoint = 'http://127.0.0.1:11434/v1';
+		row.fields.model = 'chat-model';
 	});
 	await settle(library);
 
 	await library.createTransformation({ title: 'Summarize', prompt: 'Sum.\n' });
 
 	const created = library.selectedTransformation!.entry!;
-	expect(created.row.fields).toEqual({
-		title: 'Summarize',
-		model: null,
-		endpoint: null,
-	});
+	expect(created.row.fields).toEqual({ title: 'Summarize', model: null });
 });
 
 test('editing a transformation saves the whole row in one form and keeps fields the app does not know', async () => {
@@ -247,10 +239,11 @@ test('applying a transformation writes a new result row and leaves the transcrip
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
-	// Prepared for the text connection; the recipe's own model is used.
+	// Sent over the text connection; the recipe's own model is used.
 	expect(transformed).toEqual([
 		{
-			expectedBaseUrl: 'http://127.0.0.1:18080/v1',
+			connection: 'test-text',
+			endpoint: 'http://127.0.0.1:18080/v1',
 			model: 'chat-model',
 			prompt: CLEANUP.prompt,
 			input: 'um so a steady tone\n',
@@ -266,6 +259,7 @@ test('applying a transformation writes a new result row and leaves the transcrip
 		transcriptionId: transcript.stem,
 		transformationId: profile.stem,
 		transformationTitle: 'Clean up',
+		connection: 'test-text',
 		model: 'chat-model',
 		endpoint: 'http://127.0.0.1:18080/v1',
 		prompt: CLEANUP.prompt,
@@ -479,7 +473,7 @@ function newestResult(library: Library, transcriptionId: string) {
 
 test('a recording cannot be deleted while a transformation of it runs, including one started after confirming', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<StubAnswer>();
 	const started = deferred<void>();
 	const { library, root } = await open({
 		transform: () => {
@@ -525,7 +519,7 @@ test('a recording cannot be deleted while a transformation of it runs, including
 test('a failed run does not block deletion, and its row goes with the recording', async () => {
 	const { library, root, transformed } = await open({
 		transform: async () =>
-			TransformationError.Unreachable({ url: 'http://x', reason: 'down' }),
+			Err({ message: 'down' }),
 	});
 	const { recording, transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
@@ -611,7 +605,7 @@ test('deleting a recording removes the results made from its transcripts', async
 
 test('a run’s row is in the folder from its start with every field and no body, and holds nothing in the window', async () => {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<StubAnswer>();
 	const started = deferred<void>();
 	const { library, root } = await open({
 		transform: () => {
@@ -650,11 +644,7 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 		transform: async ({ input }) => {
 			attempts += 1;
 			if (attempts === 1)
-				return TransformationError.Rejected({
-					url: 'http://127.0.0.1:18080/v1/chat/completions',
-					status: 429,
-					detail: 'slow down',
-				});
+				return new Response('slow down', { status: 429 });
 			if (attempts === 2) throw new Error('the folder host went away');
 			return Ok({ text: `Third try: ${input.trim()}` });
 		},
@@ -694,7 +684,7 @@ test('running again sends what the row holds, not what the transcript holds now'
 	const { library, root, transformed } = await open({
 		transform: async ({ input }) =>
 			refuse
-				? TransformationError.Unreachable({ url: 'http://x', reason: 'down' })
+				? Err({ message: 'down' })
 				: Ok({ text: input }),
 	});
 	const { transcript, transcriptText } = await transcribed(library, root);
@@ -747,8 +737,8 @@ test('an answer whose write fails is written again while the page lives', async 
 
 test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
 	const answers = [
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>(),
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>(),
+		deferred<StubAnswer>(),
+		deferred<StubAnswer>(),
 	];
 	const { library, root, transformed } = await open({
 		transform: () => answers[transformed.length - 1]!.promise,
@@ -792,7 +782,7 @@ test('an answer for a row someone filled meanwhile stands after their text, and 
  */
 async function fillRace(typed: string) {
 	const answer =
-		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+		deferred<StubAnswer>();
 	const { library, root, workspace, transformed } = await open({
 		transform: () => answer.promise,
 	});

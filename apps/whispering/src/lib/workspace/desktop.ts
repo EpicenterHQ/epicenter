@@ -23,11 +23,11 @@
  *   reads one's level, and writes a recording into the granted folder as it
  *   captures, and the page opens no microphone of its own (ADR-0543,
  *   ADR-0571, `desktop-microphone.ts`);
- * - the two connections, rows of Epicenter's own folder `so.epicenter`, whose
+ * - AI connections, rows of Epicenter's own folder `so.epicenter`, whose
  *   endpoints and keys stay in this computer's keychain; requests go through
- *   the `epicenter` CLI, which adds the key (`desktop-connections.ts`);
- * - transcription with Epicenter's active local model
- *   (`local-transcription.ts`).
+ *   the `epicenter` CLI, which adds the key (ADR-0557);
+ * - transcription with Epicenter's local models, which a `local` connection
+ *   reaches (`local-transcription.ts`).
  *
  * The chosen microphone is kept in this origin's storage, which lasts:
  * Epicenter serves every app from one fixed loopback origin.
@@ -41,31 +41,14 @@ import {
 	CONNECTIONS_FOLDER_ID,
 	epicenterDefinition,
 } from '@epicenter/ai/connection-table';
+import { sendThroughShell } from '@epicenter/ai/send';
+import { keychainKeys } from '@epicenter/ai/ui';
 import { openDataFolder, openHandedFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
+import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { audioMimeTypeOf } from '../audio-format.js';
-import {
-	AUDIO,
-	DEFAULT_TRANSCRIPTION_CONNECTION,
-	whisperingDefinition,
-} from '../definition.js';
-import { commands } from '../tauri/bindings.gen.js';
-import {
-	TranscriptionError,
-	type TranscriptionRequest,
-	transcribeOverConnection,
-} from '../transcription.js';
-import {
-	TransformationError,
-	transformOverConnection,
-} from '../transformation.js';
-import {
-	type ConnectionCommands,
-	type ConnectionsFolder,
-	createDesktopConnections,
-	type DesktopConnections,
-} from './desktop-connections.js';
+import { AUDIO, whisperingDefinition } from '../definition.js';
+import { type CliError, commands } from '../tauri/bindings.gen.js';
 import { createDesktopMicrophone } from './desktop-microphone.js';
 import {
 	createLocalTranscription,
@@ -73,13 +56,45 @@ import {
 } from './local-transcription.js';
 import { localPreferences } from './microphone-preference.js';
 import {
+	type ConnectionsFolder,
 	type OpenWorkspace,
 	WHISPERING_FOLDER_ID,
 	type Workspace,
 	WorkspaceError,
 } from './types.js';
 
-type Route = Awaited<ReturnType<DesktopConnections['route']>>;
+/** The AI connection commands, as the generated bindings type them. */
+export type ConnectionCommands = Pick<
+	typeof commands,
+	'aiKeyState' | 'aiKeySet' | 'aiKeyRemove' | 'aiSend' | 'authStatus'
+>;
+
+const describe = (cause: unknown) =>
+	cause instanceof Error ? cause.message : String(cause);
+
+/** What a person is told when a CLI command did not run or was refused. */
+const failureOf = (error: CliError) =>
+	error.name === 'NotGranted'
+		? 'This window was not granted Epicenter’s folder.'
+		: error.message;
+
+/**
+ * Refusals `epicenter send` names before it sends anything. Anything else
+ * that ends a request without a response, the shell failing or the
+ * endpoint failing past the CLI, leaves what was sent unknown.
+ */
+const REFUSED_BEFORE_SENDING = new Set([
+	'InvalidRequest',
+	'NoKey',
+	'EndpointChanged',
+	'NoAccessToken',
+	'NoAccountToken',
+	'LocalNotSent',
+	'KeychainUnavailable',
+	'EntryUnreadable',
+	'NotGranted',
+	'Refused',
+]);
 
 export async function openDesktopWorkspace({
 	commands: native = commands,
@@ -114,27 +129,21 @@ export async function openDesktopWorkspace({
 			? undefined
 			: `Recordings a quit cut off could not be checked: ${recoverError.message}`;
 	const root = folder.location.kind === 'directory' ? folder.location.root : '';
-	const connections = createDesktopConnections({
-		commands: connectionCommands,
-		openConnections: openConnectionsFolder,
-	});
+	// Opened when first asked for, once; a failed open is tried again.
+	let connectionsFolder: Promise<Result<ConnectionsFolder, string>> | undefined;
+	function openConnections() {
+		connectionsFolder ??= openConnectionsFolder().then(({ data, error }) => {
+			if (error === null) return Ok(data);
+			connectionsFolder = undefined;
+			return Err(`Epicenter’s folder did not open: ${error.message}`);
+		});
+		return connectionsFolder;
+	}
 
 	async function readBytes(path: string): Promise<Result<Uint8Array, string>> {
 		const { data: audio, error } = await folder.files.read(path);
 		if (error !== null) return Err(error.message);
 		return Ok(audio.bytes);
-	}
-
-	async function readAudio(
-		path: string,
-	): Promise<Result<TranscriptionRequest['audio'], string>> {
-		const { data: bytes, error } = await readBytes(path);
-		if (error !== null) return Err(error);
-		return Ok({
-			bytes,
-			filename: path.slice(path.lastIndexOf('/') + 1),
-			mimeType: audioMimeTypeOf(path) ?? 'application/octet-stream',
-		});
 	}
 
 	return Ok({
@@ -146,57 +155,55 @@ export async function openDesktopWorkspace({
 		capture: createDesktopMicrophone(),
 		captureNotice,
 		reveal: undefined,
-		async transcribe(request) {
-			let route: Route;
-			const answered = await transcribeOverConnection(
-				async () => {
-					route = await connections.route('transcription');
-					return route?.stored;
-				},
-				request,
-				() => readAudio(request.audioPath),
-				(url, init) => (route as NonNullable<Route>).send(url, init),
-			);
-			// The request went to the epicenter command, which may have sent it
-			// on: a reply that never came back says nothing about the endpoint.
-			const { error } = answered;
-			if (error?.name === 'Unreachable')
-				return TranscriptionError.HostUnavailable({ reason: error.reason });
-			return answered;
-		},
-		async transform(request) {
-			let route: Route;
-			const answered = await transformOverConnection(
-				async () => {
-					route = await connections.route('text');
-					return route?.stored;
-				},
-				request,
-				(url, init) => (route as NonNullable<Route>).send(url, init),
-			);
-			const { error } = answered;
-			if (error?.name === 'Unreachable')
-				return TransformationError.HostUnavailable({ reason: error.reason });
-			return answered;
-		},
-		transformNote:
-			'Requests are sent by Epicenter, not by this window, over the text connection in Settings. Its endpoint and key stay in this computer’s keychain and are never given to the window or written to a folder.',
 		localTranscription: createLocalTranscription({
 			commands: native,
 			readAudio: readBytes,
 		}),
 		connections: {
-			storedIn:
-				'Epicenter’s AI connections, which follow you wherever Epicenter’s folder syncs; the endpoint and key are kept in this computer’s keychain',
-			defaults: {
-				transcription: DEFAULT_TRANSCRIPTION_CONNECTION,
-				text: { baseUrl: DEFAULT_TRANSCRIPTION_CONNECTION.baseUrl, model: '' },
+			kinds: ['openai-compatible', 'epicenter', 'local'],
+			keys: keychainKeys({
+				aiKeyState: connectionCommands.aiKeyState,
+				aiKeySet: connectionCommands.aiKeySet,
+				aiKeyRemove: connectionCommands.aiKeyRemove,
+				describe: failureOf,
+			}),
+			epicenterNote:
+				'Sends to your Epicenter account with Epicenter’s sign-in, under Account in Epicenter’s Settings.',
+			note: 'Requests are sent by Epicenter, not by this window. A connection’s endpoint and key stay in this computer’s keychain and are never given to the window or written to a folder.',
+			open: openConnections,
+			async epicenterEndpoint() {
+				const { data: status, error } = await connectionCommands.authStatus();
+				if (error !== null) return Err(failureOf(error));
+				const signedIn = status.grants.some(
+					(grant) => grant.grant === 'desktop' && grant.signedIn,
+				);
+				if (!signedIn)
+					return Err('sign in under Account in Epicenter’s Settings');
+				return Ok(`${new URL(status.origin).origin}/v1`);
 			},
-			read: connections.read,
-			set: connections.set,
-			// Only a browser tab can hold a key an earlier build saved.
-			adoptLegacyKey: async () =>
-				Err('No key from an earlier version is saved in Epicenter.'),
+			async send(target, request) {
+				try {
+					return Ok(
+						await sendThroughShell(request, async (wire, onLine) => {
+							const channel = new Channel<string>();
+							channel.onmessage = onLine;
+							const { error } = await connectionCommands.aiSend(
+								target,
+								wire,
+								channel,
+							);
+							return error && { name: error.name, message: failureOf(error) };
+						}),
+					);
+				} catch (cause) {
+					const name = cause instanceof Error ? cause.name : '';
+					return Err({
+						message: REFUSED_BEFORE_SENDING.has(name)
+							? describe(cause)
+							: `Epicenter did not answer, so it is not known whether the request was sent or what came back: ${describe(cause)}. Nothing is sent again unless you try again.`,
+					});
+				}
+			},
 		},
 		preferences: localPreferences,
 		debugControls: false,
@@ -204,7 +211,8 @@ export async function openDesktopWorkspace({
 		// Closing the folders waits for the saves already under way and commits
 		// nothing.
 		close: async () => {
-			await Promise.all([folder.close(), connections.close()]);
+			const opened = await connectionsFolder;
+			await Promise.all([folder.close(), opened?.data?.close()]);
 		},
 	});
 }

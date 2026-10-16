@@ -22,11 +22,9 @@ export const AUDIO = 'audio';
  *
  * A recipe is a reusable title and instructions: `transformations/<id>.md`
  * with its title in frontmatter and the instructions as its body. Where its
- * requests go is the device's text connection, never the file. A recipe may
- * name a model to use instead of the connection's, and a recipe written by an
- * earlier build may name an endpoint, which is kept as a constraint: it runs
- * only while the text connection is that endpoint. `null` or empty in either
- * field means "use the connection's".
+ * requests go is the text connection, never the file. A recipe may name a
+ * model to use instead of the connection's; `null` or empty uses the
+ * connection's.
  *
  * Applying a recipe to a transcript writes a new row in `transformation_runs/`
  * naming the recording, transcription, and recipe it came from. Applying one
@@ -35,9 +33,12 @@ export const AUDIO = 'audio';
  * as the body, so they still read correctly after anything they came from
  * changes or is deleted. The transcription row is never written.
  *
- * `kv.json` holds the transcription endpoint and model an earlier build
- * saved. This build reads them, to offer them when the transcription
- * connection is set up, and never writes them; no request goes to them.
+ * Every result row names the connection its request went over, a row of
+ * `so.epicenter` (ADR-0557), with the endpoint and model it reached, so
+ * running it again sends over that connection and nowhere else. `kv.json`
+ * names which connection each operation uses now: `transcriptionConnection`
+ * and `textConnection` (ADR-0564). Keys a file holds that this build does not
+ * declare, such as an earlier build's settings, are kept and never read.
  *
  * Audio stays on the machine that recorded it: `local` names `audio/`, so no
  * commit carries it and Sync sends the rows alone (ADR-0577). Where the
@@ -55,10 +56,10 @@ export const whisperingDefinition = defineFolder({
 	title: 'Whispering',
 	local: [`${AUDIO}/`],
 	kv: {
-		/** Saved by an earlier build. Offered at setup; never written, never a destination. */
-		transcriptionBaseUrl: field.string(),
-		/** Saved by an earlier build, with the endpoint above. */
-		transcriptionModel: field.string(),
+		/** The id of the `so.epicenter` connection that transcribes recordings. */
+		transcriptionConnection: field.string(),
+		/** The id of the `so.epicenter` connection recipes run over. */
+		textConnection: field.string(),
 	},
 	tables: {
 		recordings: defineTable({
@@ -85,7 +86,10 @@ export const whisperingDefinition = defineFolder({
 			fields: {
 				recordingId: field.string(),
 				createdAt: field.instant(),
+				/** The `so.epicenter` connection the request went over. A row made before connections were rows names none. */
+				connection: field.optional(field.string()),
 				model: field.string(),
+				/** Where the request went: the endpoint, the account's `/v1`, or empty for this computer's local model. */
 				endpoint: field.string(),
 			},
 		}),
@@ -97,12 +101,6 @@ export const whisperingDefinition = defineFolder({
 				 * `gpt-4o-mini`. `null` or empty uses the connection's model.
 				 */
 				model: field.nullable(field.string()),
-				/**
-				 * Written by an earlier build, which sent requests here. Kept as a
-				 * constraint, never as a destination: the recipe runs only while the
-				 * text connection is exactly this base URL. `null` or empty is none.
-				 */
-				endpoint: field.nullable(field.string()),
 			},
 		}),
 		// A table name is one bare identifier, so the folder cannot be `transformation-runs`.
@@ -114,6 +112,8 @@ export const whisperingDefinition = defineFolder({
 				/** The transformation's title when it ran. */
 				transformationTitle: field.string(),
 				createdAt: field.instant(),
+				/** The `so.epicenter` connection the request went over. A row made before connections were rows names none. */
+				connection: field.optional(field.string()),
 				model: field.string(),
 				endpoint: field.string(),
 				/** The prompt that was sent, exactly. */
@@ -129,8 +129,10 @@ export const whisperingDefinition = defineFolder({
 				/** The recipe's title when it ran. */
 				transformationTitle: field.string(),
 				createdAt: field.instant(),
+				/** The `so.epicenter` connection the request went over. A row made before connections were rows names none. */
+				connection: field.optional(field.string()),
 				model: field.string(),
-				/** The text connection's base URL the request went to. */
+				/** Where the request went. */
 				endpoint: field.string(),
 				/** The instructions that were sent, exactly. */
 				prompt: field.string(),
@@ -158,20 +160,14 @@ export type TransformationRunFields = CreateRowOf<
 export type TextRunFields = CreateRowOf<
 	typeof whisperingDefinition.tables.text_runs
 >;
-/** What an earlier build saved in `kv.json`. */
-export type LegacySettings = KvOf<typeof whisperingDefinition>;
+/** Whispering's settings in `kv.json`. */
+export type WhisperingSettings = KvOf<typeof whisperingDefinition>;
 
 export const RECORDINGS = 'recordings';
 export const TRANSCRIPTIONS = 'transcriptions';
 export const TRANSFORMATIONS = 'transformations';
 export const TRANSFORMATION_RUNS = 'transformation_runs';
 export const TEXT_RUNS = 'text_runs';
-
-/** Where the transcription connection's form starts. Nothing is sent there until it is saved. */
-export const DEFAULT_TRANSCRIPTION_CONNECTION = {
-	baseUrl: 'https://api.openai.com/v1',
-	model: 'whisper-1',
-} as const;
 
 /**
  * Where a new recording's audio is written, without its extension: the

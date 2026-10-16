@@ -72,6 +72,7 @@ import {
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
 import {
+	type FolderOptions,
 	folderOptions,
 	runMutation,
 	type TableOptions,
@@ -99,15 +100,22 @@ import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ActiveCapture } from './capture.js';
-import type {
-	ConnectionChange,
-	ConnectionsInfo,
-	LegacyKeyTargets,
-	Operation,
-} from './connections.js';
+import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+import type { ConnectionFields } from '@epicenter/ai/ui';
+import { audioMimeTypeOf } from './audio-format.js';
+import {
+	type ChosenConnection,
+	type Operation,
+	type Routing,
+	recordedRoute,
+	routeOf,
+	transcribeOver,
+	transformOver,
+	unusable,
+} from './connection-routes.js';
 import {
 	audioPathIn,
-	type LegacySettings,
+	type WhisperingSettings,
 	RECORDINGS,
 	type RecordingFields,
 	recordingAudioStem,
@@ -143,7 +151,10 @@ import type {
 	Workspace,
 	WorkspaceTerminal,
 } from './workspace/index.js';
-import type { RecordingWriteHook } from './workspace/types.js';
+import type {
+	ConnectionsFolder,
+	RecordingWriteHook,
+} from './workspace/types.js';
 
 export type Library = ReturnType<typeof createLibrary>;
 
@@ -808,23 +819,134 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	// --- connections, microphone, terminal ---------------------------------------
 
-	/** What the device has set up, never a key; undefined until read or when the read failed. */
-	let connections = $state.raw<ConnectionsInfo | undefined>();
+	/**
+	 * This device's `so.epicenter`, where connections are rows (ADR-0557),
+	 * opened at launch; undefined until it opens, with why it did not.
+	 */
+	let connections = $state.raw<
+		| {
+				readonly folder: ConnectionsFolder;
+				readonly options: FolderOptions<typeof epicenterDefinition>;
+				readonly stop: () => void;
+		  }
+		| undefined
+	>();
 	let connectionsError = $state<string | undefined>();
 
-	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
-		return resolveRecipe(recipe, connections?.text, connectionsError);
+	/** Open `so.epicenter` and observe its connections, or record why it did not open. */
+	async function openConnections() {
+		if (connections !== undefined) return;
+		const { data: opened, error } = await workspace.connections.open();
+		if (error !== null) {
+			connectionsError = error;
+			return;
+		}
+		const options = folderOptions(opened);
+		const stopChanges = options.invalidateOnChange(queryClient);
+		// Listed before it is shown, so a chosen connection is never taken for gone.
+		await queryClient
+			.fetchQuery(options.tables.connections.list.queryOptions())
+			.catch(() => undefined);
+		const stopObserving = new QueryObserver(
+			queryClient,
+			options.tables.connections.list.queryOptions() as QueryOptions,
+		).subscribe(() => {});
+		connections = {
+			folder: opened,
+			options,
+			stop: () => {
+				stopObserving();
+				stopChanges();
+			},
+		};
+		connectionsError = undefined;
 	}
 
-	async function readConnections() {
-		try {
-			connections = await workspace.connections.read();
-			connectionsError = undefined;
-		} catch (cause) {
-			connections = undefined;
-			connectionsError = describe(cause);
-		}
+	/** The connection rows that read, by id, as last listed. */
+	function connectionRows() {
+		trackQueries();
+		if (connections === undefined) return undefined;
+		const listing = queryClient.getQueryData<
+			TableListing<ConnectionFields>
+		>(connections.options.tables.connections.list.queryKey());
+		return listing?.flatMap(({ stem, result }) =>
+			result.error === null ? [{ stem, ...result.data.row.fields }] : [],
+		);
 	}
+
+	const CHOICE_KEYS = {
+		transcription: 'transcriptionConnection',
+		text: 'textConnection',
+	} as const satisfies Record<Operation, keyof WhisperingSettings>;
+
+	/** The connection `operation` names, as the screen shows it. Advisory. */
+	function chosen(operation: Operation): ChosenConnection | undefined {
+		const id = kvReading()?.values[CHOICE_KEYS[operation]];
+		if (!id) return undefined;
+		const rows = connectionRows();
+		const row = rows?.find((candidate) => candidate.stem === id);
+		if (row === undefined)
+			return {
+				connection: id,
+				title: id,
+				kind: undefined,
+				model: '',
+				// Not listed yet is not gone.
+				unusable:
+					rows === undefined
+						? undefined
+						: `The ${operation} connection is gone. Choose another in Settings.`,
+			};
+		const title = row.title || id;
+		return {
+			connection: id,
+			title,
+			kind: row.kind,
+			model: row.model,
+			unusable: unusable({ workspace }, operation, row.kind, title),
+		};
+	}
+
+	function resolve(recipe: RecipeRow | undefined): ResolvedRecipe {
+		return resolveRecipe(recipe, chosen('text'), connectionsError);
+	}
+
+	/** What each request is read from when it is sent: the saved choice and the row, now. */
+	const routing: Routing = {
+		async route(operation, model) {
+			if (connections === undefined)
+				return Err(connectionsError ?? 'Epicenter’s folder is still opening.');
+			const { data: settings, error } = await folder.kv.get();
+			if (error !== null)
+				return Err(`kv.json does not read: ${error.message}`);
+			return routeOf(
+				{ workspace, rows: connections.folder.tables.connections },
+				operation,
+				settings?.values[CHOICE_KEYS[operation]],
+				model,
+			);
+		},
+		async recorded(operation, fields) {
+			if (connections === undefined)
+				return Err(connectionsError ?? 'Epicenter’s folder is still opening.');
+			return recordedRoute(
+				{ workspace, rows: connections.folder.tables.connections },
+				operation,
+				fields,
+			);
+		},
+		transcribe: (route, audioPath) =>
+			transcribeOver({ workspace }, route, audioPath, async (path) => {
+				const { data: audio, error } = await folder.files.read(path);
+				if (error !== null) return Err(error.message);
+				return Ok({
+					bytes: audio.bytes,
+					filename: path.slice(path.lastIndexOf('/') + 1),
+					mimeType: audioMimeTypeOf(path) ?? 'application/octet-stream',
+				});
+			}),
+		transform: (route, request) => transformOver({ workspace }, route, request),
+	};
 
 	let selectedPath = $state<string | undefined>();
 	let selectedTransformationPath = $state<string | undefined>();
@@ -864,7 +986,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		workspace,
 		makeId: recordingId,
 		refused,
-		connections: () => ({ info: connections, error: connectionsError }),
+		routing,
 		resolve,
 		settle: writesSettled,
 		deleting,
@@ -1013,25 +1135,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		};
 	}
 
-	const saveConnection = action(
-		'save-connection',
-		async (operation: Operation, change: ConnectionChange) => {
-			const { data: saved, error } = await workspace.connections.set(
-				operation,
-				change,
-			);
-			if (error !== null) return error;
-			connections = saved;
-			connectionsError = undefined;
-			return undefined;
-		},
-		() => undefined,
-	);
-
 	const kvReading = () => {
 		trackQueries();
 		return (
-			queryClient.getQueryData<KvReading<LegacySettings> | null>(
+			queryClient.getQueryData<KvReading<WhisperingSettings> | null>(
 				folder$.kv.get.queryKey(),
 			) ?? undefined
 		);
@@ -1081,14 +1188,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			trackGit();
 			return folder.git.snapshot;
 		},
-		/**
-		 * The transcription endpoint and model an earlier build saved in
-		 * `kv.json`. Offered when the transcription connection is set up; never
-		 * written, and never where a request goes.
-		 */
-		get legacySettings(): Partial<LegacySettings> {
-			return kvReading()?.values ?? {};
-		},
 		/** Why `kv.json` could not be read, or what in it does not conform. */
 		get settingsProblem() {
 			const error = readError(folder$.kv.get.queryKey());
@@ -1097,12 +1196,23 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			if (kv === undefined || kv.issues.length === 0) return undefined;
 			return kv.issues.map((issue) => issue.message).join('; ');
 		},
-		/** What this device has set up for requests, never a key. */
-		get connections() {
-			return connections;
+		/** The connection each operation names, as the screen shows it, never a key. */
+		get connections(): Record<Operation, ChosenConnection | undefined> {
+			return { transcription: chosen('transcription'), text: chosen('text') };
 		},
+		/** Why this device's connections could not be opened or listed. */
 		get connectionsProblem() {
-			return connectionsError;
+			if (connectionsError !== undefined) return connectionsError;
+			if (connections === undefined) return undefined;
+			return readError(connections.options.tables.connections.list.queryKey());
+		},
+		/** This device's connections, for the shared editor; undefined until they open. */
+		get connectionTable() {
+			return connections?.options.tables.connections;
+		},
+		/** The connection rows that read, for choosing one. */
+		get connectionRows() {
+			return connectionRows() ?? [];
 		},
 		/**
 		 * Whether a recipe can run now, and with what: the one decision the Run
@@ -1382,7 +1492,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 					() => {},
 				),
 			);
-			await readConnections();
+			await openConnections();
 			// The saved choice only: no microphone is opened or listed at launch.
 			await input.load();
 		},
@@ -1621,7 +1731,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			'create-transformation',
 			async ({ title, prompt }: { title: string; prompt: string }) => {
 				const { data: created, error } = await tableOf(TRANSFORMATIONS).create({
-					fields: { title, model: null, endpoint: null },
+					fields: { title, model: null },
 					body: prompt,
 				});
 				if (error !== null) return describeError(error);
@@ -1656,26 +1766,19 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			},
 		),
 
-		/**
-		 * Save one connection on this device. Nothing is sent to the endpoint
-		 * and nothing is written to the folder.
-		 */
-		saveConnection,
-		/** Move the key an earlier build saved into the chosen connections. */
-		adoptLegacyKey: action(
-			'adopt-legacy-key',
-			async (targets: LegacyKeyTargets) => {
-				const { data: adopted, error } =
-					await workspace.connections.adoptLegacyKey(targets);
-				if (error !== null) return error;
-				connections = adopted;
-				connectionsError = undefined;
-				return undefined;
+		/** Choose which connection `operation` uses, or none, in `kv.json`. Nothing is sent. */
+		chooseConnection: action(
+			'choose-connection',
+			async (operation: Operation, connection: string | undefined) => {
+				const { error } = await folder.kv.set(
+					CHOICE_KEYS[operation],
+					connection,
+				);
+				return error === null ? undefined : error.message;
 			},
-			() => undefined,
 		),
-		/** Read the connections again, as after a failed read. */
-		readConnections,
+		/** Open this device's connections again, as after a failed open. */
+		openConnections,
 
 		/**
 		 * Rename a file within its folder. Recording and transformation files
@@ -1862,6 +1965,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			await input.saved();
 			stopChanges();
 			for (const stop of stopObserving) stop();
+			connections?.stop();
 			await queryClient.cancelQueries({ queryKey: folder$.key });
 			stopListening();
 			recordingsListed.clear();

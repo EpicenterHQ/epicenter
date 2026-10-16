@@ -63,12 +63,18 @@ import {
 	summaryLine,
 	uncommittedLine,
 } from './status.js';
+import type { Operation } from './connection-routes.js';
 import { WHISPERING_FOLDER_ID, type Workspace } from './workspace/types.js';
 import {
 	eventually,
 	openTestFolder,
 	type ResultFailures,
+	type StubAnswer,
 	TEST_BASE_URL,
+	TEST_CONNECTION_IDS,
+	TEST_CONNECTIONS,
+	type TestConnection,
+	type Transcribed,
 	testConnections,
 	testInjection,
 	withResultFailures,
@@ -93,16 +99,22 @@ type Options = {
 	failResultStarts?: number;
 	/** Fail this many answers written into transcript rows. */
 	failAnswerWrites?: number;
-	/** Replace the stubbed transcription answer. */
-	transcribe?: Workspace['transcribe'];
+	/** Replace the stub endpoint's transcription answer. */
+	transcribe?: (request: Transcribed) => Promise<StubAnswer>;
 	root?: string;
 	beforeFileCreate?: () => Promise<void>;
 	/** Runs before each `files.read` of the folder. */
 	beforeFileRead?: (path: string) => Promise<void>;
 	/** Stand in front of the folder's settings methods; `real` is the folder's own. */
 	kv?: (real: Kv) => Kv;
-	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
-	connections?: Parameters<typeof testConnections>[0];
+	/**
+	 * The connection each operation uses, both keyless endpoints unless a test
+	 * says otherwise; `null` is none, and none chosen. The choice is read
+	 * through `kv`, so no `kv.json` is written for it.
+	 */
+	connections?: Partial<Record<Operation, TestConnection | null>>;
+	/** More connection rows, by id, that no operation names. */
+	others?: Record<string, TestConnection>;
 };
 type Kv = Workspace['folder']['kv'];
 
@@ -116,6 +128,7 @@ async function open({
 	root,
 	kv,
 	connections,
+	others,
 }: Options = {}) {
 	const directory =
 		root ??
@@ -131,14 +144,53 @@ async function open({
 		...folder.tables,
 		transcriptions: withResultFailures(folder.tables.transcriptions, failures),
 	};
-	const transcribed: Parameters<Workspace['transcribe']>[0][] = [];
-	const device = testConnections(connections);
+	const transcribed: Transcribed[] = [];
+	const chosen = { ...TEST_CONNECTIONS, ...connections };
+	const connectionsRoot = await realpath(
+		await mkdtemp(join(tmpdir(), 'whispering-connections-')),
+	);
+	roots.push(connectionsRoot);
+	const device = await testConnections({
+		root: connectionsRoot,
+		connections: chosen,
+		others,
+		async answer(request) {
+			if (request.path === 'chat/completions')
+				return Ok({ text: request.input });
+			const { path: _, ...received } = request;
+			transcribed.push(received);
+			if (transcribe !== undefined) return transcribe(received);
+			return Ok({ text: 'a steady tone' });
+		},
+	});
+	/** The device's choices, read as if `kv.json` held them, without writing it. */
+	const withChoices = (real: Kv): Kv => ({
+		...real,
+		async get() {
+			const read = await real.get();
+			if (read.error !== null) return read;
+			const choices = {
+				...(chosen.transcription && {
+					transcriptionConnection: TEST_CONNECTION_IDS.transcription,
+				}),
+				...(chosen.text && { textConnection: TEST_CONNECTION_IDS.text }),
+			};
+			if (read.data === undefined && Object.keys(choices).length === 0)
+				return read;
+			return Ok({
+				path: 'kv.json' as const,
+				sha256: read.data?.sha256 ?? '',
+				issues: read.data?.issues ?? [],
+				values: { ...choices, ...read.data?.values },
+			});
+		},
+	});
 	const workspace: Workspace = {
 		kind: 'native',
 		folder: {
 			...folder,
 			tables,
-			kv: kv?.(folder.kv) ?? folder.kv,
+			kv: withChoices(kv?.(folder.kv) ?? folder.kv),
 			files: {
 				...folder.files,
 				async create(path, content) {
@@ -164,13 +216,6 @@ async function open({
 		}),
 		captureNotice: undefined,
 		reveal: undefined,
-		async transcribe(request) {
-			transcribed.push(request);
-			if (transcribe !== undefined) return transcribe(request);
-			return Ok({ text: 'a steady tone' });
-		},
-		transform: async ({ input }) => Ok({ text: input }),
-		transformNote: 'test',
 		localTranscription: undefined,
 		connections: device.member,
 		preferences: {
@@ -180,7 +225,9 @@ async function open({
 		debugControls: true,
 		// A debug shell's injection: the row write fails after the audio landed.
 		injection: testInjection(directory, { audio: 0, row: failRowWrites }),
-		close: () => folder.close(),
+		close: async () => {
+			await Promise.all([folder.close(), device.folder.close()]);
+		},
 	};
 	const library = createLibrary(workspace, createQueryClient());
 	opened.push(library);
@@ -234,9 +281,10 @@ test('a new recording’s audio and row are paths every folder accepts, the desk
 		}
 });
 
-test('the first launch creates no files or history, and saving a connection writes nothing to the folder', async () => {
-	const { library, root, device } = await open({
-		connections: { connections: {} },
+test('the first launch creates no files or history, and choosing a connection writes only kv.json', async () => {
+	const { library, root } = await open({
+		connections: { transcription: null, text: null },
+		others: { groq: { title: 'Groq', model: 'whisper-large-v3' } },
 	});
 	// Opening writes nothing: not the definition, which waits for a write,
 	// and no repository, which the first commit creates.
@@ -244,29 +292,27 @@ test('the first launch creates no files or history, and saving a connection writ
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
-		legacyKey: false,
 	});
-	expect(library.legacySettings).toEqual({});
 
 	expect(
-		await library.saveConnection('transcription', {
-			baseUrl: `${TEST_BASE_URL}/`,
-			model: ' chosen ',
-			key: { action: 'replace', key: 'typed-key' },
-		}),
+		await library.chooseConnection('transcription', 'groq'),
 	).toBeUndefined();
 
-	expect(library.connections?.transcription).toEqual({
-		baseUrl: TEST_BASE_URL,
-		model: 'chosen',
-		keyPresent: true,
-		readOnlyReason: undefined,
+	expect(library.connections.transcription).toEqual({
+		connection: 'groq',
+		title: 'Groq',
+		kind: 'openai-compatible',
+		model: 'whisper-large-v3',
+		unusable: undefined,
 	});
-	expect(device.stored.transcription?.apiKey).toBe('typed-key');
-	expect(await readdir(root)).toEqual([]);
+	// The choice is the folder's; the endpoint and key never are.
+	expect(await readdir(root)).toContain('kv.json');
+	expect(JSON.parse(await readFile(join(root, 'kv.json'), 'utf8'))).toEqual({
+		transcriptionConnection: 'groq',
+	});
 });
 
-test('kv.json from an earlier build is offered, never written, and never where a request goes', async () => {
+test('settings an earlier build wrote in kv.json are kept and never where a request goes', async () => {
 	const root = await realpath(
 		await mkdtemp(join(tmpdir(), 'whispering-library-')),
 	);
@@ -276,29 +322,30 @@ test('kv.json from an earlier build is offered, never written, and never where a
 	await writeFile(join(root, 'kv.json'), saved);
 	const { library, transcribed } = await open({ root });
 
-	expect(library.legacySettings).toEqual({
-		transcriptionBaseUrl: 'https://elsewhere.example/v1',
-		transcriptionModel: 'old-model',
-	});
 	await record(library);
 	await library.transcribe(library.entries[0]!);
 
-	// The request is prepared for the device's connection, never kv.json's.
+	// The request goes over the chosen connection, never kv.json's old values.
 	expect(transcribed).toEqual([
 		expect.objectContaining({
-			expectedBaseUrl: TEST_BASE_URL,
+			connection: TEST_CONNECTION_IDS.transcription,
+			endpoint: TEST_BASE_URL,
 			model: 'verification-model',
 		}),
 	]);
 	expect(
 		library.resultsFor(library.entries[0]!.stem)[0]!.row.fields,
-	).toMatchObject({ endpoint: TEST_BASE_URL, model: 'verification-model' });
+	).toMatchObject({
+		connection: TEST_CONNECTION_IDS.transcription,
+		endpoint: TEST_BASE_URL,
+		model: 'verification-model',
+	});
 	expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(saved);
 });
 
-test('with no transcription connection, transcribing sends nothing and says to set one up', async () => {
+test('with no transcription connection chosen, transcribing sends nothing and says to choose one', async () => {
 	const { library, transcribed } = await open({
-		connections: { connections: {} },
+		connections: { transcription: null },
 	});
 	await record(library);
 	const entry = library.entries[0]!;
@@ -308,7 +355,7 @@ test('with no transcription connection, transcribing sends nothing and says to s
 	expect(transcribed).toEqual([]);
 	expect(library.transcriptionRun(entry.stem)).toMatchObject({
 		kind: 'failed',
-		message: expect.stringContaining('No transcription connection is set up'),
+		message: expect.stringContaining('No transcription connection is chosen'),
 	});
 	expect(library.resultsFor(entry.stem)).toEqual([]);
 });
@@ -328,34 +375,32 @@ test('a launch whose kv.json read fails creates no settings file and says why', 
 
 	expect(await readdir(root)).not.toContain('kv.json');
 	expect(library.settingsProblem).toContain('disk refused the read');
-	expect(library.legacySettings).toEqual({});
 });
 
-test('kv.json that does not parse, or holds a value that does not conform, is the settings problem, and only values that read are offered', async () => {
+test('kv.json that does not parse, or holds a choice that does not conform, is the settings problem', async () => {
 	const root = await realpath(
 		await mkdtemp(join(tmpdir(), 'whispering-library-')),
 	);
 	roots.push(root);
-	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": ');
-	const { library } = await open({ root });
+	await writeFile(join(root, 'kv.json'), '{"transcriptionConnection": ');
+	const { library } = await open({
+		root,
+		connections: { transcription: null, text: null },
+	});
 
 	expect(library.settingsProblem).toContain('not valid JSON');
-	expect(library.legacySettings).toEqual({});
 
 	await writeFile(
 		join(root, 'kv.json'),
-		'{"transcriptionModel": 7, "transcriptionBaseUrl": "http://kept"}\n',
+		'{"transcriptionConnection": 7, "textConnection": "kept"}\n',
 	);
 	await settle(library);
-	expect(library.settingsProblem).toContain('transcriptionModel');
-	expect(library.legacySettings).toEqual({
-		transcriptionBaseUrl: 'http://kept',
-	});
+	expect(library.settingsProblem).toContain('transcriptionConnection');
+	expect(library.connections.text?.connection).toBe('kept');
 
-	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": "kept"}\n');
+	await writeFile(join(root, 'kv.json'), '{"textConnection": "kept"}\n');
 	await settle(library);
 	expect(library.settingsProblem).toBeUndefined();
-	expect(library.legacySettings).toEqual({ transcriptionModel: 'kept' });
 });
 
 // ============================================================================
@@ -518,9 +563,7 @@ test('a row written before audioPath does not read: it is named for repair, and 
 		'recordings/old.md',
 	);
 	await library.transcribe(repaired);
-	expect(transcribed.map((request) => request.audioPath)).toEqual([
-		'audio/old.wav',
-	]);
+	expect(transcribed.map((request) => request.audio)).toEqual(['old.wav']);
 });
 
 test('audio replaced by bytes of the same length is noticed by its content', async () => {
@@ -562,9 +605,10 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 
 	expect(transcribed).toEqual([
 		{
-			audioPath,
-			expectedBaseUrl: TEST_BASE_URL,
+			connection: TEST_CONNECTION_IDS.transcription,
+			endpoint: TEST_BASE_URL,
 			model: 'verification-model',
+			audio: audioPath.slice('audio/'.length),
 		},
 	]);
 	const results = library.resultsFor(entry.stem);
@@ -603,7 +647,7 @@ function newest(library: Library, recording: string) {
 
 test('a transcript row is written with an empty body before the request goes out, and filled when the answer arrives', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<Workspace['transcribe']>>>();
+		Promise.withResolvers<StubAnswer>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -619,6 +663,7 @@ test('a transcript row is written with an empty body before the request goes out
 		fields: {
 			recordingId: entry.stem,
 			createdAt: expect.any(String),
+			connection: TEST_CONNECTION_IDS.transcription,
 			model: 'verification-model',
 			endpoint: TEST_BASE_URL,
 		},
@@ -741,7 +786,7 @@ test('after a reload, a row whose answer was never written is unfinished, and ru
 
 test('a running transcription cannot be asked for again; deleting its row discards it, and its answer writes nothing', async () => {
 	const answer =
-		Promise.withResolvers<Awaited<ReturnType<Workspace['transcribe']>>>();
+		Promise.withResolvers<StubAnswer>();
 	const { library, root, transcribed } = await open({
 		transcribe: () => answer.promise,
 	});
@@ -854,7 +899,7 @@ test('a recording is not deleted while a result cannot say which recording it be
 });
 
 test('a recording cannot be deleted while its transcription runs, including one started after confirming', async () => {
-	let answer!: (value: Awaited<ReturnType<Workspace['transcribe']>>) => void;
+	let answer!: (value: StubAnswer) => void;
 	const { library, root } = await open({
 		transcribe: () => new Promise((resolve) => (answer = resolve)),
 	});

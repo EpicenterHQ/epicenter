@@ -36,7 +36,7 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
@@ -79,7 +79,10 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-type Transcribe = Workspace['transcribe'];
+/** The stub endpoint's answer to a transcription of the audio at `audioPath`. */
+type Transcribe = (request: {
+	readonly audioPath: string;
+}) => Promise<Result<{ text: string }, { message: string }>>;
 
 /**
  * A folder with a history, written as another program would have left it:
@@ -99,9 +102,17 @@ async function history(
 	folderOf: (folder: Workspace['folder']) => Workspace['folder'] = (given) =>
 		given,
 ) {
-	const test = await openTestWorkspace();
-	const { folder } = test.workspace;
 	const sent: Parameters<Transcribe>[0][] = [];
+	const test = await openTestWorkspace({
+		async transcribe({ audio }) {
+			const request = { audioPath: `audio/${audio}` };
+			sent.push(request);
+			return transcribe
+				? transcribe(request)
+				: Ok({ text: `words from ${request.audioPath}` });
+		},
+	});
+	const { folder } = test.workspace;
 	const recording = async (
 		stem: string,
 		title: string,
@@ -191,12 +202,6 @@ async function history(
 			Ok({
 				...test.workspace,
 				folder: folderOf(test.workspace.folder),
-				async transcribe(request) {
-					sent.push(request);
-					return transcribe
-						? transcribe(request)
-						: Ok({ text: `words from ${request.audioPath}` });
-				},
 			}),
 		),
 	);

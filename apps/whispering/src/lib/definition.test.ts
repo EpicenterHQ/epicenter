@@ -36,6 +36,7 @@ test('a file folder accepts the definition as declared', () => {
 		'transformationId',
 		'transformationTitle',
 		'createdAt',
+		'connection',
 		'model',
 		'endpoint',
 		'prompt',
@@ -50,27 +51,33 @@ test('a file folder accepts the definition as declared', () => {
 	]);
 });
 
-test('a recipe written by an earlier build still reads, and a new one says “use the connection” with null', () => {
+test('a recipe names a model or null, and a key an earlier build wrote is kept and never read', () => {
 	const recipes = (text: string) =>
 		parseRow(whisperingDefinition.tables.transformations, text);
+	expect(
+		recipes('---\ntitle: Clean up\nmodel: null\n---\nFix it.\n').data?.fields,
+	).toEqual({ title: 'Clean up', model: null });
+	// An earlier build's endpoint is not declared: it stays in the file, and
+	// nothing reads it as where the recipe runs.
 	const earlier = recipes(
 		'---\ntitle: Clean up\nmodel: gpt-4o-mini\nendpoint: https://api.openai.com/v1\n---\nFix it.\n',
 	);
-	expect(earlier.data?.fields).toEqual({
+	expect(earlier.error).toBeNull();
+	expect<Record<string, unknown> | undefined>(earlier.data?.fields).toEqual({
 		title: 'Clean up',
 		model: 'gpt-4o-mini',
 		endpoint: 'https://api.openai.com/v1',
 	});
-	const inherits = recipes(
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nFix it.\n',
-	);
-	expect(inherits.data?.fields).toEqual({
-		title: 'Clean up',
-		model: null,
-		endpoint: null,
-	});
 	// A field left out is still an issue: the file says nothing about it.
-	expect(recipes('---\ntitle: Clean up\n---\nFix it.\n').error).toHaveLength(2);
+	expect(recipes('---\ntitle: Clean up\n---\nFix it.\n').error).toHaveLength(1);
+});
+
+test('a result row made before connections were rows still reads, naming none', () => {
+	const text =
+		'---\nrecordingId: r1\ncreatedAt: 2026-01-02T03:04:05.000Z\nmodel: whisper-1\nendpoint: https://api.openai.com/v1\n---\n';
+	const row = parseRow(whisperingDefinition.tables.transcriptions, text);
+	expect(row.error).toBeNull();
+	expect(row.data?.fields.connection).toBeUndefined();
 });
 
 test('a recording’s audio is only what its row names', () => {

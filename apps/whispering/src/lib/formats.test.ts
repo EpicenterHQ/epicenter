@@ -2,14 +2,13 @@
  * The small pure pieces the workflow rests on: audio file facts, recording
  * ids, and the transcription request.
  */
-import { Ok } from 'wellcrafted/result';
+import { sendToEndpoint } from '@epicenter/ai/send';
 import { expectOk } from 'wellcrafted/testing';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { audioMimeTypeOf, wavDurationMs } from './audio-format.js';
 import { toneWav } from './capture.js';
-import type { StoredConnection } from './connections.js';
-import { transcribeOverConnection } from './transcription.js';
+import { readTranscription, transcriptionRequest } from './requests.js';
 
 const { recordingId } = await import('./library.svelte.ts');
 
@@ -29,61 +28,54 @@ test('recording ids encode capture time', () => {
 });
 
 const KEY = 'sk-transcription-key';
+const ENDPOINT = 'http://127.0.0.1:18080/v1';
 const audio = { bytes: toneWav(), filename: 'a.wav', mimeType: 'audio/wav' };
 
-/** One transcription over a stored connection, answered by `send`. */
-const transcribe = (
-	send: (input: string, init?: RequestInit) => Promise<Response>,
-	{
-		stored = { baseUrl: 'http://127.0.0.1:18080/v1', model: 'm', apiKey: KEY },
-		model = 'verification-model',
-	}: { stored?: StoredConnection; model?: string } = {},
-) =>
-	transcribeOverConnection(
-		async () => stored,
-		{ audioPath: 'audio/a.wav', expectedBaseUrl: stored.baseUrl, model },
-		async () => Ok(audio),
-		send,
+/** One transcription request, sent as a connection sends it, answered by `send`. */
+async function transcribe(
+	send: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+	key = KEY,
+) {
+	const { data: response, error } = await sendToEndpoint(
+		{ endpoint: ENDPOINT, key },
+		await transcriptionRequest(audio, 'verification-model'),
+		{ fetch: send },
 	);
+	if (error !== null) return { data: null, error };
+	return readTranscription(response);
+}
 
-test('a transcription request posts the audio and reads the text, refusing redirects and ambient credentials', async () => {
+test('a transcription request posts the audio and model, and reads the text', async () => {
 	let seen: Request | undefined;
-	let given: RequestInit | undefined;
 	const transcribed = expectOk(
-		await transcribe(
-			async (input, init) => {
-				given = init;
-				seen = new Request(input, init);
-				return Response.json({ text: 'hello' });
-			},
-			{ stored: { baseUrl: 'http://127.0.0.1:18080/v1', model: 'm' } },
-		),
+		await transcribe(async (input, init) => {
+			seen = new Request(input, init);
+			return Response.json({ text: 'hello' });
+		}),
 	);
 	expect(transcribed).toEqual({ text: 'hello' });
-	expect(seen?.url).toBe('http://127.0.0.1:18080/v1/audio/transcriptions');
-	expect(seen?.headers.get('authorization')).toBeNull();
-	expect(given).toMatchObject({ redirect: 'error', credentials: 'omit' });
+	expect(seen?.url).toBe(`${ENDPOINT}/audio/transcriptions`);
+	expect(seen?.headers.get('authorization')).toBe(`Bearer ${KEY}`);
+	const form = await (seen as Request).formData();
+	expect(form.get('model')).toBe('verification-model');
+	expect((form.get('file') as File).name).toBe('a.wav');
 });
 
-test('transcription failures say what happened, without the key', async () => {
-	const never = async () => {
-		throw new Error('nothing is sent');
-	};
-	const { error: unconfigured } = await transcribe(never, { model: ' ' });
-	expect(unconfigured?.name).toBe('NotConfigured');
+test('transcription failures say what happened, and an unreachable one without the key', async () => {
 	const { error: unreachable } = await transcribe(async () => {
 		throw new Error(`connection refused (authorization ${KEY})`);
 	});
 	expect(unreachable?.name).toBe('Unreachable');
 	expect(JSON.stringify(unreachable)).not.toContain(KEY);
 	const { error: rejected } = await transcribe(
-		async () => new Response(`bad key ${KEY}`, { status: 401 }),
+		async () => new Response('bad key', { status: 401 }),
 	);
 	expect(rejected?.name).toBe('Rejected');
-	expect(rejected?.message).toContain('401');
-	expect(JSON.stringify(rejected)).not.toContain(KEY);
+	expect(rejected?.message).toBe('The endpoint answered 401: bad key');
 	const { error: malformed } = await transcribe(
 		async () => new Response('<html>', { status: 200 }),
 	);
-	expect(malformed?.name).toBe('Malformed');
+	expect(malformed?.message).toBe(
+		'The endpoint did not answer with transcript text',
+	);
 });

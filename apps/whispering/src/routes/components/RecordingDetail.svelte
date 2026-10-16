@@ -286,7 +286,7 @@
 						<dt class="text-muted-foreground">Transcribes with</dt>
 						<dd class="min-w-0 break-words">
 							{#if library.connections?.transcription}
-								{library.connections.transcription.model} at {library.connections.transcription.baseUrl}
+								{library.connections.transcription.model || 'the active local model'} · {library.connections.transcription.title}
 							{:else}
 								Not set up
 							{/if}

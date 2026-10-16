@@ -29,7 +29,6 @@
 	import { onDestroy, tick } from 'svelte';
 	import { TRANSFORMATIONS, type TransformationFields, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
-	import { recipeEndpoint } from '$lib/recipe.js';
 	import { committedState } from '$lib/status.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
@@ -153,12 +152,11 @@
 
 	/** Set fields of the transformation as its file is now, at once. */
 	const set = (fields: Partial<TransformationFields>) => library.setFields(TRANSFORMATIONS, id, fields);
-	const text = (key: 'title' | 'model' | 'endpoint') => recipe?.fields[key] ?? '';
+	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowStemOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
 	const resolved = $derived(library.resolve(recipe));
-	const connection = $derived(library.connections?.text);
-	const constraint = $derived(recipe && recipeEndpoint(recipe.fields));
+	const connection = $derived(library.connections.text);
 	/** Saved results on transcripts and on pasted text, newest first. */
 	const outputs = $derived(
 		[
@@ -381,30 +379,6 @@
 		</Tabs.List>
 		<Tabs.Content value="instructions" class="min-h-0 flex-1 overflow-y-auto">
 			<div class="flex flex-col gap-4 py-1">
-				{#if constraint}
-					<Alert.Root variant="warning" data-testid="transformation-endpoint-constraint">
-						<Alert.Title>Runs only at {constraint}</Alert.Title>
-						<Alert.Description class="flex flex-col gap-2">
-							<p>
-								An earlier version saved this endpoint in the transformation. It runs only while the text connection is exactly
-								that endpoint; the request always goes to the connection.
-							</p>
-							{#if row}
-								<Button
-									size="xs"
-									variant="outline"
-									class="self-start"
-									disabled={locked}
-									onclick={() => set({ endpoint: null })}
-									data-testid="remove-endpoint-constraint"
-								>
-									Remove the endpoint and use the text connection
-								</Button>
-							{/if}
-						</Alert.Description>
-					</Alert.Root>
-				{/if}
-
 				<Field.Field>
 					<Field.Label for="transformation-prompt">Instructions</Field.Label>
 					{#if row}
@@ -432,7 +406,7 @@
 								Model and connection
 								<span class={['truncate font-normal', (library.connectionsProblem || !connection || !model) && 'text-destructive']}>
 									· {model ?? 'no model named'} ·
-									{library.connectionsProblem ? 'the text connection could not be read' : (connection?.baseUrl ?? 'no text connection')}
+									{library.connectionsProblem ? 'the text connection could not be read' : (connection?.title ?? 'no text connection')}
 								</span>
 							</Button>
 						{/snippet}
@@ -466,14 +440,16 @@
 							</Field.Description>
 						</Field.Field>
 						<div class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="transform-note">
-							{#if connection}
-								<p>Sends to the text connection: {connection.baseUrl}{connection.keyPresent ? ', with its key' : ', with no key'}.</p>
+							{#if connection?.unusable}
+								<p class="text-destructive">{connection.unusable}</p>
+							{:else if connection}
+								<p>Sends over the text connection: {connection.title}.</p>
 							{:else if library.connectionsProblem}
 								<p class="text-destructive">The text connection could not be read: {library.connectionsProblem}</p>
 							{:else}
-								<p>No text connection is set up. Set one up in Settings to run this.</p>
+								<p>No text connection is chosen. Choose one in Settings to run this.</p>
 							{/if}
-							<p>{library.workspace.transformNote}</p>
+							<p>{library.workspace.connections.note}</p>
 							<p>
 								A result on a transcript is saved as a new file in <code class="font-mono">transformation_runs/</code>, and a result on
 								pasted text in <code class="font-mono">text_runs/</code>. Each file is written when the run starts and gets its answer

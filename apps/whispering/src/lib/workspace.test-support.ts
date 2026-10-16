@@ -8,131 +8,223 @@
  * directory, and what a test can open without a shell. Nothing here
  * establishes how the Rust shell behaves.
  *
- * The endpoint stubs are plain functions, so a test decides each answer and
- * counts each request.
+ * Connections are real: rows of a real `so.epicenter` folder in its own
+ * directory, keys in memory, and requests sent by `sendRequest` from
+ * `@epicenter/ai/send`, so the endpoint pinning and key checks a test sees are
+ * the shipped ones. Only the endpoint is a stub: a plain function, so a test
+ * decides each answer and counts each request.
  */
 import { mkdirSync, rmdirSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { epicenterDefinition } from '@epicenter/ai/connection-table';
+import {
+	type ConnectionKind,
+	createMemorySecrets,
+	type SecretStore,
+	sendRequest,
+} from '@epicenter/ai/send';
+import { browserKeys } from '@epicenter/ai/ui';
 import { FileError, type FileTable, openFolder } from '@epicenter/folder/bun';
-import { Err, Ok } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
-import {
-	adoptLegacyKey,
-	applyConnectionChange,
-	type ConnectionsInfo,
-	connectionInfo,
-	connectionTargets,
-	OPERATIONS,
-	type Operation,
-	type StoredConnection,
-} from './connections.js';
+import type { Operation } from './connection-routes.js';
 import { whisperingDefinition } from './definition.js';
-import { TranscriptionError } from './transcription.js';
-import { TransformationError } from './transformation.js';
+import type { LocalTranscription } from './workspace/local-transcription.js';
 import {
 	type RecordingWriteHook,
 	WHISPERING_FOLDER_ID,
 	type Workspace,
+	type WorkspaceConnections,
 } from './workspace/types.js';
 
-type TransformRequest = Parameters<Workspace['transform']>[0];
-type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
-
-/** The base URL both stub endpoints answer at. */
+/** The endpoint both stub connections send to. */
 export const TEST_BASE_URL = 'http://127.0.0.1:18080/v1';
 
-/**
- * The connections a test device has set up unless a test says otherwise: a
- * keyless local endpoint for each, as a person would configure on purpose.
- */
-export const TEST_CONNECTIONS: Record<Operation, StoredConnection> = {
-	transcription: { baseUrl: TEST_BASE_URL, model: 'verification-model' },
-	text: { baseUrl: TEST_BASE_URL, model: 'connection-model' },
+/** A connection a test device has: its row, and for an endpoint, what is saved for it. */
+export type TestConnection = {
+	readonly kind?: ConnectionKind;
+	readonly title?: string;
+	readonly model: string;
+	/** Saved for an `openai-compatible` row; `TEST_BASE_URL` unless a test says otherwise. */
+	readonly endpoint?: string;
+	readonly key?: string;
+};
+
+/** The ids of the rows a test device starts with, one chosen for each operation. */
+export const TEST_CONNECTION_IDS: Record<Operation, string> = {
+	transcription: 'test-transcription',
+	text: 'test-text',
 };
 
 /**
- * A device's connections, kept in memory by the same rules the host and the
- * browser apply to their storage. `stored` holds the keys, so a test can see
- * where one went; the workspace member answers as a workspace does, never
- * with a key.
+ * The connections a test device has unless a test says otherwise: a keyless
+ * local endpoint for each, chosen for its operation.
  */
-export function testConnections({
-	connections = TEST_CONNECTIONS,
-	legacyKey = '',
-	readOnly = {},
-}: {
-	connections?: Partial<Record<Operation, StoredConnection>>;
-	legacyKey?: string;
-	readOnly?: Partial<Record<Operation, string>>;
-} = {}) {
-	const stored: Partial<Record<Operation, StoredConnection>> = {
-		...connections,
-	};
-	const device = { legacyKey };
-	const info = (): ConnectionsInfo => ({
-		transcription:
-			stored.transcription &&
-			connectionInfo(stored.transcription, readOnly.transcription),
-		text: stored.text && connectionInfo(stored.text, readOnly.text),
-		legacyKey: device.legacyKey !== '',
-	});
-	const member: Workspace['connections'] = {
-		storedIn: 'test',
-		defaults: {
-			transcription: {
-				baseUrl: 'https://api.openai.com/v1',
-				model: 'whisper-1',
-			},
-			text: { baseUrl: 'https://api.openai.com/v1', model: '' },
-		},
-		read: async () => info(),
-		async set(operation, change) {
-			const reason = readOnly[operation];
-			if (reason !== undefined) return Err(reason);
-			const { data: next, error: changeError } = applyConnectionChange(
-				operation,
-				stored[operation],
-				change,
-			);
-			if (changeError !== null) return Err(changeError);
-			stored[operation] = next;
-			return Ok(info());
-		},
-		async adoptLegacyKey(targets) {
-			const { data: adopted, error: adoptError } = adoptLegacyKey(
-				device.legacyKey,
-				targets,
-				readOnly,
-			);
-			if (adoptError !== null) return Err(adoptError);
-			for (const operation of OPERATIONS)
-				if (adopted[operation] !== undefined)
-					stored[operation] = adopted[operation];
-			device.legacyKey = '';
-			return Ok(info());
-		},
-	};
-	return { stored, device, member };
-}
+export const TEST_CONNECTIONS: Record<Operation, TestConnection> = {
+	transcription: { title: 'Test transcription', model: 'verification-model' },
+	text: { title: 'Test text', model: 'connection-model' },
+};
+
+type Received = {
+	readonly connection: string;
+	readonly endpoint: string;
+	readonly model: string;
+};
+/** A transcription the stub endpoint received, with its uploaded file's name. */
+export type Transcribed = Received & { readonly audio: string };
+/** A chat completion the stub endpoint received. */
+export type Transformed = Received & {
+	readonly prompt: string;
+	readonly input: string;
+};
+/** What the stub endpoint answers: the text, a refusal before anything is sent, or the response itself. */
+export type StubAnswer =
+	| Result<{ text: string }, { message: string }>
+	| Response;
+type Answer = StubAnswer;
 
 /**
- * Whether a prepared request would go out over the connection stored now,
- * as the host and the browser decide it: undefined when it would.
+ * A device's connections: rows of a real `so.epicenter`, keys in `secrets`,
+ * and a stub endpoint behind `sendRequest`. `answer` decides each request
+ * that reaches it; one that `send.ts` refuses never does.
  */
-function refusedConnection(
-	stored: StoredConnection | undefined,
-	expectedBaseUrl: string,
-):
-	| { readonly kind: 'missing' }
-	| { readonly kind: 'changed'; readonly configured: string }
-	| undefined {
-	if (stored === undefined) return { kind: 'missing' };
-	if (!connectionTargets(stored, expectedBaseUrl))
-		return { kind: 'changed', configured: stored.baseUrl };
-	return undefined;
+export async function testConnections({
+	root,
+	connections = TEST_CONNECTIONS,
+	others = {},
+	epicenterEndpoint,
+	local,
+	answer,
+}: {
+	root: string;
+	connections?: Partial<Record<Operation, TestConnection | null>>;
+	/** More rows, by id, that no operation names. */
+	others?: Record<string, TestConnection>;
+	/** The signed-in account's `/v1`; absent, an Epicenter row cannot send. */
+	epicenterEndpoint?: string;
+	local?: LocalTranscription;
+	answer: (
+		request:
+			| ({ readonly path: 'audio/transcriptions' } & Transcribed)
+			| ({ readonly path: 'chat/completions' } & Transformed),
+	) => Promise<Answer>;
+}) {
+	const folder = expectOk(
+		await openFolder({
+			root,
+			definition: epicenterDefinition,
+			git: { author: { name: 'Test', email: 'test@localhost' } },
+		}),
+	);
+	const secrets: SecretStore = createMemorySecrets();
+	const keys = browserKeys(secrets);
+	const rows = [
+		...(['transcription', 'text'] as const).flatMap((operation) => {
+			const connection = connections[operation];
+			return connection ? [[TEST_CONNECTION_IDS[operation], connection] as const] : [];
+		}),
+		...Object.entries(others),
+	];
+	for (const [id, connection] of rows) {
+		const kind = connection.kind ?? 'openai-compatible';
+		expectOk(
+			await folder.tables.connections.create(
+				{
+					fields: { kind, title: connection.title ?? id, model: connection.model },
+					body: '',
+				},
+				{ stem: id },
+			),
+		);
+		if (kind === 'openai-compatible')
+			expectOk(
+				await keys.save(
+					id,
+					connection.endpoint ?? TEST_BASE_URL,
+					connection.key ?? '',
+				),
+			);
+	}
+
+	/** The stub endpoint, recording what reached it for `target`. */
+	function endpointFor(connection: string) {
+		let refusal: { message: string } | undefined;
+		const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+			const request = new Request(input, init);
+			const url = new URL(request.url);
+			let answered: Answer;
+			if (url.pathname.endsWith('/audio/transcriptions')) {
+				const form = await request.formData();
+				answered = await answer({
+					path: 'audio/transcriptions',
+					connection,
+					endpoint: url.href.slice(0, -'/audio/transcriptions'.length),
+					model: String(form.get('model')),
+					audio: (form.get('file') as File).name,
+				});
+				if (answered instanceof Response) return answered;
+				if (answered.error !== null) {
+					refusal = answered.error;
+					return new Response('', { status: 599 });
+				}
+				return Response.json({ text: answered.data.text });
+			}
+			const body = (await request.json()) as {
+				model: string;
+				messages: { content: string }[];
+			};
+			answered = await answer({
+				path: 'chat/completions',
+				connection,
+				endpoint: url.href.slice(0, -'/chat/completions'.length),
+				model: body.model,
+				prompt: body.messages[0]?.content ?? '',
+				input: body.messages[1]?.content ?? '',
+			});
+			if (answered instanceof Response) return answered;
+			if (answered.error !== null) {
+				refusal = answered.error;
+				return new Response('', { status: 599 });
+			}
+			return Response.json({
+				choices: [{ message: { content: answered.data.text } }],
+			});
+		};
+		return { fetch, refusal: () => refusal };
+	}
+
+	const member: WorkspaceConnections = {
+		kinds: ['openai-compatible', 'epicenter', 'local'],
+		keys,
+		epicenterNote: 'test',
+		note: 'test',
+		open: async () => Ok(folder),
+		epicenterEndpoint: async () =>
+			epicenterEndpoint === undefined
+				? Err('not signed in')
+				: Ok(epicenterEndpoint),
+		async send(target, request) {
+			const stub = endpointFor(target.connection);
+			const { data: response, error } = await sendRequest({
+				target,
+				request,
+				secrets,
+				...(epicenterEndpoint !== undefined && {
+					epicenter: async () =>
+						Ok({ endpoint: epicenterEndpoint, key: '', fetch: stub.fetch }),
+				}),
+				fetch: stub.fetch,
+			});
+			const refused = stub.refusal();
+			if (refused !== undefined) return Err(refused);
+			if (error !== null) return Err(error);
+			return Ok(response);
+		},
+	};
+	return { folder, secrets, keys, member, local };
 }
 
 /** A real directory opened as Whispering's folder, by this test process. */
@@ -205,10 +297,10 @@ export function testInjection(
 }
 
 export type TestWorkspaceOptions = {
-	/** Replace the stubbed transcription answer. */
-	transcribe?: Workspace['transcribe'];
-	/** Replace the stubbed transformation answer. */
-	transform?: Workspace['transform'];
+	/** Replace the stub endpoint's transcription answer. */
+	transcribe?: (request: Transcribed) => Promise<Answer>;
+	/** Replace the stub endpoint's chat answer. */
+	transform?: (request: Transformed) => Promise<Answer>;
 	/** Fail this many recording audio writes, made when a fixture recording stops. */
 	failAudioWrites?: number;
 	/** Fail this many recording row writes, made when a recording starts. */
@@ -217,10 +309,17 @@ export type TestWorkspaceOptions = {
 	failResultStarts?: number;
 	/** Fail this many answers written into result rows, in any result table. */
 	failAnswerWrites?: number;
-	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
-	connections?: Partial<Record<Operation, StoredConnection>>;
-	/** A key an earlier build saved on the device. */
-	legacyKey?: string;
+	/**
+	 * The connection each operation uses: a row chosen for it, both keyless
+	 * endpoints unless a test says otherwise. `null` is none, and none chosen.
+	 */
+	connections?: Partial<Record<Operation, TestConnection | null>>;
+	/** More connection rows, by id, that no operation names. */
+	others?: Record<string, TestConnection>;
+	/** The signed-in account's `/v1`, for an Epicenter connection. */
+	epicenterEndpoint?: string;
+	/** Transcription on this computer, for a `local` connection. */
+	localTranscription?: LocalTranscription;
 	/** Open this folder instead of a directory with the Bun opener, such as a browser folder. */
 	folder?: Workspace['folder'] & { close(): Promise<void> };
 };
@@ -268,7 +367,9 @@ export async function openTestWorkspace({
 	failResultStarts = 0,
 	failAnswerWrites = 0,
 	connections,
-	legacyKey,
+	others,
+	epicenterEndpoint,
+	localTranscription,
 	folder: given,
 }: TestWorkspaceOptions = {}) {
 	const root = await realpath(
@@ -288,10 +389,42 @@ export async function openTestWorkspace({
 		),
 		text_runs: withResultFailures(folder.tables.text_runs, failures),
 	};
-	const device = testConnections({ connections, legacyKey });
-
-	const transformed: TransformRequest[] = [];
-	const transcribed: TranscribeRequest[] = [];
+	const transformed: Transformed[] = [];
+	const transcribed: Transcribed[] = [];
+	const chosen = { ...TEST_CONNECTIONS, ...connections };
+	const device = await testConnections({
+		root: await realpath(
+			await mkdtemp(join(tmpdir(), 'whispering-connections-')),
+		),
+		connections: chosen,
+		others,
+		epicenterEndpoint,
+		local: localTranscription,
+		async answer(request) {
+			if (request.path === 'audio/transcriptions') {
+				const { path: _, ...received } = request;
+				transcribed.push(received);
+				return transcribe !== undefined
+					? transcribe(received)
+					: Ok({ text: 'um so a steady tone' });
+			}
+			const { path: _, ...received } = request;
+			transformed.push(received);
+			return transform !== undefined
+				? transform(received)
+				: Ok({ text: `Transformed: ${received.input.trim()}` });
+		},
+	});
+	for (const operation of ['transcription', 'text'] as const)
+		if (chosen[operation])
+			expectOk(
+				await folder.kv.set(
+					operation === 'transcription'
+						? 'transcriptionConnection'
+						: 'textConnection',
+					TEST_CONNECTION_IDS[operation],
+				),
+			);
 	const terminalRuns: string[] = [];
 	let cwd = '/';
 	let opens = 0;
@@ -322,46 +455,7 @@ export async function openTestWorkspace({
 		}),
 		captureNotice: undefined,
 		reveal: undefined,
-		// Each stub decides the connection as the host does, at entry, and only a
-		// request that would go out is counted as sent.
-		async transcribe(request) {
-			const refused = refusedConnection(
-				device.stored.transcription,
-				request.expectedBaseUrl,
-			);
-			if (refused?.kind === 'missing')
-				return TranscriptionError.ConnectionUnavailable({
-					reason: 'no transcription connection is set up.',
-				});
-			if (refused?.kind === 'changed')
-				return TranscriptionError.ConnectionChanged({
-					expected: request.expectedBaseUrl,
-					configured: refused.configured,
-				});
-			transcribed.push(request);
-			if (transcribe !== undefined) return transcribe(request);
-			return Ok({ text: 'um so a steady tone' });
-		},
-		async transform(request) {
-			const refused = refusedConnection(
-				device.stored.text,
-				request.expectedBaseUrl,
-			);
-			if (refused?.kind === 'missing')
-				return TransformationError.ConnectionUnavailable({
-					reason: 'no text connection is set up.',
-				});
-			if (refused?.kind === 'changed')
-				return TransformationError.ConnectionChanged({
-					expected: request.expectedBaseUrl,
-					configured: refused.configured,
-				});
-			transformed.push(request);
-			if (transform !== undefined) return transform(request);
-			return Ok({ text: `Transformed: ${request.input.trim()}` });
-		},
-		transformNote: 'test',
-		localTranscription: undefined,
+		localTranscription,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,
@@ -374,7 +468,7 @@ export async function openTestWorkspace({
 				: undefined,
 		async close() {
 			closes += 1;
-			await folder.close();
+			await Promise.all([folder.close(), device.folder.close()]);
 		},
 	};
 
@@ -392,7 +486,7 @@ export async function openTestWorkspace({
 		transformed,
 		/** Every transcription request the endpoint stub received, in order. */
 		transcribed,
-		/** The device's stored connections, keys included, and its earlier key. */
+		/** The device's connections: its `so.epicenter`, keys, and secrets. */
 		device,
 		terminalRuns,
 		get opens() {
