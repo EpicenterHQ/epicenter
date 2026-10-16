@@ -485,7 +485,11 @@ async function sweepScratch(scratch: OpfsDirectoryHandle) {
 	}
 }
 
-/** A create where the browser cannot move a file: in place, empty until it closes. */
+/**
+ * A create where the browser cannot move a file (Chrome before 102): in
+ * place, empty until it closes, so a cut write can leave it empty. Every
+ * engine since has `move`; this stays so such a browser can still create.
+ */
 async function createInPlace(
 	parent: OpfsDirectoryHandle,
 	path: string,

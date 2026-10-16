@@ -80,10 +80,15 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 			const stats = await lstat(path);
 			const kind = kindOf(stats);
 			// `realpath` answers with the stored spelling; a link is not followed.
-			const name =
+			// Racing a rename over the path, Bun's on Linux can answer with
+			// `<name> (deleted)`, so a name it does not confirm is left out and
+			// the directory store lists the parent instead.
+			const asked = basename(path);
+			const stored =
 				kind === 'file' || kind === 'directory'
 					? basename(await realpath(path))
 					: undefined;
+			const name = stored === asked ? stored : undefined;
 			return { kind, size: stats.size, mode: stats.mode, name };
 		} catch (cause) {
 			if ((cause as { code?: string }).code === 'ENOENT') return undefined;

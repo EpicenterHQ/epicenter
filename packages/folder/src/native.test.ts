@@ -254,24 +254,20 @@ describe('native folder', () => {
 		// An ignored local file, and the remote adding its other spelling.
 		await writeFile(join(root, '.git/info/exclude'), 'notes.md\n');
 		await writeFile(join(root, 'notes.md'), 'mine, ignored\n');
-		const oneFile = await readFile(join(root, 'NOTES.md')).then(
-			() => true,
-			() => false,
-		);
 		await writeFile(join(peer, 'Notes.md'), 'theirs\n');
 		await git(peer, 'add', '--all');
 		await git(peer, 'commit', '--quiet', '-m', 'Notes');
 		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
 		const head = await git(root, 'rev-parse', 'HEAD');
+		// Names compare folded on every disk, so a case-sensitive one stops
+		// too: the folder must open on a case-insensitive one.
 		const synced = await folder.sync.run();
-		if (oneFile) {
-			expect(synced.error?.name).toBe('Blocked');
-			expect(synced.error?.message).toContain("'Notes.md'");
-			expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
-			expect(await readFile(join(root, 'notes.md'), 'utf8')).toBe(
-				'mine, ignored\n',
-			);
-		} else expect(expectOk(synced).kind).toBe('synced');
+		expect(synced.error?.name).toBe('Blocked');
+		expect(synced.error?.message).toContain("'Notes.md'");
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+		expect(await readFile(join(root, 'notes.md'), 'utf8')).toBe(
+			'mine, ignored\n',
+		);
 		await folder.close();
 	});
 

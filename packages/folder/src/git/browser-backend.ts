@@ -37,6 +37,7 @@ import { webLockExclusive } from './web-lock-exclusive.js';
 
 const decoder = new TextDecoder();
 const REMOTE_NAME = 'origin';
+const PUBLISHING_REF = 'refs/epicenter/publishing';
 
 /** One piece of Git work's filesystem view; `flush` persists its private writes. */
 export type GitFsSession = {
@@ -249,6 +250,21 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		readBranch: () => readRef(branchKey),
 		readRemoteTracking: () => readRef(trackingKey),
 		casBranch,
+		readPublishing: () => readRef(`${GITDIR}/${PUBLISHING_REF}`),
+		async writePublishing(oid) {
+			await ensureCreated();
+			await withObjects(({ fs, gitdir }) =>
+				oid === undefined
+					? git.deleteRef({ fs, gitdir, ref: PUBLISHING_REF })
+					: git.writeRef({
+							fs,
+							gitdir,
+							ref: PUBLISHING_REF,
+							value: oid,
+							force: true,
+						}),
+			);
+		},
 		async blocked() {
 			// A folder with no repository yet has nothing in progress.
 			if (!(await available())) return undefined;

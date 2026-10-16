@@ -98,7 +98,9 @@ it is now and merges the change from `from` to `to` into it, by unit:
 and `lock`. `ifMatch` is the SHA-256 the path must hold, or `null` for no
 file; `put` answers `'landed'` or `'stale'` and lands whole, so a reader and
 a crash see the old file or the new one, and a new file never appears empty
-first. The host checks the condition where the bytes land, under the
+first, except in a browser whose file handles cannot move (Chrome before
+102), where a new file is written in place and a cut write can leave it
+empty. The host checks the condition where the bytes land, under the
 folder's save lock: the browser's Web Lock over the origin private file
 system, where a new file is written to `.git/epicenter/scratch` and moved
 into place; a directory's save lock, which the desktop shell and Bun share
@@ -215,22 +217,35 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    written once, by the one write: `write(path, from: L, to: T)` with the
    live file as the writer acting, so a live file still at `L` takes `T`
    exactly, and text typed after the checkpoint, which no commit holds,
-   keeps the units it changed. Removals go first, each guarded by `L`'s
-   bytes, with the directories they empty after them, so a file can take a
-   directory's place and the reverse. Before writing anything it stops at
+   keeps the units it changed. Removals go first, in one hold of the lock:
+   each is checked against `L`'s bytes, then all are made, with the
+   directories they empty after them, so a file can take a directory's
+   place and the reverse. Before writing anything it stops at
    a file of this folder's own where `T` needs a directory, files where `T`
    needs a file, and a file `L` never tracked (ignored, or new since) where
    `T` adds different bytes, which Sync never merges into history. And when
-   a file `T` removes holds an edit no commit has, it stops, records the
-   files again as `K`, and merges `K` with what it pushed: the delete wins,
+   a file `T` removes holds an edit no commit has, it stops before any
+   removal, records the files again as `K`, and merges `K` with what it pushed: the delete wins,
    and the edit stays in history as a parent, named by a trailer. Names
-   compare as a case-insensitive disk folds them, so a name held under
-   another spelling stops it too. Then the branch moves from `L` to `T` by
+   compare as APFS folds them, so a name held under another spelling stops
+   it too, and a tree this device would send is checked as an incoming one
+   is: a merge whose two sides each add one spelling of a name is not sent. Then the branch moves from `L` to `T` by
    compare-and-swap, and the index is set to `T`; an index another program
    holds is left for the next commit to refresh. Every write lands whole, so a publish cut off
-   partway leaves each file at its old bytes or its new ones: ordinary
-   changes (ADR-0545), which the next Sync records and merges with the
-   commit it already sent, to the same files. There is no journal.
+   partway leaves each file at its old bytes or its new ones. Before its
+   first file change it points `refs/epicenter/publishing` at a commit
+   whose parents are `L` and `T`, and it deletes that ref once the branch
+   moves. A commit, Sync's checkpoint or a version a person saves, first
+   finishes a publish the ref still names while the branch is at `L`: the
+   same writes run again, so a file already at `T` stays, one still at `L`
+   takes `T`, and one edited since keeps its edit; a file `T` removes that
+   was edited after the cut stays, as this device's, and a file the person
+   made where `T` adds one joins `T`'s as an addition on both sides, the
+   live file winning, unless it is ignored, which stops the commit. Only then does it
+   record the files, so bytes that arrived are never recorded as this
+   device's edits, which a later merge would let win over another device's
+   newer ones. A branch that moved since drops the ref. No record of
+   individual files is kept.
 
 Sync stops only for what it cannot represent or must not decide: a
 repository in the middle of a merge or a rebase, or with a detached head; a
@@ -307,10 +322,12 @@ its stems are named by concern, such as `settings/display.md` and
   nothing is lost that a version held. Text saved after the checkpoint
   into a file another device deleted is recorded before the delete wins,
   so it stays in history too.
-- A Sync interrupted partway leaves ordinary changes, which the next Sync
-  merges to the files an uninterrupted Sync would have left, here and on
-  the remote. Its checkpoint credits the arrived values to this device;
-  the trailers stay right.
+- A Sync interrupted partway leaves files of both versions, which the next
+  commit finishes publishing before it records anything. The next Sync then
+  ends where an uninterrupted one would have, here and on the remote, even
+  when another device changed the same units again in between. Until then
+  a commit that cannot finish the publish, for a file in its way, is
+  refused, naming the file.
 - A save waits only while Sync checks and writes one file: the merge is
   pushed before any file is written, and each file takes the lock on its
   own.
@@ -340,13 +357,19 @@ its stems are named by concern, such as `settings/display.md` and
   saved version referenced by nothing when the remote deleted its file, and
   replays the same commits again after a lost push reply. A merge commit
   keeps `L` as a parent and fast-forwards the next time.
-- **A journal of each publish** (`.git/epicenter/sync-journal.json`),
+- **A journal of each publish's files** (`.git/epicenter/sync-journal.json`),
   finished before the next commit. Recovery then has to tell Sync's own
   partial writes from a file another writer made since, which bytes cannot
   say: an empty file a cut-off create left looks like a file a tab made
   empty on purpose. A branch another program moved strands the journal and
-  stops every commit. Whole writes, each under the save lock, make every partial
-  state an ordinary change, which needs no recovery.
+  stops every commit. Whole writes make that question unnecessary: the
+  publishing ref names only `L` and `T`, and finishing is the same publish,
+  which a file already written, or edited since, passes through unchanged.
+- **No record of an unfinished publish at all.** The next checkpoint
+  records the files a cut publish wrote as this device's edits over `L`. If
+  the remote moved on before that Sync, the merge base is `L`, and those
+  stale values win over the other device's newer ones, here and on the
+  remote.
 - **Desktop Sync as Git's own merge** (`git add`, `git merge` with the
   driver, a resolver, `git push`, run by the CLI). It would be a second Sync
   beside the browser's, which every app also deploys to. Git calls a driver
