@@ -289,7 +289,8 @@ export function createEntries(
 				return EntryError.Taken({ path: pathOf(stem) });
 			}
 			// Only a row this create wrote can stand at a stem it found vacant.
-			if (!isStoredRow(created)) return EntryError.Taken({ path: pathOf(stem) });
+			if (!isStoredRow(created))
+				return EntryError.Taken({ path: pathOf(stem) });
 			return Ok({ outcome: 'added', id: stem, stored: created });
 		},
 		onSuccess: ({ id, stored }) => received(id, stored),

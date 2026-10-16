@@ -30,8 +30,8 @@ import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
 import { put } from './put.test-support.js';
 import { parseRow } from './row-text.js';
-import { useWebLocks } from './web-locks.test-support.js';
 import { mustRow } from './row-write.test-support.js';
+import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
 	kv: { theme: field.string() },

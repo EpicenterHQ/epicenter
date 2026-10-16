@@ -37,11 +37,11 @@ import {
 	scratch,
 } from './git-http.test-support.js';
 import type { Expectation } from './native/bindings.gen.js';
+import { mustRow } from './row-write.test-support.js';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
 } from './shell-history.test-support.js';
-import { mustRow } from './row-write.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;

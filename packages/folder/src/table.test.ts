@@ -41,9 +41,9 @@ import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field, parseRow } from './contract.js';
 import type { Row } from './row-text.js';
+import { mustRow } from './row-write.test-support.js';
 import { WRITE_ATTEMPTS } from './save-file.js';
 import { createTable } from './table.js';
-import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({
 	kv: {},

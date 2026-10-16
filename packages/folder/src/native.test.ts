@@ -37,8 +37,8 @@ import {
 } from './git-http.test-support.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
 import { parseRow } from './row-text.js';
-import { useWebLocks } from './web-locks.test-support.js';
 import { mustRow } from './row-write.test-support.js';
+import { useWebLocks } from './web-locks.test-support.js';
 
 const openNativeFolder = async <const TDefinition extends FolderDefinition>(
 	options: DirectoryFolderOptions<TDefinition>,
