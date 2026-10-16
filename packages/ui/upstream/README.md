@@ -4,13 +4,10 @@ These are the exact distributed registry responses compared during the Vega migr
 
 | Family | Distributed response |
 | --- | --- |
-| `accordion` | [`shadcn-svelte/vega/accordion.json`](https://shadcn-svelte.com/registry/styles/vega/accordion.json) |
 | `alert-dialog` | [`shadcn-svelte/vega/alert-dialog.json`](https://shadcn-svelte.com/registry/styles/vega/alert-dialog.json) |
 | `alert` | [`shadcn-svelte/vega/alert.json`](https://shadcn-svelte.com/registry/styles/vega/alert.json) |
 | `avatar` | [`shadcn-svelte/vega/avatar.json`](https://shadcn-svelte.com/registry/styles/vega/avatar.json) |
 | `badge` | [`shadcn-svelte/vega/badge.json`](https://shadcn-svelte.com/registry/styles/vega/badge.json) |
-| `breadcrumb` | [`shadcn-svelte/vega/breadcrumb.json`](https://shadcn-svelte.com/registry/styles/vega/breadcrumb.json) |
-| `button-group` | [`shadcn-svelte/vega/button-group.json`](https://shadcn-svelte.com/registry/styles/vega/button-group.json) |
 | `button` | [`shadcn-svelte/vega/button.json`](https://shadcn-svelte.com/registry/styles/vega/button.json) |
 | `card` | [`shadcn-svelte/vega/card.json`](https://shadcn-svelte.com/registry/styles/vega/card.json) |
 | `chart` | [`shadcn-svelte/vega/chart.json`](https://shadcn-svelte.com/registry/styles/vega/chart.json) |
@@ -25,32 +22,24 @@ These are the exact distributed registry responses compared during the Vega migr
 | `input-group` | [`shadcn-svelte/vega/input-group.json`](https://shadcn-svelte.com/registry/styles/vega/input-group.json) |
 | `input` | [`shadcn-svelte/vega/input.json`](https://shadcn-svelte.com/registry/styles/vega/input.json) |
 | `item` | [`shadcn-svelte/vega/item.json`](https://shadcn-svelte.com/registry/styles/vega/item.json) |
-| `kbd` | [`shadcn-svelte/vega/kbd.json`](https://shadcn-svelte.com/registry/styles/vega/kbd.json) |
 | `label` | [`shadcn-svelte/vega/label.json`](https://shadcn-svelte.com/registry/styles/vega/label.json) |
 | `popover` | [`shadcn-svelte/vega/popover.json`](https://shadcn-svelte.com/registry/styles/vega/popover.json) |
 | `progress` | [`shadcn-svelte/vega/progress.json`](https://shadcn-svelte.com/registry/styles/vega/progress.json) |
 | `radio-group` | [`shadcn-svelte/vega/radio-group.json`](https://shadcn-svelte.com/registry/styles/vega/radio-group.json) |
 | `resizable` | [`shadcn-svelte/vega/resizable.json`](https://shadcn-svelte.com/registry/styles/vega/resizable.json) |
-| `scroll-area` | [`shadcn-svelte/vega/scroll-area.json`](https://shadcn-svelte.com/registry/styles/vega/scroll-area.json) |
 | `select` | [`shadcn-svelte/vega/select.json`](https://shadcn-svelte.com/registry/styles/vega/select.json) |
 | `sheet` | [`shadcn-svelte/vega/sheet.json`](https://shadcn-svelte.com/registry/styles/vega/sheet.json) |
 | `sidebar` | [`shadcn-svelte/vega/sidebar.json`](https://shadcn-svelte.com/registry/styles/vega/sidebar.json) |
 | `skeleton` | [`shadcn-svelte/vega/skeleton.json`](https://shadcn-svelte.com/registry/styles/vega/skeleton.json) |
-| `switch` | [`shadcn-svelte/vega/switch.json`](https://shadcn-svelte.com/registry/styles/vega/switch.json) |
 | `table` | [`shadcn-svelte/vega/table.json`](https://shadcn-svelte.com/registry/styles/vega/table.json) |
 | `tabs` | [`shadcn-svelte/vega/tabs.json`](https://shadcn-svelte.com/registry/styles/vega/tabs.json) |
 | `textarea` | [`shadcn-svelte/vega/textarea.json`](https://shadcn-svelte.com/registry/styles/vega/textarea.json) |
-| `toggle-group` | [`shadcn-svelte/vega/toggle-group.json`](https://shadcn-svelte.com/registry/styles/vega/toggle-group.json) |
 | `toggle` | [`shadcn-svelte/vega/toggle.json`](https://shadcn-svelte.com/registry/styles/vega/toggle.json) |
 | `tooltip` | [`shadcn-svelte/vega/tooltip.json`](https://shadcn-svelte.com/registry/styles/vega/tooltip.json) |
 | `chat` | [`shadcn-svelte-extras/chat.json`](https://www.shadcn-svelte-extras.com/r/chat.json) |
-| `file-drop-zone` | [`shadcn-svelte-extras/file-drop-zone.json`](https://www.shadcn-svelte-extras.com/r/file-drop-zone.json) |
-| `github-button` | [`shadcn-svelte-extras/github-button.json`](https://www.shadcn-svelte-extras.com/r/github-button.json) |
 | `light-switch` | [`shadcn-svelte-extras/light-switch.json`](https://www.shadcn-svelte-extras.com/r/light-switch.json) |
 | `link` | [`shadcn-svelte-extras/link.json`](https://www.shadcn-svelte-extras.com/r/link.json) |
 | `modal` | [`shadcn-svelte-extras/modal.json`](https://www.shadcn-svelte-extras.com/r/modal.json) |
-| `pm-command` | [`shadcn-svelte-extras/pm-command.json`](https://www.shadcn-svelte-extras.com/r/pm-command.json) |
-| `snippet` | [`shadcn-svelte-extras/snippet.json`](https://www.shadcn-svelte-extras.com/r/snippet.json) |
 
 The shadcn-svelte-extras responses come from their own registry, not the Vega registry. Epicenter-owned components have no claimed upstream match.
 
@@ -93,10 +82,9 @@ in the refresh PR or an issue, not in this register as accepted behavior.
 
 Other structural choices with live callers remain in their components: the
 Resizable handle and the standard Loading shell. Badge’s span-or-anchor
-rendering, Tooltip’s arrow customization, and ScrollArea’s viewport and scrollbar
-props follow upstream. `switch` and `alert-dialog` emit `data-size`; sidebar
-menu controls emit `data-active` only when active. These attributes feed the
-Vega state selectors.
+rendering and Tooltip’s arrow customization follow upstream. `alert-dialog`
+emits `data-size`; sidebar menu controls emit `data-active` only when active.
+These attributes feed the Vega state selectors.
 
 The distributed registry still includes unresolved `cn-font-heading` and
 `cn-menu-*` hooks in some files. The maintained package omits those inert hooks;
