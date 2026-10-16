@@ -1,19 +1,17 @@
 import { createConversation } from '@epicenter/agent';
-import type { InferenceCatalog, InferenceTarget } from '@epicenter/ai/picker';
-import type { InferenceSelections } from '@epicenter/ai/selections';
 import {
 	createOpenAiAgentEngine,
 	type OpenAiTurnContext,
 } from '@epicenter/client';
 import { bindAgentConversation } from '@epicenter/svelte';
-import { createSubscriber } from 'svelte/reactivity';
+import type { Result } from 'wellcrafted/result';
 import {
 	tutorPrompt,
 	type UnreadableFile,
-	VOCAB_MODEL,
 	VOCAB_SYSTEM_PROMPT,
 	type VocabFolder,
 } from '../data.js';
+import type { TutorRoute } from '../tutor.js';
 import {
 	type ChatHistoryError,
 	createChatMessageStore,
@@ -27,8 +25,7 @@ export function createVocabChat({
 	write,
 	chatId,
 	focus,
-	catalog,
-	selections,
+	tutor,
 }: {
 	/** The folder whose `messages/` holds every chat's finished messages. */
 	folder: Pick<VocabFolder, 'tables' | 'files'>;
@@ -36,13 +33,16 @@ export function createVocabChat({
 	write?: MessageWrite;
 	chatId: string;
 	focus: readonly { text: string }[];
-	catalog: InferenceCatalog;
-	selections: InferenceSelections;
+	/**
+	 * Where the tutor runs. `canServe` says, from what is on screen, whether a
+	 * connection is chosen; `route` builds each turn's client from what is
+	 * saved now, or says why it cannot, which the turn shows as its error.
+	 */
+	tutor: {
+		readonly canServe: boolean;
+		route(): Promise<Result<TutorRoute, string>>;
+	};
 }) {
-	const observeSelections = createSubscriber((update) =>
-		selections.onChange(update),
-	);
-	let runTarget: OpenAiTurnContext | null = null;
 	let draft = $state('');
 	// The submitted text stays in the draft until its message is saved.
 	let submittedDraft: string | null = null;
@@ -87,38 +87,17 @@ export function createVocabChat({
 		submittedDraft = null;
 	}
 
-	function target(): InferenceTarget | null {
-		observeSelections();
-		return (
-			selections.get('tutor') ??
-			(catalog.accountId
-				? { connectionId: catalog.accountId, model: VOCAB_MODEL }
-				: null)
-		);
-	}
-
-	function captureTarget(): boolean {
-		const resolved = catalog.resolve(target());
-		if (!resolved || resolved.source === 'runtime') return false;
-		runTarget = {
-			client: resolved.client,
-			model: resolved.model,
-			systemPrompts: [
+	const provider = createOpenAiAgentEngine({
+		data: async (): Promise<OpenAiTurnContext> => {
+			// Read before the route's await: an opening is a turn over no messages.
+			const systemPrompts = [
 				focus.length
 					? tutorPrompt(focus, loop.messages.length === 0)
 					: VOCAB_SYSTEM_PROMPT,
-			],
-		};
-		return true;
-	}
-
-	const provider = createOpenAiAgentEngine({
-		data: () => {
-			if (!runTarget)
-				throw new Error(
-					'Choose an inference connection before running a turn.',
-				);
-			return runTarget;
+			];
+			const { data: route, error } = await tutor.route();
+			if (error !== null) throw new Error(error);
+			return { ...route, systemPrompts };
 		},
 	});
 	const loop = bindAgentConversation(
@@ -191,23 +170,12 @@ export function createVocabChat({
 		get unreadable() {
 			return unreadable;
 		},
-		get target() {
-			return target();
-		},
 		get canServe() {
-			const resolved = catalog.resolve(target());
-			return resolved !== null && resolved.source !== 'runtime';
+			return tutor.canServe;
 		},
 		/** Whether `retry` would ask the tutor now. A failed read is cleared by `readAgain` first. */
 		get canAsk() {
-			const resolved = catalog.resolve(target());
-			return (
-				resolved !== null &&
-				resolved.source !== 'runtime' &&
-				!isBusy() &&
-				isReadable() &&
-				!hasNothingToAsk()
-			);
+			return tutor.canServe && !isBusy() && isReadable() && !hasNothingToAsk();
 		},
 		get inputValue() {
 			return draft;
@@ -216,18 +184,13 @@ export function createVocabChat({
 			draft = value;
 		},
 		get canSend() {
-			const resolved = catalog.resolve(target());
 			return (
-				resolved !== null &&
-				resolved.source !== 'runtime' &&
+				tutor.canServe &&
 				!isBusy() &&
 				isReadable() &&
 				loop.messages.length > 0 &&
 				draft.trim().length > 0
 			);
-		},
-		selectTarget(next: InferenceTarget) {
-			selections.set('tutor', next);
 		},
 		/**
 		 * Save the draft as a learner message, then ask the tutor. A failed save
@@ -241,7 +204,7 @@ export function createVocabChat({
 				loop.messages.length === 0 ||
 				isBusy() ||
 				!isReadable() ||
-				!captureTarget()
+				!tutor.canServe
 			)
 				return;
 			const { error } = await loop.send(text);
@@ -275,11 +238,9 @@ export function createVocabChat({
 			const admitted = new AbortController();
 			asking = admitted;
 			try {
-				await catalog.ready;
-				if (admitted.signal.aborted) return;
 				const error = await read();
 				if (admitted.signal.aborted || error !== null) return;
-				if (hasNothingToAsk() || !captureTarget()) return;
+				if (hasNothingToAsk() || !tutor.canServe) return;
 				dismissedError = null;
 				// Hand the admission to the loop, which reserves its own at once.
 				asking = null;

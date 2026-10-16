@@ -367,6 +367,12 @@ export async function removeKey(
 	return Ok({ removed });
 }
 
+/** What sends a request: a page's `fetch`, or an account's, which adds its token. */
+export type Fetch = (
+	input: string | URL | Request,
+	init?: RequestInit,
+) => Promise<Response>;
+
 /** Headers a caller may not set: the key is added here, and nothing ambient is carried. */
 const REFUSED_HEADERS = new Set([
 	'authorization',
@@ -414,7 +420,7 @@ export async function sendToEndpoint(
 	{
 		fetch: send = globalThis.fetch.bind(globalThis),
 		signal,
-	}: { fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {},
+	}: { fetch?: Fetch; signal?: AbortSignal } = {},
 ): Promise<Result<Response, SendError>> {
 	const { data: url, error: urlError } = requestUrl(endpoint, request.path);
 	if (urlError !== null) return Err(urlError);
@@ -451,7 +457,7 @@ export async function sendToEndpoint(
  * account's origins, and an empty key.
  */
 export type EpicenterAccess = () => Promise<
-	Result<KeyEntry & { readonly fetch?: typeof globalThis.fetch }, string>
+	Result<KeyEntry & { readonly fetch?: Fetch }, string>
 >;
 
 /**
@@ -471,7 +477,7 @@ async function sendToAccount(
 	audience: AccountAudience,
 	request: SendRequest,
 	access: AccountAccess | undefined,
-	options: { fetch?: typeof globalThis.fetch; signal?: AbortSignal },
+	options: { fetch?: Fetch; signal?: AbortSignal },
 ): Promise<Result<Response, SendError>> {
 	const refusePath = SendError.InvalidRequest({
 		reason: `'${request.path}' is not an account path: one below ${ACCOUNT_PATH_PREFIX}, or a GET of ${USERINFO_PATH}`,
@@ -523,7 +529,7 @@ export async function sendRequest({
 	epicenter?: EpicenterAccess;
 	/** Absent where nothing signs in, which refuses an account request. */
 	account?: AccountAccess;
-	fetch?: typeof globalThis.fetch;
+	fetch?: Fetch;
 	signal?: AbortSignal;
 }): Promise<Result<Response, SendError>> {
 	if (target.kind === 'account')

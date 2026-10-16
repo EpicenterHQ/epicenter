@@ -187,18 +187,22 @@ function incompleteFinish(
 	}
 }
 
-/** Use SDK framing and cancellation while retaining the agent's tool-call reducer. */
+/**
+ * Use SDK framing and cancellation while retaining the agent's tool-call
+ * reducer. `data` is read once per turn, inside it, so a client built from
+ * what is saved now, and a failure to build one, belong to that turn.
+ */
 export function createOpenAiAgentEngine({
 	data,
 }: {
-	data: () => OpenAiTurnContext;
+	data: () => OpenAiTurnContext | Promise<OpenAiTurnContext>;
 }): AgentEngine {
 	return async function* (request, signal) {
 		const byIndex = new Map<number, PendingToolCall>();
 		const indexless: PendingToolCall[] = [];
 		let finishReason: FinishReason | undefined;
 		try {
-			const { client, model, systemPrompts } = data();
+			const { client, model, systemPrompts } = await data();
 			const stream = await client.chat.completions.create(
 				{
 					model,

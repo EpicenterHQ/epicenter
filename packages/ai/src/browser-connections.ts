@@ -14,6 +14,7 @@ import {
 	epicenterDefinition,
 } from './connection-table.js';
 import {
+	type Fetch,
 	type SecretStore,
 	type SendRequest,
 	type SendTarget,
@@ -69,7 +70,7 @@ export function openBrowserConnections() {
  */
 export type BrowserAccount = {
 	readonly baseURL: string;
-	readonly fetch: typeof globalThis.fetch;
+	readonly fetch: Fetch;
 };
 
 /**
@@ -90,7 +91,7 @@ export function sendFromBrowser({
 	secrets?: SecretStore;
 	account?: BrowserAccount | null;
 	/** The page's own `fetch`; an `epicenter` row sends over the account's instead. */
-	fetch?: typeof globalThis.fetch;
+	fetch?: Fetch;
 	signal?: AbortSignal;
 }) {
 	return sendRequest({
@@ -132,8 +133,8 @@ export function connectionFetch({
 	endpoint: string;
 	secrets?: SecretStore;
 	account?: BrowserAccount | null;
-	fetch?: typeof globalThis.fetch;
-}): typeof globalThis.fetch {
+	fetch?: Fetch;
+}): Fetch {
 	return (async (input: string | URL | Request, init?: RequestInit) => {
 		const { data: request, error } = await toSendRequest(endpoint, input, init);
 		if (error !== null) throw new Error(error.message);
@@ -149,5 +150,5 @@ export function connectionFetch({
 		});
 		if (sendError !== null) throw new Error(sendError.message);
 		return response;
-	}) as typeof globalThis.fetch;
+	}) as Fetch;
 }

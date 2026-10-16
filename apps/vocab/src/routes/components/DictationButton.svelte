@@ -7,14 +7,16 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy } from 'svelte';
-	import type { InferenceCatalog } from '@epicenter/ai/picker';
+	import type { BrowserAccount } from '@epicenter/ai/browser';
+	import { hostedClient } from '$lib/tutor.js';
 
 	let {
-		catalog,
+		account,
 		onTranscript,
 		disabled = false,
 	}: {
-		catalog: InferenceCatalog;
+		/** Dictation always transcribes with Epicenter's hosted model. */
+		account: BrowserAccount;
 		/** Called with the recognized text once a spoken phrase transcribes. */
 		onTranscript: (text: string) => void;
 		/**
@@ -23,10 +25,8 @@
 		 */
 		disabled?: boolean;
 	} = $props();
-	const dictation = createDictation(async () => {
-		await catalog.ready;
-		return catalog.ai.account?.client ?? null;
-	});
+	// svelte-ignore state_referenced_locally
+	const dictation = createDictation(() => hostedClient(account));
 	onDestroy(() => {
 		void dictation.close().catch((cause) => toast.error('Could not stop dictation', { description: extractErrorMessage(cause) }));
 	});

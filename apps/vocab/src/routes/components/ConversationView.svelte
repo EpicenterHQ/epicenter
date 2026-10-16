@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/agent';
-	import { InferencePicker } from '@epicenter/ai/picker';
+	import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+	import type { FolderOptions } from '@epicenter/folder/query';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -15,10 +16,9 @@
 	import type { VocabFolder } from '$lib/data.js';
 	import type { MessageWrite } from '$lib/chat/messages.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import type { InferenceCatalog } from '@epicenter/ai/picker';
-	import type { InferenceSelections } from '@epicenter/ai/selections';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
+	import TutorPicker from './TutorPicker.svelte';
 
 	const accountManagementUrl = auth.accountManagementUrl;
 	// The account the shell opened the tutor's connections with.
@@ -28,8 +28,12 @@
 		chatId,
 		folder,
 		write,
-		catalog,
-		selections,
+		tutor,
+		connections,
+		connectionsProblem,
+		choice,
+		hostedLabel,
+		onChoose,
 		entries,
 		focus,
 		visible,
@@ -40,8 +44,14 @@
 		folder: Pick<VocabFolder, 'tables' | 'files'>;
 		/** Saves each message as a mutation scoped to this chat. */
 		write: MessageWrite;
-		catalog: InferenceCatalog;
-		selections: InferenceSelections;
+		tutor: Parameters<typeof createVocabChat>[0]['tutor'];
+		/** This browser's `so.epicenter`, or null until it opens or when it did not. */
+		connections: FolderOptions<typeof epicenterDefinition> | null;
+		connectionsProblem: string | null;
+		/** The stored `tutorConnection`; undefined is the hosted default. */
+		choice: string | undefined;
+		hostedLabel: string;
+		onChoose: (connection: string | undefined) => void;
 		entries: Entries;
 		focus: readonly { text: string }[];
 		visible: boolean;
@@ -52,7 +62,7 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ folder, write, chatId, focus, catalog, selections });
+	const chat = createVocabChat({ folder, write, chatId, focus, tutor });
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -182,10 +192,13 @@
 	{/if}
 
 	<div class="bg-background px-2 pt-1.5">
-		<InferencePicker value={chat.target} onSelect={(target) => chat.selectTarget(target)} {catalog} disabled={chat.isGenerating} />
+		<TutorPicker {connections} {choice} signedIn={account !== undefined} {hostedLabel} disabled={chat.isGenerating} {onChoose} />
 	</div>
+	{#if connectionsProblem}
+		<p role="alert" class="px-3 pb-1 text-xs text-destructive">This browser's connections did not open: {connectionsProblem}</p>
+	{/if}
 	{#if !chat.canServe}
-		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a model to chat. Connect your own endpoint in the picker{account ? '' : ", or sign in for Epicenter's hosted models"}.</p>
+		<p class="px-3 pb-1 text-xs text-muted-foreground">Choose a connection to chat. Add your own endpoint under Connections{account ? '' : ", or sign in for Epicenter's hosted models"}.</p>
 	{/if}
 	<form class="border-t bg-background px-2 py-2" aria-label="Chat message" aria-busy={chat.isSaving} onsubmit={(event) => { event.preventDefault(); void chat.sendMessage(); }}>
 		<InputGroup.Root>
@@ -204,7 +217,7 @@
 				}}
 			/>
 			<InputGroup.Addon align="block-end">
-				{#if visible && catalog.ai.account}<DictationButton {catalog} disabled={chat.isGenerating} onTranscript={(text) => {
+				{#if visible && account}<DictationButton {account} disabled={chat.isGenerating} onTranscript={(text) => {
 					const draft = chat.inputValue.trim();
 					chat.inputValue = draft ? `${draft} ${text}` : text;
 				}} />{/if}

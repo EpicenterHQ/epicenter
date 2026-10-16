@@ -91,19 +91,3 @@ export const SERVABLE_MODELS = AI_MODELS.map((model) => model.id) as [
 export const MODELS_BY_ID = Object.fromEntries(
 	AI_MODELS.map((model) => [model.id, model]),
 ) as Record<ServableModel, AiModel>;
-
-/**
- * Decorate the model ids an app sells with their hosted label and credits. Every
- * chat app feeds the result to `createInferenceCatalog` as its hosted
- * catalog, so the `{ id, label, credits }` mapping lives here once instead of
- * being rewritten per app. The shape matches `@epicenter/app-shell` `HostedModel`.
- */
-export function toHostedCatalog(
-	ids: readonly ServableModel[],
-): { id: ServableModel; label: string; credits: number }[] {
-	return ids.map((id) => ({
-		id,
-		label: MODELS_BY_ID[id].label,
-		credits: MODELS_BY_ID[id].credits,
-	}));
-}

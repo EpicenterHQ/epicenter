@@ -8,6 +8,9 @@
 
 import type { Result } from 'wellcrafted/result';
 import { browserSecrets, secretStorageKey } from '../browser-connections.js';
+
+export { connectionId } from '../connection-table.js';
+
 import {
 	type ConnectionKind,
 	type KeyState,
@@ -52,22 +55,6 @@ export type ConnectionKeys = {
 /** The query key of what `keys` holds for `connection`. */
 export const keyStateKey = (connection: string) =>
 	['ai-key-state', connection] as const;
-
-/**
- * A new connection's id, which is its row's stem and its saved key's name:
- * the title in lowercase letters, digits, and hyphens, numbered when taken.
- */
-export function connectionId(title: string, taken: ReadonlySet<string>) {
-	const base =
-		title
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '')
-			.slice(0, 60) || 'connection';
-	let id = base;
-	for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
-	return id;
-}
 
 const withMessage = <T>(result: Result<T, { message: string }>) =>
 	result.error === null

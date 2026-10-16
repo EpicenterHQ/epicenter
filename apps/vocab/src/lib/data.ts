@@ -121,7 +121,18 @@ const messagesTable = defineTable({
 
 export const vocabFolder = defineFolder({
 	title: 'Vocab',
-	kv: {},
+	kv: {
+		/**
+		 * The id of the `so.epicenter` connection the tutor uses (ADR-0581).
+		 * Unset, a signed-in learner gets Epicenter's hosted `VOCAB_MODEL`.
+		 */
+		tutorConnection: field.string(),
+		/**
+		 * Set once the connections an earlier build kept in this browser's
+		 * storage became rows, so a row deleted since is not brought back.
+		 */
+		connectionsImported: field.boolean(),
+	},
 	tables: {
 		entries: entriesTable,
 		chats: chatsTable,
