@@ -723,7 +723,8 @@ export function createHistory({
 	/**
 	 * What in `storage`, as it is now, stands where the files of `to` go.
 	 * `occupied`: a file of this folder where `to` needs a directory, files
-	 * where it needs a file, or a name held under another spelling.
+	 * where it needs a file, a name held under another spelling, or a file
+	 * where `to` adds one that cannot be read.
 	 * `untracked`: a file `from` never tracked (ignored, or made since) where
 	 * `to` adds different bytes, which Sync never merges into history on its
 	 * own. `failed` when the folder cannot be listed.
@@ -778,10 +779,9 @@ export function createHistory({
 		for (const { path } of changes) {
 			if (before.has(path) || !after.has(path) || !present.has(path)) continue;
 			const read = await storage.read(path);
-			if (
-				read.error !== null ||
-				!sameContent(read.data.bytes, await blobOf(after.get(path)))
-			)
+			// A file that cannot be read is no file to record: Sync stops.
+			if (read.error !== null) occupied.push(path);
+			else if (!sameContent(read.data.bytes, await blobOf(after.get(path))))
 				untracked.push(path);
 		}
 		return { occupied, untracked };
