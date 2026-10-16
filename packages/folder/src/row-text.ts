@@ -25,7 +25,6 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type CanonicalDocument,
 	type CanonicalRefusal,
-	formatCanonicalDocument,
 	formatRowSource,
 	parseRowSource,
 } from './canonical.js';
@@ -126,11 +125,11 @@ export function formatRow<const TTable extends PreparedFolderTable>(
 	table: TTable,
 	row: Row<CreateRowOf<TTable>>,
 ): Result<string, Issue> {
-	const { data: text, error: refusal } = formatCanonicalDocument(
+	const { data: written, error: refusal } = formatRowSource(
 		storable(row) as unknown as CanonicalDocument,
 		Object.keys(table.fields),
 	);
-	if (refusal === null) return Ok(text);
+	if (refusal === null) return Ok(written.text);
 	return Err(writeIssue(refusal));
 }
 

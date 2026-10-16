@@ -29,7 +29,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { testBrowserStorage } from './browser-storage.test-support.js';
 import {
 	type CanonicalDocument,
-	formatCanonicalDocument,
+	formatRowSource,
 	parseRowSource,
 } from './canonical.js';
 
@@ -41,7 +41,7 @@ function parse(source: string): CanonicalDocument {
 }
 
 function format(document: CanonicalDocument): string {
-	return expectOk(formatCanonicalDocument(document, DECLARED));
+	return expectOk(formatRowSource(document, DECLARED)).text;
 }
 
 const canonical = (source: string) => format(parse(source));
@@ -229,7 +229,7 @@ test('format refuses values that have no exact JSON form', () => {
 		// biome-ignore lint/suspicious/noSparseArray: a hole is the counterexample
 		[1, , 3],
 	]) {
-		const result = formatCanonicalDocument(
+		const result = formatRowSource(
 			{ fields: { x: value } as never, body: '' },
 			DECLARED,
 		);
@@ -248,7 +248,7 @@ test('format refuses a malformed document shape instead of throwing, and reads o
 	];
 	const reasons = malformed.map(
 		(document) =>
-			expectErr(formatCanonicalDocument(document as never, DECLARED)).reason,
+			expectErr(formatRowSource(document as never, DECLARED)).reason,
 	);
 	expect(reasons).toEqual([
 		'The document is not an object',
@@ -259,7 +259,7 @@ test('format refuses a malformed document shape instead of throwing, and reads o
 		'The fields are not a plain object',
 	]);
 	expect(
-		expectErr(formatCanonicalDocument({ fields: {} } as never, DECLARED)).path,
+		expectErr(formatRowSource({ fields: {} } as never, DECLARED)).path,
 	).toEqual(['body']);
 
 	// Other properties, such as a public row's status and text, are not input.
@@ -345,7 +345,7 @@ test('a __proto__ key is an own field and never a prototype', () => {
 	expect(format(parse(text))).toBe(text);
 	// Inherited properties are not fields.
 	const inherited = Object.create({ inherited: 1 }) as Record<string, never>;
-	expectErr(formatCanonicalDocument({ fields: inherited, body: '' }, DECLARED));
+	expectErr(formatRowSource({ fields: inherited, body: '' }, DECLARED));
 });
 
 test('-0 survives parse and format', () => {
@@ -392,7 +392,7 @@ test('a body that UTF-8 encoding would change is refused rather than rewritten',
 		['body'],
 	);
 	expect(
-		expectErr(formatCanonicalDocument({ fields: {}, body }, DECLARED)).path,
+		expectErr(formatRowSource({ fields: {}, body }, DECLARED)).path,
 	).toEqual(['body']);
 });
 
@@ -427,11 +427,8 @@ test('an invalid row keeps unknown and invalid fields through a raw write from i
 			...document,
 			fields: { ...document.fields, title: 'Oat milk' },
 		};
-		const text = expectOk(
-			formatCanonicalDocument(
-				edited,
-				Object.keys(definition.tables.todos.fields),
-			),
+		const { text } = expectOk(
+			formatRowSource(edited, Object.keys(definition.tables.todos.fields)),
 		);
 
 		// The table writes only valid rows.
