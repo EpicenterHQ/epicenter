@@ -48,7 +48,11 @@ const DEVELOPMENT_TRUSTED_ORIGINS: readonly string[] = [
 	`http://${new URL(APPS.API.url).host}`,
 ];
 
-function isLocalDeployment(baseURL: string): boolean {
+/**
+ * Whether the deployment's own origin is a loopback host, which is what makes
+ * it a local development deployment. An unparseable origin is not local.
+ */
+export function isLocalDeployment(baseURL: string): boolean {
 	try {
 		const { hostname } = new URL(baseURL);
 		return (

@@ -6,9 +6,8 @@
  */
 
 import type { Principal } from '@epicenter/auth';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { createAuth } from './auth/create-auth.js';
-import type * as schema from './db/schema/index.js';
+import type { Db } from './db/create-db.js';
 import type { ServerBindings } from './server-bindings.js';
 
 /**
@@ -58,7 +57,7 @@ export type CloudEnv = {
 		 * The per-request Postgres handle. Populated by `createCloudContextMiddleware`. Read by
 		 * Better Auth and hosted account/billing operations.
 		 */
-		db: NodePgDatabase<typeof schema>;
+		db: Db;
 		/** The per-request Better Auth instance, set by createCloudContextMiddleware. */
 		auth: ReturnType<typeof createAuth>;
 		/**

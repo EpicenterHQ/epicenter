@@ -6,7 +6,7 @@ import {
 	type User,
 } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import type { Db } from '../db/create-db.js';
 import * as schema from '../db/schema/index.js';
 import {
 	APPLE_AUDIENCE,
@@ -20,8 +20,6 @@ import {
 	oauthServerPlugins,
 } from './plugins.js';
 import { requireAccountSession, SESSION_POLICY } from './session-policy.js';
-
-type Db = NodePgDatabase<typeof schema>;
 
 /**
  * The cloud-only auth env, as BOTH an arktype schema and its inferred type, and

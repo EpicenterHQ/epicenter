@@ -37,7 +37,6 @@ export {
 	readAccessToken,
 } from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
-export { connectHyperdriveDb } from './db/backends/cloudflare.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
 // Protected mounts: an access token for a resource, and the session cookie for

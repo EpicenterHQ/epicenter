@@ -17,8 +17,8 @@ import {
 } from '@epicenter/constants/apps';
 import {
 	type CloudEnv,
-	connectHyperdriveDb,
 	createCloudContextMiddleware,
+	createDb,
 	createServerApp,
 	mountAuthRoutes,
 	mountGitHost,
@@ -37,6 +37,7 @@ import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import { describeRoute } from 'hono-openapi';
+import pg from 'pg';
 import {
 	chargeOpenAiCreditsWithAutumn,
 	chargeOpenAiTranscriptionCredits,
@@ -98,8 +99,14 @@ app.get('/', (c) =>
 // The authorization server's Hyperdrive configuration must have caching
 // disabled, so a revoked token is never read from a stale cache (ADR-0549).
 const cloudContextOptions = {
-	connect: (env: ServerBindings) =>
-		connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
+	// Hyperdrive is the connection pool, so each request opens a `pg.Client`.
+	connect: async (env: ServerBindings) => {
+		const client = new pg.Client({
+			connectionString: (env as Cloudflare.Env).HYPERDRIVE.connectionString,
+		});
+		await client.connect();
+		return { db: createDb(client), close: () => client.end() };
+	},
 	afterResponse: (c: Context<CloudEnv>, work: Promise<unknown>) =>
 		c.executionCtx.waitUntil(work),
 	resolveAuthSecrets: (c: Context<CloudEnv>) => c.env as Cloudflare.Env,
