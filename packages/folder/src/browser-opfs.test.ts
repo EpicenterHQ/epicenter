@@ -33,8 +33,8 @@ import {
 	field,
 	openFolder,
 } from './browser.js';
-import { hashBytes } from './capture.js';
 import { formatDeclaration } from './declaration.js';
+import { hashBytes } from './hash.js';
 import {
 	type MemoryOpfs,
 	memoryOpfs,

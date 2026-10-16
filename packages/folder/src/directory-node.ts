@@ -21,13 +21,13 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { hashBytes } from './capture.js';
 import type {
 	DirectoryPrimitives,
 	EntryKind,
 	Expectation,
 } from './directory-primitives.js';
 import { UnexpectedTarget } from './errors.js';
+import { hashBytes } from './hash.js';
 
 const kindOf = (entry: {
 	isFile(): boolean;

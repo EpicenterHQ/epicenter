@@ -23,7 +23,7 @@
  * - `browser-opfs.test.ts` for the folder over the same store
  */
 import { beforeEach, expect, test } from 'bun:test';
-import { hashBytes } from './capture.js';
+import { hashBytes } from './hash.js';
 import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
 import {
 	createOpfsStorage,

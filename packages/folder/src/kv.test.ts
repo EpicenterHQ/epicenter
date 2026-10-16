@@ -30,14 +30,14 @@ import { jsonValue } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { FolderStorage } from './boundary.js';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
 import { defineFolder, field, type KvOf } from './contract.js';
 import { FileError } from './errors.js';
 import { createFiles } from './files.js';
+import { hashBytes } from './hash.js';
 import { createKv } from './kv.js';
 import { mergeKv } from './kv-merge.js';
 import { overwrite } from './put.test-support.js';
-import { WRITE_ATTEMPTS } from './save-file.js';
+import { WRITE_ATTEMPTS } from './write.js';
 
 const definition = defineFolder({
 	kv: {

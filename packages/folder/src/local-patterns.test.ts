@@ -25,7 +25,6 @@ import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
@@ -37,6 +36,7 @@ import {
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
+import { hashBytes } from './hash.js';
 import { events } from './publication-log.test-support.js';
 
 const { publishLocalPatterns } = await import('./publish-definition.js');

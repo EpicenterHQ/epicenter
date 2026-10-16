@@ -83,7 +83,7 @@ export function textEditor(library: Library, path: string) {
 			);
 			if (opened?.kind !== 'text')
 				throw new Error(`${path} is not open as text`);
-			return library.editedText(path) ?? opened.file.text;
+			return library.editedText(path) ?? opened.text;
 		},
 		input(text: string) {
 			library.editText(path, text);

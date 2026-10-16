@@ -665,7 +665,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** The text of `path` as the cache holds it, when it opens as text. */
 	function shownText(path: string): string | undefined {
 		const opened = textData(path);
-		return opened?.kind === 'text' ? opened.file.text : undefined;
+		return opened?.kind === 'text' ? opened.text : undefined;
 	}
 
 	/**
@@ -1300,7 +1300,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const opened = textData(path);
 			const typed =
 				textEdits.get(path)?.draft.text ??
-				(opened?.kind === 'text' ? opened.file.text : undefined);
+				(opened?.kind === 'text' ? opened.text : undefined);
 			if (
 				typed !== undefined &&
 				parseRow(whisperingDefinition.tables[table], typed).error !== null

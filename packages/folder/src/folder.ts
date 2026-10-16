@@ -1,10 +1,11 @@
 /**
  * The opened folder handle every opener returns (ADR-0471, ADR-0478).
  *
- * `write` is the one write and `move` the one move (ADR-0576); `tables`,
- * `kv`, and `files` publish through the same file boundary, one file change
- * per operation. A caller that needs several changes makes several calls;
- * each one that succeeded stays published when a later one fails.
+ * `write` is the one write and `move` the one move (ADR-0576), and
+ * `tables` and `kv` publish through the same file boundary, one file change
+ * per operation; `files` reads files and keeps directories. A caller that
+ * needs several changes makes several calls; each one that succeeded stays
+ * published when a later one fails.
  * `git` observes and records history. A save never commits: commits happen
  * only through `git.commit()` or sync's checkpoint (ADR-0529).
  *
@@ -38,9 +39,9 @@ import { createKv, type FileKv } from './kv.js';
 import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
 import { declaring } from './publish-definition.js';
-import { movePath, type Written, writeFile } from './save-file.js';
 import { fenceStorage } from './storage.js';
 import { createTable, type FileTable } from './table.js';
+import { movePath, type Written, writeFile } from './write.js';
 
 /** History settings for a folder whose history this process records. */
 export type FolderGitOptions = {
@@ -187,8 +188,8 @@ export type Folder<
 	/**
 	 * Hear that files may have changed, as a reason to read again (ADR-0548).
 	 * `change` is the paths a change reached, or `'everything'` when the
-	 * reporter cannot say which. A call carries no content and is never a
-	 * capture; read through the folder to learn what the files hold.
+	 * reporter cannot say which. A call carries no content; read through
+	 * the folder to learn what the files hold.
 	 *
 	 * Reports come from the host's one detector of changes made outside
 	 * this handle, and from incoming updates this handle's own Sync wrote.
@@ -341,7 +342,7 @@ export function assembleFolder<
 				: Object.freeze(requiredOutsideShape(table, shape)),
 		);
 	}
-	const files = createFiles({ storage, definition: prepared });
+	const files = createFiles({ storage });
 	const git = createFolderGit(history);
 
 	return Object.freeze({

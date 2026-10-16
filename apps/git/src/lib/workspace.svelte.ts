@@ -125,7 +125,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		}
 		editable = true;
 		from = undefined;
-		saved = result.data.file.text;
+		saved = result.data.text;
 		buffer = saved;
 		saveMessage = 'Saved';
 	}

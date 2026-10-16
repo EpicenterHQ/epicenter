@@ -22,7 +22,6 @@ import {
 	locationOf,
 	rawBrowserFolder,
 } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
 import {
 	DECLARATION_PATH,
 	defineFolder,
@@ -260,30 +259,6 @@ test('a commit running when the folder closes finishes and stays local before st
 	});
 	// The commit finished during close, so it stayed local.
 	expect(pushes()).toBe(0);
-});
-
-test('a save refused while closing changes nothing, and close still settles', async () => {
-	const { folder, order, reached, release } = await held();
-	const refused = folder.files.save(
-		{
-			path: 'missing.md',
-			sha256: await hashBytes(new Uint8Array()),
-			text: '',
-		},
-		'x',
-		{ merge: false },
-	);
-	await reached;
-	const closing = folder.close();
-	await closing;
-	release();
-	expect(expectErr(await refused).name).toBe('Conflict');
-	await closing;
-	expect(order).toEqual(['released', 'saved']);
-	expect(folder.git.snapshot.lastCommit).toBeUndefined();
-	// Closing twice is the same close.
-	await folder.close();
-	expect(order).toEqual(['released', 'saved']);
 });
 
 test('close reentered by abort and history observers shares one completion and releases once', async () => {

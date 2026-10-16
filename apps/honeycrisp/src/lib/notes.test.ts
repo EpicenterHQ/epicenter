@@ -447,9 +447,9 @@ test('a text edit over a file changed elsewhere merges by line, and the edit win
 	expect(disk.text(A)).toBe('Mine\n');
 	expect(notes.typedText(A)).toBeUndefined();
 	const opened = () =>
-		notes.queryClient.getQueryData<{ file: { text: string } }>(
+		notes.queryClient.getQueryData<{ text: string }>(
 			notes.textQuery(A).queryKey,
-		)?.file.text;
+		)?.text;
 	expect(opened()).toBe('Mine\n');
 });
 
@@ -468,16 +468,12 @@ test('a note opened as its file while its save runs is read once the save lands'
 	await quiet(notes);
 	const opened = notes.queryClient.getQueryData<{
 		kind: string;
-		file: { text: string };
+		text: string;
 	}>(textKey);
-	expect(opened?.file.text).toContain('title: Typed as a note');
+	expect(opened?.text).toContain('title: Typed as a note');
 	// Its text writes on top of what the note saved, with no conflict.
 	expect(
-		typeText(
-			notes,
-			A,
-			(opened?.file.text ?? '').replace('Typed', 'Then typed'),
-		),
+		typeText(notes, A, (opened?.text ?? '').replace('Typed', 'Then typed')),
 	).toBe(true);
 	await quiet(notes);
 	expect(failures).toEqual([]);

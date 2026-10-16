@@ -2,10 +2,10 @@
  * Operation failures for file folders.
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. A refusal before publication (`Conflict`, `Exists`, and
- * preparation failures) wrote nothing. Each ordinary operation publishes one
- * file change; a move that landed its destination but kept its source is
- * `MoveError.SourceNotRemoved`.
+ * a person is told. Every write and move fails as one `WriteError` (ADR-0576);
+ * a refusal before publication wrote nothing. Each operation publishes one
+ * file change at a time; a move that landed its destination but could not
+ * remove its source leaves both, to repair.
  *
  * A row file whose text was read but is not a valid row is `InvalidRow`: it
  * carries the exact text, the hash of the bytes read, and every issue, so the
@@ -13,7 +13,6 @@
  */
 import type { ShapeProblem } from '@epicenter/definition';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { FileCapture } from './capture.js';
 import type { Issue, Issues } from './row-text.js';
 
 export const FileError = defineErrors({
@@ -26,29 +25,6 @@ export const FileError = defineErrors({
 	NotFound: ({ path }: { path: string }) => ({
 		message: `No file exists at '${path}'`,
 		path,
-	}),
-	/** The create target or move destination is occupied. */
-	Exists: ({ path }: { path: string }) => ({
-		message: `The destination '${path}' is already occupied`,
-		path,
-	}),
-	/** The current bytes differ from the captured baseline. This refusal wrote nothing. */
-	Conflict: ({
-		path,
-		expectedSha256,
-		actualSha256,
-	}: {
-		path: string;
-		expectedSha256: string;
-		actualSha256: string | undefined;
-	}) => ({
-		message:
-			actualSha256 === undefined
-				? `No file exists at '${path}' to match the captured SHA-256`
-				: `The file at '${path}' does not match the captured SHA-256`,
-		path,
-		expectedSha256,
-		actualSha256,
 	}),
 	NotAFile: ({ path }: { path: string }) => ({
 		message: `'${path}' is a directory, not a file`,
@@ -94,44 +70,10 @@ export const FileError = defineErrors({
 });
 export type FileError = InferErrors<typeof FileError>;
 
-export const MoveError = defineErrors({
-	/**
-	 * A move is two steps: the bytes at `from` are put at `to`, then `from`
-	 * is removed (`moveFile` in `storage.ts`). Every host moves this
-	 * way. The first step landed and the second failed, so `to` was written
-	 * and `from` is still there. Nothing was rolled back. `cause` is why
-	 * `from` was not removed.
-	 *
-	 * `moved` is `to` with the SHA-256 the move was guarded by: every move
-	 * names the bytes it carries. It is a receipt conditioned on that
-	 * baseline, never a read of `to`: another program may have written there
-	 * since, and a native directory checks the source only as well as another
-	 * program lets it. Read `to` to learn what it holds now.
-	 */
-	SourceNotRemoved: ({
-		from,
-		to,
-		moved,
-		cause,
-	}: {
-		from: string;
-		to: string;
-		moved: FileCapture;
-		cause: FileError;
-	}) => ({
-		message: `The file reached '${to}', but '${from}' could not be removed, so both paths hold it: ${cause.message}`,
-		from,
-		to,
-		moved,
-		cause,
-	}),
-});
-export type MoveError = InferErrors<typeof MoveError>;
-
 /**
  * Failures of reading a row or `kv.json` as text and of preparing a
- * structured write. None of them published anything. An address a folder does not admit is
- * `FileError.InvalidPath`, and an occupied destination is `FileError.Exists`:
+ * structured write. None of them published anything. An address a folder
+ * does not admit, and an occupied destination, are `FileError.InvalidPath`:
  * a table has no naming or collision rule of its own (ADR-0457).
  */
 export const TableError = defineErrors({
@@ -211,22 +153,13 @@ export const TableError = defineErrors({
 		sha256,
 	}),
 	/**
-	 * A save found the file changed by another writer, merged with it, and
-	 * found it changed again, `attempts` times. Nothing of this save landed.
+	 * A write found the file changed by another writer, merged with it, and
+	 * found it changed again, `attempts` times. Nothing of this write landed.
 	 */
 	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
 		message: `'${path}' kept changing while it was saved; gave up after ${attempts} attempts`,
 		path,
 		attempts,
-	}),
-	/**
-	 * A save's base carries no content, or content that does not hash to its
-	 * own SHA-256, so nothing can tell which side changed what (ADR-0551).
-	 * Nothing was written.
-	 */
-	UnknownBase: ({ path }: { path: string }) => ({
-		message: `Unknown base: the version of '${path}' this save started from does not carry the content it names`,
-		path,
 	}),
 });
 export type TableError = InferErrors<typeof TableError>;
@@ -244,24 +177,6 @@ export type TableReadError = FileError | TableErrorOf<'InvalidUtf8'>;
 
 /** Why a read row file is not a row: there was no text, or the text is not a valid row. */
 export type RowReadError = TableReadError | TableErrorOf<'InvalidRow'>;
-
-/**
- * Why a save wrote nothing (ADR-0551): its base does not carry the content
- * it names (`UnknownBase`), the file was deleted (`NotFound`; a save never
- * recreates a file), it moved on and the save was asked not to merge
- * (`Conflict`), the edit merged with another writer's file does not read as
- * its kind (`InvalidValues`, `InvalidRow`, `InvalidKv`), it kept changing
- * past the merges (`KeptChanging`), or storage failed.
- */
-export type FileSaveError =
-	| FileError
-	| TableErrorOf<
-			| 'UnknownBase'
-			| 'KeptChanging'
-			| 'InvalidValues'
-			| 'InvalidRow'
-			| 'InvalidKv'
-	  >;
 
 /**
  * Every way the one write fails (ADR-0576), nothing written: a value that
@@ -414,8 +329,8 @@ export class UnconfirmedWrite extends Error {
  * expected at its path, found something else, and changed nothing. `found`
  * says what: a file with other bytes (`actualSha256`, or `undefined` when no
  * file is there), something where nothing was expected, or nothing where a
- * file was. File storage reports it as `Conflict`, `Exists`, or `NotFound`,
- * never as `Unconfirmed`.
+ * file was. File storage answers it as a `'stale'` put, never as
+ * `Unconfirmed`.
  */
 export class UnexpectedTarget extends Error {
 	constructor(

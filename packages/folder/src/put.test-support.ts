@@ -10,7 +10,7 @@ import type { FolderStorage } from './boundary.js';
 import type { FileError, WriteError } from './errors.js';
 import type { FolderFiles } from './files.js';
 import type { FileContent } from './merge-file.js';
-import type { Written } from './save-file.js';
+import type { Written } from './write.js';
 
 export async function put(
 	folder: {

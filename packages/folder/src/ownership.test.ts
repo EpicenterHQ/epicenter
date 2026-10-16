@@ -28,7 +28,7 @@ import {
 	openFolder,
 } from './browser.js';
 import { testBrowserStorage } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
+import { hashBytes } from './hash.js';
 import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({

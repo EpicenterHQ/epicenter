@@ -1,8 +1,7 @@
-/** Pure file-browser mechanics over a folder listing and captured file bytes. */
+/** Pure file-browser mechanics over a folder listing and a file's bytes. */
 
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing } from './boundary.js';
-import type { CapturedFile, TextCapture } from './capture.js';
 import type { FileError } from './errors.js';
 import type { FolderFiles } from './files.js';
 
@@ -98,7 +97,8 @@ export function visibleRows(
 }
 
 export type OpenedFile =
-	| { kind: 'text'; file: TextCapture }
+	/** The file's exact text, decoded from its whole bytes. */
+	| { kind: 'text'; text: string }
 	| { kind: 'binary'; size: number }
 	| { kind: 'tooLarge'; size: number };
 
@@ -108,19 +108,19 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const EDITABLE_TEXT_BYTES = 1024 * 1024;
 
 /**
- * A captured file as an editor opens it. Only valid UTF-8 without NUL
+ * A file's bytes as an editor opens them. Only valid UTF-8 without NUL
  * bytes, and no larger than `maxBytes`, opens as text, and the decoded text
- * keeps a byte order mark so a save writes the same bytes back.
+ * keeps a byte order mark so a write sends the same bytes back.
  */
 export function openedFile(
-	{ path, bytes, sha256 }: CapturedFile,
+	bytes: Uint8Array,
 	maxBytes = EDITABLE_TEXT_BYTES,
 ): OpenedFile {
 	if (bytes.byteLength > maxBytes)
 		return { kind: 'tooLarge', size: bytes.byteLength };
 	if (bytes.includes(0)) return { kind: 'binary', size: bytes.byteLength };
 	try {
-		return { kind: 'text', file: { path, text: utf8.decode(bytes), sha256 } };
+		return { kind: 'text', text: utf8.decode(bytes) };
 	} catch {
 		return { kind: 'binary', size: bytes.byteLength };
 	}
@@ -134,7 +134,7 @@ export async function readTextFile(
 ): Promise<Result<OpenedFile, FileError>> {
 	const { data: file, error } = await files.read(path);
 	if (error !== null) return Err(error);
-	return Ok(openedFile({ ...file, path }, maxBytes));
+	return Ok(openedFile(file.bytes, maxBytes));
 }
 
 /** Textareas report LF; keep the file's CRLF line endings when it uses them. */

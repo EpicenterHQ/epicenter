@@ -14,12 +14,12 @@
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { FileRead, FolderStorage } from './boundary.js';
-import { hashBytes } from './capture.js';
 import { formatDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
+import { hashBytes } from './hash.js';
 import { localPatterns } from './merge-file.js';
 import { DECLARATION_PATH } from './paths.js';
-import { confirmedPut } from './save-file.js';
+import { confirmedPut } from './write.js';
 
 const log = createLogger('folder/definition');
 const encoder = new TextEncoder();

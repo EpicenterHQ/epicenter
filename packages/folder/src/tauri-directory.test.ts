@@ -9,10 +9,11 @@
  *   through the shell's history commands: the `epicenter` CLI over `git`,
  *   which `answerShellHistory` runs in this process with the CLI's author
  * - Every refused or failed grant is an `OpenFolderError` and opens nothing
- * - A removal whose reply is lost is done if the path is gone, and
- *   `Unconfirmed` if it is still there
- * - A save the shell finds overtaken where it publishes is `Conflict`, or
- *   `Exists` for a create, never `Unconfirmed`; an overwrite still lands
+ * - A delete whose reply is lost is done if the path is gone, and `Io`
+ *   with an `Unconfirmed` cause if it is still there
+ * - A write the shell finds overtaken where it publishes reads again and
+ *   merges, a create onto the file that landed is `InvalidPath`, and a
+ *   delete reads again and wins; none is `Unconfirmed`
  * - `openDataFolder` reads with the folder's own `epicenter.json` and never
  *   writes it, asks for no history when it opens, creates no repository
  *   before the first commit, and merges rows on Sync by that declaration

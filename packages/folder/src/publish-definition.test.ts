@@ -7,10 +7,10 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
-import { hashBytes } from './capture.js';
 import { formatDeclaration } from './declaration.js';
 import { defineFolder } from './definition.js';
 import { FileError } from './errors.js';
+import { hashBytes } from './hash.js';
 import { events } from './publication-log.test-support.js';
 
 afterEach(() => {

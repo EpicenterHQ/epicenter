@@ -46,7 +46,7 @@ import {
 } from './contract.js';
 import { prepareFolderDefinition } from './definition.js';
 import { fileKindOf, merge } from './merge-file.js';
-import { writeFile as writeFolderFile } from './save-file.js';
+import { writeFile as writeFolderFile } from './write.js';
 
 const definition = defineFolder({
 	kv: { theme: field.string(), size: field.number() },

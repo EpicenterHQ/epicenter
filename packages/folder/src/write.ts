@@ -1,6 +1,5 @@
 /**
- * The one write of a folder file (ADR-0576), the move, and the earlier save
- * loop.
+ * The one write of a folder file and the one move (ADR-0576).
  *
  * `writeFile(storage, kind, path, from, to)` is `folder.write`: it reads the
  * file as it is now, merges the change from `from` to `to` into it by the
@@ -14,9 +13,6 @@
  * makes too: the bytes land at `next` only where nothing is, and `path` is
  * removed only while it holds them.
  *
- * `saveFile` is the save loop `kv.set` and `files.save` still run: it swaps first on the base's own hash, refuses a base without content
- * (`UnknownBase`) and a deleted file (`NotFound`), and merges the same way.
- *
  * Where both sides changed one unit, the writer wins. Nothing is returned to
  * show a person; each overwrite that lands is logged through
  * `wellcrafted/logger` with the units it replaced.
@@ -24,20 +20,8 @@
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, FolderStorage } from './boundary.js';
-import {
-	type CapturedFile,
-	type ContentCapture,
-	hashBytes,
-	ownCapture,
-} from './capture.js';
-import {
-	FileError,
-	type FileSaveError,
-	TableError,
-	WriteError,
-} from './errors.js';
-import { kvRefusal } from './kv.js';
-import { readKvMembers } from './kv-merge.js';
+import { FileError, TableError, WriteError } from './errors.js';
+import { hashBytes } from './hash.js';
 import {
 	type FileContent,
 	type FileKind,
@@ -46,7 +30,6 @@ import {
 	sameContent,
 	type Winner,
 } from './merge-file.js';
-import { parseRow } from './row-text.js';
 
 const log = createLogger('folder/save');
 
@@ -58,23 +41,6 @@ const log = createLogger('folder/save');
  * waiting.
  */
 export const WRITE_ATTEMPTS = 3;
-
-/** How a save treats a file another writer changed since its base. */
-export type SaveOptions = {
-	/**
-	 * `false` writes only over the base's own bytes, and answers `Conflict`
-	 * when the file moved on. Defaults to merging.
-	 */
-	readonly merge?: boolean;
-};
-
-/** A file save that landed. */
-export type SavedFile = {
-	/** The capture of the bytes written, carrying them. */
-	readonly stored: CapturedFile;
-	/** Whether another writer changed the file, so the edit was merged with it. */
-	readonly merged: boolean;
-};
 
 /** A write or a move that landed, or found nothing to change. */
 export type Written = {
@@ -88,16 +54,7 @@ export type Written = {
 	readonly overridden: readonly Overridden[];
 };
 
-/** What `saveFile` wrote. */
-type SaveWritten = {
-	readonly path: string;
-	readonly sha256: string;
-	readonly bytes: Uint8Array;
-	readonly merged: boolean;
-};
-
 const encoder = new TextEncoder();
-const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** Log that a write landed over another writer's change to `overridden`. */
 export function logOverwrite(path: string, overridden: readonly Overridden[]) {
@@ -322,135 +279,4 @@ export async function movePath(
 		moved = now.data;
 	}
 	return WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
-}
-
-/**
- * The base's path, hash, and content, owned before anything is awaited, or
- * `UnknownBase` when it carries no content.
- */
-function ownBase(
-	base: ContentCapture,
-): Result<{ path: string; sha256: string; bytes: Uint8Array }, FileSaveError> {
-	const { data: captured, error } = ownCapture(base);
-	if (error !== null) return Err(error);
-	const { bytes, text } = base as Partial<{ bytes: unknown; text: unknown }>;
-	if (bytes instanceof Uint8Array)
-		return Ok({ ...captured, bytes: new Uint8Array(bytes) });
-	if (typeof text === 'string')
-		return Ok({ ...captured, bytes: encoder.encode(text) });
-	return TableError.UnknownBase({ path: captured.path });
-}
-
-/**
- * Why a merged result that does not read as its kind is refused: the other
- * writer's file, when it is what does not read, or else the merge's own
- * issues.
- */
-function unreadable(
-	kind: Exclude<FileKind, { kind: 'file' | 'declaration' }>,
-	path: string,
-	current: { bytes: Uint8Array; sha256: string },
-	merged: Uint8Array,
-): FileSaveError {
-	const decoded = (bytes: Uint8Array) => {
-		try {
-			return strict.decode(bytes);
-		} catch {
-			return '';
-		}
-	};
-	const text = decoded(current.bytes);
-	const result = decoded(merged);
-	const { sha256 } = current;
-	if (kind.kind === 'kv')
-		return readKvMembers(text) === undefined
-			? TableError.InvalidKv({ path, sha256, text, issues: kvRefusal(text) })
-					.error
-			: TableError.InvalidValues({ issues: kvRefusal(result) }).error;
-	const own = parseRow(kind.table, text);
-	if (own.error !== null)
-		return TableError.InvalidRow({ path, sha256, text, issues: own.error })
-			.error;
-	const issues = parseRow(kind.table, result).error ?? [
-		{ message: 'The merged row does not read as a row' },
-	];
-	return TableError.InvalidValues({ issues }).error;
-}
-
-/** Whether `bytes` read as `kind`. */
-function readsAs(kind: FileKind, bytes: Uint8Array): boolean {
-	if (kind.kind === 'file' || kind.kind === 'declaration') return true;
-	let text: string;
-	try {
-		text = strict.decode(bytes);
-	} catch {
-		return false;
-	}
-	if (kind.kind === 'kv') return readKvMembers(text) !== undefined;
-	return parseRow(kind.table, text).error === null;
-}
-
-/**
- * Save `edit` over `base`, merging with another writer's change by the
- * file's kind. `edit` is owned by the caller's verb, which copied it.
- */
-export async function saveFile(
-	storage: Pick<FolderStorage, 'put' | 'read'>,
-	kind: FileKind,
-	base: ContentCapture,
-	edit: Uint8Array,
-	{ merge: merging = true }: SaveOptions = {},
-): Promise<Result<SaveWritten, FileSaveError>> {
-	const { data: owned, error: baseError } = ownBase(base);
-	if (baseError !== null) return Err(baseError);
-	const { path } = owned;
-	if ((await hashBytes(owned.bytes)) !== owned.sha256)
-		return TableError.UnknownBase({ path });
-	const strictEdit = readsAs(kind, edit);
-	let expected = owned.sha256;
-	let attempt = edit;
-	let overwrote: readonly Overridden[] = [];
-	for (let merges = 0; ; merges++) {
-		const sha256 = await hashBytes(attempt);
-		const { data: put, error: putError } = await confirmedPut(
-			storage,
-			path,
-			attempt,
-			expected,
-			sha256,
-		);
-		if (putError !== null) return Err(putError);
-		if (put === 'landed') {
-			logOverwrite(path, overwrote);
-			return Ok(
-				Object.freeze({ path, sha256, bytes: attempt, merged: merges > 0 }),
-			);
-		}
-		const { data: current, error: readError } = await storage.read(path);
-		if (!merging)
-			return FileError.Conflict({
-				path,
-				expectedSha256: expected,
-				actualSha256: current?.sha256,
-			});
-		if (merges === WRITE_ATTEMPTS)
-			return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
-		if (readError !== null) return Err(readError);
-		const merged = await merge(kind, {
-			base: owned.bytes,
-			ours: edit,
-			theirs: current.bytes,
-		});
-		// The edit is present, so the merge never settles to no file.
-		const bytes = toBytes(merged.content) as Uint8Array;
-		if (
-			strictEdit &&
-			(kind.kind === 'kv' || kind.kind === 'row') &&
-			!readsAs(kind, bytes)
-		)
-			return Err(unreadable(kind, path, current, bytes));
-		overwrote = merged.overridden;
-		attempt = bytes;
-		expected = current.sha256;
-	}
 }

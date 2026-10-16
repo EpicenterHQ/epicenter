@@ -586,7 +586,7 @@ export function createNotes(
 	/** The text of `path` as the cache holds it, when it opens as text. */
 	const shownText = (path: string) => {
 		const opened = textData(path);
-		return opened?.kind === 'text' ? opened.file.text : undefined;
+		return opened?.kind === 'text' ? opened.text : undefined;
 	};
 
 	/** Text edits in progress, by path. */

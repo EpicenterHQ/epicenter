@@ -43,8 +43,8 @@ import {
 import type { FileContent } from './merge-file.js';
 import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import { movePath, writeFailure, writeFile } from './save-file.js';
 import { readMany } from './storage.js';
+import { movePath, writeFailure, writeFile } from './write.js';
 
 /**
  * One read or write of a row file: which bytes, their exact text, and the

@@ -300,7 +300,7 @@ export function createCaptures(
 		const opened = queryClient.getQueryData<OpenedFile>(
 			folder$.files.text.queryKey(path),
 		);
-		return opened?.kind === 'text' ? opened.file.text : undefined;
+		return opened?.kind === 'text' ? opened.text : undefined;
 	};
 
 	/** The row the cache holds for `stem`, if it reads as a row. */

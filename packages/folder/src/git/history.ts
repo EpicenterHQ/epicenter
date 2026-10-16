@@ -42,8 +42,8 @@ import {
 	DECLARATION_PATH,
 	pathProblem,
 } from '../paths.js';
-import { confirmedPut, writeFile } from '../save-file.js';
 import { captureFiles } from '../storage.js';
+import { confirmedPut, writeFile } from '../write.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';

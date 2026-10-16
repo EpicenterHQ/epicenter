@@ -22,7 +22,6 @@ import {
 	field,
 	openFolder,
 } from './bun.js';
-import { hashBytes } from './capture.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { createHistory } from './git/history.js';
@@ -35,6 +34,7 @@ import {
 	gitHttpFetch,
 	scratch,
 } from './git-http.test-support.js';
+import { hashBytes } from './hash.js';
 import { overwrite } from './put.test-support.js';
 import { parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';

@@ -68,7 +68,7 @@
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
 	/** The file's text as typed while an edit is unsaved, else as read. */
 	const source = $derived(
-		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.file.text) : undefined,
+		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
 	);
 	/** The text on screen read as a recipe, or why it does not read. */
 	const parsed = $derived(

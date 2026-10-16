@@ -18,10 +18,9 @@
  * - A delete drops the row and its listing entry
  * - A read running when a write lands is done again rather than landing
  *   over the write
- * - A file write puts what it wrote in the file's read and text queries
- * - The folder write (`folder$.write`) does too, and marks a row and its
- *   listing stale when its path is a row; a move (`folder$.move`) marks
- *   both paths stale
+ * - The folder write (`folder$.write`) puts what it wrote in the file's
+ *   read and text queries, and marks a row and its listing stale when its
+ *   path is a row; a move (`folder$.move`) marks both paths stale
  * - A failed write reads its path again
  * - Two controls' sets of one row run one at a time, in the order made,
  *   each over the row the one before wrote, and keep the cache
@@ -292,37 +291,6 @@ test('a read running when a write lands is read again, not kept over the write',
 	expect(row?.row.fields.done).toBe(true);
 });
 
-test('a file write puts what it wrote in the file read and text, reading nothing back', async () => {
-	const folder = await open();
-	const folder$ = folderOptions(folder);
-	const queryClient = client();
-	expectOk(await folder.write('note.txt', null, 'one\n'));
-	const first = expectOk(await folder.files.read('note.txt'));
-	await queryClient.fetchQuery(folder$.files.read.queryOptions('note.txt'));
-	await queryClient.fetchQuery(folder$.files.text.queryOptions('note.txt'));
-
-	const write = new MutationObserver(
-		queryClient,
-		folder$.files.write.mutationOptions(),
-	);
-	const saved = await write.mutate({
-		path: 'note.txt',
-		content: 'two\n',
-		base: first,
-	});
-
-	expect<unknown>(
-		queryClient.getQueryData(folder$.files.read.queryKey('note.txt')),
-	).toEqual(saved.stored);
-	expect<unknown>(
-		queryClient.getQueryData(folder$.files.text.queryKey('note.txt')),
-	).toEqual({
-		kind: 'text',
-		file: { path: 'note.txt', text: 'two\n', sha256: saved.stored.sha256 },
-	});
-	expect(invalidatedIn(queryClient)).toEqual([]);
-});
-
 test('the folder write puts what it wrote in the file read and text, reading nothing back', async () => {
 	const folder = await open();
 	const folder$ = folderOptions(folder);
@@ -344,13 +312,10 @@ test('the folder write puts what it wrote in the file read and text, reading not
 	expect(written.file).not.toBeNull();
 	expect<unknown>(
 		queryClient.getQueryData(folder$.files.read.queryKey('note.txt')),
-	).toEqual({ path: 'note.txt', ...written.file });
+	).toEqual(written.file);
 	expect<unknown>(
 		queryClient.getQueryData(folder$.files.text.queryKey('note.txt')),
-	).toEqual({
-		kind: 'text',
-		file: { path: 'note.txt', text: 'two\n', sha256: written.file?.sha256 },
-	});
+	).toEqual({ kind: 'text', text: 'two\n' });
 	expect(invalidatedIn(queryClient)).toEqual([]);
 });
 

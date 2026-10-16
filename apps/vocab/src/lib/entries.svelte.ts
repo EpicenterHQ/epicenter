@@ -150,7 +150,7 @@ export function createEntries(
 	/** The text of `path` as the cache holds it, when it opens as text. */
 	const shownText = (path: string) => {
 		const opened = queryClient.getQueryData<OpenedFile>(textKey(path));
-		return opened?.kind === 'text' ? opened.file.text : undefined;
+		return opened?.kind === 'text' ? opened.text : undefined;
 	};
 
 	/** Whether a delete of `path` is running or waiting, which pauses its edits. */

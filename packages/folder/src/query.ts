@@ -64,15 +64,12 @@ import {
 	type QueryObserverOptions,
 } from '@tanstack/query-core';
 import { Err, isErr, Ok, type Result, unwrap } from 'wellcrafted/result';
-import type { FileListing } from './boundary.js';
-import type { CapturedFile, ContentCapture, FileCapture } from './capture.js';
+import type { FileListing, FileRead } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
 import type {
 	FileError,
-	FileSaveError,
 	KvReadError,
 	KvWriteError,
-	MoveError,
 	RowReadError,
 	TableEnumerationError,
 	WriteError,
@@ -91,22 +88,13 @@ import type { FileKv, KvReading } from './kv.js';
 import type { FileContent } from './merge-file.js';
 import { rowPath, rowStemOf } from './paths.js';
 import type { Row } from './row-text.js';
-import type { SavedFile, Written } from './save-file.js';
 import type {
 	FileTable,
 	StoredRow,
 	TableListing,
 	WrittenRow,
 } from './table.js';
-
-export {
-	createTextDraft,
-	type SaveTextVariables,
-	type SentText,
-	type TextDraft,
-	type WrittenText,
-	writtenFile,
-} from './draft.js';
+import type { Written } from './write.js';
 
 /** `kv.json`, whose reading the `kv` query holds. */
 const KV_PATH = 'kv.json';
@@ -217,32 +205,12 @@ export type KvOptions<TValues> = {
 
 export type FilesOptions = {
 	readonly list: QueryFactory<[], FileListing, FileError>;
-	readonly read: QueryFactory<[path: string], CapturedFile, FileError>;
+	readonly read: QueryFactory<[path: string], FileRead, FileError>;
 	/**
 	 * The file at `path` as an editor opens it (`openedFile`): its exact
 	 * text, or its kind and size when it is binary or larger than 1 MiB.
 	 */
 	readonly text: QueryFactory<[path: string], OpenedFile, FileError>;
-	/**
-	 * Write `content` at `path`: saved over `base`, the version the edit
-	 * started from, merging with any change made since (`files.save`), or
-	 * created as a new file that refuses an occupied path.
-	 */
-	readonly write: MutationFactory<
-		{
-			readonly path: string;
-			readonly content: string | Uint8Array;
-			readonly base?: ContentCapture;
-		},
-		SavedFile,
-		FileSaveError
-	>;
-	readonly move: MutationFactory<
-		{ readonly file: FileCapture; readonly to: string },
-		FileCapture,
-		FileError | MoveError
-	>;
-	readonly delete: MutationFactory<FileCapture, undefined, FileError>;
 };
 
 export type HistoryOptions = {
@@ -456,7 +424,6 @@ export function folderOptions<TTables, TValues>(
 		row: (name: string, stem: string) =>
 			[...root, 'tables', name, 'row', stem] as const,
 		kv: () => [...root, 'kv'] as const,
-		files: () => [...root, 'files'] as const,
 		fileList: () => [...root, 'files', 'list'] as const,
 		file: (path: string) => [...root, 'files', 'read', path] as const,
 		text: (path: string) => [...root, 'files', 'text', path] as const,
@@ -753,62 +720,6 @@ export function folderOptions<TTables, TValues>(
 			queryOptions: (path) =>
 				readOptions(keys.text(path), () => readTextFile(folder.files, path)),
 		},
-		write: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.files(), 'write'],
-					run: async ({
-						path,
-						content,
-						base,
-					}: {
-						path: string;
-						content: string | Uint8Array;
-						base?: ContentCapture;
-					}): Promise<Result<SavedFile, FileSaveError>> => {
-						if (base !== undefined) return folder.files.save(base, content);
-						const { data: stored, error } = await folder.files.create(
-							path,
-							content,
-						);
-						if (error !== null) return Err(error);
-						return Ok({ stored, merged: false });
-					},
-					// The file read and opened, where a view holds them, is what the
-					// write wrote.
-					wrote: async (client, { stored }) => {
-						const { path } = stored;
-						await Promise.all([
-							put(client, keys.file(path), (held) => held && stored),
-							put(client, keys.text(path), (held) =>
-								held === undefined ? undefined : openedFile(stored),
-							),
-						]);
-						ownWrite(client, [path], [keys.file(path), keys.text(path)]);
-					},
-					touched: ({ path }) => [path],
-				}),
-		},
-		move: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.files(), 'move'],
-					run: ({ file, to }: { file: FileCapture; to: string }) =>
-						folder.files.move(file, to),
-					wrote: (client, moved, { file }) =>
-						ownWrite(client, [file.path, moved.path]),
-					touched: ({ file, to }) => [file.path, to],
-				}),
-		},
-		delete: {
-			mutationOptions: () =>
-				writeOptions({
-					mutationKey: [...keys.files(), 'delete'],
-					run: (file: FileCapture) => folder.files.remove(file),
-					wrote: (client, _done, file) => ownWrite(client, [file.path]),
-					touched: (file) => [file.path],
-				}),
-		},
 	};
 
 	const write: MutationFactory<WriteFileVariables, Written, WriteError> = {
@@ -822,11 +733,10 @@ export function folderOptions<TTables, TValues>(
 				// write left; what else the path feeds is read again.
 				wrote: async (client, { file }, { path }) => {
 					if (file === null) return ownWrite(client, [path]);
-					const read = Object.freeze({ path, ...file });
 					await Promise.all([
-						put(client, keys.file(path), (held) => held && read),
+						put(client, keys.file(path), (held) => held && file),
 						put(client, keys.text(path), (held) =>
-							held === undefined ? undefined : openedFile(read),
+							held === undefined ? undefined : openedFile(file.bytes),
 						),
 					]);
 					ownWrite(client, [path], [keys.file(path), keys.text(path)]);

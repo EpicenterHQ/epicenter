@@ -57,7 +57,7 @@
 	);
 	/** The text shown: what was typed and not yet written, else the file's. */
 	const text = $derived(
-		notes.typedText(path) ?? (file.data?.kind === 'text' ? file.data.file.text : undefined),
+		notes.typedText(path) ?? (file.data?.kind === 'text' ? file.data.text : undefined),
 	);
 	/** Why the text is not a row yet, read live from what is typed. */
 	const issues = $derived.by(() => {
@@ -102,7 +102,7 @@
 	</div>
 
 	{#if file.data?.kind === 'text'}
-		{@const shown = text ?? file.data.file.text}
+		{@const shown = text ?? file.data.text}
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
