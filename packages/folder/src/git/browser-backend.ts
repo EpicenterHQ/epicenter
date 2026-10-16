@@ -235,17 +235,15 @@ export async function createStoredGitBackend({
 		},
 		async blocked() {
 			// A folder with no repository yet has nothing in progress.
-			if (!(await available())) return undefined;
-			const head = await store.readPrivate(`${GITDIR}/HEAD`);
-			if (head === undefined || !decoder.decode(head).startsWith('ref: '))
-				return 'HEAD is detached';
-			if (decoder.decode(head).trim() !== `ref: refs/heads/${branch}`)
-				return `HEAD is not on ${branch}`;
-			if ((await store.readPrivate(mergeHeadKey)) !== undefined)
-				return 'a Git merge is in progress (.git/MERGE_HEAD); this folder no longer finishes merges left in place. Remove .git/MERGE_HEAD and reset the index to continue, then Sync';
-			return undefined;
-		},
-		async checkpointProblem() {
+			if (await available()) {
+				const head = await store.readPrivate(`${GITDIR}/HEAD`);
+				if (head === undefined || !decoder.decode(head).startsWith('ref: '))
+					return 'HEAD is detached';
+				if (decoder.decode(head).trim() !== `ref: refs/heads/${branch}`)
+					return `HEAD is not on ${branch}`;
+				if ((await store.readPrivate(mergeHeadKey)) !== undefined)
+					return 'a Git merge is in progress (.git/MERGE_HEAD); this folder no longer finishes merges left in place. Remove .git/MERGE_HEAD and reset the index to continue, then Sync';
+			}
 			// Browser files are plain bytes with no modes, links, or filters.
 			// Stages are what is left of a merge an earlier version left in place.
 			return orphanStagesProblem([...(await unmergedStages()).keys()]);

@@ -407,11 +407,6 @@ export function createHistory({
 		},
 	);
 
-	/** Why this folder's history cannot take a whole-folder commit or update now. */
-	async function wholeFolderProblem(): Promise<string | undefined> {
-		return (await backend.blocked()) ?? (await backend.checkpointProblem());
-	}
-
 	/**
 	 * One whole-folder commit, after waiting for the backend's protection. A
 	 * branch that moved under the first attempt is met by one more, from a
@@ -442,7 +437,7 @@ export function createHistory({
 		// A folder whose repository its first commit creates gets it here.
 		const unborn = await backend.createRepository?.();
 		if (unborn !== undefined) return { status: 'blocked', reason: unborn };
-		const blocked = await wholeFolderProblem();
+		const blocked = await backend.blocked();
 		if (blocked !== undefined) return { status: 'blocked', reason: blocked };
 		const unfinished = await finishPublishing();
 		if (unfinished !== undefined)
@@ -871,7 +866,7 @@ export function createHistory({
 			SyncError
 		>
 	> {
-		const blocked = await wholeFolderProblem();
+		const blocked = await backend.blocked();
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);

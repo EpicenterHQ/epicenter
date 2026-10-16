@@ -305,30 +305,28 @@ export async function createNativeGitBackend({
 		},
 		async blocked() {
 			// No repository has no operation in progress.
-			if (!(await exists())) return undefined;
-			const head = await run(['symbolic-ref', '--quiet', 'HEAD'], {
-				allowFailure: true,
-			});
-			if (head.code !== 0) return 'HEAD is detached';
-			if (text(head.stdout).trim() !== branchRef)
-				return `HEAD is not on ${branch}`;
-			// The folder never begins a merge; one another Git program began is
-			// finished or abandoned with Git.
-			for (const marker of [
-				'MERGE_HEAD',
-				'CHERRY_PICK_HEAD',
-				'REVERT_HEAD',
-				'rebase-merge',
-				'rebase-apply',
-				'BISECT_LOG',
-			]) {
-				const present =
-					(await files.lstat(`${gitdir}/${marker}`)) !== undefined;
-				if (present) return `a Git operation is in progress (${marker})`;
+			if (await exists()) {
+				const head = await run(['symbolic-ref', '--quiet', 'HEAD'], {
+					allowFailure: true,
+				});
+				if (head.code !== 0) return 'HEAD is detached';
+				if (text(head.stdout).trim() !== branchRef)
+					return `HEAD is not on ${branch}`;
+				// The folder never begins a merge; one another Git program began
+				// is finished or abandoned with Git.
+				for (const marker of [
+					'MERGE_HEAD',
+					'CHERRY_PICK_HEAD',
+					'REVERT_HEAD',
+					'rebase-merge',
+					'rebase-apply',
+					'BISECT_LOG',
+				]) {
+					const present =
+						(await files.lstat(`${gitdir}/${marker}`)) !== undefined;
+					if (present) return `a Git operation is in progress (${marker})`;
+				}
 			}
-			return undefined;
-		},
-		async checkpointProblem() {
 			return nativeCheckpointProblem({
 				root,
 				run,
