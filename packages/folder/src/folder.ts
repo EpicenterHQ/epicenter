@@ -52,7 +52,7 @@ import { createKv, type FileKv } from './kv.js';
 import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
 import { declaring } from './publish-definition.js';
-import { writeFile, type Written } from './save-file.js';
+import { type Written, writeFile } from './save-file.js';
 import { fenceStorage } from './storage.js';
 import { createTable, type FileTable } from './table.js';
 
