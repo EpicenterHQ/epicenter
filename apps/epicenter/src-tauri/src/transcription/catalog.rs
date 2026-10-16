@@ -131,10 +131,6 @@ static CATALOG: &[CatalogEntry] = &[
 ];
 
 impl CatalogEntry {
-    fn id(&self) -> String {
-        self.id.to_string()
-    }
-
     /// The `hf-hub` repo handle for this entry (a model repo at its pinned commit).
     fn repo(&self) -> Repo {
         Repo::with_revision(
@@ -178,7 +174,7 @@ impl CatalogEntry {
 
 /// Find the catalog entry for a model id, if any.
 fn find(model_id: &str) -> Option<&'static CatalogEntry> {
-    CATALOG.iter().find(|entry| entry.id() == model_id)
+    CATALOG.iter().find(|entry| entry.id == model_id)
 }
 
 /// Resolve a model id to its catalog entry, or the `UnknownModel` error the
@@ -237,7 +233,7 @@ pub struct ActiveModel {
 /// through here, so there is one answer to "is this a real model".
 pub fn describe(model_id: &str) -> Option<ActiveModel> {
     find(model_id).map(|entry| ActiveModel {
-        id: entry.id(),
+        id: entry.id.to_string(),
         name: entry.name.to_string(),
         installed: entry.cached_path().is_some(),
         supports_prompt: entry.supports_prompt,
@@ -249,7 +245,7 @@ pub fn describe(model_id: &str) -> Option<ActiveModel> {
 /// without hard-coding one that the catalog could later drop.
 #[cfg(test)]
 pub fn model_ids() -> Vec<String> {
-    CATALOG.iter().map(|entry| entry.id()).collect()
+    CATALOG.iter().map(|entry| entry.id.to_string()).collect()
 }
 
 /// Every catalog display name, so a test can assert that a message an
@@ -300,7 +296,7 @@ pub fn list_models() -> Vec<ModelInfo> {
     CATALOG
         .iter()
         .map(|entry| ModelInfo {
-            id: entry.id(),
+            id: entry.id.to_string(),
             name: entry.name.to_string(),
             description: entry.description.to_string(),
             size_bytes: entry.size_bytes,
