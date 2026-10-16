@@ -281,10 +281,10 @@ backlog item is needed for it.
 
 ### Storage transport and documentation reconciliation
 
-`packages/server/src/routes/authority-blobs.ts` serves hosted blobs from the
-portable S3 adapter in `packages/server/src/s3-blob-store.ts`, and the
-Cloud Worker, self-host Worker, and Bun self-host all mount these live routes.
-Preserve that explicit-hosting deployment inventory during the caller audit.
+Historical, at the time of this review: `authority-blobs.ts` in
+`packages/server` served hosted blobs from a portable S3 adapter, and every
+deployment mounted those routes. ADR-0577 has since deleted both, so there is
+no hosting inventory left to preserve.
 An absent R2 binding does not establish absent R2 storage. No new retention or
 reclamation protocol is required by document-only materialization.
 

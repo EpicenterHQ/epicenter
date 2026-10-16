@@ -137,10 +137,11 @@ confirms by design: provider tokens were consumed and cannot be refunded.
 
 ## Storage accounting: unmetered in v1
 
-Storage is **not metered today**. The old assets surface (a Postgres `asset`
-table + an `ASSETS_BUCKET` R2 binding) was retired into the opaque-ID
-blob store (`packages/server/src/routes/authority-blobs.ts`), which makes **no Autumn
-call**: there is no upload guard and no usage sync. The asset-table-coupled
+Storage is **not metered today**, and Epicenter hosts no blob store
+(ADR-0577). The old assets surface (a Postgres `asset` table + an
+`ASSETS_BUCKET` R2 binding) was retired into an opaque-ID blob store, which
+was itself deleted; neither made an Autumn call, so there is no upload guard
+and no usage sync. The asset-table-coupled
 wiring (`syncAssetStorageWithAutumn` policy, `checkAssetStorageUpload` /
 `syncAssetStorageUsageTotal` service methods) is gone.
 

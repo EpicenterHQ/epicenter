@@ -22,7 +22,8 @@ its sync Durable Objects, and the apps built only on it are deleted.
   epicenter.json        the folder's declaration: its tables and settings
   kv.json               settings
   todos/<id>.md         one row per file: YAML frontmatter fields, Markdown body
-  recordings/...        ordinary files, including blobs
+  recordings/...        one row per recording
+  audio/...             recordings' audio: declared local, never committed
   .git/                 history, and the remote in remote.origin.url
 ```
 
@@ -138,23 +139,28 @@ and the namespace membership
 
 Unbuilt, decided:
 
-- Blobs as files in the folder, with `.gitattributes` choosing LFS and
-  Epicenter's blob storage serving as the LFS server
+- Large files as files in the folder, with `.gitattributes` choosing LFS
   ([ADR-0544](adr/0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)).
+  Until then, Whispering's audio is not committed: it stays on the machine
+  that recorded it, and only its transcript syncs
+  ([ADR-0577](adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
+  Epicenter hosts no separate blob store.
 
 ## Auth and the hosted API
 
 `apps/api` is the hosted Cloudflare Worker, built on the shared Hono package
-`packages/server`: auth, hosted Git, AI, blobs, and billing. Billing is
+`packages/server`: auth, hosted Git, AI, and billing. Billing is
 hosted-only and lives in `apps/api/worker/billing/`. The same app runs on Bun
 against Postgres (`apps/api/server.ts`), which is how someone self-hosts. Every
 resource accepts only opaque access tokens from one OAuth 2.1 authorization
 server, and the Better Auth session cookie serves only that server's own pages
 ([ADR-0549](adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
 
-Unbuilt, decided: an MCP server at `https://mcp.epicenter.so/mcp` reaches hosted folders
-through grants that target namespaces
-([ADR-0550](adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)).
+Epicenter hosts no MCP server. An agent on a machine uses the folder's files,
+Git, and the `epicenter` CLI; a person on a phone uses the browser apps, which
+push directly ([ADR-0578](adr/0578-epicenter-hosts-no-mcp-server.md)).
+Every OAuth client is a registered first-party app: there is no dynamic
+registration and no client ID metadata document.
 
 ## Implementation status
 

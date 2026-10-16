@@ -686,7 +686,7 @@ When you add an ADR, add its row here.
 | [0435](0435-capture-hands-markdown-out-as-an-explicit-snapshot.md) | Capture hands Markdown out as an explicit snapshot | Proposed |
 | [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Superseded by 0534 |
 | [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |
-| [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Personal authority routes and Account client implemented; Shared and row citations unbuilt) |
+| [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (withdrawn by 0577: the routes and `@epicenter/blobs` are deleted) |
 | [0439](0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md) | Whispering promotes text to Capture instead of copying recordings | Proposed (desktop handoff implemented; hosted browser handoff unbuilt) |
 | [0440](0440-whispering-cleans-transcriptions-and-does-not-own-general-text-actions.md) | Whispering cleans transcriptions and does not own general text actions | Proposed (amends 0099 at Polish and Recipes) |
 | [0441](0441-whispering-keeps-speech-evidence-local-and-syncs-only-its-speech-profile.md) | Whispering keeps speech evidence local and syncs only its speech profile | Proposed |
@@ -768,13 +768,13 @@ When you add an ADR, add its row here.
 | [0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) | A desktop folder needs no Web Locks, and a commit that loses a race retries | Accepted |
 | [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Accepted |
 | [0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) | A recording streams into its folder from the moment it starts | Accepted |
-| [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Accepted |
+| [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Accepted (hosted LFS storage amended by 0577) |
 | [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Accepted (supersedes 0474, amends 0471) |
 | [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted |
 | [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Accepted |
 | [0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) | A view is a cache of files, with one write path, one read path, and one channel of change | Accepted |
-| [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565) |
-| [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Accepted |
+| [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565 and 0578) |
+| [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Accepted (superseded by 0578) |
 | [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted |
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Accepted |
 | [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Accepted (amends 0548; drafts amended by 0554) |
@@ -789,7 +789,7 @@ When you add an ADR, add its row here.
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Accepted (amends 0541; amended by 0568) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
 | [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557; amended by 0570) |
-| [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Accepted (amends 0549 and 0558) |
+| [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Accepted (amends 0549 and 0558; amended by 0578) |
 | [0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md) | Plain git merges an Epicenter folder's files by kind through a merge driver every connect and clone configures | Proposed (amends 0558) |
 | [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Accepted (amends 0559) |
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Accepted (amends 0535 and 0562) |
@@ -801,3 +801,5 @@ When you add an ADR, add its row here.
 | [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
 | [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |
 | [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Proposed (supersedes 0554; amends 0548 and 0551) |
+| [0577](0577-audio-stays-on-the-machine-that-recorded-it.md) | Audio stays on the machine that recorded it | Accepted (amends 0543 and 0544; withdraws 0438) |
+| [0578](0578-epicenter-hosts-no-mcp-server.md) | Epicenter hosts no MCP server | Accepted (supersedes 0550; amends 0549 and 0565) |
