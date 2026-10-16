@@ -194,8 +194,9 @@ overtook merges with it (`table.save`, ADR-0548). Todos follows
 ([above](#where-the-files-are)).
 
 The `epicenter-host` build condition selects the desktop leaf of
-`#platform/folder`, and `vite.config.ts` resolves the bare `@epicenter/folder`
-specifier to `@epicenter/folder/tauri` for that build. That build carries the
+`#platform/folder`, and `installedAppViteConfig` (from
+`@epicenter/vite-config`, which `vite.config.ts` builds on) resolves the bare
+`@epicenter/folder` specifier to `@epicenter/folder/tauri` for that build. That build carries the
 directory folder and the folder plugin's commands, and none of the browser
 folder's storage address, download, or private Git, and no Node or Bun
 module. The browser build selects the browser leaf and resolves the same
@@ -433,12 +434,11 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
 | `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), the sync review, and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
-| `server/git-server.ts` | `git http-backend` over a bare repository, plus the native checkout. |
+| `packages/folder/src/git-demo-server.test-support.ts` | The loopback `git http-backend` server `apps/todos/scripts/dev.ts` starts: a bare repository plus the native checkout, shared with Git lab. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
 | `apps/todos/scripts/remote-edit.ts` | Demo fixture: a hand edit with undeclared frontmatter, committed and pushed from the native checkout with ordinary Git. |
 | `epicenter.app.json` | The manifest Epicenter installs Todos from: its id, which `src/lib/platform/types.ts` imports, and its title. |
-| `apps/todos/scripts/module-graph.ts` | Lists the modules a build of one entry pulls in, resolved with the conditions and aliases `vite.config.ts` declares and with Svelte compiled, for the seam test. |
 
 Reads and saves come from the folder's options (`folderOptions` in
 `@epicenter/folder/query`). A view passes them to `createQuery` or
