@@ -292,7 +292,9 @@ time (`inTurn`). It has no revision counter, no re-merge, and no `onSaved`.
 
 **Settings are a declared `settings` table.** Its fields are all optional, and
 its stems are named by concern, such as `settings/display.md` and
-`settings/transcription.md`. No stem is named `app`.
+`settings/transcription.md`; by convention no stem is named `app`. Where a
+definition is written, `defineFolder` refuses a required setting; a published
+declaration that requires one is read as written.
 
 **Deleted:**
 
@@ -311,7 +313,9 @@ its stems are named by concern, such as `settings/display.md` and
   (`directory-handle.ts`), and the browser's lazy root handle
 - Sync's journal, `.git/epicenter/sync-journal.json`, and its recovery
 - `folder.kv`, `kv.json`, `kv.ts`, `kv-merge.ts`, `KV_ROOT`, `InvalidKv`, and
-  the `kv` section of `epicenter.json` and `defineFolder`
+  the `kv` section of `epicenter.json` and `defineFolder`. An `epicenter.json`
+  an earlier build published still holds `"kv": {}`; it is admitted and not
+  read, and the next publication drops it.
 
 ## Consequences
 
@@ -346,6 +350,10 @@ its stems are named by concern, such as `settings/display.md` and
   an app.
 - The browser's whole-folder check before publishing goes, and the browser
   publishes as the desktop does.
+- A setting is a field of its concern's row, so a value that does not read
+  makes that whole row one to repair, and every setting in it falls back to
+  the app's default until then; `kv.json` read each key alone. And `set`
+  changes a row that is there: the first setting of a concern is a `create`.
 - `kv.json` becomes an ordinary file. Each app moves its settings into
   `settings/<concern>.md` rows; Whispering keeps reading an earlier build's
   endpoint as a file.

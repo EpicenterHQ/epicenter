@@ -32,8 +32,11 @@ await folder.close();                                  // closed either way
 Settings are rows too: a table named `settings`, one row per concern, such as
 `settings/display.md` (ADR-0576). Every field it declares is `field.optional`,
 so a setting may always be unset and the app's own default applies;
-preparation refuses a required one. Reading and writing it is reading and
-writing any table.
+`defineFolder` refuses a required one, and a published declaration that has
+one still opens. Reading and writing it is reading and writing any table, so
+the first setting of a concern is a `create`, which a second device's create
+of the same row merges with by field, and `set` changes a row that is there.
+A value that does not read makes its whole row one to repair.
 
 Declared tables are available as `folder.tables.<name>` without creating their
 directories. Listing a missing table directory returns an empty list. Creating
