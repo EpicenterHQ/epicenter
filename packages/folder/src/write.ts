@@ -119,7 +119,8 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * are owned before anything is awaited. With `joining`, a create onto a
  * file merges with it as an addition on both sides instead: what Sync does
  * when it finishes a publish over a file the person made where the
- * published tree adds one.
+ * published tree adds one, and what a handle does when it publishes its
+ * declaration over the one there.
  *
  * Any `to` is written, whether or not it reads as its kind: a typed view
  * refuses a row it cannot write before it gets here (`InvalidValues`), and

@@ -106,11 +106,13 @@ plain JSON, so formatting cannot fail; a failed write is logged through
 folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
-Publication reads `epicenter.json` and, when its bytes differ from the
-declaration, writes it once per handle, before that handle's first save: a
-missing file is created, and a present one is saved over as read with
-`{ merge: false }`, so `epicenter.json` is never line-merged. Another
-writer getting there first is read once more (ADR-0551). It never commits or pushes, so the published
+Publication writes `epicenter.json` once per handle, before that handle's
+first save, with the one write, as a create that joins the file there: a
+missing file is created, and a present one takes the declaration whole but
+for `local`, which keeps every pattern the file lists, as `merge` decides
+every write of `epicenter.json` (ADR-0576). A file that already holds the
+result is not written, and another writer getting there first starts the
+write again, as it does any write. It never commits or pushes, so the published
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
 
@@ -150,9 +152,10 @@ one either. A person's `!` exception in `.gitignore` does not override it.
 With the declaration, before the same first write, the handle also makes the
 root `.gitignore` name each pattern, so plain `git` and the `epicenter` CLI
 agree. A missing `.gitignore` is created holding the patterns. A present one
-gains each missing pattern as a line at its end, saved over as read with
-`{ merge: false }`; its other lines are never reordered, rewritten, or
-removed, and a file that already names every pattern is not written. A failed
+gains each missing pattern as a line at its end, written with the one write
+from the file as it was read, so a line another writer adds meanwhile stays;
+its other lines are never reordered, rewritten, or removed, and a file that
+already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 

@@ -10,19 +10,19 @@
  * definition's `local` patterns, so files that stay on the machine that
  * wrote them never enter a commit. It only adds lines: a person's own lines
  * stay as they are.
+ *
+ * Both go through the one write (`writeFile`), over the host's storage
+ * rather than the handle's writes, so a publication never waits on itself.
  */
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import type { FileRead, FolderStorage } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import { formatDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
-import { hashBytes } from './hash.js';
-import { localPatterns } from './merge-file.js';
 import { DECLARATION_PATH } from './paths.js';
-import { confirmedPut } from './write.js';
+import { writeFile } from './write.js';
 
 const log = createLogger('folder/definition');
-const encoder = new TextEncoder();
 /** What a publication reads and writes: the storage port's read and put, not a handle's writes. */
 type Publisher = Pick<FolderStorage, 'read' | 'put'>;
 /** The folder's root `.gitignore`, where `local` patterns are written. */
@@ -41,87 +41,30 @@ const PublicationError = defineErrors({
 });
 
 /**
- * `prepared` with `local` also listing what the file there lists, sorted, so
- * a pattern a Sync brought from another device (ADR-0576) is never dropped
- * by this definition's publication. A file whose `local` does not read adds
- * nothing.
- */
-function keepingLocal(
-	prepared: FolderDefinition,
-	declared: readonly string[] | undefined,
-): FolderDefinition {
-	const local = [
-		...new Set([...(prepared.local ?? []), ...(declared ?? [])]),
-	].sort();
-	return local.length === 0 ? prepared : { ...prepared, local };
-}
-
-/**
- * Put `bytes` at `path` only while it holds what was read (`current`, or no
- * file), never merged: `'stale'` when another writer landed first, and
- * nothing changed.
- */
-async function putOver(
-	storage: Publisher,
-	path: string,
-	current: FileRead | null,
-	bytes: Uint8Array,
-) {
-	return confirmedPut(
-		storage,
-		path,
-		bytes,
-		current?.sha256 ?? null,
-		await hashBytes(bytes),
-	);
-}
-
-/** Why a publication gave up after reading again: another writer kept landing first. */
-const KEPT_CHANGING = 'another writer changed the file on every attempt';
-
-/**
- * Await one publication, skipped when the file already holds the
- * declaration's bytes. `epicenter.json` is never merged (ADR-0551) but for
- * `local`, which keeps every pattern the file already lists: the declaration
- * is put over the file as read, or where none is, and read once more when
- * another writer landed first. A failure is logged and never refuses the
- * write it precedes.
+ * Await one publication of `prepared` at `epicenter.json`: a create that
+ * joins whatever file is there, so `merge` decides it as it decides every
+ * write of the file (ADR-0576). This definition wins the whole file but for
+ * `local`, which keeps every pattern the file already lists, such as one a
+ * Sync brought from another device; a file already holding the result is
+ * left as it is. A failure is logged and never refuses the write it
+ * precedes.
  */
 export async function publishDefinition(
 	prepared: FolderDefinition,
 	storage: Publisher,
 ): Promise<void> {
-	let failure: unknown = KEPT_CHANGING;
+	let failure: unknown;
 	try {
-		for (let reads = 0; reads < 2; reads++) {
-			const read = await storage.read(DECLARATION_PATH);
-			if (read.error !== null && read.error.name !== 'NotFound') {
-				failure = read.error;
-				break;
-			}
-			const current = read.error === null ? read.data : null;
-			const declaration = encoder.encode(
-				formatDeclaration(
-					keepingLocal(
-						prepared,
-						current === null ? undefined : localPatterns(current.bytes),
-					),
-				),
-			);
-			if (current !== null && current.sha256 === (await hashBytes(declaration)))
-				return;
-			const { data: put, error } = await putOver(
-				storage,
-				DECLARATION_PATH,
-				current,
-				declaration,
-			);
-			if (error !== null) {
-				failure = error;
-				break;
-			}
-			if (put === 'landed') return;
-		}
+		const { error } = await writeFile(
+			storage,
+			{ kind: 'declaration' },
+			DECLARATION_PATH,
+			null,
+			formatDeclaration(prepared),
+			{ joining: true },
+		);
+		if (error === null) return;
+		failure = error;
 	} catch (cause) {
 		// A thrown write can also have landed. Retain the cause without claiming
 		// the destination is missing, unchanged, or successfully published.
@@ -137,42 +80,38 @@ export async function publishDefinition(
  * pattern, skipped when every pattern is already one of its lines. A missing
  * file is created holding the patterns. A present one gains the missing
  * patterns as lines at its end; nothing in it is reordered, rewritten, or
- * removed, so a person's own lines stay. The put never merges: when another
- * writer landed first, the file is read once more. A failure is logged and
- * never refuses the write it precedes.
+ * removed, so a person's own lines stay. The addition is written with the
+ * one write, from the file as it was read, so a line another writer adds
+ * meanwhile stays too. A failure is logged and never refuses the write it
+ * precedes.
  */
 export async function publishLocalPatterns(
 	local: readonly string[],
 	storage: Publisher,
 ): Promise<void> {
 	if (local.length === 0) return;
-	let failure: unknown = KEPT_CHANGING;
+	let failure: unknown;
 	try {
-		for (let reads = 0; reads < 2; reads++) {
-			const read = await storage.read(GITIGNORE_PATH);
-			if (read.error !== null && read.error.name !== 'NotFound') {
-				failure = read.error;
-				break;
-			}
-			const current = read.error === null ? read.data : null;
-			const text =
-				current === null ? '' : new TextDecoder().decode(current.bytes);
+		const read = await storage.read(GITIGNORE_PATH);
+		if (read.error !== null && read.error.name !== 'NotFound') {
+			failure = read.error;
+		} else {
+			const current = read.error === null ? read.data.bytes : null;
+			const text = current === null ? '' : new TextDecoder().decode(current);
 			const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
 			const missing = local.filter((pattern) => !lines.has(pattern));
 			if (missing.length === 0) return;
 			const separator = text === '' || text.endsWith('\n') ? '' : '\n';
-			const next = `${text}${separator}${missing.join('\n')}\n`;
-			const { data: put, error } = await putOver(
+			const { error } = await writeFile(
 				storage,
+				{ kind: 'file' },
 				GITIGNORE_PATH,
 				current,
-				encoder.encode(next),
+				`${text}${separator}${missing.join('\n')}\n`,
+				{ joining: true },
 			);
-			if (error !== null) {
-				failure = error;
-				break;
-			}
-			if (put === 'landed') return;
+			if (error === null) return;
+			failure = error;
 		}
 	} catch (cause) {
 		failure = cause;
