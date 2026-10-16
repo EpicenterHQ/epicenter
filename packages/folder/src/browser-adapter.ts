@@ -195,7 +195,7 @@ async function openBrowserFolder<
 				folder,
 				locks,
 				filesLock: at.filesLock,
-				landed: relay,
+				relay,
 			});
 			const backend = await createStoredGitBackend({
 				store: createOpfsGitStore({ folder }),

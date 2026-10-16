@@ -23,11 +23,11 @@
  */
 
 import type { PromiseFsClient } from 'isomorphic-git';
+import { PRIVATE_DIRECTORY } from '../boundary.js';
 import {
 	errorName,
 	lookup,
 	type OpfsFolder,
-	PRIVATE_DIRECTORY,
 	readHandle,
 	readPrivateFile,
 	removePrivateFile,

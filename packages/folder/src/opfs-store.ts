@@ -40,11 +40,18 @@
  * order their methods were called: whichever lands last on a path stays.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FileListing, FolderStorage, LockingStorage } from './boundary.js';
-import { isStaleScratch } from './directory-primitives.js';
+import {
+	type HostFiles,
+	isStaleScratch,
+	type LockingStorage,
+	lockingStorage,
+	PRIVATE_DIRECTORY,
+	SCRATCH_DIRECTORY,
+	scratchName,
+} from './boundary.js';
 import { FileError, UnconfirmedWrite } from './errors.js';
 import { hashBytes } from './hash.js';
-import { ancestors, basename, pathProblem } from './paths.js';
+import { ancestors, basename } from './paths.js';
 
 /** A snapshot of a stored file. */
 export type OpfsFile = {
@@ -167,9 +174,6 @@ export function folderIn(
 		},
 	};
 }
-
-/** The folder's private Git directory. `pathProblem` refuses it as a path. */
-export const PRIVATE_DIRECTORY = '.git';
 
 /** The name a DOM exception or a thrown error-like object carries. */
 export function errorName(cause: unknown): string | undefined {
@@ -366,13 +370,6 @@ export async function walk(
 	}
 }
 
-function invalid(path: string): Result<never, FileError> | undefined {
-	const problem = pathProblem(path);
-	return problem === undefined
-		? undefined
-		: FileError.InvalidPath({ path, reason: problem });
-}
-
 /** A stream that may have published its bytes or not. */
 const unconfirmed = (path: string, cause: unknown) =>
 	FileError.Unconfirmed({ path, operation: 'write', cause });
@@ -430,17 +427,17 @@ async function createAt(
 	bytes: Uint8Array,
 ): Promise<Result<'landed' | 'stale', FileError>> {
 	const name = basename(path);
-	let scratch: OpfsDirectoryHandle;
-	let staged: OpfsFileHandle;
+	const { data: scratch, error: scratchError } = await ensureDirectory(
+		root,
+		SCRATCH_DIRECTORY,
+	);
+	if (scratchError !== null)
+		return FileError.Io({ path, operation: 'write', cause: scratchError });
 	// Named for when it was made, so a later create can tell one a stopped
 	// write left behind (`isStaleScratch`).
-	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID().replaceAll('-', '')}-0`;
+	const stagedName = scratchName();
+	let staged: OpfsFileHandle;
 	try {
-		scratch = await (
-			await (
-				await root.getDirectoryHandle(PRIVATE_DIRECTORY, { create: true })
-			).getDirectoryHandle('epicenter', { create: true })
-		).getDirectoryHandle('scratch', { create: true });
 		staged = await scratch.getFileHandle(stagedName, { create: true });
 	} catch (cause) {
 		return FileError.Io({ path, operation: 'write', cause });
@@ -518,22 +515,22 @@ async function createInPlace(
 
 /**
  * The storage of the browser folder in `folder`, whose changes hold the
- * Web Lock `filesLock`. `landed` hears each path a change reached, or may
+ * Web Lock `filesLock`. `relay` hears each path a change reached, or may
  * have, as soon as it does, for the other pages of the origin.
  */
 export function createOpfsStorage({
 	folder,
 	locks,
 	filesLock,
-	landed,
+	relay,
 }: {
 	folder: OpfsFolder;
 	locks: OpfsLocks;
 	/** The Web Lock every change of this folder holds. */
 	filesLock: string;
-	landed: (paths: readonly string[]) => void;
+	relay?: (paths: readonly string[]) => void;
 }): LockingStorage {
-	async function readOne(path: string) {
+	async function read(path: string) {
 		try {
 			const root = await folder.existing();
 			const found =
@@ -602,10 +599,33 @@ export function createOpfsStorage({
 		return createAt(root, parent, path, bytes);
 	}
 
-	/** The storage, each change under `guard`. */
-	const storage = (
+	/** Remove the empty directory at `path`, with the lock held. */
+	async function rmdir(path: string): Promise<Result<undefined, FileError>> {
+		try {
+			const root = await folder.existing();
+			if (root === undefined) return FileError.NotFound({ path });
+			const found = await lookup(root, path);
+			if (found.kind === 'file') return FileError.NotADirectory({ path });
+			if (found.kind !== 'directory') return FileError.NotFound({ path });
+			for await (const _ of found.handle.values())
+				return FileError.DirectoryNotEmpty({ path });
+			const parent = await lookup(root, parentOf(path));
+			if (parent.kind !== 'directory') return FileError.NotFound({ path });
+			await parent.handle.removeEntry(basename(path));
+			return Ok(undefined);
+		} catch (cause) {
+			const name = errorName(cause);
+			if (name === 'InvalidModificationError')
+				return FileError.DirectoryNotEmpty({ path });
+			if (name === 'NotFoundError') return FileError.NotFound({ path });
+			return FileError.Io({ path, operation: 'remove directory', cause });
+		}
+	}
+
+	/** The folder's operations, each change under `guard`. */
+	const files = (
 		guard: <T>(work: () => Promise<T>) => Promise<T>,
-	): FolderStorage => ({
+	): HostFiles => ({
 		async list() {
 			const files: { path: string; size: number }[] = [];
 			const directories: string[] = [];
@@ -625,17 +645,9 @@ export function createOpfsStorage({
 			} catch (cause) {
 				return FileError.Io({ path: '', operation: 'list', cause });
 			}
-			const listing: FileListing = {
-				files: files.sort((a, b) => (a.path < b.path ? -1 : 1)),
-				directories: directories.sort(),
-			};
-			return Ok(listing);
+			return Ok({ files, directories });
 		},
 		async children(directory) {
-			if (directory !== '') {
-				const refused = invalid(directory);
-				if (refused) return refused;
-			}
 			try {
 				const root = await folder.existing();
 				if (root === undefined)
@@ -653,73 +665,25 @@ export function createOpfsStorage({
 					if (directory === '' && entry.name === PRIVATE_DIRECTORY) continue;
 					(entry.kind === 'file' ? files : directories).push(entry.name);
 				}
-				return Ok({ files: files.sort(), directories: directories.sort() });
+				return Ok({ files, directories });
 			} catch (cause) {
 				return FileError.Io({ path: directory, operation: 'list', cause });
 			}
 		},
-		async read(path) {
-			const refused = invalid(path);
-			if (refused) return refused;
-			return readOne(path);
-		},
-		async put(path, bytes, ifMatch) {
-			const refused = invalid(path);
-			if (refused) return refused;
-			const owned = bytes === null ? null : new Uint8Array(bytes);
-			const result = await guard(() => change(path, owned, ifMatch));
-			if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
-				landed([path]);
-			return result;
-		},
-		async mkdir(path) {
-			const refused = invalid(path);
-			if (refused) return refused;
-			const made = await guard(async () =>
-				ensureDirectory(await folder.made(), path),
-			);
-			if (made.error !== null) return Err(made.error);
-			landed([path]);
-			return Ok(undefined);
-		},
-		async rmdir(path) {
-			const refused = invalid(path);
-			if (refused) return refused;
-			const removed = await guard(
-				async (): Promise<Result<undefined, FileError>> => {
-					try {
-						const root = await folder.existing();
-						if (root === undefined) return FileError.NotFound({ path });
-						const found = await lookup(root, path);
-						if (found.kind === 'file') return FileError.NotADirectory({ path });
-						if (found.kind !== 'directory') return FileError.NotFound({ path });
-						for await (const _ of found.handle.values())
-							return FileError.DirectoryNotEmpty({ path });
-						const parent = await lookup(root, parentOf(path));
-						if (parent.kind !== 'directory')
-							return FileError.NotFound({ path });
-						await parent.handle.removeEntry(basename(path));
-						return Ok(undefined);
-					} catch (cause) {
-						const name = errorName(cause);
-						if (name === 'InvalidModificationError')
-							return FileError.DirectoryNotEmpty({ path });
-						if (name === 'NotFoundError') return FileError.NotFound({ path });
-						return FileError.Io({
-							path,
-							operation: 'remove directory',
-							cause,
-						});
-					}
-				},
-			);
-			if (removed.error === null) landed([path]);
-			return removed;
-		},
+		read,
+		change: (path, bytes, ifMatch) => guard(() => change(path, bytes, ifMatch)),
+		mkdir: (path) =>
+			guard(async () => {
+				const made = await ensureDirectory(await folder.made(), path);
+				return made.error === null ? Ok(undefined) : Err(made.error);
+			}),
+		rmdir: (path) => guard(() => rmdir(path)),
 	});
-	return {
-		...storage((work) => holding(locks, filesLock, work)),
-		lock: (work) =>
-			holding(locks, filesLock, () => work(storage((step) => step()))),
-	};
+	const exclusive = <T>(work: () => Promise<T>) =>
+		holding(locks, filesLock, work);
+	return lockingStorage(
+		files(exclusive),
+		{ lock: exclusive, held: files((work) => work()) },
+		relay,
+	);
 }

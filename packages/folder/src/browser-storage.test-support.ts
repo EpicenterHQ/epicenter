@@ -154,7 +154,6 @@ export async function rawBrowserFolder({
 			folder: presentFolder(root),
 			locks: testLocks,
 			filesLock,
-			landed: () => {},
 		}),
 		backend: async ({ branch = 'main', remote } = {}) => {
 			const backend = await createStoredGitBackend({

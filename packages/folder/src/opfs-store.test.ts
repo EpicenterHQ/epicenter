@@ -49,7 +49,6 @@ function storage() {
 		folder: presentFolder(root),
 		locks: createWebLocks(),
 		filesLock: 'files',
-		landed: () => {},
 	});
 }
 

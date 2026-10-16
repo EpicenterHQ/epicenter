@@ -9,16 +9,16 @@
  * or private Git is here.
  */
 import type { Result } from 'wellcrafted/result';
-import type { FolderStorage } from './boundary.js';
+import {
+	type FolderStorage,
+	isStaleScratch,
+	SCRATCH_DIRECTORY,
+} from './boundary.js';
 import {
 	type FolderDefinition,
 	prepareFolderDefinition,
 } from './definition.js';
-import {
-	type DirectoryPrimitives,
-	isStaleScratch,
-	SCRATCH_DIRECTORY,
-} from './directory-primitives.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {

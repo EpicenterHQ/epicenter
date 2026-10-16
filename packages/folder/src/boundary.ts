@@ -15,9 +15,16 @@
  * Saves are not ordered by when their methods were called: the last to land
  * on a path wins. A change that must not overwrite bytes its caller did not
  * review carries `ifMatch`.
+ *
+ * What every host shares is here once (`hostStorage`, `lockingStorage`): the
+ * path rule, owning the bytes a put was handed, telling other pages what
+ * landed, the order of a listing, holding the lock, and where and under what
+ * names a new file is staged. A host supplies only its own operations
+ * (`HostFiles`).
  */
-import type { Result } from 'wellcrafted/result';
-import type { FileError } from './errors.js';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { FileError } from './errors.js';
+import { pathProblem } from './paths.js';
 
 export type FileRead = {
 	readonly bytes: Uint8Array;
@@ -91,3 +98,158 @@ export type LockingStorage = FolderStorage & {
 	 */
 	lock<T>(work: (held: FolderStorage) => Promise<T>): Promise<T>;
 };
+
+/**
+ * A host's own operations on its storage. The storage built over them
+ * (`hostStorage`) calls each only with a path `pathProblem` accepts, or the
+ * root (`''`) for `children`, and with bytes no caller still holds. `change`
+ * is `put`'s change; a listing may come in any order.
+ */
+export type HostFiles = Pick<
+	FolderStorage,
+	'list' | 'children' | 'read' | 'mkdir' | 'rmdir'
+> & {
+	change: FolderStorage['put'];
+};
+
+/** The folder's private Git directory, which no portable path names and no listing shows. */
+export const PRIVATE_DIRECTORY = '.git';
+
+/**
+ * Where a host stages a new file's bytes before they land at its path, so a
+ * crash never leaves a new file empty or partial there.
+ */
+export const SCRATCH_DIRECTORY = `${PRIVATE_DIRECTORY}/epicenter/scratch`;
+
+/** This process's id in the names it stages under, so two never pick one name. */
+const ENGINE = crypto.randomUUID().replaceAll('-', '');
+let staged = 0;
+
+/**
+ * A new staged file's name: its creation time and a per-process counter in
+ * base 36, around this process's engine id. Only ASCII letters, digits, and
+ * `-`, which the desktop shell admits.
+ */
+export const scratchName = () =>
+	`${Date.now().toString(36)}-${ENGINE}-${(staged++).toString(36)}`;
+
+/**
+ * How old a staged file must be before a host removes it. A write moves its
+ * staged file right after writing it, so one this old was left by a write
+ * that stopped (a crash, a quit). Younger ones may belong to another process
+ * writing the same folder: a script and a desktop window share no lock.
+ */
+const STALE_SCRATCH_MS = 60 * 60 * 1000;
+
+const SCRATCH_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
+
+/**
+ * The name hosts gave a staged file before each had an engine id: its
+ * creation time (eight base-36 digits for any time since 1973), a counter,
+ * and up to eight random characters, all in base 36. A folder may still hold
+ * one a stopped write left.
+ */
+const EARLIER_SCRATCH_NAME = /^([0-9a-z]{8,})-[0-9a-z]+-[0-9a-z]{1,8}$/;
+
+/**
+ * Whether the staged file `name` was made more than `STALE_SCRATCH_MS`
+ * before `now`. A name no host made, now or earlier, is never stale.
+ */
+export function isStaleScratch(name: string, now = Date.now()): boolean {
+	const time = (SCRATCH_NAME.exec(name) ??
+		EARLIER_SCRATCH_NAME.exec(name))?.[1];
+	if (time === undefined) return false;
+	const created = Number.parseInt(time, 36);
+	return Number.isSafeInteger(created) && now - created > STALE_SCRATCH_MS;
+}
+
+const refusal = (path: string) => {
+	const problem = pathProblem(path);
+	return problem === undefined
+		? undefined
+		: FileError.InvalidPath({ path, reason: problem });
+};
+
+const byPath = (a: { path: string }, b: { path: string }) =>
+	a.path < b.path ? -1 : 1;
+
+/**
+ * The storage over a host's `files`. `relay`, where the host tells other
+ * pages what changed, hears each path a change reached, or may have, as
+ * soon as it does.
+ */
+export function hostStorage(
+	files: HostFiles,
+	relay: (paths: readonly string[]) => void = () => {},
+): FolderStorage {
+	return {
+		async list() {
+			const { data: listed, error } = await files.list();
+			if (error !== null) return Err(error);
+			return Ok({
+				files: [...listed.files].sort(byPath),
+				directories: [...listed.directories].sort(),
+			});
+		},
+		async children(directory) {
+			const refused = directory === '' ? undefined : refusal(directory);
+			if (refused) return refused;
+			const { data: found, error } = await files.children(directory);
+			if (error !== null) return Err(error);
+			return Ok({
+				files: [...found.files].sort(),
+				directories: [...found.directories].sort(),
+			});
+		},
+		async read(path) {
+			return refusal(path) ?? files.read(path);
+		},
+		async put(path, bytes, ifMatch) {
+			const refused = refusal(path);
+			if (refused) return refused;
+			const owned = bytes === null ? null : new Uint8Array(bytes);
+			let result: Result<'landed' | 'stale', FileError>;
+			try {
+				result = await files.change(path, owned, ifMatch);
+			} catch (cause) {
+				result = FileError.Io({ path, operation: 'write', cause });
+			}
+			if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
+				relay([path]);
+			return result;
+		},
+		async mkdir(path) {
+			const refused = refusal(path);
+			if (refused) return refused;
+			const made = await files.mkdir(path);
+			if (made.error === null) relay([path]);
+			return made;
+		},
+		async rmdir(path) {
+			const refused = refusal(path);
+			if (refused) return refused;
+			const removed = await files.rmdir(path);
+			if (removed.error === null) relay([path]);
+			return removed;
+		},
+	};
+}
+
+/**
+ * The storage over a host's `files`, which each take the folder's save lock
+ * for themselves where the host has one in this process, with `lock` taking
+ * it once to change files through `held`, the same operations without it.
+ */
+export function lockingStorage(
+	files: HostFiles,
+	hold: {
+		lock<T>(work: () => Promise<T>): Promise<T>;
+		held: HostFiles;
+	},
+	relay?: (paths: readonly string[]) => void,
+): LockingStorage {
+	return {
+		...hostStorage(files, relay),
+		lock: (work) => hold.lock(() => work(hostStorage(hold.held, relay))),
+	};
+}

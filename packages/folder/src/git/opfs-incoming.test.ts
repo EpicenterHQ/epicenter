@@ -96,7 +96,6 @@ async function folderAt(opfs = memoryOpfs()) {
 		folder: presentFolder(root),
 		locks: environment.locks,
 		filesLock: FILES_LOCK,
-		landed: () => {},
 	});
 	const history = createHistory({ backend, boundary, author });
 	opened.push(history);
