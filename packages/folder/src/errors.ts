@@ -140,14 +140,13 @@ type TableErrorOf<TName extends TableError['name']> = Extract<
 	{ name: TName }
 >;
 
-/** Storage failures are forwarded intact. Narrower storage signatures belong to their producers. */
-export type TableEnumerationError = FileError;
-
-/** Acquisition or UTF-8 decoding failed: there is no text to read as a row. */
-export type TableReadError = FileError | TableErrorOf<'InvalidUtf8'>;
-
-/** Why a read row file is not a row: there was no text, or the text is not a valid row. */
-export type RowReadError = TableReadError | TableErrorOf<'InvalidRow'>;
+/**
+ * Why a read row file is not a row: storage could not read it, its bytes are
+ * not UTF-8, or its text is not a valid row.
+ */
+export type RowReadError =
+	| FileError
+	| TableErrorOf<'InvalidUtf8' | 'InvalidRow'>;
 
 /**
  * Every way the one write fails (ADR-0576), nothing written: a value that

@@ -19,7 +19,7 @@ import { readDeclaration } from './declaration.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
-import { FileError, type TableEnumerationError } from './errors.js';
+import { FileError } from './errors.js';
 import { DECLARATION_PATH } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
@@ -50,10 +50,7 @@ export type FolderReading = {
 	readonly definition: FolderDefinition;
 	/** Exactly what each declared table's `list()` returns. */
 	readonly tables: Readonly<
-		Record<
-			string,
-			Result<TableListing<Record<string, unknown>>, TableEnumerationError>
-		>
+		Record<string, Result<TableListing<Record<string, unknown>>, FileError>>
 	>;
 };
 
@@ -94,7 +91,7 @@ export async function readFolder(
 
 	const tables: Record<
 		string,
-		Result<TableListing<Record<string, unknown>>, TableEnumerationError>
+		Result<TableListing<Record<string, unknown>>, FileError>
 	> = {};
 	for (const [name, table] of Object.entries(definition.tables))
 		tables[name] = await createTable<Record<string, unknown>>(

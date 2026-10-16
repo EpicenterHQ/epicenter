@@ -36,7 +36,6 @@ import type { PreparedFolderTable } from './definition.js';
 import {
 	FileError,
 	type RowReadError,
-	type TableEnumerationError,
 	TableError,
 	WriteError,
 } from './errors.js';
@@ -99,7 +98,7 @@ export type FileTable<TFields> = {
 	 */
 	readonly canCreate: boolean;
 	/** An outer error means the listing itself failed; no partial listing is returned. */
-	list(): Promise<Result<TableListing<TFields>, TableEnumerationError>>;
+	list(): Promise<Result<TableListing<TFields>, FileError>>;
 	/** `undefined` only when no file is at the stem. */
 	get(
 		stem: string,
@@ -241,9 +240,7 @@ export function createTable<TFields>(
 	 * Every name directly in the table's directory; none when it does not exist
 	 * yet. A directory named like a row is included so reading reports it.
 	 */
-	async function filenamesOf(): Promise<
-		Result<string[], TableEnumerationError>
-	> {
+	async function filenamesOf(): Promise<Result<string[], FileError>> {
 		const { data: children, error } = await storage.children(name);
 		if (error !== null) return error.name === 'NotFound' ? Ok([]) : Err(error);
 		return Ok([...children.files, ...children.directories].sort());

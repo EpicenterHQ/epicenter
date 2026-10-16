@@ -65,12 +65,7 @@ import {
 import { Err, isErr, Ok, type Result, unwrap } from 'wellcrafted/result';
 import type { FileListing, FileRead } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
-import type {
-	FileError,
-	RowReadError,
-	TableEnumerationError,
-	WriteError,
-} from './errors.js';
+import type { FileError, RowReadError, WriteError } from './errors.js';
 import { type OpenedFile, openedFile, readTextFile } from './file-browser.js';
 import type { FilesChanged, Folder, FolderAccess } from './folder.js';
 import type { SyncError } from './git/errors.js';
@@ -141,7 +136,7 @@ export type SetRowVariables<TFields> = {
 };
 
 export type TableOptions<TFields> = {
-	readonly list: QueryFactory<[], TableListing<TFields>, TableEnumerationError>;
+	readonly list: QueryFactory<[], TableListing<TFields>, FileError>;
 	/** `null` when no file is at the stem: TanStack keeps no `undefined`. */
 	readonly get: QueryFactory<
 		[stem: string],

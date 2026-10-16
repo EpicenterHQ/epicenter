@@ -30,9 +30,7 @@ export {
 	FileError,
 	OpenFolderError,
 	type RowReadError,
-	type TableEnumerationError,
 	TableError,
-	type TableReadError,
 	WriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
@@ -81,14 +79,7 @@ export {
 	rowPath,
 	rowStemOf,
 } from './paths.js';
-export {
-	describeTables,
-	type ProjectedTable,
-	projectionProblem,
-	projectTables,
-	readingStatementProblem,
-	type SqlTarget,
-} from './projection.js';
+export { describeTables } from './projection.js';
 export type { AnyRow } from './row-merge.js';
 export {
 	formatRow,
