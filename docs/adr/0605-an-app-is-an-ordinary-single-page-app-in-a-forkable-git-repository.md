@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) (the bare clone, its detached `HEAD` as the approved commit, and build directories extracted by `git archive` and restored when damaged) and [ADR-0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) (what an approved commit supplies on the one shared origin): nothing approves a commit, and each app has an origin of its own.
-- **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "An app is one Git repository of built files at an address", the default branch holding "the built app", "Approving a commit trusts it fully", "Building happens in a publish step, never on a person's machine", CI publishing, `epicenter app publish`, "The publisher runs the desktop build", the deleted install-time build, and the consequences about approved built bytes, the publish step, the edit loop, and shell updates: the repository holds source, the desktop builds it with `bun run build`, and installing trusts the author; the address, its clone rule, substitution, encoding, the declared `app`, the page API contract, the template clauses, and the other deletions stand. [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) at "The one build prerenders every route and also writes a fallback page", the scheme serving each route's prerendered document and a fallback document with an inserted `<base href>`, and "The repository ADR-0589 publishes holds this build": nothing is prerendered, the fallback is `index.html`, and the published repository holds source; run-time host selection, one build, and the template paragraph stand. [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at "Every page shares the one origin", the row `epicenter-app://localhost/apps/<id>/…`, and the consequence that every installed app shares storage with every other: each installed app is served at the root of its own host on the one scheme, and Epicenter's own pages keep `epicenter-app://localhost`. [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at "Every build a window runs was approved when it was built", `needsApproval` for every unapproved `HEAD`, "Every local commit costs one approval", the URL `epicenter-app://localhost/apps/<app-id>/<commit>/`, and "a page may still fetch another build's files": no commit is approved, and a window's label chooses its build on its app's origin; a window keeping the build it opened on, `InstalledWindowCommits`, and the "open on another version" refusal stand. [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "approving a commit trusts it fully", as ADR-0589 restated it: installing an app trusts its author fully, and nothing approves a commit. [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) at principle 6 and the diagram's bare clones, detached `HEAD`, "one approved app commit", and "one build on the default branch": principle 6 is restated below; principle 5 stands. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "Epicenter builds every app with `bun run build:installed` in its folder and keeps `dist/`": Epicenter builds every app with `bun run build` at its repository's root. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at the clones of built repositories and "the bare clones alone record what is installed and approved": the installed apps are the person's clones of app source, and nothing records an approval. [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "installed as a repository of built files", `approvals.json` and "a clone of the app's built repository" in its app-data tree, and "every window loads `epicenter-app://localhost`": an installed app is the person's clone of its source, and an installed app's window loads its app's own host.
-- **Unbuilt:** almost all of it: the build contract in Todos, Capture, Honeycrisp, and Whispering (`bun run build` writing `dist/` with `ssr = false` and no prerendering); first-party apps as standalone repositories on published packages; the clone with the author as `upstream`; `epicenter app update` as a fetch and merge of `upstream`; built sites in app data; the pointer to each app's last build that succeeded; one host per installed app and the scheme resolving a request by the window's label; `epicenter app remove` keeping local-only commits; deleting approval; every platform but macOS, gated on a probe of per-app hosts on Windows and Linux (WebDriver through `tauri-driver` in CI); and how a device that installed a person's pushed fork from its own address matches it to folders whose `app` names the author's address (ADR-0589's substitution and declared-address check).
+- **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "An app is one Git repository of built files at an address", the default branch holding "the built app", "Approving a commit trusts it fully", "Building happens in a publish step, never on a person's machine", CI publishing, `epicenter app publish`, "The publisher runs the desktop build", the deleted install-time build, and the consequences about approved built bytes, the publish step, the edit loop, and shell updates: the repository holds source, the desktop builds it with `bun run build`, and installing trusts the author; the address, its clone rule, substitution, encoding, the declared `app`, the page API contract, and the other deletions stand, and the template clauses (`template-commit` and the browser build's template objects) are left with no producer, an open question below. [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) at "The one build prerenders every route and also writes a fallback page", the scheme serving each route's prerendered document and a fallback document with an inserted `<base href>`, and "The repository ADR-0589 publishes holds this build": nothing is prerendered, the fallback is `index.html`, and the published repository holds source; run-time host selection and one build stand, and the template paragraph (template history in every build, `template` pushed by fast-forward only) is left with no producer, an open question below. [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at "Every page shares the one origin", the row `epicenter-app://localhost/apps/<id>/…`, and the consequence that every installed app shares storage with every other: each installed app is served at the root of its own host on the one scheme, and Epicenter's own pages keep `epicenter-app://localhost`. [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at "Every build a window runs was approved when it was built", `needsApproval` for every unapproved `HEAD`, "Every local commit costs one approval", the URL `epicenter-app://localhost/apps/<app-id>/<commit>/`, and "a page may still fetch another build's files": no commit is approved, and a window's label chooses its build on its app's origin; a window keeping the build it opened on, `InstalledWindowCommits`, and the "open on another version" refusal stand. [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) at principle 5's "published template", principle 6, the diagram's bare clones, detached `HEAD`, "one approved app commit", and "one build on the default branch", the Context's "building on the person's machine" among the replaced ideas, and the consequence "publishing and installing are separate modules there": principles 5 and 6 are restated below. [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at `[--approve]` on `epicenter app install` and `epicenter app update` and "`approve` is part of `install` and `update`": neither takes `--approve`, and neither stops to show a commit. [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at the approval screen's calls and approvals moving into the CLI, the consequence "An agent with a terminal can run `epicenter app install --approve`", and the alternative's reason "every approved app shares the origin": nothing approves, and each installed app has an origin of its own; ADR-0549's "WebViews hold none" still refuses page-held tokens. [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "the `template` commit the approved app commit names", "the one its installed app's approved commit names", and "authored by the app's publisher": no commit is approved and no publisher exists, so which commit names a folder's template is the open question below. [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at "Whatever a person or an agent reads, edits, repairs, or versions as files lives in a folder under the Epicenter root" and built bundles in Caches: an installed app's source clone lives in app data and is authored work, and builds live in app data. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "Epicenter builds every app with `bun run build:installed` in its folder and keeps `dist/`": Epicenter builds every app with `bun run build` at its repository's root. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at the clones of built repositories and "the bare clones alone record what is installed and approved": the installed apps are the person's clones of app source, and nothing records an approval. [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "installed as a repository of built files", `approvals.json` and "a clone of the app's built repository" in its app-data tree, and "every window loads `epicenter-app://localhost`": an installed app is the person's clone of its source, and an installed app's window loads its app's own host.
+- **Unbuilt:** almost all of it: the build contract in Todos, Capture, Honeycrisp, and Whispering (`bun run build` writing `dist/` with `ssr = false` and no prerendering); first-party apps as standalone repositories on published packages; the clone with the author as `upstream`; `epicenter app update` as a merge on `refs/epicenter/candidate` that moves the branch only after its build succeeds; built sites in app data (`builds_dir` and the CLI's `buildsDir` join the cache directory today); the record of each app's current and previous successful builds and "Open previous version"; deleting a build no window pins that is neither of those; one host per installed app and the scheme resolving a request by the window's label; `epicenter app remove` moving the clone to `removed-apps/`; deleting approval; per-app storage isolation beyond `localStorage` within one run on macOS (IndexedDB, OPFS, SharedWorker, BroadcastChannel, and persistence across restarts); every platform but macOS, gated on a probe of per-app hosts on Windows and Linux (WebDriver through `tauri-driver` in CI); open, pending the owner: what produces ADR-0589's `template-commit` and ADR-0598's template history in every build now that nothing publishes; and how a device that installed a person's pushed fork from its own address matches it to folders whose `app` names the author's address (ADR-0589's substitution and declared-address check).
 
 ## Context
 
@@ -98,8 +98,10 @@ epicenter-app://<app host>/<path>        one installed app; <app host> is never 
 ```
 
 - `<app host>` is derived from the app's address and stays the same across
-  updates and the person's commits, so the app's storage persists and no
-  other app shares it.
+  updates and the person's commits, so the app's storage stays with it. The
+  probe showed each host seeing only its own `localStorage` keys, within one
+  run on macOS; IndexedDB, OPFS, SharedWorker and BroadcastChannel
+  isolation, and persistence across restarts, are not yet shown.
 - The scheme serves `<path>` from the build the requesting window's label is
   pinned to (`InstalledWindowCommits`), by the rule above. A request whose
   label names no window of that app is refused.
@@ -113,39 +115,54 @@ author's source.**
 <data_dir>/apps/<encoded address>/            a clone of the author's repository, with a working tree
   .git/config                                 remote "upstream" = https://<host>/<owner>/<repo>.git (ADR-0589)
 <data_dir>/builds/<encoded address>/<commit>/ dist/ of one commit, built on this machine
+<data_dir>/removed-apps/<encoded address>/    a removed app's clone, kept whole
 ```
 
 - The desktop builds a commit of the clone, never its working tree, with the
   CLI's bundled Bun, as `build` does today: `bun install --frozen-lockfile
-  --ignore-scripts`, then `bun run build`. `builds_dir` in
-  `apps/epicenter/src-tauri/src/app_data.rs` joins `data_dir`, not
-  `cache_dir`, so an installed app opens with no network.
+  --ignore-scripts`, then `bun run build`.
+- Builds will live in app data, so an installed app opens with no network
+  and nothing purges a build. Today both `builds_dir` in
+  `apps/epicenter/src-tauri/src/app_data.rs` and `buildsDir` in
+  `packages/cli/src/app-paths.ts` join the cache directory. Today's restore
+  of a damaged build from the clone is deleted only once both join the data
+  directory.
 - A person's or an agent's change to an app is a commit in that clone.
-- `epicenter app update` fetches `upstream`, merges it into the person's
-  branch, and builds the result. When the person's commits conflict, it
-  stops and lists the conflicted files, and an agent resolves the Git merge
-  and commits.
+- `epicenter app update` refuses while the clone's working tree has
+  uncommitted changes. Otherwise it fetches `upstream`, merges it onto the
+  candidate ref `refs/epicenter/candidate`, never onto the person's branch,
+  builds that commit, and opens a window on that build. Only when the build
+  succeeds and its window opens does the person's branch move to the
+  candidate commit; the build it replaces stays as the previous build,
+  which "Open previous version" reopens. When the person's commits conflict, it stops on the
+  candidate and lists the conflicted files, and an agent resolves the Git
+  merge and commits there. A failed build leaves the branch where it was.
 - Pushing the clone to the person's hosted Git is optional. Once pushed,
   another device installs the person's version from that address.
-- `epicenter app remove` never deletes a commit that exists only in the
-  clone: it refuses while any commit on the clone's branches is reachable
-  from no remote-tracking ref, and names those commits.
+- `epicenter app remove` keeps the source clone, which is authored work: it
+  moves `<data_dir>/apps/<encoded address>/` whole, working tree included,
+  to `<data_dir>/removed-apps/<encoded address>/`, and installing that
+  address again moves it back. Nothing deletes a clone.
 
 **Installing an app trusts its author fully, with the person's account and
 machine and every folder in it.** The build runs the
 author's scripts as the person, and an agent resolving a merge runs the
 author's code to check its work. There is no per-commit approval: the bytes
-that run need not be bytes the person approved commit by commit, and pulling
-an update is the person's own act.
+that run need not be bytes the person approved commit by commit, and nothing
+shows the person an update before it builds.
 
 **A window keeps the build it opened with, and a build that fails never
-replaces the one that works.** The desktop records, per app, the commit whose
-build last succeeded, and a new window opens that build. A failed build
-leaves the record and every running window as they were, and its log names
-what failed.
+replaces the one that works.** The desktop records, per app, the current
+build (the commit whose build last succeeded) and the previous one, and a
+new window opens the current build. A failed build leaves the record and
+every running window as they were, and its log names what failed.
 
-**Principle 6 of [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md)
-reads:** An app is an ordinary single-page app in a Git repository at an
+**Principle 5 of [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md)
+reads:** A folder starts as a copy of its app's template (ADR-0585,
+ADR-0589); whether that template stays its Git upstream, and what produces
+the template commit a build names, is open (ADR-0605).
+
+**Principle 6 reads:** An app is an ordinary single-page app in a Git repository at an
 address, whose `bun run build` writes a static site to `dist/` that any static
 host serves at the root of an origin of its own, built once for every host
 (ADR-0605, ADR-0598). On the desktop an
@@ -159,8 +176,9 @@ Deleted:
   `requireShownCommit`, `requireApprovalForCommit`, `needsApproval`, the
   bare clone and its detached `HEAD`, and the Folders window's approval step;
 - built trees: `buildTree`, `recordTree`, `refs/epicenter/builds/<commit>`,
-  `matchesTree`, `hashEntries`, `provide`, the check at every open, and the
-  damaged-build restore with `BuildReservation` and `WindowPins.restoring` in
+  `matchesTree`, `hashEntries`, `provide`, the check at every open, and,
+  once builds live in app data, the damaged-build restore with
+  `BuildReservation` and `WindowPins.restoring` in
   `apps/epicenter/src-tauri/src/lib.rs`;
 - prefix serving: `installed_app_path` and the `/apps/<id>/<commit>/` routes
   in `scheme.rs`;
@@ -168,6 +186,15 @@ Deleted:
   `index.html`, and the inserted `<base href>` (ADR-0598);
 - publishing: the publish step in CI, `epicenter app publish`, and the
   per-app repositories of built files (ADR-0589).
+
+**Open, pending the owner: the template guarantees have no producer.**
+ADR-0589's `template-commit` file in every built commit, ADR-0598's
+template history carried in every build, and its fast-forward-only push of
+`template` were each written by the publisher, which is deleted above.
+Nothing here decides them. The options are to bind each source revision to
+a template commit and have `bun run build` bundle that commit's ancestry, or
+to withdraw template updates and have installing copy the starter files
+once.
 
 ## Consequences
 
@@ -195,8 +222,15 @@ Deleted:
   against published packages, with a frozen `bun.lock`.
 - A shell update rebuilds nothing: each build is kept by commit, and a new
   commit builds with the Bun the shell ships at that time.
-- `builds/` grows by one directory per built commit in app data until cleanup
-  exists, and app data is not purged as a cache is.
+- The desktop deletes a build that no window pins and that is neither the
+  current nor the previous successful build, so `builds/` holds at most
+  those two plus the pinned ones; app data is not purged as a cache is.
+- `removed-apps/` keeps every removed app's clone until the person deletes
+  it.
+- An author's new commit can run on the person's machine without anyone
+  seeing its diff. `epicenter app update` is a CLI command that agents run,
+  and a clean merge builds and becomes the current build with nothing
+  asking the person.
 - No build is sandboxed. A build runs as the person, with the inherited
   environment, inside the CLI's own binary (`BUN_BE_BUN=1`), which is the
   program Epicenter's keychain entries are stored by, so nothing keeps a
@@ -216,8 +250,10 @@ Deleted:
 - **Approve every commit before it builds.** The agent resolving a merge has
   already run the author's code by the time anyone approves, so the approval
   guards nothing the install did not already trust.
-- **A scheme per app.** One scheme with a host per app gave each app its own
-  storage on macOS without registering anything after startup.
+- **A scheme per app.** Not needed on macOS, where one scheme with a host
+  per app gave each app its own `localStorage` without registering anything
+  after startup. Open for Windows and Linux, where Tauri may not give each
+  host its own origin.
 - **Serve an app under a subpath of a shared origin (a GitHub Pages project
   site).** Every app on that origin shares one storage and one OPFS root,
   and the app must be built for its prefix, which a fork moved to another

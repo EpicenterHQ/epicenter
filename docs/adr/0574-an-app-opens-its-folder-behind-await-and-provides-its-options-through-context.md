@@ -39,9 +39,10 @@ the app's own in a browser, so the leaves had nothing left to choose.
 
 **The root page mounts `<FolderApp>` from `@epicenter/svelte` with the app's
 definition.** It starts opening when it mounts, with
-`openFolder({ id, definition })` from `@epicenter/folder`, where `id` is
-the `folder` parameter of the window's URL, or the app's default folder
-without one ([ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md)), and
+`openFolder({ definition })` from `@epicenter/folder`, which opens the
+window's folder: the `folder` parameter of the window's first URL, kept in
+`sessionStorage`, or the app's default folder without one
+([ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md)), and
 waits with `{#await}`. Loading is one `Loading` screen; a folder that cannot
 open is one `Empty` screen, worded per `OpenFolderError`
 (`describeOpenRefusal`), with "Try again" only for a refusal that may pass.

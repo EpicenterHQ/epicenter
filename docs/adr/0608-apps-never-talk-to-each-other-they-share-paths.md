@@ -1,9 +1,10 @@
 # 0608. Apps never talk to each other; they share paths
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-10-17
+- **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "the person may change it before the first push" and "After the first push the directory may be renamed freely": a folder's directory name is its repository name, made valid when the folder is made, and is never changed. [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at the consequence "renaming the folder on disk changes nothing remote": no local rename is offered either.
 - **Relates:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) (an app opens any folder by id), [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (principle 2: a folder is named by its directory), [ADR-0586](0586-you-open-a-folder-never-an-app.md) (a folder's id is its directory name), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`epicenter.json` describes tables), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (Sync refuses a link), [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md) (each browser origin holds its own replica).
-- **Unbuilt:** all of it: `resolve(path)` and `listFolders()` in `@epicenter/folder`; the refusal of a path that escapes the root; reporting a reference to an absent folder, with the offer to clone it; the desktop folder id as the directory name, with `DataFolderScopes` (`apps/epicenter/src-tauri/src/data_folders.rs:126-127`) and its `data:<name>` and app-id scopes deleted (ADR-0586); and `field.reference('table')`, which stores a bare file stem within one folder, storing a relative path.
+- **Unbuilt:** all of it: `resolve(path)` and `listFolders()` in `@epicenter/folder`; the refusal of a path that escapes the root; `openFolder` refusing an absent folder; reporting a reference to an absent folder, with the offer to clone a named repository; cloning only under the repository's own name, refusing another destination or an existing directory; the desktop folder id as the directory name, with `DataFolderScopes` (`apps/epicenter/src-tauri/src/data_folders.rs:124`) and its `data:<name>` and app-id scopes deleted (ADR-0586); and `field.reference('table')`, which stores a bare file stem within one folder, storing a relative path.
 
 ## Context
 
@@ -18,7 +19,7 @@ The folder id is not yet one name on both hosts. In a tab it is the
 directory name at the OPFS root (`packages/folder/src/browser-adapter.ts`,
 header). On the desktop it is a scope, `data:<name>` or an app id, mapped
 from directory names only in `DataFolderScopes`
-(`apps/epicenter/src-tauri/src/data_folders.rs:126-127`), which is filled
+(`apps/epicenter/src-tauri/src/data_folders.rs:124`), which is filled
 only when the Folders window lists folders. ADR-0586 already makes the id
 the directory name, unbuilt.
 
@@ -29,9 +30,19 @@ closed. It refused `../../../etc/passwd` and absolute paths. In a second
 origin holding no `crm`, `openFolder({ id: 'crm' })` succeeded with an empty
 folder: the library never reports that a folder is absent.
 
+A folder's directory name is not yet one name everywhere either. `epicenter
+clone` accepts any destination (`packages/cli/src/repository-commands.ts`),
+and a directory renamed after its first push keeps its hosted name
+(ADR-0546, ADR-0593). A link by directory name then reaches a different
+folder, or none, on another device.
+
 ## Decision
 
 > **`~/Epicenter` is one tree of paths. A folder is only where Git starts (a directory holding `epicenter.json` and `.git`). A table is a directory a folder describes. A reference is a relative path. Apps open paths.**
+
+The parenthetical describes a typical folder; principle 2 of ADR-0590 still
+decides what a folder is: every real, non-dot directory directly in
+`~/Epicenter`, with or without `epicenter.json` (ADR-0585).
 
 **Apps never talk to each other; they share paths.** No app calls another,
 sends it an intent, loads it as a plugin, or embeds it. Two apps meet when
@@ -52,29 +63,49 @@ that folder by its id:
 
 - A path that escapes the root (`~/Epicenter` on the desktop, the origin's
   OPFS root in a tab) is refused.
-- `field.reference` stores such a relative path.
+- `field.reference(table)` stores such a relative path instead of a bare
+  stem within `table` (`packages/definition/src/field/builders.ts`, read by
+  `packages/folder/src/projection.ts:150`). No app's definition calls
+  `field.reference` at `e9027cc744`; only tests, READMEs, and the generic
+  editor's hint handling name it. The change is a clean break with no stored
+  data to rewrite.
+
+**A folder's directory name is its hosted repository's name, on every device
+and in every origin.**
+
+- Making a folder gives its directory a valid repository name (ADR-0546's
+  rule), and its first push uses that name unchanged.
+- Cloning a folder uses the repository's name as the directory. It refuses
+  a destination of another name, and refuses when a directory of that name
+  exists, rather than cloning under another name.
+- No local rename is offered, as the hosted service offers none (ADR-0593).
 
 **Whether a person keeps tables in one folder or several is only where Git
-boundaries are drawn; apps do not depend on it.** An app finds a table by
-reading folders' `epicenter.json` descriptions, never by assuming which
-folder holds it, and follows existing references as written.
+boundaries are drawn; apps do not depend on it.** An app finds a table
+through the descriptions `listFolders()` returns, used as hints, never by
+assuming which folder holds it, and follows existing references as written.
 
 **The library resolves paths and lists folders:**
 
 ```txt
-openFolder({ id })   exists: opens the folder whose directory name is id
+openFolder({ id })   exists: opens the folder whose directory name is id; unbuilt: refuses an id naming no directory
 resolve(path)        unbuilt: a path from the root, such as crm/people/alex.md, to { folder: 'crm', path: 'people/alex.md' },
-                     or refused when it escapes the root; a caller joins a reference to its file's path first
-listFolders()        unbuilt: every folder at the root with its epicenter.json description
+                     refused when it escapes the root, and reported absent when no directory crm exists;
+                     it checks existence without reading or creating anything; a caller joins a reference to
+                     its file's path first
+listFolders()        unbuilt: every real, non-dot directory at the root (principle 2), each with its
+                     epicenter.json description when it has one, as a hint
 ```
 
 A folder's id is its directory name on both hosts, so a link resolves the
 same way in a tab and on the desktop.
 
 **A reference to a folder that is not there is reported as absent, never
-opened empty.** A resolver learns a folder is absent from `listFolders()`,
-since `openFolder({ id })` of a missing folder opens an empty one, and the
-app offers to clone the folder.
+opened empty.** `openFolder` refuses an `id` that names no directory, with
+or without a definition, so absence cannot race a listing. Making a folder
+stays a separate, explicit act (from a template, ADR-0585). The app offers
+to clone the absent folder, naming the repository explicitly, such as
+`<namespace>/crm` on the hosted service, and cloning it lands under `crm`.
 
 **In a browser, folders are sibling directories at the origin's OPFS root,
 so a path resolves as on the desktop, but each app origin holds its own
@@ -83,8 +114,10 @@ clones of one folder, which meet only through Sync.
 
 ## Consequences
 
-- Renaming a folder breaks every reference into it from another folder.
-  The break is repairable: an agent rewrites the references.
+- No folder is renamed, so no reference silently retargets. The cost: one
+  root cannot hold two folders with one name, even from two namespaces,
+  and a person who wants a new name makes a new repository and deletes the
+  old one (ADR-0593), and an agent rewrites the references into it.
 - A table's shape becomes a contract other apps read, so changing it
   reaches apps its author does not know.
 - In a tab, each app origin clones every folder it follows a link into, so
