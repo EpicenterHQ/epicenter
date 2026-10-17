@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { StoredRow, TableListing } from '@epicenter/folder';
-	import type { TableOptions } from '@epicenter/folder/query';
+	import type { Row, StoredRow, TableListing } from '@epicenter/folder';
+	import type { TableOptions, TableWrites } from '@epicenter/folder/query';
 	import { createBodyEditor } from '@epicenter/folder/svelte';
 	import { createMutation, useQueryClient } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
+	import { resultMutationOptions } from 'wellcrafted/query';
 	import { failureText } from './field-input';
 
 	type Fields = Record<string, unknown>;
@@ -23,6 +24,7 @@
 		stem,
 		stored,
 		options,
+		writes,
 		onlost,
 	}: {
 		/** The row this panel edits. */
@@ -30,6 +32,8 @@
 		/** The row as the cache holds it now. */
 		stored: StoredRow<Fields>;
 		options: TableOptions<Fields>;
+		/** The table's writes, each in its row's turn. */
+		writes: TableWrites<Fields>;
 		/** Keep text typed into a row deleted elsewhere, for the person to copy. */
 		onlost: (where: string, text: string) => void;
 	} = $props();
@@ -53,10 +57,16 @@
 		return item?.result.error === null ? item.result.data : undefined;
 	}
 
-	const writeRow = createMutation(() => options.write.mutationOptions());
+	const writeRow = createMutation(() =>
+		resultMutationOptions({
+			mutationKey: ['folder', 'write', row],
+			mutationFn: ({ from, to }: { from: Row<Fields>; to: Row<Fields> }) =>
+				writes.write(row, from, to),
+		}),
+	);
 	const body = createBodyEditor<Fields>({
 		row: current,
-		write: (change) => writeRow.mutateAsync({ stem: row, ...change }),
+		write: (change) => writeRow.mutateAsync(change),
 	});
 	const saveLater = useDebounce(() => body.save(), 1000);
 	// svelte-ignore state_referenced_locally

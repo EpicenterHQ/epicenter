@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { ConnectionKind } from '@epicenter/ai/send';
 	import type { StoredRow } from '@epicenter/folder';
-	import type { TableOptions } from '@epicenter/folder/query';
+	import type { TableWrites } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { resultMutationOptions } from 'wellcrafted/query';
 	import { commands } from '../bindings.gen';
 	import DebouncedText from './DebouncedText.svelte';
 	import { type ConnectionFields, failureText, keyStateKey, KIND_LABELS } from './connections';
@@ -19,18 +20,29 @@
 	 */
 	let {
 		stored,
-		options,
+		writes,
 	}: {
 		stored: StoredRow<ConnectionFields> & { stem: string };
-		options: TableOptions<ConnectionFields>;
+		/** The connections table's writes, each in its row's turn. */
+		writes: TableWrites<ConnectionFields>;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
 	const stem = stored.stem;
 	const fields = $derived(stored.row.fields);
 	const client = useQueryClient();
-	const setConnection = createMutation(() => options.set.mutationOptions());
-	const deleteConnection = createMutation(() => options.delete.mutationOptions());
+	const setConnection = createMutation(() =>
+		resultMutationOptions({
+			mutationKey: ['connections', 'set', stem],
+			mutationFn: (fields: Partial<ConnectionFields>) => writes.set(stem, fields),
+		}),
+	);
+	const deleteConnection = createMutation(() =>
+		resultMutationOptions({
+			mutationKey: ['connections', 'delete', stem],
+			mutationFn: () => writes.delete(stem),
+		}),
+	);
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(stem),
@@ -48,7 +60,7 @@
 	let savingKey = $state(false);
 
 	async function save(field: 'title' | 'model', text: string) {
-		await setConnection.mutateAsync({ stem, fields: { [field]: text.trim() } });
+		await setConnection.mutateAsync({ [field]: text.trim() });
 	}
 
 	async function saveKey() {
@@ -81,7 +93,7 @@
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		deleteConnection.mutate(stem);
+		deleteConnection.mutate();
 	}
 </script>
 

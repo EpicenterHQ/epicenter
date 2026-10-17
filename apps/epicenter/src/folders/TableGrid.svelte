@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PreparedFolderTable } from '@epicenter/folder';
-	import type { TableOptions } from '@epicenter/folder/query';
+	import type { TableOptions, TableWrites } from '@epicenter/folder/query';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -21,10 +21,13 @@
 		name,
 		table,
 		options,
+		writes,
 	}: {
 		name: string;
 		table: PreparedFolderTable;
 		options: TableOptions<Record<string, unknown>>;
+		/** The table's writes, each in its row's turn. */
+		writes: TableWrites<Record<string, unknown>>;
 	} = $props();
 
 	const listing = createQuery(() => options.list.queryOptions());
@@ -113,7 +116,7 @@
 											<FieldEditor
 												{column}
 												stem={item.stem}
-												{options}
+												{writes}
 												onlost={keepLost}
 												value={Object.hasOwn(stored.row.fields, column.name)
 													? stored.row.fields[column.name]
@@ -159,7 +162,7 @@
 								<FieldEditor
 									{column}
 									stem={selected.stem}
-									{options}
+									{writes}
 									onlost={keepLost}
 									multiline
 									value={Object.hasOwn(stored.row.fields, column.name)
@@ -176,7 +179,7 @@
 						</div>
 					{/each}
 					{#key selected.stem}
-						<RowBody stem={selected.stem} {stored} {options} onlost={keepLost} />
+						<RowBody stem={selected.stem} {stored} {options} {writes} onlost={keepLost} />
 					{/key}
 				</div>
 			{:else if selected.result.error.name === 'InvalidRow'}

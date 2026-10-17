@@ -33,7 +33,12 @@
 	 * declaration at launch, before it opens any app.
 	 */
 	import type { Definition, Folder } from '@epicenter/folder';
-	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
+	import {
+		type FolderOptions,
+		type FolderWritesOf,
+		folderOptions,
+		folderWrites,
+	} from '@epicenter/folder/query';
 	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -61,6 +66,7 @@
 		| {
 				readonly folder: Folder<Definition>;
 				readonly options: FolderOptions<Definition>;
+				readonly writes: FolderWritesOf<Folder<Definition>['tables']>;
 		  }
 		| undefined
 	>(undefined);
@@ -232,7 +238,7 @@
 			stop();
 			queryClient.removeQueries({ queryKey: options.key });
 		};
-		opened = { folder: data, options };
+		opened = { folder: data, options, writes: folderWrites(data, queryClient) };
 	}
 
 	onMount(() => {
@@ -441,6 +447,7 @@
 				<FolderView
 					folder={shown.folder}
 					folder$={shown.options}
+					writes={shown.writes}
 					declarationChanged={() => {
 						// Only while this folder is still the one shown.
 						if (opened === shown && openId !== undefined) void open(openId, true);

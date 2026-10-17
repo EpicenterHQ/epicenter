@@ -6,7 +6,12 @@
 		type PreparedFolderTable,
 	} from '@epicenter/folder';
 	import { visibleRows } from '@epicenter/folder/file-browser';
-	import { type FolderOptions, type TableOptions, whenIdle } from '@epicenter/folder/query';
+	import type {
+		FolderOptions,
+		FolderWritesOf,
+		TableOptions,
+		TableWrites,
+	} from '@epicenter/folder/query';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -25,6 +30,7 @@
 	 * declares no tables, and Save version. Everything shown is read through
 	 * `folder$`, the folder's query options, whose cache the app root keeps
 	 * fresh from `folder.onFilesChanged`; this view has no refresh of its own.
+	 * Everything written goes through `writes`, the folder's ordered writes.
 	 * Each field editor sets its own field, and a row's body is saved as a
 	 * change from the row it started from (`TableGrid`, ADR-0576).
 	 *
@@ -36,10 +42,12 @@
 	let {
 		folder,
 		folder$,
+		writes,
 		declarationChanged,
 	}: {
 		folder: Folder<Definition>;
 		folder$: FolderOptions<Definition>;
+		writes: FolderWritesOf<Folder<Definition>['tables']>;
 		declarationChanged: () => void;
 	} = $props();
 
@@ -57,6 +65,9 @@
 	/** A table's query options; every row is untyped in a folder opened by its declaration. */
 	const optionsOf = (name: string) =>
 		folder$.tables[name] as TableOptions<Record<string, unknown>>;
+	/** A table's writes, each in its row's turn. */
+	const writesOf = (name: string) =>
+		(writes.tables as Record<string, TableWrites<Record<string, unknown>>>)[name]!;
 
 	const files = createQuery(() => ({
 		...folder$.files.list.queryOptions(),
@@ -78,9 +89,16 @@
 		const { error } = await commands.installGit();
 		if (error !== null) installProblem = error;
 	}
-	const saveVersion = createMutation(() =>
-		folder$.history.saveVersion.mutationOptions(),
-	);
+	// The writes running land first, so the version holds them.
+	const saveVersion = createMutation(() => ({
+		mutationKey: ['folder', 'save-version'],
+		mutationFn: async () => {
+			await writes.idle();
+			const outcome = await folder.git.commit();
+			void client.invalidateQueries(folder$.pathFilter(['.git']));
+			return outcome;
+		},
+	}));
 	let versionLine = $state<VersionLine | undefined>(undefined);
 
 	/** The declaration's version: its SHA-256, `null` for no file. */
@@ -104,7 +122,7 @@
 		if (now === declaredAs || reopening) return;
 		reopening = true;
 		// Writes running finish against the declaration they were made with.
-		void whenIdle(client, { mutationKey: folder$.key }).then(declarationChanged);
+		void writes.idle().then(declarationChanged);
 	});
 
 	async function saveNewVersion() {
@@ -174,7 +192,7 @@
 	{#if tableName !== undefined}
 		{@const name = tableName}
 		{#key name}
-			<TableGrid {name} table={tables[name]!} options={optionsOf(name)} />
+			<TableGrid {name} table={tables[name]!} options={optionsOf(name)} writes={writesOf(name)} />
 		{/key}
 	{:else}
 		<div class="min-h-0 flex-1 overflow-auto p-4">

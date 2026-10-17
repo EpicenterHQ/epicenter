@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { TableOptions } from '@epicenter/folder/query';
+	import type { TableWrites } from '@epicenter/folder/query';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import * as Select from '@epicenter/ui/select';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
+	import { resultMutationOptions } from 'wellcrafted/query';
 	import {
 		commitText,
 		displayOf,
@@ -30,7 +31,7 @@
 	let {
 		column,
 		stem,
-		options,
+		writes,
 		value,
 		multiline = false,
 		onlost,
@@ -38,8 +39,8 @@
 		column: FieldColumn;
 		/** The row this editor edits. The grid keys each editor by it. */
 		stem: string;
-		/** The table's query options; this editor sends through its `set`. */
-		options: TableOptions<Record<string, unknown>>;
+		/** The table's writes; this editor sends through its `set`. */
+		writes: TableWrites<Record<string, unknown>>;
 		/** The stored value; `undefined` when the row leaves the field out. */
 		value: unknown;
 		/** Edit JSON in a tall box, as the row panel does. */
@@ -57,7 +58,13 @@
 	// svelte-ignore state_referenced_locally
 	const lose = onlost;
 	const editor = $derived(column.editor);
-	const setRow = createMutation(() => options.set.mutationOptions());
+	const setRow = createMutation(() =>
+		resultMutationOptions({
+			mutationKey: ['folder', 'set', field],
+			mutationFn: ({ stem, fields }: { stem: string; fields: Record<string, unknown> }) =>
+				writes.set(stem, fields),
+		}),
+	);
 
 	/** Why what is typed is not saved: it does not parse, or its save failed. */
 	let problem = $state<string | undefined>(undefined);
