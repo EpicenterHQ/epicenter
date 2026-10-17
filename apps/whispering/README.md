@@ -262,13 +262,6 @@ sent is the text connection in Settings, never the file.
 - A model typed in a transformation is used instead of the text connection's;
   leave it empty to use the connection's. Whispering keeps no list of
   providers or models.
-- A transformation an earlier version wrote names an endpoint. That file still
-  reads and runs, but its endpoint is only a condition: it runs while the text
-  connection is exactly that base URL, and otherwise says so and sends
-  nothing. Its page says so at the top of Instructions, and in Try it when the
-  endpoint is what stops it; **Remove the endpoint and use the text
-  connection** sets it to `null`. The app never rewrites these files on its
-  own.
 - Run one from a transcript's **Transform** menu on Recordings, or from Try it
   on the transformation's page, on a chosen transcript or on pasted text
   (below). When it cannot run, Try it says why and offers the fix it can:

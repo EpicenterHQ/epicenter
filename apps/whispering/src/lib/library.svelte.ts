@@ -1580,14 +1580,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// ------------------------------------------------------------------
 
 		/**
-		 * A new recipe file: a title and instructions. It names no endpoint and
-		 * no model of its own (`null`), so it runs with the text connection.
+		 * A new recipe file: a title and instructions. It names no model of its
+		 * own (`null`), so it runs with the text connection.
 		 */
 		createTransformation: action(
 			'create-transformation',
 			async ({ title, prompt }: { title: string; prompt: string }) => {
 				const { data: created, error } = await tableOf(TRANSFORMATIONS).create({
-					fields: { title, model: null, endpoint: null },
+					fields: { title, model: null },
 					body: prompt,
 				});
 				if (error !== null) return describeError(error);

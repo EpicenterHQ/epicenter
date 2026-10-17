@@ -9,7 +9,7 @@
  *
  * Key behaviors:
  * - Nothing is seeded: a transformation exists only after it is created
- * - A transformation is an ordinary Markdown row: title, model, and endpoint in
+ * - A transformation is an ordinary Markdown row: title and model in
  *   frontmatter, the prompt as its body
  * - Applying one writes a new result row and never writes the transcript
  * - A result carries the prompt and text that were sent, so it outlives edits
@@ -126,40 +126,32 @@ test('opening a folder seeds no transformation; creating one writes an ordinary 
 	const entry = library.transformations[0]!;
 	expect(library.selectedTransformationPath).toBe(entry.path);
 	const source = await readFile(join(root, entry.path), 'utf8');
-	// A new recipe names no model or endpoint: it runs with the text connection.
-	expect(entry.row.fields).toEqual({
-		title: 'Clean up',
-		model: null,
-		endpoint: null,
-	});
-	expect(source).toContain('model: null\nendpoint: null\n');
+	// A new recipe names no model: it runs with the text connection.
+	expect(entry.row.fields).toEqual({ title: 'Clean up', model: null });
+	expect(source).toContain('model: null\n');
 	expect(entry.row.body).toBe(CLEANUP.prompt);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 
-test('a new transformation copies no endpoint or model from another one', async () => {
+test('a new transformation copies no model from another one', async () => {
 	const { library } = await open();
 	const editor = await cleanupProfile(library);
 	editor.edit((row) => {
-		row.fields.endpoint = 'http://127.0.0.1:11434/v1';
+		row.fields.model = 'other-model';
 	});
 	await settle(library);
 
 	await library.createTransformation({ title: 'Summarize', prompt: 'Sum.\n' });
 
 	const created = library.selectedTransformation!.entry!;
-	expect(created.row.fields).toEqual({
-		title: 'Summarize',
-		model: null,
-		endpoint: null,
-	});
+	expect(created.row.fields).toEqual({ title: 'Summarize', model: null });
 });
 
 test('editing a transformation saves the whole row in one form and keeps fields the app does not know', async () => {
 	const { library, root } = await open();
 	await mkdir(join(root, 'transformations'));
 	const source =
-		'---\n# a comment\ntitle: Mine\nmodel: chat-model\nendpoint: http://127.0.0.1:18080/v1\ntemperature: 0.2\n---\nOriginal prompt\n';
+		'---\n# a comment\ntitle: Mine\nmodel: chat-model\ntemperature: 0.2\n---\nOriginal prompt\n';
 	const path = join(root, 'transformations', 'mine.md');
 	await writeFile(path, source);
 	await settle(library);
@@ -182,7 +174,6 @@ test('editing a transformation saves the whole row in one form and keeps fields 
 	expect<Record<string, unknown>>(row.row.fields).toEqual({
 		title: 'Renamed',
 		model: 'chat-model',
-		endpoint: 'http://127.0.0.1:18080/v1',
 		temperature: 0.2,
 	});
 	expect(row.row.body).toBe('A new prompt\n');
@@ -218,7 +209,7 @@ test('a transformation that does not read is named for repair, cannot run, and i
 	expect(await readFile(join(root, path), 'utf8')).toBe(broken);
 
 	text.input(
-		'---\ntitle: Repaired\nmodel: chat-model\nendpoint: http://127.0.0.1:18080/v1\nmood: curious\n---\nStill here\n',
+		'---\ntitle: Repaired\nmodel: chat-model\nmood: curious\n---\nStill here\n',
 	);
 	await settle(library);
 	expect(library.transformations.map((item) => item.path)).toEqual([path]);

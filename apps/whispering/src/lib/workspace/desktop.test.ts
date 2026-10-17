@@ -453,10 +453,7 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 	setup();
 	const granting = await granted();
 	const PATH = 'transformations/clean.md';
-	await granting.write(
-		PATH,
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
-	);
+	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
 	const workspace = expectOk(
 		await openDesktopWorkspace({ commands: noCommands }),
 	);

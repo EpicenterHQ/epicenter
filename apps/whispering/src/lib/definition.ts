@@ -18,10 +18,8 @@ export const AUDIO = 'audio';
  * A recipe is a reusable title and instructions: `transformations/<id>.md`
  * with its title in frontmatter and the instructions as its body. Where its
  * requests go is the device's text connection, never the file. A recipe may
- * name a model to use instead of the connection's, and a recipe written by an
- * earlier build may name an endpoint, which is kept as a constraint: it runs
- * only while the text connection is that endpoint. `null` or empty in either
- * field means "use the connection's".
+ * name a model to use instead of the connection's; `null` or empty means "use
+ * the connection's".
  *
  * Applying a recipe to a transcript writes a new row in `transformation_runs/`
  * naming the recording, transcription, and recipe it came from. Applying one
@@ -82,12 +80,6 @@ export const whisperingDefinition = defineFolder({
 				 * `gpt-4o-mini`. `null` or empty uses the connection's model.
 				 */
 				model: field.nullable(field.string()),
-				/**
-				 * Written by an earlier build, which sent requests here. Kept as a
-				 * constraint, never as a destination: the recipe runs only while the
-				 * text connection is exactly this base URL. `null` or empty is none.
-				 */
-				endpoint: field.nullable(field.string()),
 			},
 		}),
 		// A table name is one bare identifier, so the folder cannot be `transformation-runs`.

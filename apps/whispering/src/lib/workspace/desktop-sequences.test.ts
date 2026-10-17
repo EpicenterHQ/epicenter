@@ -72,7 +72,7 @@ afterEach(async () => {
 });
 
 const PATH = 'transformations/clean.md';
-const SEED = '---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n';
+const SEED = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n';
 
 /** The library over the desktop opener, in a granted directory holding `files`. */
 async function open(files: Record<string, string>, path = PATH) {

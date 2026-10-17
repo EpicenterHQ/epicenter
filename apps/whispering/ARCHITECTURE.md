@@ -79,12 +79,10 @@ What Whispering adds on top:
 - A transcription is a separate row, so a recording can have several and each is
   a readable file.
 - A transformation (a recipe) is a row in `transformations/`: title in
-  frontmatter, the instructions as its body. `model` and `endpoint` are
-  nullable: `null` or empty means "the text connection's". A string `model`
-  overrides the connection's model. A string `endpoint` (written by an earlier
-  build) is kept and read as a constraint the text connection must meet
-  exactly; it never chooses where a request goes. Its results refer to it by
-  stem, so the app never renames it either.
+  frontmatter, the instructions as its body. `model` is nullable: `null` or
+  empty means "the text connection's", and a string overrides the
+  connection's model. Its results refer to it by stem, so the app never
+  renames it either.
 - A result on a transcript is a row in `transformation_runs/`. A table name is
   one bare identifier, which is why the folder is not `transformation-runs`.
   The row names its recording, transcription, and transformation, and carries
@@ -396,9 +394,8 @@ carries the key: an endpoint that echoes it has it removed.
 `src/lib/recipe.ts` decides whether a recipe runs and with what, from the
 recipe as read (a listed row, or its text as typed in Source) and the text connection
 as last read: the file must read without issues and have instructions; a text
-connection must be set up; an endpoint the recipe names must be exactly the
-connection's base URL (canonical spelling, no same-origin relaxation); the
-model is the recipe's if it names one, else the connection's. The library
+connection must be set up; the model is the recipe's if it names one, else the
+connection's. The library
 exposes it as `library.resolve`, and the Run check, the post-processing
 choice, a transcript's Transform menu, the recipe's page, and both run entry
 points call it, so they cannot disagree.

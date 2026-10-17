@@ -7,7 +7,6 @@
 	the row it started from. Run sends what is typed first.
 -->
 <script lang="ts">
-	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -29,7 +28,6 @@
 	import { onDestroy, tick } from 'svelte';
 	import { TRANSFORMATIONS, type TransformationFields, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
-	import { recipeEndpoint } from '$lib/recipe.js';
 	import { committedState } from '$lib/status.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
@@ -153,12 +151,11 @@
 
 	/** Set fields of the transformation as its file is now, at once. */
 	const set = (fields: Partial<TransformationFields>) => library.setFields(TRANSFORMATIONS, id, fields);
-	const text = (key: 'title' | 'model' | 'endpoint') => recipe?.fields[key] ?? '';
+	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowStemOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
 	const resolved = $derived(library.resolve(recipe));
 	const connection = $derived(library.connections?.text);
-	const constraint = $derived(recipe && recipeEndpoint(recipe.fields));
 	/** Saved results on transcripts and on pasted text, newest first. */
 	const outputs = $derived(
 		[
@@ -381,30 +378,6 @@
 		</Tabs.List>
 		<Tabs.Content value="instructions" class="min-h-0 flex-1 overflow-y-auto">
 			<div class="flex flex-col gap-4 py-1">
-				{#if constraint}
-					<Alert.Root variant="warning" data-testid="transformation-endpoint-constraint">
-						<Alert.Title>Runs only at {constraint}</Alert.Title>
-						<Alert.Description class="flex flex-col gap-2">
-							<p>
-								An earlier version saved this endpoint in the transformation. It runs only while the text connection is exactly
-								that endpoint; the request always goes to the connection.
-							</p>
-							{#if row}
-								<Button
-									size="xs"
-									variant="outline"
-									class="self-start"
-									disabled={locked}
-									onclick={() => set({ endpoint: null })}
-									data-testid="remove-endpoint-constraint"
-								>
-									Remove the endpoint and use the text connection
-								</Button>
-							{/if}
-						</Alert.Description>
-					</Alert.Root>
-				{/if}
-
 				<Field.Field>
 					<Field.Label for="transformation-prompt">Instructions</Field.Label>
 					{#if row}
