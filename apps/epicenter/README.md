@@ -146,7 +146,7 @@ Files split by what they cost to lose (ADR-0539):
   local-transcription.json                    the active local model and when to unload it
 ~/Library/Caches/so.epicenter/                disposable
   checkouts/<app-id>/                         the commit an app builds from, only while it builds
-  builds/<app-id>/<commit>/                   built app bundles, never replaced and not yet cleaned up
+  builds/<app-id>/<commit>/                   built app bundles; a finished one is never replaced, and none is cleaned up yet
   builds/<app-id>/<commit>.built              that commit's build finished
   builds/<app-id>/<commit>.log                what the install and build printed
   builds/<app-id>/current                     the commit a newly opened window of the app loads
@@ -437,14 +437,15 @@ commit, its log, and that building runs the app's code on this computer.
 "Approve and build" calls `approve_app` with the commit shown; the CLI
 refuses if the clone moved since, then records the commit in
 `approvals.json` and builds that commit alone: it checks the commit out with
-`git --no-replace-objects worktree add --force --detach` into
+`git --no-replace-objects worktree add --force --force --detach` into
 `checkouts/<app-id>/`, with the clone's filter drivers emptied so no smudge
-filter runs, never building in the clone. It runs
+filter runs (Git LFS files build as their pointers) and sparse checkout off,
+never building in the clone. It runs
 `bun install --frozen-lockfile --ignore-scripts` at the checkout's root (when
 it has a `package.json`), runs `bun run build:installed` in the app's folder,
 copies its `dist/` beside `builds/<app-id>/<commit>/`, renames it into place,
 writes `builds/<app-id>/<commit>.built`, and removes the checkout with
-`git worktree remove --force`. A commit whose build carries its `.built`
+`git worktree remove --force --force`. A commit whose build carries its `.built`
 file is not built again; the directory is made current as it is. Approval
 covers the whole repository's commit.
 `epicenter app remove <id>` deletes the clone and its approval and leaves its
@@ -482,8 +483,9 @@ then opens the commit it answered ready in its own window, labelled
 `app:<id with _ for .>:<folder scope in hex>`. The window keeps that build
 until it is closed and opened again: a later approval and build changes
 which commit the next window opens, never an open window. Opening an app
-whose window is already open on that folder reveals that window when it runs
-the same build, and otherwise says the app is open on another version.
+whose window is already open on that folder reveals that window when the
+shell recorded it opening on the same commit, and otherwise leaves it and
+says the app is open on another version.
 Navigation pins a window's page and its relative assets to its build; every
 app shares the one origin, so it does not fence requests. Opened from the Apps list, the
 app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open

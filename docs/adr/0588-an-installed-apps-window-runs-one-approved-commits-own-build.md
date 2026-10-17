@@ -39,14 +39,15 @@ the commit it answers ready. A window opened earlier keeps the build it
 opened on, which was approved then and may since have been superseded.
 
 **A build holds one commit's tree.** `build` checks the approved commit out
-with `git --no-replace-objects worktree add --force --detach` into
+with `git --no-replace-objects worktree add --force --force --detach` into
 `<cache_dir>/checkouts/<app-id>/`, with every filter driver the clone's
 configuration names emptied and not required, so no smudge, clean, or
-process command runs. It runs `bun install --frozen-lockfile --ignore-scripts`
+process command runs, and with `core.sparseCheckout=false`, so the clone's
+sparse checkout does not narrow it. It runs `bun install --frozen-lockfile --ignore-scripts`
 at the checkout's root and `bun run build:installed` in the app's folder,
 copies `dist/` to a sibling of `builds/<app-id>/<commit>/`, renames it into
 place, writes `builds/<app-id>/<commit>.built`, and removes the checkout with
-`git worktree remove --force`. Nothing is built in the clone, and no other
+`git worktree remove --force --force`. Nothing is built in the clone, and no other
 worktree of the clone is pruned. The build's other inputs are the person's:
 global and system Git configuration other than filters and hooks (such as
 `core.autocrlf` and `eol` attributes), Bun's global package cache, global
@@ -54,7 +55,7 @@ global and system Git configuration other than filters and hooks (such as
 resolution that walks above the checkout (`~/node_modules`).
 
 **A window keeps the build it opened on.** Each build is served at its own
-path, and a complete build is never replaced or removed:
+path, and a finished build is never replaced or removed:
 
 ```txt
 epicenter-app://localhost/apps/<app-id>/<commit>/…   <cache_dir>/builds/<app-id>/<commit>/…
@@ -71,8 +72,10 @@ app shares the one origin and is trusted fully
 ([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)),
 so a page may still fetch another build's files.
 
-Opening an app whose window is already open on the folder reveals that
-window when it runs the requested build, and otherwise refuses with
+The shell records the commit each installed app window opened on
+(`InstalledWindowCommits` in `apps/epicenter/src-tauri/src/lib.rs`). Opening
+an app whose window is already open on the folder reveals that window when
+it opened on the requested commit, and otherwise leaves it and refuses with
 "<title> is open on another version. Close its window, then open it
 again." Building a commit whose directory carries its `.built` file makes
 it current as it is; a directory without one, partly copied or left by
@@ -86,7 +89,15 @@ running a build.
   update. Approval by local authorship can return with fork support, which
   would know which commits a person made.
 - Every open runs one `epicenter app update --commit` before its window
-  appears, which reads the clone and `approvals.json`.
+  appears, which reads the clone and `approvals.json`. When that commit is
+  already approved and current it answers without the build lock, so an
+  open never waits on another app's build.
+- Installed apps cannot use Git LFS: the checkout runs no LFS filter, so a
+  file LFS tracks builds as its pointer.
+- A `.built` file guards against a crash, not a power loss: nothing is
+  synced to disk, so a power loss can leave the file beside a build whose
+  files were lost. Deleting `builds/<app-id>/<commit>/` makes it build
+  again.
 - Each build runs `bun install` in a fresh checkout, so a build no longer
   reuses the clone's `node_modules`; Bun's global cache supplies the packages.
   The clone has no `node_modules` or `dist/`; it gains a
