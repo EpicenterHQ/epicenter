@@ -42,6 +42,10 @@ const log = createLogger('folder/save');
  */
 export const WRITE_ATTEMPTS = 3;
 
+/** Why a move stopped after its copy landed and another writer changed it. */
+const CARRY_STOPPED =
+	'another writer changed this path after the move copied the file here, so the move stopped: the file stays at its old path, and this path holds what that writer left, if anything';
+
 /** A write or a move that landed, or found nothing to change. */
 export type Written = {
 	readonly path: string;
@@ -211,9 +215,11 @@ export async function writeFile(
  * `InvalidPath`.
  *
  * No file at `path` is `InvalidPath`, and one already at `next` is
- * `Occupied`; nothing changes. Another writer changing `next` after the bytes
- * landed there is `Occupied` too, and leaves the file at `path` and `next` as
- * that writer left it.
+ * `Occupied`; nothing changes. Another writer changing or deleting `next`
+ * after the bytes landed there, while a write was being carried, is
+ * `InvalidPath` naming `next`: the file stays at `path`, and `next` holds
+ * what that writer left, possibly an edited copy, so both paths may hold
+ * the file.
  * `path` changing on every attempt is `KeptChanging`; both paths then hold
  * the file, as they do when the removal fails, which a person can see and
  * repair (ADR-0503). A move onto its own path answers the file as it is.
@@ -272,9 +278,15 @@ export async function movePath(
 			now.data.sha256,
 		);
 		if (carried.error !== null) return Err(writeFailure(next, carried.error));
-		// Another writer changed `next` since the bytes landed there: the
-		// file stays at `path`, and `next` is that writer's.
-		if (carried.data === 'stale') return WriteError.Occupied({ path: next });
+		// Another writer changed or deleted `next` since the bytes landed
+		// there: the file stays at `path`, and `next` is that writer's. This
+		// is not `Occupied`: the copy this move put there may have been
+		// edited, so both paths can hold the file, or `next` may hold none.
+		if (carried.data === 'stale')
+			return WriteError.InvalidPath({
+				path: next,
+				reason: CARRY_STOPPED,
+			});
 		moved = now.data;
 	}
 	return WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });

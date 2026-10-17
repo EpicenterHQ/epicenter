@@ -26,7 +26,8 @@
  * - `set` changes the fields it names of the row as it is now, and makes no
  *   row; a write over a row deleted since writes nothing; `delete` removes
  *   whatever is there; `rename` moves the file, row or not, to a vacant
- *   stem, never fusing two rows and carrying a write that lands meanwhile (see `save.test.ts` for each over a real directory)
+ *   stem, never fusing two rows and carrying a write that lands meanwhile; another writer changing the new stem during the carry stops it as
+ *   `InvalidPath`, not `Occupied` (see `save.test.ts` for each over a real directory)
  * - Every literal single-segment stem is an address, the empty one included;
  *   only the exact lowercase `.md` extension is a row
  *
@@ -565,27 +566,49 @@ test('a write that lands at the old stem during a rename is carried to the new o
 	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
 
-test('a write at the new stem during a rename stops it there: the row stays at its old stem', async () => {
+test('a write at the new stem during a rename stops it there, and the answer says both stems may hold the row', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const OTHER = VALID.replace('External', 'Other');
 	let raced = false;
 	// Once the bytes reached the new stem, one writer lands at the old stem
-	// and another at the new one.
+	// and another edits the copy at the new one.
 	s.beforeApply(async () => {
 		if (raced || (await s.stored('todos/b.md')) === undefined) return;
 		raced = true;
 		await s.put('todos/a.md', NEWER);
 		await s.put('todos/b.md', OTHER);
 	});
-	expect(expectErr(await s.table.rename('a', 'b'))).toMatchObject({
-		name: 'Occupied',
-		path: 'todos/b.md',
-	});
+	const stopped = expectErr(await s.table.rename('a', 'b'));
+	// Not `Occupied`: the new stem held nothing before the move, and the
+	// move left a copy there that another writer edited.
+	expect(stopped).toMatchObject({ name: 'InvalidPath', path: 'todos/b.md' });
+	expect(stopped.message).toContain('the file stays at its old path');
 	s.beforeApply(undefined);
 	expect(raced).toBe(true);
 	expect(await s.stored('todos/a.md')).toBe(NEWER);
 	expect(await s.stored('todos/b.md')).toBe(OTHER);
+});
+
+test('a delete at the new stem during a rename stops it there, and the answer does not say a file is there', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	let raced = false;
+	// Once the bytes reached the new stem, one writer lands at the old stem
+	// and another deletes the copy at the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+		await overwrite(s.base, 'todos/b.md', null);
+	});
+	const stopped = expectErr(await s.table.rename('a', 'b'));
+	expect(stopped).toMatchObject({ name: 'InvalidPath', path: 'todos/b.md' });
+	expect(stopped.message).toContain('holds what that writer left, if anything');
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	expect(await s.stored('todos/b.md')).toBeUndefined();
 });
 
 test('a delete of the old stem during a rename stands: the row is at neither stem', async () => {

@@ -753,8 +753,12 @@ SHA-256 that names them.
 - A move puts the bytes at `next` only where nothing is, so two moves onto
   one path never fuse two files, then removes `path` only while it holds
   them, carrying a write that lands there meanwhile. No file at `path` is
-  `InvalidPath`, and one at `next` is `Occupied`. A removal that failed leaves both paths
-  holding the file, to repair. The answer is the file as it stands at `next`.
+  `InvalidPath`, and one at `next` is `Occupied`; nothing changes. Another
+  writer changing or deleting `next` while a write is carried there stops
+  the move as `InvalidPath` naming `next`: the file stays at `path`, and
+  `next` holds what that writer left. `KeptChanging`, or a removal that
+  failed, leaves both paths holding the file, to repair. The answer is the
+  file as it stands at `next`.
 
 Internally every write and move is `put(path, bytes | null, ifMatch)` on the
 storage port: a create puts where `ifMatch` is `null`, so only where no file
@@ -963,9 +967,9 @@ fail as one `WriteError`.
 | Error | When |
 | --- | --- |
 | `InvalidValues` | a row that cannot be written; table writes only |
-| `InvalidPath` | a path no file can be at, a directory included, or a move from no file |
-| `Occupied` | a file already where a create or a move puts one |
-| `KeptChanging` | the file changed on every attempt |
+| `InvalidPath` | a path no file can be at, a directory included; a move from no file, or one whose copy another writer changed; on a case-insensitive disk, a name another spelling holds |
+| `Occupied` | a file already under exactly this spelling where a create or a move puts one; nothing was written |
+| `KeptChanging` | the file changed on every attempt; a move then leaves the file at both paths |
 | `Io` | storage failed, or its reply was lost and could not be confirmed |
 | `Closed` | the folder is closed |
 
@@ -987,8 +991,9 @@ fail as one `WriteError`.
   at `next` only where nothing is, so two renames onto one stem never fuse
   two rows, and `stem` goes only while it holds what moved: a write that
   lands there meanwhile is carried to `next` first. No file at `stem` is
-  `InvalidPath`, and a file at `next` is `Occupied`. A rename that placed `next` but could
-  not remove `stem` leaves both.
+  `InvalidPath`, and a file at `next` is `Occupied`; another writer
+  changing `next` during that carry is `InvalidPath`. A rename that placed
+  `next` but could not remove `stem` leaves both.
 - A delete beats an edit it never saw. A write over a row deleted since its
   `from` writes nothing and resolves `null`; only `create`, from no file,
   brings a row into existence. So an autosave, a retried fill, or a stale

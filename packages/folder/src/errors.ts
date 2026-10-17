@@ -122,12 +122,15 @@ export type RowReadError = FileError | InferErrors<typeof RowTextError>;
 /** The constructors of `RowReadError`. */
 export const RowReadError = { ...FileError, ...RowTextError };
 
-/** Why a write found the folder in its way. Nothing was written. */
+/** Why a write or a move stopped for what other writers left. */
 const WriteRefusal = defineErrors({
 	/**
-	 * A create, or a move's destination, found a file already at `path`. A
-	 * folder never writes over a file a writer did not read; the path itself
-	 * is usable.
+	 * A create, or a move's destination, found a file already at `path`,
+	 * under exactly this spelling, before writing anything; nothing was
+	 * written. A folder never writes over a file a writer did not read; the
+	 * path itself is usable. On a case-insensitive disk, a name held under
+	 * another spelling is `InvalidPath` instead, since no read of `path`
+	 * finds it.
 	 */
 	Occupied: ({ path }: { path: string }) => ({
 		message: `A file is already at '${path}'`,
@@ -135,7 +138,9 @@ const WriteRefusal = defineErrors({
 	}),
 	/**
 	 * A write found the file changed by another writer, merged with it, and
-	 * found it changed again, `attempts` times. Nothing of this write landed.
+	 * found it changed again, `attempts` times; nothing of the write landed.
+	 * A move whose source kept changing stops with its copy at the
+	 * destination, so both paths hold the file, to repair (ADR-0503).
 	 */
 	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
 		message: `'${path}' kept changing while it was saved; gave up after ${attempts} attempts`,
@@ -145,14 +150,17 @@ const WriteRefusal = defineErrors({
 });
 
 /**
- * Every way `folder.write` and `folder.move` fail (ADR-0576), nothing
- * written: a path no file can be written at (`InvalidPath`, a directory
- * included), a file already where a create or a move puts one (`Occupied`),
- * a file another writer kept changing past `WRITE_ATTEMPTS`
- * (`KeptChanging`), storage that failed or whose reply was lost and could
- * not be confirmed (`Io`, with the storage failure as its cause), or a
- * closed folder (`Closed`). A file that does not read as its kind is never a
- * refusal: it merges as text, for repair (ADR-0503).
+ * Every way `folder.write` and `folder.move` fail (ADR-0576): a path no file
+ * can be written at (`InvalidPath`, a directory included), a file already
+ * where a create or a move puts one (`Occupied`), a file another writer kept
+ * changing past `WRITE_ATTEMPTS` (`KeptChanging`), storage that failed or
+ * whose reply was lost and could not be confirmed (`Io`, with the storage
+ * failure as its cause), or a closed folder (`Closed`). A failed write
+ * wrote nothing. A move can stop after its copy landed, leaving the file at
+ * both paths, or with its destination changed by another writer; its error
+ * says which (`KeptChanging`, `InvalidPath`), and the person repairs it
+ * (ADR-0503). A file that does not read as its kind is never a refusal: it
+ * merges as text, for repair (ADR-0503).
  */
 export type WriteError =
 	| Extract<FileError, { name: 'Io' | 'Closed' | 'InvalidPath' }>
@@ -182,7 +190,8 @@ const RowValuesError = defineErrors({
  * Every way a table write fails: each way the one write fails, or a row the
  * table cannot write (`InvalidValues`), refused before the write. A table has
  * no naming or collision rule of its own (ADR-0457): a stem the folder does
- * not admit is `InvalidPath`, and an occupied one `Occupied`.
+ * not admit is `InvalidPath`, and one a file holds under exactly that
+ * spelling `Occupied`.
  */
 export type RowWriteError = WriteError | InferErrors<typeof RowValuesError>;
 
