@@ -280,8 +280,10 @@ Honeycrisp's definition and never written over (ADR-0538, ADR-0583);
 `so.epicenter.honeycrisp`, holding the notes and their `.git`. A browser
 folder an earlier version kept in IndexedDB is not read, copied, or deleted.
 A folder that cannot be opened is `<FolderApp>`'s refusal screen, never a
-fallback to browser storage. `src/lib/bundle.test.ts` checks that neither
-bundle holds a Yjs or Node module.
+fallback to browser storage. `src/lib/bundle.test.ts` checks that the
+installed bundle holds the desktop adapter and no browser adapter or OPFS
+store, that the browser bundle holds no desktop adapter, and that neither
+holds a Yjs or Node module.
 
 The page reads files through the query layer `getFolder()` answers
 (`queries`, `folderOptions` from `@epicenter/folder/query`, ADR-0548). The

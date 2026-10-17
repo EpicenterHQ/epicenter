@@ -299,6 +299,7 @@ them.
 | Test | What it checks |
 | --- | --- |
 | `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved keeping undeclared metadata, saves one at a time with text typed meanwhile in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere, a failed save kept and sent again, a deleted file, a change the body cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
+| `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, OPFS store, or Node module; the browser bundle has the browser adapter and no desktop adapter. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
 The granted opener and the directory engine are tested in

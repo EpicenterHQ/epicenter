@@ -134,12 +134,15 @@ other (ADR-0177). Every build owns its own storage, so this is now always true.
 
 This is the one hazard worth remembering. Removing an `epicenter-host` key from
 a seam breaks no build: resolution falls back silently to `default`, and the
-hosted build quietly runs the browser leaf. Each folder app's
-`src/lib/platform-selection.test.ts` bundles both builds with `bundledModules`
-from `@epicenter/vite-config/module-graph`, reads every module they pull in,
-and names the broken seam, and
-`apps/epicenter/scripts/build-applications.test.ts` runs the real build and reads
-the emitted bytes.
+hosted build quietly runs the browser leaf. A test that bundles both builds
+with `bundledModules` from `@epicenter/vite-config/module-graph`, reads every
+module they pull in, and names the broken seam guards each one: Todos'
+`src/lib/platform-selection.test.ts` for `#platform/auth`, Whispering's for
+`#platform/workspace`. The folder is no seam; the same alias trap holds for
+`installedAppViteConfig`'s alias of `@epicenter/folder`, which Honeycrisp's
+and Capture's `src/lib/bundle.test.ts` guard.
+`apps/epicenter/scripts/build-applications.test.ts` also runs the real build and
+reads the emitted bytes.
 
 ## Why not suffixes
 
