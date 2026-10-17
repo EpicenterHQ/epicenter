@@ -19,7 +19,7 @@ use epicenter_folder_core::registry::{Granted, GrantError, PageWork};
 use epicenter_folder_core::storage::{self, Children, FileListing, PutOutcome, StorageError};
 use tauri::{Manager, Runtime, Webview};
 
-use crate::Folders;
+use crate::{Folders, WindowFolder};
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
@@ -38,6 +38,18 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
         operation: operation.to_string(),
         message,
     }
+}
+
+/// Which app this window runs and the folder the shell handed it
+/// (`Folders::hand`), or `None` for a window that runs no app. An app's
+/// page opens this folder, never one its own URL names.
+#[tauri::command]
+#[specta::specta]
+pub async fn window_folder<R: Runtime>(webview: Webview<R>) -> Option<WindowFolder> {
+    webview
+        .app_handle()
+        .state::<Folders>()
+        .handed(webview.label())
 }
 
 /// Give this window the directory of a scope the shell registered for it.

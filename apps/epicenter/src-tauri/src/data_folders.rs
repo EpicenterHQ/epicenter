@@ -16,7 +16,9 @@
 //!   the one scope and publish under the plugin's one mutex per root.
 //! - Epicenter's own folder, `so.epicenter` (ADR-0539), is registered at
 //!   setup for the Folders window and Settings, which hold its AI
-//!   connections, and is listed under that scope.
+//!   connections, and is listed under that scope. Settings runs Epicenter
+//!   itself: the shell hands it `so.epicenter` as its own folder, so its
+//!   `openFolder({ app: 'so.epicenter', definition })` publishes there.
 //! - Any other folder gets a scope of its own, `data:<directory name>`, the
 //!   first time it is listed in a run, registered for the Folders window
 //!   alone as a data folder (`FolderConfig::data`): the shell never creates
@@ -46,7 +48,9 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
-use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfig};
+use tauri_plugin_epicenter_folder::{
+    FolderConfig, FolderExt, Folders, GrantError, ScopeConfig, WindowFolder,
+};
 
 use crate::app_data::DesktopPaths;
 use crate::{BuiltInApp, DesktopAppHandle};
@@ -64,6 +68,8 @@ const DECLARATION: &str = "epicenter.json";
 /// Register Epicenter's own folder for the Folders window and Settings. Each
 /// page runs `@epicenter/folder`'s own engine over its directory; the shell
 /// grants it to the windows registered for it, and owns nothing else.
+/// Settings runs Epicenter itself, so it is handed `so.epicenter` as its own
+/// folder; the Folders window runs no app and opens folders by ID.
 pub fn register_epicenter_folder(folders: &Folders, folder_dir: &Path) -> Result<(), String> {
     folders.register(ScopeConfig {
         scope: EPICENTER_FOLDER.into(),
@@ -73,6 +79,35 @@ pub fn register_epicenter_folder(folders: &Folders, folder_dir: &Path) -> Result
             .map(|window| window.id().into())
             .collect(),
     })?;
+    folders.hand(
+        BuiltInApp::Home.id(),
+        WindowFolder {
+            app: EPICENTER_FOLDER.into(),
+            folder: EPICENTER_FOLDER.into(),
+        },
+    );
+    Ok(())
+}
+
+/// Let the window `label` of installed app `id` into `folder`, the scope it
+/// opens, and into `so.epicenter`, whose `connections` table its AI commands
+/// name (ADR-0557, ADR-0570), and hand it `folder`: the page opens the folder
+/// `window_folder` answers it, never one its own URL names.
+pub fn admit_installed_window(
+    folders: &Folders,
+    label: &str,
+    id: &str,
+    folder: &str,
+) -> Result<(), GrantError> {
+    folders.permit(folder, label)?;
+    folders.permit(EPICENTER_FOLDER, label)?;
+    folders.hand(
+        label,
+        WindowFolder {
+            app: id.into(),
+            folder: folder.into(),
+        },
+    );
     Ok(())
 }
 
@@ -609,6 +644,56 @@ mod tests {
             json!({ "scope": EPICENTER_FOLDER })
         )
         .is_err());
+    }
+
+    #[test]
+    fn settings_is_handed_epicenters_folder_and_the_folders_window_nothing() {
+        let fixture = fixture("handed-built-in");
+        assert_eq!(
+            invoke(&fixture.window("home"), "window_folder", json!({})).unwrap(),
+            json!({ "app": EPICENTER_FOLDER, "folder": EPICENTER_FOLDER })
+        );
+        assert_eq!(
+            invoke(&fixture.window("folders"), "window_folder", json!({})).unwrap(),
+            Value::Null
+        );
+    }
+
+    /// An installed app's window is let into the folder it opens and into
+    /// Epicenter's folder, and is handed the first with its app's id; its
+    /// own folder is not one it may reach unless that is what it opens.
+    #[test]
+    fn an_installed_window_is_handed_the_folder_it_opens() {
+        let fixture = fixture("handed-installed");
+        data_folder(&fixture, "groceries", "{}");
+        let id = fixture.list().remove(0).id;
+        let label = "app:so_epicenter_todos:646174613a67726f636572696573";
+        admit_installed_window(fixture.app.folders(), label, "so.epicenter.todos", &id)
+            .unwrap();
+        let todos = fixture.window(label);
+
+        assert_eq!(
+            invoke(&todos, "window_folder", json!({})).unwrap(),
+            json!({ "app": "so.epicenter.todos", "folder": "data:groceries" })
+        );
+        assert_eq!(granted_names(&todos, &id), ["epicenter.json"]);
+        fs::create_dir_all(fixture.folder_dir.join(EPICENTER_FOLDER)).unwrap();
+        assert!(invoke(&todos, "grant_directory", json!({ "scope": EPICENTER_FOLDER })).is_ok());
+        assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");
+        assert!(invoke(
+            &todos,
+            "grant_directory",
+            json!({ "scope": "so.epicenter.todos" })
+        )
+        .is_err());
+        // An unregistered folder is refused, and nothing is handed.
+        let stray = "app:so_epicenter_todos:6e6f6e65";
+        assert!(admit_installed_window(fixture.app.folders(), stray, "so.epicenter.todos", "none")
+            .is_err());
+        assert_eq!(
+            invoke(&fixture.window(stray), "window_folder", json!({})).unwrap(),
+            Value::Null
+        );
     }
 
     #[test]

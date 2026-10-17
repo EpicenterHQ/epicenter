@@ -146,10 +146,11 @@ type HostOptions = {
  *
  * - `{ app, definition }`: an app opening its folder. `app` is the app's
  *   id, as its manifest names it, such as `so.epicenter.todos`. On the
- *   desktop the app opens the folder the shell handed its window
- *   (`?folder=`), or its own when it was handed none; in a browser it opens
- *   its own. Its own folder is the one named after `app`, and only there is
- *   `definition` published.
+ *   desktop the app opens the folder the shell handed its window, which the
+ *   shell answers the page (`window_folder`), and a window the shell opened
+ *   for another app, or for none, is refused (`AppMismatch`); in a browser
+ *   it opens its own. Its own folder is the one named after `app`, and only
+ *   there is `definition` published.
  * - `{ id }`: the folder named `id`, read with its own `epicenter.json`
  *   (none means no tables; its tables are then keyed by any name and checked
  *   at run time). For the Folders window, the CLI, and tools.

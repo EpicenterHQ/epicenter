@@ -3,10 +3,9 @@
  * notes are a real directory the Epicenter shell grants this window, and the
  * page runs the folder engine over it (ADR-0531).
  *
- * The shell opens the window with the folder it hands it as `?folder=<scope>`
- * (`open_installed_app`): Honeycrisp's own folder, `HONEYCRISP_FOLDER_ID`, or
- * another folder whose declaration contains Honeycrisp's shape (ADR-0538). A
- * window handed no folder opens Honeycrisp's own.
+ * The shell opens the window on one folder and answers the page which
+ * (`window_folder`): Honeycrisp's own folder, `HONEYCRISP_FOLDER_ID`, or
+ * another folder whose declaration contains Honeycrisp's tables (ADR-0538).
  *
  * `openFolder` publishes `honeycrispDefinition` only to Honeycrisp's own
  * folder, the one named after it, and this leaf sets up what that folder's

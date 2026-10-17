@@ -238,6 +238,25 @@ export const OpenFolderError = defineErrors({
 		folder,
 		problems,
 	}),
+	/**
+	 * A desktop app opener named an `app` the window does not run: the shell
+	 * opened the window for `windowApp`, or for no app (`null`), such as the
+	 * Folders window. Nothing was opened.
+	 */
+	AppMismatch: ({
+		app,
+		windowApp,
+	}: {
+		app: string;
+		windowApp: string | null;
+	}) => ({
+		message:
+			windowApp === null
+				? `This window runs no app, so it cannot open a folder as '${app}'`
+				: `This window runs '${windowApp}', so it cannot open a folder as '${app}'`,
+		app,
+		windowApp,
+	}),
 	/** A folder ID names one directory: not empty, `.`, or `..`, with no slash, backslash, or control character. */
 	InvalidId: ({ id }: { id: string }) => ({
 		message: `'${id}' cannot name a folder`,

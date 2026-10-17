@@ -1,10 +1,9 @@
 /**
  * The Epicenter host leaf: the page was served by the desktop host, so the
  * todos are a real directory the shell registered and granted this window.
- * The shell opens the window with the folder it hands it as `?folder=<scope>`
- * (`open_installed_app`): Todos's own folder, `TODOS_FOLDER_ID`, or another
- * folder whose declaration contains Todos's shape (ADR-0538). A window handed
- * no folder opens Todos's own.
+ * The shell opens the window on one folder and answers the page which
+ * (`window_folder`): Todos's own folder, `TODOS_FOLDER_ID`, or another folder
+ * whose declaration contains Todos's tables (ADR-0538).
  *
  * `openFolder` publishes `todosDefinition` only to Todos's own folder, the
  * one named after it, and reads any other through it, refusing one that does

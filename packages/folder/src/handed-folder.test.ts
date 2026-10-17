@@ -2,15 +2,14 @@
  * Handed Folder Tests
  *
  * Which folder the automatic `openFolder` opens in the desktop app, and how.
- * The shell opens an installed app's window with the folder it hands it as
- * `?folder=<scope>` (`open_installed_app`); the window's URL carries it here
- * the same way. The shell's commands are the stand-ins in
+ * The shell opens an installed app's window on one folder and answers the
+ * window which app it runs and which folder it was handed
+ * (`window_folder`). The shell's commands are the stand-ins in
  * `granted-shell.test-support.ts`, over a real directory per test.
  *
  * Key behaviors:
- * - A window handed no folder opens the app's own, named by the app's id,
- *   and publishes the app's definition there
- * - A window handed the app's own folder opens it the same way
+ * - A window handed the app's own folder, named by the app's id, publishes
+ *   the app's definition there
  * - A window handed another folder opens it through the app's definition:
  *   it reads its rows, writes them, and never publishes over its declaration
  * - `folder.id` is the granted scope, and `folder.own` is true only for the
@@ -18,7 +17,12 @@
  * - A handed folder whose declaration does not contain the definition is
  *   `ShapeMismatch`, naming the app and the folder's directory, and opens
  *   nothing
- * - A folder opened by ID, with no definition, reads its own `epicenter.json`
+ * - A folder opened by ID, with no definition, reads its own `epicenter.json`,
+ *   and with one reads through it, whatever the window was handed
+ * - The window's URL decides nothing: a page that navigated, or names
+ *   another folder in its query, still opens the folder the shell handed it
+ * - A page that names an app its window does not run is `AppMismatch`, and
+ *   asks for no folder
  *
  * See also:
  * - `read-through.test.ts` for the containment check and the Bun rule
@@ -33,6 +37,7 @@ import { scratch } from './git-http.test-support.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
+	type WindowFolder,
 } from './granted-shell.test-support.js';
 
 /** The shell; each test grants it the directory it opens. */
@@ -88,12 +93,18 @@ const GROCERIES = declaration('Groceries', {
 	},
 });
 
-/** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
-function openWindow(folder?: string) {
-	const url = new URL(`epicenter-app://localhost/apps/${TODOS}/`);
-	if (folder !== undefined) url.searchParams.set('folder', folder);
+/** What the shell hands the next window `grant` makes: Todos on its own folder. */
+let window: WindowFolder | null = { app: TODOS, folder: TODOS };
+
+/** The shell opened this window for Todos on `folder`, or for no app (`null`). */
+function openWindow(folder: string | null) {
+	window = folder === null ? null : { app: TODOS, folder };
+}
+
+/** The page's own URL, which decides nothing. */
+function navigate(path: string) {
 	Object.defineProperty(globalThis, 'location', {
-		value: url,
+		value: new URL(`epicenter-app://localhost/apps/${TODOS}/${path}`),
 		configurable: true,
 	});
 }
@@ -106,7 +117,7 @@ async function grant(name: string, files: Record<string, string> = {}) {
 		await mkdir(join(root, path, '..'), { recursive: true });
 		await writeFile(join(root, path), text);
 	}
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, window);
 	return root;
 }
 
@@ -117,14 +128,15 @@ const granted = () =>
 		.map(({ args }) => args.scope);
 
 beforeEach(() => {
+	window = { app: TODOS, folder: TODOS };
 	shell = createGrantedShell('');
 });
 afterEach(() => {
 	Reflect.deleteProperty(globalThis, 'location');
 });
 
-test("a window handed no folder opens the app's own and publishes its definition there", async () => {
-	openWindow();
+test("a window handed the app's own folder opens it and publishes its definition there", async () => {
+	openWindow(TODOS);
 	const root = await grant(TODOS);
 
 	const folder = expectOk(await openFolder({ app: TODOS, definition }));
@@ -142,17 +154,6 @@ test("a window handed no folder opens the app's own and publishes its definition
 	expect(
 		JSON.parse(await readFile(join(root, 'epicenter.json'), 'utf8')),
 	).toMatchObject({ title: 'Todos', tables: { todos: {} } });
-	await folder.close();
-});
-
-test("a window handed the app's own folder opens it the same way", async () => {
-	openWindow(TODOS);
-	await grant(TODOS);
-
-	const folder = expectOk(await openFolder({ app: TODOS, definition }));
-
-	expect(granted()).toEqual([TODOS]);
-	expect(folder.own).toBe(true);
 	await folder.close();
 });
 
@@ -205,6 +206,67 @@ test("a handed folder that does not contain the definition is refused by the app
 	);
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(recipes);
 	expect(existsSync(join(root, '.git'))).toBe(false);
+});
+
+test('a page that navigated, or names another folder in its URL, still opens the folder its window was handed', async () => {
+	openWindow('data:Groceries');
+	navigate('recordings');
+	await grant('Groceries', {
+		'epicenter.json': GROCERIES,
+		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
+	});
+
+	const reloaded = expectOk(await openFolder({ app: TODOS, definition }));
+	expect(reloaded.id).toBe('data:Groceries');
+	expect(reloaded.own).toBe(false);
+	await reloaded.close();
+
+	navigate(`?folder=${TODOS}`);
+	const claimed = expectOk(await openFolder({ app: TODOS, definition }));
+	expect(claimed.id).toBe('data:Groceries');
+	expect(granted()).toEqual(['data:Groceries', 'data:Groceries']);
+	await claimed.close();
+});
+
+test('a page that names an app its window does not run is refused, and asks for no folder', async () => {
+	openWindow(TODOS);
+	await grant('so.epicenter');
+
+	const epicenter = defineFolder({ title: 'Epicenter', tables: {} });
+	const retargeted = expectErr(
+		await openFolder({ app: 'so.epicenter', definition: epicenter }),
+	);
+	expect(retargeted).toMatchObject({
+		name: 'AppMismatch',
+		app: 'so.epicenter',
+		windowApp: TODOS,
+	});
+	expect(granted()).toEqual([]);
+
+	openWindow(null);
+	await grant('so.epicenter');
+	const appless = expectErr(await openFolder({ app: TODOS, definition }));
+	expect(appless).toMatchObject({ name: 'AppMismatch', windowApp: null });
+	expect(granted()).toEqual([]);
+});
+
+test('a folder opened by ID with a definition reads through it, whatever the window was handed', async () => {
+	openWindow(TODOS);
+	const root = await grant('Groceries', {
+		'epicenter.json': GROCERIES,
+		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
+	});
+
+	const folder = expectOk(
+		await openFolder({ id: 'data:Groceries', definition }),
+	);
+
+	expect(granted()).toEqual(['data:Groceries']);
+	expect(folder.own).toBe(false);
+	expect(Object.keys(folder.tables)).toEqual(['todos']);
+	expectOk(await folder.tables.todos.set('milk', { done: true }));
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
+	await folder.close();
 });
 
 test('a folder opened by ID with no definition reads its own epicenter.json, whatever the window was handed', async () => {

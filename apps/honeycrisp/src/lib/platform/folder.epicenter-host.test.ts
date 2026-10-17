@@ -5,13 +5,11 @@
  * the stand-in of `granted-shell.test-support.ts` in the folder package,
  * granting a real temporary directory per test, named as the shell names
  * it: an app's own folder by the app's id, another by its own name. The
- * window's URL carries the folder the shell handed it, as
- * `open_installed_app` writes it.
+ * shell answers the window the folder it handed it (`window_folder`).
  *
  * Key behaviors:
- * - A window handed no folder opens Honeycrisp's own folder with Honeycrisp's
+ * - A window handed Honeycrisp's own folder opens it with Honeycrisp's
  *   definition, and sets up its missing layout
- * - A window handed Honeycrisp's own folder opens it the same way
  * - A window handed another folder opens it through Honeycrisp's
  *   definition, reads its notes, and writes nothing: its declaration stays,
  *   and no layout or settings are added
@@ -54,16 +52,12 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 
 const { openNotesFolder } = await import('./folder.epicenter-host.js');
 
-/** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
-function openWindow(folder?: string) {
-	const url = new URL(
-		`epicenter-app://localhost/apps/${HONEYCRISP_FOLDER_ID}/`,
-	);
-	if (folder !== undefined) url.searchParams.set('folder', folder);
-	Object.defineProperty(globalThis, 'location', {
-		value: url,
-		configurable: true,
-	});
+/** The folder the shell handed the window, which runs this app: its own by default. */
+let handed = HONEYCRISP_FOLDER_ID;
+
+/** The shell opens the window on `folder`, or on the app's own folder. */
+function openWindow(folder: string = HONEYCRISP_FOLDER_ID) {
+	handed = folder;
 }
 
 /**
@@ -78,7 +72,10 @@ async function register(scope: string, files: Record<string, string> = {}) {
 		await Bun.write(join(root, path), text);
 	}
 	made.push(dirname(root));
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, {
+		app: HONEYCRISP_FOLDER_ID,
+		folder: handed,
+	});
 	return root;
 }
 
@@ -102,12 +99,12 @@ const declaration = (title: string, tables: Record<string, unknown>) =>
 	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
 
 afterEach(async () => {
-	Reflect.deleteProperty(globalThis, 'location');
+	handed = HONEYCRISP_FOLDER_ID;
 	for (const directory of made.splice(0))
 		await rm(directory, { recursive: true, force: true });
 });
 
-test("a window handed no folder opens Honeycrisp's own with its definition and sets it up", async () => {
+test("a window handed Honeycrisp's own folder opens it with its definition and sets it up", async () => {
 	openWindow();
 	const root = await register(HONEYCRISP_FOLDER_ID);
 
@@ -122,17 +119,6 @@ test("a window handed no folder opens Honeycrisp's own with its definition and s
 		'folders',
 		'notes',
 	]);
-	await folder.close();
-});
-
-test("a window handed Honeycrisp's own folder opens it the same way", async () => {
-	openWindow(HONEYCRISP_FOLDER_ID);
-	await register(HONEYCRISP_FOLDER_ID);
-
-	const folder = await openNotesFolder();
-
-	expect(granted()).toEqual([HONEYCRISP_FOLDER_ID]);
-	expect(folder.own).toBe(true);
 	await folder.close();
 });
 

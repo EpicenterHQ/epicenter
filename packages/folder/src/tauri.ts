@@ -11,8 +11,8 @@
  *
  * The shell installs the `tauri-plugin-epicenter-folder` crate and registers
  * each folder's directory under an ID for the windows that may edit it. An
- * app's window opens the folder the shell handed it (`?folder=`), or the
- * app's own. Importing this module does none of that and opens nothing.
+ * app's window opens the folder the shell handed it (`window_folder`).
+ * Importing this module does none of that and opens nothing.
  */
 export * from './contract.js';
 export { openFolder } from './tauri-adapter.js';

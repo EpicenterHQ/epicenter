@@ -5,6 +5,17 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
+	 *  Which app this window runs and the folder the shell handed it
+	 *  (`Folders::hand`), or `None` for a window that runs no app. An app's
+	 *  page opens this folder, never one its own URL names.
+	 */
+	windowFolder: () => __TAURI_INVOKE<{
+	/**  The app's id, such as `so.epicenter.todos`. */
+	app: string,
+	/**  The scope of the folder the window opens. */
+	folder: string,
+} | null>("plugin:epicenter-folder|window_folder"),
+	/**
 	 *  Give this window the directory of a scope the shell registered for it.
 	 *  The window reads and changes it through this plugin's commands alone;
 	 *  nothing else on disk becomes reachable. From the first grant the folder
@@ -139,6 +150,18 @@ export type StorageError =
  *  process held too long is one.
  */
 { name: "Io"; path: string; operation: string; message: string };
+
+/**
+ *  Which app a window runs, and the folder the shell handed it: what
+ *  `window_folder` answers that window. The app's own folder is the scope
+ *  named by its id; any other is a folder the person chose "Open in" on.
+ */
+export type WindowFolder = {
+	/**  The app's id, such as `so.epicenter.todos`. */
+	app: string,
+	/**  The scope of the folder the window opens. */
+	folder: string,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

@@ -211,9 +211,9 @@ export const commands = {
 	 *  window titled `title`. When that commit is not the build its window
 	 *  loads, the CLI builds it first, which it does only for a commit that may
 	 *  run (one made here, or approved). With `folder`, a scope the Folders
-	 *  window listed, the window is let into that folder and the app is handed
-	 *  it as `?folder=`. Without one, the app is handed its own folder,
-	 *  `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
+	 *  window listed, the window is let into that folder and handed it, which
+	 *  the page asks for with `window_folder`. Without one, the app is handed its
+	 *  own folder, `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
 	 */
 	openInstalledApp: (id: string, title: string, commit: string, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_installed_app", { id, title, commit, folder })),
 	/**  When the host drops the resident model. */

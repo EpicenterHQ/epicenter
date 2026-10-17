@@ -3,7 +3,9 @@
  * directory, for tests that run the production desktop opener
  * (`@epicenter/folder/tauri`) and everything above it.
  *
- * The shell grants the window one directory (`grant_directory`). The page's
+ * The shell grants the window one directory (`grant_directory`), and
+ * answers which app the window runs and the folder it was handed
+ * (`window_folder`), `null` unless a test names one. The page's
  * storage is the folder plugin's commands, one per storage method
  * (ADR-0581), and its history runs in the `epicenter` CLI through the
  * shell's history commands (ADR-0559). Here the Bun directory storage over
@@ -106,12 +108,23 @@ export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
 	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
 }
 
-/** The shell, granting the directory at `root`. */
-export function createGrantedShell(root: string) {
+/** Which app a window runs and the folder the shell handed it. */
+export type WindowFolder = { readonly app: string; readonly folder: string };
+
+/**
+ * The shell, granting the directory at `root`, to a window that runs
+ * `window.app` on `window.folder`, or no app.
+ */
+export function createGrantedShell(
+	root: string,
+	window: WindowFolder | null = null,
+) {
 	const calls: ShellCall[] = [];
 	/** Every data change that landed, in order. */
 	const changes: DataChange[] = [];
 	const control = {
+		/** The app the window runs and the folder it was handed (`window_folder`). */
+		window,
 		/** The shell's answer to `grant_directory`; throw to refuse. */
 		grant: (): unknown => ({ root }),
 		/** Runs before each data change is checked and made; await in it to hold the change. */
@@ -208,6 +221,7 @@ export function createGrantedShell(root: string) {
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
+		window_folder: () => control.window,
 		async grant_directory() {
 			const granted = control.grant();
 			await sweep();

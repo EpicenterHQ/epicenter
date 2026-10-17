@@ -11,10 +11,12 @@
  * and nothing else; the root is the shell's, and `credentials` and
  * `browser` options do not apply here.
  *
- * The shell opens an installed app's window with the folder it hands it as
- * `?folder=<scope>` (`open_installed_app`): the app's own folder, named by
- * the app's id, or any other folder (ADR-0560). An app opener opens that
- * folder, or the app's own when the window was handed none.
+ * The shell opens each installed app's window on one folder and records,
+ * for that window, which app it runs and which folder it was handed
+ * (`window_folder`): the app's own folder, named by the app's id, or any
+ * other folder a person chose "Open in" on (ADR-0560). An app opener asks
+ * the shell for it, so neither the page's URL nor its navigation decides
+ * the folder, and a page cannot open another app's folder as that app.
  *
  * This module exports the opener alone. `tauri.ts` is the public entry; the
  * automatic entry loads this module directly. The engine is a chunk loaded
@@ -78,27 +80,51 @@ async function grant(id: string): Promise<Result<Granted, OpenFolderError>> {
 	return Ok(directory);
 }
 
-/** The scope the shell handed this window as `?folder=`, if any. */
-function handedScope(): string | undefined {
-	const handed = new URLSearchParams(globalThis.location?.search).get('folder');
-	return handed || undefined;
+/**
+ * The folder the shell handed this window, which must be running `app`.
+ * Refused when the window runs another app, or none.
+ */
+async function handedFolder(
+	app: string,
+): Promise<Result<string, OpenFolderError>> {
+	let handed: Awaited<ReturnType<typeof commands.windowFolder>>;
+	try {
+		handed = await commands.windowFolder();
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	if (handed?.app !== app)
+		return OpenFolderError.AppMismatch({
+			app,
+			windowApp: handed?.app ?? null,
+		});
+	return Ok(handed.folder);
 }
 
 /**
  * Open a folder the shell registered: for `app`, the folder the shell
- * handed this window, or the app's own when it was handed none; for `id`,
- * that folder. Refusals are returned, not thrown: not running in the shell,
- * a missing ID, a folder this window may not use, an `epicenter.json` that
- * cannot be used, or one that does not contain the definition. Opening
- * creates no repository; the first commit does.
+ * handed this window, which must be running `app`; for `id`, that folder.
+ * Refusals are returned, not thrown: not running in the shell, a window
+ * that runs another app or none (`AppMismatch`), a missing ID, a
+ * folder this window may not use, an `epicenter.json` that cannot be used,
+ * or one that does not contain the definition. Opening creates no
+ * repository; the first commit does.
  */
 export const openFolder: OpenFolder = async <
 	const TDefinition extends FolderDefinition = FolderDefinition,
 >(
 	options: OpenFolderOptions<TDefinition>,
 ) => {
-	const id =
-		options.app === undefined ? options.id : (handedScope() ?? options.app);
+	if (!isTauri()) return OpenFolderError.NotTauri();
+	let id: string;
+	if (options.app === undefined) id = options.id;
+	else {
+		const { data: handed, error: handedError } = await handedFolder(
+			options.app,
+		);
+		if (handedError !== null) return Err(handedError);
+		id = handed;
+	}
 	const { data: target, error: definitionError } = opening(
 		id,
 		options.app,

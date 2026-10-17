@@ -2,10 +2,10 @@
  * The desktop workspace: Whispering installed in Epicenter (ADR-0493,
  * ADR-0552), over a real directory Epicenter's shell grants this window.
  *
- * The shell opens the window with the folder it hands it as `?folder=<scope>`
- * (`open_installed_app`): Whispering's own folder, `WHISPERING_FOLDER_ID`,
+ * The shell opens the window on one folder and answers the page which
+ * (`window_folder`): Whispering's own folder, `WHISPERING_FOLDER_ID`,
  * `<folder root>/so.epicenter.whispering`, or another folder chosen with "Open
- * in Whispering" (ADR-0560). A window handed no folder opens Whispering's own.
+ * in Whispering" (ADR-0560). The page's routes and reloads never change it.
  * `openFolder` publishes `whisperingDefinition` only to Whispering's own
  * folder, the one named after it, and reads any other through it (ADR-0538):
  * its declaration is never written, and one that does not contain the

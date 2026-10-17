@@ -206,9 +206,9 @@ pub async fn update_app(
 /// window titled `title`. When that commit is not the build its window
 /// loads, the CLI builds it first, which it does only for a commit that may
 /// run (one made here, or approved). With `folder`, a scope the Folders
-/// window listed, the window is let into that folder and the app is handed
-/// it as `?folder=`. Without one, the app is handed its own folder,
-/// `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
+/// window listed, the window is let into that folder and handed it, which
+/// the page asks for with `window_folder`. Without one, the app is handed its
+/// own folder, `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_installed_app(
@@ -254,7 +254,7 @@ pub async fn open_installed_app(
             Some(folder) => folder,
             None => data_folders::own_folder(&app, &id)?,
         };
-        crate::open_installed_window(&app, &id, &title, Some(&folder))
+        crate::open_installed_window(&app, &id, &title, &folder)
             .map_err(|error| format!("{error:#}"))
     })
     .await

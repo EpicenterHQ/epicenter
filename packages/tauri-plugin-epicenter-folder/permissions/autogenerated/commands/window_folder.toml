@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-window-folder"
+description = "Enables the window_folder command without any pre-configured scope."
+commands.allow = ["window_folder"]
+
+[[permission]]
+identifier = "deny-window-folder"
+description = "Denies the window_folder command without any pre-configured scope."
+commands.deny = ["window_folder"]

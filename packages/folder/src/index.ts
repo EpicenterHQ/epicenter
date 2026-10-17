@@ -20,7 +20,7 @@ export * from './contract.js';
 /**
  * Open a folder in the desktop app when the page runs there, and in this
  * browser's storage otherwise. On the desktop an app opens the folder the
- * shell handed its window, or its own; in a browser, its own. A desktop page
+ * shell handed its window; in a browser, its own. A desktop page
  * whose folder cannot be opened gets that refusal; it is never given browser
  * storage instead.
  */

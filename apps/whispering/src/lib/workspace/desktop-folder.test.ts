@@ -3,12 +3,11 @@
  * the stand-in of `granted-shell.test-support.ts` in the folder package,
  * granting a real temporary directory per test, named as the shell names
  * it: an app's own folder by the app's id, another by its own name. The
- * window's URL carries the folder the shell handed it, as
- * `open_installed_app` writes it.
+ * shell answers the window the folder it handed it (`window_folder`).
  *
  * Key behaviors:
- * - A window handed no folder, or Whispering's own, opens Whispering's own
- *   folder with Whispering's definition
+ * - A window handed Whispering's own folder opens it with Whispering's
+ *   definition
  * - A window handed another folder opens it through Whispering's
  *   definition, leaves its declaration as it was, and records under its
  *   scope
@@ -68,16 +67,12 @@ const noCommands: LocalTranscriptionCommands = {
 
 const open = () => openDesktopWorkspace({ commands: noCommands });
 
-/** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
-function openWindow(folder?: string) {
-	const url = new URL(
-		`epicenter-app://localhost/apps/${WHISPERING_FOLDER_ID}/`,
-	);
-	if (folder !== undefined) url.searchParams.set('folder', folder);
-	Object.defineProperty(globalThis, 'location', {
-		value: url,
-		configurable: true,
-	});
+/** The folder the shell handed the window, which runs this app: its own by default. */
+let handed = WHISPERING_FOLDER_ID;
+
+/** The shell opens the window on `folder`, or on the app's own folder. */
+function openWindow(folder: string = WHISPERING_FOLDER_ID) {
+	handed = folder;
 }
 
 /**
@@ -92,7 +87,10 @@ async function register(scope: string, files: Record<string, string> = {}) {
 		await Bun.write(join(root, path), text);
 	}
 	made.push(dirname(root));
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, {
+		app: WHISPERING_FOLDER_ID,
+		folder: handed,
+	});
 	return root;
 }
 
@@ -103,12 +101,12 @@ const granted = () =>
 		.map(({ args }) => args.scope);
 
 afterEach(async () => {
-	Reflect.deleteProperty(globalThis, 'location');
+	handed = WHISPERING_FOLDER_ID;
 	for (const directory of made.splice(0))
 		await rm(directory, { recursive: true, force: true });
 });
 
-test("a window handed no folder opens Whispering's own with its definition", async () => {
+test("a window handed Whispering's own folder opens it with its definition", async () => {
 	openWindow();
 	await register(WHISPERING_FOLDER_ID);
 
@@ -116,17 +114,6 @@ test("a window handed no folder opens Whispering's own with its definition", asy
 
 	expect(granted()).toEqual([WHISPERING_FOLDER_ID]);
 	expect(workspace.folderId).toBe(WHISPERING_FOLDER_ID);
-	expect(workspace.folder.own).toBe(true);
-	await workspace.close();
-});
-
-test("a window handed Whispering's own folder opens it the same way", async () => {
-	openWindow(WHISPERING_FOLDER_ID);
-	await register(WHISPERING_FOLDER_ID);
-
-	const workspace = expectOk(await open());
-
-	expect(granted()).toEqual([WHISPERING_FOLDER_ID]);
 	expect(workspace.folder.own).toBe(true);
 	await workspace.close();
 });

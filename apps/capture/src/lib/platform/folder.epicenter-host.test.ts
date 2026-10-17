@@ -12,7 +12,7 @@
  * - A refused grant (an unregistered scope, a refused window, a folder
  *   another Epicenter holds, a missing plugin, a call that never reaches the
  *   shell) fails the open with its reason
- * - A window handed no folder names the Capture scope and is told the
+ * - A window handed its own folder names the Capture scope and is told the
  *   directory
  * - A window handed another folder opens it through Capture's definition
  *   and leaves its declaration as it was
@@ -55,14 +55,12 @@ mock.module('@tauri-apps/api/core', () => ({
 	) => shell.invoke(name, body, options),
 }));
 
-/** Hand the window `folder` as the shell does, in its URL's `?folder=`. */
+/** The window runs Capture on `folder`, as the shell answers it (`window_folder`). */
+const captureOn = (folder: string) => ({ app: CAPTURE_FOLDER_ID, folder });
+
+/** Hand the window `folder` as the shell does. */
 function handWindow(folder: string) {
-	Object.defineProperty(globalThis, 'location', {
-		value: new URL(
-			`epicenter-app://localhost/apps/so.epicenter.capture/?folder=${encodeURIComponent(folder)}`,
-		),
-		configurable: true,
-	});
+	shell.control.window = captureOn(folder);
 }
 
 const { openCaptureFolder } = await import('./folder.epicenter-host.js');
@@ -113,12 +111,11 @@ async function openOne(
 
 beforeEach(async () => {
 	root = await grantedDirectory('capture-host-');
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, captureOn(CAPTURE_FOLDER_ID));
 });
 afterEach(async () => {
 	await rm(root, { recursive: true, force: true });
 	inShell = true;
-	Reflect.deleteProperty(globalThis, 'location');
 });
 
 /** A Rust `Err` rejects with the error value itself, not an `Error`. */
@@ -168,19 +165,22 @@ test.each([
 
 	await expect(openCaptureFolder()).rejects.toThrow(reason);
 
-	expect(shell.calls.map((call) => call.cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map((call) => call.cmd)).toEqual([
+		'window_folder',
+		'grant_directory',
+	]);
 });
 
-test('a window handed no folder names the Capture scope and is told the directory', async () => {
+test('a window handed its own folder names the Capture scope and is told the directory', async () => {
 	const folder = await openCaptureFolder();
 
-	expect(shell.calls[0]).toEqual({
-		cmd: 'grant_directory',
-		args: { scope: CAPTURE_FOLDER_ID },
-	});
+	expect(shell.calls.slice(0, 2)).toEqual([
+		{ cmd: 'window_folder', args: {} },
+		{ cmd: 'grant_directory', args: { scope: CAPTURE_FOLDER_ID } },
+	]);
 	expect(CAPTURE_FOLDER_ID).toBe('so.epicenter.capture');
 	// Everything after the grant is for the granted scope.
-	for (const call of shell.calls.slice(1))
+	for (const call of shell.calls.slice(2))
 		expect(call.args.scope).toBe(CAPTURE_FOLDER_ID);
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	await folder.close();
@@ -218,11 +218,11 @@ test('a window handed another folder opens it through the shape and keeps its de
 
 	const { folder, captures } = await opened();
 
-	expect(shell.calls[0]).toEqual({
-		cmd: 'grant_directory',
-		args: { scope: 'data:Notes' },
-	});
-	for (const call of shell.calls.slice(1))
+	expect(shell.calls.slice(0, 2)).toEqual([
+		{ cmd: 'window_folder', args: {} },
+		{ cmd: 'grant_directory', args: { scope: 'data:Notes' } },
+	]);
+	for (const call of shell.calls.slice(2))
 		expect(call.args.scope).toBe('data:Notes');
 	const { form } = await openOne(captures);
 	expect(form).toBeDefined();
@@ -238,7 +238,7 @@ test('a handed folder without the captures Capture reads is refused by name', as
 	await rm(root, { recursive: true, force: true });
 	root = join(await grantedDirectory('capture-host-'), 'Recipes');
 	await mkdir(root);
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, captureOn('data:Recipes'));
 	const recipes = declaration('Recipes', {
 		recipes: {
 			type: 'object',

@@ -110,15 +110,21 @@ afterAll(() => {
 		if (originalEnv[key] === undefined) delete process.env[key];
 		else process.env[key] = originalEnv[key];
 });
+/** The window runs Todos on its own folder. */
+const TODOS_WINDOW = {
+	app: 'so.epicenter.todos',
+	folder: 'so.epicenter.todos',
+};
+
 beforeEach(() => {
 	// A shell that has granted nothing yet; a refused grant is scripted on it.
-	shell = createGrantedShell('');
+	shell = createGrantedShell('', TODOS_WINDOW);
 	listenedTo = [];
 });
 
 /** The shell grants `root`. */
 function grantRoot(root: string) {
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, TODOS_WINDOW);
 }
 
 /** A granted folder over a new directory. */
@@ -137,13 +143,14 @@ test('a granted folder opens over its real directory', async () => {
 	const folder = expectOk(
 		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
-	// The grant comes first; every later call is a read, for the granted
-	// scope. Opening writes nothing and runs no `git`.
+	// The page asks which folder its window was handed, then for its grant;
+	// every later call is a read, for the granted scope. Opening writes
+	// nothing and runs no `git`.
 	const commands = () => new Set(shell.calls.map(({ cmd }) => cmd));
-	expect(shell.calls[0]).toEqual({
-		cmd: 'grant_directory',
-		args: { scope: 'so.epicenter.todos' },
-	});
+	expect(shell.calls.slice(0, 2)).toEqual([
+		{ cmd: 'window_folder', args: {} },
+		{ cmd: 'grant_directory', args: { scope: 'so.epicenter.todos' } },
+	]);
 	expect(
 		[...commands()]
 			.filter(
@@ -153,8 +160,8 @@ test('a granted folder opens over its real directory', async () => {
 					),
 			)
 			.sort(),
-	).toEqual(['grant_directory']);
-	for (const call of shell.calls.slice(1))
+	).toEqual(['grant_directory', 'window_folder']);
+	for (const call of shell.calls.slice(2))
 		expect(call.args.scope).toBe('so.epicenter.todos');
 	// The shell's watcher is how this page hears outside changes.
 	expect(listenedTo).toEqual(['epicenter-folder://changed']);
@@ -304,7 +311,10 @@ test('a refused grant is the refusal', async () => {
 		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	expect(refused.name).toBe('WindowNotPermitted');
-	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual([
+		'window_folder',
+		'grant_directory',
+	]);
 });
 
 test.each<[unknown, OpenFolderError['name']]>([
@@ -324,7 +334,10 @@ test.each<[unknown, OpenFolderError['name']]>([
 		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	expect(refused.name).toBe(name);
-	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual([
+		'window_folder',
+		'grant_directory',
+	]);
 });
 
 test('a directory removal whose reply is lost is Unconfirmed, and no data change', async () => {
