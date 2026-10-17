@@ -37,7 +37,7 @@ function stateText(app: InstalledApp) {
 		case 'ready':
 			return 'ready';
 		case 'unbuilt':
-			return 'builds when opened';
+			return 'approved, made current when opened';
 		case 'needsApproval':
 			return 'waiting for approval';
 		case 'broken':
