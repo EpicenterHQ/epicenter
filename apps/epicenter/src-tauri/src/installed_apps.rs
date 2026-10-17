@@ -23,22 +23,19 @@
 //! commit the CLI answered ready, with its folder grant
 //! (`open_installed_window`). An open window keeps the build it opened on
 //! (ADR-0588), so a new build changes no open window. The CLI checks a
-//! build against its commit at every open; when it answers that the build
-//! changed on disk, with a fresh copy beside it, the copy is swapped in only
-//! while no window runs that commit (`restore_build`).
+//! build against its commit at every open. When no window runs that commit,
+//! the open reserves it (`BuildReservation`) and asks the CLI to restore a
+//! damaged build in place (`--restore`); otherwise a damaged build is
+//! reported and left for the windows running it.
 
 use std::ffi::OsString;
-use std::fs;
-use std::io::ErrorKind;
-use std::path::Path;
 
 use tauri::ipc::Channel;
 use tauri::{Manager, Webview};
 
-use crate::app_data::DesktopPaths;
 use crate::cli::{window_invocation, CliError, CliExit};
 use crate::data_folders;
-use crate::InstalledWindowCommits;
+use crate::BuildReservation;
 
 /// Whether `value` is a full commit id, SHA-1 or SHA-256, in the lowercase
 /// hex Git prints, and so can name a directory under `builds/<id>/`.
@@ -55,9 +52,9 @@ pub(crate) fn is_commit(value: &str) -> bool {
 enum Answer {
     /// The approved commit, built, its build intact.
     Ready(String),
-    /// The approved commit, whose build directory changed on disk:
-    /// `repaired` names a fresh copy beside it in `builds/<id>/`.
-    Damaged { commit: String, repaired: String },
+    /// The approved commit, whose build directory changed on disk and was
+    /// left as it is, since a window may be running it.
+    Damaged(String),
 }
 
 fn answer(reply: Option<&str>) -> Option<Answer> {
@@ -66,84 +63,9 @@ fn answer(reply: Option<&str>) -> Option<Answer> {
     let commit = app.get("commit")?.as_str()?.to_string();
     match app.pointer("/state/kind")?.as_str()? {
         "ready" => Some(Answer::Ready(commit)),
-        "damaged" => Some(Answer::Damaged {
-            commit,
-            repaired: app.pointer("/state/repaired")?.as_str()?.to_string(),
-        }),
+        "damaged" => Some(Answer::Damaged(commit)),
         _ => None,
     }
-}
-
-/// Swap the fresh copy `repaired` into installed app `id`'s build of
-/// `commit` when no window runs that commit (ADR-0597), and otherwise leave
-/// both directories and refuse, so the windows on that commit are closed
-/// before their files are replaced.
-fn restore_build(
-    windows: &InstalledWindowCommits,
-    builds: &Path,
-    id: &str,
-    commit: &str,
-    repaired: &str,
-    title: &str,
-) -> Result<(), String> {
-    windows
-        .when_unused(id, commit, || replace_build(builds, id, commit, repaired))
-        .unwrap_or_else(|| {
-            Err(format!(
-                "{title}'s files for this version changed on disk. Close its windows, then open it again to restore them."
-            ))
-        })
-}
-
-/// Move `<builds>/<id>/<commit>/` aside, rename the fresh copy `repaired`,
-/// `.<commit>-<hex>` beside it, into its place, and remove the old one.
-fn replace_build(builds: &Path, id: &str, commit: &str, repaired: &str) -> Result<(), String> {
-    let fresh_copy = repaired
-        .strip_prefix(&format!(".{commit}-"))
-        .is_some_and(|suffix| {
-            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
-        });
-    if !is_app_id(id) || !is_commit(commit) || !fresh_copy {
-        return Err(format!(
-            "'{repaired}' is not a fresh copy of the build of {commit}."
-        ));
-    }
-    let app = builds.join(id);
-    let build = app.join(commit);
-    let fresh = app.join(repaired);
-    if !fs::symlink_metadata(&fresh).is_ok_and(|stats| stats.is_dir()) {
-        return Err(format!(
-            "The fresh copy of the build of {commit} is missing. Open it again."
-        ));
-    }
-    let aside = app.join(format!("{repaired}-damaged"));
-    let moved = match fs::rename(&build, &aside) {
-        Ok(()) => true,
-        Err(error) if error.kind() == ErrorKind::NotFound => false,
-        Err(error) => {
-            return Err(format!(
-                "The changed build could not be moved aside: {error}"
-            ))
-        }
-    };
-    if let Err(error) = fs::rename(&fresh, &build) {
-        if moved {
-            let _ = fs::rename(&aside, &build);
-        }
-        return Err(format!(
-            "The fresh copy of the build could not be moved into place: {error}"
-        ));
-    }
-    if moved {
-        // Best effort: the CLI removes what is left at its next build.
-        if let Err(error) = fs::remove_dir_all(&aside) {
-            log::warn!(
-                "the changed build {} was not removed: {error}",
-                aside.display()
-            );
-        }
-    }
-    Ok(())
 }
 
 /// Whether `id` can name a directory under `builds/`: the characters of a
@@ -182,14 +104,18 @@ fn install_args(source: &str, folder: &str) -> Vec<OsString> {
 
 /// The arguments for updating app `id`. With `commit`, nothing is fetched
 /// and only that commit, the one a person was shown, is built; `approve`
-/// approves it first.
-fn update_args(id: &str, commit: Option<&str>, approve: bool) -> Vec<OsString> {
+/// approves it first. `restore` asks an open to restore a damaged build in
+/// place, which only an open that reserved that build may ask.
+fn update_args(id: &str, commit: Option<&str>, approve: bool, restore: bool) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["app".into(), "update".into()];
     if let Some(commit) = commit {
         args.push(format!("--commit={commit}").into());
     }
     if approve {
         args.push("--approve".into());
+    }
+    if restore {
+        args.push("--restore".into());
     }
     args.extend(["--json".into(), "--".into(), id.into()]);
     args
@@ -259,7 +185,12 @@ pub async fn approve_app(
     commit: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&webview, update_args(&id, Some(&commit), true), on_line).await
+    stream(
+        &webview,
+        update_args(&id, Some(&commit), true, false),
+        on_line,
+    )
+    .await
 }
 
 /// Fetch app `id`'s default branch, which never moves its approved commit. A
@@ -271,17 +202,17 @@ pub async fn update_app(
     id: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&webview, update_args(&id, None, false), on_line).await
+    stream(&webview, update_args(&id, None, false, false), on_line).await
 }
 
 /// Open app `id` at `commit`, the commit the Folders window listed, in its own
 /// window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
 /// first, every time, and answers only for the approved commit, building it
-/// when it is not built and checking its build when it is. A build that
-/// changed on disk is replaced by the CLI's fresh copy when no window runs
-/// that commit, and otherwise the open is refused. A window already open on
-/// the folder is revealed when it runs that build, and refused when it runs
-/// another. With
+/// when it is not built and checking its build when it is. When no window
+/// runs that commit, the open reserves its build and the CLI restores a
+/// build that changed on disk; otherwise such a build is refused. A window
+/// already open on the folder is revealed when it runs that build, and
+/// refused when it runs another. With
 /// `folder`, a scope the Folders window listed, the window is let into that
 /// folder and handed it, which the page asks for with `window_folder`.
 /// Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
@@ -301,21 +232,30 @@ pub async fn open_installed_app(
         ));
     }
     let app = webview.app_handle().clone();
+    // Held until this open's window is pinned, so no other open replaces the
+    // build while it loads.
+    let reservation = BuildReservation::take(&app, &id, &commit);
+    let restore = reservation.is_some();
     let exit = window_invocation(&webview)
         .map_err(|error| format!("{error:?}"))?
-        .run(&update_args(&id, Some(&commit), false), None, |_| Ok(()))
+        .run(
+            &update_args(&id, Some(&commit), false, restore),
+            None,
+            |_| Ok(()),
+        )
         .await
         .map_err(|error| match error {
             CliError::Failed { message } => message,
             other => format!("{other:?}"),
         })?;
-    let repaired = match exit.code {
+    match exit.code {
         0 => match answer(exit.reply.as_deref()) {
-            Some(Answer::Ready(built)) if built == commit => None,
-            Some(Answer::Damaged {
-                commit: built,
-                repaired,
-            }) if built == commit => Some(repaired),
+            Some(Answer::Ready(built)) if built == commit => {}
+            Some(Answer::Damaged(built)) if built == commit => {
+                return Err(format!(
+                    "{title}'s files for this version changed on disk. Close its windows, then open it again to restore them."
+                ))
+            }
             _ => return Err(format!("{title} was not built at {commit}.")),
         },
         1 => {
@@ -324,29 +264,22 @@ pub async fn open_installed_app(
             ))
         }
         _ => return Err(exit.failure("app update")),
-    };
+    }
     // The app may read `so.epicenter` through a definition its declaration
     // must contain, so it waits for this launch to publish it.
     if let Some(declared) = app.try_state::<crate::cli::EpicenterFolderDeclared>() {
         declared.finished().await;
     }
     tauri::async_runtime::spawn_blocking(move || {
-        if let Some(repaired) = repaired {
-            restore_build(
-                &app.state::<InstalledWindowCommits>(),
-                &app.state::<DesktopPaths>().builds_dir(),
-                &id,
-                &commit,
-                &repaired,
-                &title,
-            )?;
-        }
         let folder = match folder {
             Some(folder) => folder,
             None => data_folders::own_folder(&app, &id)?,
         };
-        crate::open_installed_window(&app, &id, &commit, &title, &folder)
-            .map_err(|error| format!("{error:#}"))
+        let opened =
+            crate::open_installed_window(&app, &id, &commit, &title, &folder, reservation.as_ref())
+                .map_err(|error| format!("{error:#}"));
+        drop(reservation);
+        opened
     })
     .await
     .map_err(|error| format!("the app window could not be opened: {error}"))?
@@ -387,11 +320,11 @@ mod tests {
             ["app", "install", "--json", "--", "--evil"]
         );
         assert_eq!(
-            strings(update_args("com.example.board", None, false)),
+            strings(update_args("com.example.board", None, false, false)),
             ["app", "update", "--json", "--", "com.example.board"]
         );
         assert_eq!(
-            strings(update_args("com.example.board", Some("abc"), true)),
+            strings(update_args("com.example.board", Some("abc"), true, false)),
             [
                 "app",
                 "update",
@@ -402,9 +335,21 @@ mod tests {
                 "com.example.board"
             ]
         );
+        assert_eq!(
+            strings(update_args("com.example.board", Some("abc"), false, true)),
+            [
+                "app",
+                "update",
+                "--commit=abc",
+                "--restore",
+                "--json",
+                "--",
+                "com.example.board"
+            ]
+        );
     }
 
-    /// A window opens only on the build the CLI answered ready or restored,
+    /// A window opens only on the build the CLI answered ready,
     /// never on a commit it is still waiting to approve or failed to build.
     #[test]
     fn a_window_opens_only_on_the_commit_the_cli_answered_for() {
@@ -417,17 +362,13 @@ mod tests {
             Some(Answer::Ready(commit.clone()))
         );
         assert_eq!(
-            answer(Some(&reply(r#"{"kind":"damaged","repaired":".aaa-01"}"#))),
-            Some(Answer::Damaged {
-                commit: commit.clone(),
-                repaired: ".aaa-01".into()
-            })
+            answer(Some(&reply(r#"{"kind":"damaged"}"#))),
+            Some(Answer::Damaged(commit.clone()))
         );
         for state in [
             r#"{"kind":"unbuilt"}"#,
             r#"{"kind":"needsApproval"}"#,
             r#"{"kind":"broken","problem":"x"}"#,
-            r#"{"kind":"damaged"}"#,
         ] {
             assert_eq!(answer(Some(&reply(state))), None, "{state}");
         }
@@ -439,104 +380,6 @@ mod tests {
         ] {
             assert_eq!(answer(other), None, "{other:?}");
         }
-    }
-
-    /// A build that changed on disk, with the CLI's fresh copy beside it.
-    fn damaged_build(commit: &str) -> (tempfile::TempDir, std::path::PathBuf, String) {
-        let temporary = tempfile::tempdir().unwrap();
-        let builds = temporary.path().join("builds");
-        let app = builds.join("com.example.board");
-        let repaired = format!(".{commit}-0123abcd");
-        fs::create_dir_all(app.join(commit)).unwrap();
-        fs::write(app.join(commit).join("index.html"), "edited").unwrap();
-        fs::create_dir_all(app.join(&repaired)).unwrap();
-        fs::write(app.join(&repaired).join("index.html"), "approved").unwrap();
-        (temporary, builds, repaired)
-    }
-
-    /// The fresh copy replaces a damaged build only while no window runs that
-    /// commit; a window on it keeps its files and the open is refused.
-    #[test]
-    fn a_damaged_build_is_replaced_only_when_no_window_runs_it() {
-        let commit = "b".repeat(40);
-        let (_temporary, builds, repaired) = damaged_build(&commit);
-        let app = builds.join("com.example.board");
-        let windows = InstalledWindowCommits::default();
-        windows.record("app:com_example_board:61", &commit);
-        // Another app's window, or this app's window on another commit, does
-        // not hold it.
-        windows.record("app:com_example_boards:61", &commit);
-        windows.record("app:com_example_board:62", &"c".repeat(40));
-
-        let refused = restore_build(
-            &windows,
-            &builds,
-            "com.example.board",
-            &commit,
-            &repaired,
-            "Board",
-        )
-        .unwrap_err();
-        assert_eq!(
-            refused,
-            "Board's files for this version changed on disk. Close its windows, then open it again to restore them."
-        );
-        assert_eq!(
-            fs::read_to_string(app.join(&commit).join("index.html")).unwrap(),
-            "edited"
-        );
-        assert!(app.join(&repaired).is_dir());
-
-        windows.forget("app:com_example_board:61");
-        restore_build(
-            &windows,
-            &builds,
-            "com.example.board",
-            &commit,
-            &repaired,
-            "Board",
-        )
-        .unwrap();
-        assert_eq!(
-            fs::read_to_string(app.join(&commit).join("index.html")).unwrap(),
-            "approved"
-        );
-        let mut left: Vec<_> = fs::read_dir(&app)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect();
-        left.sort();
-        assert_eq!(left, [commit.clone()]);
-    }
-
-    /// Only a fresh copy of that commit's build, beside it, is swapped in.
-    #[test]
-    fn only_a_fresh_copy_beside_the_build_is_swapped_in() {
-        let commit = "d".repeat(40);
-        let (_temporary, builds, _repaired) = damaged_build(&commit);
-        for repaired in [
-            "../x".to_string(),
-            format!(".{commit}-"),
-            format!(".{commit}-0123/../../x"),
-            format!(".{}-0123abcd", "e".repeat(40)),
-            format!("{commit}-0123abcd"),
-            format!(".{commit}-0123abce"),
-        ] {
-            assert!(
-                replace_build(&builds, "com.example.board", &commit, &repaired).is_err(),
-                "{repaired}"
-            );
-        }
-        assert_eq!(
-            fs::read_to_string(
-                builds
-                    .join("com.example.board")
-                    .join(&commit)
-                    .join("index.html")
-            )
-            .unwrap(),
-            "edited"
-        );
     }
 
     #[test]

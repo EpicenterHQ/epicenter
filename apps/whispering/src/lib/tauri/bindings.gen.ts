@@ -186,11 +186,11 @@ export const commands = {
 	 *  Open app `id` at `commit`, the commit the Folders window listed, in its own
 	 *  window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
 	 *  first, every time, and answers only for the approved commit, building it
-	 *  when it is not built and checking its build when it is. A build that
-	 *  changed on disk is replaced by the CLI's fresh copy when no window runs
-	 *  that commit, and otherwise the open is refused. A window already open on
-	 *  the folder is revealed when it runs that build, and refused when it runs
-	 *  another. With
+	 *  when it is not built and checking its build when it is. When no window
+	 *  runs that commit, the open reserves its build and the CLI restores a
+	 *  build that changed on disk; otherwise such a build is refused. A window
+	 *  already open on the folder is revealed when it runs that build, and
+	 *  refused when it runs another. With
 	 *  `folder`, a scope the Folders window listed, the window is let into that
 	 *  folder and handed it, which the page asks for with `window_folder`.
 	 *  Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
