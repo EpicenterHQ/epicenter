@@ -58,9 +58,11 @@ ADR-0540 it is wiring, not a sandbox.
 | core window and webview | `@tauri-apps/api` 2.12 | `core:window:allow-hide`, `allow-show`, `allow-set-focus`, `allow-destroy` |
 | autostart 2.5.1 | none | granted to no window; Rust calls it |
 
-Clipboard-manager, global-shortcut, opener, and autostart are registered
-(`apps/epicenter/src-tauri/src/lib.rs:522-527`); registering notification is
-part of this decision. Each JS package is published on npm as 2.x.
+Of these, a default build registers only the opener. Clipboard-manager and
+global-shortcut build and register only with the shell's `dictation` Cargo
+feature, parked with native dictation until a grant uses them (ADR-0596).
+Autostart is not registered (see Unbuilt above), and registering notification
+is part of this decision. Each JS package is published on npm as 2.x.
 
 **Custom Rust stays for six things:**
 
