@@ -59,7 +59,9 @@ Vocab       chats.focus[].entryId                 -> entry
 ```
 
 Honeycrisp's note groups, the `folders` table and `notes.folderId`, collide
-with Folder; P7 decides their name.
+with Folder. They are not renamed here: a note group is likely to become a
+real directory inside a nested table, which removes both the table and the
+field, so that design decides them.
 
 **Each verb has one error union.** Opening a folder fails with `OpenError`
 (was `OpenFolderError`), reading with `ReadError` (was `RowReadError`), writing
