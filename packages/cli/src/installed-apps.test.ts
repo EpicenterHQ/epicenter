@@ -539,6 +539,29 @@ test("fetching writes only the default branch's tracking ref, whatever Git's glo
 	expect(shGit(clone, 'rev-parse', 'refs/remotes/origin/main')).toBe(theirs);
 });
 
+test("the installed clone keeps no ref but the tracking ref, whatever Git's global configuration maps", async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	await withGlobalConfig(
+		f,
+		'[remote "origin"]\n\tfetch = +refs/heads/*:refs/epicenter/builds/*\n',
+		() => install(f.paths, upstream, ''),
+	);
+	expect(
+		shGit(join(f.paths.appsDir, BOARD), 'for-each-ref', '--format=%(refname)'),
+	).toBe('refs/remotes/origin/main');
+});
+
+test('a commit named at install without approving is refused, not ignored', async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	const first = shGit(upstream, 'rev-parse', 'HEAD');
+	await expect(
+		install(f.paths, upstream, '', { commit: first }),
+	).rejects.toThrow('--approve');
+	expect(await readdir(f.paths.appsDir).catch(() => [])).toEqual([]);
+});
+
 test('approving names the commit a person saw, and never fetches one they did not', async () => {
 	const f = await fixture();
 	const upstream = await appRepository(f, 'board');

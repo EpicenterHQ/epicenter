@@ -23,10 +23,11 @@
 //! commit the CLI answered ready, with its folder grant
 //! (`open_installed_window`). An open window keeps the build it opened on
 //! (ADR-0588), so a new build changes no open window. The CLI checks a
-//! build against its commit at every open. When no window runs that commit,
-//! the open reserves it (`BuildReservation`) and asks the CLI to restore a
-//! damaged build in place (`--restore`); otherwise a damaged build is
-//! reported and left for the windows running it.
+//! build against its commit at every open. Only when it answers that the
+//! build is damaged does the open reserve that commit (`BuildReservation`),
+//! which fails while a window runs it, and ask the CLI to restore it in place
+//! (`--restore`); otherwise the damaged build is left for the windows running
+//! it (`checked_open`).
 
 use std::ffi::OsString;
 
@@ -55,6 +56,56 @@ enum Answer {
     /// The approved commit, whose build directory changed on disk and was
     /// left as it is, since a window may be running it.
     Damaged(String),
+}
+
+/// The CLI's answer for `commit`, or why it opens nothing: waiting for
+/// approval, another commit, or a failure.
+fn answer_for(exit: &CliExit, commit: &str, title: &str) -> Result<Answer, String> {
+    match exit.code {
+        0 => match answer(exit.reply.as_deref()) {
+            Some(Answer::Ready(built) | Answer::Damaged(built)) if built != commit => {
+                Err(format!("{title} was not built at {commit}."))
+            }
+            Some(answer) => Ok(answer),
+            None => Err(format!("{title} was not built at {commit}.")),
+        },
+        1 => Err(format!(
+            "{title} is waiting for approval. Review and approve it first."
+        )),
+        _ => Err(exit.failure("app update")),
+    }
+}
+
+/// Settle how `commit` opens. The CLI is asked once without restoring, so
+/// opens of an intact build never reserve it and never refuse each other.
+/// Only when it answers that the build changed on disk is the build reserved
+/// (`reserve`, which fails while a window runs that commit or another open
+/// restores it) and the CLI asked again with `--restore`. Answers the
+/// reservation the window is pinned under, when one was taken.
+async fn checked_open<G, Ask, Asked>(
+    commit: &str,
+    title: &str,
+    mut ask: Ask,
+    reserve: impl FnOnce() -> Option<G>,
+) -> Result<Option<G>, String>
+where
+    Ask: FnMut(bool) -> Asked,
+    Asked: std::future::Future<Output = Result<CliExit, String>>,
+{
+    if let Answer::Ready(_) = answer_for(&ask(false).await?, commit, title)? {
+        return Ok(None);
+    }
+    let Some(reservation) = reserve() else {
+        return Err(format!(
+            "{title}'s files for this version changed on disk. Close its windows, or wait for the other open to restore them, then open it again."
+        ));
+    };
+    match answer_for(&ask(true).await?, commit, title)? {
+        Answer::Ready(_) => Ok(Some(reservation)),
+        Answer::Damaged(_) => Err(format!(
+            "{title}'s files for this version changed on disk and were not restored."
+        )),
+    }
 }
 
 fn answer(reply: Option<&str>) -> Option<Answer> {
@@ -208,9 +259,9 @@ pub async fn update_app(
 /// Open app `id` at `commit`, the commit the Folders window listed, in its own
 /// window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
 /// first, every time, and answers only for the approved commit, building it
-/// when it is not built and checking its build when it is. When no window
-/// runs that commit, the open reserves its build and the CLI restores a
-/// build that changed on disk; otherwise such a build is refused. A window
+/// when it is not built and checking its build when it is. A build that
+/// changed on disk is restored only under a reservation, taken when no window
+/// runs that commit (`checked_open`); otherwise the open is refused. A window
 /// already open on the folder is revealed when it runs that build, and
 /// refused when it runs another. With
 /// `folder`, a scope the Folders window listed, the window is let into that
@@ -232,39 +283,26 @@ pub async fn open_installed_app(
         ));
     }
     let app = webview.app_handle().clone();
-    // Held until this open's window is pinned, so no other open replaces the
-    // build while it loads.
-    let reservation = BuildReservation::take(&app, &id, &commit);
-    let restore = reservation.is_some();
-    let exit = window_invocation(&webview)
-        .map_err(|error| format!("{error:?}"))?
-        .run(
-            &update_args(&id, Some(&commit), false, restore),
-            None,
-            |_| Ok(()),
-        )
-        .await
-        .map_err(|error| match error {
-            CliError::Failed { message } => message,
-            other => format!("{other:?}"),
-        })?;
-    match exit.code {
-        0 => match answer(exit.reply.as_deref()) {
-            Some(Answer::Ready(built)) if built == commit => {}
-            Some(Answer::Damaged(built)) if built == commit => {
-                return Err(format!(
-                    "{title}'s files for this version changed on disk. Close its windows, then open it again to restore them."
-                ))
-            }
-            _ => return Err(format!("{title} was not built at {commit}.")),
-        },
-        1 => {
-            return Err(format!(
-                "{title} is waiting for approval. Review and approve it first."
-            ))
+    let ask = |restore: bool| {
+        let args = update_args(&id, Some(&commit), false, restore);
+        let webview = &webview;
+        async move {
+            window_invocation(webview)
+                .map_err(|error| format!("{error:?}"))?
+                .run(&args, None, |_| Ok(()))
+                .await
+                .map_err(|error| match error {
+                    CliError::Failed { message } => message,
+                    other => format!("{other:?}"),
+                })
         }
-        _ => return Err(exit.failure("app update")),
-    }
+    };
+    // A reservation, when a restore took one, is held until this open's
+    // window is pinned, so no other open replaces the build while it loads.
+    let reservation = checked_open(&commit, &title, ask, || {
+        BuildReservation::take(&app, &id, &commit)
+    })
+    .await?;
     // The app may read `so.epicenter` through a definition its declaration
     // must contain, so it waits for this launch to publish it.
     if let Some(declared) = app.try_state::<crate::cli::EpicenterFolderDeclared>() {
@@ -380,6 +418,50 @@ mod tests {
         ] {
             assert_eq!(answer(other), None, "{other:?}");
         }
+    }
+
+    /// Opens of an intact build ask once and take no reservation, so two of
+    /// them never refuse each other; only a damaged build is reserved, and
+    /// restored only under that reservation.
+    #[test]
+    fn only_a_damaged_build_is_reserved_and_restored() {
+        let commit = "a".repeat(40);
+        let reply = |kind: &str| CliExit {
+            code: 0,
+            reply: Some(format!(
+                r#"{{"app":{{"commit":"{commit}","state":{{"kind":"{kind}"}}}}}}"#
+            )),
+            stderr: String::new(),
+        };
+        let open = |states: &[&'static str], reservable: bool| {
+            let asked = std::cell::RefCell::new(Vec::new());
+            let reserved = std::cell::Cell::new(false);
+            let mut states = states.iter();
+            let result = tauri::async_runtime::block_on(checked_open(
+                &commit,
+                "Board",
+                |restore| {
+                    asked.borrow_mut().push(restore);
+                    std::future::ready(Ok(reply(states.next().unwrap())))
+                },
+                || {
+                    reserved.set(true);
+                    reservable.then_some("reservation")
+                },
+            ));
+            (result, asked.into_inner(), reserved.get())
+        };
+
+        for _ in 0..2 {
+            assert_eq!(open(&["ready"], false), (Ok(None), vec![false], false));
+        }
+        assert_eq!(
+            open(&["damaged", "ready"], true),
+            (Ok(Some("reservation")), vec![false, true], true)
+        );
+        let (refused, asked, _) = open(&["damaged"], false);
+        assert!(refused.unwrap_err().contains("Close its windows"));
+        assert_eq!(asked, [false], "no restore without the reservation");
     }
 
     #[test]

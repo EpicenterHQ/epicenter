@@ -42,10 +42,11 @@
  * next one (ADR-0540 trusts local processes). A window keeps the build it
  * opened on, so old builds stay, even after the app is removed.
  *
- * Every fetch passes the clone's one refspec on the command line with
- * `--refmap=` and `--no-tags`, so no refspec in a person's global
- * configuration writes another ref, and a build tree is read only from its
- * exact ref, never from a branch `rev-parse` would also try under that name.
+ * Install deletes every ref the clone wrote, and every fetch passes the
+ * clone's one refspec on the command line with `--refmap=` and `--no-tags`,
+ * so no refspec in a person's global configuration leaves another ref. A
+ * build tree is read only from its exact ref, never from a branch
+ * `rev-parse` would also try under that name.
  *
  * Approving trusts the app fully: its build runs with the person's
  * permissions. Git still runs through `@epicenter/folder`'s runner (no hooks,
@@ -940,12 +941,23 @@ function requireShownCommit({ approve, commit }: SettleOptions) {
 }
 
 /**
+ * Refuse a commit named at install without `approve`: installing approves
+ * nothing, so the commit would mean nothing.
+ */
+function requireApprovalForCommit({ approve, commit }: SettleOptions) {
+	if (commit !== undefined && !approve)
+		throw new Error(
+			'Installing approves nothing, so --commit names the commit to approve: pass it with --approve, or leave it out and approve later.',
+		);
+}
+
+/**
  * Clone `source`'s default branch bare into `apps/<id>/`, the id read from
  * the manifest in `folder` (empty for the root), and record `folder` in the
  * clone's `config`. The clone fetches only that branch: `--single-branch
  * --no-tags` writes no refspec, so the refspec for
- * `refs/remotes/origin/<default>` is written and fetched once, and the
- * clone's local branch is deleted. Its `HEAD` stays symbolic, approving
+ * `refs/remotes/origin/<default>` is written and fetched once, after every
+ * ref the clone wrote is deleted. Its `HEAD` stays symbolic, approving
  * nothing, unless `approve` approves `commit`, which must be the fetched
  * commit, and builds it.
  */
@@ -958,6 +970,7 @@ export async function install(
 	const from = source.trim();
 	const normalized = normalizeFolder(folder);
 	requireShownCommit(options);
+	requireApprovalForCommit(options);
 	return exclusively(paths, async () => {
 		options.onProgress?.(`Cloning ${from}…`);
 		const id = await withStagedClone(
@@ -981,13 +994,23 @@ export async function install(
 				await git(staging, [
 					'config',
 					'--local',
+					'--replace-all',
 					'remote.origin.fetch',
 					refspec,
 				]);
-				// The clone's own branch is never read again. Removing it leaves
-				// no name that `rev-parse` could take for another ref, and `HEAD`
-				// still names it symbolically, approving nothing.
-				await git(staging, ['update-ref', '-d', head]);
+				// No ref the clone wrote is read again: its own branch, and any
+				// a refspec in a person's global configuration mapped. Deleting
+				// them all leaves no name that `rev-parse` could take for another
+				// ref, and `HEAD` still names the branch symbolically, approving
+				// nothing. The fetch then writes the one tracking ref.
+				const written = await git(staging, [
+					'for-each-ref',
+					'--format=delete %(refname)',
+				]);
+				if (written !== '')
+					await git(staging, ['update-ref', '--no-deref', '--stdin'], {
+						input: `${written}\n`,
+					});
 				await fetchDefault(staging, refspec);
 				const fetched = await commitAt(staging, tracking);
 				if (fetched === undefined)

@@ -951,9 +951,13 @@ mod tests {
         ));
         assert!(commits.pin("app:com_example_board:62", board, &"c".repeat(40), false));
         assert!(!commits.reserve(board, &commit));
+        // Two opens of an intact build take no reservation, so both pin.
+        assert!(commits.pin("app:com_example_board:65", board, &commit, false));
         commits.forget("app:com_example_board:61");
+        commits.forget("app:com_example_board:65");
         assert!(commits.reserve(board, &commit));
-        // Another open waits; one reservation at a time.
+        // While a build is restored, one reservation at a time, and no window
+        // pins to it but the restoring open's.
         assert!(!commits.reserve(board, &commit));
         assert!(!commits.pin("app:com_example_board:63", board, &commit, false));
         // The open holding it pins its own window, then releases it.
