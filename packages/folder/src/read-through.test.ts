@@ -17,8 +17,8 @@
  *   declaration
  * - `epicenter.json` is never written
  * - A definition the declaration does not contain is `ShapeMismatch`,
- *   naming the app and the folder and listing every problem, and opening
- *   creates nothing
+ *   naming the folder, and the app when an app opened it, and listing every
+ *   problem; opening creates nothing
  * - A table whose folder requires a field the definition does not declare
  *   cannot add rows: `canCreate` is false and `create` is `InvalidValues`
  *   naming each such field
@@ -241,7 +241,7 @@ test('a definition that does not declare a required field cannot add rows', asyn
 	await knowing.close();
 });
 
-test('a definition the declaration does not contain is ShapeMismatch, naming the app and the folder and listing every problem, and opens nothing', async () => {
+test('a definition the declaration does not contain is ShapeMismatch, naming the folder and listing every problem, and opens nothing', async () => {
 	const root = await folderRoot('read-through-mismatch-');
 	const reader = defineFolder({
 		title: 'Calendar',
@@ -277,8 +277,9 @@ test('a definition the declaration does not contain is ShapeMismatch, naming the
 		['incompatibleField', 'todos', 'note'],
 		['missingTable', 'events', undefined],
 	]);
+	// Read by no app, the refusal names the folder alone.
 	expect(refused.message).toStartWith(
-		`Calendar cannot open the folder '${basename(root)}': `,
+		`The folder '${basename(root)}' does not declare what this definition reads: `,
 	);
 	expect(refused.message).toContain("The folder declares no 'events' table");
 	expect(existsSync(join(root, '.git'))).toBe(false);

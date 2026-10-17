@@ -23,6 +23,8 @@ import { OpenFolderError } from './errors.js';
 export type Opening = {
 	/** The folder's id: the host's name for it, never a path. */
 	readonly id: string;
+	/** The app that opened it, if an app did; a refusal names it. */
+	readonly app?: string;
 } & (
 	| { readonly own: true; readonly definition: FolderDefinition }
 	| { readonly own: false; readonly definition?: FolderDefinition }
@@ -38,8 +40,8 @@ export function opening(
 	app: string | undefined,
 	definition: FolderDefinition | undefined,
 ): Result<Opening, OpenFolderError> {
-	if (definition === undefined) return Ok({ id, own: false });
+	if (definition === undefined) return Ok({ id, app, own: false });
 	const { data: prepared, error } = prepareFolderDefinition(definition);
 	if (error !== null) return OpenFolderError.InvalidDefinition(error);
-	return Ok({ id, own: id === app, definition: prepared });
+	return Ok({ id, app, own: id === app, definition: prepared });
 }

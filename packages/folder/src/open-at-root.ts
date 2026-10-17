@@ -127,7 +127,12 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 				if (problems.length > 0) {
 					release();
 					return OpenFolderError.ShapeMismatch({
-						title: definition.title,
+						// An app is named by its definition's title; a reader
+						// that is no app is not named.
+						app:
+							target.app === undefined
+								? undefined
+								: (definition.title ?? 'This app'),
 						folder: folderName(captured.location),
 						problems,
 					});

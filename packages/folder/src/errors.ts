@@ -222,22 +222,29 @@ export const OpenFolderError = defineErrors({
 	 * The folder's own `epicenter.json` does not contain the definition it
 	 * was read through (ADR-0538): a table or field the definition reads is
 	 * missing, or the folder admits values there the definition does not.
-	 * The message names the app by the definition's `title` and the folder
-	 * by its directory's name, and lists every problem. Nothing was opened.
+	 * The message names the folder by its directory's name and, when an app
+	 * opened it, the app by its definition's `title`, and lists every
+	 * problem. Nothing was opened.
 	 */
 	ShapeMismatch: ({
-		title,
+		app,
 		folder,
 		problems,
 	}: {
-		title: string | undefined;
+		app: string | undefined;
 		folder: string;
 		problems: readonly ShapeProblem[];
-	}) => ({
-		message: `${title ?? 'This app'} cannot open the folder '${folder}': ${problems.map((problem) => problem.message).join('; ')}.`,
-		folder,
-		problems,
-	}),
+	}) => {
+		const listed = problems.map((problem) => problem.message).join('; ');
+		return {
+			message:
+				app === undefined
+					? `The folder '${folder}' does not declare what this definition reads: ${listed}.`
+					: `${app} cannot open the folder '${folder}': ${listed}.`,
+			folder,
+			problems,
+		};
+	},
 	/**
 	 * A desktop app opener named an `app` the window does not run: the shell
 	 * opened the window for `windowApp`, or for no app (`null`), such as the
