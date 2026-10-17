@@ -465,7 +465,7 @@ test('--help lists every command but send and install-command, and --json descri
 	for (const usage of [
 		'epicenter query <dir> [<sql>]',
 		'epicenter sync <dir> [--to <namespace>/<name>]',
-		'epicenter app install <url> [--folder <path>] [--approve]',
+		'epicenter app install <url> [--folder <path>] [--commit <sha>] [--approve]',
 		'epicenter auth git-credential get | store | erase',
 	])
 		expect(help.stdout).toContain(usage);

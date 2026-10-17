@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{mpsc, Mutex};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -420,8 +420,9 @@ pub fn run() {
             app.manage(InstalledWindowCommits::default());
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live in the app's data directory beside
-            // `approvals.json`, never in a folder that could carry them to a
-            // machine without the model files or a compatible accelerator.
+            // the installed apps' clones, never in a folder that could carry
+            // them to a machine without the model files or a compatible
+            // accelerator.
             let settings = LocalTranscriptionSettings::load(
                 desktop_paths.data_dir.join("local-transcription.json"),
             );
@@ -688,30 +689,107 @@ fn installed_window_label(id: &str, folder: Option<&str>) -> String {
 
 const INSTALLED_WINDOW_PREFIX: &str = "app:";
 
-/// The commit each open installed app window was opened on, by window label,
-/// recorded when the window is made and forgotten when it is destroyed. The
-/// page's own `history.pushState` cannot change it, as it can the window's
-/// URL.
+/// The commit each installed app window was opened on, by window label,
+/// pinned before its WebView is made and forgotten when it is destroyed, and
+/// the app commits whose builds an open is restoring (ADR-0597). The page's
+/// own `history.pushState` cannot change a pin, as it can the window's URL.
 #[derive(Default)]
-pub(crate) struct InstalledWindowCommits(Mutex<HashMap<String, String>>);
+pub(crate) struct InstalledWindowCommits(Mutex<WindowPins>);
+
+#[derive(Default)]
+struct WindowPins {
+    /// The commit each window was opened on, by label.
+    windows: HashMap<String, String>,
+    /// The `(app id, commit)` builds an open may replace while it runs.
+    restoring: HashSet<(String, String)>,
+}
+
+impl WindowPins {
+    /// Whether a window of installed app `id` is pinned to `commit`.
+    fn runs(&self, id: &str, commit: &str) -> bool {
+        let windows = installed_window_label(id, None);
+        let folder_windows = format!("{windows}:");
+        self.windows.iter().any(|(label, opened)| {
+            opened == commit && (label == &windows || label.starts_with(&folder_windows))
+        })
+    }
+}
 
 impl InstalledWindowCommits {
     fn opened(&self, label: &str) -> Option<String> {
-        self.commits().get(label).cloned()
+        self.pins().windows.get(label).cloned()
     }
 
-    fn record(&self, label: &str, commit: &str) {
-        self.commits().insert(label.to_string(), commit.to_string());
+    /// Pin window `label` of app `id` to `commit` before its WebView is
+    /// made, so no restore replaces that build while the page loads.
+    /// Refused while another open is restoring that build; `restoring` says
+    /// the caller is the open that reserved it.
+    fn pin(&self, label: &str, id: &str, commit: &str, restoring: bool) -> bool {
+        let mut pins = self.pins();
+        let key = (id.to_string(), commit.to_string());
+        if !restoring && pins.restoring.contains(&key) {
+            return false;
+        }
+        pins.windows.insert(label.to_string(), commit.to_string());
+        true
     }
 
     fn forget(&self, label: &str) {
-        self.commits().remove(label);
+        self.pins().windows.remove(label);
     }
 
-    fn commits(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+    /// Reserve app `id`'s build of `commit` for an open that may replace
+    /// it: only when no window is pinned to it and no other open holds it.
+    /// The reservation lasts until `release`, which the open calls once its
+    /// own window is pinned or it gives up.
+    pub(crate) fn reserve(&self, id: &str, commit: &str) -> bool {
+        let mut pins = self.pins();
+        if pins.runs(id, commit) {
+            return false;
+        }
+        pins.restoring.insert((id.to_string(), commit.to_string()))
+    }
+
+    pub(crate) fn release(&self, id: &str, commit: &str) {
+        self.pins()
+            .restoring
+            .remove(&(id.to_string(), commit.to_string()));
+    }
+
+    fn pins(&self) -> std::sync::MutexGuard<'_, WindowPins> {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// An open's reservation of one app commit's build (`reserve`), released
+/// when it is dropped.
+pub(crate) struct BuildReservation {
+    app: DesktopAppHandle,
+    id: String,
+    commit: String,
+}
+
+impl BuildReservation {
+    /// Reserve app `id`'s build of `commit`, or `None` when a window runs it
+    /// or another open holds it.
+    pub(crate) fn take(app: &DesktopAppHandle, id: &str, commit: &str) -> Option<Self> {
+        app.state::<InstalledWindowCommits>()
+            .reserve(id, commit)
+            .then(|| Self {
+                app: app.clone(),
+                id: id.to_string(),
+                commit: commit.to_string(),
+            })
+    }
+}
+
+impl Drop for BuildReservation {
+    fn drop(&mut self) {
+        self.app
+            .state::<InstalledWindowCommits>()
+            .release(&self.id, &self.commit);
     }
 }
 
@@ -733,6 +811,7 @@ pub(crate) fn open_installed_window(
     commit: &str,
     title: &str,
     folder: &str,
+    reservation: Option<&BuildReservation>,
 ) -> Result<()> {
     let label = installed_window_label(id, Some(folder));
     data_folders::admit_installed_window(app.folders(), &label, id, folder)
@@ -741,6 +820,8 @@ pub(crate) fn open_installed_window(
     let name = title.to_string();
     let title = format!("Epicenter: {title}");
     let commit = commit.to_string();
+    let id = id.to_string();
+    let restoring = reservation.is_some();
 
     let (sender, receiver) = mpsc::sync_channel(1);
     let window_app = app.clone();
@@ -750,17 +831,26 @@ pub(crate) fn open_installed_window(
             Some(window) => {
                 reveal_on_build(window, commits.opened(&label).as_deref(), &commit, &name)
             }
-            None => create_app_window(&window_app, &label, &title, &path).map(|window| {
-                commits.record(&label, &commit);
-                let forgetting = window_app.clone();
-                let closed = label.clone();
-                window.on_window_event(move |event| {
-                    if let WindowEvent::Destroyed = event {
-                        forgetting.state::<InstalledWindowCommits>().forget(&closed);
-                    }
-                });
-                focus(window);
-            }),
+            None if !commits.pin(&label, &id, &commit, restoring) => Err(anyhow!(
+                "{name} is being restored by another open. Open it again."
+            )),
+            None => match create_app_window(&window_app, &label, &title, &path) {
+                Ok(window) => {
+                    let forgetting = window_app.clone();
+                    let closed = label.clone();
+                    window.on_window_event(move |event| {
+                        if let WindowEvent::Destroyed = event {
+                            forgetting.state::<InstalledWindowCommits>().forget(&closed);
+                        }
+                    });
+                    focus(window);
+                    Ok(())
+                }
+                Err(error) => {
+                    commits.forget(&label);
+                    Err(error)
+                }
+            },
         };
         let _ = sender.send(result);
     })
@@ -823,7 +913,12 @@ mod tests {
         .build()
         .unwrap();
         let commits = InstalledWindowCommits::default();
-        commits.record("app:com_example_board:61", &earlier);
+        assert!(commits.pin(
+            "app:com_example_board:61",
+            "com.example.board",
+            &earlier,
+            false
+        ));
         let opened = commits.opened("app:com_example_board:61");
         let refused =
             reveal_on_build(window.clone(), opened.as_deref(), &approved, "Board").unwrap_err();
@@ -835,6 +930,41 @@ mod tests {
         assert!(reveal_on_build(window, opened.as_deref(), &earlier, "Board").is_ok());
         commits.forget("app:com_example_board:61");
         assert_eq!(commits.opened("app:com_example_board:61"), None);
+    }
+
+    /// A build is replaced only while no window is pinned to its commit, and
+    /// a window is pinned before its WebView loads, so no page loads a build
+    /// another open is replacing.
+    #[test]
+    fn a_build_is_reserved_for_restoring_only_while_no_window_runs_it() {
+        let board = "com.example.board";
+        let commit = "b".repeat(40);
+        let commits = InstalledWindowCommits::default();
+        assert!(commits.pin("app:com_example_board:61", board, &commit, false));
+        // A window on it, not another app's window or another commit,
+        // refuses the reservation.
+        assert!(commits.pin(
+            "app:com_example_boards:61",
+            "com.example.boards",
+            &commit,
+            false
+        ));
+        assert!(commits.pin("app:com_example_board:62", board, &"c".repeat(40), false));
+        assert!(!commits.reserve(board, &commit));
+        // Two opens of an intact build take no reservation, so both pin.
+        assert!(commits.pin("app:com_example_board:65", board, &commit, false));
+        commits.forget("app:com_example_board:61");
+        commits.forget("app:com_example_board:65");
+        assert!(commits.reserve(board, &commit));
+        // While a build is restored, one reservation at a time, and no window
+        // pins to it but the restoring open's.
+        assert!(!commits.reserve(board, &commit));
+        assert!(!commits.pin("app:com_example_board:63", board, &commit, false));
+        // The open holding it pins its own window, then releases it.
+        assert!(commits.pin("app:com_example_board:63", board, &commit, true));
+        commits.release(board, &commit);
+        assert!(!commits.reserve(board, &commit));
+        assert!(commits.pin("app:com_example_board:64", board, &commit, false));
     }
 
     #[test]

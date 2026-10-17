@@ -324,7 +324,7 @@ mod tests {
     const BOARD: &str = "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/";
 
     /// A pages directory with Folders and Settings, and two builds of one
-    /// installed app, `COMMIT` current, under a fresh temporary directory.
+    /// installed app, `COMMIT` the newer, under a fresh temporary directory.
     fn fixture() -> (tempfile::TempDir, Roots) {
         let temporary = tempfile::tempdir().unwrap();
         let base = temporary.path().canonicalize().unwrap();
@@ -349,7 +349,6 @@ mod tests {
         fs::write(pages.join("secret.txt"), "outside every page").unwrap();
         let app = builds.join("com.example.board");
         fs::create_dir_all(app.join(COMMIT).join("assets")).unwrap();
-        fs::write(app.join("current"), format!("{COMMIT}\n")).unwrap();
         fs::write(
             app.join(COMMIT).join("index.html"),
             "<html><script>boot()</script></html>",
@@ -426,10 +425,10 @@ mod tests {
     }
 
     /// A window keeps the build it opened on: every file of each commit comes
-    /// from that commit's directory, whatever `current` names, so a page
-    /// never mixes one build's document with another's chunks.
+    /// from that commit's directory, so a page never mixes one build's
+    /// document with another's chunks.
     #[test]
-    fn each_commit_is_served_from_its_own_build_whatever_is_current() {
+    fn each_commit_is_served_from_its_own_build() {
         let (_temporary, roots) = fixture();
         let earlier = format!("/apps/com.example.board/{EARLIER}/");
         assert_eq!(body(&get(&roots, &earlier)), "<html>earlier</html>");
@@ -455,19 +454,6 @@ mod tests {
                 "{other_builds_chunk}"
             );
         }
-        // Moving `current`, or removing it, changes nothing a URL names.
-        let app = roots.builds.join("com.example.board");
-        fs::write(app.join("current"), format!("{EARLIER}\n")).unwrap();
-        assert_eq!(
-            body(&get(&roots, BOARD)),
-            "<html><script>boot()</script></html>"
-        );
-        fs::remove_file(app.join("current")).unwrap();
-        assert_eq!(body(&get(&roots, &earlier)), "<html>earlier</html>");
-        assert_eq!(
-            body(&get(&roots, BOARD)),
-            "<html><script>boot()</script></html>"
-        );
     }
 
     #[test]

@@ -5,7 +5,10 @@
  * - Every installed app that can run is offered, by title, whatever the
  *   folder declares; the app refuses a folder whose declaration does not
  *   contain its definition
- * - An installed app waiting for approval, or broken, is offered on no folder
+ * - An app with an update waiting for approval is offered at its approved
+ *   commit
+ * - An installed app with no approved commit, or broken, is offered on no
+ *   folder
  */
 import { expect, test } from 'bun:test';
 import type { InstalledApp } from '@epicenter/cli';
@@ -19,6 +22,7 @@ function app(overrides: Partial<InstalledApp> = {}): InstalledApp {
 		folder: '',
 		commit: 'a'.repeat(40),
 		state: { kind: 'ready' },
+		pending: null,
 		...overrides,
 	};
 }
@@ -35,17 +39,27 @@ test('every app that can run is offered, by title', () => {
 	]);
 });
 
-test('an app waiting for approval, or broken, is not offered', () => {
-	const review = {
-		from: null,
-		log: '',
-		diffStat: '',
-		statement: 'Building runs code.',
-	};
-	for (const state of [
-		{ kind: 'needsApproval', review },
-		{ kind: 'broken', problem: 'no manifest' },
-	] as const) {
-		expect(installedOpeners([app({ state })])).toEqual([]);
-	}
+const review = {
+	commit: 'b'.repeat(40),
+	from: null,
+	log: '',
+	diffStat: '',
+	statement: 'Building runs code.',
+};
+
+test('an app with an update waiting for approval opens at its approved commit', () => {
+	expect(
+		installedOpeners([app({ pending: { ...review, from: 'a'.repeat(40) } })]),
+	).toEqual([
+		{ id: 'com.example.board', title: 'Board', commit: 'a'.repeat(40) },
+	]);
+});
+
+test('an app with no approved commit, or broken, is not offered', () => {
+	expect(
+		installedOpeners([
+			app({ commit: '', state: { kind: 'needsApproval' }, pending: review }),
+			app({ commit: '', state: { kind: 'broken', problem: 'no manifest' } }),
+		]),
+	).toEqual([]);
 });

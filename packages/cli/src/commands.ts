@@ -103,7 +103,11 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<url>',
 		minArgs: 1,
 		maxArgs: 1,
-		options: [{ name: 'folder', value: '<path>' }, { name: 'approve' }],
+		options: [
+			{ name: 'folder', value: '<path>' },
+			{ name: 'commit', value: '<sha>' },
+			{ name: 'approve' },
+		],
 		summary: 'install an app from a folder in a Git repository',
 		long: true,
 	},
@@ -113,8 +117,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 1,
 		maxArgs: 1,
 		options: [
+			{ name: 'commit', value: '<sha>' },
 			{ name: 'approve' },
-			{ name: 'commit', value: '<sha>', hidden: true },
+			{ name: 'restore', hidden: true },
 		],
 		summary: 'update an installed app',
 		long: true,

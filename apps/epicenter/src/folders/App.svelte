@@ -26,8 +26,9 @@
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
 	 * an app installed from a folder in a Git repository (`InstallApps`,
-	 * ADR-0552) is shown for approval before anything builds, and an update fetched from upstream is shown again with
-	 * its log and diff stat. The `epicenter` CLI installs, updates, approves,
+	 * ADR-0552) is shown for approval before anything builds, and a commit
+	 * fetched from upstream is shown with its log and diff stat while the
+	 * approved commit keeps opening (ADR-0597). The `epicenter` CLI installs, updates, approves,
 	 * and builds (`app-commands.ts`, ADR-0556), and each step it reports is
 	 * said while it runs. The shell publishes Epicenter's own folder's
 	 * declaration at launch, before it opens any app.
@@ -137,10 +138,10 @@
 		installed = data;
 	}
 
-	/** Show `app`'s approval when it needs one. */
+	/** Show the approval of `app`'s commit waiting for one, when it has one. */
 	function review(app: InstalledApp) {
-		if (app.state.kind !== 'needsApproval') return;
-		reviewing = { app, review: app.state.review };
+		if (app.pending === null) return;
+		reviewing = { app, review: app.pending };
 	}
 
 	/**
@@ -174,9 +175,9 @@
 		review(app);
 	}
 
-	async function approve(app: InstalledApp) {
+	async function approve(app: InstalledApp, shown: Review) {
 		const approved = await act(`Building ${app.title}…`, (onProgress) =>
-			approveApp(app.id, app.commit, onProgress),
+			approveApp(app.id, shown.commit, onProgress),
 		);
 		if (approved !== undefined) reviewing = undefined;
 	}
@@ -351,9 +352,11 @@
 							</span>
 						{:else if app.state.kind === 'needsApproval'}
 							<span class="block text-xs text-muted-foreground">Waiting for approval</span>
+						{:else if app.pending !== null}
+							<span class="block text-xs text-muted-foreground">Update waiting for approval</span>
 						{/if}
 					</span>
-					{#if app.state.kind === 'needsApproval'}
+					{#if app.pending !== null && app.state.kind !== 'broken'}
 						<Button
 							variant="ghost"
 							size="xs"
@@ -362,7 +365,8 @@
 						>
 							Review
 						</Button>
-					{:else if app.state.kind !== 'broken'}
+					{/if}
+					{#if app.state.kind === 'ready' || app.state.kind === 'unbuilt'}
 						<Button
 							variant="ghost"
 							size="xs"
@@ -401,8 +405,8 @@
 				<header class="flex flex-col gap-1">
 					<h2 class="text-lg font-semibold">Approve {app.title}?</h2>
 					<p class="text-sm text-muted-foreground">
-						From {app.source || `Apps/${app.id}`}, at commit
-						<code class="font-mono">{app.commit.slice(0, 12)}</code>
+						From {app.source}, at commit
+						<code class="font-mono">{shown.commit.slice(0, 12)}</code>
 					</p>
 				</header>
 				<Alert.Root>
@@ -421,7 +425,7 @@
 					</div>
 				{/if}
 				<div class="flex gap-2">
-					<Button disabled={busy !== undefined} onclick={() => void approve(app)}>
+					<Button disabled={busy !== undefined} onclick={() => void approve(app, shown)}>
 						{busy ?? 'Approve and build'}
 					</Button>
 					<Button

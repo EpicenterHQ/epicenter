@@ -134,9 +134,9 @@ repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
 names the id `so.epicenter.capture` and the title; Epicenter runs
 `bun run build:installed`, which writes `dist`. In the Folders
 window, "Install from a repository…" with Epicenter's repository lists Capture
-with its folder, `apps/capture`; installing clones the repository into
-`~/Epicenter/Apps/so.epicenter.capture/`, and approving it runs `bun install`
-at the repository's root and the build here. Opened from the Folders window's
+with its folder, `apps/capture`; installing clones the repository bare into
+Epicenter's app data, and approving it runs `bun install` at the
+repository's root and the build here. Opened from the Folders window's
 Apps list, Capture opens its own folder, `so.epicenter.capture`. Opened with
 "Open in Capture" beside another folder whose declaration contains its shape,
 it opens that folder and reads its captures through its shape (ADR-0538): it
