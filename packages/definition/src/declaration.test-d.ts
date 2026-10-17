@@ -29,7 +29,6 @@ import {
 	type JsonValue,
 	jsonValue,
 	prepareSchema,
-	type RowOf,
 } from './index.js';
 
 type Equal<X, Y> =
@@ -71,12 +70,11 @@ const mixed = defineTable({
 	},
 });
 
-type Row = RowOf<typeof mixed>;
+type Row = CreateRowOf<typeof mixed>;
 
 export type _RowKeys = Expect<
 	Equal<
 		keyof Row,
-		| 'id'
 		| 'meta'
 		| 'size'
 		| 'anything'
@@ -105,9 +103,6 @@ export type _NullableHelper = Expect<Equal<Row['due'], InstantString | null>>;
 export type _BrandedHelper = Expect<Equal<Row['owner'], NoteId>>;
 export type _NullableRaw = Expect<
 	Equal<Row['status'], 'draft' | 'published' | null>
->;
-export type _CreateHasNoId = Expect<
-	Equal<keyof CreateRowOf<typeof mixed>, Exclude<keyof Row, 'id'>>
 >;
 
 // The settings table takes the same schemas, each optional, so every setting
@@ -143,17 +138,6 @@ const optionalFields = defineTable({
 		raw: Type.Optional(Type.Integer()),
 	},
 });
-export type _OptionalRow = Expect<
-	Equal<
-		RowOf<typeof optionalFields>,
-		{ id: string } & {
-			title: string;
-			note?: string;
-			due?: InstantString | null;
-			raw?: number;
-		}
-	>
->;
 export type _OptionalCreate = Expect<
 	Equal<
 		CreateRowOf<typeof optionalFields>,
@@ -230,7 +214,7 @@ const admitted = defineTable({
 		optional: field.nullable({ type: 'string' }),
 	},
 });
-type Admitted = RowOf<typeof admitted>;
+type Admitted = CreateRowOf<typeof admitted>;
 export type _DefaultStatic = Expect<Equal<Admitted['withDefault'], string>>;
 export type _SpreadDefaultStatic = Expect<
 	Equal<Admitted['spreadDefault'], string>
@@ -263,5 +247,5 @@ export type _PreparedSettings = Expect<
 	>
 >;
 export type _PreparedRow = Expect<
-	Equal<RowOf<NonNullable<typeof prepared>['tables']['mixed']>, Row>
+	Equal<CreateRowOf<NonNullable<typeof prepared>['tables']['mixed']>, Row>
 >;

@@ -488,10 +488,8 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(second.library.resultsFor(entry.stem)[0]!.row.body).toBe(
 		'a steady tone\n',
 	);
-	const audio = expectOk(await second.library.folder.files.open(audioPath));
-	expect(new Uint8Array(await audio.arrayBuffer())).toEqual(
-		new Uint8Array(toneWav()),
-	);
+	const audio = expectOk(await second.library.folder.files.read(audioPath));
+	expect(audio.bytes).toEqual(new Uint8Array(toneWav()));
 	expect(git(root, 'status', '--porcelain').trim()).toBe('');
 });
 

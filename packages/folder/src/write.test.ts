@@ -37,16 +37,10 @@ import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { openFolder } from './bun.js';
-import {
-	defineFolder,
-	defineTable,
-	field,
-	hashBytes,
-	WRITE_ATTEMPTS,
-} from './contract.js';
+import { defineFolder, defineTable, field, hashBytes } from './contract.js';
 import { prepareFolderDefinition } from './definition.js';
 import { fileKindOf, merge } from './merge-file.js';
-import { writeFile as writeFolderFile } from './write.js';
+import { WRITE_ATTEMPTS, writeFile as writeFolderFile } from './write.js';
 
 const definition = defineFolder({
 	tables: {

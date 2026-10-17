@@ -16,8 +16,6 @@ export type FolderFiles = {
 	): Promise<Result<{ files: string[]; directories: string[] }, FileError>>;
 	/** The file's bytes, detached from storage, and the SHA-256 that names them. */
 	read(path: string): Promise<Result<FileRead, FileError>>;
-	/** Stable bytes for consumption (ADR-0466). */
-	open(path: string): Promise<Result<Blob, FileError>>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
 };
@@ -35,12 +33,6 @@ export function createFiles({
 			const { data: read, error } = await storage.read(path);
 			if (error !== null) return Err(error);
 			return Ok(Object.freeze({ bytes: read.bytes, sha256: read.sha256 }));
-		},
-		async open(path) {
-			// Copied into memory, so later changes to the path do not alter it.
-			const { data: read, error } = await storage.read(path);
-			if (error !== null) return Err(error);
-			return Ok(new Blob([read.bytes as Uint8Array<ArrayBuffer>]));
 		},
 		mkdir: (path) => storage.mkdir(path),
 		rmdir: (path) => storage.rmdir(path),

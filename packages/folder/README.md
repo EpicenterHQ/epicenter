@@ -385,8 +385,8 @@ each directory, empty ones included, is one stored directory, and `.git` in it
 is the folder's private Git state: no path can name it and no listing shows
 it. There is no inventory beside the files: a file's identity is the SHA-256
 of the bytes read from it, so a same-size rewrite in the same millisecond is
-still a change. `open(path)` returns a Blob of the bytes read, which keeps
-them after the path is replaced.
+still a change. `files.read(path)` returns the bytes read, detached, so they
+stay after the path is replaced.
 
 Opening requires `navigator.storage.getDirectory`, writable file streams, file
 moves, and Web Locks; without one it returns `NoFileSystem` and never falls
@@ -783,8 +783,8 @@ invalid sequence; a read of that spelling is `InvalidPath`, because no folder
 path names the file. On macOS and Linux, a read opens the path without
 following a link or waiting on a pipe, and checks again what it opened, so a file replaced by
 either after it was inspected is refused rather than followed or left
-waiting. Commits capture regular files only. `open(path)` returns a stable
-`Blob` for consumption, without holding a file descriptor. `mkdir(path)` creates missing
+waiting. Commits capture regular files only. `files.read(path)` returns the
+bytes, detached, without holding a file descriptor. `mkdir(path)` creates missing
 parents; `rmdir(path)` removes an empty directory. These directory operations
 do not request history through the file publisher.
 

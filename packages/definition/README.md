@@ -28,7 +28,7 @@ const settings = defineTable({
 const { data: schema } = prepareSchema({ tables: { todos, settings } });
 
 check(schema.tables.todos.fields, stored, 'read');                // { conforming, issues }
-check(schema.tables.settings.fields, { theme: 'dark' }, 'patch'); // no issues
+check(schema.tables.settings.fields, { theme: 'dark' }, 'input'); // no issues
 ```
 
 ## One shape, declared and prepared
@@ -38,10 +38,10 @@ the storage that opens it does. Each table is `{ fields }`, where `fields` is
 a record of native schemas by field name, plus `additionalProperties: false`
 when the table is closed. Settings are a table too, `settings`
 (`SETTINGS_TABLE`). `prepareSchema` returns that same shape with the same
-literal type, so `RowOf`, `CreateRowOf`, and every field's `Static<>` read a
+literal type, so `CreateRowOf` and every field's `Static<>` read a
 prepared schema exactly as they read the declaration. A top-level key the
-shape does not name, such as the `kv` section an earlier build wrote, is not
-read. There is no second,
+shape does not name, such as an `id` or the `kv` section an earlier build
+wrote, is malformed. There is no second,
 compiled representation: no field wrapper, no table object with methods, no
 `Map`, and no name stored anywhere but the record key.
 
@@ -78,7 +78,7 @@ silent `false`.
 | --- | --- |
 | `@epicenter/folder` | `defineFolder`, which prepares a `DataSchema`. A folder's row body is the file's Markdown text. The opener names the folder. |
 
-It gets the `defineTable` brand, the `RowOf` and `CreateRowOf` lenses, and `check` over the prepared fields. It does not copy a validator.
+It gets the `defineTable` brand, the `CreateRowOf` lens, and `check` over the prepared fields. It does not copy a validator.
 
 ## Why this name
 
@@ -169,7 +169,7 @@ const { status } = definition.tables.posts.fields;
 
 fieldEditorOf(status);
 // { kind: 'select', options: ['draft', 'published'] }
-check({ status }, { status: null }, 'patch').issues;
+check({ status }, { status: null }, 'input').issues;
 // []: this field is field.nullable(field.select([...]))
 ```
 
@@ -304,8 +304,7 @@ at a time, so a field that fails never takes a valid one with it:
 const { fields } = definition.tables.todos;
 
 check(fields, stored, 'read');      // a stored row
-check(fields, supplied, 'input');   // a whole row to write
-check(fields, { title }, 'patch');  // some fields to write
+check(fields, supplied, 'input');   // a row to write
 // { conforming, issues }
 ```
 
@@ -313,7 +312,6 @@ check(fields, { title }, 'patch');  // some fields to write
 | --- | --- | --- |
 | `read` | ignored | issue |
 | `input` | issue | issue |
-| `patch` | issue | no issue |
 
 An absent optional field is never an issue, and a top-level key holding
 `undefined` is absent. `conforming` holds each present field whose value is

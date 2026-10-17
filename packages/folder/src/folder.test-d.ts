@@ -232,11 +232,6 @@ expectTypeOf<
 >().toEqualTypeOf<string>();
 // @ts-expect-error A folder is opened by its ID.
 void root.openFolder({ definition });
-void root.openFolder({
-	id: 'test.folder',
-	// @ts-expect-error A definition that names its data is not a folder definition.
-	definition: { id: 'test.folder', tables: {} },
-});
 
 // One data-folder opener signature at the automatic entry and at both
 // explicit entries: an existing folder by ID, with its own schema.

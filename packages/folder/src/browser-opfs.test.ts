@@ -12,7 +12,7 @@
  *   `.git` holds private Git state and is never listed
  * - Exact bytes survive reopening; a read's identity is the SHA-256 of the
  *   bytes read, so a same-size rewrite in the same millisecond is noticed
- * - `open` returns a Blob that keeps its bytes after the path is replaced
+ * - The bytes `files.read` returns stay after the path is replaced
  * - Across handles: exactly one of two creates wins, and two writes from one
  *   version both land, the second merged over the first, whose put was
  *   stale, so the writer acting last wins the line both changed
@@ -213,10 +213,10 @@ describe('one path is one stored file', () => {
 		expect(opfs.files(ROOT).get('.git/index')).toEqual(index!);
 	});
 
-	test('an opened Blob keeps its bytes after the path is replaced', async () => {
+	test('the bytes a read returns stay after the path is replaced', async () => {
 		const folder = await open();
 		expectOk(await folder.write('take.webm', null, allBytes));
-		const blob = expectOk(await folder.files.open('take.webm'));
+		const read = expectOk(await folder.files.read('take.webm'));
 		// A raw snapshot of the same file stops reading once it is replaced.
 		const root = await opfs.getDirectory();
 		const handle = await (await root.getDirectoryHandle('test')).getFileHandle(
@@ -224,7 +224,7 @@ describe('one path is one stored file', () => {
 		);
 		const snapshot = await handle.getFile();
 		expectOk(await folder.write('take.webm', allBytes, 'replaced'));
-		expect(new Uint8Array(await blob.arrayBuffer())).toEqual(allBytes);
+		expect(read.bytes).toEqual(allBytes);
 		await expect(snapshot.arrayBuffer()).rejects.toMatchObject({
 			name: 'NotReadableError',
 		});
