@@ -1,6 +1,6 @@
 # 0581. A desktop page's folder storage is one shell command per storage method
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at its read and change commands (`read_folder_file`, `read_folder_directory`, `stat_folder_path`, `write_folder_file` and its siblings), at "a read may reach anything there, `.git` included", at a change inside `.git` being "the engine's staging files and private index copies", at a publish carrying "nothing, a file, a file with a given SHA-256, or anything", and at the desktop page's file storage being "a directory handle built on seven calls": the page names data paths only, and the shell stages, checks, and publishes each put itself.
 - **Relates:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) defines the storage port these commands answer; [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) and [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) define the save lock a put takes.
