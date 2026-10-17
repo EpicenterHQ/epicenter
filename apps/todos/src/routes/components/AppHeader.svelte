@@ -14,7 +14,6 @@
 		type CreateMutationResult,
 		createMutation,
 		createQuery,
-		useIsMutating,
 	} from '@tanstack/svelte-query';
 	import { Err, Ok } from 'wellcrafted/result';
 	import {
@@ -51,8 +50,7 @@
 	// change, and after the app's own saves and actions.
 	const status = createQuery(() => todos.git.status.options);
 	const saveVersion = createMutation(() => todos.git.saveVersion.options);
-	const writing = useIsMutating(todos.writing);
-	const files = $derived(filesLine({ saving: writing.current > 0 }));
+	const files = $derived(filesLine({ saving: todos.edits.writing() }));
 	const versions = $derived(versionLine(todos.git.snapshot));
 	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
 	const remote = $derived(pushLine(todos.git.snapshot));

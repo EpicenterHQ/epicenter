@@ -3,23 +3,17 @@
  * a person asks for. Saves never commit (ADR-0529): a version is recorded by
  * Save version or by Sync.
  */
-import type {
-	CommitOutcome,
-	FilesObservation,
-	GitError,
-} from '@epicenter/folder';
-import type { ActionError } from '@epicenter/svelte/write-failure';
+import type { FilesObservation, GitError } from '@epicenter/folder';
 import { createSubscriber } from 'svelte/reactivity';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { Result } from 'wellcrafted/result';
 import type { TodosParts } from './todos.svelte.js';
 
 export function createGit({
 	folder,
 	queries,
+	edits,
 	defineQuery,
 	defineMutation,
-	writesSettled,
-	invalidate,
 }: TodosParts) {
 	const trackSnapshot = createSubscriber((update) =>
 		folder.git.subscribe(update),
@@ -41,16 +35,12 @@ export function createGit({
 				folder.git.status(),
 		}),
 		/**
-		 * Record a version: commit the saved files. Writes still running land
-		 * first. Never pushes.
+		 * Record a version: commit the saved files. What is typed and the
+		 * writes still running land first. Never pushes.
 		 */
 		saveVersion: defineMutation({
 			mutationKey: ['todos', 'save-version'],
-			mutationFn: async (): Promise<Result<CommitOutcome, ActionError>> => {
-				await writesSettled();
-				return Ok(await folder.git.commit());
-			},
-			onSettled: () => invalidate(queries.history.status.queryKey()),
+			mutationFn: () => edits.saveVersion(),
 		}),
 	};
 }

@@ -402,7 +402,7 @@ test('notes typed into a todo deleted elsewhere are not written and are offered 
 	await settle(todos);
 	expect(await text(path)).toBeUndefined();
 	expect(failures).toMatchObject([
-		{ path, unsaved: 'From the shop.\n', error: { name: 'NotStarted' } },
+		{ path, unsaved: 'From the shop.\n', error: { name: 'NotFound' } },
 	]);
 });
 
