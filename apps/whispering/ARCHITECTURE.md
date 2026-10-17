@@ -235,8 +235,9 @@ Epicenter's one active local model (ADR-0180). It asks
 through the folder engine, and hands the bytes to `transcribe_audio_bytes`
 with that model's id; it never chooses or downloads a model. No active model
 is `ConnectionUnavailable`, naming Settings, and `openSettings` calls
-`open_home` with the transcription section. Nothing in the UI uses it yet:
-Settings has no way to choose transcription on this computer.
+`open_home` with the transcription section, which opens Epicenter's Settings
+at the model. Nothing in Whispering's UI uses it yet: its settings have no way
+to choose transcription on this computer.
 
 ## The session and the pages
 
