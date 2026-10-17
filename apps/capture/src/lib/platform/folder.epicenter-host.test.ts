@@ -14,9 +14,10 @@
  *   shell) fails the open with its reason
  * - A window handed no folder names the Capture scope and is told the
  *   directory
- * - A window handed another folder opens it through Capture's shape and
- *   leaves its declaration as it was
- * - A handed folder whose declaration lacks Capture's shape is refused by name
+ * - A window handed another folder opens it through Capture's definition
+ *   and leaves its declaration as it was
+ * - A handed folder whose declaration lacks Capture's definition is refused,
+ *   naming the folder's directory
  * - A save writes the row and keeps undeclared metadata
  * - An edit made elsewhere merges with this one: both survive
  * - Closing waits for a save already sent and the latest edit after it
@@ -233,6 +234,11 @@ test('a window handed another folder opens it through the shape and keeps its de
 
 test('a handed folder without the captures Capture reads is refused by name', async () => {
 	handWindow('data:Recipes');
+	// The shell keeps a data folder in a directory of its name.
+	await rm(root, { recursive: true, force: true });
+	root = join(await grantedDirectory('capture-host-'), 'Recipes');
+	await mkdir(root);
+	shell = createGrantedShell(root);
 	const recipes = declaration('Recipes', {
 		recipes: {
 			type: 'object',

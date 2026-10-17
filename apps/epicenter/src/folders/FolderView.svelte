@@ -45,7 +45,7 @@
 
 	const client = useQueryClient();
 
-	// The folder's own declaration, as `openDataFolder` prepared it when it
+	// The folder's own declaration, as `openFolder({ id })` read it when it
 	// opened; the type does not carry the prepared mark.
 	const tables = $derived(
 		folder.definition.tables as Readonly<Record<string, PreparedFolderTable>>,

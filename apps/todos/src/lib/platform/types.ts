@@ -18,7 +18,10 @@ import type { todosDefinition } from '../definition.js';
 /**
  * A folder read through Todos's definition. Its own `definition` is
  * `todosDefinition` for Todos's own folder, and the folder's declaration for
- * any other folder the desktop opens with Todos's shape as the lens.
+ * any other folder the desktop hands Todos. `folder.own` says which. Only
+ * Todos's own folder offers Connect: Epicenter's server keeps a repository
+ * per app id today, so any other folder would be connected to Todos's
+ * repository.
  */
 export type TodosFolder = Folder<typeof todosDefinition, FolderDefinition>;
 
@@ -31,20 +34,9 @@ export type TodosFolder = Folder<typeof todosDefinition, FolderDefinition>;
 export const TODOS_FOLDER_ID = manifest.id;
 
 /**
- * The folder a leaf opened, and whether it is Todos's own folder,
- * `TODOS_FOLDER_ID`. Only Todos's own folder offers Connect: Epicenter's
- * server keeps a repository per app id today, so any other folder would be
- * connected to Todos's repository.
- */
-export type OpenedTodosFolder = {
-	readonly folder: TodosFolder;
-	readonly own: boolean;
-};
-
-/**
  * Opens the build's folder, writing nothing. A refusal is returned for the
  * page to show; a leaf never opens another kind of storage instead.
  */
 export type OpenTodosFolder = () => Promise<
-	Result<OpenedTodosFolder, OpenFolderError>
+	Result<TodosFolder, OpenFolderError>
 >;

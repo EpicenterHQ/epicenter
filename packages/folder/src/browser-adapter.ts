@@ -24,21 +24,15 @@ import { isTauri } from '@tauri-apps/api/core';
 import { Buffer } from 'buffer/';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { browserChangeDetector } from './changes-browser.js';
-import type {
-	OpenDataFolder,
-	OpenDataFolderOptions,
-	OpenFolder,
-} from './contract.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import type { OpenFolder, OpenFolderOptions } from './contract.js';
+import type { FolderDefinition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory } from './git/history.js';
 import type { Author } from './git/objects.js';
-import { type FolderSchema, openAtRoot } from './open-at-root.js';
+import { openAtRoot } from './open-at-root.js';
+import { opening } from './opening.js';
 import {
 	createOpfsStorage,
 	folderIn,
@@ -122,50 +116,30 @@ function folderAddress(id: string): FolderAddress {
 }
 
 /**
- * Open the browser folder named `id`. Refusals are returned, not thrown: a
- * definition a folder cannot keep, a page inside the desktop app, an ID that
- * cannot name a directory, or missing browser storage. Nothing is written.
+ * Open a folder in this browser's storage: for `app`, the app's own folder,
+ * named after it, since a browser is handed no other; for `id`, the folder
+ * named `id`. Refusals are returned, not thrown: a definition a folder
+ * cannot keep, a page inside the desktop app, an ID that cannot name a
+ * directory, missing browser storage, an `epicenter.json` that cannot be
+ * used, or one that does not contain the definition.
+ *
+ * Opening writes nothing. A folder nobody wrote to lists no files, its
+ * first write creates its directory, and its first commit or remote creates
+ * its repository.
  */
-export const openFolder: OpenFolder = async ({ definition, ...options }) => {
-	const { data: prepared, error: definitionError } =
-		prepareFolderDefinition(definition);
-	if (definitionError !== null)
-		return OpenFolderError.InvalidDefinition(definitionError);
-	return openBrowserFolder<typeof definition>(prepared, options);
-};
-
-/**
- * Open the browser folder named `id` with its own `epicenter.json`, which the
- * handle never writes; a folder without one has no tables.
- * Opening writes nothing, as `openFolder`'s does: a folder nobody wrote to
- * lists no files, its first write creates its directory, and its first
- * commit or remote creates its repository.
- * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
- * that does not contain the `lens` is `ShapeMismatch`.
- */
-export const openDataFolder: OpenDataFolder = async <
-	const TLens extends FolderDefinition = FolderDefinition,
->({
-	lens,
-	...options
-}: OpenDataFolderOptions<TLens>) => {
-	let shape: FolderDefinition | undefined;
-	if (lens !== undefined) {
-		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
-		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
-		shape = prepared;
-	}
-	return openBrowserFolder<TLens, FolderDefinition>('declared', options, shape);
-};
-
-async function openBrowserFolder<
-	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = TDefinition,
+export const openFolder: OpenFolder = async <
+	const TDefinition extends FolderDefinition = FolderDefinition,
 >(
-	schema: FolderSchema,
-	{ id, credentials, browser = {} }: OpenDataFolderOptions,
-	lens?: FolderDefinition,
-): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
+	options: OpenFolderOptions<TDefinition>,
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> => {
+	const { credentials, browser = {} } = options;
+	const id = options.app === undefined ? options.id : options.app;
+	const { data: target, error: definitionError } = opening(
+		id,
+		options.app,
+		options.definition,
+	);
+	if (definitionError !== null) return Err(definitionError);
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (!isFolderName(id)) return OpenFolderError.InvalidId({ id: String(id) });
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -189,8 +163,7 @@ async function openBrowserFolder<
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
-	return openAtRoot<TDefinition, TDeclared>(schema, {
-		lens,
+	return openAtRoot<TDefinition>(target, {
 		detector: browserChangeDetector(environment, at.hintChannel),
 		location: { kind: 'opfs', directory: at.directory },
 		async start({ relay, landed }) {
@@ -222,4 +195,4 @@ async function openBrowserFolder<
 			};
 		},
 	});
-}
+};

@@ -6,10 +6,10 @@
  * folder whose declaration contains Todos's shape (ADR-0538). A window handed
  * no folder opens Todos's own.
  *
- * Todos owns its own folder's schema, so `openHandedFolder` publishes
- * `todosDefinition` to that folder and reads any other through it as a lens,
- * refusing one that does not contain it by name. Only Todos's own folder
- * offers Connect (`OpenedTodosFolder`).
+ * `openFolder` publishes `todosDefinition` only to Todos's own folder, the
+ * one named after it, and reads any other through it, refusing one that does
+ * not contain it by name. Only Todos's own folder offers Connect
+ * (`folder.own`).
  *
  * The shell chooses, locks, and grants the directory; the page reads and
  * changes its files through the shell, and runs no Git: its history runs in
@@ -19,14 +19,10 @@
  * helper. Imports acquire nothing, and a folder that cannot be
  * opened is a refusal; browser storage is not opened.
  */
-import { openHandedFolder } from '@epicenter/folder/tauri';
+import { openFolder } from '@epicenter/folder/tauri';
 import { todosDefinition } from '../definition.js';
 import { type OpenTodosFolder, TODOS_FOLDER_ID } from './types.js';
 
 /** Called from a mounted component; importing this module opens nothing. */
 export const openTodosFolder: OpenTodosFolder = () =>
-	openHandedFolder({
-		ownId: TODOS_FOLDER_ID,
-		definition: todosDefinition,
-		appTitle: 'Todos',
-	});
+	openFolder({ app: TODOS_FOLDER_ID, definition: todosDefinition });

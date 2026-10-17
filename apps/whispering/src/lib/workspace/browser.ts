@@ -102,7 +102,7 @@ function wantsToneFixture(): boolean {
 /** The `#platform/workspace` leaf of every build Epicenter does not serve. */
 export const openWorkspace: OpenWorkspace = async () => {
 	const { data: folder, error: openError } = await openFolder({
-		id: WHISPERING_FOLDER_ID,
+		app: WHISPERING_FOLDER_ID,
 		definition: whisperingDefinition,
 		browser: {
 			author: { name: 'Whispering', email: 'whispering@localhost' },

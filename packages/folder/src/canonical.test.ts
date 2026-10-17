@@ -405,7 +405,7 @@ test('an invalid row keeps unknown and invalid fields through a raw write from i
 	});
 	const folder = expectOk(
 		await openFolder({
-			id: 'so.epicenter.canonical-test',
+			app: 'so.epicenter.canonical-test',
 			definition,
 			browser: {
 				author: { name: 'Canonical', email: 'canonical@example.test' },

@@ -14,14 +14,8 @@ import {
 	createTestStorage,
 	rawBrowserFolder,
 } from './browser-storage.test-support.js';
-import {
-	type DirectoryFolderOptions,
-	defineFolder,
-	defineTable,
-	type FolderDefinition,
-	field,
-	openFolder,
-} from './bun.js';
+import { defineFolder, defineTable, field, openFolder } from './bun.js';
+import { openNativeFolder } from './directory.test-support.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { createHistory } from './git/history.js';
@@ -39,10 +33,6 @@ import { overwrite } from './put.test-support.js';
 import { parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
-
-const openNativeFolder = async <const TDefinition extends FolderDefinition>(
-	options: DirectoryFolderOptions<TDefinition>,
-) => expectOk(await openFolder(options));
 
 const definition = defineFolder({
 	tables: {
@@ -560,7 +550,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		);
 		const browser = expectOk(
 			await openBrowserFolder({
-				id: 'exchange',
+				app: 'exchange',
 				definition,
 				browser: {
 					author: { name: 'Browser', email: 'browser@example.test' },
@@ -643,7 +633,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		);
 		const browser = expectOk(
 			await openBrowserFolder({
-				id: 'offline',
+				app: 'offline',
 				definition,
 				browser: {
 					author,

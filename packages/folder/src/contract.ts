@@ -117,15 +117,11 @@ export type BrowserFolderOptions = {
 	readonly opfs?: OpfsEnvironment;
 };
 
-export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
-	/** How this caller reads the folder's files. It names no folder. */
-	readonly definition: TDefinition;
-	/**
-	 * Which folder to open, such as `so.epicenter.todos`. Required, and never
-	 * a path. A browser names its directory after it; the desktop shell maps
-	 * it to a directory it registered.
-	 */
-	readonly id: string;
+/**
+ * What opening a folder needs besides which folder: the browser's settings
+ * and the credentials a browser folder's Git sends.
+ */
+type HostOptions = {
 	/**
 	 * Asked right before each push and fetch with the exact URL Git is about
 	 * to reach, in the browser. Return `undefined` to send no credential. The
@@ -138,44 +134,55 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 };
 
 /**
- * The one opener signature. The automatic entry and the desktop entry each
- * export an `openFolder` of exactly this type.
- */
-export type OpenFolder = <const TDefinition extends FolderDefinition>(
-	options: OpenFolderOptions<TDefinition>,
-) => Promise<Result<Folder<TDefinition, TDefinition>, OpenFolderError>>;
-
-/**
- * Which existing folder `openDataFolder` opens: `openFolder`'s options
- * without a definition, since the folder's own `epicenter.json` is its
- * schema, and optionally the lens this caller reads it through.
- */
-export type OpenDataFolderOptions<
-	TLens extends FolderDefinition = FolderDefinition,
-> = Omit<OpenFolderOptions<FolderDefinition>, 'definition'> & {
-	/**
-	 * The shape this caller reads: the tables and fields it knows, as a
-	 * `defineFolder` definition (ADR-0538). The folder opens only when its
-	 * declaration contains the lens, and its tables are then typed by the
-	 * lens. Every write is still checked against the folder's
-	 * own declaration, and nothing publishes the lens.
-	 */
-	readonly lens?: TLens;
-};
-
-/**
- * Open a folder that already exists with the schema in its own
- * `epicenter.json`, which the handle never writes. A folder without one opens
- * with no tables; files, history, and Sync work.
+ * Which folder to open, and the definition to read it through.
  *
- * Without a lens, rows are checked at run time, so tables are keyed by any
- * name. With one, a folder whose declaration does not contain it is
- * `ShapeMismatch`; otherwise the handle has the lens's tables, typed by it,
- * and `definition` stays the folder's own. Every entry exports an
- * `openDataFolder` of exactly this type.
+ * One rule decides what the handle does with the definition: a folder's
+ * `epicenter.json` is published by the app the folder is named after, and
+ * every other opener reads through its definition. A folder read through a
+ * definition must declare everything the definition does (ADR-0538), or it
+ * is `ShapeMismatch`; the handle has the definition's tables, every write is
+ * still checked against the folder's own declaration, and `epicenter.json`
+ * is never written.
+ *
+ * - `{ app, definition }`: an app opening its folder. `app` is the app's
+ *   id, as its manifest names it, such as `so.epicenter.todos`. On the
+ *   desktop the app opens the folder the shell handed its window
+ *   (`?folder=`), or its own when it was handed none; in a browser it opens
+ *   its own. Its own folder is the one named after `app`, and only there is
+ *   `definition` published.
+ * - `{ id }`: the folder named `id`, read with its own `epicenter.json`
+ *   (none means no tables; its tables are then keyed by any name and checked
+ *   at run time). For the Folders window, the CLI, and tools.
+ * - `{ id, definition }`: the folder named `id`, read through `definition`
+ *   and never published, such as an app reading Epicenter's own folder.
+ *
+ * An `id` is never a path. A browser names its directory after it; the
+ * desktop shell maps it to a directory it registered.
  */
-export type OpenDataFolder = <
-	const TLens extends FolderDefinition = FolderDefinition,
+export type OpenFolderOptions<
+	TDefinition extends FolderDefinition = FolderDefinition,
+> = HostOptions &
+	(
+		| {
+				readonly app: string;
+				readonly definition: TDefinition;
+				readonly id?: never;
+		  }
+		| {
+				readonly id: string;
+				readonly definition?: TDefinition;
+				readonly app?: never;
+		  }
+	);
+
+/**
+ * The one opener signature. Every entry but `/bun`, which opens a directory
+ * by its path, exports an `openFolder` of exactly this type. The handle's
+ * `definition` is the folder's own declaration wherever the folder is not
+ * the app's own, so it is typed as any definition.
+ */
+export type OpenFolder = <
+	const TDefinition extends FolderDefinition = FolderDefinition,
 >(
-	options: OpenDataFolderOptions<TLens>,
-) => Promise<Result<Folder<TLens, FolderDefinition>, OpenFolderError>>;
+	options: OpenFolderOptions<TDefinition>,
+) => Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>>;

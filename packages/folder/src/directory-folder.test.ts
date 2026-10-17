@@ -81,7 +81,11 @@ async function open(
 		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
 	});
 	return openDirectoryFolder<typeof definition>({
-		schema: expectOk(prepareFolderDefinition(definition)),
+		opening: {
+			id: 'directory',
+			own: true,
+			definition: expectOk(prepareFolderDefinition(definition)),
+		},
 		rootPath: root,
 		storage,
 		history: nativeHistory({

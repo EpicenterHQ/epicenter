@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { formatDeclaration, openFolder } from '@epicenter/folder/bun';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
-import type { NotesFolder } from './types.js';
+import { HONEYCRISP_FOLDER_ID, type NotesFolder } from './types.js';
 
 // Real git processes; generous under a loaded machine.
 setDefaultTimeout(60_000);
@@ -45,10 +45,13 @@ afterEach(async () => {
 });
 
 async function directory() {
-	const root = await realpath(
+	// Honeycrisp's own folder, named after it.
+	const parent = await realpath(
 		await mkdtemp(join(tmpdir(), 'honeycrisp-setup-')),
 	);
-	cleanup.push(() => rm(root, { recursive: true, force: true }));
+	const root = join(parent, HONEYCRISP_FOLDER_ID);
+	await mkdir(root);
+	cleanup.push(() => rm(parent, { recursive: true, force: true }));
 	const git = (...args: string[]) =>
 		spawnSync('git', args, { cwd: root, encoding: 'utf8' });
 	return { root, git };
@@ -57,6 +60,7 @@ async function directory() {
 async function open(root: string) {
 	const opened = await openFolder({
 		root,
+		app: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
 		git: { author: { name: 'Honeycrisp', email: 'honeycrisp@localhost' } },
 	});

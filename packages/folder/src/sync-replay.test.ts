@@ -84,7 +84,7 @@ async function diverged() {
 	}) as typeof fetch;
 	const folder = expectOk(
 		await openFolder({
-			id: ID,
+			app: ID,
 			definition,
 			browser: {
 				author: { name: 'Local', email: 'local@example.test' },
@@ -350,7 +350,7 @@ test('a fast-forward cut off, then a peer editing again, keeps the peer edit her
 	const storage: TestStorage = createTestStorage();
 	const folder = expectOk(
 		await openFolder({
-			id: ID,
+			app: ID,
 			definition,
 			browser: {
 				author: { name: 'Local', email: 'local@example.test' },
@@ -414,7 +414,7 @@ async function connected(seed: Record<string, string>) {
 	}) as typeof fetch;
 	const folder = expectOk(
 		await openFolder({
-			id: ID,
+			app: ID,
 			definition,
 			browser: {
 				author: { name: 'Local', email: 'local@example.test' },

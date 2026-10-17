@@ -12,9 +12,9 @@
  * counts each request.
  */
 import { mkdirSync, rmdirSync } from 'node:fs';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { FileError, type FileTable, openFolder } from '@epicenter/folder/bun';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
@@ -112,11 +112,29 @@ function refusedConnection(
 	return undefined;
 }
 
-/** A real directory opened as Whispering's folder, by this test process. */
+/**
+ * A new directory named as Whispering's own folder, `WHISPERING_FOLDER_ID`,
+ * in a temporary directory of its own. Remove `dirname` of it when done.
+ */
+export async function whisperingDirectory(prefix: string) {
+	const root = join(
+		await realpath(await mkdtemp(join(tmpdir(), prefix))),
+		WHISPERING_FOLDER_ID,
+	);
+	await mkdir(root);
+	return root;
+}
+
+/**
+ * A real directory opened as Whispering's own folder, by this test process:
+ * one named after Whispering (`whisperingDirectory`), where Whispering's
+ * definition is published.
+ */
 export async function openTestFolder(root: string) {
 	return expectOk(
 		await openFolder({
 			root,
+			app: WHISPERING_FOLDER_ID,
 			definition: whisperingDefinition,
 			git: { author: { name: 'Test', email: 'test@localhost' } },
 		}),
@@ -209,9 +227,7 @@ export async function openTestWorkspace({
 	connections,
 	folder: given,
 }: TestWorkspaceOptions = {}) {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), 'whispering-workspace-')),
-	);
+	const root = await whisperingDirectory('whispering-workspace-');
 	const folder = given ?? (await openTestFolder(root));
 	const failures: ResultFailures = {
 		starts: failResultStarts,
@@ -319,7 +335,7 @@ export async function openTestWorkspace({
 		get closes() {
 			return closes;
 		},
-		remove: () => rm(root, { recursive: true, force: true }),
+		remove: () => rm(dirname(root), { recursive: true, force: true }),
 	};
 }
 

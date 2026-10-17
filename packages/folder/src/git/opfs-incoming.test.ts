@@ -179,7 +179,7 @@ async function synced(tree: Tree, opfs = memoryOpfs()) {
 	const open = async () => {
 		const folder = expectOk(
 			await openFolder({
-				id: ROOT,
+				app: ROOT,
 				definition,
 				browser: { author, httpFetch, opfs: opfsEnvironment(opfs) },
 			}),

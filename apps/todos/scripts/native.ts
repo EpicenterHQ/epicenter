@@ -12,9 +12,14 @@
  * and merges what both sides changed into one commit, this checkout's
  * version winning, then pushes (ADR-0576). A checkout that cannot be opened
  * prints the refusal and exits 1.
+ *
+ * A checkout named after Todos's id is Todos's own, where `todosDefinition`
+ * is published; any other is read through it, so its `epicenter.json` must
+ * declare the todos table, as a checkout of a folder Todos synced does.
  */
 import { openFolder } from '@epicenter/folder/bun';
 import { todosDefinition } from '../src/lib/definition.js';
+import { TODOS_FOLDER_ID } from '../src/lib/platform/types.js';
 
 const [root, command, ...args] = process.argv.slice(2);
 if (root === undefined || command === undefined) {
@@ -42,6 +47,7 @@ async function output(checkout: string, ...gitArgs: string[]) {
 const remoteUrl = await output(root, 'remote', 'get-url', 'origin');
 const { data: openedFolder, error: openedError } = await openFolder({
 	root,
+	app: TODOS_FOLDER_ID,
 	definition: todosDefinition,
 	git: {
 		author: {

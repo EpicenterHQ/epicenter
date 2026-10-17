@@ -5,7 +5,7 @@
  * `so.epicenter`: `whispering-transcription` and `whispering-text`, holding
  * the kind, a title, and the model, so they follow the person to every
  * computer where that folder syncs. Opening Whispering's window permits it
- * into that folder, which it reads through `connectionsLens`.
+ * into that folder, which it reads through `connectionsDefinition`.
  *
  * The endpoint and key are not in the row. They live in this computer's
  * keychain under the row's id, and only the `epicenter` CLI reads them: the
@@ -30,7 +30,7 @@
 
 import {
 	CONNECTIONS_FOLDER_ID,
-	type connectionsLens,
+	type connectionsDefinition,
 } from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
 import type { Folder, FolderDefinition } from '@epicenter/folder';
@@ -82,7 +82,7 @@ type Resolved = {
 
 /** `so.epicenter` as Whispering opens it: through its `connections` table alone. */
 export type ConnectionsFolder = Pick<
-	Folder<typeof connectionsLens, FolderDefinition>,
+	Folder<typeof connectionsDefinition, FolderDefinition>,
 	'tables' | 'close'
 >;
 
@@ -132,7 +132,7 @@ export function createDesktopConnections({
 	openConnections,
 }: {
 	commands: ConnectionCommands;
-	/** Open `so.epicenter` through `connectionsLens`; injected for tests. */
+	/** Open `so.epicenter` through `connectionsDefinition`; injected for tests. */
 	openConnections: () => Promise<
 		Result<ConnectionsFolder, { readonly message: string }>
 	>;

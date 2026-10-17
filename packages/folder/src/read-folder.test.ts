@@ -32,7 +32,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	DECLARATION_PATH,
@@ -92,6 +92,7 @@ test('an opened folder reads back exactly as its tables list it', async () => {
 	const root = await scratch();
 	const folder = expectOk(
 		await openFolder({
+			app: basename(root),
 			root,
 			definition,
 			git: { author: { name: 'T', email: 't@example.test' } },
@@ -260,6 +261,7 @@ test('a written folder publishes each table as a standard object schema, and rea
 	});
 	const folder = expectOk(
 		await openFolder({
+			app: basename(root),
 			root,
 			definition: sparse,
 			git: { author: { name: 'T', email: 't@example.test' } },

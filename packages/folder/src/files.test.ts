@@ -96,7 +96,7 @@ const openers: Record<string, () => Promise<Opened>> = {
 	browser: async () =>
 		expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.filestest',
+				app: 'so.epicenter.filestest',
 				definition,
 				browser: {
 					author,
@@ -340,8 +340,9 @@ describe('a write reads the file it merges into, and never reads back what it wr
 			close: async () => {},
 		};
 		const folder = assembleFolder<typeof definition>({
+			id: 'reread',
+			own: true,
 			prepared: definition,
-			publishes: true,
 			storage: boundary,
 			history,
 			location: locationOf('reread'),

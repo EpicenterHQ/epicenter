@@ -6,7 +6,6 @@
  * anywhere else. Nothing native is imported here.
  */
 import { openFolder } from '@epicenter/folder/browser';
-import { Err, Ok } from 'wellcrafted/result';
 import { todosDefinition } from '../definition.js';
 import { httpFetch } from '../remote.js';
 import { type OpenTodosFolder, TODOS_FOLDER_ID } from './types.js';
@@ -18,12 +17,9 @@ const AUTHOR = { name: 'Todos', email: 'todos@epicenter.so' };
  * Called from a mounted component; importing this module opens nothing. A
  * browser opens only Todos's own folder.
  */
-export const openTodosFolder: OpenTodosFolder = async () => {
-	const { data: folder, error } = await openFolder({
-		id: TODOS_FOLDER_ID,
+export const openTodosFolder: OpenTodosFolder = () =>
+	openFolder({
+		app: TODOS_FOLDER_ID,
 		definition: todosDefinition,
 		browser: { author: AUTHOR, httpFetch },
 	});
-	if (error !== null) return Err(error);
-	return Ok({ folder, own: true });
-};

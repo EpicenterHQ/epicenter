@@ -6,10 +6,10 @@
  * (`open_installed_app`): Whispering's own folder, `WHISPERING_FOLDER_ID`,
  * `<folder root>/so.epicenter.whispering`, or another folder chosen with "Open
  * in Whispering" (ADR-0560). A window handed no folder opens Whispering's own.
- * Whispering owns its own folder's schema, so `openHandedFolder` publishes
- * `whisperingDefinition` to that folder and reads any other through it as a
- * lens (ADR-0538): its declaration is never written, and one that does not
- * contain the lens is refused, named.
+ * `openFolder` publishes `whisperingDefinition` only to Whispering's own
+ * folder, the one named after it, and reads any other through it (ADR-0538):
+ * its declaration is never written, and one that does not contain the
+ * definition is refused, named.
  *
  * Either way the page names only the scope: the shell grants the window the
  * directory and holds its lock, and the page's own folder engine reads it,
@@ -39,9 +39,9 @@
 
 import {
 	CONNECTIONS_FOLDER_ID,
-	connectionsLens,
+	connectionsDefinition,
 } from '@epicenter/ai/connection-table';
-import { openDataFolder, openHandedFolder } from '@epicenter/folder/tauri';
+import { openFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
@@ -85,7 +85,10 @@ export async function openDesktopWorkspace({
 	commands: native = commands,
 	connectionCommands = commands,
 	openConnectionsFolder = () =>
-		openDataFolder({ id: CONNECTIONS_FOLDER_ID, lens: connectionsLens }),
+		openFolder({
+			id: CONNECTIONS_FOLDER_ID,
+			definition: connectionsDefinition,
+		}),
 }: {
 	commands?: LocalTranscriptionCommands;
 	/** The AI connection commands; injected for tests. */
@@ -95,14 +98,14 @@ export async function openDesktopWorkspace({
 		Result<ConnectionsFolder, { readonly message: string }>
 	>;
 } = {}): Promise<Result<Workspace, WorkspaceError>> {
-	const opened = await openHandedFolder({
-		ownId: WHISPERING_FOLDER_ID,
+	const opened = await openFolder({
+		app: WHISPERING_FOLDER_ID,
 		definition: whisperingDefinition,
-		appTitle: 'Whispering',
 	});
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
-	const { folder, id: folderId } = opened.data;
+	const folder = opened.data;
+	const folderId = folder.id;
 	// Repair the recordings a quit or a crash cut off, before anything reads
 	// them. A failure keeps the folder open and is shown beside the recorder.
 	const { error: recoverError } = await recoverRecordings({

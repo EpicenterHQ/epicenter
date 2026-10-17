@@ -26,8 +26,6 @@ import {
 	formatRow,
 	type Issue,
 	type Issues,
-	type OpenDataFolder,
-	type OpenDataFolderOptions,
 	type OpenFolder,
 	type OpenFolderError,
 	type OpenFolderOptions,
@@ -98,7 +96,7 @@ parseRow(rawTodos, '---\ntitle: Milk\n---\n');
 formatRow(rawTodos, { fields: { title: 'Milk', due: null }, body: '' });
 // An opener still takes a raw declaration and prepares it itself.
 void root.openFolder({
-	id: 'test.folder',
+	app: 'test.folder',
 	definition: { tables: { todos: rawTodos } },
 });
 // Preparing changes no key or field type.
@@ -210,8 +208,12 @@ expectTypeOf<Opened['tables']['todos']>().toEqualTypeOf<
 // Settings are a table, `settings`; a folder has no handle of their own.
 // @ts-expect-error There is no `kv`.
 export type _NoKv = Opened['kv'];
-// Every handle exposes the definition it reads with.
-expectTypeOf<Opened['definition']>().toEqualTypeOf<typeof definition>();
+// Every handle exposes the declaration it reads with: the app's definition
+// only in the app's own folder, so it is typed as any definition.
+expectTypeOf<Opened['definition']>().toEqualTypeOf<FolderDefinition>();
+// And which folder it is, and whether it is the app's own.
+expectTypeOf<Opened['id']>().toEqualTypeOf<string>();
+expectTypeOf<Opened['own']>().toEqualTypeOf<boolean>();
 expectTypeOf<
 	CreateRowOf<typeof definition.tables.todos>['due']
 >().toEqualTypeOf<InstantString | null>();
@@ -227,22 +229,23 @@ expectTypeOf(root.openFolder<typeof definition>).returns.toEqualTypeOf<
 expectTypeOf(root.openFolder<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<OpenFolderOptions<typeof definition>>();
-// The opener names the folder; the definition does not.
+// An app names itself; the definition names no folder.
 expectTypeOf<
-	OpenFolderOptions<typeof definition>['id']
+	Extract<OpenFolderOptions<typeof definition>, { app: string }>['app']
 >().toEqualTypeOf<string>();
-// @ts-expect-error A folder is opened by its ID.
+// @ts-expect-error A folder is opened for an app or by its ID.
 void root.openFolder({ definition });
+// @ts-expect-error An app opens its folder through its definition.
+void root.openFolder({ app: 'so.epicenter.todos' });
+// @ts-expect-error An app opener names no folder; the shell hands it one.
+void root.openFolder({
+	app: 'so.epicenter.todos',
+	id: 'data:Groceries',
+	definition,
+});
 
-// One data-folder opener signature at the automatic entry and at both
-// explicit entries: an existing folder by ID, with its own schema.
-expectTypeOf(root.openDataFolder).toEqualTypeOf<OpenDataFolder>();
-expectTypeOf(browser.openDataFolder).toEqualTypeOf<OpenDataFolder>();
-expectTypeOf(tauri.openDataFolder).toEqualTypeOf<OpenDataFolder>();
-expectTypeOf<keyof OpenDataFolderOptions>().toEqualTypeOf<
-	'id' | 'credentials' | 'browser' | 'lens'
->();
-expectTypeOf(root.openDataFolder).returns.toEqualTypeOf<
+// Without a definition, a folder by ID reads with its own schema.
+expectTypeOf(root.openFolder({ id: 'data:Groceries' })).toEqualTypeOf<
 	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
 >();
 async function untypedRows(folder: Folder<FolderDefinition>) {
@@ -253,8 +256,8 @@ async function untypedRows(folder: Folder<FolderDefinition>) {
 }
 void untypedRows;
 
-// A lens types the tables it reads; `definition` stays the folder's own
-// declaration, and a table may refuse to add rows.
+// A definition types the tables it reads; `definition` stays the folder's
+// own declaration, and a table may refuse to add rows.
 const board = defineFolder({
 	tables: {
 		todos: defineTable({
@@ -262,20 +265,20 @@ const board = defineFolder({
 		}),
 	},
 });
-type Lensed = Folder<typeof board, FolderDefinition>;
-expectTypeOf(root.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<Lensed, OpenFolderError>>
+type ReadThrough = Folder<typeof board, FolderDefinition>;
+expectTypeOf(root.openFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<ReadThrough, OpenFolderError>>
 >();
-expectTypeOf(browser.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<Lensed, OpenFolderError>>
+expectTypeOf(browser.openFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<ReadThrough, OpenFolderError>>
 >();
-expectTypeOf(bun.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<Lensed, OpenFolderError>>
+expectTypeOf(bun.openFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<ReadThrough, OpenFolderError>>
 >();
-async function lensedRows() {
-	const { data: folder, error } = await root.openDataFolder({
-		id: 'so.epicenter.todos',
-		lens: board,
+async function readThroughRows() {
+	const { data: folder, error } = await root.openFolder({
+		app: 'so.epicenter.board',
+		definition: board,
 	});
 	if (error !== null) {
 		if (error.name === 'ShapeMismatch')
@@ -287,29 +290,29 @@ async function lensedRows() {
 			>();
 		return;
 	}
-	expectTypeOf(folder).toEqualTypeOf<Lensed>();
+	expectTypeOf(folder).toEqualTypeOf<ReadThrough>();
 	expectTypeOf(folder.definition).toEqualTypeOf<FolderDefinition>();
 	expectTypeOf(folder.tables.todos.canCreate).toEqualTypeOf<boolean>();
-	// @ts-expect-error The lens declares no such table.
+	// @ts-expect-error The definition declares no such table.
 	void folder.tables.projects;
 	const created = await folder.tables.todos.create({
 		fields: { title: 'Milk', status: 'todo' },
 		body: '',
 	});
-	// A lens that cannot supply a field the folder requires adds nothing.
+	// A definition that cannot supply a field the folder requires adds nothing.
 	if (created.error?.name === 'InvalidValues')
 		expectTypeOf(created.error.issues).toEqualTypeOf<readonly Issue[]>();
 	folder.tables.todos.create({
-		// @ts-expect-error A lens field keeps its declared type.
+		// @ts-expect-error A definition's field keeps its declared type.
 		fields: { title: 'Milk', status: 'blocked' },
 		body: '',
 	});
 }
-void lensedRows;
+void readThroughRows;
 
 // Every entry exports the same contract, so a build may resolve one for another.
 type Contract = typeof contract;
-type EntryPoint<T> = Omit<T, 'openFolder' | 'openDataFolder'>;
+type EntryPoint<T> = Omit<T, 'openFolder'>;
 expectTypeOf<EntryPoint<typeof root>>().toEqualTypeOf<Contract>();
 // A browser folder takes an author, a transport, and test storage; its
 // remote is its Git configuration, which `sync.connect` sets.
@@ -319,24 +322,19 @@ expectTypeOf<keyof contract.BrowserFolderOptions>().toEqualTypeOf<
 
 // The browser entry is the contract and its opener, and nothing else.
 expectTypeOf<EntryPoint<typeof browser>>().toEqualTypeOf<Contract>();
-// The desktop entry adds only the opener of the folder the shell handed a window.
-expectTypeOf<
-	Omit<EntryPoint<typeof tauri>, 'openHandedFolder'>
->().toEqualTypeOf<Contract>();
+// So is the desktop entry.
+expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 
-// The directory openers are their own contract: an explicit root and history.
-expectTypeOf(bun.openDataFolder<FolderDefinition>)
-	.parameter(0)
-	.toEqualTypeOf<bun.DataFolderOptions>();
-expectTypeOf(bun.openDataFolder<FolderDefinition>).returns.toEqualTypeOf<
-	Promise<Result<Folder<FolderDefinition, FolderDefinition>, OpenFolderError>>
+// The directory opener is its own contract: an explicit root and history.
+expectTypeOf(bun.openFolder<FolderDefinition>).returns.toEqualTypeOf<
+	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
 >();
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();
 expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
-	Promise<Result<Folder<typeof definition, typeof definition>, OpenFolderError>>
+	Promise<Result<Opened, OpenFolderError>>
 >();
 
 async function typedValues(folder: Opened, instant: InstantString) {

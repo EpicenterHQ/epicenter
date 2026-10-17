@@ -163,21 +163,35 @@ export type FolderLocation =
 
 /**
  * An opened folder. `TDefinition` types `tables`; `TDeclared` types
- * `definition`, and differs from it only for a lens, whose tables are typed by
- * the lens while the handle reads and writes with the folder's own
- * declaration.
+ * `definition`, the declaration the handle reads and writes with. That is
+ * the app's definition only in the app's own folder, so an opener types it
+ * as any definition.
  */
 export type Folder<
 	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = TDefinition,
+	TDeclared extends FolderDefinition = FolderDefinition,
 > = FolderAccess<TDefinition> & {
 	readonly git: FolderGit;
 	/**
-	 * The prepared definition this handle reads with: the one `openFolder`
-	 * was given, or the folder's own `epicenter.json` as `openDataFolder`
-	 * read it when it opened (no tables when there was none), lens or not.
-	 * Every row is checked against it, and Sync merges rows by it. A
-	 * declaration changed after opening is read by the next open.
+	 * The folder's id: the scope the desktop shell granted, the browser
+	 * directory's name, or in Bun the directory's name. An app's own folder
+	 * is named by the app's id.
+	 */
+	readonly id: string;
+	/**
+	 * Whether this is the opening app's own folder, the one named after the
+	 * `app` it was opened for. Only an own folder's handle publishes its
+	 * definition to `epicenter.json`; every other handle reads with the
+	 * folder's own declaration and never writes it. False for a folder
+	 * opened without an `app`.
+	 */
+	readonly own: boolean;
+	/**
+	 * The prepared definition this handle reads with: the app's own, in its
+	 * own folder, or the folder's own `epicenter.json` as it was read when
+	 * the folder opened (no tables when there was none). Every row is
+	 * checked against it, and Sync merges rows by it. A declaration changed
+	 * after opening is read by the next open.
 	 */
 	readonly definition: TDeclared;
 	readonly location: FolderLocation;
@@ -334,38 +348,41 @@ function createFolderGit(history: FolderHistory): FolderGit {
 
 /**
  * Assemble the handle over acquired storage. `prepared` is the prepared
- * definition: `openFolder`'s `prepareFolderDefinition` result, or the
- * declaration `openDataFolder` read. It is the snapshot every table reads
- * through, never the declaration the opener was handed. No argument
- * carries `TDefinition`, so the opener names it.
+ * definition: the app's own in its own folder, or the declaration read from
+ * any other. It is the snapshot every table reads through, never the
+ * declaration the opener was handed. No argument carries `TDefinition`, so
+ * the opener names it.
  *
- * With a `lens` that `prepared` contains, the handle has the lens's tables
- * alone, each still reading and writing through `prepared`'s table, so a row
- * is checked against every field the folder declares and keeps the fields
- * the lens does not name.
+ * With `through`, the definition a folder that is not the app's own is read
+ * through, which `prepared` contains, the handle has that definition's
+ * tables alone, each still reading and writing through `prepared`'s table,
+ * so a row is checked against every field the folder declares and keeps the
+ * fields the definition does not name.
  */
 export function assembleFolder<
 	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
 >({
+	id,
+	own,
 	prepared,
-	lens,
-	publishes,
+	through,
 	storage: suppliedStorage,
 	history,
 	location,
 	hints,
 	release,
 }: {
-	prepared: FolderDefinition;
-	/** The shape the caller reads, contained by `prepared` (ADR-0538). */
-	lens?: FolderDefinition;
+	id: string;
 	/**
-	 * Whether the handle publishes `prepared` to `epicenter.json` before its
-	 * first write. `openFolder`'s handles do; `openDataFolder`'s, whose
-	 * definition is that file, never write it.
+	 * Whether this is the opening app's own folder. Its handle publishes
+	 * `prepared` to `epicenter.json` before its first write; any other
+	 * handle, whose definition is that file, never writes it.
 	 */
-	publishes: boolean;
+	own: boolean;
+	prepared: FolderDefinition;
+	/** The definition the caller reads through, contained by `prepared` (ADR-0538). */
+	through?: FolderDefinition;
 	/** The host's storage, which the history shares. */
 	storage: FolderStorage;
 	history: FolderHistory;
@@ -380,14 +397,14 @@ export function assembleFolder<
 	const storage = handleStorage(suppliedStorage, {
 		signal: controller.signal,
 		history,
-		published: publishes ? prepared : undefined,
+		published: own ? prepared : undefined,
 	});
 	const tables: Record<string, FileTable<unknown>> = {};
 	// A table's key is its name and its directory.
 	// The opener prepared every table, which is what the type's mark records.
-	for (const name of Object.keys((lens ?? prepared).tables)) {
+	for (const name of Object.keys((through ?? prepared).tables)) {
 		const table = prepared.tables[name] as PreparedFolderTable;
-		const shape = lens?.tables[name];
+		const shape = through?.tables[name];
 		tables[name] = createTable<unknown>(
 			{ storage },
 			name,
@@ -401,6 +418,8 @@ export function assembleFolder<
 	const git = createFolderGit(history);
 
 	return Object.freeze({
+		id,
+		own,
 		definition: prepared as TDeclared,
 		tables: Object.freeze(tables) as Folder<TDefinition>['tables'],
 		files,

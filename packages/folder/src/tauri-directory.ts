@@ -18,29 +18,21 @@ import { openDirectoryFolder } from './directory-adapter.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import type { Granted } from './native/bindings.gen.js';
-import type { FolderSchema } from './open-at-root.js';
+import type { Opening } from './opening.js';
 import { tauriHostFiles } from './tauri-files.js';
 import { cliHistory } from './tauri-history.js';
 
-export async function openGrantedFolder<
-	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = TDefinition,
->({
-	schema,
-	lens,
-	id,
+export async function openGrantedFolder<TDefinition extends FolderDefinition>({
+	opening,
 	granted,
 }: {
-	/** The page's prepared definition, or `'declared'` for the folder's own. */
-	readonly schema: FolderSchema;
-	/** With `'declared'`, the prepared shape the folder must contain. */
-	readonly lens?: FolderDefinition;
-	readonly id: string;
+	/** The granted scope, and how it is read. */
+	readonly opening: Opening;
 	readonly granted: Granted;
-}): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	return openDirectoryFolder<TDefinition, TDeclared>({
-		schema,
-		lens,
+}): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+	const { id } = opening;
+	return openDirectoryFolder<TDefinition>({
+		opening,
 		rootPath: granted.root,
 		// The shell sweeps a stopped save's staged files at each grant.
 		storage: hostStorage(tauriHostFiles(id)),

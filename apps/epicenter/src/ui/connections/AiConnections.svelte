@@ -27,7 +27,7 @@
 		let release: (() => Promise<void>) | undefined;
 		void (async () => {
 			const { data: folder, error } = await openFolder({
-				id: EPICENTER_FOLDER_ID,
+				app: EPICENTER_FOLDER_ID,
 				definition: epicenterDefinition,
 			});
 			if (closed) {

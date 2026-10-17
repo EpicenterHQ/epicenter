@@ -83,7 +83,7 @@ async function open(files: Record<string, string>, path = PATH) {
 	const stubs = await openTestWorkspace();
 	const folder = expectOk(
 		await openFolder({
-			id: WHISPERING_FOLDER_ID,
+			app: WHISPERING_FOLDER_ID,
 			definition: whisperingDefinition,
 		}),
 	);

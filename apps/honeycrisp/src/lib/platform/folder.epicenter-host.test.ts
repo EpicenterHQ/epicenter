@@ -1,65 +1,55 @@
 /**
  * Epicenter Host Leaf Tests
  *
- * Which folder the installed leaf opens, and how. The shell's openers are
- * stood in for by the directory openers of `@epicenter/folder/bun` over real
- * temporary directories, one per scope, so the lens check and what opening
- * writes are the folder package's own. The window's URL carries the folder
- * the shell handed it, as `open_installed_app` writes it.
+ * Which folder the installed leaf opens, and how. The shell's `invoke` is
+ * the stand-in of `granted-shell.test-support.ts` in the folder package,
+ * granting a real temporary directory per test, named as the shell names
+ * it: an app's own folder by the app's id, another by its own name. The
+ * window's URL carries the folder the shell handed it, as
+ * `open_installed_app` writes it.
  *
  * Key behaviors:
  * - A window handed no folder opens Honeycrisp's own folder with Honeycrisp's
  *   definition, and sets up its missing layout
  * - A window handed Honeycrisp's own folder opens it the same way
- * - A window handed another folder opens it through Honeycrisp's shape,
- *   reads its notes, and writes nothing: its declaration stays, and no
- *   layout or settings are added
- * - A handed folder whose declaration lacks Honeycrisp's shape is refused by
- *   name
+ * - A window handed another folder opens it through Honeycrisp's
+ *   definition, reads its notes, and writes nothing: its declaration stays,
+ *   and no layout or settings are added
+ * - A handed folder whose declaration lacks Honeycrisp's definition is
+ *   refused by name
  *
  * See also:
- * - `packages/folder/src/lens.test.ts` for the containment check
+ * - `packages/folder/src/handed-folder.test.ts` for the opener's rule
  * - `first-open.test.ts` for setting up Honeycrisp's own folder
  */
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type {
-	FolderDefinition,
-	OpenDataFolderOptions,
-	OpenFolderOptions,
-} from '@epicenter/folder';
-import * as bun from '@epicenter/folder/bun';
+import { afterEach, expect, mock, test } from 'bun:test';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import {
+	createGrantedShell,
+	type GrantedShell,
+	grantedDirectory,
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
 import { HONEYCRISP_FOLDER_ID } from './types.js';
 
-const AUTHOR = { name: 'Honeycrisp', email: 'honeycrisp@localhost' };
+/** The shell; each test grants it the directory it opens (`register`). */
+let shell: GrantedShell = createGrantedShell('');
+/** The directories the tests made. */
+const made: string[] = [];
 
-type Opened = { opener: 'openFolder' | 'openDataFolder'; id: string };
-let opened: Opened[] = [];
-/** The directory the shell registered under each scope. */
-let roots: Record<string, string> = {};
+mock.module('@tauri-apps/api/core', () => ({
+	isTauri: () => true,
+	invoke: (
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) => shell.invoke(cmd, body, options),
+}));
 
-// `openHandedFolder` reaches the shell through the desktop adapter, so the
-// adapter is what stands in for the shell.
-mock.module('../../../../../packages/folder/src/tauri-adapter.js', () => ({
-	openFolder: (options: OpenFolderOptions<FolderDefinition>) => {
-		opened.push({ opener: 'openFolder', id: options.id });
-		return bun.openFolder({
-			root: roots[options.id] ?? '',
-			definition: options.definition,
-			git: { author: AUTHOR },
-		});
-	},
-	openDataFolder: (options: OpenDataFolderOptions) => {
-		opened.push({ opener: 'openDataFolder', id: options.id });
-		return bun.openDataFolder({
-			root: roots[options.id] ?? '',
-			lens: options.lens,
-			git: { author: AUTHOR },
-		});
-	},
+// The shell's watcher of the granted directory, which these tests never fire.
+mock.module('@tauri-apps/api/webviewWindow', () => ({
+	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
 }));
 
 const { openNotesFolder } = await import('./folder.epicenter-host.js');
@@ -76,17 +66,27 @@ function openWindow(folder?: string) {
 	});
 }
 
-/** Register a fresh directory under `scope`, holding `files`. */
+/**
+ * The shell grants a fresh directory for `scope`, holding `files`: the
+ * app's own named by its id, a data folder `data:<name>` named `<name>`.
+ */
 async function register(scope: string, files: Record<string, string> = {}) {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), 'honeycrisp-host-')),
-	);
+	const name = scope.startsWith('data:') ? scope.slice('data:'.length) : scope;
+	const root = join(await grantedDirectory('honeycrisp-host-'), name);
+	await mkdir(root);
 	for (const [path, text] of Object.entries(files)) {
 		await Bun.write(join(root, path), text);
 	}
-	roots[scope] = root;
+	made.push(dirname(root));
+	shell = createGrantedShell(root);
 	return root;
 }
+
+/** The scopes this window asked the shell to grant. */
+const granted = () =>
+	shell.calls
+		.filter(({ cmd }) => cmd === 'grant_directory')
+		.map(({ args }) => args.scope);
 
 const STRING = { type: 'string', 'x-field': { kind: 'string' } };
 const BOOLEAN = { type: 'boolean', 'x-field': { kind: 'boolean' } };
@@ -101,14 +101,10 @@ const INSTANT = {
 const declaration = (title: string, tables: Record<string, unknown>) =>
 	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
 
-beforeEach(() => {
-	opened = [];
-	roots = {};
-});
 afterEach(async () => {
 	Reflect.deleteProperty(globalThis, 'location');
-	for (const root of Object.values(roots))
-		await rm(root, { recursive: true, force: true });
+	for (const directory of made.splice(0))
+		await rm(directory, { recursive: true, force: true });
 });
 
 test("a window handed no folder opens Honeycrisp's own with its definition and sets it up", async () => {
@@ -117,7 +113,8 @@ test("a window handed no folder opens Honeycrisp's own with its definition and s
 
 	const folder = await openNotesFolder();
 
-	expect(opened).toEqual([{ opener: 'openFolder', id: HONEYCRISP_FOLDER_ID }]);
+	expect(granted()).toEqual([HONEYCRISP_FOLDER_ID]);
+	expect(folder.own).toBe(true);
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	expect((await readdir(root)).sort()).toEqual([
 		'.git',
@@ -134,7 +131,8 @@ test("a window handed Honeycrisp's own folder opens it the same way", async () =
 
 	const folder = await openNotesFolder();
 
-	expect(opened).toEqual([{ opener: 'openFolder', id: HONEYCRISP_FOLDER_ID }]);
+	expect(granted()).toEqual([HONEYCRISP_FOLDER_ID]);
+	expect(folder.own).toBe(true);
 	await folder.close();
 });
 
@@ -188,7 +186,9 @@ test('a window handed another folder reads its notes and writes nothing to it', 
 
 	const folder = await openNotesFolder();
 
-	expect(opened).toEqual([{ opener: 'openDataFolder', id: 'data:Journal' }]);
+	expect(granted()).toEqual(['data:Journal']);
+	expect(folder.id).toBe('data:Journal');
+	expect(folder.own).toBe(false);
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	const rows = expectOk(await folder.tables.notes.list());
 	expect(rows.map(({ result }) => result.data?.row.fields.title)).toEqual([

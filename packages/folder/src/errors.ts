@@ -200,7 +200,8 @@ export const OpenFolderError = defineErrors({
 		reason,
 	}),
 	/**
-	 * The folder's own `epicenter.json`, which `openDataFolder` reads, is not
+	 * The folder's own `epicenter.json`, which a folder that is not the
+	 * opening app's own is read with, is not
 	 * a readable file, is not UTF-8 JSON, is not the declaration grammar, or
 	 * declares a field a folder cannot keep. Nothing was opened.
 	 */
@@ -209,13 +210,23 @@ export const OpenFolderError = defineErrors({
 		reason,
 	}),
 	/**
-	 * The folder's own `epicenter.json` does not contain the shape of the lens
-	 * `openDataFolder` was given (ADR-0538): a table or field the lens reads
-	 * is missing, or the folder admits values there the lens does not. Every
-	 * problem is listed. Nothing was opened.
+	 * The folder's own `epicenter.json` does not contain the definition it
+	 * was read through (ADR-0538): a table or field the definition reads is
+	 * missing, or the folder admits values there the definition does not.
+	 * The message names the app by the definition's `title` and the folder
+	 * by its directory's name, and lists every problem. Nothing was opened.
 	 */
-	ShapeMismatch: ({ problems }: { problems: readonly ShapeProblem[] }) => ({
-		message: `The folder's epicenter.json does not contain this lens: ${problems.map((problem) => problem.message).join('; ')}`,
+	ShapeMismatch: ({
+		title,
+		folder,
+		problems,
+	}: {
+		title: string | undefined;
+		folder: string;
+		problems: readonly ShapeProblem[];
+	}) => ({
+		message: `${title ?? 'This app'} cannot open the folder '${folder}': ${problems.map((problem) => problem.message).join('; ')}.`,
+		folder,
 		problems,
 	}),
 	/** A folder ID names one directory: not empty, `.`, or `..`, with no slash, backslash, or control character. */

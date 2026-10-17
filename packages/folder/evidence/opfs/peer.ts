@@ -40,7 +40,7 @@ const hints: string[] = [];
 async function handle(request: PeerRequest): Promise<PeerReply> {
 	if (request.kind === 'open') {
 		const { data: opened, error: openError } = await openFolder({
-			id: request.id,
+			app: request.id,
 			definition,
 			browser: {},
 		});

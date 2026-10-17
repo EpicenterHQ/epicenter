@@ -5,7 +5,7 @@ import type {
 	SyncError,
 	SyncOutcome,
 } from '@epicenter/folder';
-import { openDataFolder } from '@epicenter/folder/browser';
+import { openFolder } from '@epicenter/folder/browser';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
 import { createTextEditor, type TextEditor } from '@epicenter/folder/svelte';
 import { describeSync } from '@epicenter/svelte/sync-line';
@@ -32,7 +32,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	const id = `so.epicenter.git.${key}.${copy}`;
 	// A working copy is an existing folder, not this app's data: it opens with
 	// its own epicenter.json, if any, and saving never writes that file.
-	const opened = await openDataFolder({
+	const opened = await openFolder({
 		id,
 		browser: {
 			author: {

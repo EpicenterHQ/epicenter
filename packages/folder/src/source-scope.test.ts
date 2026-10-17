@@ -94,7 +94,7 @@ describe('browser folder scope', () => {
 	test('status and commits exclude ignored files; tracked files stay tracked', async () => {
 		const folder = expectOk(
 			await openBrowserFolder({
-				id: 'scope',
+				app: 'scope',
 				definition,
 				browser: {
 					author,

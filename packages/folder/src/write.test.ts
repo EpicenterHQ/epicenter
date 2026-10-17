@@ -33,7 +33,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { openFolder } from './bun.js';
@@ -311,6 +311,7 @@ async function directory() {
 	roots.push(root);
 	const folder = expectOk(
 		await openFolder({
+			app: basename(root),
 			root,
 			definition,
 			git: { author: { name: 'Folders', email: 'folders@localhost' } },

@@ -26,8 +26,8 @@ export const HONEYCRISP_FOLDER_ID = manifest.id;
  * through the query cache, and its change channel reports what changed
  * outside the page. The app never syncs; remotes are outside it. Its own
  * `definition` is `honeycrispDefinition` for Honeycrisp's own folder, and the
- * folder's declaration for any other folder Epicenter hands it, opened with
- * Honeycrisp's shape as the lens.
+ * folder's declaration for any other folder Epicenter hands it, read through
+ * Honeycrisp's definition.
  */
 export type NotesFolder = Folder<Definition, FolderDefinition>;
 

@@ -91,8 +91,9 @@ export const isStoredRow = <TFields>(
 export type FileTable<TFields> = {
 	readonly name: string;
 	/**
-	 * Whether `create` can add a row. False only for a table opened through a
-	 * lens that does not declare every field the folder requires (ADR-0538):
+	 * Whether `create` can add a row. False only for a table read through a
+	 * definition that does not declare every field the folder requires
+	 * (ADR-0538):
 	 * its rows can be read and written, and `create` is `InvalidValues`.
 	 */
 	readonly canCreate: boolean;
@@ -164,8 +165,8 @@ function decode(bytes: Uint8Array): string | undefined {
  * The file table for one declared table. `name` is its key in the prepared
  * definition and its directory; `table` is its prepared definition, which
  * every read and write is checked against. `unsupplied` lists the fields
- * `table` requires that the caller's lens does not declare; when there are
- * any, `create` refuses.
+ * `table` requires that the definition the caller reads through does not
+ * declare; when there are any, `create` refuses.
  */
 export function createTable<TFields>(
 	{ storage }: { storage: FolderStorage },
@@ -315,7 +316,7 @@ export function createTable<TFields>(
 			if (unsupplied.length > 0)
 				return RowWriteError.InvalidValues({
 					issues: unsupplied.map((field) => ({
-						message: `The folder requires '${name}.${field}' in every row, which this lens does not declare, so it cannot add rows`,
+						message: `The folder requires '${name}.${field}' in every row, which this app's definition does not declare, so it cannot add rows`,
 						field,
 					})),
 				});

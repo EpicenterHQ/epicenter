@@ -2,15 +2,16 @@
  * `@epicenter/folder/bun`: open an ordinary directory as a folder, in Bun.
  *
  * For command-line tools, recovery scripts, and tests that are given a
- * directory. `openFolder` opens it with a definition from code, which it
- * publishes to `epicenter.json`; `openDataFolder` opens an existing data
- * folder with its own `epicenter.json`, which it never writes; `readFolder`
- * reads one without opening it; `runHistory` runs one history operation, as
- * the `epicenter` CLI does for a desktop page. A page in the desktop app
- * opens its folder through `@epicenter/folder/tauri` instead, where the shell
- * grants the page its directory, changes its files, and runs `git` for it.
+ * directory. `openFolder` opens it by the same rule as every entry: the
+ * folder's `epicenter.json` is published by the app the folder is named
+ * after, and every other opener reads through its definition. Here a folder
+ * is named by its directory's name. `readFolder` reads one without opening
+ * it; `runHistory` runs one history operation, as the `epicenter` CLI does
+ * for a desktop page. A page in the desktop app opens its folder through
+ * `@epicenter/folder/tauri` instead, where the shell grants the page its
+ * directory, changes its files, and runs `git` for it.
  *
- * Both open the same directory folder (`openDirectoryFolder`): files through
+ * `openFolder` opens a directory folder (`openDirectoryFolder`): files through
  * the browser folder's file storage over the directory, replaced by renaming a
  * staged copy over them, and history through the system `git`. Here this
  * process reaches the disk itself, with `node:fs` and its own `git`. The root
@@ -38,10 +39,7 @@ import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { LockingStorage } from './boundary.js';
 import { readDeclaration } from './declaration.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
@@ -66,6 +64,7 @@ import type {
 	HistoryRequest,
 	HistoryState,
 } from './history-wire.js';
+import { opening } from './opening.js';
 
 export {
 	type CheckedTable,
@@ -113,95 +112,76 @@ export {
 	readFolder,
 } from './read-folder.js';
 
-export type DirectoryFolderOptions<TDefinition extends FolderDefinition> = {
+/**
+ * The directory to open, and the definition to read it through.
+ *
+ * - `{ root, app, definition }`: `app`'s folder. When the directory is
+ *   named after `app`, it is the app's own: the handle publishes
+ *   `definition` to `epicenter.json`, and the folder may get a repository
+ *   of its own inside another repository's working tree. Any other
+ *   directory is read through `definition`.
+ * - `{ root }`: the directory with its own `epicenter.json`, which the
+ *   handle never writes (ADR-0535). None means no tables.
+ * - `{ root, definition }`: the directory read through `definition`, never
+ *   published.
+ *
+ * A directory read through a definition must declare everything the
+ * definition does (ADR-0538), or it is `ShapeMismatch`.
+ */
+export type DirectoryFolderOptions<
+	TDefinition extends FolderDefinition = FolderDefinition,
+> = {
 	/** An existing directory. Opening creates nothing in it; its first commit creates its repository. */
 	readonly root: string;
-	readonly definition: TDefinition;
 	readonly git: FolderGitOptions;
-};
-
-export type DataFolderOptions<
-	TLens extends FolderDefinition = FolderDefinition,
-> = {
-	/** An existing directory. Opening creates nothing in it. */
-	readonly root: string;
-	readonly git: FolderGitOptions;
-	/**
-	 * The shape this caller reads, which the folder's declaration must
-	 * contain (ADR-0538); see `OpenDataFolderOptions`.
-	 */
-	readonly lens?: TLens;
-};
+} & (
+	| {
+			/** The app's id, such as `so.epicenter.todos`, which names its own folder. */
+			readonly app: string;
+			readonly definition: TDefinition;
+	  }
+	| { readonly app?: never; readonly definition?: TDefinition }
+);
 
 /**
- * Open the directory at `root`. Refusals are returned, not thrown: a
- * definition a folder cannot keep, a root that is not a directory, or one
- * whose `.git` is not a directory of its own (a `gitdir:` file or a link
- * points its history somewhere else).
+ * Open the directory at `root`, named by its directory's name (`folder.id`).
+ * Refusals are returned, not thrown: a definition a folder cannot keep, a
+ * root that is not a directory, one whose `.git` is not a directory of its
+ * own (a `gitdir:` file or a link points its history somewhere else), an
+ * `epicenter.json` that cannot be used, or one that does not contain the
+ * definition.
+ *
+ * Opening creates nothing. A directory with no repository reads as an empty
+ * history with every file uncommitted, and its first commit creates the
+ * repository, unless the directory is not an app's own and is inside
+ * another repository's working tree: that commit is `blocked`, and the
+ * files are committed with that repository's Git (ADR-0517).
  */
-export async function openFolder<const TDefinition extends FolderDefinition>({
-	root,
-	definition,
-	git,
-}: DirectoryFolderOptions<TDefinition>): Promise<
-	Result<Folder<TDefinition, TDefinition>, OpenFolderError>
-> {
+export async function openFolder<
+	const TDefinition extends FolderDefinition = FolderDefinition,
+>(
+	options: DirectoryFolderOptions<TDefinition>,
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+	const { root, git } = options;
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	const { data: prepared, error: definitionError } =
-		prepareFolderDefinition(definition);
-	if (definitionError !== null)
-		return OpenFolderError.InvalidDefinition(definitionError);
+	const { data: target, error: definitionError } = opening(
+		basename(resolved),
+		options.app,
+		options.definition,
+	);
+	if (definitionError !== null) return Err(definitionError);
 	// What a stopped write staged an hour or more ago goes before opening.
 	await sweepStaleScratch(resolved, savingPrimitives(resolved));
 	const opened = directory(resolved);
 	return openDirectoryFolder<TDefinition>({
-		schema: prepared,
+		opening: target,
 		...opened,
-		history: systemHistory(resolved, opened.storage, git),
-	});
-}
-
-/**
- * Open the existing directory at `root` with the schema in its own
- * `epicenter.json`, which the handle never writes (ADR-0535). A directory
- * without one opens with no tables; one that cannot be used is
- * `InvalidDeclaration`. The root is refused as `openFolder` refuses it.
- * With a `lens`, a declaration that does not contain it is `ShapeMismatch`,
- * and the handle's tables are the lens's (ADR-0538).
- *
- * Opening creates nothing. A directory with no repository reads as an empty
- * history with every file uncommitted, and its first commit creates the
- * repository, unless the directory is inside another repository's working
- * tree: that commit is `blocked`, and the files are committed with that
- * repository's Git (ADR-0517).
- */
-export async function openDataFolder<
-	const TLens extends FolderDefinition = FolderDefinition,
->({
-	root,
-	git,
-	lens,
-}: DataFolderOptions<TLens>): Promise<
-	Result<Folder<TLens, FolderDefinition>, OpenFolderError>
-> {
-	const { data: resolved, error } = await directoryRoot(root);
-	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	let shape: FolderDefinition | undefined;
-	if (lens !== undefined) {
-		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
-		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
-		shape = prepared;
-	}
-	// What a stopped write staged an hour or more ago goes before opening.
-	await sweepStaleScratch(resolved, savingPrimitives(resolved));
-	const opened = directory(resolved);
-	return openDirectoryFolder<TLens, FolderDefinition>({
-		schema: 'declared',
-		lens: shape,
-		...opened,
-		history: systemHistory(resolved, opened.storage, git, () =>
-			enclosingRepository(resolved),
+		history: systemHistory(
+			resolved,
+			opened.storage,
+			git,
+			target.own ? undefined : () => enclosingRepository(resolved),
 		),
 	});
 }

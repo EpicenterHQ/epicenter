@@ -8,14 +8,14 @@
  *
  * Key behaviors:
  * - Importing any entry opens nothing and touches no global
- * - Every entry exports the same names besides its openers
+ * - Every entry exports the same names besides its opener
  * - The automatic entry asks whether this is the desktop app when it is
  *   called, not when it is imported, and loads only the adapter it chose
  * - On a server, or anywhere without the origin private file system, opening
  *   is a returned refusal
  * - The browser entry refuses inside the desktop app, even with storage
  *   handed to it; the desktop entry refuses outside it; neither falls back,
- *   for a data folder either
+ *   for a folder opened by ID either
  * - A browser folder has a local author by default and needs an explicit one
  *   to use a remote
  * - Handles that share browser storage hear each other's saves
@@ -80,23 +80,21 @@ test('importing every entry opens nothing and adds no global', () => {
 	).toBeUndefined();
 });
 
-test('every entry exports the same contract beside its openers', () => {
+test('every entry exports the same contract beside its opener', () => {
 	const names = (entry: object) =>
 		Object.keys(entry)
-			.filter((name) => name !== 'openFolder' && name !== 'openDataFolder')
+			.filter((name) => name !== 'openFolder')
 			.sort();
 	const shared = names(contract);
 	expect(shared).toContain('defineFolder');
 	expect(shared).toContain('FileError');
 	expect(names(root)).toEqual(shared);
-	// The desktop entry adds the opener of the folder the shell handed a window.
-	expect(names(tauri)).toEqual([...shared, 'openHandedFolder'].sort());
+	expect(names(tauri)).toEqual(shared);
 	expect(names(browser)).toEqual(shared);
 	// The directory entry adds its own tools to the same contract.
 	expect(names(bun)).toEqual(expect.arrayContaining(shared));
 	for (const entry of [root, browser, tauri, bun]) {
 		expect(typeof entry.openFolder).toBe('function');
-		expect(typeof entry.openDataFolder).toBe('function');
 		for (const name of shared)
 			expect((entry as Record<string, unknown>)[name]).toBe(
 				(contract as Record<string, unknown>)[name],
@@ -106,24 +104,24 @@ test('every entry exports the same contract beside its openers', () => {
 	expect(
 		new Set([root, browser, tauri, bun].map((e) => e.openFolder)).size,
 	).toBe(4);
-	expect(
-		new Set([root, browser, tauri, bun].map((e) => e.openDataFolder)).size,
-	).toBe(4);
 });
 
 test('on a server the automatic entry refuses, and so does each explicit entry', async () => {
 	for (const entry of [root, browser])
-		expect(expectErr(await entry.openFolder({ id, definition }))).toMatchObject(
-			{ name: 'NoFileSystem', missing: 'navigator.storage.getDirectory' },
-		);
-	expect(expectErr(await tauri.openFolder({ id, definition })).name).toBe(
+		expect(
+			expectErr(await entry.openFolder({ app: id, definition })),
+		).toMatchObject({
+			name: 'NoFileSystem',
+			missing: 'navigator.storage.getDirectory',
+		});
+	expect(expectErr(await tauri.openFolder({ app: id, definition })).name).toBe(
 		'NotTauri',
 	);
 	for (const entry of [root, browser])
-		expect(expectErr(await entry.openDataFolder({ id }))).toMatchObject({
+		expect(expectErr(await entry.openFolder({ id }))).toMatchObject({
 			name: 'NoFileSystem',
 		});
-	expect(expectErr(await tauri.openDataFolder({ id })).name).toBe('NotTauri');
+	expect(expectErr(await tauri.openFolder({ id })).name).toBe('NotTauri');
 	expect(invoked).toEqual([]);
 });
 
@@ -148,7 +146,7 @@ test('a browser whose file handles cannot move a file is refused at open', async
 	});
 	try {
 		expect(
-			expectErr(await browser.openFolder({ id, definition })),
+			expectErr(await browser.openFolder({ app: id, definition })),
 		).toMatchObject({
 			name: 'NoFileSystem',
 			missing: 'FileSystemFileHandle.move',
@@ -183,7 +181,7 @@ test('every opener refuses a missing folder ID before it acquires anything, even
 test('the automatic entry decides when it is called: the desktop adapter in the shell, and no browser storage when that fails', async () => {
 	const storage = createTestStorage();
 	const options = {
-		id,
+		app: id,
 		definition,
 		browser: { author, ...browserStorage(storage) },
 	};
@@ -201,7 +199,7 @@ test('the automatic entry decides when it is called: the desktop adapter in the 
 	const refused = expectErr(
 		await root.openFolder({
 			definition,
-			id: 'another.folder',
+			app: 'another.folder',
 			browser: { author, ...browserStorage(other) },
 		}),
 	);
@@ -220,7 +218,7 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 	const storage = createTestStorage();
 	const refused = expectErr(
 		await browser.openFolder({
-			id,
+			app: id,
 			definition,
 			browser: { author, ...browserStorage(storage) },
 		}),
@@ -228,7 +226,7 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 	expect(refused.name).toBe('InsideTauri');
 	expect(
 		expectErr(
-			await browser.openDataFolder({
+			await browser.openFolder({
 				id,
 				browser: { author, ...browserStorage(storage) },
 			}),
@@ -241,13 +239,13 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 test('a browser folder defaults to a local author and no remote', async () => {
 	const environment = createTestStorage();
 	expect(
-		expectErr(await browser.openFolder({ definition, id: ' ' })).name,
+		expectErr(await browser.openFolder({ definition, app: ' ' })).name,
 	).toBe('InvalidId');
 	expect(environment.opfs.directories()).toEqual([]);
 
 	const folder = expectOk(
 		await browser.openFolder({
-			id,
+			app: id,
 			definition,
 			browser: browserStorage(environment),
 		}),
@@ -273,7 +271,7 @@ test('handles sharing browser storage hear each other, when the storage carries 
 	const open = async () =>
 		expectOk(
 			await browser.openFolder({
-				id,
+				app: id,
 				definition,
 				browser: {
 					author,

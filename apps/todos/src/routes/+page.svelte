@@ -34,8 +34,11 @@
 	const opening = (async () => {
 		const opened = await openTodosFolder();
 		if (opened.error) return opened;
-		const { folder, own } = opened.data;
-		return Ok({ todos: createTodos(folder, { onWriteFailed: writeFailed }), own });
+		const folder = opened.data;
+		return Ok({
+			todos: createTodos(folder, { onWriteFailed: writeFailed }),
+			own: folder.own,
+		});
 	})();
 
 	// Teardown, not a choice about input. It runs when SvelteKit destroys this

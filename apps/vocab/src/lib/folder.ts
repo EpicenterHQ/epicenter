@@ -16,7 +16,7 @@ export const VOCAB_FOLDER_ID = APPS.VOCAB.id;
 /** Called from the mounted page; importing this module opens nothing. */
 export async function openVocabFolder(): Promise<VocabFolder> {
 	const { data: folder, error: openError } = await openFolder({
-		id: VOCAB_FOLDER_ID,
+		app: VOCAB_FOLDER_ID,
 		definition: vocabFolder,
 		// History stays in this browser: a local author and no remote. Nothing
 		// leaves this device until a remote is configured separately.

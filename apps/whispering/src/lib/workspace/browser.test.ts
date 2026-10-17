@@ -26,8 +26,8 @@ Bun.plugin({
 
 let folder: Workspace['folder'];
 mock.module('@epicenter/folder/browser', () => ({
-	openFolder: async (options: { id: string }) => {
-		expect(options.id).toBe('so.epicenter.whispering');
+	openFolder: async (options: { app: string }) => {
+		expect(options.app).toBe('so.epicenter.whispering');
 		return Ok(folder);
 	},
 }));

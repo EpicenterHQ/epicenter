@@ -95,7 +95,7 @@ async function setup() {
 	const id = `todo-detail-mounted-${count++}`;
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
@@ -161,7 +161,7 @@ async function setup() {
 		async overwriteElsewhere(path: string, content: string) {
 			const other = expectOk(
 				await openFolder({
-					id,
+					app: id,
 					definition: todosDefinition,
 					browser: {
 						author: { name: 'Other', email: 'other@example.test' },

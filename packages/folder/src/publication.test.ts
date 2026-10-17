@@ -32,7 +32,7 @@ async function observed() {
 	opfs = memoryOpfs();
 	const folder = expectOk(
 		await openFolder({
-			id: 'publication',
+			app: 'publication',
 			definition,
 			browser: {
 				author: { name: 'Saver', email: 'saver@example.test' },

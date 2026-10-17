@@ -58,7 +58,7 @@ test('browser helpers still preparing when close starts are refused without writ
 	const open = async () =>
 		expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.closetest',
+				app: 'so.epicenter.closetest',
 				definition,
 				browser: { author, ...browserStorage(environment) },
 			}),
@@ -155,8 +155,9 @@ async function held() {
 	const history = createHistory({ backend, boundary, author });
 	const hints = createFileHints();
 	const folder = assembleFolder<typeof definition, typeof definition>({
+		id: 'close',
+		own: true,
 		prepared: definition,
-		publishes: true,
 		storage: boundary,
 		history,
 		location: locationOf('close'),

@@ -16,12 +16,13 @@
  * - A write the shell finds overtaken where it publishes reads again and
  *   merges, a create onto the file that landed is `InvalidPath`, and a
  *   delete reads again and wins; none is `Unconfirmed`
- * - `openDataFolder` reads with the folder's own `epicenter.json` and never
+ * - A folder opened by ID reads with its own `epicenter.json` and never
  *   writes it, asks for no history when it opens, creates no repository
  *   before the first commit, and merges rows on Sync by that declaration
  * - What a page's Sync wrote reaches its listeners once, from the reply
- * - Through a lens, a data folder has the lens's tables, keeps the fields the
- *   lens does not name, and refuses a lens its declaration does not contain
+ * - Read through a definition, a data folder has the definition's tables,
+ *   keeps the fields the definition does not name, and refuses a definition
+ *   its declaration does not contain
  * - A data folder inside another repository's working tree blocks its first
  *   commit, and no repository is made
  */
@@ -85,7 +86,7 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	}),
 }));
 
-const { openDataFolder, openFolder } = await import('./tauri-adapter.js');
+const { openFolder } = await import('./tauri-adapter.js');
 const { defineFolder, defineTable, field } = await import('./contract.js');
 
 const definition = defineFolder({
@@ -125,7 +126,7 @@ async function granted() {
 	const root = await scratch('tauri-directory-');
 	grantRoot(root);
 	const folder = expectOk(
-		await openFolder({ definition, id: 'so.epicenter.todos' }),
+		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	return { root, folder };
 }
@@ -134,7 +135,7 @@ test('a granted folder opens over its real directory', async () => {
 	const root = await scratch('tauri-directory-');
 	grantRoot(root);
 	const folder = expectOk(
-		await openFolder({ definition, id: 'so.epicenter.todos' }),
+		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	// The grant comes first; every later call is a read, for the granted
 	// scope. Opening writes nothing and runs no `git`.
@@ -300,7 +301,7 @@ test('a refused grant is the refusal', async () => {
 		};
 	};
 	const refused = expectErr(
-		await openFolder({ definition, id: 'so.epicenter.todos' }),
+		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	expect(refused.name).toBe('WindowNotPermitted');
 	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
@@ -320,7 +321,7 @@ test.each<[unknown, OpenFolderError['name']]>([
 		throw refusal;
 	};
 	const refused = expectErr(
-		await openFolder({ definition, id: 'so.epicenter.todos' }),
+		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	expect(refused.name).toBe(name);
 	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
@@ -467,7 +468,7 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 		'---\ntitle: One\ndone: false\n---\n',
 	);
 	grantRoot(root);
-	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
 	expect(shell.calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: 'so.epicenter.vault' },
@@ -508,7 +509,7 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 test('a data folder without epicenter.json opens with no tables, and files work', async () => {
 	const root = await scratch('tauri-data-folder-none-');
 	grantRoot(root);
-	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
 	expect(folder.definition).toEqual({ tables: {} });
 	expect(folder.tables).toEqual({});
 	expectOk(await folder.write('notes/a.md', null, 'a\n'));
@@ -529,7 +530,7 @@ test('a data folder whose epicenter.json cannot be used is InvalidDeclaration an
 		'{"tables":{"todos":{"type":"object","properties":{},"required":["title"]}}}',
 	);
 	grantRoot(root);
-	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
+	const refused = expectErr(await openFolder({ id: 'so.epicenter.vault' }));
 	expect(refused.name).toBe('InvalidDeclaration');
 	expect(refused.message).toContain("requires 'title'");
 	expect(shell.calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
@@ -545,7 +546,7 @@ test('a data folder inside another repository blocks its first commit', async ()
 	// The CLI names the folder and the repository by their real paths.
 	const initProblem = `${await nodeFs.realpath(root)} is inside the repository at ${await nodeFs.realpath(outer)}; commit it with that repository's Git`;
 	grantRoot(root);
-	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
 	expectOk(
 		await folder.tables.todos!.create({
 			fields: { title: 'One', done: false },
@@ -564,13 +565,13 @@ test('a data folder grant refused is the refusal', async () => {
 	shell.control.grant = () => {
 		throw { name: 'UnknownScope', scope: 'so.epicenter.vault' };
 	};
-	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
+	const refused = expectErr(await openFolder({ id: 'so.epicenter.vault' }));
 	expect(refused.name).toBe('UnknownScope');
 	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
 });
 
-test('a data folder opened through a lens reads its fields, keeps the rest, and never writes epicenter.json', async () => {
-	const root = await scratch('tauri-data-folder-lens-');
+test('a data folder read through a definition reads its fields, keeps the rest, and never writes epicenter.json', async () => {
+	const root = await scratch('tauri-data-folder-read-through-');
 	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
 	await nodeFs.mkdir(join(root, 'todos'));
 	await nodeFs.writeFile(
@@ -578,15 +579,15 @@ test('a data folder opened through a lens reads its fields, keeps the rest, and 
 		'---\ntitle: One\ndone: false\nsource: phone\n---\n',
 	);
 	grantRoot(root);
-	const lens = defineFolder({
+	const reader = defineFolder({
 		tables: { todos: defineTable({ fields: { title: field.string() } }) },
 	});
 	const folder = expectOk(
-		await openDataFolder({ id: 'so.epicenter.vault', lens }),
+		await openFolder({ id: 'so.epicenter.vault', definition: reader }),
 	);
 	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
 	const todos = folder.tables.todos;
-	// The folder requires `done`, which the lens does not declare.
+	// The folder requires `done`, which the definition does not declare.
 	expect(todos.canCreate).toBe(false);
 	expect(
 		expectErr(await todos.create({ fields: { title: 'Two' }, body: '' })).name,
@@ -605,7 +606,7 @@ test('a data folder opened through a lens reads its fields, keeps the rest, and 
 		tables: { todos: defineTable({ fields: { done: field.string() } }) },
 	});
 	const refused = expectErr(
-		await openDataFolder({ id: 'so.epicenter.vault', lens: mismatch }),
+		await openFolder({ id: 'so.epicenter.vault', definition: mismatch }),
 	);
 	expect(refused).toMatchObject({
 		name: 'ShapeMismatch',
@@ -630,7 +631,7 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	const root = join(project, 'desktop');
 	await git(project, 'clone', '--quiet', bare, root);
 	grantRoot(root);
-	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
 
 	// Adjacent lines, which a line merge would hold for a person; two
 	// fields, which the declaration's row merge combines.
@@ -673,7 +674,7 @@ test("a page's Sync runs in the CLI, reports what it wrote once, and merges comp
 	await git(project, 'clone', '--quiet', bare, root);
 	grantRoot(root);
 	const folder = expectOk(
-		await openFolder({ definition, id: 'so.epicenter.todos' }),
+		await openFolder({ definition, app: 'so.epicenter.todos' }),
 	);
 	const heard: unknown[] = [];
 	folder.onFilesChanged((change) => heard.push(change));

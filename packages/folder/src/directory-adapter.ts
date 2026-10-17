@@ -15,11 +15,8 @@ import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
-import {
-	type ChangeDetector,
-	type FolderSchema,
-	openAtRoot,
-} from './open-at-root.js';
+import { type ChangeDetector, openAtRoot } from './open-at-root.js';
+import type { Opening } from './opening.js';
 
 /**
  * A directory folder's history, made when the folder opens: `landed` hears
@@ -37,10 +34,10 @@ export type DirectoryHistory = (wiring: {
  *
  * The directory is the folder, and a repository someone already made there
  * is used as it is. Opening creates nothing: a directory with no repository
- * gets one with its first commit or remote. With a prepared
- * definition as its `schema`, the handle publishes it to `epicenter.json`
- * before its first write. With `'declared'`, the handle reads with the
- * folder's own `epicenter.json` and never writes it.
+ * gets one with its first commit or remote. In the opening app's own folder
+ * the handle publishes the app's definition to `epicenter.json` before its
+ * first write; in any other it reads with the folder's own `epicenter.json`
+ * and never writes it (`Opening`).
  * Files are read and written through the host's storage. History is real
  * Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the
@@ -59,19 +56,15 @@ export type DirectoryHistory = (wiring: {
  */
 export async function openDirectoryFolder<
 	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = TDefinition,
 >({
-	schema,
-	lens,
+	opening,
 	rootPath,
 	storage,
 	history,
 	detector,
 }: {
-	/** The opener's prepared definition, or `'declared'` for the folder's own. */
-	readonly schema: FolderSchema;
-	/** With `'declared'`, the prepared shape the folder must contain (ADR-0538). */
-	readonly lens?: FolderDefinition;
+	/** Which folder this is, and how it is read. */
+	readonly opening: Opening;
 	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
 	/** The directory's storage, which the host also gives the history it runs in this process. */
@@ -80,10 +73,9 @@ export async function openDirectoryFolder<
 	readonly history: DirectoryHistory;
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
-}): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	return openAtRoot<TDefinition, TDeclared>(schema, {
+}): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+	return openAtRoot<TDefinition>(opening, {
 		detector,
-		lens,
 		location: { kind: 'directory', root: rootPath },
 		async start({ landed }) {
 			return { boundary: storage, history: await history({ landed }) };

@@ -102,7 +102,7 @@ async function open(
 ) {
 	used.add(id);
 	const { data: folder, error: openError } = await openFolder({
-		id,
+		app: id,
 		definition: options.definition ?? definition,
 		browser: { author },
 	});

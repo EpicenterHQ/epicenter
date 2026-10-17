@@ -64,7 +64,7 @@ afterEach(async () => {
 async function open(id = 'so.epicenter.querytest', storage?: TestStorage) {
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition,
 			browser: {
 				author,

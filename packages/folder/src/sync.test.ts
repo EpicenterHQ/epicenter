@@ -126,7 +126,7 @@ async function setup() {
 	}) as typeof fetch;
 	const local = expectOk(
 		await openFolder({
-			id: 'so.epicenter.synctest',
+			app: 'so.epicenter.synctest',
 			definition,
 			browser: {
 				author: { name: 'Local', email: 'local@example.test' },
@@ -579,7 +579,7 @@ test('unrelated histories are refused unless asked for', async () => {
 	const context = await setup();
 	const other = expectOk(
 		await openFolder({
-			id: 'so.epicenter.synctest.other',
+			app: 'so.epicenter.synctest.other',
 			definition,
 			browser: {
 				author: { name: 'Other', email: 'other@example.test' },
@@ -605,7 +605,7 @@ test('a folder with no history adopts the remote on its first sync, merging over
 	const context = await setup();
 	const fresh = expectOk(
 		await openFolder({
-			id: 'so.epicenter.synctest.fresh',
+			app: 'so.epicenter.synctest.fresh',
 			definition,
 			browser: {
 				author: { name: 'Fresh', email: 'fresh@example.test' },

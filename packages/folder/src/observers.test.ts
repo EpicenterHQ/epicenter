@@ -79,7 +79,7 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 			kind === 'browser'
 				? expectOk(
 						await openBrowserFolder({
-							id: 'so.epicenter.observerstest',
+							app: 'so.epicenter.observerstest',
 							definition,
 							browser: {
 								author,
@@ -188,7 +188,7 @@ describe('browser pages', () => {
 		const open = async (withPage?: typeof page) =>
 			expectOk(
 				await openBrowserFolder({
-					id: 'so.epicenter.observerstest',
+					app: 'so.epicenter.observerstest',
 					definition,
 					browser: {
 						author,
@@ -307,7 +307,7 @@ describe('browser channel', () => {
 
 		const refused = expectErr(
 			await openBrowserFolder({
-				id: 'so.epicenter.observerstest',
+				app: 'so.epicenter.observerstest',
 				definition,
 				browser: browserStorage(environment),
 			}),
@@ -327,7 +327,7 @@ describe('browser channel', () => {
 		// The same storage opens normally afterward: nothing was left locked.
 		const reopened = expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.observerstest',
+				app: 'so.epicenter.observerstest',
 				definition,
 				browser: browserStorage({ opfs: environment.opfs }),
 			}),
@@ -339,7 +339,7 @@ describe('browser channel', () => {
 		const { Channel } = channelClass('post');
 		const folder = expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.observerstest',
+				app: 'so.epicenter.observerstest',
 				definition,
 				browser: {
 					author,
@@ -358,7 +358,7 @@ describe('browser channel', () => {
 		const { Channel, log } = channelClass('close');
 		const folder = expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.observerstest',
+				app: 'so.epicenter.observerstest',
 				definition,
 				browser: {
 					author,
@@ -376,7 +376,7 @@ describe('browser channel', () => {
 		const open = async () =>
 			expectOk(
 				await openBrowserFolder({
-					id: 'so.epicenter.observerstest',
+					app: 'so.epicenter.observerstest',
 					definition,
 					browser: {
 						author,
@@ -406,7 +406,7 @@ test('a cross-tab file hint marks history stale and makes no commit', async () =
 	const open = async () =>
 		expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.observerstest',
+				app: 'so.epicenter.observerstest',
 				definition,
 				browser: { author, ...browserStorage(environment) },
 			}),

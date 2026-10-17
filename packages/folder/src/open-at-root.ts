@@ -25,6 +25,7 @@ import {
 	type FolderHistory,
 	type FolderLocation,
 } from './folder.js';
+import type { Opening } from './opening.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -39,13 +40,11 @@ export type ChangeDetector = (report: (change: FilesChanged) => void) => {
 	readonly ready?: Promise<void>;
 };
 
-/**
- * Whose schema a handle reads with: the opener's prepared definition, which
- * the handle publishes to `epicenter.json` (`openFolder`), or `'declared'`,
- * the folder's own `epicenter.json`, read once the files are reachable and
- * never written (`openDataFolder`).
- */
-export type FolderSchema = FolderDefinition | 'declared';
+/** The name a person knows the folder at `location` by: its directory's. */
+function folderName(location: FolderLocation): string {
+	if (location.kind === 'opfs') return location.directory;
+	return location.root.split(/[\\/]/).filter(Boolean).pop() ?? location.root;
+}
 
 /** What a folder with no `epicenter.json` declares: no tables. */
 const UNDECLARED = (() => {
@@ -68,23 +67,21 @@ type StartFolder = (wiring: {
 	readonly history: (definition: FolderDefinition) => FolderHistory;
 }>;
 
-export async function openAtRoot<
-	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = TDefinition,
->(
-	schema: FolderSchema,
+/**
+ * Open the folder `target` names over the storage `captured.start` makes:
+ * with the app's definition in the app's own folder, and with the folder's
+ * own `epicenter.json` anywhere else, which must contain the definition the
+ * folder is read through, if any.
+ */
+export async function openAtRoot<TDefinition extends FolderDefinition>(
+	target: Opening,
 	captured: {
 		readonly location: FolderLocation;
 		readonly start: StartFolder;
 		/** The host's detector of outside changes; none in Bun. */
 		readonly detector?: ChangeDetector;
-		/**
-		 * With `'declared'`, the prepared shape the caller reads. The folder's
-		 * declaration must contain it (ADR-0538), or nothing opens.
-		 */
-		readonly lens?: FolderDefinition;
 	},
-): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
 	const hints = createFileHints();
 	let history: FolderHistory | undefined;
 	let detected: ReturnType<ChangeDetector> | undefined;
@@ -106,8 +103,10 @@ export async function openAtRoot<
 			landed: (paths) => hints.report(paths),
 		});
 		const { boundary } = started;
+		const { definition } = target;
 		let prepared: FolderDefinition;
-		if (schema === 'declared') {
+		if (target.own) prepared = target.definition;
+		else {
 			// Read through the folder's own file boundary, after the grant, as
 			// every later read is.
 			const { data: declared, error } = await readDeclaration(boundary);
@@ -116,22 +115,27 @@ export async function openAtRoot<
 				return OpenFolderError.InvalidDeclaration(error);
 			}
 			prepared = declared ?? UNDECLARED;
-			if (captured.lens !== undefined) {
-				const problems = shapeProblems(prepared, captured.lens);
+			if (definition !== undefined) {
+				const problems = shapeProblems(prepared, definition);
 				if (problems.length > 0) {
 					release();
-					return OpenFolderError.ShapeMismatch({ problems });
+					return OpenFolderError.ShapeMismatch({
+						title: definition.title,
+						folder: folderName(captured.location),
+						problems,
+					});
 				}
 			}
-		} else prepared = schema;
+		}
 		// A change made once the handle is returned is heard.
 		await detected?.ready;
 		const opened = started.history(prepared);
 		history = opened;
-		const folder = assembleFolder<TDefinition, TDeclared>({
+		const folder = assembleFolder<TDefinition, FolderDefinition>({
+			id: target.id,
+			own: target.own,
 			prepared,
-			lens: schema === 'declared' ? captured.lens : undefined,
-			publishes: schema !== 'declared',
+			through: target.own ? undefined : definition,
 			storage: boundary,
 			history: opened,
 			location: captured.location,

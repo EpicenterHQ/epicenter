@@ -11,7 +11,7 @@
  * WebView.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, opened
- * through `connectionsLens`. The AI commands are scripted with the code the
+ * through `connectionsDefinition`. The AI commands are scripted with the code the
  * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
  * a stubbed endpoint, so a test about a key or a request runs against what
  * the CLI really checks and sends.
@@ -20,10 +20,13 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { connectionsLens } from '@epicenter/ai/connection-table';
+import { dirname, join } from 'node:path';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsDefinition,
+} from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -167,7 +170,12 @@ type ProviderCall = {
  * page is never handed it.
  */
 async function epicenter() {
-	const root = await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-'));
+	// Epicenter's own folder, named after it, where the CLI publishes.
+	const root = join(
+		await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-')),
+		CONNECTIONS_FOLDER_ID,
+	);
+	await mkdir(root);
 	const keychain = createMemorySecrets();
 	const provider: ProviderCall[] = [];
 	/** Every line the page was sent. */
@@ -253,7 +261,7 @@ async function epicenter() {
 			return { status: 'ok', data: { ...exit, reply: null }, error: null };
 		},
 	} as ConnectionCommands;
-	cleanups.push(() => rm(root, { recursive: true, force: true }));
+	cleanups.push(() => rm(dirname(root), { recursive: true, force: true }));
 	return {
 		root,
 		keychain,
@@ -263,7 +271,8 @@ async function epicenter() {
 		open: () =>
 			openBunFolder({
 				root,
-				definition: connectionsLens,
+				app: CONNECTIONS_FOLDER_ID,
+				definition: connectionsDefinition,
 				git: { author: { name: 'Test', email: 'test@localhost' } },
 			}),
 		lose(next: boolean) {
