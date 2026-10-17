@@ -2,12 +2,10 @@
  * The chat list and every chat write, kept in the TanStack Query cache
  * (ADR-0528).
  *
- * The list is one query over the folder's `chats` table and the message
- * files an earlier version saved. Messages saved now are named by their
- * chat, so the list never reads them; the open conversation reads its own.
- * The list is a query over `chats/` and `messages/` (`folder$.query`), so
- * it is read on open and again when a change reaches either. A chat this
- * page starts is put in the list by the start itself.
+ * The list is one query over the folder's `chats` table (`folder$.query`),
+ * read on open and again when a change reaches `chats/`. Messages are named
+ * by their chat, so the list never reads them; the open conversation reads
+ * its own. A chat this page starts is put in the list by the start itself.
  *
  * Starting a chat and saving each message are mutations. A message's save is
  * scoped to its chat's file, so one chat's messages are written in order,
@@ -31,12 +29,8 @@ import {
 	byRecency,
 	ChatHistoryError,
 	type ChatSummary,
-	isEarlierMessage,
-	listChats,
-	listMessageStems,
 	type MessageWrite,
 	messageStem,
-	readMessages,
 	startChat,
 	summaryOf,
 } from './messages.js';
@@ -45,12 +39,12 @@ import {
 export type ChatListing = {
 	/** Every chat, newest first. */
 	chats: ChatSummary[];
-	/** Files in `chats/`, and earlier files in `messages/`, that cannot be shown. */
+	/** Files in `chats/` that cannot be shown. */
 	unreadable: UnreadableFile[];
 };
 
 export function createChats(
-	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
+	{ tables }: Pick<VocabFolder, 'tables'>,
 	folder$: Pick<VocabOptions, 'query'>,
 	queryClient: QueryClient,
 	{
@@ -66,25 +60,17 @@ export function createChats(
 	const { defineMutation } = createQueryFactories(queryClient);
 
 	async function readChats(): Promise<Result<ChatListing, FileError>> {
-		const [
-			{ data: chatListing, error: chatError },
-			{ data: stems, error: stemError },
-		] = await Promise.all([tables.chats.list(), listMessageStems(files)]);
-		if (chatError !== null) return Err(chatError);
-		if (stemError !== null) return Err(stemError);
-		const messages = await readMessages(
-			tables.messages,
-			stems.filter(isEarlierMessage),
-		);
+		const { data: chatListing, error } = await tables.chats.list();
+		if (error !== null) return Err(error);
 		const read = readRows(tables.chats.name, chatListing, readChat);
 		return Ok({
-			chats: listChats(read.rows, messages.rows),
-			unreadable: [...read.unreadable, ...messages.unreadable],
+			chats: read.rows.map(summaryOf).sort(byRecency),
+			unreadable: read.unreadable,
 		});
 	}
 
 	const listing = folder$.query({
-		paths: [tables.chats.name, tables.messages.name],
+		paths: [tables.chats.name],
 		key: ['summaries'],
 		queryFn: readChats,
 	});

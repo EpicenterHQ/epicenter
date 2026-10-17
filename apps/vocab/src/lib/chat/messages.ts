@@ -2,7 +2,6 @@ import {
 	type AgentMessage,
 	type AgentMessageStore,
 	AgentMessageStoreError,
-	agentMessageText,
 } from '@epicenter/agent';
 import { InstantString } from '@epicenter/definition/field';
 import {
@@ -77,12 +76,6 @@ function sameJson(a: unknown, b: unknown): boolean {
 export const messageStem = (chatId: string, messageId: string) =>
 	`${chatId}.${messageId}`;
 
-/**
- * Whether a message stem predates chat prefixes. An earlier version named a
- * message file by its message ID alone, which has no dot.
- */
-export const isEarlierMessage = (stem: string) => !stem.includes('.');
-
 /** The stems of every row file in `messages/`, read from the directory alone. */
 export async function listMessageStems(
 	files: FolderFiles,
@@ -132,8 +125,7 @@ export type MessageWrite = (
  * One chat's finished messages, presented to the tutor loop.
  *
  * A message's file is `messages/<chat ID>.<message ID>.md`, so a chat reads
- * only its own files, found by name, plus the files an earlier version
- * named by message ID alone. `entries` is the latest read together with every
+ * only its own files, found by name. `entries` is the latest read together with every
  * message this store saved: a read never hides a message saved here. `set`
  * resolves `Ok` only once the folder holds the file, so the loop asks the
  * tutor nothing before a learner message is a file.
@@ -218,9 +210,7 @@ export function createChatMessageStore(
 				return ChatHistoryError.NotRead({ cause: listError });
 			const read = await readMessages(
 				table,
-				stems.filter(
-					(stem) => stem.startsWith(prefix) || isEarlierMessage(stem),
-				),
+				stems.filter((stem) => stem.startsWith(prefix)),
 			);
 			// A later load was asked for; its read is the one to show.
 			if (mine !== loads) return Ok(undefined);
@@ -233,10 +223,7 @@ export function createChatMessageStore(
 					next.set(row.message.id, row);
 			}
 			listed = new Map([...next].map(([id, row]) => [id, row.message]));
-			// An earlier file that cannot be read names no chat; the chat list reports it.
-			unreadable = read.unreadable.filter(({ path }) =>
-				path.startsWith(`messages/${prefix}`),
-			);
+			unreadable = read.unreadable;
 			notify();
 			return Ok(undefined);
 		},
@@ -293,7 +280,6 @@ export type ChatSummary = {
 	title: string;
 	focus: FocusItem[];
 	updatedAt: number;
-	legacy: boolean;
 };
 
 /** A `chats` row as the chat list shows it: titled by its focus, placed by when it started. */
@@ -303,53 +289,9 @@ export function summaryOf(chat: Chat): ChatSummary {
 		title: chat.focus.map((item) => item.text).join(', '),
 		focus: chat.focus,
 		updatedAt: Date.parse(chat.createdAt),
-		legacy: false,
 	};
 }
 
 /** Newest first, then by ID. */
 export const byRecency = (a: ChatSummary, b: ChatSummary) =>
 	b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
-
-/**
- * Every chat, newest first. A chat is a `chats` row, placed by when it
- * started. `messages` are the files an earlier version saved, named by message
- * ID alone: they move their chat up to their latest time, and those whose
- * chat has no row are an earlier, message-only chat, shown with its first
- * learner question as the title and no focus invented for it.
- */
-export function listChats(
-	chats: readonly Chat[],
-	messages: readonly ChatMessage[],
-) {
-	const summaries = new Map<string, ChatSummary>();
-	const firstQuestion = new Map<string, { time: number; stem: string }>();
-	for (const row of chats) summaries.set(row.id, summaryOf(row));
-	for (const { stem, chat: chatId, message } of messages) {
-		let chat = summaries.get(chatId);
-		if (!chat) {
-			chat = {
-				id: chatId,
-				title: 'Earlier chat',
-				focus: [],
-				updatedAt: 0,
-				legacy: true,
-			};
-			summaries.set(chatId, chat);
-		}
-		chat.updatedAt = Math.max(chat.updatedAt, message.createdAt);
-		const previous = firstQuestion.get(chat.id);
-		if (
-			chat.legacy &&
-			message.role === 'user' &&
-			(!previous ||
-				message.createdAt < previous.time ||
-				(message.createdAt === previous.time && stem < previous.stem))
-		) {
-			firstQuestion.set(chat.id, { time: message.createdAt, stem });
-			chat.title =
-				agentMessageText(message).trim().slice(0, 60) || 'Earlier chat';
-		}
-	}
-	return [...summaries.values()].sort(byRecency);
-}
