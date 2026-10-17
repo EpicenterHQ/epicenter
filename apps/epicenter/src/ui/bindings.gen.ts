@@ -208,14 +208,14 @@ export const commands = {
 	updateApp: (id: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("update_app", { id, onLine })),
 	/**
 	 *  Open app `id` at `commit`, the commit the Folders window listed, in its own
-	 *  window titled `title`, served at `/apps/<id>/<commit>/`. When that commit
-	 *  is not the current build, the CLI makes it current first, which it does
-	 *  only for an approved commit. A window already open on the folder is
-	 *  revealed and keeps the build it opened on. With `folder`, a scope the
-	 *  Folders window listed, the window is let into that folder and handed it,
-	 *  which the page asks for with `window_folder`. Without one, the app is
-	 *  handed its own folder, `<folder_dir>/<id>`, whose scope is its id
-	 *  (ADR-0552).
+	 *  window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
+	 *  first, every time, and answers only for an approved commit, building it
+	 *  when it is not the current build. A window already open on the folder is
+	 *  revealed when it runs that build, and refused when it runs another. With
+	 *  `folder`, a scope the Folders window listed, the window is let into that
+	 *  folder and handed it, which the page asks for with `window_folder`.
+	 *  Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
+	 *  scope is its id (ADR-0552).
 	 */
 	openInstalledApp: (id: string, title: string, commit: string, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_installed_app", { id, title, commit, folder })),
 	/**  When the host drops the resident model. */

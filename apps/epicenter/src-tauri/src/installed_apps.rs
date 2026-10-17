@@ -16,42 +16,39 @@
 //! install_app            epicenter app install [--folder=<folder>] --json -- <source>
 //! update_app             epicenter app update --json -- <id>
 //! approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
-//! open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not current
+//! open_installed_app     epicenter app update --commit=<commit> --json -- <id>, before every open
 //! ```
 //!
-//! What stays here is what must be native: reading which build is current,
-//! which chooses the commit a new window opens, and opening an app's window
-//! at that commit with its folder grant (`open_installed_window`). An open
-//! window keeps the build it opened on (ADR-0588), so a new build changes no
-//! open window.
+//! What stays here is what must be native: opening an app's window at the
+//! commit the CLI answered ready, with its folder grant
+//! (`open_installed_window`). An open window keeps the build it opened on
+//! (ADR-0588), so a new build changes no open window.
 
 use std::ffi::OsString;
-use std::fs;
-use std::path::Path;
 
 use tauri::ipc::Channel;
 use tauri::{Manager, Webview};
 
-use crate::app_data::DesktopPaths;
 use crate::cli::{window_invocation, CliError, CliExit};
 use crate::data_folders;
 
-/// The file in an app's build directory naming the commit a new window of it
-/// opens on. The CLI writes it after approving and building that commit.
-pub const CURRENT_BUILD: &str = "current";
-
-/// The commit `builds/<id>/current` names, when its build is there.
-pub fn current_build(builds: &Path) -> Option<String> {
-    let commit = fs::read_to_string(builds.join(CURRENT_BUILD)).ok()?;
-    let commit = commit.trim();
-    (is_commit(commit) && builds.join(commit).join("index.html").is_file())
-        .then(|| commit.to_string())
+/// Whether `value` is a full commit id, SHA-1 or SHA-256, in the lowercase
+/// hex Git prints, and so can name a directory under `builds/<id>/`.
+pub(crate) fn is_commit(value: &str) -> bool {
+    matches!(value.len(), 40 | 64)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// Whether `value` is a full commit id, SHA-1 or SHA-256, and so can name a
-/// directory under `builds/<id>/`.
-pub(crate) fn is_commit(value: &str) -> bool {
-    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+/// The commit `epicenter app update --json` answered as ready to open: its
+/// last line, `{"app": {"commit": …, "state": {"kind": "ready"}}}`.
+fn ready_commit(reply: Option<&str>) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(reply?).ok()?;
+    let app = value.get("app")?;
+    (app.pointer("/state/kind")?.as_str()? == "ready")
+        .then(|| app.get("commit")?.as_str().map(str::to_string))
+        .flatten()
 }
 
 /// Whether `id` can name a directory under `builds/`: the characters of a
@@ -183,14 +180,14 @@ pub async fn update_app(
 }
 
 /// Open app `id` at `commit`, the commit the Folders window listed, in its own
-/// window titled `title`, served at `/apps/<id>/<commit>/`. When that commit
-/// is not the current build, the CLI makes it current first, which it does
-/// only for an approved commit. A window already open on the folder is
-/// revealed and keeps the build it opened on. With `folder`, a scope the
-/// Folders window listed, the window is let into that folder and handed it,
-/// which the page asks for with `window_folder`. Without one, the app is
-/// handed its own folder, `<folder_dir>/<id>`, whose scope is its id
-/// (ADR-0552).
+/// window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
+/// first, every time, and answers only for an approved commit, building it
+/// when it is not the current build. A window already open on the folder is
+/// revealed when it runs that build, and refused when it runs another. With
+/// `folder`, a scope the Folders window listed, the window is let into that
+/// folder and handed it, which the page asks for with `window_folder`.
+/// Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
+/// scope is its id (ADR-0552).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_installed_app(
@@ -206,27 +203,26 @@ pub async fn open_installed_app(
         ));
     }
     let app = webview.app_handle().clone();
-    let builds = app.state::<DesktopPaths>().builds_dir().join(&id);
-    if current_build(&builds).as_deref() != Some(commit.as_str()) {
-        let exit = window_invocation(&webview)
-            .map_err(|error| format!("{error:?}"))?
-            .run(&update_args(&id, Some(&commit), false), None, |_| Ok(()))
-            .await
-            .map_err(|error| match error {
-                CliError::Failed { message } => message,
-                other => format!("{other:?}"),
-            })?;
-        match exit.code {
-            0 if current_build(&builds).as_deref() == Some(commit.as_str()) => {}
-            0 => return Err(format!("{title} was not built at {commit}.")),
-            1 => {
-                return Err(format!(
-                    "{title} is waiting for approval. Review and approve it first."
-                ))
-            }
-            _ => return Err(exit.failure("app update")),
+    let exit = window_invocation(&webview)
+        .map_err(|error| format!("{error:?}"))?
+        .run(&update_args(&id, Some(&commit), false), None, |_| Ok(()))
+        .await
+        .map_err(|error| match error {
+            CliError::Failed { message } => message,
+            other => format!("{other:?}"),
+        })?;
+    let commit = match exit.code {
+        0 => match ready_commit(exit.reply.as_deref()) {
+            Some(built) if built == commit => built,
+            _ => return Err(format!("{title} was not built at {commit}.")),
+        },
+        1 => {
+            return Err(format!(
+                "{title} is waiting for approval. Review and approve it first."
+            ))
         }
-    }
+        _ => return Err(exit.failure("app update")),
+    };
     // The app may read `so.epicenter` through a definition its declaration
     // must contain, so it waits for this launch to publish it.
     if let Some(declared) = app.try_state::<crate::cli::EpicenterFolderDeclared>() {
@@ -296,22 +292,28 @@ mod tests {
         );
     }
 
+    /// A window opens only on the build the CLI answered ready, never on a
+    /// commit it is still waiting to approve or failed to build.
     #[test]
-    fn only_a_current_build_with_its_page_opens_a_new_window() {
-        let builds =
-            std::env::temp_dir().join(format!("epicenter-current-build-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&builds);
-        fs::create_dir_all(&builds).unwrap();
+    fn a_window_opens_only_on_the_commit_the_cli_answered_ready() {
         let commit = "a".repeat(40);
-        assert_eq!(current_build(&builds), None);
-        fs::write(builds.join(CURRENT_BUILD), format!("{commit}\n")).unwrap();
-        assert_eq!(current_build(&builds), None, "no build is there yet");
-        fs::create_dir_all(builds.join(&commit)).unwrap();
-        fs::write(builds.join(&commit).join("index.html"), "<!doctype html>").unwrap();
-        assert_eq!(current_build(&builds), Some(commit));
-        fs::write(builds.join(CURRENT_BUILD), "../elsewhere\n").unwrap();
-        assert_eq!(current_build(&builds), None);
-        let _ = fs::remove_dir_all(&builds);
+        let reply = |kind: &str| {
+            format!(
+                r#"{{"app":{{"id":"com.example.board","commit":"{commit}","state":{{"kind":"{kind}"}}}}}}"#
+            )
+        };
+        assert_eq!(ready_commit(Some(&reply("ready"))), Some(commit.clone()));
+        for kind in ["unbuilt", "needsApproval", "broken"] {
+            assert_eq!(ready_commit(Some(&reply(kind))), None, "{kind}");
+        }
+        for other in [
+            None,
+            Some(""),
+            Some(r#"{"error":"Board did not build"}"#),
+            Some(r#"{"progress":"x"}"#),
+        ] {
+            assert_eq!(ready_commit(other), None, "{other:?}");
+        }
     }
 
     #[test]
@@ -323,7 +325,9 @@ mod tests {
             assert!(!is_app_id(id), "{id}");
         }
         assert!(is_commit(&"0".repeat(40)));
+        assert!(is_commit(&"0123456789abcdef".repeat(4)));
         assert!(!is_commit("HEAD"));
+        assert!(!is_commit(&"A".repeat(40)), "Git prints lowercase hex");
     }
 
     #[test]

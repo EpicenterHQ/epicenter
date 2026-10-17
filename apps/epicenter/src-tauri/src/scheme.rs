@@ -134,7 +134,14 @@ fn resolve(roots: &Roots, path: &str) -> Option<PathBuf> {
             if !installed_apps::is_app_id(id) || !installed_apps::is_commit(commit) {
                 return None;
             }
-            (roots.builds.join(id).join(commit), rest)
+            let app = roots.builds.join(id);
+            let build = app.join(commit);
+            // `contained_file` canonicalizes the root, so a linked app or
+            // build directory is refused here, before it would be followed.
+            if !is_real_directory(&app) || !is_real_directory(&build) {
+                return None;
+            }
+            (build, rest)
         }
         [page, rest @ ..] => (roots.pages.join(BuiltInApp::from_id(page)?.id()), rest),
         [] => return None,
@@ -172,6 +179,12 @@ fn contained_file(root: &Path, rest: &[&str]) -> Option<PathBuf> {
         }
     }
     regular_file(&root.join("index.html"))
+}
+
+/// Whether `path` is a directory and not a symbolic link to one.
+fn is_real_directory(path: &Path) -> bool {
+    path.symlink_metadata()
+        .is_ok_and(|metadata| metadata.is_dir())
 }
 
 /// `path` itself when it is a regular file reached through no symbolic link.
@@ -536,6 +549,29 @@ mod tests {
             let response = get(&roots, link);
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{link}");
         }
+
+        // A build directory, or an app's builds directory, that is a link is
+        // refused, wherever it points.
+        let linked = "fedcba9876543210fedcba9876543210fedcba98";
+        let app = roots.builds.join("com.example.board");
+        std::os::unix::fs::symlink(app.join(COMMIT), app.join(linked)).unwrap();
+        std::os::unix::fs::symlink(&app, roots.builds.join("com.example.alias")).unwrap();
+        for link in [
+            format!("/apps/com.example.board/{linked}/"),
+            format!("/apps/com.example.board/{linked}/assets/app.wasm"),
+            format!("/apps/com.example.alias/{COMMIT}/"),
+        ] {
+            assert_eq!(get(&roots, &link).status(), StatusCode::NOT_FOUND, "{link}");
+        }
+        // Uppercase hex names no build.
+        assert_eq!(
+            get(
+                &roots,
+                &format!("/apps/com.example.board/{}/", COMMIT.to_uppercase())
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
 
         // A commit segment that is not a commit never leaves the app's builds.
         for escape in [

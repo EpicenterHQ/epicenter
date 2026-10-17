@@ -642,8 +642,8 @@ const INSTALLED_WINDOW_PREFIX: &str = "app:";
 
 /// Open installed app `id`'s build of `commit`, served at
 /// `/apps/<id>/<commit>/`, in its own window on `folder`, a registered scope,
-/// or reveal the one already open on it, which keeps the build it opened on
-/// until it is closed and opened again (ADR-0588). The
+/// or reveal the one already open on it (`reveal_on_build`), which keeps the
+/// build it opened on until it is closed and opened again (ADR-0588). The
 /// window is permitted into the folder and into `so.epicenter`, and handed
 /// the folder (`data_folders::admit_installed_window`): the app's
 /// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
@@ -668,10 +668,7 @@ pub(crate) fn open_installed_window(
     let window_app = app.clone();
     app.run_on_main_thread(move || {
         let result = match window_app.get_webview_window(&label) {
-            Some(window) => {
-                focus(window);
-                Ok(())
-            }
+            Some(window) => reveal_on_build(window, &path, &title),
             None => create_app_window(&window_app, &label, &title, &path).map(focus),
         };
         let _ = sender.send(result);
@@ -680,6 +677,19 @@ pub(crate) fn open_installed_window(
     receiver
         .recv()
         .context("the main thread stopped before opening the window")?
+}
+
+/// Reveal `window`, already open on an installed app's folder, when it runs
+/// the build at `path`. One opened on another commit keeps that build, so
+/// opening the approved one is refused until the window is closed, rather
+/// than showing the old build as if it were the new one.
+fn reveal_on_build<R: Runtime>(window: WebviewWindow<R>, path: &str, title: &str) -> Result<()> {
+    let open = window.url().context("read the app window's address")?;
+    focus(window);
+    if !open.path().starts_with(path) {
+        bail!("{title} is open on an earlier version. Close its window, then open it again.");
+    }
+    Ok(())
 }
 
 fn focus<R: Runtime>(window: WebviewWindow<R>) {
@@ -698,6 +708,36 @@ mod tests {
 
     /// Every capability file, for checks that hold for all of them.
     const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP];
+
+    /// Opening an app whose window already runs another commit's build is
+    /// refused, so the old build is never shown as the approved one; its own
+    /// build, at any route below it, is revealed.
+    #[test]
+    fn an_open_window_on_an_earlier_build_is_refused() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let id = "com.example.board";
+        let earlier = scheme::installed_app_path(id, &"a".repeat(40));
+        let approved = scheme::installed_app_path(id, &"b".repeat(40));
+        let window = |label: &str, path: String| {
+            WebviewWindowBuilder::new(
+                &app,
+                label,
+                WebviewUrl::CustomProtocol(scheme::url(&path).unwrap()),
+            )
+            .build()
+            .unwrap()
+        };
+        let on_earlier = window("app:com_example_board:61", earlier.clone());
+        let refused = reveal_on_build(on_earlier, &approved, "Board").unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "Board is open on an earlier version. Close its window, then open it again."
+        );
+        let on_route = window("app:com_example_board:62", format!("{approved}todo/42"));
+        assert!(reveal_on_build(on_route, &approved, "Board").is_ok());
+    }
 
     #[test]
     fn built_in_window_table_has_stable_ids_routes_and_titles() {

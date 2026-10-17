@@ -147,6 +147,7 @@ Files split by what they cost to lose (ADR-0539):
 ~/Library/Caches/so.epicenter/                disposable
   checkouts/<app-id>/                         the commit an app builds from, only while it builds
   builds/<app-id>/<commit>/                   built app bundles, never replaced and not yet cleaned up
+  builds/<app-id>/<commit>.built              that commit's build finished
   builds/<app-id>/<commit>.log                what the install and build printed
   builds/<app-id>/current                     the commit a newly opened window of the app loads
   apps.lock                                   one install or build at a time
@@ -436,17 +437,19 @@ commit, its log, and that building runs the app's code on this computer.
 "Approve and build" calls `approve_app` with the commit shown; the CLI
 refuses if the clone moved since, then records the commit in
 `approvals.json` and builds that commit alone: it checks the commit out with
-`git worktree add --detach` into `checkouts/<app-id>/`, never building in the
-clone, runs `bun install --frozen-lockfile --ignore-scripts` at the
-checkout's root (when it has a `package.json`), runs
-`bun run build:installed` in the app's folder, copies its `dist/` beside
-`builds/<app-id>/<commit>/`, renames it into place, and removes the checkout.
-A commit whose build directory is already there is not built again; the
-directory is made current as it is. Approval covers the whole repository's
-commit.
-`epicenter app remove <id>` deletes the clone, its builds, and its approval,
-refusing while the clone holds uncommitted changes or commits no remote has;
-the window has no Remove yet.
+`git --no-replace-objects worktree add --force --detach` into
+`checkouts/<app-id>/`, with the clone's filter drivers emptied so no smudge
+filter runs, never building in the clone. It runs
+`bun install --frozen-lockfile --ignore-scripts` at the checkout's root (when
+it has a `package.json`), runs `bun run build:installed` in the app's folder,
+copies its `dist/` beside `builds/<app-id>/<commit>/`, renames it into place,
+writes `builds/<app-id>/<commit>.built`, and removes the checkout with
+`git worktree remove --force`. A commit whose build carries its `.built`
+file is not built again; the directory is made current as it is. Approval
+covers the whole repository's commit.
+`epicenter app remove <id>` deletes the clone and its approval and leaves its
+builds for any window still running one, refusing while the clone holds
+uncommitted changes or commits no remote has; the window has no Remove yet.
 
 Every commit runs only once `approvals.json` names it (ADR-0588):
 
@@ -471,13 +474,18 @@ the `bun` on `PATH`.
 
 The scheme serves each build of an installed app at
 `epicenter-app://localhost/apps/<app-id>/<commit>/`, from
-`builds/<app-id>/<commit>/`. `open_installed_app` opens the listed commit in
-its own window, after the CLI makes it the current build
-(`builds/<app-id>/current`) when it is not, labelled
+`builds/<app-id>/<commit>/`, refusing a linked build directory.
+`open_installed_app` asks the CLI before every open
+(`epicenter app update --commit=<commit>`), which answers only for an
+approved commit and makes its build current (`builds/<app-id>/current`),
+then opens the commit it answered ready in its own window, labelled
 `app:<id with _ for .>:<folder scope in hex>`. The window keeps that build
 until it is closed and opened again: a later approval and build changes
-which commit the next window opens, never an open window, and opening an
-app whose window is already open on that folder reveals the open window. Opened from the Apps list, the
+which commit the next window opens, never an open window. Opening an app
+whose window is already open on that folder reveals that window when it runs
+the same build, and otherwise says the app is open on an earlier version.
+Navigation pins a window's page and its relative assets to its build; every
+app shares the one origin, so it does not fence requests. Opened from the Apps list, the
 app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open
 in", the folder it was opened on. The window is permitted into that folder's
 scope and into `so.epicenter`, whose `connections` table its AI commands
