@@ -23,8 +23,10 @@
  * before it lands (`refuseNext`), what happens once it landed
  * (`afterChange`), and whether its reply is lost after it landed
  * (`loseReplies`, or a throw in `afterChange`): the command then rejects
- * with something other than a `StorageError`, as a lost reply does. Reads
- * of a path can fail (`failReads`). What a handle publishes before its
+ * with something other than a `StorageError`, as a lost reply does. A
+ * directory removal is no data change: it can lose its reply after it
+ * landed (`loseDirectoryReplies`), and nothing else. Reads of a path can
+ * fail (`failReads`). What a handle publishes before its
  * first write, `epicenter.json` and `.gitignore`, is outside every control.
  * `packages/tauri-plugin-epicenter-folder` tests the plugin's own checks.
  */
@@ -122,6 +124,12 @@ export function createGrantedShell(root: string) {
 		refuseNext: 0,
 		/** How many upcoming data changes land and then lose their reply. */
 		loseReplies: 0,
+		/**
+		 * How many upcoming directory removals land and then lose their reply.
+		 * A directory removal is no data change: the controls above never
+		 * reach it.
+		 */
+		loseDirectoryReplies: 0,
 		/** Folder-relative paths whose reads fail, as a disk that cannot be read. */
 		failReads: new Set<string>(),
 	};
@@ -176,7 +184,9 @@ export function createGrantedShell(root: string) {
 			);
 		},
 		async remove(path, options) {
-			if (path.includes('/.git/'))
+			// A removal with no expectation is the storage's own: a staged
+			// file, a directory a put made, or `rmdir`'s directory.
+			if (options?.expected === undefined)
 				return nodeDirectoryPrimitives.remove(path, options);
 			await change({ kind: 'remove', path: relative(path) }, () =>
 				nodeDirectoryPrimitives.remove(path, options),
@@ -259,6 +269,10 @@ export function createGrantedShell(root: string) {
 		},
 		async remove_folder_directory(args) {
 			await answered(storage.rmdir(args.path as string));
+			if (control.loseDirectoryReplies > 0) {
+				control.loseDirectoryReplies -= 1;
+				throw new Error('the reply never reached the window');
+			}
 			return null;
 		},
 	};

@@ -326,6 +326,24 @@ test.each<[unknown, OpenFolderError['name']]>([
 	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
 });
 
+test('a directory removal whose reply is lost is Unconfirmed, and no data change', async () => {
+	const { root, folder } = await granted();
+	await nodeFs.mkdir(join(root, 'empty'));
+	shell.control.refuseNext = 1;
+	shell.control.loseReplies = 1;
+	shell.control.loseDirectoryReplies = 1;
+	expect(expectErr(await folder.files.rmdir('empty'))).toMatchObject({
+		name: 'Unconfirmed',
+		path: 'empty',
+	});
+	expect(existsSync(join(root, 'empty'))).toBe(false);
+	// The data change controls were not spent on it.
+	expect(shell.changes).toEqual([]);
+	expect(shell.control.refuseNext).toBe(1);
+	expect(shell.control.loseReplies).toBe(1);
+	await folder.close();
+});
+
 test('a removal whose reply is lost is done once the path is gone', async () => {
 	const { root, folder } = await granted();
 	expectOk(await folder.write('notes/a.md', null, 'a\n'));

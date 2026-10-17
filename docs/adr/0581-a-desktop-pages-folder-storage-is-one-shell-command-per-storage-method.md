@@ -55,13 +55,16 @@ update may replace these commands outright, and an installed app built for
 the old ones is rebuilt. The shell keeps no second command set, no version
 field, and no shim for an older page.
 
-**The save lock stays in the shell, taken once per put.** `put_folder_file`
-holds the root's publishing mutex and the folder's save lock
-(`PageWork::publishing`) across its check and its rename or removal only.
-A save lock another process holds past `SAVE_LOCK_WAIT` is `Io`, a failure
-that changed nothing. Only the page decides `Unconfirmed`, when a reply is
-lost. Letting the page hold the lock across several changes, so a page could
-run Sync itself, is a separate decision.
+**The save lock stays in the shell, taken once per put or directory
+removal.** `put_folder_file` holds the root's publishing mutex and the
+folder's save lock (`PageWork::publishing`) across its check, the parent
+directories it makes, and its rename or removal; staging its bytes holds
+neither. `remove_folder_directory` holds them across its check and removal.
+`make_folder_directory` takes neither. A save lock another process holds
+past `SAVE_LOCK_WAIT` is `Io`, a failure that changed nothing. Only the page
+decides `Unconfirmed`, when an invoke rejects without the shell's answer.
+Letting the page hold the lock across several changes, so a page could run
+Sync itself, is a separate decision.
 
 ## Consequences
 
@@ -78,9 +81,13 @@ run Sync itself, is a separate decision.
 - A failure the shell reports for a put, a save lock that timed out
   included, is `Io`; before, every failure of a rename or removal was
   `Unconfirmed`.
-- A lost reply to a removal, of a file or a directory, costs one more call,
-  `read_folder_children`, to see whether the path is gone; a lost reply to
-  anything else costs none.
+- A change whose invoke rejects without the shell's answer is
+  `Unconfirmed`, and costs no further call. Tauri 2 sends a call again over
+  `postMessage` when its custom-protocol request fails, so such a rejection
+  is almost always one the command never ran for; the page cannot show it,
+  and the path's state afterwards is no receipt. The engine's write reads an
+  `Unconfirmed` put back once. A call sent again after it landed answers
+  what its second run found, `stale` for a put.
 - An app built for an older shell fails its storage calls until it is
   rebuilt.
 

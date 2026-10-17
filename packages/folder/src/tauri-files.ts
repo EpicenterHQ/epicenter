@@ -10,11 +10,19 @@
  * makes one call per method. A refusal or a failure comes back named as a
  * `FileError`; a failure the shell reports changed nothing.
  *
- * A reply that never arrived (the call rejects with anything else) may hide
- * a change that landed. A lost put of bytes is `Unconfirmed`. A lost
- * removal, of a file or a directory, is checked once: done if no entry is
- * at the path now, however it went, and otherwise `Unconfirmed` for a file
- * and `Io` for a directory. Any other lost reply is `Io`.
+ * An invoke that rejects with anything else did not get the shell's answer.
+ * Tauri 2 sends a call again over `postMessage` when its custom-protocol
+ * request fails, so a rejection is almost always one the command never ran
+ * for: a permission it lacks, an unknown command, arguments it could not
+ * read. That cannot be shown from here, and the path's state now is no
+ * receipt for the call, so a rejected change (a put, a removal, `mkdir`,
+ * `rmdir`) is `Unconfirmed`; the engine's write reads a put back once
+ * (`confirmedPut` in `write.ts`). A rejected read or listing is `Io`.
+ *
+ * A call sent again after it landed answers what the second run found: a
+ * put whose first run landed answers `stale`, since the path no longer holds
+ * what it expected, and the engine's write reads again and finds its own
+ * bytes.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -69,7 +77,8 @@ function fileError(error: StorageError) {
 
 /**
  * A generated command's value, or its refusal: the shell's answer, or text
- * Tauri sends when the command could not run. A lost reply is `Io`.
+ * Tauri sends when the command could not run. Any rejection but the shell's
+ * answer is `Io` for a read, and `Unconfirmed` for a change.
  */
 async function answered<T>(
 	call: () => Promise<
@@ -77,33 +86,24 @@ async function answered<T>(
 	>,
 	path: string,
 	operation: string,
+	changes = false,
 ): Promise<Result<T, FileError>> {
+	const unanswered = (cause: unknown) =>
+		changes
+			? FileError.Unconfirmed({ path, operation, cause })
+			: FileError.Io({ path, operation, cause });
 	try {
 		const { data, error } = await call();
 		if (error === null) return Ok(data);
 		if (isAnswer(error)) return fileError(error);
-		return FileError.Io({ path, operation, cause: error });
+		return unanswered(error);
 	} catch (cause) {
-		return FileError.Io({ path, operation, cause });
+		return unanswered(cause);
 	}
 }
 
 /** The folder plugin's storage commands for the folder granted as `scope`. */
 export function tauriHostFiles(scope: string): HostFiles {
-	/** Whether no entry is at `path` now, or `undefined` if that is unknown. */
-	async function absent(path: string): Promise<boolean | undefined> {
-		const at = path.lastIndexOf('/');
-		const { data, error } = await answered(
-			() => commands.readFolderChildren(scope, path.slice(0, Math.max(at, 0))),
-			path,
-			'list',
-		);
-		if (error?.name === 'NotFound') return true;
-		if (error !== null) return undefined;
-		const name = path.slice(at + 1);
-		return !data.files.includes(name) && !data.directories.includes(name);
-	}
-
 	return {
 		list: () => answered(() => commands.listFolder(scope), '', 'list'),
 		children: (directory) =>
@@ -153,7 +153,6 @@ export function tauriHostFiles(scope: string): HostFiles {
 				);
 			} catch (cause) {
 				if (isAnswer(cause)) return fileError(cause);
-				if (bytes === null && (await absent(path))) return Ok('landed');
 				return FileError.Unconfirmed({
 					path,
 					operation: bytes === null ? 'remove' : 'write',
@@ -166,19 +165,14 @@ export function tauriHostFiles(scope: string): HostFiles {
 				() => commands.makeFolderDirectory(scope, path),
 				path,
 				'create directory',
+				true,
 			).then((made) => (made.error === null ? Ok(undefined) : made)),
-		async rmdir(path) {
-			let lost: unknown;
-			try {
-				const { error } = await commands.removeFolderDirectory(scope, path);
-				if (error === null) return Ok(undefined);
-				if (isAnswer(error)) return fileError(error);
-				lost = error;
-			} catch (cause) {
-				lost = cause;
-			}
-			if (await absent(path)) return Ok(undefined);
-			return FileError.Io({ path, operation: 'remove directory', cause: lost });
-		},
+		rmdir: (path) =>
+			answered(
+				() => commands.removeFolderDirectory(scope, path),
+				path,
+				'remove directory',
+				true,
+			).then((removed) => (removed.error === null ? Ok(undefined) : removed)),
 	};
 }
