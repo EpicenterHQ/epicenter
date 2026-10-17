@@ -67,9 +67,10 @@ export function firstPartyClientRow(client: FirstPartyClient) {
  * (two Worker isolates starting together) converge, and a write cut short is
  * finished by the next one. Inserts name no conflict target: a row has two
  * unique keys (`id` and the client ID or identifier), and Postgres raises on
- * a concurrent duplicate of any key the conflict clause does not name. There is no transaction, so the write can share
- * a connection with other queries, such as the provider seeding its resources
- * as a Better Auth instance initializes.
+ * a concurrent duplicate of any key the conflict clause does not name. There
+ * is no transaction, so the write can share a connection with other queries,
+ * such as the provider seeding its resources as a Better Auth instance
+ * initializes.
  */
 export async function registerFirstPartyClients(
 	db: Db,
