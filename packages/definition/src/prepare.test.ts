@@ -9,7 +9,7 @@
  * - A table goes through `defineTable`, which leaves its fields exact
  * - A prepared schema has the declared shape: records of native schemas,
  *   named by their keys, frozen and without a prototype. A top-level key it
- *   does not name, such as an earlier declaration's `kv`, is not read
+ *   does not name is not read
  * - Preparation is memoized on the declaration and on the schema it
  *   returned
  * - A schema names no dataset, so a declaration with an ID is malformed

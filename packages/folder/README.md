@@ -1388,8 +1388,7 @@ renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
 A definition is `{ title?, local?, tables }` and nothing else. `defineFolder`
-throws on an `id`, and on a `kv`, naming the `settings` table that replaced
-it; an opener given an untyped definition with one returns
+throws on any other key, an `id` included; an opener given an untyped definition with one returns
 `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
 

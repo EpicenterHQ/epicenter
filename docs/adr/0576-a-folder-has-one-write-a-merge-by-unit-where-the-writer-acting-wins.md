@@ -36,8 +36,7 @@ Checked before this record was written:
 - **Nothing outside the engine reads `kv.json` at runtime.** Rust names it
   only in tests, as an ordinary path. The CLI reads it through the engine:
   `check` and `query` through `readFolder`, and the merge driver through
-  `mergeFile`. Whispering reads an earlier build's endpoint from it and never
-  writes it; Honeycrisp's first open writes a default `{}`.
+  `mergeFile`. No app reads or writes it.
 - **The draft's revision counter and re-merge are not load-bearing once its
   base advances to what a save sent.** The counter answers whether typing
   happened during a save, which comparing the typed text with the sent text

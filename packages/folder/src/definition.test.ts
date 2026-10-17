@@ -9,7 +9,7 @@
  * - `defineFolder` returns an owned, frozen definition of the declared shape,
  *   and preparing it again returns it
  * - A key other than `title`, `tables`, and `local` is refused, not
- *   dropped; a leftover `kv` is told that settings are a table
+ *   dropped
  * - A definition names no folder: an `id` is refused at the declaration and
  *   at the opener, and the opener's ID selects the dataset
  * - One prepared definition opens two folders that stay apart, and another
