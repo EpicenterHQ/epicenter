@@ -25,7 +25,6 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder, vocabFolder } from './data.js';
@@ -38,6 +37,8 @@ import {
 } from './folder.test-support.js';
 import { cached, listing, observe, quiet } from './query.test-support.js';
 import type { Vocab } from './vocab.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createVocab } = await import('./vocab.svelte.ts');
 const { repairsOf, wordsOf } = await import('./entries.svelte.ts');

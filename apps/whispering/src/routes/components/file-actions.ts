@@ -4,10 +4,10 @@
  */
 
 import { basename } from '@epicenter/folder/file-browser';
+import { toastWriteFailure } from '@epicenter/svelte/write-failure-toast';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
-import { describeError } from '$lib/files.js';
 import type { Library, WriteNotice } from '$lib/library.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
@@ -89,26 +89,10 @@ export async function openItem(
 }
 
 /**
- * Tell the person an edit's write failed, offering to copy text that did not
- * reach the file.
+ * Tell the person an edit's write failed, with the toast every folder app
+ * shows: the text to copy, and Save again and Discard while the edit is
+ * still on screen.
  */
-export function reportWriteNotice(notice: WriteNotice) {
-	const name = basename(notice.path);
-	const { error, lost } = notice;
-	if (lost === undefined) {
-		toast.error(`${name} was not saved`, {
-			description: `${describeError(error)} Your edit is kept here and is saved again with your next change.`,
-		});
-		return;
-	}
-	toast.error(`${name} was not saved`, {
-		description: `${describeError(error)} What you typed there is not in the file.`,
-		duration: Number.POSITIVE_INFINITY,
-		...(lost.trim() !== '' && {
-			action: {
-				label: 'Copy what was lost',
-				onClick: () => void copyText(lost, 'the text that was not saved'),
-			},
-		}),
-	});
+export function reportWriteNotice({ kind: _, ...failure }: WriteNotice) {
+	toastWriteFailure(failure);
 }

@@ -32,7 +32,8 @@
  * - Deleting a folder moves its notes out first, and is refused while a
  *   note cannot say which folder it is in
  * - Rename and delete wait for the file's saves and act on what the last
- *   one wrote; a file changed elsewhere since is refused
+ *   one wrote; a file changed elsewhere since is refused, and so is one
+ *   holding typing whose save failed, until it saves or is discarded
  * - Saves never commit; Save version records one, and delete says when a
  *   file has changes in no saved version
  * - Closing stops input and actions, waits for every save and action, a
@@ -41,7 +42,6 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { type Row, rowStemOf } from '@epicenter/folder';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import type { NoteFields } from './data.js';
@@ -53,6 +53,8 @@ import {
 } from './folder.test-support.js';
 import type { Notes } from './notes.svelte.js';
 import { cached, listing, observe, quiet } from './query.test-support.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 
@@ -241,7 +243,7 @@ test('a body saved over a delete not yet reported writes nothing, and the text i
 	expect(failures).toMatchObject([
 		{
 			path: A,
-			error: { name: 'NotStarted' },
+			error: { name: 'NotFound' },
 			unsaved: 'Mine.\n',
 		},
 	]);
@@ -265,7 +267,7 @@ test('a body typed and not yet saved when a delete is reported is dropped and of
 	expect(failures).toMatchObject([
 		{
 			path: A,
-			error: { name: 'NotStarted' },
+			error: { name: 'NotFound' },
 			unsaved: 'Mine.\n',
 		},
 	]);
@@ -293,7 +295,7 @@ test('Save again on a body whose note was deleted since starts no save, and the 
 	expect(failures[0]?.retry?.()).toBe(false);
 	expect(failures.at(-1)).toMatchObject({
 		path: A,
-		error: { name: 'NotStarted' },
+		error: { name: 'NotFound' },
 		unsaved: 'Mine.\n',
 	});
 	expect(disk.text(A)).toBeUndefined();
@@ -640,6 +642,48 @@ test('a rename waits for the save and moves what it wrote; the open note follows
 	await quiet(notes);
 	expect(disk.text('notes/renamed.md')).toContain('After.\n');
 	expect(await notes.rename('notes/renamed.md', 'plain.txt')).toContain('.md');
+});
+
+test('a rename refuses while typing in the file did not save; once the edit is discarded it moves, and the old Save again reaches nothing', async () => {
+	const { notes, disk, failures } = await open();
+	await disk.write('note.txt', 'Original\n');
+	notes.open('note.txt', 'text');
+	cleanup.push(observe(notes, 'note.txt'));
+	await quiet(notes);
+	disk.failWrites();
+	expect(typeText(notes, 'note.txt', 'Personal typing\n')).toBe(true);
+	await quiet(notes);
+	expect(notes.isUnsaved('note.txt')).toBe(true);
+
+	expect(await notes.rename('note.txt', 'renamed.txt')).toContain(
+		'did not save',
+	);
+	disk.failWrites(false);
+	expect(disk.text('note.txt')).toBe('Original\n');
+	expect(disk.text('renamed.txt')).toBeUndefined();
+	// The edit still aims at the file it was typed in.
+	expect(notes.typedText('note.txt')).toBe('Personal typing\n');
+	const told = failures.at(-1);
+	expect(told).toMatchObject({
+		path: 'note.txt',
+		unsaved: 'Personal typing\n',
+	});
+	// Nothing in it says the file is gone: it is not.
+	expect(told?.error.name).not.toBe('NotFound');
+
+	told?.discard?.();
+	expect(await notes.rename('note.txt', 'renamed.txt')).toBeUndefined();
+	await quiet(notes);
+	expect(disk.text('renamed.txt')).toBe('Original\n');
+	expect(notes.unsaved).toBe(false);
+
+	// A different file at the old name takes nothing from the old notice.
+	await disk.write('note.txt', 'Replacement\n');
+	await quiet(notes);
+	expect(told?.retry?.()).toBe(false);
+	await quiet(notes);
+	expect(disk.text('note.txt')).toBe('Replacement\n');
+	expect(disk.text('renamed.txt')).toBe('Original\n');
 });
 
 test('a name some disk reads as another file is refused in words a person reads, and a leading dot works', async () => {

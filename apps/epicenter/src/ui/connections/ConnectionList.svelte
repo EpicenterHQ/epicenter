@@ -1,9 +1,11 @@
 <script lang="ts">
 	import type { ConnectionKind } from '@epicenter/ai/send';
-	import type { TableOptions } from '@epicenter/folder/query';
+	import type { TableOptions, TableWrites } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { resultMutationOptions } from 'wellcrafted/query';
+	import type { Row } from '@epicenter/folder';
 	import { commands } from '../bindings.gen';
 	import ConnectionEditor from './ConnectionEditor.svelte';
 	import { type ConnectionFields, connectionId, failureText, KIND_LABELS, OFFERED_KINDS } from './connections';
@@ -13,10 +15,19 @@
 	 * that adds one: its row, then, for an endpoint, its endpoint and key in
 	 * this computer's keychain.
 	 */
-	let { options }: { options: TableOptions<ConnectionFields> } = $props();
+	let {
+		options,
+		writes,
+	}: { options: TableOptions<ConnectionFields>; writes: TableWrites<ConnectionFields> } = $props();
 
 	const list = createQuery(() => options.list.queryOptions());
-	const create = createMutation(() => options.create.mutationOptions());
+	const create = createMutation(() =>
+		resultMutationOptions({
+			mutationKey: ['connections', 'create'],
+			mutationFn: ({ stem, row }: { stem: string; row: Row<ConnectionFields> }) =>
+				writes.create(row, { stem }),
+		}),
+	);
 
 	const rows = $derived(
 		(list.data ?? [])
@@ -75,7 +86,7 @@
 	{/if}
 	<ul class="grid gap-2">
 		{#each rows as stored (stored.stem)}
-			<ConnectionEditor {stored} {options} />
+			<ConnectionEditor {stored} {writes} />
 		{/each}
 	</ul>
 	{#each unreadable as { stem, result } (stem)}

@@ -23,8 +23,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { audioPathIn, RECORDINGS, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
@@ -81,26 +80,12 @@
 	const own = path;
 	const ownId = rowStemOf(RECORDINGS, own) ?? own;
 
-	const setTitle = createMutation(() => library.fieldSet(RECORDINGS));
-	/** The title typed and not yet saved; `undefined` shows the file. */
-	let typedTitle = $state<string>();
-	function sendTitle() {
-		if (typedTitle === undefined || !library.canEdit(own)) return;
-		const sent = typedTitle;
-		setTitle.mutate(
-			{ stem: ownId, fields: { title: sent } },
-			{
-				onSuccess: () => {
-					if (typedTitle === sent) typedTitle = undefined;
-				},
-			},
-		);
-	}
-	const sendTitleLater = useDebounce(sendTitle, 1000);
-	// runed's timer, and the library's for the notes and the text, outlive
-	// the view; send them now instead.
+	/** The title typed and not yet saved: the recording's field draft. */
+	// svelte-ignore state_referenced_locally
+	const typedTitle = library.fieldOf(RECORDINGS, ownId, 'title');
+	// The drafts outlive the view; send what is typed now.
 	onDestroy(() => {
-		void sendTitleLater.runScheduledNow();
+		void typedTitle.save();
 		void library.saveBody(own);
 		void library.saveText(own);
 	});
@@ -135,14 +120,8 @@
 		{#if row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={
-					() => typedTitle ?? row?.fields.title ?? '',
-					(value) => {
-						typedTitle = value;
-						void sendTitleLater();
-					}
-				}
-				onblur={() => void sendTitleLater.runScheduledNow()}
+				bind:value={() => typedTitle.shown(row?.fields.title ?? ''), (value) => typedTitle.change(value)}
+				onblur={() => void typedTitle.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Recording title"
@@ -158,13 +137,13 @@
 	</div>
 
 	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-		{saving || setTitle.isPending || (sendTitleLater.pending && typedTitle !== undefined)
+		{saving
 			? 'Saving…'
-			: typedTitle !== undefined && setTitle.isError
+			: typedTitle.error
 				? 'Not saved'
 				: `Saved to ${path}`}
-		{#if typedTitle !== undefined && setTitle.isError && !setTitle.isPending}
-			<Button variant="link" size="xs" class="h-auto p-0" onclick={sendTitle}>Try again</Button>
+		{#if typedTitle.error && !typedTitle.saving}
+			<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void typedTitle.save()}>Try again</Button>
 		{/if}
 	</p>
 

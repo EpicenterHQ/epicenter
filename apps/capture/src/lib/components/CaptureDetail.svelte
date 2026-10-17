@@ -24,7 +24,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { type Captures, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
@@ -54,10 +53,9 @@
 	const row = $derived(
 		stored === undefined ? undefined : { fields: stored.row.fields, body: form.body ?? stored.row.body },
 	);
-	/** The capture text typed is saved after a pause, and when the person leaves it. */
-	const saveLater = useDebounce(() => form.flush(), 1000);
-	// runed's timer outlives the view; save now instead.
-	onDestroy(() => void saveLater.runScheduledNow());
+	// The capture text typed saves after a pause, and when the person leaves
+	// it; the draft outlives the view, so send it now.
+	onDestroy(() => void form.flush());
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(row === undefined ? undefined : captureBody.decode(row.body));
 	const text = $derived(reading?.data?.text ?? '');
@@ -199,7 +197,7 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{form.saving || (saveLater.pending && form.body !== undefined)
+		{form.saving
 			? 'Saving…'
 			: form.body !== undefined
 				? 'Not saved'
@@ -247,14 +245,8 @@
 				<Textarea
 					id="capture-text"
 					readonly={locked}
-					bind:value={
-						() => text,
-						(typed) => {
-							form.inputText(typed);
-							void saveLater();
-						}
-					}
-					onblur={() => void saveLater.runScheduledNow()}
+					bind:value={() => text, (typed) => form.inputText(typed)}
+					onblur={() => void form.flush()}
 					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
 					placeholder="Write here…"

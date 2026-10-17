@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
+	import {
+		folderOptions,
+		folderWrites,
+		type TableOptions,
+		type TableWrites,
+	} from '@epicenter/folder/query';
 	import { openFolder } from '@epicenter/folder/tauri';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
@@ -8,6 +13,7 @@
 		epicenterDefinition,
 	} from '@epicenter/cli/epicenter-folder';
 	import ConnectionList from './ConnectionList.svelte';
+	import type { ConnectionFields } from './connections';
 
 	/**
 	 * Settings' AI connections (ADR-0557): the `connections` table of
@@ -18,7 +24,11 @@
 	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 
-	let options = $state.raw<FolderOptions<typeof epicenterDefinition>>();
+	/** The connections table's reads and its writes, once the folder opened. */
+	let connections = $state.raw<{
+		readonly options: TableOptions<ConnectionFields>;
+		readonly writes: TableWrites<ConnectionFields>;
+	}>();
 	let problem = $state<string>();
 
 	onMount(() => {
@@ -45,7 +55,10 @@
 				stop();
 				await folder.close();
 			};
-			options = opened;
+			connections = {
+				options: opened.tables.connections,
+				writes: folderWrites(folder, queryClient).tables.connections,
+			};
 		})();
 		return () => {
 			closed = true;
@@ -59,8 +72,8 @@
 	<h2 class="font-medium">AI connections</h2>
 	{#if problem}
 		<p role="alert" class="text-destructive">Epicenter's folder did not open: {problem}</p>
-	{:else if options}
-		<ConnectionList options={options.tables.connections} />
+	{:else if connections}
+		<ConnectionList options={connections.options} writes={connections.writes} />
 	{:else}
 		<p class="text-muted-foreground">Opening…</p>
 	{/if}

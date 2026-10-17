@@ -87,25 +87,32 @@ closing the folder after its writes when the page goes away. Nothing else is
 opened in a refused folder's place.
 
 Every component below it reads and writes through `getFolder()`, which
-answers `{ folder, isOwn, queries, queryClient, writeFailed, beforeClose,
-close }`.
-`queries` is the TanStack Query layer over the folder (`folderOptions`):
+answers `{ folder, isOwn, queries, edits, queryClient, writeFailed, close }`.
+`queries` is the TanStack Query layer over the folder's reads
+(`folderOptions`), and `edits` the one edit layer every write and draft goes
+through (`@epicenter/svelte/edits`):
 
 ```ts
-const { queries } = getFolder<typeof reading>();
-const book = createQuery(() => queries.books.get.queryOptions(stem));
-const setBook = createMutation(() => queries.books.set.mutationOptions());
+const { queries, edits } = getFolder<typeof reading>();
+const books = createQuery(() => queries.books.list.queryOptions());
+const title = edits.field('books', stem, 'title');
+edits.set('books', stem, { read: true });
 ```
 
-An app module adds only what the folder's options do not offer, such as a
-compound action, and is named for its rows: Todos' `createTodos`,
-Honeycrisp's `createNotes`, Capture's `createCaptures`, and Vocab's
-`entries` and `chats`, which `createVocab` composes. The root view builds it
-over `getFolder()`. A save that
-fails is reported to `writeFailed` as `{ path, error, unsaved, retry? }`;
-input an app must fence or send before the folder closes goes to
-`beforeClose`. Whispering still opens its folder through its own
-`#platform/workspace` leaves.
+The edit layer holds what a person typed and has not saved: each draft
+saves after a pause and when the view leaves it, keeps its text when a save
+fails, offers it when the file was deleted elsewhere, and waits its turn
+behind the file's other writes. Renames and deletes run once the file's
+drafts landed (`exclusive`), Save version and Sync once every one did
+(`saveVersion`, `sync`), and closing fences input, then waits for all of it.
+
+An app module adds only product logic, such as a compound action, and is
+named for its rows: Todos' `createTodos`, Honeycrisp's `createNotes`,
+Capture's `createCaptures`, and Vocab's `entries` and `chats`, which
+`createVocab` composes. The root view builds it over `getFolder()`. A save
+that fails is reported to `writeFailed` as `{ path, error, unsaved, retry? }`.
+Whispering still opens its folder through its own `#platform/workspace`
+leaves, and builds its edit layer with `createEdits`.
 
 Input that is not yet committed is local `$state` bound with `bind:value`: a
 new-item box, a search, a field being typed.

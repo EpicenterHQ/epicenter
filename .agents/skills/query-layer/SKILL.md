@@ -160,16 +160,20 @@ Shared query adapters expose `.options` as a static object. Svelte hooks read it
 Name a query handle for its data and a mutation handle for its verb plus noun:
 
 ```svelte
-const todo       = createQuery(() => folder.todos.get.queryOptions(stem));
-const todos      = createQuery(() => folder.todos.list.queryOptions());
-const setTodo    = createMutation(() => folder.todos.set.mutationOptions());
-const deleteTodo = createMutation(() => folder.todos.delete.mutationOptions());
+const todos       = createQuery(() => folder$.todos.list.queryOptions());
+const status      = createQuery(() => folder$.history.status.queryOptions());
+const saveVersion = createMutation(() => store.saveVersion.options);
+const deleteTodo  = createMutation(() => store.deleteTodo.options);
 ```
 
-A query holds a value, so `todo.data` reads as the data. A mutation performs
+A folder app's writes and typed text go through its edit layer
+(`@epicenter/svelte/edits`), not through TanStack mutations; an app action
+over it, such as Save version, is a mutation like any other.
+
+A query holds a value, so `todos.data` reads as the data. A mutation performs
 an action, so `deleteTodo.mutate(...)` reads as the action, and the handle
-names the option it came from. Keep the option's verb: `deleteTodo` for
-`.delete`, not `remove` (`delete` alone is reserved; the noun makes it legal).
+names the option it came from. Keep the action's verb: `deleteTodo` for a
+delete, not `remove` (`delete` alone is reserved; the noun makes it legal).
 Do not suffix handles with `Query` or `Mutation`. Give each action its own
 mutation so each control owns its pending and error state.
 

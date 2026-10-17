@@ -10,7 +10,7 @@
  * - A folder that cannot open is the refusal screen, worded for the
  *   refusal, and nothing renders the children
  * - A failed save is one toast that offers the unsaved text to copy, and
- *   stays up
+ *   stays up; an edit still on screen also offers Save again and Discard
  * - Unmounting closes the folder: a write after it is refused `Closed`
  *
  * Run with `bun run test`.
@@ -23,11 +23,12 @@ import {
 	browserStorage,
 	createTestStorage,
 } from '../../folder/src/browser-storage.test-support.js';
-import { createFolderContext, type FolderContext } from './folder-context.js';
+import type { FolderContext } from './folder-context.js';
 import { click } from './svelte-dom.test-support.js';
 import { ActionError } from './write-failure.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
+const { createFolderContext } = await import('./folder-context.js');
 const { default: FolderAppHost } = await import(
 	'./fixtures/FolderAppHost.svelte'
 );
@@ -249,6 +250,37 @@ test('Save again that starts no save keeps the text offered', async () => {
 	expect(document.body.textContent).not.toContain('Save again');
 });
 
+test('Discard lets go of the edit and keeps the text it let go offered, without Save again', async () => {
+	const copied = clipboard('takes');
+	const { opened } = mountApp(createTestStorage());
+	const context = await opened;
+	cleanup.push(() => context.close());
+	let discarded = 0;
+
+	context.writeFailed({
+		path: 'notes/e.md',
+		error: deleted,
+		unsaved: 'Typed body',
+		retry: () => true,
+		// Typing went on after this toast: the discard lets go of that too.
+		discard: () => {
+			discarded++;
+			return 'Typed body, and more since';
+		},
+	});
+	await until(() => toastFor('notes/e.md'), 'the toast');
+	expect(document.body.textContent).toContain('Save again');
+	click(document.body, 'Discard your edit');
+	expect(discarded).toBe(1);
+	expect(await stillUp('notes/e.md')).toBe(true);
+	expect(document.body.textContent).toContain('Copy your text');
+	expect(document.body.textContent).not.toContain('Save again');
+	expect(document.body.textContent).not.toContain('Discard your edit');
+	click(document.body, 'Copy your text');
+	await gone('notes/e.md');
+	expect(copied).toEqual(['Typed body, and more since']);
+});
+
 test('Save again that starts a save closes the toast', async () => {
 	const { opened } = mountApp(createTestStorage());
 	const context = await opened;
@@ -287,7 +319,7 @@ test('unmounting closes the folder once its writes land', async () => {
 	expect(refusal).toBe('Closed');
 });
 
-test('every step before close starts when close is called', async () => {
+test('close fences the edit layer when it is called, and releases the folder once it settled', async () => {
 	const { data: folder, error } = await openFolder({
 		app: `so.epicenter.app-test-${count++}`,
 		definition,
@@ -295,19 +327,9 @@ test('every step before close starts when close is called', async () => {
 	});
 	if (error !== null) throw new Error(error.message);
 	const context = createFolderContext(folder);
-	const fenced: string[] = [];
-	const first = Promise.withResolvers<void>();
-	context.beforeClose(async () => {
-		fenced.push('first');
-		await first.promise;
-	});
-	context.beforeClose(() => {
-		fenced.push('second');
-	});
 	const closing = context.close();
-	// The second fence is up although the first step still waits.
-	expect(fenced).toEqual(['first', 'second']);
-	first.resolve();
+	expect(context.edits.fenced).toBe(true);
+	expect(context.close()).toBe(closing);
 	await closing;
 	expect(folder.signal.aborted).toBe(true);
 });

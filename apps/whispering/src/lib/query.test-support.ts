@@ -10,6 +10,7 @@
  * the two shares every class and manager. Change the two pins together.
  */
 import { QueryClient, QueryObserver } from '@tanstack/query-core';
+import type { Library } from './library.svelte.js';
 
 export { QueryClient, QueryObserver };
 
@@ -20,13 +21,22 @@ export function createQueryClient() {
 	return client;
 }
 
-/** Wait until nothing is mutating or fetching. */
-export async function quiet(queryClient: QueryClient) {
+/**
+ * Wait until no write runs or waits, and nothing is mutating or fetching.
+ * Typing that waits for its pause is not waited for.
+ */
+export async function quiet({
+	queryClient,
+	edits,
+}: Pick<Library, 'queryClient' | 'edits'>) {
+	const idle = () =>
+		edits.writes.pending() === 0 &&
+		queryClient.isMutating() === 0 &&
+		queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {
-		if (queryClient.isMutating() === 0 && queryClient.isFetching() === 0) {
+		if (idle()) {
 			await Bun.sleep(0);
-			if (queryClient.isMutating() === 0 && queryClient.isFetching() === 0)
-				return;
+			if (idle()) return;
 		}
 		await Bun.sleep(2);
 	}

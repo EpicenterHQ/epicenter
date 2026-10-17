@@ -9,11 +9,11 @@
  * together.
  *
  * The helpers stand in for what the views do: a screen that shows a query
- * observes it, and a control that edits a todo sends each change through its
- * own set mutation.
+ * observes it, a title box types into the title's draft and leaves it, the
+ * checkbox sets its field at once, and the notes type into the body's draft.
  */
 import type { StoredRow } from '@epicenter/folder';
-import { MutationObserver, QueryObserver } from '@tanstack/query-core';
+import { QueryObserver } from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
 import type { TodoListing } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
@@ -21,33 +21,37 @@ import type { Todos } from './todos.svelte.js';
 export { QueryObserver };
 
 /**
- * What a view's control of the todo at `stem` does with each change: send
- * it through the control's own set mutation, a change to the todo's
- * fields as its file holds them then. Each call resolves once its set
- * landed or failed; a failure is the store's to report.
+ * What the detail's controls of the todo at `stem` do with each change: a
+ * title is typed into its draft and sent as the person leaves the box, and
+ * the checkbox sets its field at once. Each call resolves once its save
+ * settled; a failure is the edit layer's to report.
  */
 export function rowEditor(todos: Todos, stem: string) {
-	const setTodo = new MutationObserver(todos.queryClient, todos.rows.set);
-	return (fields: Partial<TodoFields>) =>
-		setTodo.mutate({ stem, fields }).then(
-			() => undefined,
-			() => undefined,
-		);
+	return async (fields: Partial<TodoFields>) => {
+		const { title, ...rest } = fields;
+		const saves: Promise<void>[] = [];
+		if (title !== undefined) {
+			const draft = todos.edits.field('todos', stem, 'title');
+			draft.change(title);
+			saves.push(draft.save());
+		}
+		if (Object.keys(rest).length > 0) {
+			todos.edits.set('todos', stem, rest);
+			saves.push(todos.edits.settled(`todos/${stem}.md`).then(() => undefined));
+		}
+		await Promise.all(saves);
+	};
 }
 
 /**
- * What the detail's notes do once a pause in typing sends them: write the
- * change from the row the cache holds to that row with `body`, through the
- * notes' mutation.
+ * What the detail's notes do once a pause in typing sends them: type `body`
+ * into the todo's body draft and send it.
  */
 export function notesEditor(todos: Todos, stem: string) {
-	const writeNotes = new MutationObserver(todos.queryClient, todos.rows.write);
 	return (body: string) => {
-		const from = cached(todos, stem).row;
-		return writeNotes.mutate({ stem, from, to: { ...from, body } }).then(
-			() => undefined,
-			() => undefined,
-		);
+		const notes = todos.edits.body('todos', stem);
+		notes.change(body);
+		return notes.save();
 	};
 }
 
@@ -61,13 +65,20 @@ export function observe(todos: Todos) {
 	);
 }
 
-/** Wait until nothing is mutating or fetching. */
+/**
+ * Wait until no write runs or waits, and nothing is mutating or fetching.
+ * Typing that waits for its pause is not waited for.
+ */
 export async function quiet(todos: Todos) {
 	const client = todos.queryClient;
+	const idle = () =>
+		todos.edits.writes.pending() === 0 &&
+		client.isMutating() === 0 &&
+		client.isFetching() === 0;
 	for (let tries = 0; tries < 400; tries++) {
-		if (client.isMutating() === 0 && client.isFetching() === 0) {
+		if (idle()) {
 			await Bun.sleep(0);
-			if (client.isMutating() === 0 && client.isFetching() === 0) return;
+			if (idle()) return;
 		}
 		await Bun.sleep(2);
 	}

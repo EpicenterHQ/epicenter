@@ -74,8 +74,8 @@ are not UTF-8 text are listed apart and not opened.
   the list, and a notice says your change was not saved and offers **Copy
   your text** until you dismiss it.
 - A save that fails for another reason keeps your edit on screen, the
-  capture says Not saved, and the notice names the failure and offers your
-  text to copy. Your next change saves it again. A save whose reply was lost
+  capture says Not saved, and the notice names the failure, offers your
+  text to copy, and offers Save again. Your next change saves it again too. A save whose reply was lost
   is one of these failures: the notice says the change may or may not have
   happened.
 - A save from the capture view writes the row in its standard form
@@ -250,7 +250,7 @@ with no plugin installed, opening fails and the page shows the reason.
 
 | Event | What happens |
 | --- | --- |
-| The page is destroyed or reloaded | `<FolderApp>` closes the folder: the captures refuse input and send every edit held (`beforeClose`), then it waits until no write or action is running, stops hearing the folder's changes, and closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
+| The page is destroyed or reloaded | `<FolderApp>` closes the folder: the edit layer refuses input and sends every edit held, then it waits until no write or action is running, stops hearing the folder's changes, and closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
 | The Capture window is closed | The shell destroys it, as it does any installed app's window. Text typed and not added is lost. |
 | Epicenter's Bun service stops | The shell destroys the window; open Capture again from the Folders window. Text typed and not added is lost. |
 
@@ -271,8 +271,8 @@ write runs.
 | Path | Role |
 | --- | --- |
 | `src/routes/+page.svelte` | `<FolderApp>` over Capture's manifest and definition, with `CaptureApp` inside it. |
-| `src/lib/captures.svelte.ts` | The store over the folder `getFolder()` answers, keyed by its query layer: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and the fence and flush before the folder closes. |
-| `src/lib/capture-form.svelte.ts` | One capture's edit, its body opened with `createBodyEditor` from `@epicenter/folder/svelte` and saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
+| `src/lib/captures.svelte.ts` | The store over the folder `getFolder()` answers, keyed by its query layer: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` typing a file's text into its draft, each action (create, delete, Save version), and which capture is open. Drafts, saves, and the fence before the folder closes are the folder's edit layer's (`edits`). |
+| `src/lib/capture-form.svelte.ts` | One capture's edit over its body draft (`edits.body`), saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
 | `src/lib/components/` | `CaptureApp.svelte` builds the store over `getFolder()` and shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 
@@ -327,10 +327,9 @@ before it:
   lost to copy.
 - A delete no longer refuses a file changed elsewhere since you confirmed
   it: it removes the file as it is then (ADR-0576).
-- A failed save keeps your edit on screen without Try again or Save again
-  buttons: your next change saves it again, and the notice offers your
-  text. A failed write in Edit as text shows the file, and the notice
-  offers your text.
+- A failed save keeps your edit on screen, in the capture view and in Edit
+  as text alike: your next change saves it again, and the notice offers
+  your text and Save again.
 - Leaving a capture never asks to discard anything. A thought typed and not
   added, and a thought edit, stay with their capture until you add or clear
   them.

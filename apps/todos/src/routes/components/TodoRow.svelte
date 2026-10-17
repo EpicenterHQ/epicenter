@@ -6,8 +6,6 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { createMutation, useIsMutating } from '@tanstack/svelte-query';
-	import { todosKeys } from '$lib/rows.js';
 	import type { TodoEntry } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -24,10 +22,6 @@
 		onOpen?: (stem: string) => void;
 	} = $props();
 
-	const setDone = createMutation(() => todos.rows.set);
-	// The list keys each row by its stem, so a row's path never changes.
-	// svelte-ignore state_referenced_locally
-	const deleting = useIsMutating({ mutationKey: todosKeys.delete(entry.path) });
 	const done = $derived(entry.row.fields.done);
 	const title = $derived.by(() => {
 		const typed = entry.row.fields.title;
@@ -45,10 +39,9 @@
 	<Checkbox
 		bind:checked={
 			() => done,
-			(next) =>
-				setDone.mutate({ stem: entry.stem, fields: { done: next } })
+			(next) => todos.edits.set('todos', entry.stem, { done: next })
 		}
-		disabled={deleting.current > 0}
+		disabled={todos.edits.locked(entry.path)}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"
 	/>
 	<Button

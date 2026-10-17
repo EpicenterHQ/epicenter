@@ -18,7 +18,6 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -33,6 +32,8 @@ import {
 import { git } from '../../../../packages/folder/src/git-http.test-support.js';
 import { todosDefinition } from './definition.js';
 import { cached, observe, quiet, rowEditor } from './query.test-support.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createTodos } = await import('./todos.svelte.ts');
 

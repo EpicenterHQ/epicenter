@@ -67,6 +67,8 @@
 	);
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
+	/** Typing here did not save: its notice offers Save again and Discard. */
+	const unsaved = $derived(library.isUnsaved(path));
 
 	async function show(source: boolean) {
 		const problem = source ? await library.editSource(path) : await library.useForm(path);
@@ -134,7 +136,7 @@
 	{:else if transcript}
 		{@const stem = rowStemOf(TRANSCRIPTIONS, path) ?? ''}
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{saving ? 'Saving…' : 'Saved'}
+			{saving ? 'Saving…' : unsaved ? 'Not saved' : 'Saved'}
 		</p>
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
@@ -159,7 +161,7 @@
 		</Empty.Root>
 	{:else if text !== undefined}
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{saving ? 'Saving…' : 'Saved'}
+			{saving ? 'Saving…' : unsaved ? 'Not saved' : 'Saved'}
 		</p>
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">

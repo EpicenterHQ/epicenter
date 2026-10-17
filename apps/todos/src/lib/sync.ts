@@ -5,36 +5,25 @@
  * folder's remote, and the same sync runs. Separate histories are
  * `Unrelated` until the person agrees to combine them.
  */
-import type { SyncError, SyncOutcome } from '@epicenter/folder';
-import type { ActionError } from '@epicenter/svelte/write-failure';
-import type { Result } from 'wellcrafted/result';
 import type { TodosParts } from './todos.svelte.js';
 
 /** A remote to connect to; `combine` agrees to merge separate histories. */
 export type ConnectTo = { readonly url: string; readonly combine?: boolean };
 
-export function createSync({
-	folder,
-	defineMutation,
-	writesSettled,
-	invalidate,
-}: TodosParts) {
+export function createSync({ edits, defineMutation }: TodosParts) {
 	return {
-		/** Sync now, or connect to `url` and sync. Writes still running land first. */
+		/** Sync now, or connect to `url` and sync. What is typed and the writes still running land first. */
 		run: defineMutation({
 			mutationKey: ['todos', 'sync'],
-			mutationFn: async (
+			mutationFn: (
 				// biome-ignore lint/suspicious/noConfusingVoidType: TanStack lets `run()` take no input only when its variables admit `void`.
 				connect: ConnectTo | void,
-			): Promise<Result<SyncOutcome, SyncError | ActionError>> => {
-				await writesSettled();
-				return !connect
-					? folder.sync.run()
-					: folder.sync.connect(connect.url, {
-							allowUnrelatedHistories: connect.combine,
-						});
-			},
-			onSettled: () => invalidate(),
+			) =>
+				edits.sync(
+					connect
+						? { url: connect.url, allowUnrelatedHistories: connect.combine }
+						: undefined,
+				),
 		}),
 	};
 }

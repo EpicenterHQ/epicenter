@@ -21,7 +21,6 @@
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	blur,
@@ -34,6 +33,8 @@ import {
 	until,
 } from '../../lib/folder.test-support.js';
 import { quiet } from '../../lib/query.test-support.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 // jsdom has no layout, and its ranges cannot be measured. ProseMirror
 // measures the cursor to scroll it into view after typing; it gets no boxes.

@@ -18,7 +18,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
 	import { onDestroy, untrack } from 'svelte';
 	import type { Captures } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
@@ -36,15 +35,15 @@
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => rowPath(captures.folder.tables.captures.name, stem));
 	const file = createQuery(() => captures.queries.files.text.queryOptions(path));
-	/** The text typed and not written yet. */
-	const typed = $derived(captures.typedText(path));
+	/** The file's text draft: what is typed and not written yet. */
+	const draft = untrack(() => captures.edits.text(path));
+	const typed = $derived(draft.typed);
 	const text = $derived(
 		file.data?.kind === 'text' ? (typed ?? file.data.text) : undefined,
 	);
 	const locked = $derived(captures.fenced || captures.isDeleting(path));
-	const saveLater = useDebounce(() => captures.saveText(path), 1000);
-	// runed's timer outlives the view; save now instead.
-	onDestroy(() => void saveLater.runScheduledNow());
+	// The draft saves after a pause, and outlives the view; send it now.
+	onDestroy(() => void draft.save());
 
 	/** Why the text is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
@@ -79,7 +78,7 @@
 
 	{#if text !== undefined}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{typed === undefined ? `Saved to ${path}` : 'Saving…'}
+			{typed === undefined ? `Saved to ${path}` : draft.failed ? 'Not saved' : 'Saving…'}
 		</p>
 
 		{#if issues.length > 0}
@@ -104,12 +103,10 @@
 			bind:value={
 				() => (text ?? '').replace(/\r\n?/g, '\n'),
 				(typed) => {
-					if (text === undefined) return;
-					const taken = captures.editText(path, withFileNewlines(wellFormed(typed), text));
-					if (taken) void saveLater();
+					if (text !== undefined) captures.editText(path, withFileNewlines(wellFormed(typed), text));
 				}
 			}
-			onblur={() => void saveLater.runScheduledNow()}
+			onblur={() => void draft.save()}
 		/>
 	{:else if file.data !== undefined}
 		<Empty.Root role="alert">

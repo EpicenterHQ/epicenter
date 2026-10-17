@@ -13,7 +13,6 @@
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -61,6 +60,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		expectOk(await folder.write(path, null, text));
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
+	const { createFolderContext } = await import('@epicenter/svelte/folder');
 	const failures: WriteFailure[] = [];
 	// The folder's context as `<FolderApp>` builds it, change wiring included.
 	// One page per folder here, so it reports nothing; `reportChange` stands

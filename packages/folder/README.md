@@ -204,7 +204,7 @@ its directory's name.
 | `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
-| `@epicenter/folder/query` | Nothing: TanStack Query option factories over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
+| `@epicenter/folder/query` | Nothing: TanStack Query option factories over a folder already open ([Queries](#queries)), and its writes in one order per file ([Writes](#writes)). | A page that reads and writes a folder through TanStack Query. |
 | `@epicenter/folder/svelte` | Nothing: `createTextEditor`, one document's text opened over the folder's write, and `createBodyEditor`, its row case, each read reactively with its save loop ([Editing text](#editing-text)). Loads Svelte's runes only. | A Svelte editor of a note body or a file's text. |
 | `@epicenter/folder/file-browser` | Nothing: path helpers, visible tree rows, newline preservation, and `readTextFile` over a folder's files ([File-browser helpers](#file-browser-helpers)). | A file tree or a file view. |
 
@@ -1043,17 +1043,17 @@ A row that is not valid is repaired as text through the folder's write:
 ### Editing a row
 
 A person editing a field means "the title is Milk", not "here is the row as
-I last saw it", so a field edit is a `set` of the row as it is now. A
-component holds what a person typed in its own state until it is sent, and
-sends it through the table's `set` mutation after a pause and when the
-person leaves the field (see [Queries](#queries)). A checkbox or a select
+I last saw it", so a field edit is a `set` of the row as it is now. A folder
+app's edit layer (`@epicenter/svelte/edits`) holds what a person typed until
+it is sent, and sends it through the table's `set` after a pause and when
+the person leaves the field (see [Writes](#writes)). A checkbox or a select
 sends its set at once. A relative change (`count + 1`) is not a set: a
 script reads the row and writes the change from it.
 
 A body is a whole text, so setting it would replace another writer's lines.
 `createBodyEditor({ row, write })` from `@epicenter/folder/svelte` opens it.
 It holds `from`, the row as the cache held it at the first keystroke, and
-`typed`, and sends each save to the table's `write` mutation as the change
+`typed`, and sends each save to the table's `write` as the change
 from `from` to `from` with the typed body, with `\n` line endings and
 well-formed text. A save that lands with nothing typed since clears both. A
 save that lands while typing continued makes `from` the row it sent, so the
@@ -1064,22 +1064,17 @@ that finds the row deleted writes nothing, and nothing is sent while the row
 is gone from the cache: what is typed stays, `gone` is true, and the control
 offers the text until the person copies or discards it.
 
-```svelte
-<script lang="ts">
-  const note = createQuery(() => folder$.notes.get.queryOptions(stem));
-  const writeNote = createMutation(() => folder$.notes.write.mutationOptions());
-  const body = createBodyEditor({
-    row: () => note.data ?? undefined,
-    write: (change) => writeNote.mutateAsync({ stem, ...change }),
-  });
-  const send = useDebounce(() => body.save(), 1000);
-</script>
-<textarea
-  value={body.text}
-  oninput={(e) => { body.change(e.currentTarget.value); void send(); }}
-  onblur={() => void send.runScheduledNow()}
-></textarea>
+```ts
+const body = createBodyEditor({
+  row: () => note,
+  write: async (change) =>
+    unwrap(await writes.tables.notes.write(stem, change.from, change.to)),
+});
 ```
+
+A folder app does not build these itself: `edits.body(table, stem)` holds
+one per row, saves it after a pause, and offers its text when the row is
+gone.
 
 ### Editing text
 
@@ -1090,15 +1085,16 @@ that landed sent, and `typed`, and sends each save to `write` as the change
 from `from` to `from` holding the typed text. It has no revision counter
 and no merge of its own: the folder's write merges every save into the
 file as it is now. A file's exact text is its plain case, written through
-`folder$.write`:
+the folder's write:
 
 ```ts
 const opened = createQuery(() => folder$.files.text.queryOptions(path));
-const writeFile = createMutation(() => folder$.write.mutationOptions());
 const text = createTextEditor({
   current: () => (opened.data?.kind === 'text' ? opened.data.text : undefined),
-  write: async (change) =>
-    (await writeFile.mutateAsync({ path, ...change })).file === null ? 'gone' : 'landed',
+  write: async (change) => {
+    const written = unwrap(await writes.write(path, change.from, change.to));
+    return written.file === null ? 'gone' : 'landed';
+  },
 });
 ```
 
@@ -1216,81 +1212,83 @@ still hear. The same holds for a `git.subscribe` subscriber.
 ### Queries
 
 `@epicenter/folder/query` gives TanStack Query option factories over a
-folder, as tRPC's `queryOptions` and `mutationOptions` do. `folderOptions`
-holds no query client and no subscription:
+folder's reads, as tRPC's `queryOptions` does. `folderOptions` holds no
+query client and no subscription:
 
 ```ts
 import { folderOptions } from '@epicenter/folder/query';
 
 const folder$ = folderOptions(folder);
 createQuery(() => folder$.todos.list.queryOptions());
-createQuery(() => folder$.todos.get.queryOptions('milk')); // StoredRow | null
-const setTodo = createMutation(() => folder$.todos.set.mutationOptions());
-setTodo.mutate({ stem: 'milk', fields: { done: true } });
+createQuery(() => folder$.files.text.queryOptions('todos/milk.md'));
 
 // The app root, once: changes the page did not make mark what they name stale.
 const stopChanges = folder$.invalidateOnChange(queryClient);
 ```
 
-| Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
-| --- | --- | --- |
-| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `delete(stem)`; a rename is `table.rename` |
-| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | none |
-| the folder (`folder$`) | `query({ paths, key, queryFn })` | `write({ path, from, to })` (`folder.write`: a create from `null`, an edit, or a delete to `null`), `move({ path, next })` (`folder.move`) |
-| `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
+| Area | Queries (`.queryOptions()`, `.queryKey()`) |
+| --- | --- |
+| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list` |
+| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) |
+| the folder (`folder$`) | `query({ paths, key, queryFn })` |
+| `history` | `status` |
 
 `folder$.query({ paths, key, queryFn })` is a query of the page's own over
 the files at `paths`, each a file or a directory: cached like the reads
 above, and stale whenever a change reaches one of `paths`. A list derived
 from two tables names both directories.
 
-Each helper is its own mutation, and there is no shared one, so each
-control owns its pending and error state. A query is named for its data and
-a mutation for its verb and noun: `const todo`, `const setTodo`,
-`const deleteTodo`, never `remove` for `.delete`.
-
-Writes to one file run one at a time, in the order made, whichever
-control or options object made them, so a checkbox's set reads the row
-a title's set wrote. The options keep that order themselves, not in a
-TanStack mutation scope: a scoped mutation waiting its turn resumes only
-while the window has focus, and a save must not wait for the person to come
-back.
-
-A write keeps the cache in step inside its own `mutationFn`, so a caller's
-`onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
-puts its result where it can: `set`, `create`, and `write` set the row's query and
-its entry in the listing, `delete` drops them, and `folder$.write` sets the
-file's `read` and `text`. `folder$.write` and `folder$.move` mirror the
-handle's `write` and `move` for any path, a row's included, so a row's query
-and listing are marked stale when they write one. The folder does not
-report a page's own writes to it, so the write marks stale the rest of what
-a change to its paths would, the history's status included. A read still
-running when the write lands may predate it, or a later change, so it is
-read again rather than kept. A failed write reads its paths again: the
-file was not what the base said, or the reply was lost.
-
 `invalidateOnChange(queryClient)` subscribes to `folder.onFilesChanged` and
 invalidates each change's `pathFilter`; it returns the function that stops
 it. `pathFilter(change)`, also usable on its own to invalidate, cancel, or
-refetch, matches each row at a changed path, the listing of
-each table whose directory a path is in, the file listing and each changed
-file's `read` and `text`, each `query` over a
-changed path, and the history's status; a path in `.git` also matches the
-log, and `'everything'` matches every query of the folder. Invalidating
-reads again only what a view or observer holds; a store that reads with
-`getQueryData` observes what it shows. A table named like a member
-(`files`, `history`, `write`, `move`, `tables`, `pathFilter`, `key`,
-`query`) is under `folder$.tables` only.
+refetch, matches the listing of each table whose directory a path is in,
+the file listing and each changed file's `read` and `text`, each `query`
+over a changed path, and the history's status; a path in `.git` matches
+status alone, and `'everything'` matches every query of the folder.
+Invalidating reads again only what a view or observer holds; a store that
+reads with `getQueryData` observes what it shows. A table named like a
+member (`files`, `history`, `tables`, `pathFilter`, `key`, `query`) is
+under `folder$.tables` only.
 
 Every read is local and changes only when the folder's channel or the
 page's own write says so, so the options set `networkMode: 'always'`, no
 retry (on mount either), `staleTime: Infinity`, and no focus refetch; an app sets none of
 these for the folder's queries.
 
-`runMutation(client, options, variables)` runs a write from outside a
-component, as `mutateAsync` does, through the client's mutation cache.
-`whenIdle(client, filters?)` resolves once nothing matching `filters` is
-mutating, counting an editor's next save that is about to start.
+### Writes
+
+`folderWrites(folder, queryClient)` is a page's one way to write the
+folder. Make one per opened folder; a folder app's edit layer
+(`@epicenter/svelte/edits`) makes it, as `edits.writes`.
+
+```ts
+import { folderWrites } from '@epicenter/folder/query';
+
+const writes = folderWrites(folder, queryClient);
+const { data: written, error } = await writes.tables.todos.set('milk', { done: true });
+await writes.write('notes/a.md', from, to);
+await writes.move('notes/a.md', 'notes/b.md');
+```
+
+| Area | Writes, each answering the engine's Result |
+| --- | --- |
+| each table (`writes.tables.<table>`) | `set(stem, fields)`, `write(stem, from, to)`, `create(row, { stem? })`, `delete(stem)`; a rename is `move` |
+| the folder (`writes`) | `write(path, from, to)` (`folder.write`: a create from `null`, an edit, or a delete to `null`), `move(path, next)` (`folder.move`) |
+
+Writes to one file run one at a time, in the order made, whoever made them,
+so a checkbox's set reads the row a title's set wrote. `inTurn(path, work)`
+runs other work in a file's turn; `pending(path?)`, `subscribe`, and
+`idle(path?)` say what runs or waits. A create at a generated stem names no
+path another write could, so it waits for none, and is counted.
+
+A write keeps the cache in step itself. It puts its result where it can: a
+row write sets its entry in the table's listing, a delete drops it, and the
+folder's write sets the file's `read` and `text`. The folder does not report
+a page's own writes to it, so the write marks stale the rest of what a
+change to its paths would, the history's status included. A read still
+running when the write lands may predate it, or a later change, so it is
+read again rather than kept. A failed write reads its paths again: the file
+was not what the base said, or the reply was lost.
 
 ## History
 
@@ -1528,7 +1526,7 @@ dangle.
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-history.ts`, and the directory folder only then. |
 | `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter: the handle's storage (save accounting, the close fence, and publishing the definition before the first change), and `table.ts`, the typed row view over the one write. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
-| `src/query.ts` | `@epicenter/folder/query`: `folderOptions`, with `folder$.write` and `folder$.move`. |
+| `src/query.ts` | `@epicenter/folder/query`: `folderOptions`, the reads, and `folderWrites`, the writes, one per file at a time. |
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`editor.svelte.ts`: `createTextEditor` and `createBodyEditor`), its tests, and the Svelte boundary tests. |

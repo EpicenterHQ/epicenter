@@ -30,7 +30,6 @@
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { toggleMark } from 'prosemirror-commands';
 import {
@@ -50,6 +49,8 @@ import type { EditorView } from 'prosemirror-view';
 import { noteText, openNotesFolder } from '../folder.test-support.js';
 import { observe, quiet } from '../query.test-support.js';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 // The notes state is a runes module: load it, and the rules, after the
 // compiler plugin.

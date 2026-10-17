@@ -8,19 +8,21 @@
  * what it wrote in the listing itself.
  *
  * A note or a stage is set on the word's file as it is now (ADR-0576): it
- * sets that field and keeps every other field another writer changed. The
- * card holds a note typed and not yet sent; a stage press sends at once.
- * One word's writes run one at a time, in the order made. A failed write is
- * reported, and the card keeps what was typed.
+ * sets that field and keeps every other field another writer changed. A
+ * note typed is the word's field draft (`edits.field`), sent a second after
+ * the last keystroke; a stage press sends at once. One word's writes run one
+ * at a time, in the order made. A failed write is reported, and the card
+ * keeps what was typed.
  *
  * A word file that is not a valid word is repaired as its exact text, read
- * as its own query and written the same way: a text editor holding the text
- * it started from, saved after a pause in typing, one write at a time, as the
- * change from that text, merged with a change made elsewhere (ADR-0576).
- * Where both changed the same lines, the save wins, with no notice. A word
- * file deleted elsewhere takes no repair: the text typed is offered instead.
- * Adding and deleting a word are mutations too, so closing waits for them. A
- * delete deletes the file whatever it holds by then (ADR-0576).
+ * as its own query and written through its text draft (`edits.text`): it
+ * holds the text it started from, saves after a pause in typing, one write
+ * at a time, as the change from that text, merged with a change made
+ * elsewhere (ADR-0576). Where both changed the same lines, the save wins,
+ * with no notice. A word file deleted elsewhere takes no repair: the text
+ * typed is offered instead. Adding a word is a mutation, and a delete runs
+ * once the word's edits landed, so closing waits for both. A delete
+ * deletes the file whatever it holds by then (ADR-0576).
  *
  * A new word's file is named by the SHA-256 of its exact text, so two adds
  * of one text reach the same file. An add reads that file first and writes
@@ -29,7 +31,6 @@
 
 import { InstantString } from '@epicenter/definition/field';
 import {
-	FileError,
 	hashBytes,
 	isStoredRow,
 	rowPath,
@@ -39,18 +40,9 @@ import {
 	wellFormed,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
-import { runMutation, whenIdle } from '@epicenter/folder/query';
-import {
-	createTextEditor,
-	type TextChange,
-	type TextEditor,
-} from '@epicenter/folder/svelte';
-import {
-	ActionError,
-	type WriteFailure,
-} from '@epicenter/svelte/write-failure';
+import type { Edits } from '@epicenter/svelte/edits';
+import { ActionError } from '@epicenter/svelte/write-failure';
 import type { QueryClient } from '@tanstack/svelte-query';
-import { createSubscriber } from 'svelte/reactivity';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -107,28 +99,17 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 }
 
 export function createEntries(
-	folder: Pick<VocabFolder, 'tables' | 'files'>,
-	queries: Pick<VocabOptions, 'entries' | 'files' | 'write'>,
+	folder: Pick<VocabFolder, 'tables'>,
+	queries: Pick<VocabOptions, 'entries' | 'files'>,
 	queryClient: QueryClient,
-	{
-		refused,
-		writeFailed,
-	}: {
-		/** Why no change starts now, if one does not. */
-		refused: () => string | undefined;
-		/** A write failed; the app tells the learner. */
-		writeFailed: (failure: WriteFailure) => void;
-	},
+	edits: Edits<VocabFolder['tables']>,
 ) {
 	const table = folder.tables.entries;
 	const { defineMutation } = createQueryFactories(queryClient);
-	const trackMutations = createSubscriber((update) =>
-		queryClient.getMutationCache().subscribe(update),
-	);
 	const listKey = queries.entries.list.queryKey();
 	const textKey = (path: string) => queries.files.text.queryKey(path);
-	/** The word file open as text for repair, if one is, and its typed text. */
-	let repair = $state<{ path: string; draft: TextEditor } | undefined>();
+	/** The word file open as text for repair, if one is. */
+	let repair = $state<string | undefined>();
 
 	const pathOf = (id: string) => rowPath(table.name, id);
 	const listingData = () => queryClient.getQueryData<EntryListing>(listKey);
@@ -137,106 +118,6 @@ export function createEntries(
 		const opened = queryClient.getQueryData<OpenedFile>(textKey(path));
 		return opened?.kind === 'text' ? opened.text : undefined;
 	};
-
-	/** Whether a delete of `path` is running or waiting, which pauses its edits. */
-	const deleting = (path: string) =>
-		queryClient.isMutating({
-			mutationKey: vocabKeys.delete(path),
-			exact: true,
-		}) > 0;
-
-	/**
-	 * Set fields of a word as its file is now. A failure is reported, and the
-	 * card keeps what was typed. A set of a word deleted elsewhere writes
-	 * nothing (ADR-0576): it is reported with the note it held, to copy.
-	 */
-	const setEntry = {
-		...queries.entries.set.mutationOptions(),
-		onSuccess: (written, { stem, fields }) => {
-			if (written !== null) return;
-			const path = pathOf(stem);
-			writeFailed({
-				path,
-				error: FileError.NotFound({ path }).error,
-				unsaved: fields.note ?? '',
-			});
-		},
-		// A typed note is offered to copy; the card that held it may be gone.
-		onError: (error, { stem, fields }) =>
-			writeFailed({
-				path: pathOf(stem),
-				error,
-				unsaved: fields.note ?? '',
-			}),
-	} satisfies ReturnType<typeof queries.entries.set.mutationOptions>;
-	const setKey = setEntry.mutationKey ?? [];
-
-	/** Resolves once no set of the word at `id` runs or waits. */
-	const setsSettled = (id: string) =>
-		whenIdle(queryClient, {
-			mutationKey: setKey,
-			predicate: (mutation) =>
-				(mutation.state.variables as { stem?: string } | undefined)?.stem ===
-				id,
-		});
-
-	/**
-	 * Write repair text of `path`: one run of the folder's write mutation. A
-	 * failure keeps the text, to send again. A file deleted elsewhere takes no
-	 * repair (ADR-0576): the text typed is offered instead, and let go.
-	 */
-	async function writeText(
-		path: string,
-		change: TextChange<string>,
-	): Promise<'landed' | 'gone'> {
-		const written = await runMutation(
-			queryClient,
-			{
-				...queries.write.mutationOptions(),
-				onError: (error) =>
-					writeFailed({
-						path,
-						error,
-						unsaved:
-							(repair?.path === path ? repair.draft.typed : undefined) ??
-							change.to,
-						// Starts a save only while the repair is still open and the
-						// page is not closing.
-						retry: () => {
-							if (refused() !== undefined || repair?.path !== path)
-								return false;
-							void repair.draft.save();
-							return true;
-						},
-					}),
-			},
-			{ path, ...change },
-		);
-		if (written.file !== null) return 'landed';
-		const lost = repair?.path === path ? repair.draft.typed : undefined;
-		if (repair?.path === path) repair.draft.discard();
-		writeFailed({
-			path,
-			error: FileError.NotFound({ path }).error,
-			unsaved: lost ?? change.to,
-		});
-		return 'gone';
-	}
-
-	/** Put a word this page just saved into the listing. */
-	function received(id: string, stored: StoredRow<EntryFields>) {
-		// A read still running may not hold it: read once more instead.
-		if (queryClient.isFetching({ queryKey: listKey, exact: true }) > 0)
-			return queryClient.invalidateQueries({ queryKey: listKey, exact: true });
-		queryClient.setQueryData<EntryListing>(listKey, (listing) =>
-			listing === undefined
-				? undefined
-				: [
-						...listing.filter((entry) => entry.stem !== id),
-						{ stem: id, result: Ok(stored) },
-					],
-		);
-	}
 
 	const addWord = defineMutation({
 		mutationKey: vocabKeys.add,
@@ -252,7 +133,7 @@ export function createEntries(
 				EntryError | ActionError
 			>
 		> => {
-			const why = refused();
+			const why = edits.refusal();
 			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			// Well formed as the folder stores it, so a word read back compares
 			// equal to the text it was added with.
@@ -269,7 +150,7 @@ export function createEntries(
 					return Ok({ outcome: 'present', id: listed.id, stored: current });
 			}
 			const stem = await hashBytes(new TextEncoder().encode(exact));
-			const { data: created, error } = await table.create(
+			const { data: created, error } = await edits.writes.tables.entries.create(
 				{
 					fields: {
 						text: exact,
@@ -306,22 +187,17 @@ export function createEntries(
 				return EntryError.Taken({ path: pathOf(stem) });
 			return Ok({ outcome: 'added', id: stem, stored: created });
 		},
-		onSuccess: ({ id, stored }) => received(id, stored),
+		// A word found already saved may be one the listing does not hold yet.
+		onSuccess: ({ outcome }) =>
+			outcome === 'present'
+				? queryClient.invalidateQueries({ queryKey: listKey, exact: true })
+				: undefined,
 	});
 
 	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
 	function canEdit(id: string) {
 		const path = pathOf(id);
-		return refused() === undefined && repair?.path !== path && !deleting(path);
-	}
-
-	/** Set fields of the word at `id`; answers whether it was sent. */
-	function send(id: string, fields: Partial<EntryFields>): boolean {
-		if (!canEdit(id)) return false;
-		void runMutation(queryClient, setEntry, { stem: id, fields }).catch(
-			() => {},
-		);
-		return true;
+		return repair !== path && !edits.locked(path);
 	}
 
 	return {
@@ -333,15 +209,11 @@ export function createEntries(
 		},
 		/** One word file's exact text, or its type and size when it is not editable text. */
 		textQuery: (path: string) => queries.files.text.queryOptions(path),
-		/** The set a card sends a note it holds with: `{ stem, fields }`. */
-		setEntry,
+		/** The note typed into the word at `id` and not yet saved: its field draft. */
+		noteOf: (id: string) => edits.field('entries', id, 'note'),
 		canEdit,
-		/** Whether the word at `id` takes no edit now: it is being deleted, or is open as text. */
-		isLocked(id: string) {
-			trackMutations();
-			const path = pathOf(id);
-			return repair?.path === path || deleting(path);
-		},
+		/** Whether the word at `id` takes no edit now: closing, being deleted, or open as text. */
+		isLocked: (id: string) => !canEdit(id),
 
 		/**
 		 * Save a word or a captured phrase, and answer once the folder holds its
@@ -355,54 +227,49 @@ export function createEntries(
 			const { data, error } = await addWord(text);
 			return error === null ? Ok(data.outcome) : Err(error);
 		},
-		/** Send the note of the word at `id`. */
-		setNote: (id: string, note: string) => send(id, { note }),
-		/** Press a stage of the word at `id`; it is sent at once. */
-		setStage: (id: string, stage: EntryFields['stage']) => send(id, { stage }),
+		/** Send the note of the word at `id` now; answers whether it was sent. */
+		setNote(id: string, note: string): boolean {
+			if (!canEdit(id)) return false;
+			const draft = edits.field('entries', id, 'note');
+			if (!draft.change(note)) return false;
+			void draft.save();
+			return true;
+		},
+		/** Press a stage of the word at `id`; it is sent at once. Answers whether it was. */
+		setStage(id: string, stage: EntryFields['stage']): boolean {
+			if (!canEdit(id)) return false;
+			return edits.set('entries', id, { stage }) === undefined;
+		},
 		/**
-		 * Delete `entry`. It waits for the word's sets under way and writes
-		 * the repair text typed, then deletes the file whatever it holds.
+		 * Delete `entry` once the word's edits landed, the repair text typed
+		 * included, whatever the file holds then.
 		 */
-		delete(entry: Entry) {
+		async delete(
+			entry: Entry,
+		): Promise<Result<undefined, WriteError | ActionError>> {
+			const why = edits.refusal();
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			const path = pathOf(entry.id);
-			return defineMutation({
-				mutationKey: vocabKeys.delete(path),
-				mutationFn: async (): Promise<
-					Result<undefined, WriteError | ActionError>
-				> => {
-					const why = refused();
-					if (why !== undefined) return ActionError.NotStarted({ reason: why });
-					await setsSettled(entry.id);
-					if (repair?.path === path) await repair.draft.save();
-					return table.delete(entry.id);
-				},
-				onSuccess: () => {
-					queryClient.setQueryData<EntryListing>(listKey, (listing) =>
-						listing?.filter((listed) => listed.stem !== entry.id),
-					);
-					queryClient.removeQueries({ queryKey: textKey(path), exact: true });
-					if (repair?.path === path) repair = undefined;
-				},
-			})();
+			const deleted = await edits.exclusive(path, () =>
+				edits.writes.tables.entries.delete(entry.id),
+			);
+			if (deleted.error !== null) return deleted;
+			queryClient.removeQueries({ queryKey: textKey(path), exact: true });
+			if (repair === path) repair = undefined;
+			return deleted;
 		},
 
 		/** The word file open as text for repair, if one is. */
 		get repairing() {
-			return repair?.path;
+			return repair;
 		},
 		/** The text typed for the repair and not yet written, if any; read reactively. */
 		get repairText() {
-			return repair?.draft.typed;
+			return repair === undefined ? undefined : edits.text(repair).typed;
 		},
 		/** Open a word file as its exact text. */
 		openRepair(path: string) {
-			repair = {
-				path,
-				draft: createTextEditor({
-					current: () => shownText(path),
-					write: (change) => writeText(path, change),
-				}),
-			};
+			repair = path;
 		},
 		/**
 		 * Close the repair once its text is written; the write marked the
@@ -412,21 +279,24 @@ export function createEntries(
 		async closeRepair(): Promise<boolean> {
 			const open = repair;
 			if (open === undefined) return true;
-			await open.draft.save();
-			if (open.draft.typed !== undefined) return false;
+			const draft = edits.text(open);
+			await draft.save();
+			if (draft.typed !== undefined) return false;
 			if (repair === open) repair = undefined;
-			queryClient.removeQueries({ queryKey: textKey(open.path), exact: true });
+			queryClient.removeQueries({ queryKey: textKey(open), exact: true });
 			return true;
 		},
-		/** Type the text of the word file open for repair; the card writes it after a pause (`saveRepair`). */
+		/** Type the text of the word file open for repair; it is written after a pause, or at `saveRepair`. */
 		inputText(path: string, text: string) {
-			if (refused() !== undefined || deleting(path)) return false;
-			if (repair?.path !== path || shownText(path) === undefined) return false;
-			repair.draft.change(text);
-			return true;
+			if (repair !== path) return false;
+			const draft = edits.text(path);
+			if (draft.typed === undefined && shownText(path) === undefined)
+				return false;
+			return draft.change(text);
 		},
 		/** Write the repair text typed, if any; resolves once no write of it runs. */
-		saveRepair: () => repair?.draft.save() ?? Promise.resolve(),
+		saveRepair: () =>
+			repair === undefined ? Promise.resolve() : edits.text(repair).save(),
 	};
 }
 

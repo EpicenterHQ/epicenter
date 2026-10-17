@@ -47,7 +47,6 @@ import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { type Folder, parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -64,6 +63,8 @@ import {
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet } from '../../lib/query.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
@@ -401,7 +402,7 @@ test('notes typed into a todo deleted elsewhere are not written and are offered 
 	await settle(todos);
 	expect(await text(path)).toBeUndefined();
 	expect(failures).toMatchObject([
-		{ path, unsaved: 'From the shop.\n', error: { name: 'NotStarted' } },
+		{ path, unsaved: 'From the shop.\n', error: { name: 'NotFound' } },
 	]);
 });
 

@@ -293,19 +293,20 @@ of that file. `<FolderApp>` wires the folder's change reports to the cache
 once, so a report makes exactly the queries it names stale; the query
 client's focus refetch is off.
 
-A field edit of a note or folder is `tables.<name>.set`, which sets the
-fields on the file as it is now (ADR-0576); `NoteDetail` holds a typed title in
-its own state until it is sent. A note's body is opened with a body editor
-(`createBodyEditor` from `@epicenter/folder/svelte`), one per note in the
-store, shared by rich text and Source: it takes the cached row at the first
-change, keeps the body outside the cache, and sends the change from that row
-to the typed body with `tables.notes.write` a second after the last change or
-when the view leaves it, merging with whatever changed since. It sends nothing
-while the listing does not hold the note. A text edit is a text editor
-(`createTextEditor`) saved the same way with the folder's `write`. Writes to
-one file run one at a time, and each puts its result in the cache. A new
-note or folder is `tables.<name>.create`; a new file is a write from no file,
-`folder.write(path, null, '')`. Rename and delete wait for the file's saves.
+Every write goes through the folder's edit layer (`edits`,
+`@epicenter/svelte/edits`). A field edit of a note or folder is a set
+(`edits.set`), which sets the fields on the file as it is now (ADR-0576); a
+title typed in `NoteDetail` is the note's field draft until it is sent. A
+note's body is the note's body draft (`edits.body`), shared by rich text and
+Source: it takes the cached row at the first change, keeps the body outside
+the cache, and sends the change from that row to the typed body a second
+after the last change or when the view leaves it, merging with whatever
+changed since. It sends nothing while the listing does not hold the note. A
+text edit is a text draft (`edits.text`) saved the same way with the
+folder's write. Writes to one file run one at a time, and each puts its
+result in the cache. A new note or folder is a create of its row; a new file
+is a write from no file. Rename and delete wait for the file's drafts and
+saves (`edits.exclusive`).
 A note or folder renames by stem (`tables.<name>.rename`), and a folder row
 is deleted by stem; any other file moves with `folder.move`, and every file
 is deleted with a write to no file, whatever it holds by then: the deleter
@@ -388,7 +389,7 @@ view and delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the sets fields are written with, the body and text editors and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the folder starts closing (`beforeClose`). |
+| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the sets fields are written with, note, folder, and file actions over the folder's edit layer, Save version, and what the detail shows. The drafts, their saves, and the fence that stops input once the folder starts closing are the edit layer's. |
 | `src/routes/+page.svelte` | `<FolderApp>` over Honeycrisp's manifest and definition, with `NotesView` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
 | `epicenter.app.json` | What Epicenter installs: the app id and the title, which `<FolderApp>` opens the folder with. |

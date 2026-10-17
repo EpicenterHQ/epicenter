@@ -1,9 +1,9 @@
 <!--
 	One saved word: its text, the learner's note, and the stage. A stage
-	press is sent at once. The note is held here while it is typed and sent
-	a second after the last keystroke, when the learner leaves it, and when
-	the card goes away; a read that lands meanwhile never replaces it. Each
-	sets its field on the word's file as it is now (ADR-0576).
+	press is sent at once. The note is the word's field draft: sent a second
+	after the last keystroke, when the learner leaves it, and when the card
+	goes away; a read that lands meanwhile never replaces it. Each sets its
+	field on the word's file as it is now (ADR-0576).
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -11,8 +11,6 @@
 	import { Label } from '@epicenter/ui/label';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { cn } from '@epicenter/ui/utils';
-	import { createMutation } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
 	import { type Entry, STAGE_LABELS, STAGES } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
@@ -30,31 +28,17 @@
 	// may already read another word, so a note sent then uses this one.
 	// svelte-ignore state_referenced_locally
 	const id = entry.id;
-	/** Edits wait while the word is deleted or open as text. */
+	/** Edits wait while the word is deleted or open as text, and once Vocab closes. */
 	const locked = $derived(entries.isLocked(id));
-	const setEntry = createMutation(() => entries.setEntry);
-
-	/** The note typed and not yet saved; `undefined` shows the file. */
-	let note = $state<string>();
-	function sendNote() {
-		if (note === undefined || !entries.canEdit(id)) return;
-		const sent = note;
-		setEntry.mutate(
-			{ stem: id, fields: { note: sent } },
-			{
-				onSuccess: () => {
-					if (note === sent) note = undefined;
-				},
-			},
-		);
-	}
-	const sendNoteLater = useDebounce(sendNote, 1000);
-	// runed's timer outlives the card; send now instead.
-	onDestroy(() => void sendNoteLater.runScheduledNow());
+	/** The note typed and not yet saved. */
+	// svelte-ignore state_referenced_locally
+	const note = entries.noteOf(id);
+	// The draft outlives the card; send what is typed now.
+	onDestroy(() => void note.save());
 
 	/** Delete once the note typed here is sent, so the delete removes what was saved last. */
 	function remove() {
-		if (sendNoteLater.pending) void sendNoteLater.runScheduledNow();
+		void note.save();
 		confirmDelete(entries, entry);
 	}
 </script>
@@ -70,21 +54,20 @@
 		placeholder="Your note"
 		readonly={locked}
 		bind:value={
-			() => note ?? entry.note,
+			() => note.shown(entry.note),
 			(typed) => {
-				note = typed;
-				void sendNoteLater();
+				if (entries.canEdit(id)) note.change(typed);
 			}
 		}
-		onblur={() => void sendNoteLater.runScheduledNow()}
+		onblur={() => void note.save()}
 	/>
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
 		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} disabled={locked} onclick={() => entries.setStage(id, option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
-			{#if setEntry.isPending || (sendNoteLater.pending && note !== undefined)}
+			{#if note.saving}
 				Saving…
-			{:else if note !== undefined && setEntry.isError}
-				Not saved. <Button variant="link" size="xs" class="h-auto p-0" onclick={sendNote}>Try again</Button>
+			{:else if note.error}
+				Not saved. <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void note.save()}>Try again</Button>
 			{/if}
 		</span>
 	</div>

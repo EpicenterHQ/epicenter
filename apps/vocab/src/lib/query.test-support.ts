@@ -45,13 +45,20 @@ export function observe(vocab: Vocab, ...paths: string[]) {
 	};
 }
 
-/** Wait until nothing is mutating or fetching. */
+/**
+ * Wait until no write runs or waits, and nothing is mutating or fetching.
+ * Typing that waits for its pause is not waited for.
+ */
 export async function quiet(vocab: Vocab) {
 	const client = vocab.queryClient;
+	const idle = () =>
+		vocab.edits.writes.pending() === 0 &&
+		client.isMutating() === 0 &&
+		client.isFetching() === 0;
 	for (let tries = 0; tries < 400; tries++) {
-		if (client.isMutating() === 0 && client.isFetching() === 0) {
+		if (idle()) {
 			await Bun.sleep(0);
-			if (client.isMutating() === 0 && client.isFetching() === 0) return;
+			if (idle()) return;
 		}
 		await Bun.sleep(2);
 	}

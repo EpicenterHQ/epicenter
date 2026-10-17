@@ -1,10 +1,11 @@
 /**
  * Todos Store Tests
  *
- * Drives the real Todos store and its TanStack Query cache against a real
- * browser folder over an in-memory OPFS stand-in. Views are stood in for as
- * they behave: a screen observes the queries it shows, and a control sends
- * each change through its own set mutation (ADR-0576).
+ * Drives the real Todos store, its TanStack Query cache, and the folder's
+ * edit layer against a real browser folder over an in-memory OPFS stand-in.
+ * Views are stood in for as they behave: a screen observes the queries it
+ * shows, a title box types into its draft, and the checkbox sets its field
+ * (ADR-0576).
  *
  * Key behaviors:
  * - A field set is written to the file; the cache takes the row it wrote
@@ -22,14 +23,13 @@
  *   then; a field set that lands after it writes nothing
  * - Git status names a file with changes in no saved version; saves never
  *   commit, and Save version records one
- * - Close waits for every mutation, and every close call shares one
- *   completion
+ * - Close waits for every save, sends what is typed, and every close call
+ *   shares one completion
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { folderOptions } from '@epicenter/folder/query';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -49,6 +49,8 @@ import {
 } from './query.test-support.js';
 import { repairsOf, todosOf } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createTodos } = await import('./todos.svelte.ts');
 
@@ -204,7 +206,7 @@ test("one todo's sets run one at a time in the order made, so a checkbox does no
 	await held;
 	void done(marked(true));
 	// The checkbox's set waits for the title's to land.
-	expect(todos.queryClient.isMutating()).toBe(2);
+	expect(todos.edits.writes.pending(path)).toBe(2);
 	expect(counter.mdWrites - writes).toBe(1);
 
 	release();
@@ -489,16 +491,18 @@ test('close waits for running saves, and every close call shares one completion'
 	);
 });
 
-test('an edit made while close waits is written before the folder closes', async () => {
+test('text typed and not yet sent when close begins is written before the folder closes', async () => {
 	const { todos, opened, holdNextWrite, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const set = rowEditor(todos, stem);
+	const title = todos.edits.field('todos', stem, 'title');
 	const { held, release } = holdNextWrite();
-	void set(titled('Oat'));
+	title.change('Oat');
+	void title.save();
 	await held;
+	// Typed while the first save is held; its own save waits a pause.
+	title.change('Oat milk');
 	const closing = opened.close();
-	// Close is waiting for the held set; this one runs after it.
-	void set(titled('Oat milk'));
+	expect(title.change('Refused')).toBe(false);
 	release();
 	await closing;
 	expect(todos.folder.signal.aborted).toBe(true);

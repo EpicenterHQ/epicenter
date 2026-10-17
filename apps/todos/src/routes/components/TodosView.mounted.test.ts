@@ -21,7 +21,6 @@ import { afterAll, afterEach, expect, mock, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -39,6 +38,8 @@ import { requestConnect } from '../../lib/connect-request.js';
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet, rowEditor } from '../../lib/query.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');

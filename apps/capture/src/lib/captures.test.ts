@@ -31,7 +31,7 @@
  * - Deleting runs after the edit's saves and removes what they saved; a
  *   file changed elsewhere since is not deleted
  * - Saves never commit; Save version records one
- * - Close fences input and waits for every mutation
+ * - Close fences input and waits for every edit and action
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -68,11 +68,9 @@ const PATH = 'captures/one.md';
 /** HAND as a write leaves it: the row's standard form (ADR-0576). */
 const STANDARD = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 
-/** How many saves of a capture are running. */
+/** How many saves of the capture at `PATH` run or wait. */
 const savesRunning = ({ captures }: Opened) =>
-	captures.queryClient.isMutating({
-		mutationKey: captures.queries.captures.write.mutationOptions().mutationKey,
-	});
+	captures.edits.writes.pending(PATH);
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */
 async function create(harness: Opened, text: string) {

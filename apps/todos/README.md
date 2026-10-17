@@ -429,8 +429,8 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
 | `src/lib/platform/` | The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing either opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
-| `src/lib/todos.svelte.ts` | The store over the folder `getFolder()` answers (ADR-0548, ADR-0574): the browser leave check, and the namespaces below, composed over `TodosParts`, the folder's context with the query factories, `writesSettled`, and `invalidate`. |
-| `src/lib/rows.ts` | The delete's mutation key (`todosKeys`), and `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `set` options each field sends with, the `write` options the notes' body editor writes with, `create`, `listed`, `delete`, and `notesGone`, which reports notes typed into a deleted todo. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
+| `src/lib/todos.svelte.ts` | The store over the folder `getFolder()` answers (ADR-0548, ADR-0574): the browser leave check, and the namespaces below, composed over `TodosParts`, the folder's context with the query factories. |
+| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `create`, `listed`, and `delete`, which runs once the todo's drafts landed. Fields and notes are the folder's edit layer's (`edits.field`, `edits.body`, `edits.set`); views ask it whether a write runs (`edits.writing`) or the file is locked (`edits.locked`). |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
@@ -459,14 +459,13 @@ cache entry, each with `select`: the list reads `todos.rows.todos` and
 `todos.rows.repairs`, and `TodoDetail` reads `todos.rows.entry(stem)`, so
 they cannot disagree.
 
-A field edit is a set of fields on the file as it is now (`todos.rows.set`,
-`table.set` underneath, ADR-0576). `TodoDetail` holds the typed title in
-its own state and sends it a second after the last keystroke, on blur, and
-when it goes away; each `TodoRow` checkbox, and the detail's, sends at once.
-The notes are the body, opened with `createBodyEditor` from
-`@epicenter/folder/svelte` (ADR-0576): it keeps the row it started from and
-sends the change from that row to the typed body with `todos.rows.write` on
-the same pause, merged by line by `table.write`. Bodies read and write with
+A field edit is a set of fields on the file as it is now (`edits.set`,
+`table.set` underneath, ADR-0576). The typed title is the todo's field
+draft (`edits.field`), sent a second after the last keystroke, on blur, and
+when `TodoDetail` goes away; each `TodoRow` checkbox, and the detail's,
+sends at once. The notes are the body draft (`edits.body`, ADR-0576): it
+keeps the row it started from and sends the change from that row to the
+typed body on the same pause, merged by line by `table.write`. Bodies read and write with
 `\n` line endings (ADR-0572), so
 the textarea's value is sent as it is. The page keys `TodoDetail` by the todo, and the view keeps the
 stem it was created with, so a save sent as it goes away lands on the todo
@@ -477,13 +476,12 @@ does not report a page's own saves to it, so the last save to settle reads
 Git status again. Saves never wait for the page to be visible. Todos does
 not write a file that does not read as a todo; another editor repairs it,
 and the folder's report shows the result. Todos does not rename files.
-Before the delete confirmation opens, `TodoDetail` sends what is typed and
-`todos.rows.listed(stem)` waits for running saves to land. `delete(stem)`
-waits for them again and deletes what the file holds then; it checks no
-version (ADR-0576). A write to a todo deleted since writes nothing and
-resolves with `null`; the body editor then keeps the typed notes and sets
-`gone`, and `TodoDetail` hands them to `todos.rows.notesGone`, which reports
-them as a failed write with the notes as text. The URL holds which todo is open; the new todo's title lives in the
+Before the delete confirmation opens, `todos.rows.listed(stem)` sends what
+is typed and waits for running saves to land. `delete(stem)` waits for them
+again, what was typed meanwhile included, and deletes what the file holds
+then; it checks no version (ADR-0576). A write to a todo deleted elsewhere
+writes nothing; the edit layer then lets the typed notes go and reports them
+as a failed write with the notes as text. The URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()`.
 
 Checks: `bun run --cwd apps/todos typecheck` (both auth leaves and the Bun

@@ -24,8 +24,7 @@ import {
 	type AgentMessage,
 	createConversation,
 } from '@epicenter/agent';
-import { folderOptions } from '@epicenter/folder/query';
-import { createFolderContext } from '@epicenter/svelte/folder';
+import { folderOptions, folderWrites } from '@epicenter/folder/query';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder, vocabFolder } from '../data.js';
@@ -41,6 +40,8 @@ import { vocabKeys } from '../query.js';
 import { createQueryClient } from '../query.test-support.js';
 import { type ChatListing, createChats } from './chats.js';
 import { createChatMessageStore, startChat } from './messages.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createVocab } = await import('../vocab.svelte.ts');
 
@@ -92,6 +93,7 @@ function chatsOver(
 	const chats = createChats({ ...folder, ...over }, queries, queryClient, {
 		refused: () => undefined,
 		writeFailed: (failure) => failures.push(failure),
+		inTurn: folderWrites(folder, queryClient).inTurn,
 	});
 	return {
 		chats,
@@ -520,7 +522,7 @@ test('an older listing delivered after a newer one does not replace it', async (
 	expect([...store.entries()]).toEqual([{ key: question.id, val: question }]);
 });
 
-test('one chat’s message writes run one at a time through its scope, and close waits for them', async () => {
+test('one chat’s message writes run one at a time in its file’s turn, and close waits for them', async () => {
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
@@ -539,14 +541,12 @@ test('one chat’s message writes run one at a time through its scope, and close
 	const first = store.set(question.id, question);
 	const second = store.set(answer.id, answer);
 	await Bun.sleep(5);
-	// The answer waits in the chat's scope; only the question is being written.
+	// The answer waits its turn; only the question is being written.
 	expect(gate.creates).toBe(0);
 	expect(
-		vocab.queryClient
-			.getMutationCache()
-			.findAll({ mutationKey: vocabKeys.message('chat-a') })
-			.map((write) => write.state.isPaused),
-	).toEqual([false, true]);
+		vocab.queryClient.isMutating({ mutationKey: vocabKeys.message('chat-a') }),
+	).toBe(2);
+	expect(vocab.edits.writes.pending('chats/chat-a.md')).toBe(2);
 	expect(vocab.busy).toBe(true);
 	let closed = false;
 	const closing = opened.close().then(() => {

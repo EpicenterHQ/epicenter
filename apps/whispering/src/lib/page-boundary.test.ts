@@ -99,7 +99,6 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 		'@epicenter/folder/browser',
 		'@epicenter/folder/file-browser',
 		'@epicenter/folder/query',
-		'@epicenter/folder/svelte',
 		'@epicenter/folder/tauri',
 	]);
 	// Each build points the exact bare specifier at its workspace's entry
@@ -146,11 +145,15 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// Files are edited through the query cache (ADR-0528): no edit
-				// session, open-item slot, admission, or save bar. The shared view
-				// is the header status.
+				// Files are edited through the query cache and the folder's one
+				// edit layer (ADR-0528, ADR-0576): no edit session, open-item
+				// slot, admission, or save bar. The other shared views are the
+				// header status and the failed-save toast.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
+						'@epicenter/svelte/edits',
+						'@epicenter/svelte/write-failure',
+						'@epicenter/svelte/write-failure-toast',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',

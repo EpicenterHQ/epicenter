@@ -7,7 +7,9 @@
  * closes it before the text is safe: Copy closes it once the clipboard took
  * the text, and a refused copy keeps it up with the text shown to select by
  * hand. "Save again" closes it only when the app started a save; that save
- * reports again if it fails.
+ * reports again if it fails. "Discard your edit" lets go of the edit still
+ * on screen, which a failed save otherwise keeps blocking a rename, a
+ * delete, or Save version, and keeps the toast up with the text to copy.
  */
 import { toast } from '@epicenter/ui/sonner';
 import UnsavedText from './unsaved-text.svelte';
@@ -26,7 +28,8 @@ async function copied(text: string): Promise<boolean> {
 /**
  * Say a save failed. Text that is in no file is offered as "Copy your
  * text", and its toast stays until the text is copied or the person
- * dismisses it. An edit still on screen offers "Save again".
+ * dismisses it. An edit still on screen offers "Save again" and "Discard
+ * your edit".
  */
 export function toastWriteFailure(failure: WriteFailure) {
 	show(failure);
@@ -39,7 +42,7 @@ export function toastWriteFailure(failure: WriteFailure) {
  * at once.
  */
 function show(failure: WriteFailure, copyRefused = false): string | number {
-	const { path, error, unsaved, retry } = failure;
+	const { path, error, unsaved, retry, discard } = failure;
 	const title = `Could not save ${path}`;
 	const said =
 		retry === undefined
@@ -67,15 +70,32 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 	const saveAgain = () => {
 		if (!retry?.()) show({ path, error, unsaved }, copyRefused);
 	};
+	/**
+	 * Let go of the edit; the toast stays with only the text to copy: the
+	 * text the discard let go, which holds any typing newer than this
+	 * toast, or this toast's own when the edit was already gone.
+	 */
+	const discarded =
+		discard === undefined
+			? undefined
+			: () => {
+					const dropped = discard() ?? unsaved;
+					toast.dismiss(shown);
+					if (dropped !== '')
+						show({ path, error, unsaved: dropped }, copyRefused);
+				};
 
 	shown = toast.error(title, {
-		...(copyRefused
+		...(copyRefused || discarded !== undefined
 			? {
 					description: UnsavedText,
-					componentProps: {
-						message: `${said} Copying did not work: select your text below and copy it.`,
-						text: unsaved,
-					},
+					componentProps: copyRefused
+						? {
+								message: `${said} Copying did not work: select your text below and copy it.`,
+								text: unsaved,
+								discard: discarded,
+							}
+						: { message: said, discard: discarded },
 				}
 			: { description: said }),
 		duration: copyable ? Number.POSITIVE_INFINITY : undefined,

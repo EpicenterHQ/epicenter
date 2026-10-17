@@ -23,7 +23,6 @@
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -35,6 +34,8 @@ import { readEntry, readRows, type vocabFolder } from '../../lib/data.js';
 import type { EntryListing } from '../../lib/entries.svelte.js';
 import { createBrowser, fileText } from '../../lib/folder.test-support.js';
 import { cached, observe, quiet } from '../../lib/query.test-support.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createVocab } = await import('../../lib/vocab.svelte.js');
