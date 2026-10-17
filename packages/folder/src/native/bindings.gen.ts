@@ -28,7 +28,10 @@ export const commands = {
 	 *  (`storage::mkdir`).
 	 */
 	makeFolderDirectory: (scope: string, path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
-	/**  Remove an empty directory in a granted folder (`storage::rmdir`). */
+	/**
+	 *  Remove an empty directory in a granted folder (`storage::rmdir`), under
+	 *  the same publishing and save locks as a put.
+	 */
 	removeFolderDirectory: (scope: string, path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { scope, path })),
 };
 

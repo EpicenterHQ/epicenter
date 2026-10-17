@@ -247,7 +247,8 @@ pub async fn make_folder_directory<R: Runtime>(
     .await
 }
 
-/// Remove an empty directory in a granted folder (`storage::rmdir`).
+/// Remove an empty directory in a granted folder (`storage::rmdir`), under
+/// the same publishing and save locks as a put.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_folder_directory<R: Runtime>(
@@ -258,10 +259,7 @@ pub async fn remove_folder_directory<R: Runtime>(
     let (root, work) = changing_root(&webview, &scope, &path, "remove directory")?;
     let at = path.clone();
     blocking(
-        move || {
-            let _work = work;
-            storage::rmdir(&root, &path)
-        },
+        move || storage::rmdir(&root, &path, || work.publishing()),
         |message| Err(failed(&at, "remove directory", message)),
     )
     .await

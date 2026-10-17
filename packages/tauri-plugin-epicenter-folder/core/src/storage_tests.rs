@@ -54,6 +54,10 @@ fn put_now(
     put(root, path, bytes, if_match, free)
 }
 
+fn rmdir_now(root: &Path, path: &str) -> Result<(), StorageError> {
+    rmdir(root, path, free)
+}
+
 /// The staged files left under `root`.
 fn staged(root: &Path) -> Vec<String> {
     fs::read_dir(root.join(SCRATCH_DIRECTORY))
@@ -205,7 +209,7 @@ fn a_link_is_never_followed_and_a_path_through_one_is_refused() {
     }
     assert!(children(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
     assert!(mkdir(&root, "todos/sub").is_err_and(|error| invalid("todos/sub")(&error)));
-    assert!(rmdir(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
+    assert!(rmdir_now(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
     assert_eq!(fs::read(elsewhere.join("secret.md")).unwrap(), b"theirs");
     assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 1);
 }
@@ -237,7 +241,7 @@ fn a_name_stored_under_another_spelling_is_another_entry() {
     );
     assert!(mkdir(&root, "todos").is_err_and(|error| invalid("todos")(&error)));
     assert_eq!(
-        rmdir(&root, "todos"),
+        rmdir_now(&root, "todos"),
         Err(StorageError::NotFound {
             path: "todos".into()
         })
@@ -465,25 +469,25 @@ fn a_directory_is_made_with_its_ancestors_and_removed_only_when_empty() {
     );
     assert!(mkdir(&root, ".git/hooks").is_err_and(|error| invalid(".git/hooks")(&error)));
     assert_eq!(
-        rmdir(&root, "todos"),
+        rmdir_now(&root, "todos"),
         Err(StorageError::DirectoryNotEmpty {
             path: "todos".into()
         })
     );
     assert_eq!(
-        rmdir(&root, "a.md"),
+        rmdir_now(&root, "a.md"),
         Err(StorageError::NotADirectory {
             path: "a.md".into()
         })
     );
     assert_eq!(
-        rmdir(&root, "gone"),
+        rmdir_now(&root, "gone"),
         Err(StorageError::NotFound {
             path: "gone".into()
         })
     );
-    rmdir(&root, "todos/sub").unwrap();
-    rmdir(&root, "todos").unwrap();
+    rmdir_now(&root, "todos/sub").unwrap();
+    rmdir_now(&root, "todos").unwrap();
     assert!(!root.join("todos").exists());
 }
 
@@ -591,4 +595,110 @@ fn a_linked_staging_directory_is_not_swept_or_staged_in() {
     ));
     assert!(!root.join("a.md").exists());
     assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 1);
+}
+
+/// Another writer renames a put's parent to another spelling while the put
+/// waits for its turn. Under the turn the put walks the path again, so it
+/// does not land under the other spelling.
+#[test]
+fn a_parent_respelled_before_the_turn_refuses_the_put() {
+    let (_temp, root) = folder("storage-respelled", &[("notes/b.md", b"b")]);
+    if !ignores_case(&root) {
+        return;
+    }
+    let respell = || {
+        fs::rename(root.join("notes"), root.join("Notes")).map_err(|cause| cause.to_string())
+    };
+    assert!(put(&root, "notes/a.md", b(b"mine"), None, respell)
+        .is_err_and(|error| invalid("notes/a.md")(&error)));
+    assert!(!root.join("Notes/a.md").exists());
+    let back = || fs::rename(root.join("Notes"), root.join("notes")).map_err(|cause| cause.to_string());
+    let respell = || {
+        back()?;
+        fs::rename(root.join("notes/b.md"), root.join("notes/B.md")).map_err(|cause| cause.to_string())
+    };
+    // The target itself respelled: removing `notes/b.md` must not remove `B.md`.
+    assert!(put(&root, "notes/b.md", None, Some(&sha256(b"b")), respell)
+        .is_err_and(|error| invalid("notes/b.md")(&error)));
+    assert_eq!(fs::read(root.join("notes/B.md")).unwrap(), b"b");
+    assert!(staged(&root).is_empty());
+}
+
+/// Another writer prunes the empty parent a put saw while the put waits for
+/// its turn. The put makes the parent under the turn, so it still lands.
+#[test]
+fn a_parent_pruned_while_a_put_waits_still_lands() {
+    let (_temp, root) = folder("storage-pruned", &[]);
+    fs::create_dir(root.join("notes")).unwrap();
+    let prune = || fs::remove_dir(root.join("notes")).map_err(|cause| cause.to_string());
+    assert_eq!(
+        put(&root, "notes/a.md", b(b"mine"), None, prune),
+        Ok(PutOutcome::Landed)
+    );
+    assert_eq!(fs::read(root.join("notes/a.md")).unwrap(), b"mine");
+}
+
+/// A put that does not land leaves no directory it made: not on `Stale`,
+/// and not when its turn is refused.
+#[test]
+fn a_put_that_does_not_land_leaves_no_new_directory() {
+    let (_temp, root) = folder("storage-no-new-directory", &[("old.md", b"old")]);
+    assert_eq!(
+        put_now(&root, "new/deep/a.md", b(b"x"), Some(&sha256(b"old"))),
+        Ok(PutOutcome::Stale)
+    );
+    assert!(!root.join("new").exists());
+    let refused = || -> Result<(), String> { Err("the lock was held".into()) };
+    assert!(matches!(
+        put(&root, "new/deep/a.md", b(b"x"), None, refused),
+        Err(StorageError::Io { .. })
+    ));
+    assert!(!root.join("new").exists());
+    // A directory another writer filled meanwhile stays.
+    let made = make_parents(&root, &["kept", "deep"]).unwrap();
+    fs::write(root.join("kept/other.md"), b"theirs").unwrap();
+    remove_made(&made);
+    assert!(!root.join("kept/deep").exists());
+    assert!(root.join("kept/other.md").exists());
+    assert!(staged(&root).is_empty());
+}
+
+/// An rmdir waits for a save another process holds the save lock for,
+/// then removes the directory.
+#[test]
+fn an_rmdir_waits_for_another_holder_of_the_save_lock() {
+    let (_temp, root) = folder("storage-rmdir-lock", &[]);
+    fs::create_dir(root.join("empty")).unwrap();
+    let held = SaveLock::acquire(&root, Duration::ZERO).unwrap();
+    let waiter = {
+        let root = root.clone();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let removed = rmdir(&root, "empty", || {
+                SaveLock::acquire(&root, crate::lock::SAVE_LOCK_WAIT)
+            });
+            (removed, started.elapsed())
+        })
+    };
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(root.join("empty").is_dir(), "the rmdir waits for the lock");
+    drop(held);
+    let (removed, waited) = waiter.join().unwrap();
+    assert_eq!(removed, Ok(()));
+    assert!(waited >= Duration::from_millis(100), "{waited:?}");
+    assert!(!root.join("empty").exists());
+}
+
+/// An entry that appears in a directory before it is removed keeps it, and
+/// the answer is `DirectoryNotEmpty`, from the removal itself.
+#[test]
+fn an_entry_appearing_during_an_rmdir_is_directory_not_empty() {
+    let (_temp, root) = folder("storage-rmdir-race", &[]);
+    fs::create_dir(root.join("notes")).unwrap();
+    let appear = || fs::write(root.join("notes/a.md"), b"theirs").map_err(|cause| cause.to_string());
+    assert_eq!(
+        rmdir(&root, "notes", appear),
+        Err(StorageError::DirectoryNotEmpty { path: "notes".into() })
+    );
+    assert!(root.join("notes/a.md").exists());
 }

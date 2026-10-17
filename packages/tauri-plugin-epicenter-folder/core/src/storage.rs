@@ -419,10 +419,19 @@ pub fn mkdir(root: &Path, path: &str) -> Result<(), StorageError> {
     made().unwrap_or_else(|cause| Err(io_error(path, "create directory", cause)))
 }
 
-/// Remove the empty directory at `path`.
-pub fn rmdir(root: &Path, path: &str) -> Result<(), StorageError> {
+/// Remove the empty directory at `path`, holding the folder's publishing
+/// turn (`turn`) across the check and the removal, as a put does, so no
+/// save that takes the turn lands in it between the two. A turn refused is
+/// `Io`, and nothing changed; an entry that appeared in it is
+/// `DirectoryNotEmpty`.
+pub fn rmdir<Turn>(
+    root: &Path,
+    path: &str,
+    turn: impl FnOnce() -> Result<Turn, String>,
+) -> Result<(), StorageError> {
     admit(path)?;
     let target = full(root, path);
+    let _held = turn().map_err(|message| io_error(path, "remove directory", message))?;
     let removed = || -> io::Result<Result<(), StorageError>> {
         match find(root, path)? {
             Found::Link => return Ok(Err(link_refusal(path))),
@@ -438,13 +447,17 @@ pub fn rmdir(root: &Path, path: &str) -> Result<(), StorageError> {
                 }))
             }
         }
-        if fs::read_dir(&target)?.next().is_some() {
-            return Ok(Err(StorageError::DirectoryNotEmpty {
-                path: path.to_string(),
-            }));
+        pause_after_check();
+        // `remove_dir` removes only an empty directory, whatever appeared
+        // in it since the check.
+        match fs::remove_dir(&target) {
+            Err(cause) if cause.kind() == ErrorKind::DirectoryNotEmpty => {
+                Ok(Err(StorageError::DirectoryNotEmpty {
+                    path: path.to_string(),
+                }))
+            }
+            removed => removed.map(Ok),
         }
-        fs::remove_dir(&target)?;
-        Ok(Ok(()))
     };
     removed().unwrap_or_else(|cause| {
         Err(if absent(&target) {
@@ -545,15 +558,63 @@ fn pause_after_check() {
     std::thread::sleep(PAUSE_AFTER_CHECK.with(std::cell::Cell::get));
 }
 
+/// Why a put cannot land on what `find` found at `path`, if it cannot.
+fn put_refusal(path: &str, found: &Found) -> Option<StorageError> {
+    match found {
+        Found::Link => Some(link_refusal(path)),
+        Found::Directory => Some(StorageError::NotAFile {
+            path: path.to_string(),
+        }),
+        Found::Occupied | Found::Other => Some(occupied(path)),
+        _ => None,
+    }
+}
+
+/// Make each missing directory of `names` below `root`, in order, and
+/// answer the ones this call made. One another writer makes meanwhile is
+/// theirs, not this call's.
+fn make_parents(root: &Path, names: &[&str]) -> io::Result<Vec<PathBuf>> {
+    let mut made = Vec::new();
+    let mut at = root.to_path_buf();
+    for name in names {
+        at.push(name);
+        match fs::create_dir(&at) {
+            Ok(()) => made.push(at.clone()),
+            Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {
+                if !fs::symlink_metadata(&at)?.is_dir() {
+                    return Err(cause);
+                }
+            }
+            Err(cause) => {
+                remove_made(&made);
+                return Err(cause);
+            }
+        }
+    }
+    Ok(made)
+}
+
+/// Remove the directories a put made, deepest first, stopping at the first
+/// that is no longer empty: another writer put something in it.
+fn remove_made(made: &[PathBuf]) {
+    for directory in made.iter().rev() {
+        if fs::remove_dir(directory).is_err() {
+            return;
+        }
+    }
+}
+
 /// Publish `bytes` at `path`, or remove its file for `None`, only while the
 /// path holds `if_match`: the SHA-256 of the file there, or `None` for
 /// nothing there. `Stale` when it does not, and nothing changed.
 ///
-/// `turn` takes the folder's publishing turn, which is held only across the
-/// check and the rename or removal; a turn refused, such as a save lock
-/// another process held too long, is `Io`, and nothing changed. A new
-/// file's missing parent directories are made. The staged file is removed
-/// whenever the save does not land.
+/// `turn` takes the folder's publishing turn. Held, the put walks the path
+/// again (no link, every name stored as asked, as `find` checks), checks
+/// what the path holds, then makes a new file's missing parent directories
+/// and renames the staged bytes over the path, or removes the file. A turn
+/// refused, such as a save lock another process held too long, is `Io`. On
+/// every answer but `Landed` nothing of the put is left: not the staged
+/// file, and not a directory it made.
 pub fn put<Turn>(
     root: &Path,
     path: &str,
@@ -563,28 +624,14 @@ pub fn put<Turn>(
 ) -> Result<PutOutcome, StorageError> {
     admit(path)?;
     let operation = if bytes.is_some() { "write" } else { "remove" };
+    let failed = |cause: &dyn std::fmt::Display| io_error(path, operation, cause);
+    // Refuse what cannot land before staging anything.
     let found = find(root, path).map_err(|cause| io_error(path, "write", cause))?;
-    match found {
-        Found::Link => return Err(link_refusal(path)),
-        Found::Directory => {
-            return Err(StorageError::NotAFile {
-                path: path.to_string(),
-            })
-        }
-        Found::Occupied | Found::Other => return Err(occupied(path)),
-        _ => {}
+    if let Some(refused) = put_refusal(path, &found) {
+        return Err(refused);
     }
     let target = full(root, path);
-    let names: Vec<String> = path.split('/').map(str::to_string).collect();
-    // The folder's turn, and the path checked again under it.
-    let checked = |held: Turn| -> Result<(Turn, bool), StorageError> {
-        if linked(root, &names).map_err(|message| io_error(path, operation, message))? {
-            return Err(link_refusal(path));
-        }
-        let holds = holds(&target, if_match).map_err(|cause| io_error(path, operation, cause))?;
-        pause_after_check();
-        Ok((held, holds))
-    };
+    let names: Vec<&str> = path.split('/').collect();
 
     let Some(bytes) = bytes else {
         if !matches!(found, Found::File { .. }) {
@@ -597,12 +644,18 @@ pub fn put<Turn>(
         if if_match.is_none() {
             return Ok(PutOutcome::Stale);
         }
-        let held = turn().map_err(|message| io_error(path, operation, message))?;
-        let (_held, holds) = checked(held)?;
+        let _held = turn().map_err(|message| failed(&message))?;
+        let found = find(root, path).map_err(|cause| failed(&cause))?;
+        if let Some(refused) = put_refusal(path, &found) {
+            return Err(refused);
+        }
+        let holds = matches!(found, Found::File { .. })
+            && holds(&target, if_match).map_err(|cause| failed(&cause))?;
+        pause_after_check();
         if !holds {
             return Ok(PutOutcome::Stale);
         }
-        fs::remove_file(&target).map_err(|cause| io_error(path, operation, cause))?;
+        fs::remove_file(&target).map_err(|cause| failed(&cause))?;
         return Ok(PutOutcome::Landed);
     };
 
@@ -611,29 +664,37 @@ pub fn put<Turn>(
     }
     let scratch_directory = full(root, SCRATCH_DIRECTORY);
     let scratch = scratch_directory.join(scratch_name(now_ms()));
-    let staged = (|| -> Result<(), String> {
-        if let (Found::Absent, Some((parent, _))) = (&found, path.rsplit_once('/')) {
-            page_files::mkdir(root, &full(root, parent))?;
-        }
-        page_files::mkdir(root, &scratch_directory)?;
+    let staged = page_files::mkdir(root, &scratch_directory).and_then(|()| {
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&scratch)
             .and_then(|mut file| file.write_all(bytes))
             .map_err(|cause| format!("'{}' could not be staged: {cause}", scratch.display()))
-    })();
+    });
     if let Err(message) = staged {
         let _ = fs::remove_file(&scratch);
-        return Err(io_error(path, operation, message));
+        return Err(failed(&message));
     }
     let published = (|| -> Result<PutOutcome, StorageError> {
-        let held = turn().map_err(|message| io_error(path, operation, message))?;
-        let (_held, holds) = checked(held)?;
+        let _held = turn().map_err(|message| failed(&message))?;
+        let found = find(root, path).map_err(|cause| failed(&cause))?;
+        if let Some(refused) = put_refusal(path, &found) {
+            return Err(refused);
+        }
+        if let Found::UnderFile { ancestor } = found {
+            return Err(StorageError::NotADirectory { path: ancestor });
+        }
+        let holds = holds(&target, if_match).map_err(|cause| failed(&cause))?;
+        pause_after_check();
         if !holds {
             return Ok(PutOutcome::Stale);
         }
-        fs::rename(&scratch, &target).map_err(|cause| io_error(path, operation, cause))?;
+        let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
+        if let Err(cause) = fs::rename(&scratch, &target) {
+            remove_made(&made);
+            return Err(failed(&cause));
+        }
         Ok(PutOutcome::Landed)
     })();
     if published != Ok(PutOutcome::Landed) {

@@ -168,24 +168,29 @@ typed commands, under the same permission, and `tauri-files.ts` invokes it
 by name. `read_folder_file` returns its bytes as a raw response, an
 `ArrayBuffer` to the page, for the same reason the same way.
 
-A put of bytes makes the path's missing parent directories, writes the bytes
-to a new file under `.git/epicenter/scratch` (opened with `create_new`, so
-nothing already there is written through), then checks the path and renames
-the staged file over it. A removal checks and removes. The check and the
-change hold one mutex per canonical root, kept in the registry and shared by
-every window and scope of the folder, and the folder's save lock, an
-exclusive SQLite transaction on `.<directory>.epicenter-save-lock` beside it
-(`lock.rs`). A Bun process opening the same directory
-(`@epicenter/folder/bun`, and so the `epicenter` CLI) takes the same save
-lock around each of its own checks and renames, as does any other Epicenter
-shell, so no other save through the plugin or the Bun host lands between
-the check and the change
+A put of bytes writes the bytes to a new file under
+`.git/epicenter/scratch` (opened with `create_new`, so nothing already there
+is written through), then takes the folder's turn: one mutex per canonical
+root, kept in the registry and shared by every window and scope of the
+folder, and the folder's save lock, an exclusive SQLite transaction on
+`.<directory>.epicenter-save-lock` beside it (`lock.rs`). Holding the turn,
+it walks the path again (no link, every name stored as asked), checks what
+the path holds, and only then makes the path's missing parent directories
+and renames the staged file over it. A removal takes the turn, walks and
+checks, and removes. `remove_folder_directory` takes the same turn across
+its check and removal; `make_folder_directory` takes none. A Bun process
+opening the same directory (`@epicenter/folder/bun`, and so the `epicenter`
+CLI) takes the same save lock around each of its own checks and renames, as
+does any other Epicenter shell, so no other save through the plugin or the
+Bun host lands between the check and the change
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
-Staging the bytes holds neither. A put waits up to ten seconds for another
-process's save; past that it changes nothing and is `Io`, naming the lock
-file. The cost is a read and hash of the destination when `if-match` names a
-hash. A path that holds something else changes nothing and answers
-`"stale"`. The staged file is removed whenever the put does not land.
+A directory another writer pruned while the put waited is made again under
+the turn. A put waits up to ten seconds for another process's save; past
+that it changes nothing and is `Io`, naming the lock file. The cost is a
+read and hash of the destination when `if-match` names a hash. A path that
+holds something else changes nothing and answers `"stale"`. On every answer
+but `"landed"` the put leaves nothing behind: not its staged file, and not a
+directory it made, unless another writer put something in it.
 
 A folder has no repository until its first commit, Sync or Save version
 ([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
