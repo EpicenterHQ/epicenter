@@ -29,44 +29,73 @@ state; an update run from a terminal reloaded nothing.
 
 ## Decision
 
-**A commit runs only when `approvals.json` names it, wherever it was made.**
-`inspect` reports `needsApproval` for any `HEAD` that is not the app's
-approved commit, including one a person or an agent committed in
-`Apps/<app-id>/`.
+**Every build a window runs was approved when it was built.** `inspect`
+reports `needsApproval` for any `HEAD` that is not the commit
+`approvals.json` names, including one a person or an agent committed in
+`Apps/<app-id>/`, and only `settle` for an approved commit writes
+`builds/<app-id>/current`. `open_installed_app` asks the CLI
+(`epicenter app update --commit=<commit>`) before every open and opens only
+the commit it answers ready. A window opened earlier keeps the build it
+opened on, which was approved then and may since have been superseded.
 
-**A build holds one commit and nothing else.** `build` checks the approved
-commit out with `git worktree add --detach` into
-`<cache_dir>/checkouts/<app-id>/`, runs
-`bun install --frozen-lockfile --ignore-scripts` at its root and
-`bun run build:installed` in the app's folder, copies `dist/` to a sibling of
-`builds/<app-id>/<commit>/`, renames it into place, and removes the checkout.
-Nothing is built in the clone.
+**A build holds one commit's tree.** `build` checks the approved commit out
+with `git --no-replace-objects worktree add --force --detach` into
+`<cache_dir>/checkouts/<app-id>/`, with every filter driver the clone's
+configuration names emptied and not required, so no smudge, clean, or
+process command runs. It runs `bun install --frozen-lockfile --ignore-scripts`
+at the checkout's root and `bun run build:installed` in the app's folder,
+copies `dist/` to a sibling of `builds/<app-id>/<commit>/`, renames it into
+place, writes `builds/<app-id>/<commit>.built`, and removes the checkout with
+`git worktree remove --force`. Nothing is built in the clone, and no other
+worktree of the clone is pruned. The build's other inputs are the person's:
+global and system Git configuration other than filters and hooks (such as
+`core.autocrlf` and `eol` attributes), Bun's global package cache, global
+`bunfig.toml` and `.npmrc`, the inherited environment, and module
+resolution that walks above the checkout (`~/node_modules`).
 
 **A window keeps the build it opened on.** Each build is served at its own
-path, and a commit's build directory is never replaced:
+path, and a complete build is never replaced or removed:
 
 ```txt
 epicenter-app://localhost/apps/<app-id>/<commit>/…   <cache_dir>/builds/<app-id>/<commit>/…
+builds/<app-id>/<commit>.built                       the build at <commit>/ finished
 builds/<app-id>/current                              the commit a newly opened window loads
 ```
 
-`open_installed_app` opens a window at `/apps/<app-id>/<commit>/`, the
-current commit, and its navigation stays below that path. A window already
-open on the folder is revealed as it is. Building a commit whose directory
-exists makes that directory current without building again.
+The scheme serves a commit's directory only when neither it nor
+`builds/<app-id>/` is a symbolic link, and names a commit only in the
+lowercase hex Git prints. A window's navigation stays below
+`/apps/<app-id>/<commit>/`, so its top-level page and the relative assets it
+loads come from its own build. Navigation is not a fence for requests: every
+app shares the one origin and is trusted fully
+([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)),
+so a page may still fetch another build's files.
+
+Opening an app whose window is already open on the folder reveals that
+window when it runs the requested build, and otherwise refuses with
+"<title> is open on an earlier version. Close its window, then open it
+again." Building a commit whose directory carries its `.built` file makes
+it current as it is; a directory without one, partly copied or left by
+another pipeline, is built again once. `epicenter app remove` deletes the
+clone and the approval and leaves `builds/<app-id>/` for windows still
+running a build.
 
 ## Consequences
 
 - Every local commit costs one approval before it runs, the same click as an
   update. Approval by local authorship can return with fork support, which
   would know which commits a person made.
+- Every open runs one `epicenter app update --commit` before its window
+  appears, which reads the clone and `approvals.json`.
 - Each build runs `bun install` in a fresh checkout, so a build no longer
   reuses the clone's `node_modules`; Bun's global cache supplies the packages.
-  The clone has no `node_modules` or `dist/`.
+  The clone has no `node_modules` or `dist/`; it gains a
+  `.git/worktrees/<app-id>/` entry only while a build runs.
 - A newer build reaches a window only when the window is closed and opened
   again. Nothing reloads a page.
-- A build directory is written once and kept, so `builds/<app-id>/` grows by
-  one directory per approved commit until removal is built.
+- A build directory is written once and kept, even after removal, so
+  `builds/<app-id>/` grows by one directory per approved commit until
+  cleanup is built.
 
 ## Considered alternatives
 
