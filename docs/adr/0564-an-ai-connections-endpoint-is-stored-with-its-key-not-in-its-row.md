@@ -38,6 +38,7 @@ Keychain service so.epicenter.connections         this machine only; read and wr
   <id> → {"endpoint": "https://api.groq.com/openai/v1", "key": "…"}     key is "" for a keyless endpoint
 ```
 
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0587) -->
 The row is `connectionsTable` in `packages/ai/src/connection-table.ts`. The
 entry is written by `saveKey` and read by `readKeyEntry` in
 `packages/ai/src/send.ts`, which stores the endpoint as `canonicalEndpoint`

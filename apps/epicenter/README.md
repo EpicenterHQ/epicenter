@@ -90,11 +90,6 @@ ADR-0567). It never needs `sudo`. To run `epicenter` in a terminal, add
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
-Every launch, in every build, also runs `epicenter declare-epicenter-folder`,
-which publishes `so.epicenter`'s declaration; the shell opens no installed
-app before it finishes, so an app reading `connections` through its
-definition finds that table whichever window opened first.
-
 ## Configure the server
 
 A desktop build connects to one server. The default is Epicenter Cloud. Set
@@ -135,12 +130,10 @@ Files split by what they cost to lose (ADR-0539):
 
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
-  so.epicenter/                               Epicenter's own folder
-    epicenter.json                            declares the connections table
-    connections/<id>.md                       one row per AI connection
   Apps/<app-id>/                              an installed app's source repository
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   approvals.json                              which app commits may run here (the CLI writes it)
+  connections.json                            this computer's AI connections (the CLI writes it)
   local-transcription.json                    the active local model and when to unload it
 ~/Library/Caches/so.epicenter/                disposable
   builds/<app-id>/<commit>/                   built app bundles
@@ -282,13 +275,14 @@ folder's root from the plugin's grant, as every app does.
   [An app's own folder](#an-apps-own-folder) describes. The `folders` window
   and the app's window share that one scope, and both windows' saves are
   checked and published under the plugin's one mutex per root (ADR-0535).
-- **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
-  `folders` and `home` windows and listed under that scope. `Apps/` is not
-  listed: it holds no `epicenter.json`.
 - **Any other data folder** gets the scope `data:<directory name>` the first
   time it is listed, registered for the `folders` window alone. Listing again
   in the same run returns the same scope. Registrations last until the
   process exits; a folder removed from the root keeps an unused scope.
+
+`Apps/` is not listed: it holds no `epicenter.json`. Epicenter keeps no folder
+of its own (ADR-0587); a `so.epicenter` left on a development machine is an
+ordinary data folder.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
 an entry directly under it, or a folder's `epicenter.json`, is created,
@@ -384,8 +378,7 @@ ADR-0552):
 { "id": "com.example.board", "title": "Board" }
 ```
 
-- `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
-  own folder, is refused. Todos (`so.epicenter.todos`), Capture
+- `id` is a lowercase reverse-domain name. Todos (`so.epicenter.todos`), Capture
   (`so.epicenter.capture`), Whispering (`so.epicenter.whispering`), and
   Honeycrisp (`so.epicenter.honeycrisp`) install from `apps/todos`,
   `apps/capture`, `apps/whispering`, and `apps/honeycrisp` of Epicenter's
@@ -470,13 +463,12 @@ listed commit when it is not the current build, labelled
 `app:<id with _ for .>:<folder scope in hex>`. Opened from the Apps list, the
 app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open
 in", the folder it was opened on. The window is permitted into that folder's
-scope and into `so.epicenter`, whose `connections` table its AI commands
-name, and the folder plugin records which app the window runs and which
-folder it was handed. The page asks for it (`window_folder`), so its URL
+scope and no other, and the folder plugin records which app the window runs
+and which folder it was handed. The page asks for it (`window_folder`), so its URL
 names no folder and its routes and reloads cannot change it, and the app's
 `openFolder({ app, definition })` opens it, through its definition unless it
-is the app's own (ADR-0583). Settings is handed `so.epicenter` as Epicenter's
-own; the Folders window runs no app and opens folders by ID.
+is the app's own (ADR-0583). Settings and the Folders window run no app and
+are handed no folder; the Folders window opens folders by ID.
 
 ### Native commands for an installed app
 
@@ -498,8 +490,8 @@ Every installed app's window gets the same grant, one capability file,
   `list_inference_models`, `transcribe_audio_bytes`, and
   `get_local_transcription_readiness`, for transcription with the one active
   local model (ADR-0180); `open_home`, to open Settings; `ai_send`,
-  `ai_key_set`, `ai_key_remove`, and `ai_key_state`, for AI connections
-  (ADR-0557); and `auth_status` and `account_send`, for who Epicenter is
+  `ai_key_list`, `ai_key_set`, `ai_key_remove`, and `ai_key_state`, for AI
+  connections (ADR-0557, ADR-0587); and `auth_status` and `account_send`, for who Epicenter is
   signed in as and an account request such as Todos' `GET /api/repos`
   (ADR-0558).
 - Approving an app trusts its code fully (ADR-0540), so this is wiring, not a
@@ -580,11 +572,26 @@ Whispering and Honeycrisp, are checked in their own folders.
 
 The one trusted origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), and Rust serving it over the scheme in [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md).
 
-## Shared AI connections
+## AI connections
 
-The shell keeps no AI connections and serves no `/_epicenter/ai` routes.
-[ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)
-makes each connection a row of a `connections` table in `so.epicenter`, keeps
-its key in this machine's keychain bound to the endpoint it was saved for, and
-sends every AI request through `epicenter send`. Check that record's Unbuilt
-line for what has landed.
+The shell keeps no AI connections and serves no `/_epicenter/ai` routes. Each
+connection is this computer's (ADR-0587): the `epicenter` CLI keeps its kind,
+title, and model in `connections.json` in app data, and an
+`openai-compatible` connection's endpoint and key in this machine's keychain,
+so editing the file cannot send a key to another server. Which connection an
+app uses for an operation is kept in the same file under the app's id, on
+this computer only. Nothing about a connection syncs.
+
+```txt
+ai_key_list()                    epicenter auth key list --json     every connection, its endpoint, "key missing"; never a key
+ai_key_set(connection, change)   epicenter auth key set <id>        change on stdin: kind, title, model, endpoint, key
+ai_key_remove(connection)        epicenter auth key remove <id>     the key first, then the entry
+ai_key_state(connection)         epicenter auth key state <id>      the keychain entry alone
+ai_send(target, request, ...)    epicenter send                     the request, with the key the CLI adds
+```
+
+`ai_key_list` answers the connections and the choices of the app whose
+window called it (`uses`), never another app's. Settings lists and edits
+connections through these commands and opens no folder. Every AI request
+goes through `epicenter send`
+([ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)).

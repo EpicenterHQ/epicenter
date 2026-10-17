@@ -272,8 +272,7 @@ Apps list or the one a person chose "Open in" on, and answers the page which
 (`window_folder` in `tauri-plugin-epicenter-folder`). The page's URL, routes,
 and reloads never change it. A page that names an `app` its window does not
 run, or opens `{ app }` in a window that runs no app, is refused
-`AppMismatch`. Epicenter's Settings window runs Epicenter itself, on
-`so.epicenter`.
+`AppMismatch`. Epicenter's Settings and Folders windows run no app.
 
 `folder.id` names the folder: on the desktop the scope the shell granted, such
 as `so.epicenter.todos` or `data:Groceries`. `folder.own` says whether the

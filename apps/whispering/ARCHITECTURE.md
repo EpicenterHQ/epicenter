@@ -45,10 +45,11 @@ bindings and no second transport.
 Every other native service is Epicenter's, granted to every installed app's
 windows (`installed-app.json` in `apps/epicenter/src-tauri/capabilities`):
 the recorder, local transcription with Epicenter's active model, and the AI
-commands. The two connections are rows of Epicenter's own folder
-`so.epicenter`, whose endpoints and keys stay in this computer's keychain; a
-request goes through the `epicenter` CLI, which adds the key. Nothing native opens the folder for the page, takes its lock for it, or
-saves a file the folder tracks.
+commands. The two connections are this computer's AI connections, which the
+`epicenter` CLI keeps in Epicenter's app data with their endpoints and keys in
+this computer's keychain; a request goes through the CLI, which adds the key.
+Nothing native opens the folder for the page, takes its lock for it, or saves
+a file the folder tracks.
 
 The two fail apart. If the `epicenter` command fails while Whispering is
 open, the folder is still open and still saves; what stops is a request that
@@ -94,12 +95,13 @@ What Whispering adds on top:
   transcript, so recording deletion never counts or waits on it.
 - Connections are not data in Whispering's folder. There are two,
   transcription and text, each a canonical base URL, a default model, and an
-  optional key. In Epicenter each is a row of the `connections` table in
-  Epicenter's own folder `so.epicenter`, `connections/whispering-transcription.md`
-  or `connections/whispering-text.md`, holding the kind `openai-compatible`,
-  the title "Whispering transcription" or "Whispering text", and the model.
-  The base URL and key are not in the row: they are in this computer's
-  keychain under the row's id (`src/lib/workspace/desktop-connections.ts`).
+  optional key. In Epicenter each is one of this computer's AI connections,
+  an entry the `epicenter` CLI keeps in Epicenter's app data holding the
+  kind, a title, and the model: by default `whispering-transcription` or
+  `whispering-text`, titled "Whispering transcription" or "Whispering text",
+  or the connection this computer's choice for Whispering names. The base URL
+  and key are not in the entry: they are in this computer's keychain under
+  the connection's id (`src/lib/workspace/desktop-connections.ts`).
   In a browser tab they are `whispering.connections` in `localStorage`.
   `src/lib/connections.ts` holds the rules both storages apply.
 - The chosen microphone is not folder data either: it names hardware on one
@@ -126,7 +128,7 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 | Folder | The real directory Epicenter's shell grants, opened by the page's engine (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
-| Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
+| Connections and keys | This computer's AI connections, listed by the `epicenter` CLI (`ai_key_list`); endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
 | Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 
@@ -187,27 +189,30 @@ the rule.
 
 ## Connections through Epicenter
 
-Opening Whispering's window permits it into Epicenter's own folder,
-`so.epicenter`. `src/lib/workspace/desktop-connections.ts` reads and changes
-the two rows of its `connections` table, which sync with that folder, over
-the folder `src/lib/workspace/desktop.ts` opens by ID with
-`openFolder({ id, definition })` through `connectionsDefinition` from
-`@epicenter/ai/connection-table`. That never publishes: the folder is
-Epicenter's, which publishes its declaration. The endpoint and key are
-in this computer's keychain under the row's id, and only the `epicenter` CLI
-reads or writes them (`epicenter auth key set|remove|state`), through the
-Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page
-learns the endpoint and whether a key is saved, never the key. A save writes
-the keychain entry first, then makes or updates the row; `keep` leaves the
-entry as it is, `replace` saves the new key, and `remove` saves none.
-`applyConnectionChange` refuses keeping a key for another base URL before
-anything is saved, as in a browser tab. A row synced from another computer is
-not set up on this one until a person saves its endpoint, and key if it has
-one, here.
+The connections are this computer's (ADR-0587), kept by the `epicenter` CLI
+and never in a folder. `src/lib/workspace/desktop-connections.ts` lists them
+with the Rust command `ai_key_list`, which runs `epicenter auth key list` and
+answers every connection with its kind, title, model, endpoint, and whether
+its key is saved, never the key, plus Whispering's own choices (`uses`):
+which connection it uses for transcription and for text. Nothing about a
+connection syncs. With no choice recorded, an operation uses its own
+connection, `whispering-transcription` or `whispering-text`; a choice is
+recorded with `epicenter auth key use <id> --app so.epicenter.whispering
+--operation transcription|text`.
+
+A save is one `ai_key_set` for the connection the operation uses, which runs
+`epicenter auth key set` with the change on stdin: the CLI writes the entry,
+made with its kind and title when new, then the endpoint and key in the
+keychain. `keep` leaves the keychain entry as it is, `replace` saves the new
+key, and `remove` saves none. `applyConnectionChange` refuses keeping a key
+for another base URL before anything is saved, as in a browser tab. A
+connection whose keychain entry is gone ("key missing") is not set up until a
+person saves its endpoint, and key if it has one, again. An `epicenter`
+connection is changed in Epicenter's Settings, not here.
 
 `transcribe` and `transform` take what to send, the model, and the base URL
-the page prepared the request for (`expectedBaseUrl`). The workspace reads
-the operation's row and keychain entry once, at entry; if either is missing,
+the page prepared the request for (`expectedBaseUrl`). The workspace lists
+the operation's connection once, at entry; if either is missing,
 or the base URL is not exactly `expectedBaseUrl`, it answers
 `ConnectionUnavailable` or `ConnectionChanged` and sends nothing. Otherwise
 the request goes to the Rust command `ai_send`, which runs `epicenter send`.
