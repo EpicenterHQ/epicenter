@@ -1,7 +1,8 @@
 # 0600. An approved commit supplies a window's page and its relative assets
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md): each installed app is served at the root of its own host, so no other app's build is on its origin, and no commit is approved.
 - **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "One approved commit of the default branch supplies every byte a window runs" and "A window runs exactly the bytes approved": the approved commit supplies the window's page and the assets it loads by relative path.
 
 ## Context
