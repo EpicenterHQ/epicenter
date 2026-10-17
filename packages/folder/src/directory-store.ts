@@ -31,6 +31,7 @@ import {
 	type FolderStorage,
 	type HostFiles,
 	hostStorage,
+	isStaleScratch,
 	type LockingStorage,
 	lockingStorage,
 	PRIVATE_DIRECTORY,
@@ -334,4 +335,27 @@ export function createDirectoryStorage({
 		lock: hold.lock,
 		held: host(hold.held),
 	});
+}
+
+/**
+ * Remove the files staged under the directory at absolute path `root` that
+ * a stopped write (a crash, a quit) left an hour or more ago. Another handle
+ * or process may be writing the directory now, so younger ones stay. What
+ * cannot be removed stays; it is inert, and an open that cannot clear it
+ * still opens. The desktop shell sweeps its own at each grant.
+ */
+export async function sweepStaleScratch(
+	root: string,
+	files: DirectoryPrimitives,
+): Promise<void> {
+	const scratch = `${root}/${SCRATCH_DIRECTORY}`;
+	try {
+		if ((await files.lstat(scratch))?.kind !== 'directory') return;
+		const now = Date.now();
+		for (const entry of await files.readDir(scratch))
+			if (entry.kind === 'file' && isStaleScratch(entry.name, now))
+				await files.remove(`${scratch}/${entry.name}`).catch(() => {});
+	} catch {
+		// Leftovers are inert.
+	}
 }

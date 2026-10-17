@@ -11,13 +11,8 @@
  * is here.
  */
 import type { Result } from 'wellcrafted/result';
-import {
-	type FolderStorage,
-	isStaleScratch,
-	SCRATCH_DIRECTORY,
-} from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
-import type { DirectoryPrimitives } from './directory-primitives.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {
@@ -69,7 +64,6 @@ export async function openDirectoryFolder<
 	schema,
 	lens,
 	rootPath,
-	files,
 	storage,
 	history,
 	detector,
@@ -80,12 +74,6 @@ export async function openDirectoryFolder<
 	readonly lens?: FolderDefinition;
 	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
-	/**
-	 * The host's file system, with absolute paths, where this process sweeps
-	 * the staged files a stopped save left. A host that sweeps them itself
-	 * (the desktop shell, at each grant) leaves it out.
-	 */
-	readonly files?: DirectoryPrimitives;
 	/** The directory's storage, which the host also gives the history it runs in this process. */
 	readonly storage: FolderStorage;
 	/** The folder's history. */
@@ -93,24 +81,6 @@ export async function openDirectoryFolder<
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
 }): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	// A write that stopped before its rename (a crash, a quit) leaves its
-	// staged bytes behind. Another handle or process may be writing the
-	// directory now, so only files staged long enough ago to be abandoned are
-	// removed. What cannot be removed stays; it is inert.
-	const scratch = `${rootPath}/${SCRATCH_DIRECTORY}`;
-	try {
-		if (
-			files !== undefined &&
-			(await files.lstat(scratch))?.kind === 'directory'
-		) {
-			const now = Date.now();
-			for (const entry of await files.readDir(scratch))
-				if (entry.kind === 'file' && isStaleScratch(entry.name, now))
-					await files.remove(`${scratch}/${entry.name}`).catch(() => {});
-		}
-	} catch {
-		// Leftovers are inert; an open that cannot clear them still opens.
-	}
 	return openAtRoot<TDefinition, TDeclared>(schema, {
 		detector,
 		lens,

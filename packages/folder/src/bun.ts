@@ -45,7 +45,10 @@ import {
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import { createDirectoryStorage } from './directory-store.js';
+import {
+	createDirectoryStorage,
+	sweepStaleScratch,
+} from './directory-store.js';
 import { NothingChanged, OpenFolderError } from './errors.js';
 import type { Folder, FolderGitOptions, FolderHistory } from './folder.js';
 import type { GitCredentials } from './git/http.js';
@@ -149,6 +152,8 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
 		return OpenFolderError.InvalidDefinition(definitionError);
+	// What a stopped write staged an hour or more ago goes before opening.
+	await sweepStaleScratch(resolved, savingPrimitives(resolved));
 	const opened = directory(resolved);
 	return openDirectoryFolder<TDefinition>({
 		schema: prepared,
@@ -188,6 +193,8 @@ export async function openDataFolder<
 		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
 		shape = prepared;
 	}
+	// What a stopped write staged an hour or more ago goes before opening.
+	await sweepStaleScratch(resolved, savingPrimitives(resolved));
 	const opened = directory(resolved);
 	return openDirectoryFolder<TLens, FolderDefinition>({
 		schema: 'declared',
@@ -368,12 +375,11 @@ export async function directoryRoot(
 	}
 }
 
-/** This process's file system at `resolved`, and the folder's storage over it. */
+/** The folder's storage over this process's file system at `resolved`. */
 function directory(resolved: string) {
 	const files = savingPrimitives(resolved);
 	return {
 		rootPath: resolved,
-		files,
 		storage: createDirectoryStorage({
 			root: resolved,
 			primitives: files,

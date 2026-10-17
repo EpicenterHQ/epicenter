@@ -17,7 +17,10 @@ import { prepareFolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import { createDirectoryStorage } from './directory-store.js';
+import {
+	createDirectoryStorage,
+	sweepStaleScratch,
+} from './directory-store.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import {
@@ -54,7 +57,7 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 
-function open(
+async function open(
 	root: string,
 	options: {
 		primitives?: DirectoryPrimitives;
@@ -63,6 +66,8 @@ function open(
 	} = {},
 ) {
 	const files = options.primitives ?? nodeDirectoryPrimitives;
+	// As the Bun opener does before it opens.
+	await sweepStaleScratch(root, files);
 	const system = createGitRunner(root);
 	const run: typeof system = async (args, runOptions) => {
 		await options.beforeGit?.(args);
@@ -78,7 +83,6 @@ function open(
 	return openDirectoryFolder<typeof definition>({
 		schema: expectOk(prepareFolderDefinition(definition)),
 		rootPath: root,
-		files,
 		storage,
 		history: nativeHistory({
 			rootPath: root,
