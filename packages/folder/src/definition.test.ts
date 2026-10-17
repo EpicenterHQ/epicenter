@@ -134,10 +134,6 @@ test('an untyped definition with a key other than title, tables, and local is re
 	expect(() => defineFolder({ tables: {}, titel: 'Typo' } as never)).toThrow(
 		"also declares 'titel'",
 	);
-	// An `epicenter.ts` written for settings as keys is told where they went.
-	expect(() => defineFolder({ kv: {}, tables: {} } as never)).toThrow(
-		"also declares 'kv'. Settings are rows of a `settings` table",
-	);
 });
 
 test('a settings table is written with only optional fields, and a published one that requires a setting still opens', () => {

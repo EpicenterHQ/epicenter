@@ -323,8 +323,8 @@ declaration that requires one is read as written.
 - Sync's journal, `.git/epicenter/sync-journal.json`, and its recovery
 - `folder.kv`, `kv.json`, `kv.ts`, `kv-merge.ts`, `KV_ROOT`, `InvalidKv`, and
   the `kv` section of `epicenter.json` and `defineFolder`. An `epicenter.json`
-  an earlier build published still holds `"kv": {}`; it is admitted and not
-  read, and the next publication drops it.
+  that still holds `"kv": {}` is refused as an unknown key until an app's
+  publication replaces it or the key is deleted.
 
 ## Consequences
 

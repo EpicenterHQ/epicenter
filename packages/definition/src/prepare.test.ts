@@ -149,13 +149,10 @@ test('a table is prepared as its fields', () => {
 });
 
 test('a prepared schema has the declared shape and nothing else', () => {
-	// An earlier declaration's `kv` section is a key the shape does not name,
-	// so it is not read.
 	const prepared = expectOk(
 		prepareSchema({
 			...declaration,
 			title: 'Shared',
-			kv: { theme: field.string() },
 			extra: true,
 		} as never),
 	) as DataSchema;

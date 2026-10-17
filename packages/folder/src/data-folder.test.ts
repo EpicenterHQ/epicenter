@@ -45,11 +45,8 @@ import { mustRow } from './row-write.test-support.js';
 
 const author = { name: 'Vault', email: 'vault@localhost' };
 
-/**
- * Written by hand: one line, no `$schema` order a publication would keep, and
- * the `kv` section an earlier build wrote, which is admitted and not read.
- */
-const DECLARED = `{"title":"Vault","kv":{"type":"object","properties":{"theme":{"type":"string"}}},"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
+/** Written by hand: one line, no `$schema` order a publication would keep. */
+const DECLARED = `{"title":"Vault","tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
 
 const originalEnv = { ...process.env };
 beforeAll(() => {
@@ -130,7 +127,7 @@ test('a folder without epicenter.json opens with no tables, and files and histor
 
 test('an epicenter.json that cannot be used is InvalidDeclaration, and opening creates nothing', async () => {
 	const root = await scratch('data-folder-invalid-');
-	await writeFile(join(root, 'epicenter.json'), '{"tables":{},"kv":{}');
+	await writeFile(join(root, 'epicenter.json'), '{"tables":{}');
 	const refused = expectErr(await openDataFolder({ root, git: { author } }));
 	expect(refused.name).toBe('InvalidDeclaration');
 	expect(refused.message).toContain('not JSON');

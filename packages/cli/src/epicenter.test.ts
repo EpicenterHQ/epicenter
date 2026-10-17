@@ -218,13 +218,6 @@ test("a typo epicenter.json would otherwise ignore is refused, and $schema and a
 		...declaration,
 	});
 	expect(run('check', folder).exitCode).toBe(0);
-
-	// A `kv` section an earlier build wrote is not read.
-	await declare({
-		kv: { type: 'object', properties: { theme: { type: 'string' } } },
-		...declaration,
-	});
-	expect(run('check', folder).exitCode).toBe(0);
 });
 
 test('query refuses fields it cannot project: case duplicates, stem, and body', async () => {

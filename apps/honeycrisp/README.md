@@ -68,8 +68,8 @@ them is refused with what it lacks.
 
 A missing own folder gets this layout and a Git repository. Opening publishes
 `epicenter.json` from Honeycrisp's declaration, replacing any previous
-description. Saved notes and every other file, such as a `kv.json` an earlier
-version wrote, stay intact, and opening records no commit. The definition file
+description. Saved notes and every other file stay intact, and opening
+records no commit. The definition file
 supports discovery and does not configure Honeycrisp.
 
 A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,

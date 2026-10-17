@@ -98,12 +98,10 @@ export function parseDeclaration(
 		);
 	}
 	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
-	// An earlier build's `kv` section is admitted and never read.
 	const unknown = unknownKeys(declared, [
 		'$schema',
 		'title',
 		'local',
-		'kv',
 		'tables',
 	]);
 	if (unknown !== undefined)
