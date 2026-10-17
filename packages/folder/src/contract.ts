@@ -29,8 +29,8 @@ export {
 export {
 	FileError,
 	OpenFolderError,
-	type RowReadError,
-	TableError,
+	RowReadError,
+	RowWriteError,
 	WriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';

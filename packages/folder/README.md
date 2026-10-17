@@ -416,7 +416,7 @@ Writes are ordered by the lock alone, not by when their methods were called.
 A write that hashes or waits longer can land after one asked for later, from
 the same page or another. Every put is guarded by the bytes its write read,
 so none lands over bytes its write did not merge: a stale put reads again
-and merges, a create onto a file that landed meanwhile is `InvalidPath`, and
+and merges, a create onto a file that landed meanwhile is `Occupied`, and
 a delete reads again and still wins.
 
 ### A directory the desktop shell grants
@@ -715,14 +715,14 @@ its default export declares (ADR-0527).
 
 ```ts
 const { error: createError } = await folder.write('audio/take.webm', null, bytes);
-if (createError !== null) return show(createError.message);         // InvalidPath if a file is there
+if (createError !== null) return show(createError.message);         // Occupied if a file is there
 const { data: file, error: readError } = await folder.files.read('notes/a.md');
 if (readError !== null) return show(readError.message);             // file is { bytes, sha256 }
 const { data: written, error: writeError } = await folder.write('notes/a.md', file.bytes, 'new text');
 if (writeError !== null) return show(writeError.message);           // kept changing, say
 if (written.file === null) return show('It was deleted elsewhere'); // the edit wrote nothing
 const { error: moveError } = await folder.move('notes/a.md', 'notes/b.md');
-if (moveError !== null) return show(moveError.message);             // InvalidPath if b.md is there
+if (moveError !== null) return show(moveError.message);             // Occupied if b.md is there
 const { error: deleteError } = await folder.write('notes/b.md', null, null);
 if (deleteError !== null) return show(deleteError.message);         // the deleter wins
 ```
@@ -742,15 +742,15 @@ SHA-256 that names them.
   write, the next write from the same `from` merges with their change. Read
   the file to observe what is there now.
 - A create, a write from `null`, is placed only where no file is: a file
-  already there is `InvalidPath`, unless it holds the same bytes, which is
+  already there is `Occupied`, unless it holds the same bytes, which is
   that create landed before.
 - A delete, a write to `null`, removes whatever the file holds now: the
   deleter wins, and an edit of a file deleted since writes nothing and
   answers `file: null`.
 - A move puts the bytes at `next` only where nothing is, so two moves onto
   one path never fuse two files, then removes `path` only while it holds
-  them, carrying a write that lands there meanwhile. No file at `path`, or
-  one at `next`, is `InvalidPath`. A removal that failed leaves both paths
+  them, carrying a write that lands there meanwhile. No file at `path` is
+  `InvalidPath`, and one at `next` is `Occupied`. A removal that failed leaves both paths
   holding the file, to repair. The answer is the file as it stands at `next`.
 
 Internally every write and move is `put(path, bytes | null, ifMatch)` on the
@@ -952,10 +952,19 @@ await todos.write('milk', opened.row, { ...opened.row, body: 'New notes\n' }); /
 Each resolves with what the write left at the stem: the row; the file as an
 `InvalidRow` or `InvalidUtf8` value, when the write merged into a file that
 does not read as a row and left it to repair; or `null` when no file is
-there. `isStoredRow(written)` tells the first apart. Every failure is one `WriteError`:
-`InvalidValues` for a row that cannot be written (nothing is written),
-`KeptChanging` when the file changed on every attempt, `Io`, `Closed`, or
-`InvalidPath`.
+there. `isStoredRow(written)` tells the first apart. `write`, `set`, and
+`create` fail as one `RowWriteError`: `InvalidValues` for a row that cannot
+be written (nothing is written), or any `WriteError`. `delete` and `rename`
+fail as one `WriteError`.
+
+| Error | When |
+| --- | --- |
+| `InvalidValues` | a row that cannot be written; table writes only |
+| `InvalidPath` | a path no file can be at, a directory included, or a move from no file |
+| `Occupied` | a file already where a create or a move puts one |
+| `KeptChanging` | the file changed on every attempt |
+| `Io` | storage failed, or its reply was lost and could not be confirmed |
+| `Closed` | the folder is closed |
 
 - `set(stem, fields)` reads the row, puts `fields` over its fields, and
   writes that with the row it read as `from`. A field set to `undefined` is
@@ -966,7 +975,7 @@ there. `isStoredRow(written)` tells the first apart. Every failure is one `Write
   fields to set, and is `InvalidValues`.
 - `create(row, { stem? })` writes at `stem`, or a generated one, from no
   file, placed only where none is: a file already at the stem is
-  `InvalidPath`, unless it holds this row's exact text, which is the same
+  `Occupied`, unless it holds this row's exact text, which is the same
   create landed before. A lens that
   cannot supply a field the folder requires is `InvalidValues`, and
   `canCreate` says so beforehand.
@@ -974,8 +983,8 @@ there. `isStoredRow(written)` tells the first apart. Every failure is one `Write
 - `rename(stem, next)` moves the file, row or not, as it is. Its bytes land
   at `next` only where nothing is, so two renames onto one stem never fuse
   two rows, and `stem` goes only while it holds what moved: a write that
-  lands there meanwhile is carried to `next` first. No file at `stem`, or a
-  file at `next`, is `InvalidPath`. A rename that placed `next` but could
+  lands there meanwhile is carried to `next` first. No file at `stem` is
+  `InvalidPath`, and a file at `next` is `Occupied`. A rename that placed `next` but could
   not remove `stem` leaves both.
 - A delete beats an edit it never saw. A write over a row deleted since its
   `from` writes nothing and resolves `null`; only `create`, from no file,
@@ -1060,7 +1069,7 @@ file; `to` is the new content, or `null` to delete the file.
 
 ```ts
 const { data: written, error } = await folder.write('notes/a.md', opened.text, edited);
-if (error !== null) return show(error.message); // KeptChanging, InvalidValues, Io, Closed, InvalidPath
+if (error !== null) return show(error.message); // InvalidPath, Occupied, KeptChanging, Io, Closed
 written.file;       // what the path holds now: { bytes, sha256 }, or null
 written.overridden; // each unit this write won over another writer's change
 ```

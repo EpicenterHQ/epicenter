@@ -409,7 +409,7 @@ test('a row write another window overtakes where it publishes merges with what i
 	const note = join(root, 'notes/a.md');
 	overtaken.set(note, 'theirs\n');
 	const made = await folder.write('notes/a.md', null, 'mine\n');
-	expect(made.error?.name).toBe('InvalidPath');
+	expect(made.error?.name).toBe('Occupied');
 	expect(await readFile(note, 'utf8')).toBe('theirs\n');
 
 	overtaken.set(note, 'theirs again\n');

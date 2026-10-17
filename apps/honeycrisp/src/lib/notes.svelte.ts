@@ -40,10 +40,10 @@ import {
 	type GitError,
 	type Row,
 	type RowReadError,
+	type RowWriteError,
 	rowPath,
 	rowStemOf,
 	type StoredRow,
-	type TableError,
 	type TableListing,
 	type WriteError,
 	type Written,
@@ -138,7 +138,7 @@ export type Deletion =
 export type WriteFailure = {
 	readonly path: string;
 	readonly error:
-		| WriteError
+		| RowWriteError
 		| Extract<FileError, { name: 'NotFound' }>
 		| Extract<NotesError, { name: 'NoteDeleted' }>;
 	/** The text of the edit the file does not hold. */
@@ -182,7 +182,7 @@ export const notesKeys = defineKeys({
  * on. A refusal changed nothing, and a lost reply leaves the outcome unknown.
  */
 export function describeError(
-	error: FileError | TableError | NotesError | GitError,
+	error: FileError | RowWriteError | NotesError | GitError,
 ): string {
 	switch (error.name) {
 		case 'NotStarted':
@@ -197,6 +197,8 @@ export function describeError(
 			return error.issues.map((issue) => issue.message).join(' ');
 		case 'NotFound':
 			return 'This file is no longer in the folder.';
+		case 'Occupied':
+			return 'Another file already has this name, so nothing was changed.';
 		default:
 			return error.message;
 	}
@@ -757,7 +759,7 @@ export function createNotes(
 		mutationKey: ['honeycrisp', 'create-note'],
 		mutationFn: async (
 			stem: string,
-		): Promise<Result<WrittenRow<NoteFields>, WriteError | NotesError>> => {
+		): Promise<Result<WrittenRow<NoteFields>, RowWriteError | NotesError>> => {
 			const why = refused();
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
 			return folder.tables.notes.create(
@@ -789,7 +791,9 @@ export function createNotes(
 		}: {
 			stem: string;
 			name: string;
-		}): Promise<Result<WrittenRow<FolderFields>, WriteError | NotesError>> => {
+		}): Promise<
+			Result<WrittenRow<FolderFields>, RowWriteError | NotesError>
+		> => {
 			const why = refused();
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
 			return folder.tables.folders.create(

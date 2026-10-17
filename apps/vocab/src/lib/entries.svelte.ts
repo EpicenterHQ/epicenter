@@ -283,12 +283,13 @@ export function createEntries(
 				{ stem },
 			);
 			if (error !== null) {
-				if (error.name !== 'InvalidPath')
+				if (error.name !== 'Occupied')
 					return EntryError.NotSaved({ cause: error });
-				// A create refuses a file already at the stem. Another add, another
-				// tab, or an earlier attempt whose answer was lost may have made
-				// it: it is this word only if it holds this text.
+				// A file is already at the stem. Another add, another tab, or an
+				// earlier attempt whose answer was lost may have made it: it is
+				// this word only if it holds this text.
 				const { data: current, error: readError } = await table.get(stem);
+				// It was deleted since: nothing holds this word.
 				if (readError === null && current === undefined)
 					return EntryError.NotSaved({ cause: error });
 				if (

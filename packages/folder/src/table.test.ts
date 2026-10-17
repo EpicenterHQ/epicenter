@@ -18,7 +18,7 @@
  *   pipeline as `get`
  * - `create` writes canonical text that reads back as the same row, captures
  *   the row before anything is awaited, and refuses an invalid row before
- *   storage; a create at an occupied stem is `InvalidPath` and changes
+ *   storage; a create at an occupied stem is `Occupied` and changes
  *   nothing, unless the file holds the same text: a retried create is done
  * - `write` merges the change from one row to another into the row as it is
  *   now, written canonically; another writer landing first starts it again,
@@ -322,7 +322,7 @@ test('a create at an occupied stem is refused and changes nothing, the same crea
 				{ stem: 'a' },
 			),
 		),
-	).toMatchObject({ name: 'InvalidPath', path: 'todos/a.md' });
+	).toMatchObject({ name: 'Occupied', path: 'todos/a.md' });
 	expect(await s.stored('todos/a.md')).toBe(created.text);
 	// A retried create finds its own bytes there: done, and nothing written.
 	s.resetCounts();
@@ -529,7 +529,7 @@ test('rename moves the row file to a vacant stem, a file that is not a row as it
 	expect(await s.stored('todos/m.md')).toBeUndefined();
 });
 
-test('two renames onto one stem never fuse two rows: one moves, the other is InvalidPath', async () => {
+test('two renames onto one stem never fuse two rows: one moves, the other is Occupied', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/b.md', NEWER);
@@ -540,7 +540,7 @@ test('two renames onto one stem never fuse two rows: one moves, the other is Inv
 	const outcomes = [first, second].map((result) =>
 		result.error === null ? 'moved' : result.error.name,
 	);
-	expect(outcomes.sort()).toEqual(['InvalidPath', 'moved']);
+	expect(outcomes.sort()).toEqual(['Occupied', 'moved']);
 	const moved = first.error === null ? VALID : NEWER;
 	const stayed = first.error === null ? 'todos/b.md' : 'todos/a.md';
 	expect(await s.stored('todos/c.md')).toBe(moved);
@@ -579,7 +579,7 @@ test('a write at the new stem during a rename stops it there: the row stays at i
 		await s.put('todos/b.md', OTHER);
 	});
 	expect(expectErr(await s.table.rename('a', 'b'))).toMatchObject({
-		name: 'InvalidPath',
+		name: 'Occupied',
 		path: 'todos/b.md',
 	});
 	s.beforeApply(undefined);
@@ -605,12 +605,12 @@ test('a delete of the old stem during a rename stands: the row is at neither ste
 	expect(await s.stored('todos/b.md')).toBeUndefined();
 });
 
-test('rename from a stem with no file, or onto an occupied one, is InvalidPath and changes nothing', async () => {
+test('rename from a stem with no file is InvalidPath, onto an occupied one Occupied, and changes nothing', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/b.md', NEWER);
 	expect(expectErr(await s.table.rename('gone', 'c')).name).toBe('InvalidPath');
-	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
+	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('Occupied');
 	expect(await s.stored('todos/a.md')).toBe(VALID);
 	expect(await s.stored('todos/b.md')).toBe(NEWER);
 	expect(mustRow(await s.table.rename('a', 'a')).path).toBe('todos/a.md');

@@ -341,7 +341,7 @@ describe('a folder over an ordinary directory', () => {
 		overtaken.set(note, 'theirs\n');
 		// A create lands only where no file is.
 		const made = await folder.write('todos/a.md', null, 'mine\n');
-		expect(made.error?.name).toBe('InvalidPath');
+		expect(made.error?.name).toBe('Occupied');
 		expect(await readFile(note, 'utf8')).toBe('theirs\n');
 
 		// A delete reads again, and the deleter wins over what landed meanwhile.

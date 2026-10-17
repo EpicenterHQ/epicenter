@@ -567,7 +567,7 @@ async function twoContexts(id: string) {
 					const winners = Number(mineError === null) + Number(theirs.ok);
 					const loser = mineError?.name ?? theirs.error;
 					assert(
-						winners === 1 && loser === 'InvalidPath',
+						winners === 1 && loser === 'Occupied',
 						`round ${round}: ${winners} winners, ${loser}`,
 					);
 				}

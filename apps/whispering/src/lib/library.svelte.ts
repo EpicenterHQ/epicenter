@@ -51,6 +51,7 @@ import type {
 	FileTable,
 	Row,
 	RowReadError,
+	RowWriteError,
 	StoredRow,
 	TableListing,
 	WriteError,
@@ -202,7 +203,7 @@ export type WriteNotice = {
 	readonly kind: 'failed';
 	readonly path: string;
 	/** Why: the write's error, or `NotFound` for a file deleted elsewhere. */
-	readonly error: WriteError | Extract<FileError, { name: 'NotFound' }>;
+	readonly error: RowWriteError | Extract<FileError, { name: 'NotFound' }>;
 	readonly lost: string | undefined;
 };
 
@@ -524,7 +525,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const setOf = <T extends RowTable>(table: T) =>
 		({
 			...optionsOf(table).set.mutationOptions(),
-			onError: (error: WriteError, { stem }: { stem: string }) =>
+			onError: (error: RowWriteError, { stem }: { stem: string }) =>
 				notify({
 					kind: 'failed',
 					path: rowPath(table, stem),
@@ -594,7 +595,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		if (held !== undefined) return held;
 		const write = optionsOf(table).write.mutationOptions() as MutationOptions<
 			WrittenRow<Fields>,
-			WriteError,
+			RowWriteError,
 			WriteRowVariables<Fields>
 		>;
 		const draft = createBodyEditor<Fields>({
@@ -603,7 +604,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			// editor says it is gone, and `saveBody` offers what was typed.
 			write: (change) =>
 				runMutation(queryClient, write, { stem, ...change }).catch(
-					(error: WriteError) => {
+					(error: RowWriteError) => {
 						// Kept for the next save.
 						notify({ kind: 'failed', path, error, lost: undefined });
 						throw error;

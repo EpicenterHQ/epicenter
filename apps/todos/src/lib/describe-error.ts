@@ -2,7 +2,7 @@
  * What a person is told about a failure. The store returns typed errors and
  * never words them; components call this where they show one.
  */
-import type { FileError, WriteError } from '@epicenter/folder';
+import type { FileError, RowWriteError } from '@epicenter/folder';
 import type { TodosError } from './session.js';
 
 /**
@@ -11,7 +11,7 @@ import type { TodosError } from './session.js';
  * lost, which leaves the outcome unknown; an action Todos did not start
  * says why.
  */
-export function describeError(error: WriteError | TodosError): string {
+export function describeError(error: RowWriteError | TodosError): string {
 	switch (error.name) {
 		case 'NotStarted':
 			return error.reason;
@@ -21,6 +21,8 @@ export function describeError(error: WriteError | TodosError): string {
 				: error.message;
 		case 'InvalidValues':
 			return error.issues.map((issue) => issue.message).join(' ');
+		case 'Occupied':
+			return 'Another file already has this name, so nothing was changed.';
 		default:
 			return error.message;
 	}

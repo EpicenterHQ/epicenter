@@ -4,7 +4,7 @@
  * keys (`folderOptions`), so a change the folder reports reaches it; every
  * write and action is a mutation.
  */
-import type { FileError, TableError } from '@epicenter/folder';
+import type { FileError, RowWriteError } from '@epicenter/folder';
 import type { FolderOptions } from '@epicenter/folder/query';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { defineKeys } from 'wellcrafted/query';
@@ -27,7 +27,7 @@ export const vocabKeys = defineKeys({
 /** A write that failed: what the learner is told, and how to recover. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError | { name: string; message: string };
+	readonly error: RowWriteError | FileError | { name: string; message: string };
 	/** The text that was on screen and is not in the file; `''` when none is lost. */
 	readonly lost: string;
 	/** Send the edit again; set when the edit is still held on screen. */

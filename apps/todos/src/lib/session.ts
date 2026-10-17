@@ -6,7 +6,7 @@
  * query is keyed under the folder's options (`folder$`), so a change the
  * folder reports marks exactly what it names stale.
  */
-import type { WriteError } from '@epicenter/folder';
+import type { RowWriteError } from '@epicenter/folder';
 import type { FolderOptions } from '@epicenter/folder/query';
 import type { QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -29,7 +29,7 @@ export type TodosError = InferErrors<typeof TodosError>;
 /** A save that failed or found its todo deleted; `unsaved` is the edit as text. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: WriteError | TodosError;
+	readonly error: RowWriteError | TodosError;
 	/** The text that was in the editor and is not in the file. */
 	readonly unsaved: string;
 };

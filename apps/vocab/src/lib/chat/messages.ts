@@ -171,11 +171,12 @@ export function createChatMessageStore(
 			{ stem },
 		);
 		if (createError !== null) {
-			if (createError.name !== 'InvalidPath')
+			if (createError.name !== 'Occupied')
 				return AgentMessageStoreError.WriteFailed({ cause: createError });
 			// A file is already at the stem. An earlier attempt may have landed
 			// without its answer: it is this message only if it holds it.
 			const { data: current, error: readError } = await table.get(stem);
+			// It was deleted since: nothing holds this message.
 			if (readError === null && current === undefined)
 				return AgentMessageStoreError.WriteFailed({ cause: createError });
 			if (

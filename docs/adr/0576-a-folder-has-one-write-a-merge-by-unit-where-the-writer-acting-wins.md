@@ -6,6 +6,7 @@
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing "Sync: decided by the person": an overlap in Sync is decided by the device syncing. That files are the truth, with one read path and one channel of change, remains.
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Relates:** [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md), whose ordinary changed files after an interrupted update this keeps, now because every write lands whole and the next Sync merges them back to the same files; [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md), [ADR-0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md)
+- **Amended:** 2026-10-17: a create or a move onto a file is `Occupied`, no longer the same `InvalidPath` as a path no file can be at, because callers re-read the path to tell the two apart. `InvalidValues` is a table write's alone (`RowWriteError`): `folder.write` takes any content and never returns it.
 - **Replaced:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review), deleted now that Sync is built; and ADR-0522 (settings as `kv.json` keys), deleted now that settings are a table.
 
 ## Context
@@ -77,7 +78,7 @@ it is now and merges the change from `from` to `to` into it, by unit:
 - A delete beats an edit it never saw. Whether a file exists is decided by
   the delete; what it holds, by the writer acting. Only a write from no file
   (`from` of `null`, a create) brings a file into existence, and only where
-  none is: a create onto a file is `InvalidPath`, unless the file holds the
+  none is: a create onto a file is `Occupied`, unless the file holds the
   same bytes, which is that create landed before. An edit of a
   file deleted since its `from` writes nothing and answers that no file is
   there, which is not a failure to retry. The writer's delete removes an
@@ -112,8 +113,10 @@ has it, which a desktop page's is not, since the `epicenter` CLI runs that
 page's Sync. Reads, a folder's capture, a move
 (a create at the destination, then a guarded removal of the source), and
 the file verbs are composed from these.
-- Every failure is one `WriteError`: `KeptChanging`, `InvalidValues`, `Io`,
-  `Closed`, or `InvalidPath`.
+- Every failure is one `WriteError`: `KeptChanging`, `Io`, `Closed`,
+  `InvalidPath`, or `Occupied`, a file already where a create or a move puts
+  one. A table write adds `InvalidValues` (`RowWriteError`), for a row it
+  refuses before writing.
 
 The merge is `merge(kind, { base, ours, theirs })`, with `ours` the writer
 acting. It returns `{ content, overridden }`: the file, `null` for none, and

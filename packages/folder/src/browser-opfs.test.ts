@@ -241,7 +241,7 @@ describe('two handles on one directory', () => {
 		const winners = results.filter((result) => result.error === null);
 		expect(winners).toHaveLength(1);
 		expect(results.find((result) => result.error !== null)?.error?.name).toBe(
-			'InvalidPath',
+			'Occupied',
 		);
 		const stored = decoder.decode(opfs.files(ROOT).get('race.md'));
 		expect(['left', 'right']).toContain(stored);
@@ -341,7 +341,7 @@ describe('a write is not ordered by when it was asked for', () => {
 		await held.reached;
 		expectOk(await right.write('two.md', null, 'two'));
 		expect(expectErr(await right.write('two.md', null, 'again')).name).toBe(
-			'InvalidPath',
+			'Occupied',
 		);
 		held.release();
 		expectOk(await first);
