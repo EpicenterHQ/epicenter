@@ -34,10 +34,18 @@
  * runs in the app's folder and writes `dist/`. Those files are written into
  * the clone as a tree, `refs/epicenter/builds/<commit>`, and the build
  * directory is a `git archive` of that tree. Opening an app (`update` with
- * `commit`) compares the build directory with the tree by path and blob hash;
- * a damaged build is extracted again into a fresh sibling, which the shell
- * swaps in when no window runs that commit. A window keeps the build it opened
- * on, so old builds stay, even after the app is removed.
+ * `commit`) compares the build directory with the tree by path and blob hash.
+ * A damaged build is reported and left as it is, since a window may be
+ * running it; when no window runs that commit the shell passes `restore`, and
+ * the tree is extracted again, checked, and swapped in. The check runs at
+ * each open, so bytes a local process changes afterward are served until the
+ * next one (ADR-0540 trusts local processes). A window keeps the build it
+ * opened on, so old builds stay, even after the app is removed.
+ *
+ * Every fetch passes the clone's one refspec on the command line with
+ * `--refmap=` and `--no-tags`, so no refspec in a person's global
+ * configuration writes another ref, and a build tree is read only from its
+ * exact ref, never from a branch `rev-parse` would also try under that name.
  *
  * Approving trusts the app fully: its build runs with the person's
  * permissions. Git still runs through `@epicenter/folder`'s runner (no hooks,
@@ -68,7 +76,7 @@ import {
 	symlink,
 	unlink,
 } from 'node:fs/promises';
-import { basename, delimiter, dirname, isAbsolute, join, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
 import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	createGitRunner,
@@ -120,7 +128,11 @@ export type InstalledApp = {
 	/** The approved commit, the clone's detached `HEAD`. Empty until one is approved, and when the app is broken. */
 	commit: string;
 	state: AppState;
-	/** The fetched commit of the default branch, when it is not the approved one: it runs only once approved. */
+	/**
+	 * The fetched commit of the default branch, when it is not the approved
+	 * one: it runs only once approved. Opening reads no review, so it is null
+	 * in what opening answers.
+	 */
 	pending: Review | null;
 };
 
@@ -131,11 +143,12 @@ export type AppState =
 	/** Its commit is approved but not built, as after a build that failed; opening builds it. */
 	| { kind: 'unbuilt' }
 	/**
-	 * Opening found the build directory differs from the commit's build.
-	 * `repaired` names a fresh copy beside it in `builds/<id>/`, which the
-	 * shell swaps in when no window runs that commit.
+	 * Opening found the build directory differs from the commit's build tree,
+	 * and was not asked to restore it, since a window may be running it. An
+	 * open with `restore`, which the shell asks for when no window runs that
+	 * commit, extracts it again and swaps it in.
 	 */
-	| { kind: 'damaged'; repaired: string }
+	| { kind: 'damaged' }
 	/** No commit is approved, so nothing runs until `pending` is approved. */
 	| { kind: 'needsApproval' }
 	/** It cannot run as it is. */
@@ -403,12 +416,14 @@ function commitAt(clone: string, revision: string) {
 
 /**
  * Extract `treeish` from the clone at `clone` into `dir`, which must not
- * exist: `git archive` into a file beside it, unpacked with `tar`. The
- * clone's `info/attributes` is written first, so a person's edit of it cannot
- * let a filter, a line-ending conversion, or `export-ignore` change what is
- * extracted.
+ * exist and is refused when it does: `git archive` into a file beside it,
+ * unpacked with `tar`. The clone's `info/attributes` is written first, so a
+ * person's edit of it cannot let a filter, a line-ending conversion, or
+ * `export-ignore` change what is extracted.
  */
 async function extract(clone: string, treeish: string, dir: string) {
+	// Not recursive, so a directory already there is refused, never filled.
+	await mkdir(dir);
 	const archive = `${dir}.tar`;
 	try {
 		await neutralizeAttributes(nodeDirectoryPrimitives, clone);
@@ -418,7 +433,6 @@ async function extract(clone: string, treeish: string, dir: string) {
 			`--output=${archive}`,
 			treeish,
 		]);
-		await mkdir(dir, { recursive: true });
 		await untar(archive, dir);
 	} catch (cause) {
 		await rm(dir, { recursive: true, force: true });
@@ -581,8 +595,8 @@ async function recordedFolder(clone: string) {
 }
 
 /**
- * `refs/remotes/origin/<default>`, the one ref fetching writes, read from the
- * clone's one refspec.
+ * The clone's one refspec, `+refs/heads/<default>:refs/remotes/origin/<default>`,
+ * read from its own configuration alone, and the tracking ref it writes.
  */
 async function trackingRef(clone: string) {
 	const { stdout } = await runGit(
@@ -599,7 +613,24 @@ async function trackingRef(clone: string) {
 		throw new Error(
 			"This app's clone does not fetch one branch. Remove the app and install it again.",
 		);
-	return `refs/remotes/origin/${match[2]}`;
+	return { refspec, tracking: `refs/remotes/origin/${match[2]}` };
+}
+
+/**
+ * Fetch `refspec` from `origin` into the clone at `clone`, and nothing else:
+ * the refspec is passed on the command line with `--refmap=`, so no refspec
+ * from a person's global or system configuration maps a ref onto
+ * `refs/epicenter/` or `HEAD`, and `--no-tags` fetches no tag.
+ */
+async function fetchDefault(clone: string, refspec: string) {
+	await git(clone, [
+		'fetch',
+		'--no-tags',
+		'--refmap=',
+		'--no-recurse-submodules',
+		'origin',
+		refspec,
+	]);
 }
 
 /**
@@ -655,9 +686,23 @@ async function manifestAt(
 	return parseManifest(text);
 }
 
-/** The tree of `commit`'s build, when the clone at `clone` records one. */
-function buildTree(clone: string, commit: string) {
-	return objectAt(clone, `${BUILD_REFS}/${commit}^{tree}`);
+/**
+ * The tree of `commit`'s build, when the clone at `clone` records one: the
+ * exact ref `refs/epicenter/builds/<commit>`, never a branch or tag that
+ * `rev-parse` would also try under that name, naming an object that is a
+ * tree, as `recordTree` writes, never a commit to peel.
+ */
+async function buildTree(clone: string, commit: string) {
+	const { code, stdout } = await runGit(
+		clone,
+		['show-ref', '--verify', '--hash', `${BUILD_REFS}/${commit}`],
+		{},
+		true,
+	);
+	if (code !== 0) return undefined;
+	const tree = decoder.decode(stdout).trim();
+	const type = await git(clone, ['cat-file', '-t', tree]).catch(() => '');
+	return type === 'tree' ? tree : undefined;
 }
 
 async function review(
@@ -673,7 +718,14 @@ async function review(
 			? [await text([...logArgs, commit]), '']
 			: await Promise.all([
 					text([...logArgs, `${approved}..${commit}`]),
-					text(['diff', '--stat', approved, commit]),
+					text([
+						'diff',
+						'--stat',
+						'--no-textconv',
+						'--no-ext-diff',
+						approved,
+						commit,
+					]),
 				]);
 	return {
 		commit,
@@ -684,10 +736,15 @@ async function review(
 	};
 }
 
-/** The installed app in `apps/<id>/`, as it is now. */
+/**
+ * The installed app in `apps/<id>/`, as it is now. Without `review`, as
+ * opening asks, the commit waiting for approval is not read: `pending` is
+ * null, and no `git log` or `git diff` runs.
+ */
 export async function inspect(
 	paths: AppPaths,
 	id: string,
+	{ review: withReview = true }: { review?: boolean } = {},
 ): Promise<InstalledApp> {
 	const clone = join(paths.appsDir, id);
 	let folder = '';
@@ -705,7 +762,7 @@ export async function inspect(
 	let manifest: Manifest;
 	try {
 		folder = await recordedFolder(clone);
-		fetched = await commitAt(clone, await trackingRef(clone));
+		fetched = await commitAt(clone, (await trackingRef(clone)).tracking);
 		approved = await approvedCommit(clone);
 		const shown = approved ?? fetched;
 		if (shown === undefined) throw new Error("This app's clone has no commit.");
@@ -719,7 +776,7 @@ export async function inspect(
 			`${MANIFEST} names the id '${manifest.id}', but the app is installed as ${id}`,
 		);
 	const pending =
-		fetched !== undefined && fetched !== approved
+		withReview && fetched !== undefined && fetched !== approved
 			? await review(clone, approved, fetched)
 			: null;
 	let state: AppState;
@@ -862,21 +919,35 @@ export async function listRepository(
 }
 
 type SettleOptions = {
-	/** Approve the commit waiting for approval, or `commit`, then build it. */
+	/** Approve `commit`, which must be the one waiting for approval, then build it. */
 	approve?: boolean;
 	/** The commit a person was shown: refuse unless it is the one acted on. */
 	commit?: string;
+	/**
+	 * When opening finds a damaged build, extract it again and swap it in.
+	 * The shell asks for this only when no window runs that commit.
+	 */
+	restore?: boolean;
 	onProgress?: Progress;
 };
+
+/** Refuse an approval that names no commit, which could cover one nobody saw. */
+function requireShownCommit({ approve, commit }: SettleOptions) {
+	if (approve && commit === undefined)
+		throw new Error(
+			'Approving names the commit you reviewed: pass --commit=<commit> with --approve.',
+		);
+}
 
 /**
  * Clone `source`'s default branch bare into `apps/<id>/`, the id read from
  * the manifest in `folder` (empty for the root), and record `folder` in the
  * clone's `config`. The clone fetches only that branch: `--single-branch
  * --no-tags` writes no refspec, so the refspec for
- * `refs/remotes/origin/<default>` is written and fetched once. Its `HEAD`
- * stays symbolic, approving nothing, unless `approve` approves the fetched
- * commit and builds it.
+ * `refs/remotes/origin/<default>` is written and fetched once, and the
+ * clone's local branch is deleted. Its `HEAD` stays symbolic, approving
+ * nothing, unless `approve` approves `commit`, which must be the fetched
+ * commit, and builds it.
  */
 export async function install(
 	paths: AppPaths,
@@ -886,6 +957,7 @@ export async function install(
 ): Promise<InstalledApp> {
 	const from = source.trim();
 	const normalized = normalizeFolder(folder);
+	requireShownCommit(options);
 	return exclusively(paths, async () => {
 		options.onProgress?.(`Cloning ${from}…`);
 		const id = await withStagedClone(
@@ -905,13 +977,18 @@ export async function install(
 					);
 				const branch = head.slice('refs/heads/'.length);
 				const tracking = `refs/remotes/origin/${branch}`;
+				const refspec = `+${head}:${tracking}`;
 				await git(staging, [
 					'config',
 					'--local',
 					'remote.origin.fetch',
-					`+${head}:${tracking}`,
+					refspec,
 				]);
-				await git(staging, ['fetch', '--no-recurse-submodules', 'origin']);
+				// The clone's own branch is never read again. Removing it leaves
+				// no name that `rev-parse` could take for another ref, and `HEAD`
+				// still names it symbolically, approving nothing.
+				await git(staging, ['update-ref', '-d', head]);
+				await fetchDefault(staging, refspec);
 				const fetched = await commitAt(staging, tracking);
 				if (fetched === undefined)
 					throw new Error(`Fetching ${branch} brought no commit.`);
@@ -947,28 +1024,29 @@ export async function install(
 
 /**
  * Act on app `id`. Without `commit`, fetch its default branch, which writes
- * `refs/remotes/origin/<default>` and never `HEAD`. With `approve`, approve
- * the commit waiting for approval, or `commit`, the one a person was shown.
- * Either way, build the approved commit when it is not built.
+ * `refs/remotes/origin/<default>` and never `HEAD`. With `approve` and
+ * `commit`, approve that commit, the one a person was shown, without
+ * fetching. Either way, build the approved commit when it is not built.
  *
  * With `commit` alone, open: answer for `commit` only when it is the
  * approved commit, building it when it is not built and checking its build
  * directory against its build tree when it is. A damaged build is reported
- * with a fresh copy beside it (`damaged`), never replaced here, since a window
- * may be running it.
+ * (`damaged`) and left as it is, since a window may be running it, unless
+ * `restore` asks for it to be extracted again and swapped in.
  */
 export async function update(
 	paths: AppPaths,
 	id: string,
 	options: SettleOptions = {},
 ): Promise<InstalledApp> {
+	requireShownCommit(options);
 	if (options.commit !== undefined && !options.approve)
-		return open(paths, id, options.commit, options.onProgress);
+		return open(paths, id, options.commit, options);
 	return exclusively(paths, async () => {
 		const clone = await installedClone(paths, id);
 		if (options.commit === undefined) {
 			options.onProgress?.('Fetching updates…');
-			await git(clone, ['fetch', '--no-recurse-submodules', 'origin']);
+			await fetchDefault(clone, (await trackingRef(clone)).refspec);
 		}
 		return settle(paths, id, options);
 	});
@@ -985,16 +1063,22 @@ async function open(
 	paths: AppPaths,
 	id: string,
 	commit: string,
-	onProgress?: Progress,
+	{ restore = false, onProgress }: SettleOptions,
 ): Promise<InstalledApp> {
 	await installedClone(paths, id);
-	const app = openable(await inspect(paths, id), commit);
+	const app = openable(await inspect(paths, id, { review: false }), commit);
 	if (app.state.kind === 'needsApproval') return app;
-	if (app.state.kind === 'ready' && (await buildIntact(paths, app))) return app;
+	if (app.state.kind === 'ready') {
+		if (await buildIntact(paths, app)) return app;
+		if (!restore) return { ...app, state: { kind: 'damaged' } };
+	}
 	return exclusively(paths, async () => {
-		const locked = openable(await inspect(paths, id), commit);
+		const locked = openable(
+			await inspect(paths, id, { review: false }),
+			commit,
+		);
 		if (locked.state.kind === 'needsApproval') return locked;
-		return provided(paths, locked, onProgress);
+		return provided(paths, locked, { restore, onProgress });
 	});
 }
 
@@ -1019,8 +1103,8 @@ async function settle(
 ): Promise<InstalledApp> {
 	let app = await inspect(paths, id);
 	if (app.state.kind === 'broken') throw new Error(app.state.problem);
-	if (approve) {
-		const target = commit ?? app.pending?.commit ?? app.commit;
+	if (approve && commit !== undefined) {
+		const target = commit;
 		if (target !== app.commit) {
 			if (target !== app.pending?.commit)
 				throw new Error(
@@ -1031,7 +1115,9 @@ async function settle(
 			if (app.state.kind === 'broken') throw new Error(app.state.problem);
 		}
 	}
-	return app.state.kind === 'unbuilt' ? provided(paths, app, onProgress) : app;
+	return app.state.kind === 'unbuilt'
+		? provided(paths, app, { onProgress })
+		: app;
 }
 
 /**
@@ -1085,13 +1171,26 @@ export async function remove(paths: AppPaths, id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Building and checking a build
 
+/**
+ * `builds/<id>/`, refused when it is a symbolic link, which the scheme would
+ * not serve through, so nothing here reads or writes where it points.
+ */
+async function buildFolder(paths: AppPaths, id: string) {
+	const builds = join(paths.buildsDir, id);
+	if ((await kindOf(builds))?.isSymbolicLink())
+		throw new Error(
+			`${builds} is a symbolic link, which Epicenter does not serve. Remove it and open the app again.`,
+		);
+	return builds;
+}
+
 /** Whether `app`'s build directory holds exactly its approved commit's build tree. */
 async function buildIntact(paths: AppPaths, app: InstalledApp) {
+	const builds = await buildFolder(paths, app.id);
 	const clone = join(paths.appsDir, app.id);
 	const tree = await buildTree(clone, app.commit);
 	return (
-		tree !== undefined &&
-		matchesTree(clone, join(paths.buildsDir, app.id, app.commit), tree)
+		tree !== undefined && matchesTree(clone, join(builds, app.commit), tree)
 	);
 }
 
@@ -1099,36 +1198,36 @@ async function buildIntact(paths: AppPaths, app: InstalledApp) {
 async function provided(
 	paths: AppPaths,
 	app: InstalledApp,
-	onProgress?: Progress,
+	options: { restore?: boolean; onProgress?: Progress },
 ): Promise<InstalledApp> {
-	const repaired = await provide(paths, app, onProgress);
-	return repaired === undefined
-		? inspect(paths, app.id)
-		: { ...app, state: { kind: 'damaged', repaired } };
+	return (await provide(paths, app, options))
+		? inspect(paths, app.id, { review: false })
+		: { ...app, state: { kind: 'damaged' } };
 }
 
 /**
- * Make `builds/<id>/<commit>/` the approved commit's build. The commit is
- * built from source first when the clone records no build tree for it
- * (`build`). A missing build directory is extracted from the tree into a
- * sibling and renamed into place. One already there is checked against the
- * tree (`matchesTree`); a damaged one is left in place, since a window may be
- * running it, and a fresh copy is extracted beside it, whose name this
- * returns.
+ * Make `builds/<id>/<commit>/` the approved commit's build, and answer
+ * whether it is. The commit is built from source first when the clone
+ * records no build tree for it (`build`). A build directory already there is
+ * checked against the tree (`matchesTree`). A missing one, or with `restore`
+ * a damaged one, is extracted from the tree into a new sibling, checked
+ * again, and renamed into place, the damaged one moved aside first and
+ * removed after. Without `restore` a damaged one is left as it is, since a
+ * window may be running it, and this answers false.
  */
 async function provide(
 	paths: AppPaths,
 	app: InstalledApp,
-	onProgress?: Progress,
-): Promise<string | undefined> {
+	{ restore = false, onProgress }: { restore?: boolean; onProgress?: Progress },
+): Promise<boolean> {
 	const clone = join(paths.appsDir, app.id);
-	const builds = join(paths.buildsDir, app.id);
+	const builds = await buildFolder(paths, app.id);
 	await mkdir(builds, { recursive: true }).catch((cause) => {
 		throw new Error(`The build folder could not be made: ${String(cause)}`);
 	});
-	// One build runs at a time (`exclusively`), so a dot entry in the build
-	// folder (a copy, an archive, an index, or a fresh copy the shell did not
-	// swap in) was left by work that did not finish.
+	// Every write here runs under the lock (`exclusively`) and leaves no dot
+	// entry behind when it finishes, so one in the build folder (a copy, an
+	// archive, an index, or a build moved aside) was left by work that did not.
 	try {
 		for (const name of await readdir(builds))
 			if (name.startsWith('.'))
@@ -1143,21 +1242,31 @@ async function provide(
 		(await build(paths, app, onProgress));
 	const destination = join(builds, app.commit);
 	const present = (await kindOf(destination)) !== undefined;
-	if (present && (await matchesTree(clone, destination, tree)))
-		return undefined;
+	if (present && (await matchesTree(clone, destination, tree))) return true;
+	if (present && !restore) return false;
 	onProgress?.(present ? 'Restoring the build…' : 'Keeping the build…');
 	const fresh = join(builds, `.${app.commit}-${randomSuffix()}`);
-	await extract(clone, tree, fresh).catch((cause: Error) => {
-		throw new Error(
-			`${app.title}'s build could not be extracted: ${cause.message}`,
-		);
-	});
-	if (present) return basename(fresh);
-	await rename(fresh, destination).catch(async (cause) => {
+	try {
+		await extract(clone, tree, fresh);
+		if (!(await matchesTree(clone, fresh, tree)))
+			throw new Error('the extracted files differ from its tree');
+		if (present) {
+			const aside = join(builds, `.${app.commit}-${randomSuffix()}-damaged`);
+			await rename(destination, aside);
+			await rename(fresh, destination).catch(async (cause) => {
+				await rename(aside, destination).catch(() => {});
+				throw cause;
+			});
+			// Best effort: the next write's sweep removes what is left.
+			await rm(aside, { recursive: true, force: true }).catch(() => {});
+		} else await rename(fresh, destination);
+	} catch (cause) {
 		await rm(fresh, { recursive: true, force: true });
-		throw new Error(`${app.title}'s build could not be kept: ${String(cause)}`);
-	});
-	return undefined;
+		throw new Error(
+			`${app.title}'s build could not be ${present ? 'restored' : 'kept'}: ${cause instanceof Error ? cause.message : String(cause)}`,
+		);
+	}
+	return true;
 }
 
 /**
@@ -1244,8 +1353,9 @@ async function build(
 
 /**
  * Write the regular files under `output` into the clone at `clone` as one
- * tree, name it `refs/epicenter/builds/<commit>`, and return it. Links are
- * left out. The index the tree is written from is a dot file in `scratch`,
+ * tree, name it `refs/epicenter/builds/<commit>`, and return it. A link or
+ * any other kind of file fails the build, since it would be served as
+ * nothing. The index the tree is written from is a dot file in `scratch`,
  * removed after.
  */
 async function recordTree(
@@ -1280,7 +1390,7 @@ async function recordTree(
 	}
 }
 
-/** Add the path of each regular file under `root`/`relative` to `files`; links are left out. */
+/** Add the path of each regular file under `root`/`relative` to `files`, refusing any other kind. */
 async function listFiles(root: string, relative: string, files: string[]) {
 	for (const entry of await readdir(join(root, relative), {
 		withFileTypes: true,
@@ -1288,13 +1398,18 @@ async function listFiles(root: string, relative: string, files: string[]) {
 		const path = relative === '' ? entry.name : `${relative}/${entry.name}`;
 		if (entry.isDirectory()) await listFiles(root, path, files);
 		else if (entry.isFile()) files.push(path);
+		else
+			throw new Error(
+				`${OUTPUT}/${path} is a symbolic link or another kind of file, and a build holds only folders and regular files`,
+			);
 	}
 }
 
 /**
- * Whether `dir` holds exactly `tree`: each of its paths with its blob's
- * bytes, a link where the tree has one, and no other file or link. Folders
- * are not compared, since an empty one serves nothing. A check that cannot
+ * Whether `dir`, a directory and not a link, holds exactly `tree`: each of
+ * its paths with its blob's bytes, a link where the tree has one, and no
+ * other file or link. Folders are not compared, since an empty one serves
+ * nothing, and neither is a `.DS_Store`. A check that cannot
  * finish answers no.
  */
 async function matchesTree(clone: string, dir: string, tree: string) {
@@ -1313,12 +1428,13 @@ async function matchesTree(clone: string, dir: string, tree: string) {
 			if (tab === -1) continue;
 			const [mode, type, object] = record.slice(0, tab).split(' ');
 			// A submodule's commit extracts as an empty folder.
-			if (type !== 'blob') continue;
+			if (type !== 'blob' || isFinderFile(record.slice(tab + 1))) continue;
 			expected.set(
 				record.slice(tab + 1),
 				`${mode === '120000' ? 'link' : 'file'} ${object}`,
 			);
 		}
+		if (!(await kindOf(dir))?.isDirectory()) return false;
 		const found = new Map<string, string>();
 		await hashEntries(dir, '', format, found);
 		return (
@@ -1342,6 +1458,7 @@ async function hashEntries(
 	})) {
 		const path = relative === '' ? entry.name : `${relative}/${entry.name}`;
 		const full = join(root, path);
+		if (isFinderFile(path)) continue;
 		if (entry.isDirectory()) await hashEntries(root, path, format, found);
 		else if (entry.isFile())
 			found.set(path, `file ${blobId(format, await readFile(full))}`);
@@ -1352,6 +1469,14 @@ async function hashEntries(
 			);
 		else found.set(path, 'other');
 	}
+}
+
+/**
+ * Whether `path` is a `.DS_Store`, which Finder writes into any folder it
+ * shows, so one in a build is not damage.
+ */
+function isFinderFile(path: string) {
+	return path === '.DS_Store' || path.endsWith('/.DS_Store');
 }
 
 /** The id Git gives a blob of `bytes` in a repository of object format `format`. */

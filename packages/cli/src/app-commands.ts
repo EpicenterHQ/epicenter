@@ -42,7 +42,7 @@ function stateText(app: InstalledApp) {
 		case 'unbuilt':
 			return 'approved, built when opened';
 		case 'damaged':
-			return 'damaged: its build changed on disk, and a fresh copy waits beside it';
+			return 'damaged: its build changed on disk. Open it in Epicenter to restore it once no window runs this version';
 		case 'needsApproval':
 			return 'waiting for approval';
 		case 'broken':
@@ -78,7 +78,7 @@ function settled(app: InstalledApp, json: boolean) {
 			app.state.kind === 'needsApproval'
 				? []
 				: [
-						`${app.title} (${app.id}) is ${stateText(app)} at commit ${app.commit.slice(0, 12)}.`,
+						`${app.title} (${app.id}) at commit ${app.commit.slice(0, 12)} is ${stateText(app)}.`,
 					];
 		if (app.pending !== null) {
 			if (lines.length > 0) lines.push('');
@@ -134,6 +134,7 @@ export async function appInstall(
 	const folder = typeof options.folder === 'string' ? options.folder : '';
 	const app = await install(resolveAppPaths(), source, folder, {
 		approve: options.approve === true,
+		commit: typeof options.commit === 'string' ? options.commit : undefined,
 		onProgress: progress(json),
 	});
 	return settled(app, json);
@@ -143,6 +144,7 @@ export async function appUpdate(id: string, options: Options, json: boolean) {
 	const app = await update(resolveAppPaths(), id, {
 		approve: options.approve === true,
 		commit: typeof options.commit === 'string' ? options.commit : undefined,
+		restore: options.restore === true,
 		onProgress: progress(json),
 	});
 	return settled(app, json);
