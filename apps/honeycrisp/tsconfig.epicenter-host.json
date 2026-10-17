@@ -1,9 +1,0 @@
-{
-	// Typechecks the `#platform/*` Epicenter host leaf. `tsconfig.json`
-	// resolves the default (browser) leaf, so the host one is only checked when
-	// the resolver is flipped here. `bun run typecheck` runs both.
-	"extends": "./tsconfig.json",
-	"compilerOptions": {
-		"customConditions": ["epicenter-host"]
-	}
-}

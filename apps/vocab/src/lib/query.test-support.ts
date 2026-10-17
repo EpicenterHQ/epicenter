@@ -61,7 +61,7 @@ export async function quiet(vocab: Vocab) {
 /** The word listing the cache holds now. */
 export function listing(vocab: Vocab): EntryListing {
 	const data = vocab.queryClient.getQueryData<EntryListing>(
-		vocab.folder$.entries.list.queryKey(),
+		vocab.queries.entries.list.queryKey(),
 	);
 	if (data === undefined) throw new Error('The word listing is not loaded');
 	return data;

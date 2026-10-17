@@ -21,6 +21,7 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
+import { createFolderContext } from '@epicenter/svelte/folder';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -97,8 +98,9 @@ async function competing() {
 			},
 		}),
 	);
-	const todos = createTodos(folder);
-	cleanup.push(() => todos.close());
+	const opened = createFolderContext(folder);
+	const todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	expectOk(
 		await folder.tables.todos.create(
 			{ fields: { title: 'Buy milk', done: false }, body: '' },
@@ -118,7 +120,7 @@ async function competing() {
 
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(TodosViewHost, { target, props: { todos } });
+	const view = mount(TodosViewHost, { target, props: { opened } });
 	cleanup.push(() => {
 		void unmount(view);
 		target.remove();
@@ -182,21 +184,43 @@ test.each([
 	['another folder offers no Connect and opens none asked for', false, [], 0],
 ] as const)('%s', async (_name, canConnect, offered, dialogs) => {
 	const id = `todos-view-${count++}`;
-	const folder = expectOk(
+	const storage = createTestStorage();
+	const own = expectOk(
 		await openFolder({
 			app: id,
 			definition: todosDefinition,
-			browser: browserStorage(createTestStorage()),
+			browser: browserStorage(storage),
 		}),
 	);
-	const todos = createTodos(folder);
-	cleanup.push(() => todos.close());
+	// Another folder is one Todos reads through its definition and does not
+	// publish to: here, the same folder opened by its id once its first todo
+	// published the declaration.
+	expectOk(
+		await own.tables.todos.create(
+			{ fields: { title: 'Buy milk', done: false }, body: '' },
+			{ stem: 'milk' },
+		),
+	);
+	const folder = canConnect
+		? own
+		: (await own.close(),
+			expectOk(
+				await openFolder({
+					id,
+					definition: todosDefinition,
+					browser: browserStorage(storage),
+				}),
+			));
+	expect(folder.own).toBe(canConnect);
+	const opened = createFolderContext(folder);
+	const todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	// Sign-in returned to Connect, as it does after Connect sent it away.
 	requestConnect();
 
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(TodosViewHost, { target, props: { todos, canConnect } });
+	const view = mount(TodosViewHost, { target, props: { opened } });
 	cleanup.push(() => {
 		void unmount(view);
 		target.remove();

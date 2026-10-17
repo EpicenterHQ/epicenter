@@ -21,7 +21,8 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { honeycrispDefinition, noteIdOf } from '$lib/data.js';
-	import { describeError, type Notes } from '$lib/notes.svelte.js';
+	import { describeWriteError } from '@epicenter/svelte/write-failure';
+	import type { Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 
@@ -149,7 +150,7 @@
 		<Empty.Root class="flex-1">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			<Empty.Title>Could not open this file</Empty.Title>
-			<Empty.Description>{describeError(file.error)}</Empty.Description>
+			<Empty.Description>{describeWriteError(file.error)}</Empty.Description>
 			<Button variant="outline" size="sm" onclick={() => void file.refetch()}>Try again</Button>
 		</Empty.Root>
 	{:else}

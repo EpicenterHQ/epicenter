@@ -6,7 +6,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { describeError } from '$lib/describe-error.js';
+	import { describeWriteError } from '@epicenter/svelte/write-failure';
 	import { todoStem } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
@@ -35,7 +35,7 @@
 	const create = createMutation(() => ({
 		...todos.rows.create.options,
 		onError: (error, typed) =>
-			toast.error('Could not add the todo', { description: `"${typed}": ${describeError(error)}` }),
+			toast.error('Could not add the todo', { description: `"${typed}": ${describeWriteError(error)}` }),
 	}));
 
 	function add(event: SubmitEvent) {

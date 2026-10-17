@@ -26,7 +26,6 @@ import {
 	opfsOf,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { honeycrispDefinition } from './data.js';
-import { setUpFolder } from './platform/first-open.js';
 
 const ID = 'so.epicenter.honeycrisp.test';
 /** A browser folder lives at the OPFS root under its ID. */
@@ -50,7 +49,6 @@ export async function openNotesFolder() {
 		);
 	const folder = await openTab();
 	const tabs: { close(): Promise<void> }[] = [];
-	await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
 	const key = (path: string) => `${ROOT}/${path}`;
 
 	/** Streams held open, by folder path, in the order they were asked for. */
@@ -81,7 +79,7 @@ export async function openNotesFolder() {
 	opfs.faults.close = (at) => (losing && ours(at) ? 'lost' : undefined);
 
 	return {
-		/** The app's folder, for `createNotes`; `notes.close()` releases it. */
+		/** The app's folder, for `createFolderContext`; its `close()` releases it. */
 		folder,
 		/**
 		 * Another tab of the same folder. Its writes are reported to the app's

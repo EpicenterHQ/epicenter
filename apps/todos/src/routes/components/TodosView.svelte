@@ -1,42 +1,33 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
+	import { getFolder } from '@epicenter/svelte/folder';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { todoPath } from '$lib/todo-listing.js';
-	import { setTodos, type Todos } from '$lib/todos.svelte.js';
+	import type { todosDefinition } from '$lib/definition.js';
+	import { createTodos, setTodos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 	import ConnectDialog from './ConnectDialog.svelte';
 	import { takeConnectRequest } from '$lib/connect-request.js';
 
-	let {
-		todos,
-		canConnect = true,
-	}: {
-		todos: Todos;
-		/**
-		 * Whether this folder offers Connect: Todos's own folder only, since
-		 * Epicenter's server keeps one repository per app id for now.
-		 */
-		canConnect?: boolean;
-	} = $props();
-	/** Connect shows; it opens by itself when sign-in just returned to it. */
-	// svelte-ignore state_referenced_locally
-	let connecting = $state(canConnect && takeConnectRequest());
-
-	// The views below find this folder's store with `getTodos()`, and its
-	// query client through svelte-query. Svelte sets context only while a
-	// component initializes, and the page has the store only after the folder
-	// opens, so this view sets both. It belongs to one folder for its life.
-	// svelte-ignore state_referenced_locally
+	// The store over the folder `<FolderApp>` opened. The views below find it
+	// with `getTodos()`, and the page's query client through svelte-query.
+	// This view belongs to one folder for its life.
+	const todos = createTodos(getFolder<typeof todosDefinition>());
 	setTodos(todos);
-	// svelte-ignore state_referenced_locally
-	setQueryClientContext(todos.queryClient);
+	/**
+	 * Whether this folder offers Connect: Todos's own folder only, since
+	 * Epicenter's server keeps one repository per app id for now.
+	 */
+	const canConnect = todos.isOwn;
+	/** Connect shows; it opens by itself when sign-in just returned to it. */
+	let connecting = $state(canConnect && takeConnectRequest());
 
 	// A write or action still running lives only in this page. Leaving the page then is cancelled; for a
 	// reload or closed tab ('leave'), SvelteKit turns the cancel into the

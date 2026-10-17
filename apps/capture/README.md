@@ -170,13 +170,13 @@ whose README states what a grant allows. What that means for Capture:
   none of these is an operating-system compare-and-swap.
 - The shell watches the directory and tells the window which paths
   changed; the page marks exactly those reads stale
-  (`folder.onFilesChanged`, wired once in `src/routes/+page.svelte`).
+  (`folder.onFilesChanged`, wired once by `<FolderApp>`).
   Nothing is read again on focus.
 - Writes never request history. The folder commits only when the window
   asks with Save version.
 - History is local. Git's own configuration, global included, names the
-  commit author (otherwise `Capture <capture@localhost>`, which the shell
-  registers) and any `origin`. Capture has no control that fetches, pulls, or
+  commit author (otherwise `Epicenter <epicenter@localhost>`, which the
+  shell registers) and any `origin`. Capture has no control that fetches, pulls, or
   pushes, so nothing is fetched or pushed, whatever remote the directory
   names.
 - The shell refuses a directory whose `.git` is a symbolic link or a
@@ -186,8 +186,8 @@ whose README states what a grant allows. What that means for Capture:
 
 ```text
 Capture window (WebView)
-   openFolder({ app, definition })    the folder it is handed, or its own,
-                                      from @epicenter/folder/tauri
+   <FolderApp>: openFolder({ app,     the folder it is handed, or its own,
+     definition })                    from @epicenter/folder/tauri
    the folder engine, in the page
         |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
         |  plugin:epicenter-folder|list_folder, read_folder_children,
@@ -202,36 +202,36 @@ Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 The page names the folder by its scope and nothing else. The shell opens the
 window on one folder and answers the page which (`window_folder`,
 `open_installed_app`): Capture's own, `so.epicenter.capture`
-(`CAPTURE_FOLDER_ID` in `src/lib/platform/types.ts`), or the scope the
+(the `id` in `epicenter.app.json`), or the scope the
 Folders window listed for another folder. The shell registers
 Capture's own scope with its directory and a fallback author as an installed
 app's own folder, and permits the Capture window into the folder it hands it
 (ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
 its files.
 
-`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. It
-calls `openFolder({ app, definition: captureDefinition })` from
-`@epicenter/folder/tauri`, which publishes `captureDefinition` only to
-Capture's own folder and reads any other through it, never writing that
-folder's declaration and refusing one without Capture's tables. Either way it
-asks the shell for the
-directory and opens it, or returns why it cannot, and the leaf hands the
-folder to the same store the
-browser build uses. The browser leaf calls `openFolder`
-from `@epicenter/folder/browser` and states its own history policy: a local
-author and no remote. Each entry refuses in the
-other environment. `installedAppViteConfig` (from `@epicenter/vite-config`)
-points the bare `@epicenter/folder` specifier, which `@epicenter/capture`
-imports, at the same entry, so a build emits one adapter.
+`src/routes/+page.svelte` mounts `<FolderApp>` from `@epicenter/svelte` with
+the manifest and `captureDefinition`, and `CaptureApp` inside it. `<FolderApp>`
+calls `openFolder({ app, definition: captureDefinition })` from the bare
+`@epicenter/folder`, which publishes `captureDefinition` only to Capture's
+own folder and reads any other through it, never writing that folder's
+declaration and refusing one without Capture's tables. In Epicenter it asks
+the shell for the directory and opens it; in a browser it opens the OPFS
+folder, with a local author, `Capture <so.epicenter.capture@localhost>`
+(before `<FolderApp>`, `capture@localhost`), and no remote. A folder that cannot open is
+`<FolderApp>`'s refusal screen. `installedAppViteConfig` (from
+`@epicenter/vite-config`) points the bare `@epicenter/folder` specifier at
+the build's one entry, so a build emits one adapter, and each entry refuses
+in the other environment.
 
 Capture uses the folder's captures table (`list`, `create`, `write`, and
 `delete`; a write merges with whatever changed since and writes nothing
 to a file deleted since, and a delete removes whatever is there), its files for editing a capture as text (`read`
 and `write`), the Git snapshot, `status`,
 and `commit`, and `onFilesChanged`. Reads and saves go through the folder's
-query options (`folderOptions` from `@epicenter/folder/query`), so every
-read is keyed under the folder. The folder is the `CaptureFolder` type in
-`src/lib/platform/types.ts`. A grant lets the
+query layer (`queries` in `getFolder()`, `folderOptions` from
+`@epicenter/folder/query`), so every read is keyed under the folder. The
+opened folder is the `CaptureFolder` type in `src/lib/captures.svelte.ts`. A
+grant lets the
 Capture window read the Capture directory and nothing outside it; the shell
 checks the whole path of every change on disk before making it, and runs
 only the Git operations the folder engine uses.
@@ -240,9 +240,9 @@ Capture opens no terminal. A folder loads its terminal with a dynamic
 import, so each build emits that chunk, and the page never requests or runs
 it.
 
-The build Epicenter serves is selected by the `epicenter-host` condition on
-`#platform/folder`. That leaf opens no browser folder, so it cannot fall back
-to browser storage. Outside the shell, in a window the folder does not allow,
+The build Epicenter serves resolves `@epicenter/folder` to the desktop
+entry, which opens no browser folder, so it cannot fall back to browser
+storage. Outside the shell, in a window the folder does not allow,
 with no folder registered, with the directory held by another Epicenter, or
 with no plugin installed, opening fails and the page shows the reason.
 
@@ -250,7 +250,7 @@ with no plugin installed, opening fails and the page shows the reason.
 
 | Event | What happens |
 | --- | --- |
-| The page is destroyed or reloaded | The page stops hearing the folder's changes, and `captures.close()` refuses input and waits until every edit held is saved and no write or action is running before `folder.close()` closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
+| The page is destroyed or reloaded | `<FolderApp>` closes the folder: the captures refuse input and send every edit held (`beforeClose`), then it waits until no write or action is running, stops hearing the folder's changes, and closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
 | The Capture window is closed | The shell destroys it, as it does any installed app's window. Text typed and not added is lost. |
 | Epicenter's Bun service stops | The shell destroys the window; open Capture again from the Folders window. Text typed and not added is lost. |
 
@@ -270,11 +270,11 @@ write runs.
 
 | Path | Role |
 | --- | --- |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. |
-| `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache keyed by `folderOptions`: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and close. |
+| `src/routes/+page.svelte` | `<FolderApp>` over Capture's manifest and definition, with `CaptureApp` inside it. |
+| `src/lib/captures.svelte.ts` | The store over the folder `getFolder()` answers, keyed by its query layer: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and the fence and flush before the folder closes. |
 | `src/lib/capture-form.svelte.ts` | One capture's edit, its body opened with `createBodyEditor` from `@epicenter/folder/svelte` and saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
-| `src/lib/components/` | `CaptureApp.svelte` shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
+| `src/lib/components/` | `CaptureApp.svelte` builds the store over `getFolder()` and shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 
 The package exports nothing. No host imports a part of this app.
 
@@ -300,8 +300,7 @@ them.
 | Test | What it checks |
 | --- | --- |
 | `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved keeping undeclared metadata, saves one at a time with text typed meanwhile in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere, a failed save kept and sent again, a deleted file, a change the body cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
-| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (the folder package's `granted-shell.test-support.ts`). Refused grants fail the open, a window handed no folder opens Capture's own, a window handed another folder opens it through Capture's shape and keeps its declaration, one without the shape is refused by name, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, and Save version commits and rewrites nothing. It does not run the shell's path or Git checks. |
-| `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
+| `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, OPFS store, or Node module; the browser bundle has the browser adapter and no desktop adapter. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
 The granted opener and the directory engine are tested in

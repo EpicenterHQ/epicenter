@@ -10,11 +10,10 @@ import { APPS } from '@epicenter/constants/apps';
 import { InstantString } from '@epicenter/definition/field';
 import { expectOk } from 'wellcrafted/testing';
 import { focusWord, readEntry, readRows, vocabFolder } from './data.js';
-import { VOCAB_FOLDER_ID } from './folder.js';
 import { createBrowser } from './folder.test-support.js';
 
 test('one folder under the app ID holds words, chats, and messages', () => {
-	expect(VOCAB_FOLDER_ID).toBe(APPS.VOCAB.id);
+	expect(APPS.VOCAB.id).toBe('so.epicenter.vocab');
 	expect(Object.keys(vocabFolder.tables)).toEqual([
 		'entries',
 		'chats',

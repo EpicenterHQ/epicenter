@@ -9,7 +9,8 @@
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getAbortSignal } from 'svelte';
-	import { describeError, type Notes, notesKeys } from '$lib/notes.svelte.js';
+	import { describeWriteError } from '@epicenter/svelte/write-failure';
+	import { type Notes, notesKeys } from '$lib/notes.svelte.js';
 	import {
 		changesLine,
 		commitOutcomeLine,
@@ -31,7 +32,7 @@
 	// Observed so Git status is read again when the folder reports a change and
 	// after the app's own saves and actions; the lines below read the snapshot
 	// that read updates.
-	createQuery(() => notes.folder$.history.status.queryOptions());
+	createQuery(() => notes.queries.history.status.queryOptions());
 
 	const saves = $derived(savesLine({ saving: notes.saving, unsaved: notes.unsaved }));
 	const changes = $derived(changesLine(notes.git));
@@ -63,7 +64,7 @@
 	async function saveVersion() {
 		const { data: outcome, error } = await notes.saveVersion();
 		if (error !== null) {
-			toast.warning('Version not saved', { description: describeError(error) });
+			toast.warning('Version not saved', { description: describeWriteError(error) });
 			return;
 		}
 		toastStatus(commitOutcomeLine(outcome));

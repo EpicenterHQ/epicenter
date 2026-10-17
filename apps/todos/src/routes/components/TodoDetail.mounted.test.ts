@@ -47,6 +47,8 @@ import '../../lib/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { type Folder, parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -55,7 +57,6 @@ import {
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet } from '../../lib/query.test-support.js';
-import type { WriteFailure } from '../../lib/session.js';
 import {
 	blur,
 	click,
@@ -104,13 +105,14 @@ async function setup() {
 		}),
 	);
 	const failures: WriteFailure[] = [];
-	const todos: Todos = createTodos(folder, {
-		onWriteFailed: (failure) => failures.push(failure),
+	const opened = createFolderContext(folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
-	cleanup.push(() => todos.close());
+	const todos: Todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(TodosViewHost, { target, props: { todos } });
+	const view = mount(TodosViewHost, { target, props: { opened } });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);

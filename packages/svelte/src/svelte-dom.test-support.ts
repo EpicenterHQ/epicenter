@@ -83,6 +83,19 @@ const { window } = new JSDOM('<!doctype html><html><body></body></html>', {
 	url: 'http://localhost/',
 });
 
+// jsdom evaluates no media query; the toaster asks for the color scheme.
+window.matchMedia ??= (query: string) =>
+	({
+		matches: false,
+		media: query,
+		onchange: null,
+		addEventListener() {},
+		removeEventListener() {},
+		addListener() {},
+		removeListener() {},
+		dispatchEvent: () => false,
+	}) as MediaQueryList;
+
 // The DOM classes and globals a component, and the event a test dispatches,
 // must share with the document.
 for (const name of [

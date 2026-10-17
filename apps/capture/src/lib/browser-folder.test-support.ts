@@ -12,15 +12,18 @@
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
+	browserStorage,
 	createTestStorage,
 	opfsOf,
 	testLocks,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { holdCloses } from '../../../../packages/folder/src/opfs.test-support.js';
-import type { Captures, WriteFailure } from './captures.svelte.js';
-import { createQueryClient, observe, quiet } from './query.test-support.js';
+import type { Captures } from './captures.svelte.js';
+import { observe, quiet } from './query.test-support.js';
 
 let count = 0;
 
@@ -30,9 +33,10 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	let hold: PromiseWithResolvers<void> | undefined;
 	let held: PromiseWithResolvers<void> | undefined;
 	const counter = { mdWrites: 0 };
+	const app = `capture-test-${count++}`;
 	const folder = expectOk(
 		await openFolder({
-			app: `capture-test-${count++}`,
+			app,
 			definition: captureDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
@@ -57,24 +61,39 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const failures: WriteFailure[] = [];
-	const queryClient = createQueryClient();
-	const captures: Captures = createCaptures(folder, queryClient, {
-		onWriteFailed: (failure) => failures.push(failure),
+	// The folder's context as `<FolderApp>` builds it, change wiring included.
+	// One page per folder here, so it reports nothing; `reportChange` stands
+	// in for another page's report.
+	const opened = createFolderContext(folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
-	// As the page wires it. One page per folder here, so it reports nothing;
-	// `reportChange` stands in for another page's report.
-	const stopChanges = captures.folder$.invalidateOnChange(queryClient);
+	const { queryClient } = opened;
+	const captures: Captures = createCaptures(opened);
 	const stopObserving = observe(captures);
 	await quiet(captures);
 	const faults = opfsOf(storage).faults;
 	return {
 		folder,
+		opened,
 		captures,
 		counter,
 		failures,
 		/** The file's text now, or `undefined` when it is gone. */
 		async text(path: string) {
 			const read = await folder.files.read(path);
+			return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
+		},
+		/** The file's text as another page reads it, as after this page closed. */
+		async textElsewhere(path: string) {
+			const other = expectOk(
+				await openFolder({
+					app,
+					definition: captureDefinition,
+					browser: browserStorage(storage),
+				}),
+			);
+			const read = await other.files.read(path);
+			await other.close();
 			return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
 		},
 		/** Another program writes the file over whatever is there. */
@@ -90,7 +109,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		},
 		/** The folder's change channel reports `paths`, as for another page's writes. */
 		async reportChange(...paths: string[]) {
-			await queryClient.invalidateQueries(captures.folder$.pathFilter(paths));
+			await queryClient.invalidateQueries(captures.queries.pathFilter(paths));
 			await quiet(captures);
 		},
 		/** Another program deletes the file as it is now. */
@@ -112,10 +131,8 @@ export async function openCaptures(files: Record<string, string> = {}) {
 			};
 		},
 		async close() {
-			stopChanges();
 			stopObserving();
-			await captures.close();
-			await folder.close();
+			await opened.close();
 		},
 	};
 }

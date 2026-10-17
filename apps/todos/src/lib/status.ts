@@ -23,8 +23,8 @@ import {
 	withTime,
 } from '@epicenter/svelte/status-line';
 import { describeSync } from '@epicenter/svelte/sync-line';
+import type { ActionError } from '@epicenter/svelte/write-failure';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { TodosError } from './session.js';
 
 /** Guidance when local and remote each have versions the other lacks. */
 export const DIVERGED =
@@ -293,7 +293,7 @@ export function pushLine(git: GitSnapshot): StatusLine {
  * not synced yet.
  */
 export function syncOutcomeLine(
-	result: Result<SyncOutcome, SyncError | TodosError>,
+	result: Result<SyncOutcome, SyncError | ActionError>,
 	git: GitSnapshot,
 ): StatusLine {
 	const { data, error } = result;

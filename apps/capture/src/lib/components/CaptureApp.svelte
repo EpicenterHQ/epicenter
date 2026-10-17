@@ -4,12 +4,16 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { CommitOutcome } from '@epicenter/folder';
-	import { type Captures, describeError } from '$lib/captures.svelte.js';
+	import type { captureDefinition } from '@epicenter/capture';
+	import { getFolder } from '@epicenter/svelte/folder';
+	import { describeWriteError } from '@epicenter/svelte/write-failure';
+	import { createCaptures } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	let { captures }: { captures: Captures } = $props();
+	// The captures over the folder `<FolderApp>` opened.
+	const captures = createCaptures(getFolder<typeof captureDefinition>());
 
 	// One page: the timeline or the one open capture.
 	const item = $derived(captures.opened);
@@ -50,7 +54,7 @@
 	function runSaveVersion() {
 		saveVersion.mutate(undefined, {
 			onSuccess: told,
-			onError: (error) => toast.error('Version not saved', { description: describeError(error) }),
+			onError: (error) => toast.error('Version not saved', { description: describeWriteError(error) }),
 		});
 	}
 </script>

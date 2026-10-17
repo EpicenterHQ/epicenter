@@ -8,18 +8,19 @@ import type {
 	FilesObservation,
 	GitError,
 } from '@epicenter/folder';
+import type { ActionError } from '@epicenter/svelte/write-failure';
 import { createSubscriber } from 'svelte/reactivity';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Session, TodosError } from './session.js';
+import type { TodosParts } from './todos.svelte.js';
 
 export function createGit({
 	folder,
-	folder$,
+	queries,
 	defineQuery,
 	defineMutation,
 	writesSettled,
 	invalidate,
-}: Session) {
+}: TodosParts) {
 	const trackSnapshot = createSubscriber((update) =>
 		folder.git.subscribe(update),
 	);
@@ -35,7 +36,7 @@ export function createGit({
 		 * folder reports marks it stale.
 		 */
 		status: defineQuery({
-			queryKey: folder$.history.status.queryKey(),
+			queryKey: queries.history.status.queryKey(),
 			queryFn: (): Promise<Result<FilesObservation, GitError>> =>
 				folder.git.status(),
 		}),
@@ -45,11 +46,11 @@ export function createGit({
 		 */
 		saveVersion: defineMutation({
 			mutationKey: ['todos', 'save-version'],
-			mutationFn: async (): Promise<Result<CommitOutcome, TodosError>> => {
+			mutationFn: async (): Promise<Result<CommitOutcome, ActionError>> => {
 				await writesSettled();
 				return Ok(await folder.git.commit());
 			},
-			onSettled: () => invalidate(folder$.history.status.queryKey()),
+			onSettled: () => invalidate(queries.history.status.queryKey()),
 		}),
 	};
 }

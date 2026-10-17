@@ -8,7 +8,8 @@
 	import { onDestroy } from 'svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { type Captures, describeError, timelineOf } from '$lib/captures.svelte.js';
+	import { describeWriteError } from '@epicenter/svelte/write-failure';
+	import { type Captures, timelineOf } from '$lib/captures.svelte.js';
 	import TechnicalDetails from './TechnicalDetails.svelte';
 
 	let {
@@ -52,7 +53,7 @@
 		const { error } = await captures.create(captures.newCapture);
 		creating = false;
 		if (error !== null) {
-			createProblem = `The capture was not saved: ${describeError(error)} Your text is still here.`;
+			createProblem = `The capture was not saved: ${describeWriteError(error)} Your text is still here.`;
 			return;
 		}
 		createProblem = '';

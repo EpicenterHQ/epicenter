@@ -45,6 +45,10 @@ import {
 	type TextChange,
 	type TextEditor,
 } from '@epicenter/folder/svelte';
+import {
+	ActionError,
+	type WriteFailure,
+} from '@epicenter/svelte/write-failure';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber } from 'svelte/reactivity';
 import {
@@ -62,7 +66,7 @@ import {
 	type UnreadableFile,
 	type VocabFolder,
 } from './data.js';
-import { type VocabOptions, vocabKeys, type WriteFailure } from './query.js';
+import { type VocabOptions, vocabKeys } from './query.js';
 
 export const EntryError = defineErrors({
 	Empty: () => ({ message: 'There is no text to save.' }),
@@ -76,11 +80,6 @@ export const EntryError = defineErrors({
 		message: `This word was not saved: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
-	/** The page is closing, so the change did not start. */
-	NotStarted: ({ reason }: { reason: string }) => ({
-		message: reason,
-		reason,
-	}),
 });
 export type EntryError = InferErrors<typeof EntryError>;
 
@@ -89,20 +88,6 @@ export type EntryListing = TableListing<EntryFields>;
 
 /** The directory, and table, that holds the words. */
 const ENTRIES = 'entries';
-
-/** What the learner is told about a failed change. */
-export function describeError(error: {
-	readonly name: string;
-	readonly message: string;
-}): string {
-	if (error.name === 'NotFound')
-		return 'The file is no longer here, so nothing was changed.';
-	if (error.name === 'InvalidValues' && 'issues' in error)
-		return (error.issues as readonly { message: string }[])
-			.map((issue) => issue.message)
-			.join(' ');
-	return error.message;
-}
 
 /** Every word that reads as one, newest first. */
 export function wordsOf(listing: EntryListing): Entry[] {
@@ -123,16 +108,16 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 
 export function createEntries(
 	folder: Pick<VocabFolder, 'tables' | 'files'>,
-	folder$: Pick<VocabOptions, 'entries' | 'files' | 'write'>,
+	queries: Pick<VocabOptions, 'entries' | 'files' | 'write'>,
 	queryClient: QueryClient,
 	{
 		refused,
-		onWriteFailed,
+		writeFailed,
 	}: {
 		/** Why no change starts now, if one does not. */
 		refused: () => string | undefined;
 		/** A write failed; the app tells the learner. */
-		onWriteFailed: (failure: WriteFailure) => void;
+		writeFailed: (failure: WriteFailure) => void;
 	},
 ) {
 	const table = folder.tables.entries;
@@ -140,8 +125,8 @@ export function createEntries(
 	const trackMutations = createSubscriber((update) =>
 		queryClient.getMutationCache().subscribe(update),
 	);
-	const listKey = folder$.entries.list.queryKey();
-	const textKey = (path: string) => folder$.files.text.queryKey(path);
+	const listKey = queries.entries.list.queryKey();
+	const textKey = (path: string) => queries.files.text.queryKey(path);
 	/** The word file open as text for repair, if one is, and its typed text. */
 	let repair = $state<{ path: string; draft: TextEditor } | undefined>();
 
@@ -166,19 +151,24 @@ export function createEntries(
 	 * nothing (ADR-0576): it is reported with the note it held, to copy.
 	 */
 	const setEntry = {
-		...folder$.entries.set.mutationOptions(),
+		...queries.entries.set.mutationOptions(),
 		onSuccess: (written, { stem, fields }) => {
 			if (written !== null) return;
 			const path = pathOf(stem);
-			onWriteFailed({
+			writeFailed({
 				path,
 				error: FileError.NotFound({ path }).error,
-				lost: fields.note ?? '',
+				unsaved: fields.note ?? '',
 			});
 		},
-		onError: (error, { stem }) =>
-			onWriteFailed({ path: pathOf(stem), error, lost: '' }),
-	} satisfies ReturnType<typeof folder$.entries.set.mutationOptions>;
+		// A typed note is offered to copy; the card that held it may be gone.
+		onError: (error, { stem, fields }) =>
+			writeFailed({
+				path: pathOf(stem),
+				error,
+				unsaved: fields.note ?? '',
+			}),
+	} satisfies ReturnType<typeof queries.entries.set.mutationOptions>;
 	const setKey = setEntry.mutationKey ?? [];
 
 	/** Resolves once no set of the word at `id` runs or waits. */
@@ -202,13 +192,22 @@ export function createEntries(
 		const written = await runMutation(
 			queryClient,
 			{
-				...folder$.write.mutationOptions(),
+				...queries.write.mutationOptions(),
 				onError: (error) =>
-					onWriteFailed({
+					writeFailed({
 						path,
 						error,
-						lost: '',
-						retry: () => void repair?.draft.save(),
+						unsaved:
+							(repair?.path === path ? repair.draft.typed : undefined) ??
+							change.to,
+						// Starts a save only while the repair is still open and the
+						// page is not closing.
+						retry: () => {
+							if (refused() !== undefined || repair?.path !== path)
+								return false;
+							void repair.draft.save();
+							return true;
+						},
 					}),
 			},
 			{ path, ...change },
@@ -216,10 +215,10 @@ export function createEntries(
 		if (written.file !== null) return 'landed';
 		const lost = repair?.path === path ? repair.draft.typed : undefined;
 		if (repair?.path === path) repair.draft.discard();
-		onWriteFailed({
+		writeFailed({
 			path,
 			error: FileError.NotFound({ path }).error,
-			lost: lost ?? change.to,
+			unsaved: lost ?? change.to,
 		});
 		return 'gone';
 	}
@@ -250,11 +249,11 @@ export function createEntries(
 					id: string;
 					stored: StoredRow<EntryFields>;
 				},
-				EntryError
+				EntryError | ActionError
 			>
 		> => {
 			const why = refused();
-			if (why !== undefined) return EntryError.NotStarted({ reason: why });
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			// Well formed as the folder stores it, so a word read back compares
 			// equal to the text it was added with.
 			const exact = wellFormed(text.trim());
@@ -330,10 +329,10 @@ export function createEntries(
 		entriesQuery<TData = EntryListing>(
 			select?: (listing: EntryListing) => TData,
 		) {
-			return { ...folder$.entries.list.queryOptions(), select };
+			return { ...queries.entries.list.queryOptions(), select };
 		},
 		/** One word file's exact text, or its type and size when it is not editable text. */
-		textQuery: (path: string) => folder$.files.text.queryOptions(path),
+		textQuery: (path: string) => queries.files.text.queryOptions(path),
 		/** The set a card sends a note it holds with: `{ stem, fields }`. */
 		setEntry,
 		canEdit,
@@ -350,7 +349,9 @@ export function createEntries(
 		 * with that exact text is already saved and nothing was written. `note`
 		 * starts empty and `stage` new: both are the learner's to set.
 		 */
-		async add(text: string): Promise<Result<'added' | 'present', EntryError>> {
+		async add(
+			text: string,
+		): Promise<Result<'added' | 'present', EntryError | ActionError>> {
 			const { data, error } = await addWord(text);
 			return error === null ? Ok(data.outcome) : Err(error);
 		},
@@ -367,10 +368,10 @@ export function createEntries(
 			return defineMutation({
 				mutationKey: vocabKeys.delete(path),
 				mutationFn: async (): Promise<
-					Result<undefined, WriteError | EntryError>
+					Result<undefined, WriteError | ActionError>
 				> => {
 					const why = refused();
-					if (why !== undefined) return EntryError.NotStarted({ reason: why });
+					if (why !== undefined) return ActionError.NotStarted({ reason: why });
 					await setsSettled(entry.id);
 					if (repair?.path === path) await repair.draft.save();
 					return table.delete(entry.id);

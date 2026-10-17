@@ -7,7 +7,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { createMutation, useIsMutating } from '@tanstack/svelte-query';
-	import { todosKeys } from '$lib/session.js';
+	import { todosKeys } from '$lib/rows.js';
 	import type { TodoEntry } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 

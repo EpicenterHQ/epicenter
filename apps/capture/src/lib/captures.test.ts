@@ -71,7 +71,7 @@ const STANDARD = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 /** How many saves of a capture are running. */
 const savesRunning = ({ captures }: Opened) =>
 	captures.queryClient.isMutating({
-		mutationKey: captures.folder$.captures.write.mutationOptions().mutationKey,
+		mutationKey: captures.queries.captures.write.mutationOptions().mutationKey,
 	});
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */
@@ -232,7 +232,7 @@ test('a change reported elsewhere reads the view again, and never replaces an ed
 	// The channel reports a change while the save is held: the view reads
 	// the file again, which still holds the version before the save.
 	await captures.queryClient.invalidateQueries(
-		captures.folder$.pathFilter([PATH]),
+		captures.queries.pathFilter([PATH]),
 	);
 	expect(cached(captures, 'one').row.body).toContain('\nText\n');
 	expect(form.body).toContain('\nMine, more\n');
@@ -278,7 +278,7 @@ test('a save that fails keeps the edit and reports it, and the next change sends
 	harness.failNextWrite(PATH);
 	typeText(form, 'First');
 	await quiet(captures);
-	expect(harness.failures.map((failure) => failure.text)).toEqual([
+	expect(harness.failures.map((failure) => failure.unsaved)).toEqual([
 		expect.stringContaining('\nFirst\n'),
 	]);
 	expect(await harness.text(PATH)).toBe(HAND);
@@ -305,7 +305,7 @@ test('a save to a file deleted elsewhere writes nothing, drops the edit, and rep
 		{
 			path: PATH,
 			error: { name: 'NotFound' },
-			text: expect.stringContaining('\nMine\n'),
+			unsaved: expect.stringContaining('\nMine\n'),
 		},
 	]);
 	expect(form.body).toBeUndefined();
@@ -326,7 +326,7 @@ test('an edit held when its capture is deleted elsewhere is dropped, reports its
 		{
 			path: PATH,
 			error: { name: 'NotFound' },
-			text: expect.stringContaining('\nMine\n'),
+			unsaved: expect.stringContaining('\nMine\n'),
 		},
 	]);
 	expect(form.body).toBeUndefined();
@@ -418,7 +418,7 @@ test('a write of the text to a file deleted elsewhere drops the typed text, and 
 	await quiet(captures);
 	stop();
 	expect(harness.failures).toMatchObject([
-		{ path: PATH, error: { name: 'NotFound' }, text: `${HAND}- mine\n` },
+		{ path: PATH, error: { name: 'NotFound' }, unsaved: `${HAND}- mine\n` },
 	]);
 	expect(captures.typedText(PATH)).toBeUndefined();
 	expect(await harness.text(PATH)).toBeUndefined();
@@ -563,8 +563,8 @@ test('saves never commit; Save version records one, and delete says when changes
 });
 
 test('Save version is refused while closing, as other actions are', async () => {
-	const { captures } = await open({ [PATH]: HAND });
-	void captures.close();
+	const { captures, opened } = await open({ [PATH]: HAND });
+	void opened.close();
 	expect(expectErr(await captures.saveVersion()).message).toContain('closing');
 });
 
@@ -581,8 +581,8 @@ test('close waits for a write already sent and the newest edit after it, and eve
 	await held;
 	typeText(form, 'Typed later');
 	let closed = false;
-	const first = captures.close();
-	expect(captures.close()).toBe(first);
+	const first = harness.opened.close();
+	expect(harness.opened.close()).toBe(first);
 	void first.then(() => {
 		closed = true;
 	});
@@ -590,9 +590,9 @@ test('close waits for a write already sent and the newest edit after it, and eve
 	expect(closed).toBe(false);
 	release();
 	await first;
-	expect(await harness.text(PATH)).toContain('\nTyped later\n');
+	expect(await harness.textElsewhere(PATH)).toContain('\nTyped later\n');
 	// After close, edits change nothing.
 	typeText(form, 'After close');
 	expect(form.body).toBeUndefined();
-	expect(await harness.text(PATH)).toContain('\nTyped later\n');
+	expect(await harness.textElsewhere(PATH)).toContain('\nTyped later\n');
 });

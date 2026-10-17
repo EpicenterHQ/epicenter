@@ -2,7 +2,7 @@
  * The chat list and every chat write, kept in the TanStack Query cache
  * (ADR-0528).
  *
- * The list is one query over the folder's `chats` table (`folder$.query`),
+ * The list is one query over the folder's `chats` table (`queries.query`),
  * read on open and again when a change reaches `chats/`. Messages are named
  * by their chat, so the list never reads them; the open conversation reads
  * its own. A chat this page starts is put in the list by the start itself.
@@ -14,6 +14,7 @@
 
 import { AgentMessageStoreError, agentMessageText } from '@epicenter/agent';
 import { type FileError, rowPath } from '@epicenter/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { createQueryFactories } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -24,7 +25,7 @@ import {
 	type UnreadableFile,
 	type VocabFolder,
 } from '../data.js';
-import { type VocabOptions, vocabKeys, type WriteFailure } from '../query.js';
+import { type VocabOptions, vocabKeys } from '../query.js';
 import {
 	byRecency,
 	ChatHistoryError,
@@ -45,16 +46,16 @@ export type ChatListing = {
 
 export function createChats(
 	{ tables }: Pick<VocabFolder, 'tables'>,
-	folder$: Pick<VocabOptions, 'query'>,
+	queries: Pick<VocabOptions, 'query'>,
 	queryClient: QueryClient,
 	{
 		refused,
-		onWriteFailed,
+		writeFailed,
 	}: {
 		/** Why no change starts now, if one does not. */
 		refused: () => string | undefined;
 		/** A message write failed; the app tells the learner and offers its text. */
-		onWriteFailed: (failure: WriteFailure) => void;
+		writeFailed: (failure: WriteFailure) => void;
 	},
 ) {
 	const { defineMutation } = createQueryFactories(queryClient);
@@ -69,7 +70,7 @@ export function createChats(
 		});
 	}
 
-	const listing = folder$.query({
+	const listing = queries.query({
 		paths: [tables.chats.name],
 		key: ['summaries'],
 		queryFn: readChats,
@@ -127,13 +128,13 @@ export function createChats(
 					scope: { id: rowPath(tables.chats.name, chatId) },
 					mutationFn: save,
 					onError: (error) =>
-						onWriteFailed({
+						writeFailed({
 							path: rowPath(
 								tables.messages.name,
 								messageStem(chatId, message.id),
 							),
 							error,
-							lost: agentMessageText(message),
+							unsaved: agentMessageText(message),
 						}),
 				})();
 			};

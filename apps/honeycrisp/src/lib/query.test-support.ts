@@ -13,17 +13,10 @@
  * observes it, so a change that makes it stale reads it again as it does in
  * the app.
  */
-import { QueryClient, QueryObserver } from '@tanstack/query-core';
+import { QueryObserver } from '@tanstack/query-core';
 import type { NoteListing, Notes } from './notes.svelte.js';
 
-export { QueryClient, QueryObserver };
-
-/** A fresh cache, configured and mounted as the layout's provider makes it. */
-export function createQueryClient() {
-	const client = new QueryClient();
-	client.mount();
-	return client;
-}
+export { QueryObserver };
 
 /**
  * Observe the queries the open screens show: the note and folder lists, the
@@ -31,12 +24,12 @@ export function createQueryClient() {
  * function that stops observing.
  */
 export function observe(notes: Notes, ...paths: string[]) {
-	const { folder$, queryClient } = notes;
+	const { queries, queryClient } = notes;
 	const observers = [
-		new QueryObserver(queryClient, folder$.notes.list.queryOptions()),
-		new QueryObserver(queryClient, folder$.folders.list.queryOptions()),
-		new QueryObserver(queryClient, folder$.files.list.queryOptions()),
-		new QueryObserver(queryClient, folder$.history.status.queryOptions()),
+		new QueryObserver(queryClient, queries.notes.list.queryOptions()),
+		new QueryObserver(queryClient, queries.folders.list.queryOptions()),
+		new QueryObserver(queryClient, queries.files.list.queryOptions()),
+		new QueryObserver(queryClient, queries.history.status.queryOptions()),
 		...paths.map(
 			(path) => new QueryObserver(queryClient, notes.textQuery(path)),
 		),
@@ -65,7 +58,7 @@ export async function quiet(notes: Notes) {
 /** The note listing the cache holds now. */
 export function listing(notes: Notes): NoteListing {
 	const data = notes.queryClient.getQueryData<NoteListing>(
-		notes.folder$.notes.list.queryKey(),
+		notes.queries.notes.list.queryKey(),
 	);
 	if (data === undefined) throw new Error('The note listing is not loaded');
 	return data;

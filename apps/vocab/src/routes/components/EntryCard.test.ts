@@ -23,17 +23,13 @@
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
-import { readEntry, readRows } from '../../lib/data.js';
+import { readEntry, readRows, type vocabFolder } from '../../lib/data.js';
 import type { EntryListing } from '../../lib/entries.svelte.js';
 import { createBrowser, fileText } from '../../lib/folder.test-support.js';
-import type { WriteFailure } from '../../lib/query.js';
-import {
-	cached,
-	createQueryClient,
-	observe,
-	quiet,
-} from '../../lib/query.test-support.js';
+import { cached, observe, quiet } from '../../lib/query.test-support.js';
 import { click, leave, type } from './svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
@@ -61,9 +57,10 @@ async function setup(text: string) {
 	const browser = createBrowser();
 	const folder = await browser.open();
 	const failures: WriteFailure[] = [];
-	const vocab = createVocab(folder, createQueryClient(), {
-		onWriteFailed: (failure) => failures.push(failure),
+	const opened = createFolderContext<typeof vocabFolder>(folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
+	const vocab = createVocab(opened);
 	const stop = observe(vocab);
 	await quiet(vocab);
 	expectOk(await vocab.entries.add(text));
@@ -72,7 +69,7 @@ async function setup(text: string) {
 	// The words list passes each card its word as the cache now holds it.
 	const unsubscribe = vocab.queryClient.getQueryCache().subscribe(() => {
 		const listed = vocab.queryClient.getQueryData<EntryListing>(
-			vocab.folder$.entries.list.queryKey(),
+			vocab.queries.entries.list.queryKey(),
 		);
 		const entry =
 			listed &&
@@ -117,7 +114,7 @@ async function setup(text: string) {
 			unsubscribe();
 			stop();
 			target.remove();
-			await vocab.close();
+			await opened.close();
 			await browser[Symbol.asyncDispose]();
 		},
 	};
@@ -155,7 +152,7 @@ test('the typed note survives the list being read again before it is sent', asyn
 	await using context = await setup('lucid');
 	type(context.note(), 'mine');
 	await context.vocab.queryClient.invalidateQueries(
-		context.vocab.folder$.pathFilter([context.path]),
+		context.vocab.queries.pathFilter([context.path]),
 	);
 	await quiet(context.vocab);
 	flushSync();

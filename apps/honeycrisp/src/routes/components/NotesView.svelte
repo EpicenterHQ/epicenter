@@ -1,9 +1,12 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
+	import { getFolder } from '@epicenter/svelte/folder';
+	import { Loading } from '@epicenter/ui/loading';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
 	import { beforeNavigate } from '$app/navigation';
-	import type { Notes } from '$lib/notes.svelte.js';
+	import type { honeycrispDefinition } from '$lib/data.js';
+	import { createNotes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileView from './FileView.svelte';
@@ -11,7 +14,10 @@
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
-	let { notes }: { notes: Notes } = $props();
+	// The notes over the folder `<FolderApp>` opened. Its listings and Git
+	// status are read before the views show, so none starts empty.
+	const notes = createNotes(getFolder<typeof honeycrispDefinition>());
+	const loading = notes.load();
 
 	let filesOpen = $state(false);
 
@@ -48,6 +54,9 @@
 	}}
 />
 
+{#await loading}
+<Loading class="h-dvh" label="Reading your notes…" />
+{:then}
 <!-- Once the notes are closing nothing here takes input. The editors stay
      mounted while the last saves land. -->
 <div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
@@ -92,3 +101,4 @@
 		{/if}
 	</Resizable.PaneGroup>
 </div>
+{/await}

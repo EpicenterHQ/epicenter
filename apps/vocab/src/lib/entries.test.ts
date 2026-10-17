@@ -25,8 +25,10 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from './data.js';
+import type { VocabFolder, vocabFolder } from './data.js';
 import {
 	createBrowser,
 	fileText,
@@ -34,14 +36,7 @@ import {
 	tableFiles,
 	until,
 } from './folder.test-support.js';
-import type { WriteFailure } from './query.js';
-import {
-	cached,
-	createQueryClient,
-	listing,
-	observe,
-	quiet,
-} from './query.test-support.js';
+import { cached, listing, observe, quiet } from './query.test-support.js';
 import type { Vocab } from './vocab.svelte.js';
 
 const { createVocab } = await import('./vocab.svelte.ts');
@@ -55,13 +50,14 @@ afterEach(async () => {
 /** Vocab over `folder`, with its screens observing, read once. */
 async function openVocab(folder: VocabFolder) {
 	const failures: WriteFailure[] = [];
-	const vocab = createVocab(folder, createQueryClient(), {
-		onWriteFailed: (failure) => failures.push(failure),
+	const opened = createFolderContext<typeof vocabFolder>(folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
-	cleanup.push(() => vocab.close());
+	const vocab = createVocab(opened);
+	cleanup.push(() => opened.close());
 	cleanup.push(observe(vocab));
 	await quiet(vocab);
-	return { vocab, failures };
+	return { vocab, opened, failures };
 }
 
 /**
@@ -72,7 +68,7 @@ async function setup() {
 	const browser = createBrowser();
 	cleanup.push(() => browser[Symbol.asyncDispose]());
 	const folder = await browser.open();
-	const { vocab, failures } = await openVocab(folder);
+	const { vocab, opened, failures } = await openVocab(folder);
 	const { faults } = browser.opfs;
 	const counter = { wordWrites: 0 };
 	let hold: PromiseWithResolvers<void> | undefined;
@@ -91,6 +87,7 @@ async function setup() {
 		browser,
 		folder,
 		vocab,
+		opened,
 		entries: vocab.entries,
 		failures,
 		counter,
@@ -311,7 +308,7 @@ test('a note set on a word deleted elsewhere writes nothing and is offered to co
 	// A delete beats an edit that never saw it (ADR-0576).
 	expect(await context.text(path)).toBeUndefined();
 	expect(failures).toMatchObject([
-		{ path, error: { name: 'NotFound' }, lost: 'typed after the delete' },
+		{ path, error: { name: 'NotFound' }, unsaved: 'typed after the delete' },
 	]);
 });
 
@@ -391,6 +388,8 @@ test('an update that fails is reported and writes nothing; the next one writes',
 	entries.setNote(entry.id, 'kept');
 	await quiet(vocab);
 	expect(failures.map((failure) => failure.path)).toEqual([path]);
+	// The typed note is offered to copy.
+	expect(failures[0]?.unsaved).toBe('kept');
 	expect(await context.text(path)).toBe(saved);
 	expect(cached(vocab, 'lucid').note).toBe('');
 
@@ -399,6 +398,16 @@ test('an update that fails is reported and writes nothing; the next one writes',
 	expect(failures).toHaveLength(1);
 	expect(await context.text(path)).toContain('note: kept');
 	expect(cached(vocab, 'lucid').note).toBe('kept');
+});
+
+test('a stage change that fails offers no text: none was typed', async () => {
+	const context = await setup();
+	const { vocab, entries, failures } = context;
+	const entry = await context.add('lucid');
+	context.failNextWrite(entry.stored.path);
+	entries.setStage(entry.id, 'usable');
+	await quiet(vocab);
+	expect(failures).toMatchObject([{ path: entry.stored.path, unsaved: '' }]);
 });
 
 test('the folder refuses a value it cannot hold, and the file is left as it was', async () => {
@@ -451,7 +460,7 @@ test('a file that is not a valid word is named for repair, is written as typed t
 	const path = (await context.add('lucid')).stored.path;
 	await context.writeElsewhere(path, '---\ntext: lucid\nnote: *bad\n---\n');
 	// As the folder reports a change another program made.
-	await vocab.queryClient.invalidateQueries(vocab.folder$.pathFilter([path]));
+	await vocab.queryClient.invalidateQueries(vocab.queries.pathFilter([path]));
 	await quiet(vocab);
 	expect(wordsOf(listing(vocab))).toEqual([]);
 	expect(repairsOf(listing(vocab))).toEqual([
@@ -481,6 +490,32 @@ test('a file that is not a valid word is named for repair, is written as typed t
 	expect(entries.repairing).toBeUndefined();
 	expect(repairsOf(listing(vocab))).toEqual([]);
 	expect(cached(vocab, 'lucid')).toMatchObject({ note: 'fixed', stage: 'new' });
+});
+
+test('a repair that fails to save offers its text, and Save again starts a save only while the repair is open', async () => {
+	const context = await setup();
+	const { vocab, entries, failures } = context;
+	const path = (await context.add('lucid')).stored.path;
+	await context.writeElsewhere(path, '---\ntext: lucid\nnote: *bad\n---\n');
+	await vocab.queryClient.invalidateQueries(vocab.queries.pathFilter([path]));
+	await quiet(vocab);
+	entries.openRepair(path);
+	cleanup.push(observe(vocab, path));
+	await quiet(vocab);
+	const typed = wordText('lucid', 'fixed', 'new');
+	entries.inputText(path, typed);
+
+	context.failNextWrite(path);
+	void entries.saveRepair();
+	await quiet(vocab);
+	expect(failures).toMatchObject([{ path, unsaved: typed }]);
+	// The repair is open, so Save again starts a save, which lands.
+	expect(failures[0]?.retry?.()).toBe(true);
+	await quiet(vocab);
+	expect(await context.text(path)).toBe(typed);
+	// Once the repair is closed there is nothing to save again.
+	expect(await entries.closeRepair()).toBe(true);
+	expect(failures[0]?.retry?.()).toBe(false);
 });
 
 // ============================================================================
@@ -527,14 +562,14 @@ test('a delete removes the word even when it changed elsewhere', async () => {
 
 test('close waits for running saves, and every close call shares one completion', async () => {
 	const context = await setup();
-	const { folder, vocab, entries } = context;
+	const { folder, opened, entries } = context;
 	const entry = await context.add('lucid');
 	const { held, release } = context.holdNextWrite();
 	entries.setNote(entry.id, 'clear');
 	await held;
 	let closed = false;
-	const first = vocab.close();
-	expect(vocab.close()).toBe(first);
+	const first = opened.close();
+	expect(opened.close()).toBe(first);
 	void first.then(() => {
 		closed = true;
 	});
@@ -543,18 +578,20 @@ test('close waits for running saves, and every close call shares one completion'
 	release();
 	await first;
 	expect(folder.signal.aborted).toBe(true);
-	const saves = vocab.queryClient.getMutationCache().findAll({
-		mutationKey: vocab.folder$.entries.set.mutationOptions().mutationKey,
-	});
-	expect(saves.map((save) => save.state.status)).toEqual(['success']);
+	// The save landed before the folder closed: the next page reads it.
+	expect(context.failures).toEqual([]);
+	const reopened = await context.browser.open();
+	const { data: read } = await reopened.files.read(entry.stored.path);
+	await reopened.close();
+	expect(new TextDecoder().decode(read?.bytes)).toContain('note: clear');
 });
 
 test('after close begins, edits and actions change nothing', async () => {
 	const context = await setup();
-	const { vocab, entries } = context;
+	const { opened, entries } = context;
 	const entry = await context.add('lucid');
 	const saved = await context.text(entry.stored.path);
-	void vocab.close();
+	void opened.close();
 	expect(entries.setNote(entry.id, 'late')).toBe(false);
 	expect(expectErr(await entries.add('another')).name).toBe('NotStarted');
 	expect(expectErr(await entries.delete(entry)).name).toBe('NotStarted');

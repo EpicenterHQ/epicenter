@@ -1,12 +1,10 @@
 /**
- * Cache identity and shared rules for every query and mutation Vocab runs
- * (ADR-0528, ADR-0548). Every folder read is a query under the folder's own
+ * Cache identity for every query and mutation Vocab runs (ADR-0528,
+ * ADR-0548); the rules they share are `<FolderApp>`'s query client's. Every folder read is a query under the folder's own
  * keys (`folderOptions`), so a change the folder reports reaches it; every
  * write and action is a mutation.
  */
-import type { FileError, RowWriteError } from '@epicenter/folder';
 import type { FolderOptions } from '@epicenter/folder/query';
-import type { QueryClient } from '@tanstack/svelte-query';
 import { defineKeys } from 'wellcrafted/query';
 import type { vocabFolder } from './data.js';
 
@@ -24,27 +22,5 @@ export const vocabKeys = defineKeys({
 	message: (chatId: string) => ['vocab', 'message', chatId] as const,
 });
 
-/** A write that failed: what the learner is told, and how to recover. */
-export type WriteFailure = {
-	readonly path: string;
-	readonly error: RowWriteError | FileError | { name: string; message: string };
-	/** The text that was on screen and is not in the file; `''` when none is lost. */
-	readonly lost: string;
-	/** Send the edit again; set when the edit is still held on screen. */
-	readonly retry?: () => void;
-};
-
 /** Why a change did not start: the page is closing. */
 export const CLOSING = 'Vocab is closing, so nothing was changed.';
-
-/**
- * Vocab's own writes and actions read or write this browser's folder, as
- * the folder's options do, so none waits for a network, and a failure is
- * shown rather than retried. The folder's options carry their own rules.
- */
-export function setVocabDefaults(queryClient: QueryClient) {
-	queryClient.setMutationDefaults(vocabKeys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
-}

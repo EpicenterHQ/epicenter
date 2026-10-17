@@ -1,11 +1,13 @@
 /**
  * Test helper: Vocab's real browser folder over the in-memory OPFS stand-in.
  *
- * `open` opens the folder the way the page does, under `VOCAB_FOLDER_ID`, so
+ * `open` opens the folder the way the page does, under `APPS.VOCAB.id`, so
  * opening again in the same browser is a reload or another tab. A
  * gated table is the real table with one refusal or delay put in front of it,
  * the way a full or slow browser store answers.
  */
+
+import { APPS } from '@epicenter/constants/apps';
 import { FileError, type FolderFiles } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
@@ -15,7 +17,6 @@ import {
 	opfsOf,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { type VocabFolder, type VocabTables, vocabFolder } from './data.js';
-import { VOCAB_FOLDER_ID } from './folder.js';
 
 /** Let the folder answer until `done` holds. */
 export async function until(done: () => boolean, what: string) {
@@ -90,7 +91,7 @@ export function createBrowser(
 		async open(): Promise<VocabFolder> {
 			const folder = expectOk(
 				await openFolder({
-					app: VOCAB_FOLDER_ID,
+					app: APPS.VOCAB.id,
 					definition: vocabFolder,
 					browser: { ...storage },
 				}),

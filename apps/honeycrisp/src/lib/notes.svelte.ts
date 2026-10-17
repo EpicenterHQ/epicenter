@@ -2,11 +2,11 @@
  * The Honeycrisp product state over one opened notes folder, read through a
  * TanStack Query cache (ADR-0548).
  *
- * Reads are queries from `folderOptions(folder)`: the note rows, the folder
+ * Reads are queries from the folder's query layer (`queries`): the note rows, the folder
  * rows, the file listing the file browser shows, Git status, and the text of
  * each file opened as text. The cache changes in two ways only. Changes the
  * page did not make arrive on `folder.onFilesChanged`, which makes exactly
- * the queries they name stale (the one line in `createNotes`). The page's own
+ * the queries they name stale (`<FolderApp>` wires it once). The page's own
  * writes put their result in the cache, or make what they changed stale.
  * Nothing rereads on focus.
  *
@@ -28,9 +28,10 @@
  *
  * Every other action is a mutation: create, rename (`folder.move` for a file
  * that is not a row), delete (a write to no file, whatever the file holds
- * by then), deleting a folder, and Save version. Closing the notes fences new input, then waits
- * until every save and action settled before it releases the folder. Saves never commit (ADR-0529); a version is recorded only by
- * Save version.
+ * by then), deleting a folder, and Save version. When the folder starts
+ * closing, the notes fence new input and send what is typed; `<FolderApp>`
+ * then waits for every save and action and releases the folder. Saves never
+ * commit (ADR-0529); a version is recorded only by Save version.
  */
 import { InstantString } from '@epicenter/definition';
 import {
@@ -68,6 +69,12 @@ import {
 	createTextEditor,
 	type TextEditor,
 } from '@epicenter/folder/svelte';
+import type { FolderContext } from '@epicenter/svelte/folder';
+import {
+	ActionError,
+	type DescribedError,
+	describeWriteError,
+} from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
 	type Mutation,
@@ -76,12 +83,12 @@ import {
 } from '@tanstack/svelte-query';
 import { useDebounce } from 'runed';
 import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result, unwrap } from 'wellcrafted/result';
 import {
 	type FolderEntry,
 	type FolderFields,
+	type honeycrispDefinition,
 	NOTES,
 	type NoteEntry,
 	type NoteFields,
@@ -90,9 +97,16 @@ import {
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
 import { displayTitle } from './note-source.js';
-import type { NotesFolder } from './platform/types.js';
 
 export type Notes = ReturnType<typeof createNotes>;
+
+/**
+ * The opened notes folder, as `getFolder()` answers it. Its own
+ * `definition` is `honeycrispDefinition` for Honeycrisp's own folder, and the
+ * folder's declaration for any other folder Epicenter hands it. The app
+ * never syncs; remotes are outside it.
+ */
+export type NotesFolder = FolderContext<typeof honeycrispDefinition>;
 
 /** How a path opens: as the note it is, or as its exact text. */
 export type OpenAs = 'note' | 'text';
@@ -134,32 +148,9 @@ export type Deletion =
 			readonly unversioned: boolean | undefined;
 	  };
 
-/** A save that failed. */
-export type WriteFailure = {
-	readonly path: string;
-	readonly error:
-		| RowWriteError
-		| Extract<FileError, { name: 'NotFound' }>
-		| Extract<NotesError, { name: 'NoteDeleted' }>;
-	/** The text of the edit the file does not hold. */
-	readonly unsaved: string;
-	/**
-	 * Whether the edit stays on screen, to be saved again. Otherwise the view
-	 * shows the file: the note is gone, or a text save failed.
-	 */
-	readonly kept: boolean;
-};
-
-/** Why an action did not start, or stopped before it changed anything. */
-export const NotesError = defineErrors({
-	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
-	/** A body was typed into a note that another program deleted. */
-	NoteDeleted: ({ path }: { path: string }) => ({
-		message: 'This note was deleted elsewhere, so your edit was not saved.',
-		path,
-	}),
-});
-export type NotesError = InferErrors<typeof NotesError>;
+/** Why a body typed into a note that another program deleted was not written. */
+const NOTE_DELETED =
+	'This note was deleted elsewhere, so your edit was not saved.';
 
 const CLOSING = 'The app is closing, so nothing was changed.';
 const BUSY =
@@ -169,40 +160,13 @@ const OPEN_AS_TEXT =
 const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
 
-/** Cache identity for the app's own actions; the folder's reads and writes are `folder$`'s. */
+/** Cache identity for the app's own actions; the folder's reads and writes are `queries`'. */
 export const notesKeys = defineKeys({
 	all: ['honeycrisp'],
 	move: (path: string) => ['honeycrisp', 'move', path] as const,
 	delete: (path: string) => ['honeycrisp', 'delete', path] as const,
 	saveVersion: ['honeycrisp', 'save-version'],
 });
-
-/**
- * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, and a lost reply leaves the outcome unknown.
- */
-export function describeError(
-	error: FileError | RowWriteError | NotesError | GitError,
-): string {
-	switch (error.name) {
-		case 'NotStarted':
-			return error.reason;
-		case 'KeptChanging':
-			return 'The file kept changing elsewhere while it was saved, so the edit is not saved yet.';
-		case 'DirectoryNotEmpty':
-			return 'The folder is not empty, so nothing was deleted.';
-		case 'Unconfirmed':
-			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
-		case 'InvalidValues':
-			return error.issues.map((issue) => issue.message).join(' ');
-		case 'NotFound':
-			return 'This file is no longer in the folder.';
-		case 'Occupied':
-			return 'Another file already has this name, so nothing was changed.';
-		default:
-			return error.message;
-	}
-}
 
 /** Why a listed row file cannot be shown as a row. */
 function problemOf(path: string, error: RowReadError): Problem {
@@ -259,17 +223,8 @@ export function unreadableOf(
 	return unreadable;
 }
 
-export function createNotes(
-	folder: NotesFolder,
-	queryClient: QueryClient,
-	{
-		onWriteFailed = () => {},
-	}: {
-		/** A save failed; the app tells the person. */
-		onWriteFailed?: (failure: WriteFailure) => void;
-	} = {},
-) {
-	const folder$ = folderOptions(folder);
+export function createNotes(opened: NotesFolder) {
+	const { folder, queries, queryClient, writeFailed } = opened;
 	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 	const trackMutations = createSubscriber((update) =>
@@ -292,26 +247,13 @@ export function createNotes(
 	let openings = 0;
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
-	/** Set once `close` begins: no edit and no action starts after it. */
+	/** Set once the folder starts closing: no edit and no action starts after it. */
 	let fenced = $state(false);
-	/** The one completion every `close` call answers. */
-	let closing: Promise<void> | undefined;
 	/** Set once the folder is being released: nothing reads it after. */
 	let released = false;
 
 	/** Why no edit or action starts now, if one does not. */
 	const refused = () => (fenced ? CLOSING : undefined);
-
-	// The app's own actions are local like the folder's writes: nothing
-	// waits for a network or retries.
-	queryClient.setMutationDefaults(notesKeys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
-
-	// Changes the page did not make arrive here, and make exactly the queries
-	// they name stale. Stopped when the notes close.
-	const stopChanges = folder$.invalidateOnChange(queryClient);
 
 	/**
 	 * After the app's own action: what it changed at `paths` is read again,
@@ -321,7 +263,7 @@ export function createNotes(
 	const changed = (...paths: string[]) =>
 		released
 			? Promise.resolve()
-			: queryClient.invalidateQueries(folder$.pathFilter(paths));
+			: queryClient.invalidateQueries(queries.pathFilter(paths));
 
 	/** Whether a rename or delete of `path` is running or waiting, which pauses its edits. */
 	const moving = (path: string) =>
@@ -363,7 +305,12 @@ export function createNotes(
 	 * One table's rows: the listing in the cache, and the set of a row's
 	 * fields as its file is now (ADR-0576).
 	 */
-	function rowTable<TFields>(name: TableName, options: TableOptions<TFields>) {
+	function rowTable<TFields>(
+		name: TableName,
+		options: TableOptions<TFields>,
+		/** The text the person typed among a set's fields, offered when the set fails. */
+		typedIn: (fields: Partial<TFields>) => string,
+	) {
 		const listing = () =>
 			queryClient.getQueryData<TableListing<TFields>>(options.list.queryKey());
 
@@ -375,13 +322,14 @@ export function createNotes(
 
 		const setRow = {
 			...options.set.mutationOptions(),
-			// What was typed stays on screen, to be sent again.
-			onError: (error, { stem }) =>
-				onWriteFailed({
+			// What was typed stays on screen, to be sent again. A typed title
+			// or folder name is offered to copy as well; a pin, a move, or a
+			// trash carries no text the person typed.
+			onError: (error, { stem, fields }) =>
+				writeFailed({
 					path: rowPath(name, stem),
 					error,
-					unsaved: '',
-					kept: true,
+					unsaved: typedIn(fields),
 				}),
 		} satisfies ReturnType<TableOptions<TFields>['set']['mutationOptions']>;
 
@@ -419,8 +367,16 @@ export function createNotes(
 		};
 	}
 
-	const noteRows = rowTable<NoteFields>('notes', folder$.notes);
-	const folderRows = rowTable<FolderFields>('folders', folder$.folders);
+	const noteRows = rowTable<NoteFields>(
+		'notes',
+		queries.notes,
+		(fields) => fields.title ?? '',
+	);
+	const folderRows = rowTable<FolderFields>(
+		'folders',
+		queries.folders,
+		(fields) => fields.name ?? '',
+	);
 
 	/** The row table `path` is in, and its stem, if it is a row file. */
 	function rowAt(path: string) {
@@ -470,16 +426,31 @@ export function createNotes(
 	const bodies = new SvelteMap<string, Typed<TextEditor>>();
 
 	const writeNote = {
-		...folder$.notes.write.mutationOptions(),
+		...queries.notes.write.mutationOptions(),
 		// What was typed stays on screen, to be sent again.
 		onError: (error, { stem, to }) =>
-			onWriteFailed({
+			writeFailed({
 				path: rowPath(NOTES, stem),
 				error,
 				unsaved: to?.body ?? '',
-				kept: true,
+				// Starts a save only while the body is still held and the folder
+				// is not closing; otherwise the toast keeps the text to copy.
+				// Through `saveBodyOf`, so a note deleted since lets the body go
+				// and offers it once.
+				retry: () => {
+					const held = bodies.get(stem);
+					if (
+						refused() !== undefined ||
+						held === undefined ||
+						held.typed() === undefined ||
+						held.draft.gone
+					)
+						return false;
+					void saveBodyOf(stem);
+					return true;
+				},
 			}),
-	} satisfies ReturnType<typeof folder$.notes.write.mutationOptions>;
+	} satisfies ReturnType<typeof queries.notes.write.mutationOptions>;
 
 	/** Stems whose body save found the note deleted, so it wrote nothing. */
 	const savedOverDelete = new Set<string>();
@@ -506,11 +477,10 @@ export function createNotes(
 		typed.draft.discard();
 		bodies.delete(stem);
 		const path = rowPath(NOTES, stem);
-		onWriteFailed({
+		writeFailed({
 			path,
-			error: NotesError.NoteDeleted({ path }).error,
+			error: ActionError.NotStarted({ reason: NOTE_DELETED }).error,
 			unsaved,
-			kept: false,
 		});
 	}
 
@@ -523,7 +493,7 @@ export function createNotes(
 		await saveTyped(bodies, stem);
 		dropIfDeleted(stem);
 	}
-	const noteListHash = hashKey(folder$.notes.list.queryKey());
+	const noteListHash = hashKey(queries.notes.list.queryKey());
 	const stopDeletedBodies = queryClient.getQueryCache().subscribe((event) => {
 		if (
 			event.type === 'updated' &&
@@ -581,7 +551,7 @@ export function createNotes(
 		return undefined;
 	}
 
-	const textKey = (path: string) => folder$.files.text.queryKey(path);
+	const textKey = (path: string) => queries.files.text.queryKey(path);
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
@@ -599,20 +569,16 @@ export function createNotes(
 	 * found the file deleted. The view takes the file as it is now, read
 	 * again.
 	 */
-	function dropText(
-		path: string,
-		error: WriteFailure['error'],
-		sent: string,
-	): void {
+	function dropText(path: string, error: DescribedError, sent: string): void {
 		const held = textDrafts.get(path);
 		const unsaved = held?.typed() ?? sent;
 		held?.draft.discard();
 		textDrafts.delete(path);
-		onWriteFailed({ path, error, unsaved, kept: false });
+		writeFailed({ path, error, unsaved });
 	}
 
-	const writeText = folder$.write.mutationOptions();
-	const moveFile = folder$.move.mutationOptions();
+	const writeText = queries.write.mutationOptions();
+	const moveFile = queries.move.mutationOptions();
 
 	/** An edit of one file's exact text, saved one write at a time after a pause. */
 	function textDraftOf(path: string) {
@@ -749,19 +715,17 @@ export function createNotes(
 	}
 
 	/** What a person reads about an action's outcome: nothing, or why it failed. */
-	function problem(
-		result: Result<unknown, Parameters<typeof describeError>[0]>,
-	) {
-		return result.error === null ? undefined : describeError(result.error);
+	function problem(result: Result<unknown, DescribedError>) {
+		return result.error === null ? undefined : describeWriteError(result.error);
 	}
 
 	const createNote = defineMutation({
 		mutationKey: ['honeycrisp', 'create-note'],
 		mutationFn: async (
 			stem: string,
-		): Promise<Result<WrittenRow<NoteFields>, RowWriteError | NotesError>> => {
+		): Promise<Result<WrittenRow<NoteFields>, RowWriteError | ActionError>> => {
 			const why = refused();
-			if (why !== undefined) return NotesError.NotStarted({ reason: why });
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			return folder.tables.notes.create(
 				{
 					fields: {
@@ -792,10 +756,10 @@ export function createNotes(
 			stem: string;
 			name: string;
 		}): Promise<
-			Result<WrittenRow<FolderFields>, RowWriteError | NotesError>
+			Result<WrittenRow<FolderFields>, RowWriteError | ActionError>
 		> => {
 			const why = refused();
-			if (why !== undefined) return NotesError.NotStarted({ reason: why });
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			return folder.tables.folders.create(
 				{ fields: { name, icon: null }, body: '' },
 				{ stem },
@@ -812,18 +776,18 @@ export function createNotes(
 		}: {
 			directory: string;
 			name: string;
-		}): Promise<Result<Written, WriteError | NotesError>> => {
+		}): Promise<Result<Written, WriteError | ActionError>> => {
 			const why = refused() ?? nameProblem(directory, name);
-			if (why !== undefined) return NotesError.NotStarted({ reason: why });
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			const path = joinPath(directory, name);
 			const listing = queryClient.getQueryData<FileListing>(
-				folder$.files.list.queryKey(),
+				queries.files.list.queryKey(),
 			);
 			if (
 				listing?.directories.includes(path) ||
 				listing?.files.some((file) => file.path === path)
 			)
-				return NotesError.NotStarted({
+				return ActionError.NotStarted({
 					reason: `"${name}" already exists here.`,
 				});
 			// A write from no file places it only where none is.
@@ -843,18 +807,18 @@ export function createNotes(
 		}: {
 			directory: string;
 			name: string;
-		}): Promise<Result<undefined, FileError | NotesError>> => {
+		}): Promise<Result<undefined, FileError | ActionError>> => {
 			const why = refused() ?? nameProblem(directory, name);
-			if (why !== undefined) return NotesError.NotStarted({ reason: why });
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			const path = joinPath(directory, name);
 			const listing = queryClient.getQueryData<FileListing>(
-				folder$.files.list.queryKey(),
+				queries.files.list.queryKey(),
 			);
 			if (
 				listing?.directories.includes(path) ||
 				listing?.files.some((file) => file.path === path)
 			)
-				return NotesError.NotStarted({
+				return ActionError.NotStarted({
 					reason: `"${name}" already exists here.`,
 				});
 			return folder.files.mkdir(path);
@@ -879,22 +843,22 @@ export function createNotes(
 		return defineMutation({
 			mutationKey: notesKeys.delete(entry.path),
 			mutationFn: async (): Promise<
-				Result<undefined, WriteError | FileError | NotesError>
+				Result<undefined, WriteError | FileError | ActionError>
 			> => {
 				const why = refused();
-				if (why !== undefined) return NotesError.NotStarted({ reason: why });
+				if (why !== undefined) return ActionError.NotStarted({ reason: why });
 				// Writes running now land first, so the listing says where each
 				// note is.
 				await writesSettled();
 				const listing = noteRows.listing();
 				if (listing === undefined)
-					return NotesError.NotStarted({
+					return ActionError.NotStarted({
 						reason:
 							'The notes could not be listed, so it is not known which are in this folder.',
 					});
 				const unknown = [...repairsOf(listing), ...unreadableOf(listing, [])];
 				if (unknown.length > 0)
-					return NotesError.NotStarted({
+					return ActionError.NotStarted({
 						reason: `Some notes cannot be read well enough to tell which folder they are in (${unknown
 							.slice(0, 3)
 							.map((item) => basename(item.path))
@@ -905,7 +869,7 @@ export function createNotes(
 					if (note.row.fields.folderId !== id) continue;
 					const refusal = patchNote(note.path, { folderId: null });
 					if (refusal !== undefined)
-						return NotesError.NotStarted({
+						return ActionError.NotStarted({
 							reason: `A note could not be moved out of the folder: ${refusal}`,
 						});
 				}
@@ -916,7 +880,7 @@ export function createNotes(
 					(note) => note.row.fields.folderId === id,
 				);
 				if (remaining.length > 0)
-					return NotesError.NotStarted({
+					return ActionError.NotStarted({
 						reason: `Some notes are still in this folder (${remaining
 							.slice(0, 3)
 							.map((note) => basename(note.path))
@@ -934,7 +898,7 @@ export function createNotes(
 
 	/**
 	 * Rename a file within its folder, through the folder's one move
-	 * (`folder$.move`): a row and any other file alike move as exact bytes,
+	 * (`queries.move`): a row and any other file alike move as exact bytes,
 	 * a row to the path of its new stem. It waits for the file's saves to
 	 * land and moves what the file holds then. Edits of the file wait
 	 * meanwhile.
@@ -945,22 +909,22 @@ export function createNotes(
 		return defineMutation({
 			mutationKey: notesKeys.move(path),
 			mutationFn: async (): Promise<
-				Result<Written | undefined, WriteError | NotesError>
+				Result<Written | undefined, WriteError | ActionError>
 			> => {
 				const why = refused() ?? nameProblem(directory, name);
-				if (why !== undefined) return NotesError.NotStarted({ reason: why });
+				if (why !== undefined) return ActionError.NotStarted({ reason: why });
 				if (to === path) return Ok(undefined);
 				const at = rowAt(path);
 				const nextStem =
 					at === undefined ? undefined : rowStemOf(at.rows.name, to);
 				if (at !== undefined && nextStem === undefined)
-					return NotesError.NotStarted({
+					return ActionError.NotStarted({
 						reason: `A ${at.rows.name === NOTES ? 'note' : 'folder'} file keeps its .md extension.`,
 					});
 				await settledAt(path);
 				// A close that began meanwhile stops the move.
 				const late = refused();
-				if (late !== undefined) return NotesError.NotStarted({ reason: late });
+				if (late !== undefined) return ActionError.NotStarted({ reason: late });
 				return runMutation(queryClient, moveFile, { path, next: to }).then(
 					(written) => Ok(written),
 					(error: WriteError) => Err(error),
@@ -984,10 +948,10 @@ export function createNotes(
 		return defineMutation({
 			mutationKey: notesKeys.delete(deletion.path),
 			mutationFn: async (): Promise<
-				Result<unknown, FileError | WriteError | NotesError>
+				Result<unknown, FileError | WriteError | ActionError>
 			> => {
 				const why = refused();
-				if (why !== undefined) return NotesError.NotStarted({ reason: why });
+				if (why !== undefined) return ActionError.NotStarted({ reason: why });
 				if (deletion.kind === 'folder')
 					return folder.files.rmdir(deletion.path);
 				await settledAt(deletion.path);
@@ -1000,12 +964,23 @@ export function createNotes(
 		})();
 	}
 
+	// When the page goes away, input is fenced for good, every document typed
+	// is sent, and every save and action settles before `<FolderApp>` releases
+	// the folder.
+	opened.beforeClose(async () => {
+		fenced = true;
+		await writesSettled();
+		await whenIdle(queryClient);
+		released = true;
+		stopDeletedBodies();
+	});
+
 	return {
-		/** The opened folder; `close` releases it. */
+		/** The opened folder; `<FolderApp>` releases it. */
 		folder,
 		queryClient,
 		/** The folder's query and mutation options; views read through these. */
-		folder$,
+		queries,
 		expanded,
 		get git() {
 			trackGit();
@@ -1019,7 +994,7 @@ export function createNotes(
 		/** One file's complete text, or its type and size when it is not editable text. */
 		textQuery(path: string) {
 			return {
-				...folder$.files.text.queryOptions(path),
+				...queries.files.text.queryOptions(path),
 				// A note opened as its file while its row is being saved is read
 				// once that save lands, never under it.
 				queryFn: async () => {
@@ -1034,10 +1009,10 @@ export function createNotes(
 		 */
 		async load() {
 			await Promise.all([
-				queryClient.prefetchQuery(folder$.notes.list.queryOptions()),
-				queryClient.prefetchQuery(folder$.folders.list.queryOptions()),
-				queryClient.prefetchQuery(folder$.files.list.queryOptions()),
-				queryClient.prefetchQuery(folder$.history.status.queryOptions()),
+				queryClient.prefetchQuery(queries.notes.list.queryOptions()),
+				queryClient.prefetchQuery(queries.folders.list.queryOptions()),
+				queryClient.prefetchQuery(queries.files.list.queryOptions()),
+				queryClient.prefetchQuery(queries.history.status.queryOptions()),
 			]);
 		},
 
@@ -1236,7 +1211,7 @@ export function createNotes(
 			const why = refused();
 			if (why !== undefined) return Err(why);
 			const listing = queryClient.getQueryData<FileListing>(
-				folder$.files.list.queryKey(),
+				queries.files.list.queryKey(),
 			);
 			if (listing?.directories.includes(path)) {
 				const prefix = `${path}/`;
@@ -1250,9 +1225,9 @@ export function createNotes(
 				return Ok({ kind: 'folder', path });
 			}
 			const { error } = await folder.files.read(path);
-			if (error !== null) return Err(describeError(error));
+			if (error !== null) return Err(describeWriteError(error));
 			const status = await queryClient
-				.fetchQuery(folder$.history.status.queryOptions())
+				.fetchQuery(queries.history.status.queryOptions())
 				.then(
 					(observed) => observed,
 					() => undefined,
@@ -1274,38 +1249,16 @@ export function createNotes(
 		 */
 		saveVersion: defineMutation({
 			mutationKey: notesKeys.saveVersion,
-			mutationFn: async (): Promise<Result<CommitOutcome, NotesError>> => {
+			mutationFn: async (): Promise<Result<CommitOutcome, ActionError>> => {
 				const why = refused();
-				if (why !== undefined) return NotesError.NotStarted({ reason: why });
+				if (why !== undefined) return ActionError.NotStarted({ reason: why });
 				await writesSettled();
 				return Ok(await folder.git.commit());
 			},
 			onSettled: () =>
 				queryClient.invalidateQueries({
-					queryKey: folder$.history.status.queryKey(),
+					queryKey: queries.history.status.queryKey(),
 				}),
 		}),
-
-		// ------------------------------------------------------------------
-		// Closing
-		// ------------------------------------------------------------------
-
-		/**
-		 * Fence input for good, wait until every save and action settled, then
-		 * release the folder. Every call answers the same completion.
-		 */
-		close(): Promise<void> {
-			closing ??= (async () => {
-				fenced = true;
-				await writesSettled();
-				await whenIdle(queryClient);
-				released = true;
-				stopChanges();
-				stopDeletedBodies();
-				await queryClient.cancelQueries({ queryKey: folder$.key });
-				await folder.close();
-			})();
-			return closing;
-		},
 	};
 }

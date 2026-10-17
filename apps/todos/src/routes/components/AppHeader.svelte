@@ -27,9 +27,8 @@
 		versionLine,
 		versionOutcomeLine,
 	} from '$lib/status.js';
-	import { describeError } from '$lib/describe-error.js';
+	import { type ActionError, describeWriteError } from '@epicenter/svelte/write-failure';
 	import { isEpicenter } from '$lib/remote.js';
-	import type { TodosError } from '$lib/session.js';
 	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -40,7 +39,7 @@
 		onconnect,
 	}: {
 		/** The page's Sync. */
-		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, ConnectTo | void, unknown>;
+		sync: CreateMutationResult<SyncOutcome, SyncError | ActionError, ConnectTo | void, unknown>;
 		/**
 		 * Open Connect, to choose or change the remote. Absent for a folder
 		 * that offers no Connect: the remote is shown and cannot be changed here.
@@ -88,7 +87,7 @@
 	function runSaveVersion() {
 		saveVersion.mutate(undefined, {
 			onSuccess: (outcome) => toastStatus(versionOutcomeLine(outcome)),
-			onError: (error) => toast.error('Version not saved', { description: describeError(error) }),
+			onError: (error) => toast.error('Version not saved', { description: describeWriteError(error) }),
 		});
 	}
 </script>
