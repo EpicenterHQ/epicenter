@@ -6,7 +6,7 @@
  * provider's `resourceSeedMode`; a first-party client is rewritten to its
  * declaration, because its redirects follow the deployment's origin.
  */
-import { and, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, notInArray } from 'drizzle-orm';
 import type { Db } from '../db/create-db.js';
 import {
 	oauthClient,
@@ -65,7 +65,9 @@ export function firstPartyClientRow(client: FirstPartyClient) {
  * declaration, and make each client's resource links exactly the declared
  * ones. Each statement is idempotent on its own, so writers that run at once
  * (two Worker isolates starting together) converge, and a write cut short is
- * finished by the next one. There is no transaction, so the write can share
+ * finished by the next one. Inserts name no conflict target: a row has two
+ * unique keys (`id` and the client ID or identifier), and Postgres raises on
+ * a concurrent duplicate of any key the conflict clause does not name. There is no transaction, so the write can share
  * a connection with other queries, such as the provider seeding its resources
  * as a Better Auth instance initializes.
  */
@@ -90,16 +92,17 @@ export async function registerFirstPartyClients(
 				updatedAt: now,
 			})),
 		)
-		.onConflictDoNothing({ target: oauthResource.identifier });
+		.onConflictDoNothing();
 	for (const client of clients) {
-		const row = firstPartyClientRow(client);
+		const { id, ...row } = firstPartyClientRow(client);
 		await db
 			.insert(oauthClient)
-			.values({ ...row, createdAt: now, updatedAt: now })
-			.onConflictDoUpdate({
-				target: oauthClient.clientId,
-				set: { ...row, id: sql`${oauthClient.id}`, updatedAt: now },
-			});
+			.values({ ...row, id, createdAt: now, updatedAt: now })
+			.onConflictDoNothing();
+		await db
+			.update(oauthClient)
+			.set({ ...row, updatedAt: now })
+			.where(eq(oauthClient.clientId, client.clientId));
 	}
 	const links = clients.flatMap((client) =>
 		client.resources.map((resourceId) => ({
