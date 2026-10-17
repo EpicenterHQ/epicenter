@@ -654,6 +654,8 @@
         "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
+        "@tanstack/query-core": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
