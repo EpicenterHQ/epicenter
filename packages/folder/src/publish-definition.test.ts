@@ -1,11 +1,10 @@
 /**
  * Publication attempt contract: the one write, as a create joining the file
  * there. An awaited put where no file is when the file is missing; a put
- * guarded by the bytes read, the definition winning the file, when it holds
- * other bytes; no write when it holds the declaration's; every `local`
- * pattern the file lists kept; another read when another writer got there
- * first, up to the write's attempts; and failure diagnostics retaining
- * uncertain outcomes.
+ * guarded by the bytes read, the definition winning each key both hold,
+ * when it holds other values, and its own spelling where the values agree;
+ * no write when it holds the declaration's bytes; another read when another writer got there first, up to the
+ * write's attempts; and failure diagnostics retaining uncertain outcomes.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
@@ -84,44 +83,33 @@ test('a file already holding the declaration bytes is not rewritten', async () =
 	expect(events).toEqual([]);
 });
 
-for (const [name, there] of [
-	['different bytes', '{"title":"Another app"}\n'],
-	[
-		'the same JSON without its trailing newline',
-		formatDefinition(definition).trimEnd(),
-	],
-] as const)
-	test(`${name} are put over once, guarded by what was read, the definition winning`, async () => {
-		const { storage, writes } = recording([holding(there)]);
-		await publishDefinition(definition, storage);
-		expect(writes).toEqual([
-			{ text: formatDefinition(definition), ifMatch: await shaOf(there) },
-		]);
-		// Logged as any write that replaced another writer's file is; no failure.
-		expect(events.map(({ level, source }) => ({ level, source }))).toEqual([
-			{ level: 'info', source: 'folder/save' },
-		]);
-	});
+test('the same JSON spelled otherwise is put over once, guarded by what was read, with nothing overridden', async () => {
+	const there = formatDefinition(definition).trimEnd();
+	const { storage, writes } = recording([holding(there)]);
+	await publishDefinition(definition, storage);
+	expect(writes).toEqual([
+		{ text: formatDefinition(definition), ifMatch: await shaOf(there) },
+	]);
+	expect(events).toEqual([]);
+});
 
-test('a local pattern the file lists, from another device, is kept', async () => {
-	const own = defineFolder({ tables: {}, local: ['audio/'] });
-	const theirs = defineFolder({ tables: {}, local: ['drafts/'] });
-	const both = defineFolder({
-		tables: {},
-		local: ['audio/', 'drafts/'],
-	});
-	const { storage, writes } = recording([holding(formatDefinition(theirs))]);
-	await publishDefinition(own, storage);
+test('other values are put over once, guarded by what was read: the definition wins each key both hold', async () => {
+	const titled = defineFolder({ title: 'Mine', tables: {} });
+	const there = '{"title":"Another app","note":"kept"}\n';
+	const { storage, writes } = recording([holding(there)]);
+	await publishDefinition(titled, storage);
+	// A key only the file holds is an addition the definition never saw.
+	const merged = { ...JSON.parse(formatDefinition(titled)), note: 'kept' };
 	expect(writes).toEqual([
 		{
-			text: formatDefinition(both),
-			ifMatch: await shaOf(formatDefinition(theirs)),
+			text: `${JSON.stringify(merged, null, 2)}\n`,
+			ifMatch: await shaOf(there),
 		},
 	]);
-	// A file already listing them all, and this definition's, is left alone.
-	const again = recording([holding(formatDefinition(both))]);
-	await publishDefinition(own, again.storage);
-	expect(again.writes).toEqual([]);
+	// Logged as any write that replaced another writer's change is; no failure.
+	expect(events.map(({ level, source }) => ({ level, source }))).toEqual([
+		{ level: 'info', source: 'folder/save' },
+	]);
 });
 
 test('another writer getting there first is read again, as many times as a write tries', async () => {

@@ -45,10 +45,9 @@ const PublicationError = defineErrors({
 /**
  * Await one publication of `prepared` at `epicenter.json`: a create that
  * joins whatever file is there, so `merge` decides it as it decides every
- * write of the file (ADR-0576). This definition wins the whole file but for
- * `local`, which keeps every pattern the file already lists, such as one a
- * Sync brought from another device; a file already holding the result is
- * left as it is. A failure is logged and never refuses the write it
+ * write of the file (ADR-0576). This definition wins each key both hold
+ * differently, `local` among them, and a key only the file holds stays; a
+ * file already holding the result is left as it is. A failure is logged and never refuses the write it
  * precedes.
  *
  * Answers the `local` patterns the file lists once published, for
@@ -63,7 +62,6 @@ export async function publishDefinition(
 	try {
 		const { data: written, error } = await writeFile(
 			storage,
-			{ kind: 'definition' },
 			DEFINITION_PATH,
 			null,
 			formatDefinition(prepared),
@@ -117,7 +115,6 @@ export async function publishLocalPatterns(
 			const separator = text === '' || text.endsWith('\n') ? '' : '\n';
 			const { error } = await writeFile(
 				storage,
-				{ kind: 'file' },
 				GITIGNORE_PATH,
 				current,
 				`${text}${separator}${missing.join('\n')}\n`,

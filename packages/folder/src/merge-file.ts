@@ -1,46 +1,55 @@
 /**
- * The three-way merge of a folder file, by the file's kind (ADR-0551,
- * ADR-0576).
+ * The three-way merge of a folder file, by its content and its extension
+ * (ADR-0551, ADR-0576, ADR-0585). No definition takes part: a file merges
+ * the same wherever it is in the folder and whatever reads it.
  *
- * `merge` is the one merge every write makes: `ours` is the writer acting,
- * and it wins every unit both sides changed differently.
+ * `merge` is the one merge every write and Sync make: `ours` is the writer
+ * acting, and it wins every unit both sides changed differently.
  *
- * | Kind | Unit |
+ * | File | Unit |
  * | --- | --- |
- * | a row of a declared table | one frontmatter field; one region of body lines |
+ * | `.md` whose present versions all have frontmatter `parseRowSource` reads | one frontmatter field; one region of body lines |
+ * | `.json` whose present versions all parse as JSON objects | one key; a key whose value is an object on both sides is its own keys |
  * | other UTF-8 text | one region of lines |
  * | binary, or a side absent | the whole file |
  *
  * Units only one side changed all survive. Two insertions at one place in a
  * body or a text both survive, and identical ones are one (`mergeLines`).
  * A delete beats an edit the deleting side never saw: only a side with no
- * base brings a file into existence.
- * A row version that does not read as a row merges as text, and so does a
- * merge of rows that does not write as one: the result is a file a person
- * can repair, never a refusal (ADR-0503).
+ * base brings a file into existence. A Markdown version whose frontmatter
+ * does not read merges as text, and a JSON version that is not an object
+ * merges as the whole file: the result is a file a person can repair, never
+ * a refusal (ADR-0503).
  *
- * Rows are compared by the values `parseRow` reads, never by their spelling,
- * so key order, quoting, and frontmatter comments never compete, and a
- * merged row is written in canonical form by `writeRow`. Values compare as
- * JSON, so object key order does not matter and arrays and objects are one
- * unit each. A row `ours` left as `base` had it is no change: `theirs`
- * stands as it is, spelling included.
+ * Fields and keys compare by value as JSON, never by spelling, so key order,
+ * quoting, and frontmatter comments never compete, and an array is one unit.
+ * A merged file keeps a side's bytes wherever its values are that side's:
+ * frontmatter whose merged fields equal ours' or theirs' is that side's
+ * frontmatter exactly, comments included, and a JSON file whose merged value
+ * equals a side's is that side's file. Only a result that differs from both
+ * is written canonically, keys in ours' order and then keys only theirs
+ * added: frontmatter by `formatRowSource`, JSON by `JSON.stringify` with a
+ * two-space indent, which puts integer-like keys first as JavaScript orders
+ * them.
+ *
+ * Nothing is checked against a schema. Every merged value is ours' or
+ * theirs', and a field is checked alone, with no rule across fields, so a
+ * field merge of two valid rows is a valid row.
  *
  * This module writes nothing and loads no Git implementation.
  */
-import type { Definition, PreparedFolderTable } from './definition.js';
+import {
+	type CanonicalDocument,
+	formatRowSource,
+	parseRowSource,
+} from './canonical.js';
 import { mergeLines, type SettledRegion } from './git/merge-lines.js';
 import { frameRowText } from './markdown.js';
-import { DEFINITION_PATH, ROW_EXTENSION } from './paths.js';
+import { ROW_EXTENSION } from './paths.js';
 import { type AnyRow, mergeRows, sameValue, setField } from './row-merge.js';
-import { parseRow, writeRow } from './row-text.js';
+import { lineFeeds } from './row-text.js';
 
-/** How a path merges: decided by its place in the folder, for save and Sync alike. */
-export type FileKind =
-	| { readonly kind: 'row'; readonly table: PreparedFolderTable }
-	/** `epicenter.json`, which merges whole but for the union of `local`. */
-	| { readonly kind: 'definition' }
-	| { readonly kind: 'file' };
+const JSON_EXTENSION = '.json';
 
 /** A file's content as a merge reads it: text, or bytes that may be text. */
 export type FileContent = string | Uint8Array;
@@ -51,31 +60,6 @@ export type FileVersions = {
 	readonly ours: FileContent | null;
 	readonly theirs: FileContent | null;
 };
-
-/** The kind of `path` under `definition`; no definition knows only plain files. */
-export function fileKindOf(
-	definition: Definition | undefined,
-	path: string,
-): FileKind {
-	if (path === DEFINITION_PATH) return { kind: 'definition' };
-	if (definition === undefined) return { kind: 'file' };
-	const table = tableAt(definition, path);
-	return table === undefined ? { kind: 'file' } : { kind: 'row', table };
-}
-
-/** The table whose row lives at `path`, if any. */
-function tableAt(
-	definition: Definition,
-	path: string,
-): PreparedFolderTable | undefined {
-	if (!path.endsWith(ROW_EXTENSION)) return undefined;
-	const slash = path.indexOf('/');
-	if (slash < 0 || path.indexOf('/', slash + 1) >= 0) return undefined;
-	const name = path.slice(0, slash);
-	return Object.hasOwn(definition.tables, name)
-		? (definition.tables[name] as PreparedFolderTable)
-		: undefined;
-}
 
 const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
@@ -94,12 +78,15 @@ function textOf(content: FileContent | null): string | null | undefined {
 /**
  * A unit of a file where the writer acting replaced another writer's change.
  *
- * - `field`: one frontmatter field of a row.
- * - `lines`: one region of a row's body or a text file. The writer's `count`
+ * - `field`: one frontmatter field, or one key of a JSON file, named by its
+ *   path from the top: keys joined with `/`, each `~` and `/` in a key
+ *   written `~0` and `~1` as in a JSON Pointer, so `title` is a top-level
+ *   field and `tables/todos` the key `todos` inside `tables`.
+ * - `lines`: one region of a Markdown body or a text file. The writer's `count`
  *   lines stand there from `line`, 1-based within the body or the file; a
  *   `count` of 0 is a removal at that place.
- * - `file`: the whole file, because a side has none or a version is not
- *   UTF-8 text. `lost` names the side whose edit of it did not stand: the
+ * - `file`: the whole file, because a side has none, a version is not
+ *   UTF-8 text, or a version of a `.json` file is not a JSON object. `lost` names the side whose edit of it did not stand: the
  *   other writer's, under the writer acting, or either side's under a
  *   delete, since a delete beats an edit it never saw.
  *
@@ -161,7 +148,7 @@ export function wholeFile(
 		: { content: theirs, overridden: [{ kind: 'file', lost: 'ours' }] };
 }
 
-/** The patterns a definition's `local` lists, or `undefined` when it is no definition. */
+/** The patterns `epicenter.json`'s `local` lists, or `undefined` when it does not read as a definition. */
 export function localPatterns(
 	content: FileContent | null,
 ): string[] | undefined {
@@ -182,42 +169,9 @@ export function localPatterns(
 }
 
 /**
- * `epicenter.json` (ADR-0576, ADR-0577): the writer's whole file, with
- * `local` listing every pattern either side lists, sorted, so a path one
- * device keeps local is never committed because another device's
- * definition won. A side that does not read as a definition keeps the
- * whole-file result as it is.
- */
-function definitionWins(versions: FileVersions, winner: Winner): Merged {
-	const won = wholeFile(versions, winner);
-	if (won.content === null) return won;
-	const sides = [localPatterns(versions.ours), localPatterns(versions.theirs)];
-	if (sides.some((side) => side === undefined)) return won;
-	const local = [...new Set(sides.flat() as string[])].sort();
-	const text = textOf(won.content) as string;
-	const value = JSON.parse(text) as Record<string, unknown>;
-	const current = (value.local as string[] | undefined) ?? [];
-	if (
-		current.length === local.length &&
-		current.every((pattern, index) => pattern === local[index])
-	)
-		return won;
-	const { title, local: _local, ...rest } = value;
-	const joined = {
-		...(title === undefined ? {} : { title }),
-		...(local.length === 0 ? {} : { local }),
-		...rest,
-	};
-	return {
-		content: `${JSON.stringify(joined, null, 2)}\n`,
-		overridden: won.overridden,
-	};
-}
-
-/**
  * The side whose change stands on a unit both changed differently: the
- * writer acting, `ours`, everywhere but the Git merge driver, which also
- * asks for `theirs` to write both sides inside its conflict markers.
+ * writer acting, `ours`, everywhere but Sync's publish of a merged tree
+ * over the files, where the file as it is now, `theirs`, stands.
  */
 export type Winner = 'ours' | 'theirs';
 
@@ -244,11 +198,12 @@ async function textWins(
 }
 
 /**
- * A row version that does not read, merged as text: its frontmatter and its
- * body apart when every version has closed frontmatter, so insertions at one
- * place join in the body and compete in the frontmatter, where two lines
- * added side by side could write one key twice. A version without closed
- * frontmatter merges the whole text with no insertions joined.
+ * A Markdown version whose frontmatter does not read, merged as text: its
+ * frontmatter and its body apart when every version has closed
+ * frontmatter, so insertions at one place join in the body and compete in
+ * the frontmatter, where two lines added side by side could write one key
+ * twice. A version without closed frontmatter merges the whole text with no
+ * insertions joined.
  */
 async function rowTextWins(
 	base: string | null,
@@ -297,67 +252,175 @@ async function rowTextWins(
 	};
 }
 
-const sameRow = (left: AnyRow, right: AnyRow) =>
-	left.body === right.body && sameValue(left.fields, right.fields);
+/** A key path as `Overridden` names it: JSON Pointer segments, joined, with no leading `/`. */
+const pointer = (path: readonly string[]) =>
+	path.map((key) => key.replaceAll('~', '~0').replaceAll('/', '~1')).join('/');
 
 /**
- * A row by field and body, ours winning each competing unit, written
- * canonically; `undefined` when a present version does not read as a row or
- * the merge does not write as one.
+ * A Markdown version: its frontmatter as written, its fields, its body with
+ * `\n` line endings as a row's body is read (ADR-0572), and the whole text.
  */
-async function rowWins(
-	table: PreparedFolderTable,
-	texts: { base: string | null; ours: string | null; theirs: string | null },
-	winner: Winner,
-): Promise<Merged | undefined> {
-	const read = (text: string | null) => {
-		if (text === null) return null;
-		const { data, error } = parseRow(table, text);
-		return error === null ? (data as AnyRow) : undefined;
-	};
-	const [b, o, t] = [read(texts.base), read(texts.ours), read(texts.theirs)];
-	if (b === undefined || o === undefined || t === undefined) return undefined;
-	const canonical = (row: AnyRow) => {
-		const { data, error } = writeRow(
-			table,
-			row as Parameters<typeof writeRow>[1],
-		);
-		return error === null ? data.text : undefined;
-	};
-	// The writer changed nothing: their file stands as it is.
-	if (o !== null && b !== null && sameRow(o, b))
-		return { content: texts.theirs, overridden: [] };
-	if (o === null || t === null) {
-		const whole = wholeFile(texts, winner);
-		if (whole.content === null || whole.content === texts.theirs) return whole;
-		const text = canonical(o as AnyRow);
-		return text === undefined ? undefined : { ...whole, content: text };
-	}
-	const merged = await mergeRows(b, o, t);
-	const fields = { ...merged.fields };
-	for (const unit of merged.conflicts)
-		setField(fields, unit.field, unit[winner]);
-	const text = canonical({ fields, body: merged.body[winner] });
-	if (text === undefined) return undefined;
+type Framed = AnyRow & { readonly head: string; readonly text: string };
+
+/** `text` with its frontmatter read, or `undefined` when it does not read. */
+function framed(text: string): Framed | undefined {
+	const { data, error } = parseRowSource(text);
+	if (error !== null) return undefined;
+	const { fields, body } = data.document;
 	return {
-		content: text,
-		overridden: [
-			...merged.conflicts.map(
-				(unit): Overridden => ({ kind: 'field', field: unit.field }),
-			),
-			...merged.body.regions.map((region) => linesOf('body', region)),
-		],
+		head: text.slice(0, text.length - body.length),
+		fields: fields as AnyRow['fields'],
+		body: lineFeeds(body),
+		text,
 	};
 }
 
 /**
- * Merge three versions of one file by its kind, `ours` the writer acting.
- * A side with no file, or a version that is not UTF-8 text without a NUL
- * byte, makes the whole file one unit, where a delete beats an edit; a row
- * is still written canonically when ours wins it.
+ * Markdown with frontmatter by field and body, `winner` winning each
+ * competing unit. The frontmatter is a side's own bytes when the merged
+ * fields are that side's, and the whole file is when the body is too;
+ * otherwise the frontmatter is canonical. `undefined` when a present
+ * version's frontmatter does not read or the merged fields have no
+ * canonical form.
+ */
+async function markdownWins(
+	base: string | null,
+	ours: string,
+	theirs: string,
+	winner: Winner,
+): Promise<Merged | undefined> {
+	const [b, o, t] = [
+		base === null ? null : framed(base),
+		framed(ours),
+		framed(theirs),
+	];
+	if (b === undefined || o === undefined || t === undefined) return undefined;
+	const merged = await mergeRows(b, o, t);
+	const fields = { ...merged.fields };
+	for (const unit of merged.conflicts)
+		setField(fields, unit.field, unit[winner]);
+	const body = merged.body[winner];
+	const overridden = [
+		...merged.conflicts.map(
+			(unit): Overridden => ({ kind: 'field', field: pointer([unit.field]) }),
+		),
+		...merged.body.regions.map((region) => linesOf('body', region)),
+	];
+	const kept = [o, t].find((side) => sameValue(fields, side.fields));
+	if (kept !== undefined)
+		return {
+			content: body === kept.body ? kept.text : kept.head + body,
+			overridden,
+		};
+	const { data, error } = formatRowSource(
+		{ fields, body } as CanonicalDocument,
+		[...new Set([...Object.keys(o.fields), ...Object.keys(t.fields)])],
+	);
+	return error === null ? { content: data.text, overridden } : undefined;
+}
+
+type JsonObject = Record<string, unknown>;
+
+const isJsonObject = (value: unknown): value is JsonObject =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** `text` as a JSON object, or `undefined` when it is not one. */
+function jsonObject(text: string): JsonObject | undefined {
+	try {
+		const value: unknown = JSON.parse(text);
+		return isJsonObject(value) ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+const keyOf = (object: JsonObject | undefined, key: string) =>
+	object !== undefined && Object.hasOwn(object, key) ? object[key] : undefined;
+
+/**
+ * Three JSON objects merged key by key, `winner` winning each key both
+ * sides changed differently, which is added to `overridden`. A key whose
+ * value both sides changed and both hold as an object merges its own keys
+ * the same way, over the base's object or none. Keys are in ours' order,
+ * then keys only theirs added. `base` absent is two additions, so only what
+ * both added alike agrees.
+ */
+function mergeObjects(
+	base: JsonObject | undefined,
+	ours: JsonObject,
+	theirs: JsonObject,
+	winner: Winner,
+	path: readonly string[],
+	overridden: Overridden[],
+): JsonObject {
+	const merged: JsonObject = {};
+	const keys = new Set([
+		...Object.keys(ours),
+		...Object.keys(theirs),
+		...Object.keys(base ?? {}),
+	]);
+	for (const key of keys) {
+		const [b, o, t] = [keyOf(base, key), keyOf(ours, key), keyOf(theirs, key)];
+		let value: unknown;
+		if (sameValue(o, t) || sameValue(t, b)) value = o;
+		else if (sameValue(o, b)) value = t;
+		else if (isJsonObject(o) && isJsonObject(t))
+			value = mergeObjects(
+				isJsonObject(b) ? b : undefined,
+				o,
+				t,
+				winner,
+				[...path, key],
+				overridden,
+			);
+		else {
+			value = winner === 'ours' ? o : t;
+			overridden.push({ kind: 'field', field: pointer([...path, key]) });
+		}
+		setField(merged, key, value);
+	}
+	return merged;
+}
+
+/**
+ * A JSON file by key, `winner` winning each competing key; `undefined` when
+ * a present version is not a JSON object.
+ */
+function jsonWins(
+	base: string | null,
+	ours: string,
+	theirs: string,
+	winner: Winner,
+): Merged | undefined {
+	const [b, o, t] = [
+		base === null ? null : jsonObject(base),
+		jsonObject(ours),
+		jsonObject(theirs),
+	];
+	if (b === undefined || o === undefined || t === undefined) return undefined;
+	const overridden: Overridden[] = [];
+	const value = mergeObjects(b ?? undefined, o, t, winner, [], overridden);
+	const content = sameValue(value, o)
+		? ours
+		: sameValue(value, t)
+			? theirs
+			: `${JSON.stringify(value, null, 2)}\n`;
+	return { content, overridden };
+}
+
+/** Whether `path` is Markdown and some present version opens with frontmatter. */
+const hasFrontmatter = (path: string, texts: readonly (string | null)[]) =>
+	path.endsWith(ROW_EXTENSION) &&
+	texts.some((text) => text !== null && frameRowText(text).kind !== 'missing');
+
+/**
+ * Merge three versions of the file at `path`, `ours` the writer acting,
+ * by its content and extension. A side with no file, or a version that is
+ * not UTF-8 text without a NUL byte, makes the whole file one unit, where a
+ * delete beats an edit.
  */
 export async function merge(
-	kind: FileKind,
+	path: string,
 	versions: FileVersions,
 	{ winner = 'ours' }: { readonly winner?: Winner } = {},
 ): Promise<Merged> {
@@ -370,19 +433,25 @@ export async function merge(
 		return { content: versions.ours, overridden: [] };
 	if (sameContent(versions.ours, versions.base))
 		return { content: versions.theirs, overridden: [] };
-	if (kind.kind === 'definition') return definitionWins(versions, winner);
 	const [base, ours, theirs] = [
 		textOf(versions.base),
 		textOf(versions.ours),
 		textOf(versions.theirs),
 	];
-	if (base === undefined || ours === undefined || theirs === undefined)
+	if (
+		base === undefined ||
+		ours === undefined ||
+		theirs === undefined ||
+		ours === null ||
+		theirs === null
+	)
 		return wholeFile(versions, winner);
-	if (kind.kind === 'row') {
-		const row = await rowWins(kind.table, { base, ours, theirs }, winner);
-		if (row !== undefined) return row;
-	}
-	if (ours === null || theirs === null) return wholeFile(versions, winner);
-	if (kind.kind === 'row') return rowTextWins(base, ours, theirs, winner);
+	if (path.endsWith(JSON_EXTENSION))
+		return jsonWins(base, ours, theirs, winner) ?? wholeFile(versions, winner);
+	if (hasFrontmatter(path, [base, ours, theirs]))
+		return (
+			(await markdownWins(base, ours, theirs, winner)) ??
+			rowTextWins(base, ours, theirs, winner)
+		);
 	return textWins(base, ours, theirs, winner);
 }

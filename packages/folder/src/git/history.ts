@@ -35,7 +35,7 @@ import type { FolderStorage, LockingStorage } from '../boundary.js';
 import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import type { FolderHistory } from '../folder.js';
-import { fileKindOf, localPatterns, sameContent } from '../merge-file.js';
+import { localPatterns, sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
 	ancestors,
@@ -162,7 +162,7 @@ export function createHistory({
 	backend: GitBackend;
 	boundary: LockingStorage;
 	author: Author;
-	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
+	/** The prepared definition whose `local` patterns no commit carries. */
 	definition?: Definition;
 	/**
 	 * The `local` patterns of an app reading a folder that is not its own:
@@ -314,8 +314,7 @@ export function createHistory({
 
 	/**
 	 * Files kept on this machine now: what the definition keeps and what
-	 * `epicenter.json` lists, which a Sync can extend with another device's
-	 * patterns (ADR-0577). No commit carries one, whether or not `.gitignore`
+	 * `epicenter.json` lists, which a Sync can change (ADR-0577). No commit carries one, whether or not `.gitignore`
 	 * names it. A definition that cannot be read is the reason, since a
 	 * commit made without it could carry those files.
 	 */
@@ -683,9 +682,6 @@ export function createHistory({
 		return Ok(undefined);
 	}
 
-	/** How each path merges, by the definition this handle reads with. */
-	const kindOf = (path: string) => fileKindOf(definition, path);
-
 	/**
 	 * The files `from` and `to` hold, and the paths Sync changes between
 	 * them, local paths aside (ADR-0577).
@@ -1000,7 +996,7 @@ export function createHistory({
 						await held.rmdir(directory);
 					// A file the person made where `to` adds one joins `to`'s as
 					// an addition on both sides.
-					return writeFile(held, kindOf(path), path, was, next, {
+					return writeFile(held, path, was, next, {
 						winner: 'theirs',
 						joining: adopted.has(path),
 					});
@@ -1215,7 +1211,6 @@ export function createHistory({
 						base,
 						ours: mine,
 						theirs,
-						kindOf,
 						isLocal,
 					});
 					return writeCommitObject(access, {

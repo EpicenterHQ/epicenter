@@ -1,10 +1,10 @@
 /**
  * The one write of a folder file and the one move (ADR-0576).
  *
- * `writeFile(storage, kind, path, from, to)` is `folder.write`: it reads the
- * file as it is now, merges the change from `from` to `to` into it by the
- * file's kind (`merge`), where the writer acting wins every unit both
- * changed, and puts the result guarded by the hash it read. Another writer
+ * `writeFile(storage, path, from, to)` is `folder.write`: it reads the file
+ * as it is now, merges the change from `from` to `to` into it by the file's
+ * content and extension (`merge`), where the writer acting wins every unit
+ * both changed, and puts the result guarded by the hash it read. Another writer
  * landing between the read and the put starts the next attempt, at most
  * `WRITE_ATTEMPTS` times, then `KeptChanging`. A `put` whose reply was lost
  * is read back once: the bytes it sent, or no file for a delete, mean done.
@@ -24,7 +24,6 @@ import { FileError, WriteError } from './errors.js';
 import { hashBytes } from './hash.js';
 import {
 	type FileContent,
-	type FileKind,
 	merge,
 	type Overridden,
 	sameContent,
@@ -109,7 +108,7 @@ export function writeFailure(path: string, error: FileError): WriteError {
 
 /**
  * Write the change from `from` to `to` into the file at `path` as it is
- * now, by `kind` (ADR-0576).
+ * now (ADR-0576).
  *
  * `from` is the version the change started from: content, or `null` for no
  * file. `to` is the content, or `null` to delete the file. A delete needs no
@@ -126,13 +125,12 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * published tree adds one, and what a handle does when it publishes its
  * definition over the one there.
  *
- * Any `to` is written, whether or not it reads as its kind: a typed view
- * refuses a row it cannot write before it gets here (`InvalidValues`), and
- * a raw edit of a row may be a repair in progress (ADR-0503).
+ * Any `to` is written, whether or not it reads: a typed view refuses a row
+ * it cannot write before it gets here (`InvalidValues`), and a raw edit of
+ * a row may be a repair in progress (ADR-0503).
  */
 export async function writeFile(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
-	kind: FileKind,
 	path: string,
 	from: FileContent | null,
 	to: FileContent | null,
@@ -171,7 +169,7 @@ export async function writeFile(
 								? [{ kind: 'file', lost: 'theirs' } as const]
 								: [],
 					}
-				: await merge(kind, { base, ours, theirs }, { winner });
+				: await merge(path, { base, ours, theirs }, { winner });
 		const bytes = toBytes(merged.content);
 		if (
 			merged.overridden.some(

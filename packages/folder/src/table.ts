@@ -174,8 +174,6 @@ export function createTable<TFields>(
 	table: PreparedFolderTable,
 	unsupplied: readonly string[] = [],
 ): FileTable<TFields> {
-	const kind = { kind: 'row', table } as const;
-
 	/** The row path a literal stem addresses, or why it is not one filename segment here. */
 	function rowAddress(
 		stem: string,
@@ -230,7 +228,7 @@ export function createTable<TFields>(
 		from: FileContent | null,
 		to: FileContent | null,
 	): Promise<Result<WrittenRow<TFields>, WriteError>> {
-		const { data, error } = await writeFile(storage, kind, path, from, to);
+		const { data, error } = await writeFile(storage, path, from, to);
 		if (error !== null) return Err(error);
 		if (data.file === null) return Ok(null);
 		return Ok(readBack(path, data.file));
@@ -325,7 +323,7 @@ export function createTable<TFields>(
 		async delete(stem) {
 			const { data: path, error: addressError } = rowAddress(stem);
 			if (addressError !== null) return Err(addressError);
-			const { error } = await writeFile(storage, kind, path, null, null);
+			const { error } = await writeFile(storage, path, null, null);
 			return error === null ? Ok(undefined) : Err(error);
 		},
 		async rename(stem, next) {

@@ -1,42 +1,38 @@
 /**
  * File Merge Tests
  *
- * `merge` merges three versions of one file by its kind, the writer acting
- * (`ours`) winning each unit both sides changed differently: a row by field
- * and body after reading each version through `parseRow`, any other text by
- * line, `kv.json` included, and binary or a side with no file as the whole
- * file. Each test names a pair of changes and shows what merges and what
- * the writer overrode.
+ * `merge` merges three versions of one file by its content and extension,
+ * with no definition, the writer acting (`ours`) winning each unit both
+ * sides changed differently: Markdown whose frontmatter reads by field and
+ * body, JSON objects by key, any other text by line, and binary or a side
+ * with no file as the whole file. Each test names a pair of changes and
+ * shows what merges and what the writer overrode.
  *
  * Key behaviors:
- * - Independent field and body changes merge, unknown keys included
+ * - Independent field and body changes merge, unknown keys included, at any
+ *   path: no table and no schema decide it
  * - Spelling never conflicts: quoting, key order, and comments read as the
  *   same values
+ * - Frontmatter stays as a side wrote it while the merged fields are that
+ *   side's; it is written canonically, ours' key order first, only when
+ *   they are neither side's
  * - Two edits of one field compete even where a line merge would succeed
  * - Body edits to neighboring lines both merge; only the same lines compete,
  *   and the writer keeps the other side's other lines
  * - Two added rows with no base agree only where they are equal; two bodies
  *   added at one place both stay
- * - A row version that does not read as a row merges as text
+ * - A version whose frontmatter does not read merges as text; Markdown with
+ *   no frontmatter merges as any text does
+ * - JSON merges key by key, nested objects recursing; an array is one unit,
+ *   so two additions to one array compete instead of joining into invalid
+ *   JSON; a version that is not a JSON object is the whole file
  * - A side with no file, or a version that is not text, is the whole file
  */
 import { expect, test } from 'bun:test';
-import { defineFolder, defineTable, field } from './contract.js';
-import { type FileVersions, fileKindOf, merge } from './merge-file.js';
+import { type FileVersions, merge } from './merge-file.js';
 import { sameValue } from './row-merge.js';
 
-const definition = defineFolder({
-	tables: {
-		todos: defineTable({
-			fields: {
-				title: field.string(),
-				done: field.boolean(),
-				tags: field.optional(field.tags()),
-			},
-		}),
-	},
-});
-const ROW = fileKindOf(definition, 'todos/walk.md');
+const ROW = 'todos/walk.md';
 
 const row = (frontmatter: string[], body = '') =>
 	['---', ...frontmatter, '---', body].join('\n');
@@ -44,24 +40,15 @@ const row = (frontmatter: string[], body = '') =>
 const BASE = row(['title: Walk', 'done: false'], 'Left at dawn.\n');
 
 /** A merge where nothing competes, as its content. */
-async function clean(versions: FileVersions, kind = ROW) {
-	const merged = await merge(kind, versions);
+async function clean(versions: FileVersions, path = ROW) {
+	const merged = await merge(path, versions);
 	expect(merged.overridden).toEqual([]);
 	return merged.content;
 }
 
-test('a path is a row of its table or a plain file, kv.json included', () => {
-	expect(ROW).toEqual({ kind: 'row', table: definition.tables.todos });
-	for (const path of [
-		'kv.json',
-		'todos/a.txt',
-		'todos/x/a.md',
-		'other/a.md',
-		'a.md',
-	])
-		expect(fileKindOf(definition, path)).toEqual({ kind: 'file' });
-	expect(fileKindOf(undefined, 'todos/walk.md')).toEqual({ kind: 'file' });
-});
+// ============================================================================
+// Markdown with frontmatter
+// ============================================================================
 
 test('independent field and body changes merge, written in canonical form', async () => {
 	expect(
@@ -79,6 +66,71 @@ test('independent field and body changes merge, written in canonical form', asyn
 			'Left at dawn.\nCame back by the river.\n',
 		),
 	);
+});
+
+test('a row merges by field at any depth and at the root', async () => {
+	const versions = {
+		base: BASE,
+		ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
+		theirs: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
+	};
+	const merged = row(['title: Evening walk', 'done: true'], 'Left at dawn.\n');
+	for (const path of ['todos/walk.md', 'notes/2026/walk.md', 'walk.md'])
+		expect(await clean(versions, path)).toBe(merged);
+});
+
+test('a row no schema would accept merges by field like any other', async () => {
+	// `done` is a word and `when` an object: no table checks either.
+	const base = row(['title: Walk', 'done: maybe', 'when: { at: dawn }']);
+	expect(
+		await clean({
+			base,
+			ours: row(['title: Walk', 'done: later', 'when: { at: dawn }']),
+			theirs: row(['title: Walk', 'done: maybe', 'when: { at: dusk }']),
+		}),
+	).toBe(row(['title: Walk', 'done: later', 'when:', '  at: dusk']));
+});
+
+test('a hand-written README keeps its frontmatter comment when only its body changed', async () => {
+	const head = ['# shown on the folder page', "title: 'Read me'"];
+	const base = row(head, 'Intro.\n\nMiddle.\n\nEnd.\n');
+	expect(
+		await clean(
+			{
+				base,
+				ours: row(head, 'Intro, revised.\n\nMiddle.\n\nEnd.\n'),
+				theirs: row(head, 'Intro.\n\nMiddle.\n\nEnd, revised.\n'),
+			},
+			'README.md',
+		),
+	).toBe(row(head, 'Intro, revised.\n\nMiddle.\n\nEnd, revised.\n'));
+});
+
+test("frontmatter is canonical only when its fields are neither side's, in ours' key order", async () => {
+	const head = (done: string) => [
+		'# kept while untouched',
+		`done: ${done}`,
+		"title: 'Walk'",
+	];
+	const base = row(head('false'));
+	// Ours changed a field and theirs the body: the fields are ours', so
+	// ours' spelling stands.
+	expect(
+		await clean({
+			base,
+			ours: row(head('true')),
+			theirs: row(head('false'), 'More.\n'),
+		}),
+	).toBe(row(head('true'), 'More.\n'));
+	// Each changed a different field: canonical, in ours' order, then the key
+	// only theirs added.
+	expect(
+		await clean({
+			base,
+			ours: row(head('true')),
+			theirs: row(['title: Run', 'mood: calm', '# theirs', 'done: false']),
+		}),
+	).toBe(row(['done: true', 'title: Run', 'mood: calm']));
 });
 
 test('body edits to neighboring lines both merge, as Sync and save merge them', async () => {
@@ -102,7 +154,7 @@ test('quoting, key order, and comments are spelling, not changes', async () => {
 	).toBe(row(['title: Walk', 'done: true'], 'Left at dawn.\n'));
 });
 
-test('two edits of one field compete, and the writer wins a valid row', async () => {
+test('two edits of one field compete, and the writer wins', async () => {
 	expect(
 		await merge(ROW, {
 			base: BASE,
@@ -140,7 +192,7 @@ test("competing body lines are one unit, and the writer keeps the other side's o
 		content: at('Evening walk', 'ONE\nTWO\nthree\nfour (ours)\n'),
 		overridden: [{ kind: 'lines', part: 'body', line: 4, count: 1 }],
 	});
-	// The merge driver's other side keeps our other lines and our title.
+	// With theirs winning, our other lines and our title still stand.
 	expect((await merge(ROW, versions, { winner: 'theirs' })).content).toBe(
 		at('Evening walk', 'ONE\nTWO\nthree\nfour (theirs)\n'),
 	);
@@ -159,7 +211,7 @@ test('two added rows with no base agree only where equal, and both bodies stay',
 	});
 });
 
-test('a row version that does not read as a row merges as text', async () => {
+test('a version whose frontmatter does not read merges as text', async () => {
 	const broken = '---\ntitle: [unclosed\n---\n';
 	// Their added body line does not compete with our broken frontmatter.
 	expect(
@@ -179,16 +231,107 @@ test('a row version that does not read as a row merges as text', async () => {
 	expect(merged.overridden).toMatchObject([{ kind: 'lines', part: 'text' }]);
 });
 
+test('Markdown with no frontmatter merges by line, and two appends both stay', async () => {
+	expect(
+		await clean(
+			{
+				base: '# Notes\n',
+				ours: '# Notes\nmine\n',
+				theirs: '# Notes\nyours\n',
+			},
+			'notes.md',
+		),
+	).toBe('# Notes\nyours\nmine\n');
+});
+
+// ============================================================================
+// JSON
+// ============================================================================
+
+const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
+
+test('JSON keys each side changed both stand, nested objects included', async () => {
+	expect(
+		await clean(
+			{
+				base: json({ title: 'A', meta: { theme: 'light', size: 1 } }),
+				ours: json({ title: 'B', meta: { theme: 'dark', size: 1 } }),
+				theirs: json({ title: 'A', meta: { theme: 'light', size: 2 }, v: 1 }),
+			},
+			'settings.json',
+		),
+	).toBe(json({ title: 'B', meta: { theme: 'dark', size: 2 }, v: 1 }));
+});
+
+test('a JSON key both changed competes, and the writer wins it', async () => {
+	expect(
+		await merge('nested/deep/settings.json', {
+			base: json({ meta: { theme: 'light' }, size: 1 }),
+			ours: json({ meta: { theme: 'dark' }, size: 1 }),
+			theirs: json({ meta: { theme: 'sepia' }, size: 2 }),
+		}),
+	).toEqual({
+		content: json({ meta: { theme: 'dark' }, size: 2 }),
+		overridden: [{ kind: 'field', field: 'meta/theme' }],
+	});
+});
+
+test('two devices adding different items to one array compete, and the result is valid JSON', async () => {
+	const merged = await merge('epicenter.json', {
+		base: '{\n  "local": []\n}\n',
+		ours: '{\n  "local": [\n    "audio/"\n  ]\n}\n',
+		theirs: '{\n  "local": [\n    "cache/"\n  ]\n}\n',
+	});
+	expect(merged).toEqual({
+		content: '{\n  "local": [\n    "audio/"\n  ]\n}\n',
+		overridden: [{ kind: 'field', field: 'local' }],
+	});
+	expect(JSON.parse(merged.content as string)).toEqual({ local: ['audio/'] });
+});
+
+test("a JSON merge equal to one side keeps that side's bytes, and a new result keeps ours' key order", async () => {
+	const base = json({ a: 1, b: 1 });
+	// Ours changed `b` and spells the file with tabs; theirs only reordered.
+	const tabbed = '{\n\t"a": 1,\n\t"b": 2\n}\n';
+	expect(
+		await clean({ base, ours: tabbed, theirs: json({ b: 1, a: 1 }) }, 'x.json'),
+	).toBe(tabbed);
+	// A key only theirs added goes after ours' keys, in ours' order.
+	expect(
+		await clean(
+			{ base, ours: json({ b: 2, a: 1 }), theirs: json({ a: 1, b: 1, c: 3 }) },
+			'x.json',
+		),
+	).toBe(json({ b: 2, a: 1, c: 3 }));
+});
+
+test('a JSON version that is not an object is the whole file', async () => {
+	for (const ours of ['{ "a": ', '[1, 2]\n'])
+		expect(
+			await merge('x.json', {
+				base: json({ a: 1, b: 1 }),
+				ours,
+				theirs: json({ a: 1, b: 2 }),
+			}),
+		).toEqual({
+			content: ours,
+			overridden: [{ kind: 'file', lost: 'theirs' }],
+		});
+});
+
+// ============================================================================
+// Other files
+// ============================================================================
+
 test('other text merges by line', async () => {
-	const FILE = fileKindOf(definition, 'notes.txt');
 	expect(
 		await clean(
 			{ base: 'a\nb\nc\n', ours: 'A\nb\nc\n', theirs: 'a\nb\nC\n' },
-			FILE,
+			'notes.txt',
 		),
 	).toBe('A\nb\nC\n');
 	expect(
-		await merge(FILE, {
+		await merge('notes.txt', {
 			base: 'a\nb\n',
 			ours: 'a\nB (ours)\n',
 			theirs: 'a\nB (theirs)\n',

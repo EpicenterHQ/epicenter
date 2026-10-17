@@ -31,7 +31,7 @@ import type {
 import type { GitCredentials } from './git/http.js';
 import type { Author, CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
-import { type FileContent, fileKindOf } from './merge-file.js';
+import type { FileContent } from './merge-file.js';
 import { callObserver } from './observer.js';
 import {
 	publishDefinition,
@@ -115,21 +115,21 @@ export type FolderAccess<TDefinition extends Definition> = {
 	readonly git: FolderGit;
 	/**
 	 * The one write (ADR-0576): read the file at `path` as it is now, merge
-	 * the change from `from` to `to` into it by the file's kind, and put the
-	 * result guarded by what was read, again when another writer landed in
-	 * between, at most `WRITE_ATTEMPTS` times.
+	 * the change from `from` to `to` into it by unit (`merge`, by the file's
+	 * content and extension), and put the result guarded by what was read,
+	 * again when another writer landed in between, at most `WRITE_ATTEMPTS`
+	 * times.
 	 *
 	 * Units only one side changed survive; where both changed one unit
 	 * differently, this write wins, and `overridden` names each such unit,
-	 * which is also logged. Two insertions at one place both survive. A row
-	 * is written in canonical form. A version that does not read as its kind
-	 * merges as text, so the result may be a file to repair; nothing is
-	 * refused for it.
+	 * which is also logged. Two insertions at one place both survive.
+	 * Markdown whose frontmatter does not read merges as text, so the result
+	 * may be a file to repair; nothing is refused for it.
 	 *
 	 * `from` is the content the change started from, or `null` for no file
 	 * (a create). `to` is the new content, or `null` to delete the file,
-	 * which the deleter wins whatever `from` is. Any `to` is written, read
-	 * as its kind or not. Strings are written as UTF-8; byte arrays are
+	 * which the deleter wins whatever `from` is. Any `to` is written,
+	 * whether it reads or not. Strings are written as UTF-8; byte arrays are
 	 * copied when it is called.
 	 */
 	write(
@@ -427,7 +427,7 @@ export function assembleFolder<
 		files,
 		git,
 		write: (path: string, from: FileContent | null, to: FileContent | null) =>
-			writeFile(storage, fileKindOf(prepared, path), path, from, to),
+			writeFile(storage, path, from, to),
 		move: (path: string, next: string) => movePath(storage, path, next),
 		location: Object.freeze(location),
 		sync: history.sync,
