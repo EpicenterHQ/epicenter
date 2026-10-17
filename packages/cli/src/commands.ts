@@ -71,7 +71,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 			{ name: 'allow-unrelated', hidden: true },
 			APP_LOCAL,
 		],
-		summary: 'fetch, merge by file kind, commit, and push',
+		summary: 'fetch, merge by unit, commit, and push',
 		long: true,
 	},
 	{

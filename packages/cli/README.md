@@ -242,7 +242,7 @@ build runs at a time (`<cache>/apps.lock`, `holdingFileLock`).
 ## Merging with plain Git
 
 `epicenter sync` merges a folder's files by unit, with the merge every save
-uses (ADR-0576, ADR-0585): Markdown frontmatter by field and its body by line,
+uses (ADR-0576, ADR-0591): Markdown frontmatter by field and its body by line,
 JSON by key, other text by line. Plain `git merge` and `git pull` run on a
 folder use Git's own merge and stop on Git's ordinary conflict markers;
 nothing configures a merge driver for them.
