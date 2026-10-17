@@ -17,24 +17,14 @@
  * they call `getUserMedia`, so only a browser build reaches them.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { openMicrophone, release } from './microphone.js';
 import {
 	RecorderError,
 	type RecordingEndedReason,
-	type RecordingInput,
 	type RecoverRecordings,
 	type StartRecording,
 } from './recording.js';
 
-export {
-	cleanupRecordingStream,
-	DeviceStreamError,
-	getRecordingStream,
-} from './device-stream.js';
-export {
-	asDeviceIdentifier,
-	type DeviceAcquisitionOutcome,
-	type DeviceIdentifier,
-} from './devices.js';
 export * from './recording.js';
 export {
 	createVadRecorder,
@@ -109,63 +99,6 @@ function extensionOf(mimeType: string): string {
 /** How often the level is read while recording. */
 const LEVEL_INTERVAL_MS = 50;
 
-const release = (stream: MediaStream) => {
-	for (const track of stream.getTracks()) track.stop();
-};
-
-/** A browser error's name. `OverconstrainedError` is not a `DOMException` everywhere. */
-const nameOf = (cause: unknown) =>
-	typeof cause === 'object' && cause !== null && 'name' in cause
-		? String(cause.name)
-		: '';
-
-/**
- * Open one microphone: exactly `input`, or the system default when none is
- * chosen. The caller owns the stream it is given and must release it.
- */
-async function open(
-	mediaDevices: NonNullable<BrowserEnvironment['mediaDevices']>,
-	input: RecordingInput | undefined,
-	signal: AbortSignal | undefined,
-): Promise<Result<MediaStream, RecorderError>> {
-	if (signal?.aborted) return RecorderError.Cancelled();
-	let stream: MediaStream;
-	try {
-		stream = await mediaDevices.getUserMedia({
-			audio:
-				input === undefined ? true : { deviceId: { exact: input.deviceId } },
-		});
-	} catch (cause) {
-		if (signal?.aborted) return RecorderError.Cancelled();
-		const name = nameOf(cause);
-		if (name === 'NotAllowedError' || name === 'SecurityError')
-			return RecorderError.PermissionDenied();
-		// An exact ID the browser cannot satisfy: the microphone is not there.
-		if (
-			input !== undefined &&
-			(name === 'OverconstrainedError' || name === 'NotFoundError')
-		)
-			return RecorderError.InputUnavailable({ label: input.label });
-		if (name === 'NotFoundError')
-			return RecorderError.NoInputDevice({ reason: 'no microphone was found' });
-		return RecorderError.Failed({ cause });
-	}
-	// Withdrawn while the browser was answering: this stream has no other owner.
-	if (signal?.aborted) {
-		release(stream);
-		return RecorderError.Cancelled();
-	}
-	if (input !== undefined) {
-		// A browser that reports which microphone it opened must report this one.
-		const opened = stream.getAudioTracks()[0]?.getSettings().deviceId;
-		if (opened !== undefined && opened !== '' && opened !== input.deviceId) {
-			release(stream);
-			return RecorderError.InputUnavailable({ label: input.label });
-		}
-	}
-	return Ok(stream);
-}
-
 /**
  * Read the input's level into `listeners` until the returned function is
  * called. Nothing is played: the analyser is the end of the graph.
@@ -225,7 +158,7 @@ export function createBrowserRecorder(
 			return RecorderError.Unavailable({
 				reason: 'this window cannot encode audio',
 			});
-		const { data: stream, error: openError } = await open(
+		const { data: stream, error: openError } = await openMicrophone(
 			mediaDevices,
 			input,
 			signal,

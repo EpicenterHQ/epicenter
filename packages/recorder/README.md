@@ -75,28 +75,24 @@ the same across launches and reconnections. Listing needs no microphone
 permission; the shell's recorder asks macOS for it before it opens a meter
 or records, and a denial is `PermissionDenied`.
 
-## Streams and voice activity detection
+## Voice activity detection
 
-These call `getUserMedia`, so they are in the browser entry; a desktop build
+It calls `getUserMedia`, so it is in the browser entry; a desktop build
 imports `@epicenter/recorder/tauri` instead.
 
 ```ts
 import {
-	// Device stream (navigator.mediaDevices): browser only
-	getRecordingStream,
-	cleanupRecordingStream,
-	DeviceStreamError,
-
 	// Voice activity detection (Silero v5 via @ricky0123/vad-web)
 	createVadRecorder,
-
-	// Device vocabulary
-	asDeviceIdentifier,
 } from '@epicenter/recorder/browser';
 ```
 
-Types: `DeviceIdentifier`, `DeviceAcquisitionOutcome`,
-`VadRecorder`, `VadRecorderError`, `StartActiveListeningOptions`.
+Types: `VadRecorder`, `VadRecorderError`, `StartActiveListeningOptions`.
+
+Voice activity detection opens its microphone the way recording does: the
+system default, or exactly the `input` it is given. When that microphone
+cannot be opened, listening is refused with `RecorderError` and no other
+microphone is used.
 
 Transient dictation captures utterances without a folder. The core is callback
 and `Result` based, with no framework reactivity. A Svelte app that wants
