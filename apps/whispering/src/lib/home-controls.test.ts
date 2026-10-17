@@ -213,7 +213,7 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
 
 	// Nothing reached the folder or an endpoint.
-	expect(await readdir(root)).not.toContain('kv.json');
+	expect(await readdir(root)).toEqual([]);
 	expect(transcribed).toEqual([]);
 	expect(transformed).toEqual([]);
 });

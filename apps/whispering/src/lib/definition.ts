@@ -30,11 +30,6 @@ export const AUDIO = 'audio';
  * as the body, so they still read correctly after anything they came from
  * changes or is deleted. The transcription row is never written.
  *
- * An earlier build saved the transcription endpoint and model in `kv.json`.
- * It is an ordinary file now: this build reads it, to offer them when the
- * transcription connection is set up (`earlierTranscriptionOf`), and never
- * writes it; no request goes to them.
- *
  * Audio stays on the machine that recorded it: `local` names `audio/`, so no
  * commit carries it and Sync sends the rows alone (ADR-0577). Where the
  * audio a row names is not in the folder, the app says so.
@@ -148,40 +143,6 @@ export type TransformationRunFields = CreateRowOf<
 export type TextRunFields = CreateRowOf<
 	typeof whisperingDefinition.tables.text_runs
 >;
-/** Where an earlier build saved the transcription endpoint and model. */
-export const EARLIER_SETTINGS_PATH = 'kv.json';
-
-/** The transcription endpoint and model an earlier build saved. */
-export type EarlierTranscription = {
-	readonly baseUrl?: string;
-	readonly model?: string;
-};
-
-/**
- * The transcription endpoint and model in the text of an earlier build's
- * `kv.json`, each only when it is a string. No text, or text that is not a
- * JSON object, offers nothing.
- */
-export function earlierTranscriptionOf(
-	text: string | undefined,
-): EarlierTranscription {
-	if (text === undefined) return {};
-	let saved: unknown;
-	try {
-		saved = JSON.parse(text.replace(/^\uFEFF/, ''));
-	} catch {
-		return {};
-	}
-	if (typeof saved !== 'object' || saved === null || Array.isArray(saved))
-		return {};
-	const { transcriptionBaseUrl: baseUrl, transcriptionModel: model } =
-		saved as Record<string, unknown>;
-	return {
-		...(typeof baseUrl === 'string' ? { baseUrl } : {}),
-		...(typeof model === 'string' ? { model } : {}),
-	};
-}
-
 export const RECORDINGS = 'recordings';
 export const TRANSCRIPTIONS = 'transcriptions';
 export const TRANSFORMATIONS = 'transformations';

@@ -7,7 +7,7 @@
  * Whispering's folder: inside Epicenter the connection is a row of
  * `so.epicenter` holding the model, with the base URL and key in this
  * computer's keychain, and a browser tab keeps all three in `localStorage`.
- * The folder's files (a recipe's endpoint, `kv.json`) never choose where a
+ * The folder's files (a recipe's endpoint among them) never choose where a
  * request goes or which key it carries. A request names the
  * connection's base URL it was prepared for, and is sent only while the
  * connection still targets exactly that URL, so a change of connection never

@@ -22,7 +22,6 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ```text
 ~/Epicenter/so.epicenter.whispering/
-├── kv.json                          transcription endpoint and model an earlier version saved; read, never written
 ├── recordings/
 │   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
 ├── audio/
@@ -36,7 +35,7 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 ├── text_runs/
 │   └── <run-id>.md                  a result on pasted text you saved: what was sent and with what; the result in the body
 ├── .gitignore                       names audio/, so the audio stays on the device that recorded it
-└── .git/                            ordinary Git: Markdown, kv.json, and .gitignore
+└── .git/                            ordinary Git: Markdown and .gitignore
 ```
 
 Opening the folder creates Git metadata. Where requests go is set up per
@@ -207,7 +206,7 @@ on a narrow window. Each opens its own popover.
   when you close the popover, leave Home, start a recording, or close the app.
   Only one of the two runs at a time, and never beside a recording. A test
   whose microphone is unplugged or loses access ends and says why.
-- The choice is kept on this device and is never written to `kv.json`. It is
+- The choice is kept on this device and is never written to the folder. It is
   in the page's `localStorage`, in Epicenter and in a browser tab; Epicenter
   serves every app from one fixed address, so the choice lasts between
   launches.
@@ -339,7 +338,7 @@ text"), which other apps in Epicenter can use too. The row holds the model
 and syncs with that folder; the base URL and key stay in this computer's
 keychain. A connection synced from another computer is not set up on this
 one until you save its base URL, and key, here. In a browser tab they are in
-this site's `localStorage`. Nothing about them is in `kv.json` or
+this site's `localStorage`. Nothing about them is in the folder or its
 history.
 
 - Nothing is sent until a connection is saved. A keyless local endpoint is
@@ -368,13 +367,11 @@ history.
   so. Errors that echo the key have it removed.
 
 **From an earlier version.** An earlier version kept one key for every
-endpoint, and the endpoint and model in `kv.json`. In a browser tab, that key
+endpoint. In a browser tab, that key
 stays where it was and is sent nowhere. Settings shows it as "A key saved by an earlier version";
 tick the connections it may go to, each at the endpoint its form shows, and
 press **Use the earlier key there**. It moves into those connections and is
 removed from where it was; it is never shown. Epicenter holds no such key.
-The `kv.json` endpoint and model fill in the transcription form until you save
-it; this version never writes `kv.json`.
 
 One failure is different. If Epicenter stops answering partway, the window cannot tell whether the request reached the endpoint: it
 may have been sent, and even answered, with the reply lost on the way back. The

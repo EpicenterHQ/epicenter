@@ -366,9 +366,8 @@ declaration that requires one is read as written.
   makes that whole row one to repair, and every setting in it falls back to
   the app's default until then; `kv.json` read each key alone. And `set`
   changes a row that is there: the first setting of a concern is a `create`.
-- `kv.json` becomes an ordinary file. Each app moves its settings into
-  `settings/<concern>.md` rows; Whispering keeps reading an earlier build's
-  endpoint as a file.
+- `kv.json` becomes an ordinary file that no app reads. Each app moves its
+  settings into `settings/<concern>.md` rows.
 
 ## Considered alternatives
 

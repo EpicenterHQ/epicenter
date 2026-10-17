@@ -4,7 +4,7 @@
  *
  * Reads are the folder's queries (`folderOptions`): each table's rows, the
  * listing the file browser shows, Git status, and the text of each file
- * opened as text, an earlier build's `kv.json` among them. The library
+ * opened as text. The library
  * observes the listings and Git status for as long as it is open, so every
  * page shows them. They are read when the
  * page opens and after the app's own actions and terminal commands; changes
@@ -104,9 +104,6 @@ import type {
 } from './connections.js';
 import {
 	audioPathIn,
-	EARLIER_SETTINGS_PATH,
-	type EarlierTranscription,
-	earlierTranscriptionOf,
 	RECORDINGS,
 	type RecordingFields,
 	recordingAudioStem,
@@ -396,10 +393,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		}
 		return options;
 	}
-	/**
-	 * The listings every page shows: the tables and the files, and the text
-	 * of an earlier build's `kv.json`, which setup offers from.
-	 */
+	/** The listings every page shows: the tables and the files. */
 	const listingQueries = () => [
 		listingOf(RECORDINGS),
 		listingOf(TRANSCRIPTIONS),
@@ -407,7 +401,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		listingOf(TRANSFORMATION_RUNS),
 		listingOf(TEXT_RUNS),
 		folder$.files.list.queryOptions(),
-		textQuery(EARLIER_SETTINGS_PATH),
 	];
 	/**
 	 * What the library observes while it is open: the listings, and Git
@@ -1031,19 +1024,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		() => undefined,
 	);
 
-	/**
-	 * What an earlier build's `kv.json` offers, read as an ordinary file: a
-	 * file that is missing, does not read, or holds no string there offers
-	 * nothing.
-	 */
-	const earlierTranscription = () => {
-		trackQueries();
-		const opened = textData(EARLIER_SETTINGS_PATH);
-		return earlierTranscriptionOf(
-			opened?.kind === 'text' ? opened.text : undefined,
-		);
-	};
-
 	return {
 		workspace,
 		folder,
@@ -1087,14 +1067,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		get git() {
 			trackGit();
 			return folder.git.snapshot;
-		},
-		/**
-		 * The transcription endpoint and model an earlier build saved in
-		 * `kv.json`. Offered when the transcription connection is set up; never
-		 * written, and never where a request goes.
-		 */
-		get earlierTranscription(): EarlierTranscription {
-			return earlierTranscription();
 		},
 		/** What this device has set up for requests, never a key. */
 		get connections() {

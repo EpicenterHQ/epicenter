@@ -2,7 +2,7 @@
  * The chosen microphone, kept in this origin's `localStorage`.
  *
  * It names hardware on one device, so it is neither folder data nor a
- * secret, and it is never written to `kv.json`. A browser tab and Epicenter
+ * secret, and it is never written to the folder. A browser tab and Epicenter
  * both keep it here: Epicenter serves every app from one fixed loopback
  * origin, so the choice lasts from launch to launch.
  */

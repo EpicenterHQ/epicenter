@@ -187,7 +187,7 @@ export type Workspace = {
 	};
 	/**
 	 * What this device remembers that is neither folder data nor a secret. It
-	 * is never written to `kv.json`, so it does not travel with the folder.
+	 * is never written to the folder, so it does not travel with it.
 	 */
 	readonly preferences: {
 		/** The saved microphone, or undefined for the system default. Rejects when it cannot be read. */

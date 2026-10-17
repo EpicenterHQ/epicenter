@@ -11,8 +11,8 @@
  *
  * The base URL and model follow the saved connection until they are typed
  * in, and follow it again when it changes. A connection not set up yet
- * starts from what an earlier build saved in `kv.json`, or from the
- * workspace's defaults; nothing is sent to those, or saved, until Save. The
+ * starts from the workspace's defaults; nothing is sent to those, or saved,
+ * until Save. The
  * key is never read back: the draft holds only what was typed since the last
  * save, and whether to keep, replace, or remove the saved one. Keeping is
  * offered only for the base URL the key was saved for, by the same rule the
@@ -44,13 +44,10 @@ function createConnectionDraft(library: Library, operation: Operation) {
 		library.connections?.[operation],
 	);
 	const defaults = library.workspace.connections.defaults[operation];
-	/** Where an unconfigured form starts: what an earlier build saved, then the defaults. */
+	/** Where an unconfigured form starts: the defaults. */
 	const start = $derived.by(() => {
 		if (operation === 'transcription')
-			return {
-				baseUrl: library.earlierTranscription.baseUrl ?? defaults.baseUrl,
-				model: library.earlierTranscription.model ?? defaults.model,
-			};
+			return { baseUrl: defaults.baseUrl, model: defaults.model };
 		// Text often goes to the same provider as transcription.
 		return {
 			baseUrl: library.connections?.transcription?.baseUrl ?? defaults.baseUrl,
