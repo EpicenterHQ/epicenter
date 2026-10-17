@@ -309,9 +309,12 @@ export function createTable<TFields>(
 			if (base.error !== null) return Err(base.error);
 			const next = to === null ? Ok(null) : textOf(to);
 			if (next.error !== null) return Err(next.error);
+			// A write that changes nothing leaves the file as it is.
 			return written(
 				path,
-				base.data === null ? null : await baseOf(path, base.data),
+				base.data === null || base.data === next.data
+					? base.data
+					: await baseOf(path, base.data),
 				next.data,
 			);
 		},
