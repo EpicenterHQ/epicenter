@@ -362,8 +362,8 @@ pub fn run() {
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
-            // An installed app may read `so.epicenter` through a lens, so its
-            // declaration is published before any app opens.
+            // An installed app may read `so.epicenter` through a definition,
+            // so its declaration is published before any app opens.
             app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
             // Every window's page comes from the scheme, which reads these.
             app.manage(scheme::Roots {
@@ -658,8 +658,8 @@ pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
 /// Open installed app `id`, served at `/apps/<id>/`, in its own window, or
 /// reveal the one already open on the same folder. With `folder`, a
 /// registered scope, the window is permitted into it and the app is handed
-/// it as `?folder=<scope>`; an app opens it with `openDataFolder({ id, lens })`
-/// (ADR-0538). Every app's window is also permitted into `so.epicenter`,
+/// it as `?folder=<scope>`; the app's `openFolder({ app, definition })` opens
+/// it through the app's definition (ADR-0538). Every app's window is also permitted into `so.epicenter`,
 /// whose `connections` table its AI commands name (ADR-0557, ADR-0570).
 /// Approving an app trusts it fully (ADR-0540), so the shell does not check
 /// its shape against the folder.

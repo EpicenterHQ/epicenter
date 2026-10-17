@@ -47,7 +47,7 @@ The model picker lists the endpoints saved in this browser and lets the learner 
 ## Data ownership
 
 ```text
-openFolder({ id, definition: vocabFolder }) One folder in this browser (OPFS), ID so.epicenter.vocab
+openFolder({ app, definition: vocabFolder }) One folder in this browser (OPFS), app so.epicenter.vocab
   entries/<SHA-256 of the text>.md          Exact text, note, stage, creation time
   chats/<id>.md                             Creation time, fixed focus snapshot
   messages/<chat id>.<message id>.md        Chat ID, one finished message

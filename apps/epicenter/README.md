@@ -92,8 +92,8 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 
 Every launch, in every build, also runs `epicenter declare-epicenter-folder`,
 which publishes `so.epicenter`'s declaration; the shell opens no installed
-app before it finishes, so an app's lens on `connections` fits whichever
-window opened first.
+app before it finishes, so an app reading `connections` through its
+definition finds that table whichever window opened first.
 
 ## Configure the server
 
@@ -273,7 +273,7 @@ the direct children of the root that are real directories, not links or dot
 entries, holding a regular file `epicenter.json`, and answers each with
 `{ id, title, declaration }`: `title` is `epicenter.json`'s `title` when it is
 a string, else the directory name, and `declaration` is the text of
-`epicenter.json`. The page passes `id` to `openDataFolder({ id })` from
+`epicenter.json`. The page passes `id` to `openFolder({ id })` from
 `@epicenter/folder/tauri`. The reply carries no paths; the page learns a
 folder's root from the plugin's grant, as every app does.
 
@@ -316,7 +316,7 @@ declaration.
 Beside every folder, the page offers every installed app that can run
 (`src/folders/openers.ts`, ADR-0560): one shows "Open in <app>"; several show
 "Open with…". Epicenter does not check whether the app fits the folder. The
-app opens the folder through its own lens (ADR-0538), which refuses a folder
+app reads the folder through its definition (ADR-0538), which refuses a folder
 whose `epicenter.json` lacks a table or field the app reads, with a message
 naming the folder and what is missing. Opening it there hands
 the app that folder; the Apps list's Open hands it its own folder. Every button
@@ -469,8 +469,9 @@ The scheme serves an installed app's current build, the commit
 listed commit when it is not the current build, labelled
 `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is opened on a
 folder. Opened on a folder, the window is permitted into that folder's scope
-and the page gets `?folder=<scope>`, which the app opens with
-`openDataFolder({ id, lens })`. Opened with no folder, the app is handed its
+and the page gets `?folder=<scope>`, which the app's
+`openFolder({ app, definition })` opens through its definition (ADR-0583).
+Opened with no folder, the app is handed its
 own folder, [`<app-id>`](#an-apps-own-folder). Every app's window is also
 permitted into `so.epicenter`, whose `connections` table its AI commands name.
 

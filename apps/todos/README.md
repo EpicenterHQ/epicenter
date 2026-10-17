@@ -160,11 +160,13 @@ folder or the Folders window lists it, and permits the Todos window into it
 (an installed app's own folder, ADR-0552). The shell hands each Todos window
 its folder's scope as `?folder=` in the window's URL (`open_installed_app`):
 `so.epicenter.todos`, or the scope the Folders window listed for another
-folder. For its own folder, or when handed none, Todos calls `openFolder`
-from `@epicenter/folder/tauri` with its definition; for any other folder it
-calls `openDataFolder` with its definition as the lens, which never writes
-that folder's declaration and refuses one without Todos's shape. Either asks
-the shell to grant the folder (`grant_directory`). The first grant creates the directory if it
+folder. Todos calls `openFolder({ app, definition })` from
+`@epicenter/folder/tauri`, which opens the handed folder, or Todos's own when
+handed none. In its own folder it publishes Todos's definition; any other it
+reads through the definition, never writing that folder's declaration and
+refusing one without Todos's tables (ADR-0583). `folder.own` says which, and
+only Todos's own folder offers Connect. Either way it asks the shell to grant
+the folder (`grant_directory`). The first grant creates the directory if it
 is missing, refuses a linked `.git`, and takes the cross-process lock. The
 Todos window then reads and changes that directory alone, through the folder
 plugin's commands.

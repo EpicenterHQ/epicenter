@@ -577,8 +577,8 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
 
 /// Whether this launch's `epicenter declare-epicenter-folder` has finished,
 /// one way or the other. An installed app may read `so.epicenter` through a
-/// lens its declaration must contain (ADR-0538), so no installed app opens
-/// before it, whichever window opened first.
+/// definition its declaration must contain (ADR-0538), so no installed app
+/// opens before it, whichever window opened first.
 #[derive(Clone)]
 pub struct EpicenterFolderDeclared(tokio::sync::watch::Receiver<bool>);
 

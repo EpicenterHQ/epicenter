@@ -42,10 +42,20 @@ and an app that builds for one environment selects its leaf with
 import { openFolder } from '@epicenter/folder/tauri';
 
 const { data: folder, error } = await openFolder({
-  id: 'so.epicenter.todos',
+  app: 'so.epicenter.todos',
   definition: todosDefinition,
 });
 ```
+
+`app` is the app's id, its manifest `id`. A folder's `epicenter.json` is
+published only by the app the folder is named after
+([ADR-0583](../docs/adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md)).
+In a browser the app opens its own folder. In the desktop app it opens the
+folder the shell handed its window, or its own when handed none; any folder
+but its own is read through the definition and never written over, and one
+that does not declare the definition's tables is refused, named.
+`folder.own` says which, for a feature that belongs to the app's own folder
+only, such as Todos' Connect.
 
 A browser folder is the directory its ID names, and opening it writes nothing;
 the first write creates it. Its remote is its own Git configuration, set by

@@ -132,12 +132,12 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 
 The desktop workspace opens the folder the window is handed as
 `?folder=<scope>`, or Whispering's own when it is handed none, with
-`openHandedFolder` from `@epicenter/folder/tauri`. Whispering's own folder
-asks the shell for the scope `so.epicenter.whispering` (`grant_directory`),
-the folder Epicenter hands an installed app opened from its Apps list, and
-opens the directory it is granted with `whisperingDefinition`. Any other
-handed folder opens with `whisperingDefinition` as the lens, which never
-writes its `epicenter.json` and refuses one that lacks Whispering's tables with
+`openFolder({ app, definition })` from `@epicenter/folder/tauri`. Whispering's
+own folder asks the shell for the scope `so.epicenter.whispering`
+(`grant_directory`), the folder Epicenter hands an installed app opened from
+its Apps list, and publishes `whisperingDefinition` there. Any other handed
+folder is read through `whisperingDefinition`, which never writes its
+`epicenter.json` and refuses one that lacks Whispering's tables with
 "Whispering cannot open the folder '<name>': …". Recordings are written under
 the scope opened (`Workspace.folderId`). The shell's refusal (an unknown scope, a window the
 scope does not list, a folder another process holds, a missing permission) is
@@ -185,10 +185,12 @@ the rule.
 ## Connections through Epicenter
 
 Opening Whispering's window permits it into Epicenter's own folder,
-`so.epicenter`. `src/lib/workspace/desktop-connections.ts` opens it with
-`openDataFolder` through `connectionsLens` from
-`@epicenter/ai/connection-table`, and reads and changes the two rows of its
-`connections` table, which sync with that folder. The endpoint and key are
+`so.epicenter`. `src/lib/workspace/desktop-connections.ts` reads and changes
+the two rows of its `connections` table, which sync with that folder, over
+the folder `src/lib/workspace/desktop.ts` opens by ID with
+`openFolder({ id, definition })` through `connectionsDefinition` from
+`@epicenter/ai/connection-table`. That never publishes: the folder is
+Epicenter's, which publishes its declaration. The endpoint and key are
 in this computer's keychain under the row's id, and only the `epicenter` CLI
 reads or writes them (`epicenter auth key set|remove|state`), through the
 Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page

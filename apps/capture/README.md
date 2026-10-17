@@ -186,8 +186,8 @@ whose README states what a grant allows. What that means for Capture:
 
 ```text
 Capture window (WebView)
-   openFolder({ id, definition })     its own folder, from @epicenter/folder/tauri
-   openDataFolder({ id, lens })       any other folder it is handed
+   openFolder({ app, definition })    the folder it is handed, or its own,
+                                      from @epicenter/folder/tauri
    the folder engine, in the page
         |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
         |  plugin:epicenter-folder|list_folder, read_folder_children,
@@ -209,11 +209,12 @@ app's own folder, and permits the Capture window into the folder it hands it
 (ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
 its files.
 
-`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. For
-Capture's own folder it calls `openFolder` from `@epicenter/folder/tauri`
-with `captureDefinition`; for any other folder it calls `openDataFolder` with
-`captureDefinition` as the lens, which never writes that folder's declaration
-and refuses one without Capture's shape. Either asks the shell for the
+`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. It
+calls `openFolder({ app, definition: captureDefinition })` from
+`@epicenter/folder/tauri`, which publishes `captureDefinition` only to
+Capture's own folder and reads any other through it, never writing that
+folder's declaration and refusing one without Capture's tables. Either way it
+asks the shell for the
 directory and opens it, or returns why it cannot, and the leaf hands the
 folder to the same store the
 browser build uses. The browser leaf calls `openFolder`

@@ -14,7 +14,7 @@ const definition = defineFolder({
   },
 });
 
-const { data: folder, error: openError } = await openFolder({ id: 'so.epicenter.todos', definition });
+const { data: folder, error: openError } = await openFolder({ app: 'so.epicenter.todos', definition });
 if (openError !== null) return show(openError.message);
 
 const stop = folder.onFilesChanged(() => refresh());   // subscribe, then read
@@ -176,23 +176,23 @@ empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.
 
 ```ts
-const personal = await openFolder({ id: 'so.epicenter.todos', definition });
-const work = await openFolder({ id: 'so.epicenter.todos.work', definition });
+const own = await openFolder({ app: 'so.epicenter.todos', definition });
+const groceries = await openFolder({ id: 'groceries', definition });
 ```
 
-Both openings use the same prepared definition at different addresses. The
-browser and desktop openers require `id`, and refuse a missing one before they
-acquire anything. An application keeps its usual folder ID beside the code
-that opens it, not in the definition. An application can open several
-datasets, and several compatible applications can reach the same dataset. Its
-app ID and private SQLite namespace are separate choices even when they use the
-same string.
+The definition names no folder. `app` names the app, and the app's own folder
+is the one named after it; `id` names any folder. Both openings use the same
+prepared definition, and only the first may publish it
+([Which folder opens](#which-folder-opens-and-the-one-rule)). The browser and
+desktop openers refuse a missing `app` or `id` before they acquire anything.
+An application keeps its id beside the code that opens its folder, not in the
+definition. Several compatible applications can reach the same folder.
 
 A browser folder's address is its ID alone ([ADR-0532](../../docs/adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)):
 each browser app is its own origin, so its storage already belongs to it.
 Signing in does not move data or retarget writes. A desktop shell registers the
-selected directory; the Bun opener receives an explicit directory and no
-folder ID.
+selected directory; the Bun opener receives an explicit directory, named by
+its directory's name.
 
 ## Entries
 
@@ -206,17 +206,24 @@ folder ID.
 | `@epicenter/folder/svelte` | Nothing: `createTextEditor`, one document's text opened over the folder's write, and `createBodyEditor`, its row case, each read reactively with its save loop ([Editing text](#editing-text)). Loads Svelte's runes only. | A Svelte editor of a note body or a file's text. |
 | `@epicenter/folder/file-browser` | Nothing: path helpers, visible tree rows, newline preservation, and `readTextFile` over a folder's files ([File-browser helpers](#file-browser-helpers)). | A file tree or a file view. |
 
-The first three export the same `openFolder` and `openDataFolder` signatures
-and the same contract, so one application source builds against any of them.
-Importing an entry opens nothing. On a server, opening returns a refusal.
+The first three export the same `openFolder` signature and the same
+contract, so one application source builds against any of them. Importing an
+entry opens nothing. On a server, opening returns a refusal.
 
 ```ts
 openFolder({
-  id,        // required: which folder, such as 'so.epicenter.todos'. Never a path.
+  app,         // an app's id, such as 'so.epicenter.todos', with its definition
   definition,
   credentials, // optional: (url, signal) => Promise<{ username, password } | undefined>
-  browser,   // optional: { author, httpFetch, opfs }
-}): Promise<Result<Folder, OpenFolderError>>
+  browser,     // optional: { author, httpFetch, opfs }
+}): Promise<Result<Folder<typeof definition, FolderDefinition>, OpenFolderError>>
+
+openFolder({
+  id,          // any folder by its ID, such as 'data:Groceries'. Never a path.
+  definition,  // optional: the definition to read it through
+  credentials,
+  browser,
+}): Promise<Result<Folder<typeof definition, FolderDefinition>, OpenFolderError>>
 ```
 
 `credentials` is asked right before each push and fetch with the exact URL
@@ -243,89 +250,92 @@ In the desktop app the shell chooses the directory; the page reads the author
 and remote from the repository, with the shell's author as the fallback. The
 policy in effect is on `folder.git.snapshot`.
 
-### An existing folder, with its own declaration
+### Which folder opens, and the one rule
 
-`openFolder` is for an application's own data: its schema ships in the
-application's code, and the handle publishes it to `epicenter.json` before
-its first write (only when the bytes differ). A folder whose schema belongs to
-the folder, such as a vault that generates `epicenter.json` from
-`epicenter.ts` or a working copy of someone else's repository, opens with
-`openDataFolder` instead (ADR-0535):
+One rule decides what a handle does with a definition: a folder's
+`epicenter.json` is published by the app the folder is named after, and every
+other opener reads through its definition (ADR-0583).
 
-```ts
-openDataFolder({
-  id,          // a folder the desktop shell registered, or a browser folder's ID
-  credentials, // optional, as for openFolder
-  browser,     // optional, as for openFolder
-  lens,        // optional: the shape this caller reads; see below
-}): Promise<Result<Folder<typeof lens, FolderDefinition>, OpenFolderError>>
-```
+An app opens with `{ app, definition }`. In a browser it opens its own folder,
+the one named `app`. In the desktop app it opens the folder the shell handed
+its window (`?folder=`, which "Open in" sets), or its own when the window was
+handed none. `folder.own` says whether the folder opened is the app's own, and
+`folder.id` names it: on the desktop the scope the shell granted, such as
+`so.epicenter.todos` or `data:Groceries`.
 
-| | `openFolder` | `openDataFolder` |
-| --- | --- | --- |
-| Schema | the caller's `definition` | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
-| `epicenter.json` | published before the first write, if its bytes differ | never written |
-| No `epicenter.json` | published on the first write | no tables; files, history, and Sync work |
-| An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens |
-| Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same |
-| Tables | typed by the definition | keyed by any name, rows checked at run time; with a `lens`, the lens's tables, typed by it ([below](#opening-another-apps-folder-through-a-lens)) |
+A tool that has no schema of its own, such as the Folders window, the CLI, or
+a script over a vault, opens with `{ id }` and reads the folder's own
+`epicenter.json`. With `{ id, definition }` it reads the folder through the
+definition instead, as an app reads Epicenter's own folder.
 
-Both return the same handle, and `folder.definition` is the prepared
-definition it reads with, so a view can render a folder it did not declare.
-History and Sync use it too: Sync merges a data folder's rows by the folder's
-own declaration. The definition is read once, when the folder opens; a
-declaration that changes afterward, such as one a Sync brought, is read by the
-next open.
+| | The app's own folder | Any other folder, through a definition | Any folder by `{ id }` alone |
+| --- | --- | --- | --- |
+| `folder.own` | `true` | `false` | `false` |
+| Schema | the app's `definition` | the folder's `epicenter.json`, which must contain the definition ([below](#opening-another-folder)) | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
+| `epicenter.json` | published before the first write, if its bytes differ | never written | never written |
+| No `epicenter.json` | published on the first write | contains only a definition with no tables, so a definition that reads a table is `ShapeMismatch` | no tables; files, history, and Sync work |
+| An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens | `InvalidDeclaration`, and nothing opens |
+| Tables | typed by the definition | the definition's tables, typed by it | keyed by any name, rows checked at run time |
+| Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same | the same |
+
+Every handle has `folder.definition`, the prepared definition it reads with,
+so a view can render a folder it did not declare. History and Sync use it
+too: Sync merges a folder's rows by the folder's own declaration. The
+definition is read once, when the folder opens; a declaration that changes
+afterward, such as one a Sync brought, is read by the next open.
 
 On the desktop, `id` names a folder the shell registered, until the shell
-issues grants for folders a person picks. In a browser, `openDataFolder`
-opens the origin-private folder named `id`; as with `openFolder`, a folder
-nobody wrote to has no files, its first write creates its directory, and its
-first commit creates its repository.
+issues grants for folders a person picks. In a browser, `{ id }` opens the
+origin-private folder named `id`; a folder nobody wrote to has no files, its
+first write creates its directory, and its first commit creates its
+repository.
 
-### Opening another app's folder through a lens
+### Opening another folder
 
-An app that reads a folder it did not create passes the shape it reads as
-`lens`, a `defineFolder` definition of only the tables and fields it knows
-(ADR-0538). The folder opens when its own declaration contains that shape,
-and its tables are typed by the lens:
+An app that reads a folder it did not create reads it through its definition
+(ADR-0538). The folder opens when its own declaration contains the
+definition's shape, and its tables are typed by the definition:
 
 ```ts
 const board = defineFolder({
+  title: 'Board',
   tables: {
     todos: defineTable({ fields: { title: field.string(), status: field.select(['todo', 'done']) } }),
   },
 });
 
-const { data: folder, error } = await openDataFolder({ id: 'so.epicenter.todos', lens: board });
-if (error?.name === 'ShapeMismatch') return show(error.problems); // every problem, listed
-await folder.tables.todos.set('milk', { status: 'done' }); // fields the lens does not name stay on the row
+// On the desktop, the folder the shell handed this window, or Board's own.
+const { data: folder, error } = await openFolder({ app: 'so.epicenter.board', definition: board });
+if (error?.name === 'ShapeMismatch') return show(error.message); // "Board cannot open the folder 'Groceries': ..."
+await folder.tables.todos.set('milk', { status: 'done' }); // fields the definition does not name stay on the row
 ```
 
-The folder contains the lens when, for every table of the lens, it declares a
-table of that name, and for every field the lens reads, it declares that field with a schema whose every value the lens's field
-accepts (`schemaContainment` in `@epicenter/definition`). A lens `string`
-accepts a folder `string`, a select of strings, or a date; a lens `number`
-accepts an `integer`; a nullable lens field accepts a field that is never
-`null`; a lens select accepts a select of some of its options. A field the
-lens requires must be required by the folder; an optional one may be either.
-A closed folder table (`additionalProperties: false`) contains a lens that
-reads some of its fields; a closed lens table needs a closed folder table with
-no other field. The check is conservative: a pair it cannot decide is a
-problem with the reason, and the app widens its lens. A folder without
-`epicenter.json` contains only a lens with no tables.
+The folder contains the definition when, for every table of the definition,
+it declares a table of that name, and for every field the definition reads,
+it declares that field with a schema whose every value the definition's field
+accepts (`schemaContainment` in `@epicenter/definition`). A definition's
+`string` accepts a folder `string`, a select of strings, or a date; a
+`number` accepts an `integer`; a nullable field accepts a field that is never
+`null`; a select accepts a select of some of its options. A field the
+definition requires must be required by the folder; an optional one may be
+either. A closed folder table (`additionalProperties: false`) contains a
+definition that reads some of its fields; a closed definition table needs a
+closed folder table with no other field. The check is conservative: a pair it
+cannot decide is a problem with the reason, and the app widens its
+definition. A folder without `epicenter.json` contains only a definition with
+no tables.
 
-| | Through a lens |
+| | Through a definition |
 | --- | --- |
-| A folder that does not contain the lens | `ShapeMismatch` with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
-| `tables` | the lens's tables alone, typed by it; the folder's other tables are not on the handle |
-| A row read | every field the file holds, the ones the lens does not name included, so a write of the row read keeps them |
-| A write | checked against the folder's own declaration, every field of it, a merged row included: the lens cannot write a value the folder refuses |
-| `create` | `canCreate` is false, and `create` is `InvalidValues` naming the fields, when the folder requires a field the lens does not declare; rows can still be edited |
-| `definition` | the folder's own prepared declaration, as without a lens |
+| A folder that does not contain the definition | `ShapeMismatch`, its message naming the app by the definition's `title` and the folder by its directory's name, with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
+| `tables` | the definition's tables alone, typed by it; the folder's other tables are not on the handle |
+| A row read | every field the file holds, the ones the definition does not name included, so a write of the row read keeps them |
+| A write | checked against the folder's own declaration, every field of it, a merged row included: the definition cannot write a value the folder refuses |
+| `create` | `canCreate` is false, and `create` is `InvalidValues` naming the fields, when the folder requires a field the definition does not declare; rows can still be edited |
+| `definition` | the folder's own prepared declaration |
 | `epicenter.json` | never written |
 
-Fields the lens does not name are kept only on the row the lens read. A row
+Fields the definition does not name are kept only on the row it read. A row
 built from scratch and passed to `write` or `create` drops them, and the
 folder refuses it when one of them is required.
 
@@ -591,31 +601,34 @@ emitted as separate chunks and neither loads until a folder is opened.
 ```ts
 import { openFolder } from '@epicenter/folder/bun';
 
+// The app's own folder: a directory named after the app.
 const opened = await openFolder({
-  root: '/path/to/an/existing/directory',
+  root: '/Users/me/Epicenter/so.epicenter.todos',
+  app: 'so.epicenter.todos',
   definition,
   git: { author: { name: 'Tool', email: 'tool@example.test' } },
 });
-```
 
-```ts
-import { openDataFolder } from '@epicenter/folder/bun';
-
-const opened = await openDataFolder({
+// Any directory, with its own epicenter.json.
+const vault = await openFolder({
   root: '/Users/me/Code/vault',
   git: { author: { name: 'Tool', email: 'tool@example.test' } },
 });
 ```
 
-`openDataFolder` opens an existing directory with its own `epicenter.json`
-([above](#an-existing-folder-with-its-own-declaration)), and takes a `lens`
-as the other entries do. A script that edits a
-data folder uses it; passing `parseDeclaration` of the file to `openFolder` is
-safe only for a declaration `epicenter generate` wrote, since `openFolder`
-publishes its own formatting on the first write. Opening creates nothing. A
-directory inside another repository's working tree, where ADR-0517 records
-the folder in the host's history, never gets a repository of its own: its
-first commit is `blocked`, naming the host.
+The Bun opener follows the same rule by path: a directory is named by its
+directory's name (`folder.id`), so `{ root, app, definition }` publishes
+only in a directory named after `app`, as the CLI decides which folder is an
+app's own (`isApplicationFolder`). Any other directory is read through the
+definition, and `{ root }` reads the directory's own `epicenter.json`
+([above](#which-folder-opens-and-the-one-rule)). A script that edits a data
+folder opens it with `{ root }`; passing `parseDeclaration` of the file as an
+app's definition is safe only for a declaration `epicenter generate` wrote,
+since an app publishes its own formatting on the first write. Opening
+creates nothing. A directory that is not an app's own and is inside another
+repository's working tree, where ADR-0517 records the folder in the host's
+history, never gets a repository of its own: its first commit is `blocked`,
+naming the host.
 
 These openers take the directory and the history settings explicitly, and this
 process reaches the disk itself, with `node:fs` and its own `git`. It opens
@@ -703,13 +716,14 @@ its default export declares (ADR-0527).
 
 | Member | Contract |
 | --- | --- |
-| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `write(stem, from, to)` merges the change from one row to another into the row as it is now, through the folder's one write; `set`, `create`, `delete`, and `rename` build that change. Each changes exactly one Markdown file, a rename two. See [Reading a row](#reading-a-row), [Writing a row](#writing-a-row), and [Editing a row](#editing-a-row). |
+| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table read through a definition that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `write(stem, from, to)` merges the change from one row to another into the row as it is now, through the folder's one write; `set`, `create`, `delete`, and `rename` build that change. Each changes exactly one Markdown file, a rename two. See [Reading a row](#reading-a-row), [Writing a row](#writing-a-row), and [Editing a row](#editing-a-row). |
 | `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. A create is a write from `null`, a delete a write to `null`. See [One write](#one-write). |
 | `move(path, next)` | The one move (ADR-0576): the file's bytes land at `next` only where nothing is, then `path` is removed only while it holds them. See [Files](#files). |
 | `files` | Ordinary files at literal paths: reads, listings, and directories. See below. |
 | `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. |
 | `sync` | `run()` records saved files, fetches, merges both heads into one commit this device wins, and pushes; `connect(url)` sets the remote first. It asks nothing. See [Sync](#sync). |
-| `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, settings among them, and Sync merges rows by it. |
+| `id`, `own` | Which folder this is: its ID (the scope the desktop shell granted, the browser directory's name, or in Bun the directory's name), and whether it is the opening app's own, the only folder where the handle publishes its definition. |
+| `definition` | The prepared definition the handle reads with: the app's own in its own folder, or the folder's own `epicenter.json` as it was read when the folder opened. Its tables are `tables`, settings among them, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own writes. Returns the function that stops listening. See [Changes](#changes). |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
@@ -979,7 +993,7 @@ fail as one `WriteError`.
 - `create(row, { stem? })` writes at `stem`, or a generated one, from no
   file, placed only where none is: a file already at the stem is
   `Occupied`, unless it holds this row's exact text, which is the same
-  create landed before. A lens that
+  create landed before. A definition that
   cannot supply a field the folder requires is `InvalidValues`, and
   `canCreate` says so beforehand.
 - `delete(stem)` removes whatever is at the stem, row or not.

@@ -3,7 +3,7 @@
 //!
 //! A data folder is a direct child of `folder_dir` that is a real directory,
 //! not a link or a dot entry, holding a regular file `epicenter.json`. The
-//! Folders window opens one with `openDataFolder({ id })`, so each listed
+//! Folders window opens one with `openFolder({ id })`, so each listed
 //! folder needs a scope that window may be granted:
 //!
 //! - An installed app's own folder is named by the app's id, and its scope is
@@ -80,7 +80,7 @@ pub fn register_epicenter_folder(folders: &Folders, folder_dir: &Path) -> Result
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DataFolder {
-    /// The scope to pass to `openDataFolder({ id })`.
+    /// The scope to pass to `openFolder({ id })`.
     pub id: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
@@ -98,7 +98,7 @@ pub struct DataFolderScopes(Mutex<BTreeMap<String, String>>);
 /// window open each one.
 ///
 /// Granted to the `folders` window alone. Every scope it returns is one that
-/// window is registered or permitted for, so `openDataFolder({ id })` there
+/// window is registered or permitted for, so `openFolder({ id })` there
 /// can be granted it. Off the main thread, since it reads the disk.
 #[tauri::command(async)]
 #[specta::specta]

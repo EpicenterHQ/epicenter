@@ -13,10 +13,10 @@ Folders window still needs to cover that work.
 
 ## Already decided
 
-- **How folders open (ADR-0535).** `openFolder` opens an
-  application's own data with its code definition; `openDataFolder` opens a
-  folder that already exists with its own `epicenter.json`, never writes it,
-  and creates nothing. Several windows may edit one folder; the shell compares
+- **How folders open (ADR-0535, ADR-0583).** `openFolder({ app, definition })`
+  publishes an application's code definition only to the folder named after
+  it; `openFolder({ id })` opens a folder that already exists with its own
+  `epicenter.json`, never writes it, and creates nothing. Several windows may edit one folder; the shell compares
   and publishes every save under one mutex per root.
 - **`epicenter.json` is a generated, portable contract.** A folder no
   application owns declares itself in `epicenter.ts` and runs
@@ -51,7 +51,7 @@ Folders window still needs to cover that work.
 This work continues on the same long-lived branch as the folder engine,
 which reaches `main` only once its deploy gate holds (merging to `main`
 deploys the API and its Durable Object migrations). In order: the Vault opens
-through `openDataFolder({ root })` and closes its tables (its own repository);
+through `openFolder({ root })` and closes its tables (its own repository);
 picked folders (1); SQL (2) and editors (3); views and the board (4).
 
 ## Open question

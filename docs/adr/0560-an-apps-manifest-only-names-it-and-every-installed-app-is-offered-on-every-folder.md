@@ -6,6 +6,7 @@
 - **Amends:** [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) at the consequence that the Folders window derives "Open in" from the shapes of installed apps, and at "the Folders window shows it as able to edit only": the Folders window reads no shape, the app's own window shows that it can only edit, and the lens check stands.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "`opens`, `build`, and `output` in `epicenter.app.json` are relative to that folder": the manifest is `id` and `title`, and the build is `bun run build:installed` in the folder, writing `dist/`.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the `apps` row's "the shape it opens": no shape leaves the app.
+- **Amended by:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) at "open a handed folder with `openDataFolder({ id, lens })`": an app's `openFolder({ app, definition })` opens the folder the shell handed its window, through its definition unless it is the app's own.
 - **Unbuilt:** marking an app and folder pair that refused once, so "Open in" stops offering a pair that will refuse again.
 
 ## Context
