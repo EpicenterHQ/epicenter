@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (publication by the app a folder is named after, `folder.own`, and the read-through containment check) and [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (an app opens a folder whose declaration contains its shape; a folder names no app).
-- **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition", "Only `openFolder` publishes", the typed lens that opens a folder whose declaration contains its shape, the consequence that `openFolder`'s `definition` is the only way to create a folder, and "The folders under the Epicenter root are listed by finding `epicenter.json`": history and Sync read no definition, nothing publishes, no containment is checked, a folder is made from a template, and the listing is every real, non-dot directory. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed, and rows that do not fit read as invalid rows. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", "Paths the opened definition declares local never enter a commit", and the whole-file merge of `epicenter.json` with its union of `local`: a `.md` file with readable frontmatter merges by field wherever it is, `.gitignore` decides what a commit leaves out, and `epicenter.json` merges by line. [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine rule table, `publishLocalPatterns`, and the consequences about `local` merging: the template's `.gitignore` and Whispering's check, before it records into a folder, that `audio/` is ignored and untracked replace them. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
-- **Unbuilt:** all of it: the merge by file without a definition, with ours' key order; `app` in `Definition`; `template/` in Todos, Capture, Honeycrisp, and Whispering, with `epicenter generate` writing `template/epicenter.json` and CI checking it; `epicenter new <dir> --from <app>`; the folder listing of every real, non-dot directory, which waits on installed apps leaving the Epicenter folder ([ADR-0586](0586-you-open-a-folder-never-an-app.md)); Whispering's check, before it records into a folder, that `audio/` is ignored and untracked; Epicenter's own template for `so.epicenter`; and every deletion under Consequences.
+- **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition", "Only `openFolder` publishes", the typed lens that opens a folder whose declaration contains its shape, the consequence that `openFolder`'s `definition` is the only way to create a folder, and "The folders under the Epicenter root are listed by finding `epicenter.json`": history and Sync read no definition, nothing publishes, no containment is checked, a folder is made from a template, and the listing is every real, non-dot directory. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed, and rows that do not fit read as invalid rows. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", "Paths the opened definition declares local never enter a commit", and the whole-file merge of `epicenter.json` with its union of `local`: a `.md` file with readable frontmatter merges by field wherever it is, `.gitignore` decides what a commit leaves out, and every `.json` file, `epicenter.json` included, merges as a whole file, the writer acting winning. [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine rule table, `publishLocalPatterns`, and the consequences about `local` merging: the template's `.gitignore` and Whispering's check, before it records into a folder, that `audio/` is ignored and untracked replace them. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
+- **Unbuilt:** all of it: the merge by file without a definition, with ours' key order and frontmatter kept as a side wrote it, which tests must prove before it ships (the fallback is restoring row classification); `app` in `Definition`; `template/` in Todos, Capture, Honeycrisp, and Whispering, with `epicenter generate` writing `template/epicenter.json` and CI checking it; `epicenter new <dir> --from <app>`; the folder listing of every real, non-dot directory, which waits on installed apps leaving the Epicenter folder ([ADR-0586](0586-you-open-a-folder-never-an-app.md)); Whispering's check, before it records into a folder, that `audio/` is ignored and untracked; Epicenter's own template for `so.epicenter`; and every deletion under Consequences.
 
 ## Context
 
@@ -81,16 +81,27 @@ nothing to hold onto.
 | File | Unit |
 | --- | --- |
 | a `.md` file whose present versions all have frontmatter `parseRowSource` reads | one frontmatter field; one region of body lines |
-| other UTF-8 text, `epicenter.json` included | one region of lines |
+| a `.json` file, `epicenter.json` included | the whole file |
+| other UTF-8 text | one region of lines |
 | binary, or a side absent | the whole file |
 
 - No table classifies a path and no depth rule applies: `notes/a.md`,
   `notes/2026/a.md`, and a `README.md` with frontmatter at the root merge
   alike.
-- A merged row is written with `formatRowSource`, keys in ours' order, then
-  keys only theirs added. A merge that does not format, and a version whose
-  frontmatter does not read, takes the frontmatter and body line merge
-  (`rowTextWins`), as an invalid row does today.
+- A `.json` file merges whole, the writer acting winning, as
+  `epicenter.json` does today, because a line merge joins two different
+  insertions at one place (`mergeLines`,
+  `packages/folder/src/git/merge-lines.ts:202-209`): two items added to an
+  empty array on two devices would merge into JSON with no comma between
+  them. The rule is by extension, so it needs no Definition.
+- A merged Markdown file keeps its frontmatter as a side wrote it. When the
+  merged fields equal ours' fields or theirs', that side's frontmatter bytes
+  stand as they are, comments and quoting included. Only when the merged
+  fields differ from both sides' is the frontmatter written with
+  `formatRowSource`, keys in ours' order, then keys only theirs added.
+- A merge that does not format, and a version whose frontmatter does not
+  read, takes the frontmatter and body line merge (`rowTextWins`), as an
+  invalid row does today.
 - Sync, the one write, and the merge driver call the same `merge`. The
   driver stops looking up `epicenter.json` and merges every path of the
   repository it is configured in; it leaves to Git only a version that is
@@ -125,8 +136,7 @@ folder lacks is created by its first row. `openFolder({ id })` and
 `openFolder({ root, git })` read `epicenter.json` when it is there. Of
 ADR-0583's rules, these stand: each entry exports one opener, `openFolder`;
 on the desktop the shell decides which folder a window opens
-(`Folders::hand`, `window_folder`), never the page's URL; and a page whose
-`app` differs from its window's is refused `AppMismatch`.
+(`Folders::hand`, `window_folder`), never the page's URL.
 
 **`app` is the only link between a folder and the app that opens it.**
 Folder names belong to the person. `app` grants no rights, and nothing
@@ -187,11 +197,17 @@ rewritten.
 - A field theirs added sits last in a merged row until the app's next save
   of that row moves it: one line of churn in the next commit.
 - A hand-written `.md` file with frontmatter outside any table merges by
-  field, and when both sides changed it, it is rewritten canonically and
-  loses its YAML comments. Rows already behave this way; history keeps the
-  old version.
-- `epicenter.json` merges by line. A merge that leaves it broken JSON is
-  repaired by hand; until then readers without code say it does not read.
+  field. Its frontmatter is rewritten canonically, losing YAML comments,
+  only when both sides changed its fields, as rows already are; history
+  keeps the old version.
+- The merge driver merges by field every Markdown file with frontmatter in
+  the repository it configures, such as every post in a notes vault or a
+  static site. A person who runs `epicenter merge-driver` on that repository
+  opts every such file in; frontmatter kept as written limits the comment
+  loss to files where both sides changed fields.
+- A `.json` file both sides changed keeps the writer acting's version
+  whole; the other side's edit is in its commit, as with any whole-file
+  merge.
 - A folder made for another app opens without a refusal naming what is
   missing; its rows read as invalid rows in the app's views. "Todos cannot
   open the folder 'Recipes'" no longer appears.

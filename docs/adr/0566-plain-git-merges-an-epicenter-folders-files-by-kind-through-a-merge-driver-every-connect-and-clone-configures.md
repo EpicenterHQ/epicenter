@@ -103,8 +103,8 @@ theirs. After `--`, every token is a positional.
 **The driver merges with `merge`, which needs no definition
 ([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)).**
 It merges every path of the repository it is configured in: a `.md` file
-whose versions all have readable frontmatter by field and body line, other
-text by line. It reads no `epicenter.json`, so a data folder inside a larger
+whose versions all have readable frontmatter by field and body line, a
+`.json` file whole, other text by line. It reads no `epicenter.json`, so a data folder inside a larger
 repository works too, and it reads an empty `%O` as no base, so two rows
 added under one name merge field by field.
 
