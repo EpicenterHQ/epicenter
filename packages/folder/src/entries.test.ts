@@ -127,6 +127,43 @@ test('on a server the automatic entry refuses, and so does each explicit entry',
 	expect(invoked).toEqual([]);
 });
 
+test('a browser whose file handles cannot move a file is refused at open', async () => {
+	const storage = createTestStorage();
+	const before = {
+		navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+		handle: Object.getOwnPropertyDescriptor(globalThis, 'FileSystemFileHandle'),
+	};
+	Object.defineProperty(globalThis, 'navigator', {
+		configurable: true,
+		value: {
+			storage: { getDirectory: () => storage.opfs.getDirectory() },
+			locks: {},
+		},
+	});
+	Object.defineProperty(globalThis, 'FileSystemFileHandle', {
+		configurable: true,
+		value: class {
+			createWritable() {}
+		},
+	});
+	try {
+		expect(
+			expectErr(await browser.openFolder({ id, definition })),
+		).toMatchObject({
+			name: 'NoFileSystem',
+			missing: 'FileSystemFileHandle.move',
+		});
+	} finally {
+		for (const [name, descriptor] of [
+			['navigator', before.navigator],
+			['FileSystemFileHandle', before.handle],
+		] as const)
+			if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+			else Reflect.deleteProperty(globalThis, name);
+	}
+	expect(storage.opfs.directories()).toEqual([]);
+});
+
 test('every opener refuses a missing folder ID before it acquires anything, even from an untyped caller', async () => {
 	const storage = createTestStorage();
 	const untyped = {

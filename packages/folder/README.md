@@ -388,8 +388,9 @@ of the bytes read from it, so a same-size rewrite in the same millisecond is
 still a change. `open(path)` returns a Blob of the bytes read, which keeps
 them after the path is replaced.
 
-Opening requires `navigator.storage.getDirectory`, writable file streams, and
-Web Locks; without one it returns `NoFileSystem` and never falls back.
+Opening requires `navigator.storage.getDirectory`, writable file streams, file
+moves, and Web Locks; without one it returns `NoFileSystem` and never falls
+back.
 IndexedDB is not required and is never read or written. A folder an earlier
 version kept in IndexedDB is not opened, copied, or removed.
 
@@ -403,7 +404,7 @@ holds it across several, as Sync's publish does. Reads take no lock. Every chang
 replaced file's bytes publish when its stream closes, so a reader sees the
 old bytes or the new ones, and a new file is written to
 `.git/epicenter/scratch` and moved into place, so a crash never leaves it
-empty. A browser that cannot move a file writes a new one in place.
+empty.
 
 | What happened | Outcome |
 | --- | --- |

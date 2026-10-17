@@ -43,8 +43,8 @@ export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
 /**
  * OPFS handles over `directory` that call `beforeClose` with a file's own
  * handle before a stream to it publishes: the window in which a save is
- * running, which a test can hold open. The handles cannot move a file, so a
- * new file is written in place.
+ * running, which a test can hold open. A new file's stream is the one to
+ * its staged copy, before the move into place.
  */
 export function holdCloses(
 	directory: OpfsDirectoryHandle,
@@ -54,6 +54,8 @@ export function holdCloses(
 		kind: 'file',
 		name: file.name,
 		getFile: () => file.getFile(),
+		move: (destination, name) =>
+			file.move(heldOver.get(destination) ?? destination, name),
 		async createWritable(options) {
 			const writable = await file.createWritable(options);
 			return {
@@ -66,7 +68,7 @@ export function holdCloses(
 			};
 		},
 	});
-	return {
+	const held: OpfsDirectoryHandle = {
 		kind: 'directory',
 		name: directory.name,
 		getDirectoryHandle: async (name, options) =>
@@ -84,7 +86,12 @@ export function holdCloses(
 					: holdCloses(entry, beforeClose);
 		},
 	};
+	heldOver.set(held, directory);
+	return held;
 }
+
+/** The directory each `holdCloses` handle wraps, which a move is given. */
+const heldOver = new WeakMap<OpfsDirectoryHandle, OpfsDirectoryHandle>();
 
 type FileNode = {
 	kind: 'file';

@@ -20,9 +20,7 @@
  * - A new file is written to `.git/epicenter/scratch` and moved into place,
  *   since OPFS makes a file empty the moment it is first asked for; a crash
  *   then leaves nothing at the path, never an empty file. The move happens
- *   only where the lock has just found no file. A browser that cannot move
- *   a file writes it in place, empty until its stream closes, and takes it
- *   away again when the stream fails.
+ *   only where the lock has just found no file.
  * - A stream that fails to close may or may not have published: the outcome
  *   is `Unconfirmed`. The bytes found there afterward are not taken as proof
  *   of which write put them there.
@@ -73,7 +71,7 @@ export type OpfsFileHandle = {
 		keepExistingData?: boolean;
 	}): Promise<OpfsWritable>;
 	/** Move this file to `name` in `directory`, at once. */
-	move?(directory: OpfsDirectoryHandle, name: string): Promise<void>;
+	move(directory: OpfsDirectoryHandle, name: string): Promise<void>;
 };
 
 export type OpfsDirectoryHandle = {
@@ -411,8 +409,6 @@ async function writeThrough(
 /**
  * Create `name` in `parent` holding `bytes`, where the lock has just found
  * no file: written whole to `.git/epicenter/scratch`, then moved into place.
- * A browser that cannot move a file writes it in place, and takes away the
- * empty file a failed stream leaves.
  */
 async function createAt(
 	root: OpfsDirectoryHandle,
@@ -438,10 +434,6 @@ async function createAt(
 	}
 	await sweepScratch(scratch);
 	const discard = () => scratch.removeEntry(stagedName).catch(() => {});
-	if (staged.move === undefined) {
-		await discard();
-		return createInPlace(parent, path, bytes);
-	}
 	const written = await writeThrough(staged, path, bytes, { replacing: false });
 	if (written.error !== null) {
 		await discard();
@@ -474,37 +466,6 @@ async function sweepScratch(scratch: OpfsDirectoryHandle) {
 	} catch {
 		// Leftovers are inert; a create that cannot clear them still writes.
 	}
-}
-
-/**
- * A create where the browser cannot move a file (Chrome before 102): in
- * place, empty until it closes, so a cut write can leave it empty. Every
- * engine since has `move`; this stays so such a browser can still create.
- */
-async function createInPlace(
-	parent: OpfsDirectoryHandle,
-	path: string,
-	bytes: Uint8Array,
-): Promise<Result<'landed' | 'stale', FileError>> {
-	const name = basename(path);
-	let handle: OpfsFileHandle;
-	try {
-		handle = await parent.getFileHandle(name, { create: true });
-	} catch (cause) {
-		if (errorName(cause) === 'TypeMismatchError')
-			return FileError.NotAFile({ path });
-		return FileError.Io({ path, operation: 'write', cause });
-	}
-	const written = await writeThrough(handle, path, bytes, { replacing: false });
-	if (written.error === null || written.error.name === 'Unconfirmed')
-		return written;
-	try {
-		await parent.removeEntry(name);
-	} catch {
-		// Whether it went is asked next.
-	}
-	const found = await lookup(parent, name).catch(() => undefined);
-	return found?.kind === 'absent' ? written : unconfirmed(path, written.error);
 }
 
 /**

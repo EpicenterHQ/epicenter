@@ -72,6 +72,10 @@ function globalEnvironment(): Result<
 		return OpenFolderError.NoFileSystem({
 			missing: 'FileSystemFileHandle.createWritable',
 		});
+	if (!('move' in (scope.FileSystemFileHandle?.prototype ?? {})))
+		return OpenFolderError.NoFileSystem({
+			missing: 'FileSystemFileHandle.move',
+		});
 	const locks = scope.navigator?.locks;
 	if (locks === undefined)
 		return OpenFolderError.NoFileSystem({ missing: 'navigator.locks' });
