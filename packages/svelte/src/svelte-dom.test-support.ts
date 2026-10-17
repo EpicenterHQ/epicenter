@@ -49,8 +49,13 @@ Bun.plugin({
 		// packages such as bits-ui ship, as the Svelte Vite plugin compiles both.
 		build.onLoad({ filter: /\.svelte\.(ts|js)$/ }, async ({ path }) => {
 			const source = await Bun.file(path).text();
+			// Dead-code elimination would drop a bare `void signal;`, which is how
+			// a derived declares a dependency it does not otherwise read.
 			const javascript = path.endsWith('.ts')
-				? new Bun.Transpiler({ loader: 'ts' }).transformSync(source)
+				? new Bun.Transpiler({
+						loader: 'ts',
+						deadCodeElimination: false,
+					}).transformSync(source)
 				: source;
 			const compiled = compileModule(javascript, {
 				filename: path,
