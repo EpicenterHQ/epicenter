@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Amended by:** [ADR-0590](0590-ten-principles-the-folder-model-is-built-against.md) at "Sharing a folder is moving it into a group" and the `manage` role's rename and move: neither is offered; share-by-move is reopened only if it becomes product work.
+- **Amended by:** [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at "Sharing a folder is moving it into a group" and the `manage` role's rename and move: neither is offered; share-by-move is reopened only if it becomes product work.
 - **Unbuilt:** groups with invitations, and the "Share…" move into a group in an app (the `manage` role's move exists as a server function). Membership checks on Git requests are built.
 
 ## Context

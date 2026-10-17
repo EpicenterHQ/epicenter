@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at `install-command`, which points the one command link `~/.local/bin/epicenter` at the running binary, never with `sudo`.
-- **Relates:** [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md) (macOS only), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (all desktop Git runs in the CLI), [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) (the global credential helper), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (deletes the plain-Git merge driver this record also configured).
+- **Relates:** [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md) (macOS only), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (all desktop Git runs in the CLI), [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) (the global credential helper), [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) (deletes the plain-Git merge driver).
 - **Unbuilt:** Settings showing that a launch under App Translocation, or a regular file at `~/.local/bin/epicenter`, left the link alone, which today only the log records; Settings telling a person whose `PATH` lacks `~/.local/bin` to add it.
 
 ## Context

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-11
 - **Amended by:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) at executing a declaration: `epicenter generate` may run a folder's `epicenter.ts` on request; readers still read only `epicenter.json`.
-- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) (a private repository per synced folder), [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) (sync with the Git origin), [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (opening publishes the declaration), [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) (a folder is the directory its ID names)
+- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) (a private repository per synced folder), [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) (sync with the Git origin), [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) (a folder is the directory its ID names)
 - **Unbuilt:** opener refusal of a root inside another repository (Bun's directory `openFolder` and the CLI outside the Epicenter folder refuse only that root's first commit, ADR-0535; a folder directly in the Epicenter folder still gets a repository of its own, ADR-0585), extraction tooling, and opening a submodule-hosted data folder in the native engine.
 
 ## Context
@@ -151,7 +151,7 @@ git submodule add <repository-url> plan
 - The key set and the portable formats are closed, so a reader refuses a
   declaration from a newer writer that adds either. Adding one is a reader
   change first.
-- Openers publish `epicenter.json` (ADR-0508), so an app-opened data folder
+- Openers publish `epicenter.json` (ADR-0508, deleted; withdrawn by ADR-0585), so an app-opened data folder
   is discoverable by it. A `definition.json` left by an older build is an
   ordinary file the folder no longer reads or writes. A hosted data folder
   that no app opens keeps the `epicenter.json` its authors wrote. Opening

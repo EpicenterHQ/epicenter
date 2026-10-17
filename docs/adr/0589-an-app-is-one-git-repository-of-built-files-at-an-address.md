@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (installing builds the app's source on the person's machine); its rule that approving a commit trusts it fully is restated here.
-- **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "installed from a folder in any Git repository", `epicenter.folder`, and `bun install` at the root: an app is a whole repository, built before it is published. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at `epicenter.app.json` and `bun run build:installed` in the folder: there is no manifest and no build on the person's machine. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "the clones in `~/Epicenter/Apps/`": the installed apps are clones of built repositories in app data, one directory per encoded address. [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) at "The page-to-shell command set is not a cross-version contract" and "an installed app built for the old ones is rebuilt": after the first release the page API changes only by addition. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at its wire renames: they land before the first release. [ADR-0586](0586-you-open-a-folder-never-an-app.md) at the reverse-domain id and the manifest folded into the template: an app is named by its address. ADR-0588 (pull request #2565), at building the approved commit on the machine: the build moves to publishing, and the window still runs one approved commit's bytes.
-- **Unbuilt:** all of it: the address grammar, its clone rule, the machine-local substitution, and the encoding; the publish step in CI and `epicenter app publish`; per-app repositories under EpicenterHQ, each with a default branch and a `template` branch, created by the owner; an installer that clones, approves, and serves built bytes; approvals keyed by address and commit; OAuth client ids as constants in each app; the page API in a package of its own; and every deletion below.
+- **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "installed from a folder in any Git repository", `epicenter.folder`, and `bun install` at the root: an app is a whole repository, built before it is published. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at `epicenter.app.json` and `bun run build:installed` in the folder: there is no manifest and no build on the person's machine. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "the clones in `~/Epicenter/Apps/`": the installed apps are clones of built repositories in app data, one directory per encoded address. [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) at "The page-to-shell command set is not a cross-version contract" and "an installed app built for the old ones is rebuilt": after the first release the page API changes only by addition. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at the App noun, "named by its reverse-domain id", and at its wire renames: an app is named by its address, and the renames land before the first release. [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at building the approved commit on the machine, `builds/<app-id>/`, and `epicenter-app://localhost/apps/<app-id>/<commit>/`: the build moves to publishing, and the paths and URL take the encoded address; the window still runs one approved commit's bytes. [ADR-0204](0204-an-app-is-one-reverse-domain-identifier-that-names-every-place-it-exists.md) and [ADR-0246](0246-an-app-is-named-by-its-full-reverse-domain-id-everywhere-including-the-ones-epicenter-ships.md) at the reverse-domain id as the name of every place an app exists: an installed app is named by its address, and a first-party app's OAuth client id stays a constant in its code.
+- **Unbuilt:** all of it: the `template-commit` file and the browser build's template objects; the address grammar, its clone rule, the machine-local substitution, and the encoding; the publish step in CI and `epicenter app publish`; per-app repositories under EpicenterHQ, each with a default branch and a `template` branch, created by the owner; an installer that clones, approves, and serves built bytes; approvals keyed by address and commit; OAuth client ids as constants in each app; the page API in a package of its own; and every deletion below.
 
 ## Context
 
@@ -12,14 +12,14 @@ An app is a folder inside any Git repository, holding `epicenter.app.json`
 with a reverse-domain `id` and a `title` (ADR-0552, ADR-0560). The
 installer clones the whole repository into the Epicenter folder's `Apps/`,
 records the app's folder as `epicenter.folder` in the clone's
-`.git/config` (`FOLDER_KEY`, `packages/cli/src/installed-apps.ts:67`),
+`.git/config` (`FOLDER_KEY`, `packages/cli/src/installed-apps.ts:71`),
 finds apps by scanning four directories deep for manifests
-(`RepositoryApp`, `:128`; the scan at `:745-752`), checks the id with
-`appIdProblem` (`:207`), and builds on the person's machine: `bun install
+(`RepositoryApp`, `:136`; `listRepository`, `:761`), checks the id with
+`appIdProblem` (`:215`), and builds on the person's machine: `bun install
 --frozen-lockfile --ignore-scripts` at the root, then `bun run
-build:installed` (`BUILD_SCRIPT`, `:73`; `:989-996`). The Folders window
+build:installed` (`BUILD_SCRIPT`, `:77`; `:1047-1054`). The Folders window
 hard-codes Epicenter's monorepo and `apps/todos` to offer Todos
-(`apps/epicenter/src/folders/InstallApps.svelte:23-24`). A browser build
+(`apps/epicenter/src/folders/InstallApps.svelte:24-25`). A browser build
 signs in with the manifest's id as its OAuth client id
 (`apps/todos/src/lib/platform/auth.browser.ts:20`).
 
@@ -45,6 +45,14 @@ github.com/EpicenterHQ/todos              the address: host/owner/repo
 
 - One approved commit of the default branch supplies every byte a window
   runs. Approving a commit trusts it fully, as ADR-0540 decided.
+- An approved built commit names its template by a file at the root of its
+  tree, `template-commit`, holding the full hash of the matching `template`
+  branch commit. The template is then part of the approved bytes, and every
+  device starts a folder from the same commit.
+- A browser build carries that template commit's Git objects (the commit,
+  its trees, and its blobs) in its assets, so a standalone browser app
+  writes its first folder commit into its own storage without fetching from
+  any Git host.
 - Building happens in a publish step, never on a person's machine.
   First-party apps stay developed in the GitHub monorepo, and CI publishes
   each to its own repository. Anyone else publishes with `epicenter app
@@ -85,8 +93,7 @@ Deleted:
   `RepositoryApp`, and listing the apps in a repository;
 - `epicenter.app.json`, its parsing, and the hard-coded Todos path in
   `InstallApps.svelte`;
-- reverse-domain ids and `appIdProblem`;
-- `source` and `title` in `epicenter.json`.
+- reverse-domain ids and `appIdProblem`.
 
 ## Consequences
 

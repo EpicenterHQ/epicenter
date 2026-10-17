@@ -25,7 +25,7 @@ again. Holding the row required a folder no person chose:
   `EPICENTER_FOLDER_ID`), and `declareEpicenterFolder` publishes it at
   every launch; the shell waits on that (`EpicenterFolderDeclared`,
   `apps/epicenter/src-tauri/src/cli.rs:583`) before opening an installed
-  app (`installed_apps.rs:249-250`).
+  app (`installed_apps.rs:228-229`).
 - The shell registers it with `FolderConfig::new`, so its first grant
   creates it empty (`register_epicenter_folder`,
   `apps/epicenter/src-tauri/src/data_folders.rs:73-90`), and permits every
@@ -39,7 +39,7 @@ again. Holding the row required a folder no person chose:
   (`desktop-connections.ts:51-54`).
 - The CLI special-cases its name: `isApplicationFolder`
   (`packages/cli/src/history-commands.ts:57`) and the installer's refusal of
-  the id (`packages/cli/src/installed-apps.ts:224`).
+  the id (`packages/cli/src/installed-apps.ts:232`).
 
 ## Decision
 
@@ -47,8 +47,12 @@ again. Holding the row required a folder no person chose:
 in app data, plus a keychain entry.**
 
 ```txt
-<data_dir>/connections.json       { "<id>": { "kind", "title", "model" } }   written only by the CLI
-keychain so.epicenter.connections <id> -> { "endpoint", "key" }            today's entry, unchanged
+<data_dir>/connections.json   written only by the CLI
+  {
+    "connections": { "<id>": { "kind", "title", "model" } },
+    "choices": { "<app address>": { "<operation>": "<id>" } }
+  }
+keychain so.epicenter.connections <id> -> { "endpoint", "key" }   today's entry, unchanged
 ```
 
 - The endpoint stays with the key, so editing `connections.json` cannot
@@ -69,7 +73,7 @@ A page never reads a key, and the CLI still sends every desktop request
 (ADR-0557).
 
 **Which connection an app uses is kept on this machine,** in
-`connections.json` under the app's address (ADR-0589), never in the app's synced folder. A
+`connections.json` under `choices` and the app's address (ADR-0589), never in the app's synced folder. A
 choice that synced could send a person's audio to a different provider on
 another machine, where the same connection id names another endpoint or
 account. Whispering's fixed ids `whispering-transcription` and
