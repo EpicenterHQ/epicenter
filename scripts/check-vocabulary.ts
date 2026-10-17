@@ -116,6 +116,35 @@ const RULES: readonly Rule[] = [
 			'README.md',
 		],
 	},
+	// ADR-0584 P1: one noun for what `epicenter.json` holds.
+	...(
+		[
+			['DataSchema', 'Definition'],
+			['FolderDefinition', 'Definition'],
+			['PreparedFolderDefinition', 'PreparedDefinition'],
+			['prepareSchema', 'prepareDefinition'],
+			['DataDefinitionParseError', 'DefinitionError'],
+			['formatDeclaration', 'formatDefinition'],
+			['parseDeclaration', 'parseDefinition'],
+			['readDeclaration', 'readDefinition'],
+			['DECLARATION_PATH', 'DEFINITION_PATH'],
+			['DECLARATION_SOURCE_PATH', 'DEFINITION_SOURCE_PATH'],
+			['hasDeclarationSource', 'hasDefinitionSource'],
+			['generateDeclaration', 'generateDefinition'],
+			['GenerateDeclarationError', 'GenerateDefinitionError'],
+			['InvalidDeclaration', "InvalidDefinition with path 'epicenter.json'"],
+			['ShapeMismatch', 'DefinitionMismatch'],
+			['ShapeProblem', 'Mismatch'],
+			['shapeProblems', 'mismatches'],
+			['schemaContainment', 'containment'],
+			['requiredOutsideShape', 'requiredOutside'],
+		] as const
+	).map(([word, instead]) => ({
+		word,
+		instead,
+		adr: 'ADR-0584',
+		excludes: [],
+	})),
 ];
 
 const IGNORE_FILE = /vocab-check:\s*ignore-file\b/;
