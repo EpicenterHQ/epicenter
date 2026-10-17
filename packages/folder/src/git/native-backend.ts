@@ -23,7 +23,6 @@
  * (ADR-0559, `tauri-history.ts`).
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
-import { byCodePoint, NORMALIZING } from './attributes.js';
 import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
@@ -331,25 +330,6 @@ export async function createNativeGitBackend({
 				head: await resolve(branchRef),
 				ignored: (paths) => backend.ignoredPaths(paths, new Map()),
 			});
-		},
-		async incomingAttribute(commit, files) {
-			if (files.size === 0) return undefined;
-			// Git's own attribute matching, against the commit's tree alone. A
-			// Git too old for `--source` fails here, before anything is written.
-			const result = await run(
-				['check-attr', `--source=${commit}`, '--stdin', '-z', ...NORMALIZING],
-				{ input: `${[...files.keys()].sort(byCodePoint).join('\0')}\0` },
-			);
-			const records = text(result.stdout).split('\0');
-			for (let index = 0; index + 2 < records.length; index += 3) {
-				const [path, attribute, value] = records.slice(index, index + 3);
-				if (value !== 'unspecified' && value !== 'unset')
-					return {
-						path: path!,
-						attribute: value === 'set' ? attribute! : `${attribute}=${value}`,
-					};
-			}
-			return undefined;
 		},
 		async reconcileIndex(commit) {
 			if (!(await exists())) return;

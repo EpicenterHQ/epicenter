@@ -46,6 +46,7 @@ import {
 	pathProblem,
 } from '../paths.js';
 import { confirmedPut, writeFile } from '../write.js';
+import { declaredFilter, isAttributesPath } from './attributes.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';
@@ -657,14 +658,24 @@ export function createHistory({
 				paths: invalid,
 				reason: 'some paths are not valid folder paths',
 			});
-		// A commit that declares a filter or a conversion for a path means
-		// something else by its bytes: under `filter=lfs` a blob is a pointer.
-		const declared = await backend.incomingAttribute(commit, files);
-		if (declared !== undefined)
+		// Under a filter a blob means something else than its bytes: under
+		// `filter=lfs` it is a pointer.
+		const attributeFiles = await backend.withObjects((access) =>
+			Promise.all(
+				[...files]
+					.filter(([path]) => isAttributesPath(path))
+					.map(
+						async ([path, entry]) =>
+							[path, await readBlob(access, entry.oid)] as const,
+					),
+			),
+		);
+		const filter = declaredFilter(attributeFiles);
+		if (filter !== undefined)
 			return SyncError.Unrepresentable({
 				whose,
-				paths: [declared.path],
-				reason: `the commit declares the Git attribute ${declared.attribute}, and this folder does not apply attribute filters or conversion`,
+				paths: [filter.path],
+				reason: `${filter.path} line ${filter.line} (${filter.text}) names a Git filter, and this folder writes every file as plain bytes`,
 			});
 		// Every file and every directory on the way to one, so `Docs/a.md`
 		// and `docs/b.md` collide as surely as `a.md` and `A.md` do.

@@ -12,7 +12,7 @@
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { pathProblem } from '../paths.js';
-import { NORMALIZING } from './attributes.js';
+import { declaredFilter, isAttributesPath } from './attributes.js';
 import { orphanStagesProblem } from './index-file.js';
 import type { GitRun } from './native-backend.js';
 
@@ -117,22 +117,16 @@ export async function nativeCheckpointProblem({
 	if (blocking !== undefined)
 		return `${blocking.path} is ${blocking.reason}; ${plainOnly}`;
 
-	// Attributes that would normalize or filter the bytes of any source file.
-	const source = [
-		...new Set([...tracked, ...regular.filter((path) => !excluded.has(path))]),
-	];
-	if (source.length === 0) return undefined;
-	const attributes = records(
-		(
-			await run(['check-attr', '--stdin', '-z', ...NORMALIZING], {
-				input: `${source.join('\0')}\0`,
-			})
-		).stdout,
-	);
-	for (let index = 0; index + 2 < attributes.length; index += 3) {
-		const [path, attribute, value] = attributes.slice(index, index + 3);
-		if (value !== undefined && value !== 'unspecified' && value !== 'unset')
-			return `${path} has the Git attribute ${attribute}${value === 'set' ? '' : `=${value}`}; commits do not apply attribute filters or conversion`;
-	}
+	// An attribute file the commit would carry that names a filter.
+	const attributeFiles: (readonly [string, Uint8Array])[] = [];
+	for (const path of new Set([...tracked, ...regular]))
+		if (isAttributesPath(path) && !excluded.has(path)) {
+			const full = `${root}/${path}`;
+			if ((await files.lstat(full))?.kind === 'file')
+				attributeFiles.push([path, await files.readFile(full)]);
+		}
+	const filter = declaredFilter(attributeFiles);
+	if (filter !== undefined)
+		return `${filter.path} line ${filter.line} (${filter.text}) names a Git filter; ${plainOnly}`;
 	return undefined;
 }

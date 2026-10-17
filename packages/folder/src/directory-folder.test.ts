@@ -287,6 +287,32 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
+	test('an attribute file that names a filter refuses the commit; line-ending attributes commit the bytes on disk', async () => {
+		const { root, start } = await nativeRepository('directory-folder-filter-');
+		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
+		const folder = expectOk(await open(root));
+		const created = await addTodo(folder, 'Plain bytes');
+		const committed = await folder.git.commit();
+		expect(committed).toMatchObject({ status: 'committed', parent: start });
+		expect(await git(root, 'rev-parse', `HEAD:${created.path}`)).toBe(
+			await git(root, 'hash-object', '--no-filters', created.path),
+		);
+		const head = await git(root, 'rev-parse', 'HEAD');
+
+		await writeFile(
+			join(root, '.gitattributes'),
+			'*.md text eol=crlf\n*.wav filter=lfs\n',
+		);
+		await addTodo(folder, 'Beside a filter');
+		const refused = await folder.git.commit();
+		expect(refused.status).toBe('blocked');
+		expect(JSON.stringify(refused)).toContain(
+			'.gitattributes line 2 (*.wav filter=lfs) names a Git filter',
+		);
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+		await folder.close();
+	});
+
 	test('a write merges with a file another program changed', async () => {
 		const root = await scratch('directory-folder-guard-');
 		const folder = expectOk(await open(root));
