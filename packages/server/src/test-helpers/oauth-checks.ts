@@ -370,7 +370,8 @@ export async function checkFlows(h: OAuthHarness) {
 	const browserDevice = await client.request('/auth/device/code', {
 		form: { client_id: h.browser.clientId, scope: 'folders:read', resource },
 	});
-	expect(browserDevice.status).toBeGreaterThanOrEqual(400);
+	expect(browserDevice.status).toBe(400);
+	expect((await client.json(browserDevice)).error).toBe('unauthorized_client');
 	const { challenge } = await pkce();
 	const cliCode = await client.authorize({
 		clientId: h.cli.clientId,
@@ -379,7 +380,11 @@ export async function checkFlows(h: OAuthHarness) {
 		challenge,
 		resource,
 	});
-	expect(cliCode.location).not.toContain('code=');
+	expect(cliCode.status).toBe(302);
+	const cliRefusal = new URL(cliCode.location);
+	expect(cliRefusal.pathname).toBe('/auth/error');
+	expect(cliRefusal.searchParams.get('error')).toBe('unauthorized_client');
+	expect(cliRefusal.searchParams.has('code')).toBe(false);
 
 	// An offline grant outlives the browser session that approved it; a
 	// browser grant without offline_access dies with it.
