@@ -223,16 +223,19 @@ Every commit builds only once approved, including one made on this machine:
 without `--approve`, `install` and `update` print it with its log and diff
 stat and exit 1. The build runs in a detached `git worktree` of that commit
 under `checkouts/<app-id>/` in the cache directory, never in the clone, so
-nothing uncommitted, untracked, or ignored there reaches it: `bun install
---frozen-lockfile --ignore-scripts` at the checkout's root, then `bun run
-build:installed` in the app's folder, run by this binary as `bun`
-(`BUN_BE_BUN=1`). Its `dist/` is copied beside `builds/<app-id>/<commit>/`
-and renamed into place, and the checkout is removed. A commit already built
-is not built again, since a window may be running that build. `app update --commit <sha>`,
+nothing uncommitted, untracked, or ignored there reaches it. The checkout
+ignores replace refs and runs none of the clone's filter drivers. Then
+`bun install --frozen-lockfile --ignore-scripts` runs at the checkout's root
+and `bun run build:installed` in the app's folder, run by this binary as
+`bun` (`BUN_BE_BUN=1`). Its `dist/` is copied beside
+`builds/<app-id>/<commit>/`, renamed into place, and marked finished with
+`builds/<app-id>/<commit>.built`, and the checkout is removed. A finished
+build is not built again, since a window may be running it. `app update --commit <sha>`,
 hidden, fetches nothing and acts only on that commit: the Folders window
 passes the commit it showed, so approving never covers a commit nobody saw.
-`app remove` refuses while the clone holds uncommitted changes or commits no
-remote has.
+`app remove` deletes the clone and the approval, leaves the builds for
+windows still running them, and refuses while the clone holds uncommitted
+changes or commits no remote has.
 
 Git runs through `@epicenter/folder`'s runner (`createGitRunner`), with no
 hooks and the `ext` and `fd` transports refused. One install, update, or

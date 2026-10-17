@@ -11,7 +11,8 @@
  * Apps/<app-id>/.git/config            epicenter.folder = apps/todos (absent: the root)
  * approvals.json                       { [appId]: { commit, approvedAt } }
  * checkouts/<app-id>/                  a detached worktree of the commit, only while it builds
- * builds/<app-id>/<commit>/            the built bundle, never replaced once written
+ * builds/<app-id>/<commit>/            the built bundle, never replaced once finished
+ * builds/<app-id>/<commit>.built       written once that build finished
  * builds/<app-id>/<commit>.log         what the install and build printed
  * builds/<app-id>/current              the commit a newly opened app window loads
  * ```
@@ -20,11 +21,12 @@
  * `epicenter.folder`, the source from `origin`, and the commit from `HEAD`.
  * The build never runs in the clone, so nothing uncommitted, untracked, or
  * ignored there reaches it: `git worktree add --detach` checks the commit out
- * under `checkouts/`, `bun install` runs at that checkout's root, where the
+ * under `checkouts/` (`checkOut`), `bun install` runs at that checkout's root, where the
  * lockfile is, so workspace packages resolve, and `bun run build:installed`
  * runs in the app's folder and writes `dist/`, which is kept. A window opened
  * on a build keeps it until the window is opened again, so a commit's build
- * directory is reused, never rebuilt over, and old builds stay.
+ * directory is reused, never rebuilt over, and old builds stay, even after
+ * the app is removed.
  *
  * Every commit that runs is approved first, including one made on this
  * machine: `HEAD` runs only when `approvals.json` names it.
@@ -79,6 +81,8 @@ const OUTPUT = 'dist';
 const CURRENT_BUILD = 'current';
 /** The directory of the cache directory holding each build's checkout while it builds. */
 const CHECKOUTS = 'checkouts';
+/** The suffix of the file beside `builds/<id>/<commit>/` saying that build finished. */
+const BUILT_MARKER = '.built';
 
 const GIT_TIMEOUT_MS = 5 * 60 * 1000;
 const BUILD_TIMEOUT_MS = 15 * 60 * 1000;
@@ -385,8 +389,18 @@ const decoder = new TextDecoder();
 /** Run `git` in `dir` through `@epicenter/folder`'s runner and return stdout, trimmed. */
 async function git(dir: string, args: readonly string[]): Promise<string> {
 	const { code, stdout } = await runGit(dir, args, false);
-	if (code !== 0) throw new Error(`git ${args[0]} exited with ${code}`);
+	if (code !== 0)
+		throw new Error(`git ${subcommand(args)} exited with ${code}`);
 	return decoder.decode(stdout).trim();
+}
+
+/** The subcommand `args` runs, past any `-c <name>=<value>` and global options. */
+function subcommand(args: readonly string[]) {
+	for (let index = 0; index < args.length; index++) {
+		if (args[index] === '-c') index++;
+		else if (!args[index]?.startsWith('-')) return args[index];
+	}
+	return args[0];
 }
 
 /** Whether `git` in `dir` succeeds. */
@@ -573,21 +587,34 @@ async function appDir(root: string, folder: string) {
 	return dir;
 }
 
-/** The commit `builds/<id>/current` names, when its build is there. */
+/** The commit `builds/<id>/current` names, when its build is complete. */
 export async function currentBuild(builds: string) {
 	const named = await readFile(join(builds, CURRENT_BUILD), 'utf8').catch(
 		() => undefined,
 	);
 	const commit = named?.trim();
-	if (
-		commit === undefined ||
-		!/^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(commit)
-	)
+	if (commit === undefined || !/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(commit))
 		return undefined;
-	const page = await stat(join(builds, commit, 'index.html')).catch(
-		() => undefined,
+	return (await isCompleteBuild(builds, commit)) ? commit : undefined;
+}
+
+/**
+ * Whether `builds/<commit>/` is a build this module finished:
+ * `builds/<commit>.built` is written only after the build is renamed into
+ * place, so a directory without it, partly copied or left by another
+ * pipeline, is built again.
+ */
+async function isCompleteBuild(builds: string, commit: string) {
+	const [directory, page, marker] = await Promise.all([
+		kindOf(join(builds, commit)),
+		kindOf(join(builds, commit, 'index.html')),
+		kindOf(join(builds, `${commit}${BUILT_MARKER}`)),
+	]);
+	return (
+		directory?.isDirectory() === true &&
+		page?.isFile() === true &&
+		marker?.isFile() === true
 	);
-	return page?.isFile() ? commit : undefined;
 }
 
 async function review(
@@ -928,13 +955,14 @@ async function requireClean(source: string) {
 
 /**
  * Make `app`'s commit the current build: `builds/<id>/<commit>/` when it is
- * already there, which is kept as it is, since a window may be running it;
- * otherwise a new build of that commit alone. The commit is checked out
- * detached under `checkouts/<id>/`, never in the clone, then `bun install`
- * runs at the checkout's root and `bun run build:installed` in the app's
- * folder, whose `dist/` is copied to a sibling of `builds/<id>/<commit>/` and
- * renamed into place. The checkout is removed after. What both print goes to
- * `builds/<id>/<commit>.log`.
+ * a complete build (`isCompleteBuild`), which is kept as it is, since a
+ * window may be running it; otherwise a new build of that commit alone. The
+ * commit is checked out detached under `checkouts/<id>/` (`checkOut`), then
+ * `bun install` runs at the checkout's root and `bun run build:installed` in
+ * the app's folder, whose `dist/` is copied to a sibling of
+ * `builds/<id>/<commit>/`, renamed into place, and marked complete with
+ * `builds/<id>/<commit>.built`. The checkout is removed after. What both
+ * print goes to `builds/<id>/<commit>.log`.
  */
 async function build(
 	paths: AppPaths,
@@ -942,7 +970,6 @@ async function build(
 	onProgress?: Progress,
 ) {
 	const builds = join(paths.buildsDir, app.id);
-	const destination = join(builds, app.commit);
 	const makeCurrent = () =>
 		writeReplacing(join(builds, CURRENT_BUILD), `${app.commit}\n`).catch(
 			(cause) => {
@@ -951,13 +978,7 @@ async function build(
 				);
 			},
 		);
-	const existing = await kindOf(destination);
-	if (existing !== undefined) {
-		const page = await kindOf(join(destination, 'index.html'));
-		if (!existing.isDirectory() || !page?.isFile())
-			throw new Error(
-				`${destination} is there but holds no build. Delete it to build ${app.title} again.`,
-			);
+	if (await isCompleteBuild(builds, app.commit)) {
 		await makeCurrent();
 		return;
 	}
@@ -972,24 +993,22 @@ async function build(
 		new Error(`${app.title} did not build: ${problem}.`);
 	const source = join(paths.appsDir, app.id);
 	const checkout = join(paths.cacheDir, CHECKOUTS, app.id);
-	const removeCheckout = async () => {
-		await rm(checkout, { recursive: true, force: true });
-		await gitSucceeds(source, ['worktree', 'prune']);
-	};
-	// One build runs at a time (`exclusively`), so a checkout here was left
-	// by a build that did not finish.
-	await removeCheckout();
+	// One build runs at a time (`exclusively`), so a checkout, or a dot entry
+	// in the build folder (a staged copy, a build moved aside, a staged
+	// `current`), was left by a build that did not finish.
+	try {
+		await removeCheckout(source, checkout);
+		for (const name of await readdir(builds))
+			if (name.startsWith('.'))
+				await rm(join(builds, name), { recursive: true, force: true });
+	} catch (cause) {
+		throw new Error(
+			`${checkout} or a staged copy in ${builds} is left from an earlier build and could not be removed: ${String(cause)}. Delete it and try again.`,
+		);
+	}
 	try {
 		onProgress?.('Checking out the commit…');
-		await mkdir(dirname(checkout), { recursive: true });
-		await git(source, [
-			'worktree',
-			'add',
-			'--detach',
-			'--',
-			checkout,
-			app.commit,
-		]).catch((cause: Error) => {
+		await checkOut(source, checkout, app.commit).catch((cause: Error) => {
 			throw unreadable(
 				`commit ${app.commit} could not be checked out (${cause.message})`,
 			);
@@ -1030,18 +1049,113 @@ async function build(
 				`${OUTPUT} must be a folder in the app's folder holding index.html`,
 			);
 		onProgress?.('Keeping the build…');
-		const staged = join(builds, `.${app.commit}-${randomSuffix()}`);
-		try {
-			await copyTree(output, staged);
-			await rename(staged, destination);
-		} catch (cause) {
-			await rm(staged, { recursive: true, force: true });
+		await keep(output, builds, app.commit).catch((cause) => {
 			throw failed(`the build could not be kept: ${String(cause)}`);
-		}
+		});
 	} finally {
-		await removeCheckout();
+		// Best effort: the build's own outcome is the result.
+		await removeCheckout(source, checkout).catch((cause) => {
+			process.stderr.write(
+				`the checkout ${checkout} could not be removed: ${String(cause)}\n`,
+			);
+		});
 	}
 	await makeCurrent();
+}
+
+/**
+ * Copy `output` beside `builds/<commit>/`, rename it into place, and write
+ * `builds/<commit>.built`. A directory already at `<commit>/` is an
+ * incomplete build, which is moved aside for the moment between the two
+ * renames and then deleted.
+ */
+async function keep(output: string, builds: string, commit: string) {
+	const destination = join(builds, commit);
+	const staged = join(builds, `.${commit}-${randomSuffix()}`);
+	const aside = join(builds, `.${commit}-${randomSuffix()}-old`);
+	let movedAside = false;
+	try {
+		await copyTree(output, staged);
+		movedAside = await rename(destination, aside).then(
+			() => true,
+			(cause: NodeJS.ErrnoException) => {
+				if (cause.code === 'ENOENT') return false;
+				throw cause;
+			},
+		);
+		await rename(staged, destination);
+	} catch (cause) {
+		if (movedAside) await rename(aside, destination).catch(() => {});
+		await rm(staged, { recursive: true, force: true });
+		throw cause;
+	}
+	if (movedAside) await rm(aside, { recursive: true, force: true });
+	await writeFile(join(builds, `${commit}${BUILT_MARKER}`), '');
+}
+
+/**
+ * Configuration for the checkout's Git: every filter driver this clone's
+ * configuration names, from any level, emptied and not required, so no
+ * smudge, clean, or process command runs however `.gitattributes` or
+ * `.git/info/attributes` map files to it. Replace refs are ignored with
+ * `--no-replace-objects`, so the checkout holds the commit's own tree.
+ */
+async function checkoutOptions(source: string) {
+	const names = await git(source, [
+		'config',
+		'--name-only',
+		'-z',
+		'--get-regexp',
+		'^filter\\..+\\.(smudge|clean|process|required)$',
+	]).catch(() => '');
+	const drivers = new Set(
+		names
+			.split('\0')
+			.filter((name) => name !== '')
+			.map((name) => name.slice('filter.'.length, name.lastIndexOf('.'))),
+	);
+	const options = ['--no-replace-objects'];
+	for (const driver of drivers)
+		for (const [key, value] of [
+			['smudge', ''],
+			['clean', ''],
+			['process', ''],
+			['required', 'false'],
+		])
+			options.unshift('-c', `filter.${driver}.${key}=${value}`);
+	return options;
+}
+
+/** Check `commit` out detached at `checkout`, a worktree of the clone at `source`. */
+async function checkOut(source: string, checkout: string, commit: string) {
+	await mkdir(dirname(checkout), { recursive: true });
+	// `--force` takes over a path a build that did not finish left
+	// registered, without pruning anyone else's worktree.
+	await git(source, [
+		...(await checkoutOptions(source)),
+		'worktree',
+		'add',
+		'--force',
+		'--detach',
+		'--',
+		checkout,
+		commit,
+	]);
+}
+
+/** Remove the checkout at `checkout` and its registration in the clone at `source`. */
+async function removeCheckout(source: string, checkout: string) {
+	if ((await kindOf(checkout)) === undefined) return;
+	await gitSucceeds(source, [
+		...(await checkoutOptions(source)),
+		'worktree',
+		'remove',
+		'--force',
+		'--force',
+		'--',
+		checkout,
+	]);
+	await rm(checkout, { recursive: true, force: true });
 }
 
 /** Copy the regular files and directories under `from` to `to`; links are left behind. */
@@ -1055,7 +1169,8 @@ async function copyTree(from: string, to: string) {
 }
 
 /**
- * Remove app `id`: its clone, its builds, and its approval. Refused while
+ * Remove app `id`: its clone and its approval. Its builds stay, since a
+ * window may still be running one (removing them is later work). Refused while
  * the clone holds work no remote has, uncommitted changes or commits made
  * here, since removing would lose it.
  */
@@ -1092,7 +1207,6 @@ export async function remove(paths: AppPaths, id: string): Promise<void> {
 			recursive: true,
 			force: true,
 		});
-		await rm(join(paths.buildsDir, id), { recursive: true, force: true });
 		if ((await readApprovals(paths.approvalsFile))[id] !== undefined)
 			await recordApproval(paths.approvalsFile, id, undefined);
 	});
