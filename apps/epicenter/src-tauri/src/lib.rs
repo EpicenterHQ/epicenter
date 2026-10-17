@@ -420,8 +420,9 @@ pub fn run() {
             app.manage(InstalledWindowCommits::default());
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live in the app's data directory beside
-            // `approvals.json`, never in a folder that could carry them to a
-            // machine without the model files or a compatible accelerator.
+            // the installed apps' clones, never in a folder that could carry
+            // them to a machine without the model files or a compatible
+            // accelerator.
             let settings = LocalTranscriptionSettings::load(
                 desktop_paths.data_dir.join("local-transcription.json"),
             );
@@ -706,6 +707,27 @@ impl InstalledWindowCommits {
 
     fn forget(&self, label: &str) {
         self.commits().remove(label);
+    }
+
+    /// Run `work` when no window of installed app `id` was opened on
+    /// `commit`, holding the record while it runs so no window is recorded
+    /// meanwhile; `None`, without running it, when one was.
+    pub(crate) fn when_unused<T>(
+        &self,
+        id: &str,
+        commit: &str,
+        work: impl FnOnce() -> T,
+    ) -> Option<T> {
+        let commits = self.commits();
+        let windows = installed_window_label(id, None);
+        let folder_windows = format!("{windows}:");
+        let running = commits.iter().any(|(label, opened)| {
+            opened == commit && (label == &windows || label.starts_with(&folder_windows))
+        });
+        if running {
+            return None;
+        }
+        Some(work())
     }
 
     fn commits(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {

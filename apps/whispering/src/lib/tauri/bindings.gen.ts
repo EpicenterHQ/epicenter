@@ -157,8 +157,8 @@ export const commands = {
 	 */
 	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
 	/**
-	 *  `epicenter app list --json`: every app installed under `Apps/`, with
-	 *  whether it can run.
+	 *  `epicenter app list --json`: every installed app, with whether it can
+	 *  run and any fetched commit waiting for approval.
 	 */
 	listInstalledApps: (onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("list_installed_apps", { onLine })),
 	/**
@@ -167,9 +167,9 @@ export const commands = {
 	 */
 	listRepositoryApps: (source: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("list_repository_apps", { source, onLine })),
 	/**
-	 *  Clone the repository at `source` into `Apps/`, with the app at `folder`
-	 *  within it, or at its root when `folder` is empty. A commit nobody approved
-	 *  here waits for approval; the CLI exits 1 with its review.
+	 *  Clone the repository at `source` bare into app data, with the app at
+	 *  `folder` within it, or at its root when `folder` is empty. Nothing is
+	 *  approved yet: the CLI exits 1 with the fetched commit's review.
 	 */
 	installApp: (source: string, folder: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("install_app", { source, folder, onLine })),
 	/**
@@ -178,16 +178,19 @@ export const commands = {
 	 */
 	approveApp: (id: string, commit: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("approve_app", { id, commit, onLine })),
 	/**
-	 *  Fetch app `id`'s upstream and bring it up to date. A commit not yet
-	 *  approved waits for approval.
+	 *  Fetch app `id`'s default branch, which never moves its approved commit. A
+	 *  fetched commit waits for approval, reviewed in the result.
 	 */
 	updateApp: (id: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("update_app", { id, onLine })),
 	/**
 	 *  Open app `id` at `commit`, the commit the Folders window listed, in its own
 	 *  window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
-	 *  first, every time, and answers only for an approved commit, building it
-	 *  when it is not the current build. A window already open on the folder is
-	 *  revealed when it runs that build, and refused when it runs another. With
+	 *  first, every time, and answers only for the approved commit, building it
+	 *  when it is not built and checking its build when it is. A build that
+	 *  changed on disk is replaced by the CLI's fresh copy when no window runs
+	 *  that commit, and otherwise the open is refused. A window already open on
+	 *  the folder is revealed when it runs that build, and refused when it runs
+	 *  another. With
 	 *  `folder`, a scope the Folders window listed, the window is let into that
 	 *  folder and handed it, which the page asks for with `window_folder`.
 	 *  Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
