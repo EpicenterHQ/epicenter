@@ -112,13 +112,12 @@ folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
 Publication writes `epicenter.json` once per handle, before that handle's
-first save, with the one write, as a create that joins the file there: a
-missing file is created, and a present one is merged key by key as two
-additions, as `merge` decides every write of a JSON file (ADR-0576): the
-definition wins each key both hold differently, `local` among them, and a
-key only the file holds stays. A file that already holds the
-result is not written, and another writer getting there first starts the
-write again, as it does any write. It never commits or pushes, so the published
+first save, with the one write from the file as it was read to the
+formatted definition: a missing file is created, and a present one is
+replaced whole, keys only the file held included, but for `local`, which
+lists every pattern the file or the definition lists. A file that already
+holds the result is not written, and another writer getting there first
+starts the write again, as it does any write. It never commits or pushes, so the published
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
 
@@ -144,9 +143,8 @@ the log still read.
 
 An open handle reads `local` from `epicenter.json` again for each commit and
 each Sync, joined with the opened definition's, so a pattern a Sync brings in
-from another device applies at once, until this handle's own publication
-writes its definition's `local` over it. An `epicenter.json` whose `local`
-does not read
+from another device applies at once. Its own publication keeps every pattern
+the file already lists. An `epicenter.json` whose `local` does not read
 refuses the commit, as the CLI does.
 
 The engine decides this itself, on both backends, whatever `.gitignore` says.
@@ -168,10 +166,11 @@ already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 
-`local` is one unit when `epicenter.json` merges: two devices that publish
-differing lists compete, and the writer acting's list stands. Each device
-still excludes its own definition's patterns, and lists them again on its
-next write. `.gitignore` merges by line and keeps the patterns meanwhile, so
+No publication drops a pattern: it unions `local` until templates replace
+it. Sync merges `epicenter.json` by key, where `local` is one unit, so two
+devices that changed it differently since their last Sync keep this
+device's list; each device still excludes its own definition's patterns,
+and lists them again on its next publication. `.gitignore` merges by line and keeps the patterns meanwhile, so
 plain Git still ignores an untracked file there; `.gitignore` does nothing
 for a file already committed.
 A pattern must be one line that ignores something: `defineFolder` refuses an
@@ -299,7 +298,7 @@ definition instead, as an app reads Epicenter's own folder.
 
 Every handle has `folder.definition`, the prepared definition it reads with,
 so a view can render a folder it did not define. History uses its `local`
-patterns; Sync merges files without it (ADR-0585). The definition is read once, when the folder opens; a definition that changes
+patterns; Sync merges files without it (ADR-0591). The definition is read once, when the folder opens; a definition that changes
 afterward, such as one a Sync brought, is read by the next open.
 
 On the desktop, `id` names a folder the shell registered, until the shell
@@ -1129,14 +1128,15 @@ written.overridden; // each unit this write won over another writer's change
    put `'stale'`, and the write starts again from step 1, at most
    `WRITE_ATTEMPTS` times, then `KeptChanging`. A lost reply is read back once.
 
-The merge reads no definition (ADR-0585): a file merges by its content and
+The merge reads no definition (ADR-0591): a file merges by its content and
 its extension, at any path.
 
 | File | Unit |
 | --- | --- |
 | `.md` whose present versions all have frontmatter that reads | one frontmatter key; one region of body lines |
-| `.json` whose present versions all parse as JSON objects | one key; a key whose value is an object on both sides is its own keys |
-| other UTF-8 text | one region of lines |
+| `.json` whose present versions all parse as JSON objects, a byte-order mark aside | one key; a key whose value is an object on both sides is its own keys |
+| other `.json` JSON, such as an array | the whole file |
+| other UTF-8 text, `.json` that does not parse or holds a number a rewrite would change included | one region of lines |
 | binary, or a side absent | the whole file |
 
 - Units only one side changed all survive. On a unit both changed, the
@@ -1148,16 +1148,22 @@ its extension, at any path.
   its start or end stands alone. Lines compare without their line feeds,
   and a result ends with a line feed as the version its last line came from.
 - Merged frontmatter is a side's own bytes, comments and quoting included,
-  while the merged fields are that side's. Only fields that are neither
-  side's are written in the standard form, keys in the writer's order, then
-  keys only the file added. A merged JSON file is likewise a side's bytes
-  when its value is that side's, and otherwise `JSON.stringify` with a
-  two-space indent, in the same key order. An array is one unit, so two
-  additions to one array compete instead of joining into invalid JSON.
+  while the merged fields are that side's, joined by line with the other
+  side's presentation edits where they do not compete; a dropped
+  presentation edit of the file's is named as `lines`. The body takes the
+  frontmatter's line endings. Only fields that are neither side's are
+  written in the standard form, keys in the writer's order, then keys only
+  the file added. A merged JSON file is likewise a side's bytes when its
+  value is that side's, and otherwise `JSON.stringify` with a two-space
+  indent, in the same key order, after the writer's byte-order mark. An
+  array is one unit, so two additions to one array compete instead of
+  joining into invalid JSON. JSON that does not parse, or holds a number a
+  rewrite would change (`12345678901234567890`, `1.0`, `1e3`), merges by
+  line, so no edit and no number is lost.
 - Nothing is checked against a schema: every merged value is one side's,
   and a field is checked alone, so a field merge of two valid rows is valid.
-- A Markdown version whose frontmatter does not read merges as text, a JSON
-  version that is not an object merges whole, and any `to` is written: a raw
+- A Markdown version whose frontmatter does not read merges as text, and
+  any `to` is written: a raw
   edit of a row can leave a row to repair (ADR-0503). A typed table view
   refuses a row it cannot write before it writes (`InvalidValues`).
 - A delete needs no base: `to` of `null` removes whatever is there. A delete
@@ -1374,7 +1380,7 @@ acting:
 | --- | --- | --- |
 | `.md` with frontmatter that reads, at any path | field and body lines | this device's field or lines |
 | `.json` that parses as an object, `epicenter.json` included | key, nested objects by key | this device's key |
-| any other UTF-8 text, or Markdown whose frontmatter does not read | line | this device's lines |
+| any other UTF-8 text, Markdown whose frontmatter does not read, or `.json` that does not parse or holds an inexact number | line | this device's lines |
 | JSON that is not an object | whole file | this device's file |
 | a binary file, a link, an executable, or a submodule | whole file | this device's |
 

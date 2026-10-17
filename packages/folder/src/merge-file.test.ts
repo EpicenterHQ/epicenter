@@ -14,18 +14,22 @@
  * - Spelling never conflicts: quoting, key order, and comments read as the
  *   same values
  * - Frontmatter stays as a side wrote it while the merged fields are that
- *   side's; it is written canonically, ours' key order first, only when
- *   they are neither side's
+ *   side's, joined with the other side's presentation edits where their
+ *   lines do not compete; it is written canonically, ours' key order first,
+ *   only when they are neither side's. A CRLF row stays CRLF throughout
  * - Two edits of one field compete even where a line merge would succeed
  * - Body edits to neighboring lines both merge; only the same lines compete,
  *   and the writer keeps the other side's other lines
  * - Two added rows with no base agree only where they are equal; two bodies
  *   added at one place both stay
  * - A version whose frontmatter does not read merges as text; Markdown with
- *   no frontmatter merges as any text does
- * - JSON merges key by key, nested objects recursing; an array is one unit,
- *   so two additions to one array compete instead of joining into invalid
- *   JSON; a version that is not a JSON object is the whole file
+ *   no closed frontmatter merges as any text does
+ * - With theirs winning, `overridden` names only a file lost to a delete
+ * - JSON merges key by key, nested objects recursing, a byte-order mark
+ *   kept; an array is one unit, so two additions to one array compete
+ *   instead of joining into invalid JSON; JSON that is not an object is the
+ *   whole file; JSON that does not parse, or holds a number a rewrite would
+ *   change, merges by line
  * - A side with no file, or a version that is not text, is the whole file
  */
 import { expect, test } from 'bun:test';
@@ -54,9 +58,12 @@ test('independent field and body changes merge, written in canonical form', asyn
 	expect(
 		await clean({
 			base: BASE,
-			ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
+			ours: row(
+				["title: 'Evening walk' # mine", 'done: false'],
+				'Left at dawn.\n',
+			),
 			theirs: row(
-				['title: Walk', 'done: true', 'mood: calm'],
+				['title: "Walk"', 'done: true', 'mood: calm'],
 				'Left at dawn.\nCame back by the river.\n',
 			),
 		}),
@@ -71,8 +78,8 @@ test('independent field and body changes merge, written in canonical form', asyn
 test('a row merges by field at any depth and at the root', async () => {
 	const versions = {
 		base: BASE,
-		ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
-		theirs: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
+		ours: row(["title: 'Evening walk'", 'done: false'], 'Left at dawn.\n'),
+		theirs: row(['title: Walk', 'done: true # theirs'], 'Left at dawn.\n'),
 	};
 	const merged = row(['title: Evening walk', 'done: true'], 'Left at dawn.\n');
 	for (const path of ['todos/walk.md', 'notes/2026/walk.md', 'walk.md'])
@@ -144,22 +151,91 @@ test('body edits to neighboring lines both merge, as Sync and save merge them', 
 	).toBe(row(['title: Walk', 'done: false'], 'ONE\nTWO\nthree\n'));
 });
 
-test('quoting, key order, and comments are spelling, not changes', async () => {
+test('quoting, key order, and comments never compete with a value, and join it where they can', async () => {
 	expect(
 		await clean({
 			base: BASE,
 			ours: row(['done: false', "title: 'Walk' # quoted"], 'Left at dawn.\n'),
 			theirs: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
 		}),
-	).toBe(row(['title: Walk', 'done: true'], 'Left at dawn.\n'));
+	).toBe(row(['done: true', "title: 'Walk' # quoted"], 'Left at dawn.\n'));
+});
+
+test("theirs' frontmatter comment joins ours' value edit when their lines do not compete", async () => {
+	expect(
+		await clean({
+			base: row(['title: Walk', 'done: false']),
+			ours: row(['title: Walk', 'done: true']),
+			theirs: row(['# a note', 'title: Walk', 'done: false']),
+		}),
+	).toBe(row(['# a note', 'title: Walk', 'done: true']));
+});
+
+test("theirs' presentation edit on the line ours changed is named, and ours stands", async () => {
+	expect(
+		await merge(ROW, {
+			base: row(['title: Walk', 'done: false']),
+			ours: row(['title: Walk', 'done: true']),
+			theirs: row(['title: Walk', 'done: false # not yet']),
+		}),
+	).toEqual({
+		content: row(['title: Walk', 'done: true']),
+		overridden: [{ kind: 'lines', part: 'text', line: 3, count: 1 }],
+	});
+});
+
+test('a CRLF row both sides changed keeps CRLF throughout', async () => {
+	const crlf = (text: string) => text.replaceAll('\n', '\r\n');
+	expect(
+		await clean({
+			base: crlf('---\nt: 1\n---\na\nb\nc\n'),
+			ours: crlf('---\nt: 1\n---\nA\nb\nc\n'),
+			theirs: crlf('---\nt: 1\n---\na\nb\nC\n'),
+		}),
+	).toBe(crlf('---\nt: 1\n---\nA\nb\nC\n'));
+	// Fields neither side holds are canonical, line feeds throughout.
+	expect(
+		await clean({
+			base: crlf('---\nt: 1\nu: 1\n---\na\n'),
+			ours: crlf('---\nt: 2\nu: 1\n---\nA\n'),
+			theirs: crlf('---\nt: 1\nu: 2\n---\na\n'),
+		}),
+	).toBe('---\nt: 2\nu: 2\n---\nA\n');
+});
+
+test('with theirs winning, overridden names nothing theirs kept', async () => {
+	const versions = {
+		base: BASE,
+		ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
+		theirs: row(['title: Morning walk', 'done: false'], 'Left at dawn.\n'),
+	};
+	expect(await merge(ROW, versions, { winner: 'theirs' })).toEqual({
+		content: versions.theirs,
+		overridden: [],
+	});
+	const bytes = (value: number) => new Uint8Array([0, value]);
+	expect(
+		await merge(
+			'a.bin',
+			{ base: bytes(1), ours: bytes(2), theirs: bytes(3) },
+			{ winner: 'theirs' },
+		),
+	).toEqual({ content: bytes(3), overridden: [] });
+	// A delete still beats the edit it never saw, and names the file.
+	expect(
+		await merge(ROW, { ...versions, theirs: null }, { winner: 'theirs' }),
+	).toEqual({ content: null, overridden: [{ kind: 'file', lost: 'ours' }] });
 });
 
 test('two edits of one field compete, and the writer wins', async () => {
 	expect(
 		await merge(ROW, {
 			base: BASE,
-			ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
-			theirs: row(['title: Morning walk', 'done: true'], 'Left at dawn.\n'),
+			ours: row(["title: 'Evening walk'", 'done: false'], 'Left at dawn.\n'),
+			theirs: row(
+				['title: Morning walk # theirs', 'done: true'],
+				'Left at dawn.\n',
+			),
 		}),
 	).toEqual({
 		content: row(['title: Evening walk', 'done: true'], 'Left at dawn.\n'),
@@ -171,11 +247,11 @@ test('a field one side removed and the other changed competes', async () => {
 	expect(
 		await merge(ROW, {
 			base: row(['title: Walk', 'done: false', 'tags: [a]']),
-			ours: row(['title: Walk', 'done: false']),
+			ours: row(["title: 'Walk' # mine", 'done: false']),
 			theirs: row(['title: Walk', 'done: false', 'tags: [a, b]']),
 		}),
 	).toEqual({
-		content: row(['title: Walk', 'done: false']),
+		content: row(["title: 'Walk' # mine", 'done: false']),
 		overridden: [{ kind: 'field', field: 'tags' }],
 	});
 });
@@ -185,16 +261,16 @@ test("competing body lines are one unit, and the writer keeps the other side's o
 		row([`title: ${title}`, 'done: false'], body);
 	const versions = {
 		base: at('Walk', 'one\ntwo\nthree\nfour\n'),
-		ours: at('Evening walk', 'ONE\ntwo\nthree\nfour (ours)\n'),
+		ours: at("'Evening walk'", 'ONE\ntwo\nthree\nfour (ours)\n'),
 		theirs: at('Walk', 'one\nTWO\nthree\nfour (theirs)\n'),
 	};
 	expect(await merge(ROW, versions)).toEqual({
-		content: at('Evening walk', 'ONE\nTWO\nthree\nfour (ours)\n'),
+		content: at("'Evening walk'", 'ONE\nTWO\nthree\nfour (ours)\n'),
 		overridden: [{ kind: 'lines', part: 'body', line: 4, count: 1 }],
 	});
 	// With theirs winning, our other lines and our title still stand.
 	expect((await merge(ROW, versions, { winner: 'theirs' })).content).toBe(
-		at('Evening walk', 'ONE\nTWO\nthree\nfour (theirs)\n'),
+		at("'Evening walk'", 'ONE\nTWO\nthree\nfour (theirs)\n'),
 	);
 });
 
@@ -202,11 +278,11 @@ test('two added rows with no base agree only where equal, and both bodies stay',
 	expect(
 		await merge(ROW, {
 			base: null,
-			ours: row(['title: Walk', 'done: false'], 'Mine\n'),
+			ours: row(["title: 'Walk' # mine", 'done: false'], 'Mine\n'),
 			theirs: row(['title: Walk', 'done: true'], 'Theirs\n'),
 		}),
 	).toEqual({
-		content: row(['title: Walk', 'done: false'], 'Theirs\nMine\n'),
+		content: row(["title: 'Walk' # mine", 'done: false'], 'Theirs\nMine\n'),
 		overridden: [{ kind: 'field', field: 'done' }],
 	});
 });
@@ -229,6 +305,19 @@ test('a version whose frontmatter does not read merges as text', async () => {
 	});
 	expect(merged.content).toBe('---\ntitle: [unclosed\n---\nAnd more.\n');
 	expect(merged.overridden).toMatchObject([{ kind: 'lines', part: 'text' }]);
+});
+
+test('Markdown opening with an unclosed --- line merges by line, and two insertions both stay', async () => {
+	expect(
+		await clean(
+			{
+				base: '---\nIntro\n',
+				ours: '---\nIntro\nA\n',
+				theirs: '---\nIntro\nB\n',
+			},
+			'notes.md',
+		),
+	).toBe('---\nIntro\nB\nA\n');
 });
 
 test('Markdown with no frontmatter merges by line, and two appends both stay', async () => {
@@ -305,18 +394,55 @@ test("a JSON merge equal to one side keeps that side's bytes, and a new result k
 	).toBe(json({ b: 2, a: 1, c: 3 }));
 });
 
-test('a JSON version that is not an object is the whole file', async () => {
-	for (const ours of ['{ "a": ', '[1, 2]\n'])
+test('JSON that is not an object is the whole file', async () => {
+	expect(
+		await merge('x.json', {
+			base: json({ a: 1, b: 1 }),
+			ours: '[1, 2]\n',
+			theirs: json({ a: 1, b: 2 }),
+		}),
+	).toEqual({
+		content: '[1, 2]\n',
+		overridden: [{ kind: 'file', lost: 'theirs' }],
+	});
+});
+
+test('JSON that does not parse, comments included, merges by line, so neither edit leaves the file', async () => {
+	const at = (a: number, b: number) =>
+		`{\n  // settings\n  "a": ${a},\n  "b": ${b}\n}\n`;
+	expect(
+		await clean(
+			{ base: at(1, 1), ours: at(2, 1), theirs: at(1, 2) },
+			'.vscode/settings.json',
+		),
+	).toBe(at(2, 2));
+});
+
+test('a JSON number a rewrite would change is never rewritten: the file merges by line', async () => {
+	for (const id of ['12345678901234567890', '1e400', '1.0']) {
+		const at = (a: number, b: number) =>
+			`{\n  "id": ${id},\n  "a": ${a},\n  "b": ${b}\n}\n`;
 		expect(
-			await merge('x.json', {
-				base: json({ a: 1, b: 1 }),
-				ours,
-				theirs: json({ a: 1, b: 2 }),
-			}),
-		).toEqual({
-			content: ours,
-			overridden: [{ kind: 'file', lost: 'theirs' }],
-		});
+			await clean(
+				{ base: at(1, 1), ours: at(2, 1), theirs: at(1, 2) },
+				'x.json',
+			),
+		).toBe(at(2, 2));
+	}
+});
+
+test('JSON with a byte-order mark merges by key and keeps the mark', async () => {
+	const BOM = '\uFEFF';
+	expect(
+		await clean(
+			{
+				base: BOM + json({ a: 1, b: 1 }),
+				ours: BOM + json({ a: 2, b: 1 }),
+				theirs: BOM + json({ a: 1, b: 2 }),
+			},
+			'x.json',
+		),
+	).toBe(BOM + json({ a: 2, b: 2 }));
 });
 
 // ============================================================================
