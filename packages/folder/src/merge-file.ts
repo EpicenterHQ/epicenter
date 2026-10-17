@@ -222,10 +222,7 @@ function declarationWins(versions: FileVersions, winner: Winner): Merged {
 export type Winner = 'ours' | 'theirs';
 
 /** A competing region the writer's lines won, as `overridden` names it. */
-export const linesOf = (
-	part: 'body' | 'text',
-	region: SettledRegion,
-): Overridden => ({
+const linesOf = (part: 'body' | 'text', region: SettledRegion): Overridden => ({
 	kind: 'lines',
 	part,
 	line: region.line + 1,

@@ -5,11 +5,9 @@
  * prints one reply line in this encoding. The CLI's `--json` output for
  * `status`, `history`, `save-version`, and `sync` is that line.
  *
- * The encoding is JSON that also carries bytes and errors: a `Uint8Array`
- * (a binary file's version in a sync conflict) as `{"$bytes": "<base64>"}`,
- * an `Error` as its name and message, and an object whose own keys include
- * `$bytes` or `$entries` as `{"$entries": [[key, value], ...]}`, so a setting
- * that happens to look like an escape reads back as itself.
+ * The encoding is JSON, with an `Error` written as its name and message,
+ * which `JSON.parse` reads back. Every reply is plain data under fixed keys:
+ * no reply carries bytes or keys a caller chose.
  *
  * This module loads no Git and no Node API, so the page and the CLI share it.
  */
@@ -79,53 +77,13 @@ export type GitMissingReply = {
 	readonly install: GitInstall;
 };
 
-const ESCAPES = ['$bytes', '$entries'];
-
-function toBase64(bytes: Uint8Array): string {
-	let binary = '';
-	for (let at = 0; at < bytes.length; at += 0x8000)
-		binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-	return btoa(binary);
-}
-
-function fromBase64(text: string): Uint8Array {
-	const binary = atob(text);
-	const bytes = new Uint8Array(binary.length);
-	for (let at = 0; at < binary.length; at++) bytes[at] = binary.charCodeAt(at);
-	return bytes;
-}
-
-/** `value` as one line of the encoding above. */
+/**
+ * `value` as one line of the encoding above. A failure's `cause` is
+ * whatever was thrown, and an `Error` has no own enumerable properties, so
+ * it is written as its name and message.
+ */
 export function encodeHistory(value: unknown): string {
-	// The replacer sees each value before its children, and not again the
-	// value it returns, so an escape it makes is never escaped twice.
-	return JSON.stringify(value, (_key, item: unknown) => {
-		if (item instanceof Uint8Array) return { $bytes: toBase64(item) };
-		if (item instanceof Error)
-			return { name: item.name, message: item.message };
-		if (
-			typeof item === 'object' &&
-			item !== null &&
-			!Array.isArray(item) &&
-			ESCAPES.some((name) => Object.hasOwn(item, name))
-		)
-			return { $entries: Object.entries(item) };
-		return item;
-	});
-}
-
-/** One line of the encoding above, as the value it carried. */
-export function decodeHistory<T>(line: string): T {
-	return JSON.parse(line, (_key, item: unknown) => {
-		if (typeof item !== 'object' || item === null || Array.isArray(item))
-			return item;
-		const keys = Object.keys(item);
-		if (keys.length !== 1) return item;
-		const record = item as Record<string, unknown>;
-		if (keys[0] === '$bytes' && typeof record.$bytes === 'string')
-			return fromBase64(record.$bytes);
-		if (keys[0] === '$entries' && Array.isArray(record.$entries))
-			return Object.fromEntries(record.$entries as [string, unknown][]);
-		return item;
-	}) as T;
+	return JSON.stringify(value, (_key, item: unknown) =>
+		item instanceof Error ? { name: item.name, message: item.message } : item,
+	);
 }

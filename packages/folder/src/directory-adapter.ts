@@ -5,22 +5,18 @@
  * (`directory-store.ts`); history is whatever the host supplies:
  * the system `git` run in this process (`git/native-history.ts`, Bun), or
  * the `epicenter` CLI the shell runs for a page (`tauri-history.ts`,
- * ADR-0559). Nothing of the browser folder's own address, claim, download,
- * or private Git is here.
+ * ADR-0559). Nothing of the browser folder's OPFS directory or private Git
+ * is here.
  */
 import type { Result } from 'wellcrafted/result';
-import type { FolderStorage } from './boundary.js';
 import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
-import {
-	type DirectoryPrimitives,
+	type FolderStorage,
 	isStaleScratch,
 	SCRATCH_DIRECTORY,
-} from './directory-primitives.js';
-import { createDirectoryStorage } from './directory-store.js';
-import { OpenFolderError } from './errors.js';
+} from './boundary.js';
+import type { FolderDefinition } from './definition.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
+import type { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {
 	type ChangeDetector,
@@ -29,29 +25,25 @@ import {
 } from './open-at-root.js';
 
 /**
- * A directory folder's history, made once its file storage exists:
- * `landed` hears the paths an incoming update wrote. Answers the history
- * for the definition the handle reads with; without one, Sync merges rows
- * as text.
+ * A directory folder's history, made when the folder opens: `landed` hears
+ * the paths an incoming update wrote. Answers the history for the definition
+ * the handle reads with; without one, Sync merges rows as text.
  */
-export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
-	(wiring: {
-		readonly boundary: FolderStorage;
-		readonly landed: (paths: readonly string[]) => void;
-	}) => Promise<(definition?: FolderDefinition) => THistory>;
+export type DirectoryHistory = (wiring: {
+	readonly landed: (paths: readonly string[]) => void;
+}) => Promise<(definition?: FolderDefinition) => FolderHistory>;
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given
  * this page: the desktop app's shell decides the directory, takes the lock
  * that keeps other processes out of it, and grants the page access to it.
  *
- * The directory is the folder: there is no ready marker and no address to
- * claim, and a repository someone already made there is used as it is.
- * Opening creates nothing: a directory with no repository gets one with its
- * first commit, staging, or remote. With a `definition`, the handle
- * publishes it to `epicenter.json` before its first write. With
- * `'declared'`, the handle reads with the folder's own `epicenter.json` and
- * never writes it.
+ * The directory is the folder, and a repository someone already made there
+ * is used as it is. Opening creates nothing: a directory with no repository
+ * gets one with its first commit, staging, or remote. With a prepared
+ * definition as its `schema`, the handle publishes it to `epicenter.json`
+ * before its first write. With `'declared'`, the handle reads with the
+ * folder's own `epicenter.json` and never writes it.
  * Files are read and written through the directory's storage
  * (`directory-store.ts`). History is real Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the
@@ -69,55 +61,35 @@ export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
  * (ADR-0548): the shell's watcher on the desktop, none in Bun.
  */
 export async function openDirectoryFolder<
-	const TDefinition extends FolderDefinition,
+	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
-	THistory extends FolderHistory = FolderHistory,
 >({
-	definition,
+	schema,
 	lens,
 	rootPath,
 	files,
+	storage,
 	history,
-	hold,
 	detector,
 }: {
-	/** The opener's definition, or `'declared'` for the folder's own. */
-	readonly definition: TDefinition | 'declared';
+	/** The opener's prepared definition, or `'declared'` for the folder's own. */
+	readonly schema: FolderSchema;
 	/** With `'declared'`, the prepared shape the folder must contain (ADR-0538). */
 	readonly lens?: FolderDefinition;
 	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
 	/** The host's file system, with absolute paths. */
 	readonly files: DirectoryPrimitives;
-	/** The folder's history. */
-	readonly history: DirectoryHistory<THistory>;
 	/**
-	 * The directory's save lock, for a host whose own primitives check and
-	 * rename under it (Bun), and the primitives without it, which `lock`
-	 * changes files through while it holds it. Without it the desktop shell
-	 * takes the lock for each change.
+	 * The directory's storage over `files`, which the host also gives the
+	 * history it runs in this process.
 	 */
-	readonly hold?: {
-		lock<T>(work: () => Promise<T>): Promise<T>;
-		held: DirectoryPrimitives;
-	};
+	readonly storage: FolderStorage;
+	/** The folder's history. */
+	readonly history: DirectoryHistory;
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
 }): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	let schema: FolderSchema = 'declared';
-	if (definition !== 'declared') {
-		const { data: prepared, error: definitionError } =
-			prepareFolderDefinition(definition);
-		if (definitionError !== null)
-			return OpenFolderError.InvalidDefinition(definitionError);
-		schema = prepared;
-	}
-	let shape: FolderDefinition | undefined;
-	if (lens !== undefined) {
-		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
-		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
-		shape = prepared;
-	}
 	// A write that stopped before its rename (a crash, a quit) leaves its
 	// staged bytes behind. Another handle or process may be writing the
 	// directory now, so only files staged long enough ago to be abandoned are
@@ -133,18 +105,12 @@ export async function openDirectoryFolder<
 	} catch {
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}
-	return openAtRoot<TDefinition, TDeclared, THistory>(schema, {
+	return openAtRoot<TDefinition, TDeclared>(schema, {
 		detector,
-		lens: shape,
+		lens,
 		location: { kind: 'directory', root: rootPath },
-		async start({ relay, landed }) {
-			const boundary = createDirectoryStorage({
-				root: rootPath,
-				primitives: files,
-				hold,
-				landed: relay,
-			});
-			return { boundary, history: await history({ boundary, landed }) };
+		async start({ landed }) {
+			return { boundary: storage, history: await history({ landed }) };
 		},
 	});
 }

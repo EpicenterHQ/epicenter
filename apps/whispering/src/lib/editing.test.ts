@@ -35,6 +35,7 @@ import {
 	opfsOf,
 	testLocks,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
+import { holdCloses } from '../../../../packages/folder/src/opfs.test-support.js';
 import { whisperingDefinition } from './definition.js';
 import { describeDeletion } from './deletion.js';
 import {
@@ -44,7 +45,6 @@ import {
 	transcriptEditor,
 } from './edits.test-support.js';
 import type { Library, WriteNotice } from './library.svelte.js';
-import { holdCloses } from './opfs-holds.test-support.js';
 import { createQueryClient, quiet } from './query.test-support.js';
 import { openTestWorkspace } from './workspace.test-support.js';
 

@@ -32,7 +32,7 @@ export const NORMALIZING = [
 
 export type DeclaredAttribute = {
 	readonly path: string;
-	/** `name` when set, `-name` when unset, `name=value` when it carries a value. */
+	/** `name` when set, `name=value` when it carries a value. */
 	readonly attribute: string;
 };
 
@@ -464,39 +464,6 @@ export function normalizingAttribute(
 	attributeFiles: ReadonlyMap<string, Uint8Array>,
 	paths: Iterable<string>,
 ): DeclaredAttribute | undefined {
-	return firstDeclared(
-		attributeFiles,
-		paths,
-		NORMALIZING,
-		(state) => state !== UNSPECIFIED && state !== UNSET,
-	);
-}
-
-/**
- * The first of `paths`, in byte order, that the tree's attribute files give a
- * `merge` attribute that changes how Git merges it: unset (`-merge`, as the
- * `binary` macro does) or a driver name. Set, which is Git's own text merge,
- * and unspecified pass.
- */
-export function mergeAttribute(
-	attributeFiles: ReadonlyMap<string, Uint8Array>,
-	paths: Iterable<string>,
-): DeclaredAttribute | undefined {
-	return firstDeclared(
-		attributeFiles,
-		paths,
-		['merge'],
-		(state) => state !== UNSPECIFIED && state !== SET,
-	);
-}
-
-/** The first path, in byte order, with one of `names` in a state `declares` accepts. */
-function firstDeclared(
-	attributeFiles: ReadonlyMap<string, Uint8Array>,
-	paths: Iterable<string>,
-	names: readonly string[],
-	declares: (state: State) => boolean,
-): DeclaredAttribute | undefined {
 	if (attributeFiles.size === 0) return undefined;
 	/** Parsed lines by the binary directory of their file. */
 	const byDirectory = new Map<string, Line[]>();
@@ -542,17 +509,12 @@ function firstDeclared(
 					fill(line.assignments);
 			}
 		}
-		for (const name of names) {
+		for (const name of NORMALIZING) {
 			const state = states.get(name) ?? UNSPECIFIED;
-			if (!declares(state)) continue;
+			if (state === UNSPECIFIED || state === UNSET) continue;
 			return {
 				path,
-				attribute:
-					state === SET
-						? name
-						: state === UNSET
-							? `-${name}`
-							: `${name}=${fromBinary(state)}`,
+				attribute: state === SET ? name : `${name}=${fromBinary(state)}`,
 			};
 		}
 	}

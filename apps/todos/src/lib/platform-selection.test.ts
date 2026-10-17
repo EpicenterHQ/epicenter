@@ -54,14 +54,14 @@ describe('#platform/folder', () => {
 			expect(modules.some(folderModule('native/bindings.gen.ts'))).toBe(true);
 			// Todos is a page-engine folder: the shell grants its directory and
 			// the page reads and writes there itself. Its history runs in the
-			// `epicenter` CLI (ADR-0559), so no Git engine reaches the window.
+			// `epicenter` CLI (ADR-0559), so no Git engine reaches the window;
+			// the page reads the CLI's reply line as JSON.
 			for (const engine of [
 				'tauri-directory.ts',
 				'directory-adapter.ts',
 				'directory-store.ts',
 				'directory-tauri.ts',
 				'tauri-history.ts',
-				'history-wire.ts',
 			])
 				expect(modules.some(folderModule(engine))).toBe(true);
 			for (const engine of [

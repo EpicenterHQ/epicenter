@@ -153,8 +153,6 @@ export function versionOutcomeLine(outcome: CommitOutcome): StatusLine {
 				detail: outcome.error,
 				tone: 'warning',
 			};
-		case 'stoppedWaiting':
-			return { label: 'Version may still be saving', tone: 'neutral' };
 		case 'closed':
 			return { label: 'Closed', tone: 'neutral' };
 	}

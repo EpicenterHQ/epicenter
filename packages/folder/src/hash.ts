@@ -1,6 +1,4 @@
 /** The SHA-256 that names a file's exact bytes, on every storage backend. */
-
-/** Hash before starting storage transactions, which cannot await crypto. */
 export async function hashBytes(bytes: Uint8Array): Promise<string> {
 	const digest = await crypto.subtle.digest(
 		'SHA-256',

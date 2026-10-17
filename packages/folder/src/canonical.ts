@@ -346,28 +346,17 @@ function defineOwn(
 }
 
 /**
- * The canonical text of a document: the same bytes for the same document
- * and declared keys, whatever source it was read from. Refused when a value
- * has no exact JSON and YAML form, or when the text would not parse back to
- * the document. This checks representation, not field schemas, and writes
- * nothing. Pass the definition's field keys to choose their order.
+ * The canonical text of a document, and the document that text reads back
+ * as, which is the one parse a validating write needs. The text is the same
+ * bytes for the same document and declared keys, whatever source it was
+ * read from. Refused when a value has no exact JSON and YAML form, or when
+ * the text would not parse back to the document. This checks
+ * representation, not field schemas, and writes nothing. Pass the
+ * definition's field keys to choose their order.
  *
  * Only `fields` and `body` are read, once each, so a value carrying other
  * properties formats as its document. An untyped caller's document that is
  * not an object, or whose body is not a string, is refused, not thrown.
- */
-export function formatCanonicalDocument(
-	document: CanonicalDocument,
-	declaredKeys: readonly string[],
-): Result<string, CanonicalRefusal> {
-	const { data: formatted, error } = formatRowSource(document, declaredKeys);
-	return error === null ? Ok(formatted.text) : Err(error);
-}
-
-/**
- * Format a document and read the text back: the text, and the document it
- * reads as, which is the one parse a validating write needs. Internal to the
- * package; `formatCanonicalDocument` is its public form.
  *
  * The frontmatter is block-style YAML with plain scalars wherever a YAML 1.2
  * reader and a YAML 1.1 reader both read the same value, and quoted

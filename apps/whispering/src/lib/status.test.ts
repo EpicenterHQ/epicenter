@@ -27,7 +27,6 @@ function snapshot(): GitSnapshot {
 		},
 		lastCommit: undefined,
 		lastPush: undefined,
-		lastFetch: undefined,
 		closed: false,
 	};
 }

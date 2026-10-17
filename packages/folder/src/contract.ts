@@ -30,9 +30,7 @@ export {
 	FileError,
 	OpenFolderError,
 	type RowReadError,
-	type TableEnumerationError,
 	TableError,
-	type TableReadError,
 	WriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
@@ -51,7 +49,6 @@ export type {
 	Activity,
 	Attempt,
 	CommitOutcome,
-	FetchOutcome,
 	FilesObservation,
 	GitSnapshot,
 	Observation,
@@ -70,26 +67,13 @@ export type { SyncOptions, SyncOutcome } from './git/sync.js';
 export { hashBytes } from './hash.js';
 export { frameRowText, type RowTextFrame } from './markdown.js';
 export type { FileContent, Overridden } from './merge-file.js';
-export type {
-	OpfsDirectoryHandle,
-	OpfsEnvironment,
-	OpfsFileHandle,
-	OpfsLocks,
-} from './opfs-store.js';
 export {
 	DECLARATION_PATH,
 	pathProblem,
 	rowPath,
 	rowStemOf,
 } from './paths.js';
-export {
-	describeTables,
-	type ProjectedTable,
-	projectionProblem,
-	projectTables,
-	readingStatementProblem,
-	type SqlTarget,
-} from './projection.js';
+export { describeTables } from './projection.js';
 export type { AnyRow } from './row-merge.js';
 export {
 	formatRow,

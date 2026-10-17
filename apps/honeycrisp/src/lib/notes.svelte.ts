@@ -50,7 +50,7 @@ import {
 	type WrittenRow,
 } from '@epicenter/folder';
 import {
-	ancestorsOf,
+	ancestors,
 	basename,
 	dirname,
 	joinPath,
@@ -610,6 +610,7 @@ export function createNotes(
 	}
 
 	const writeText = folder$.write.mutationOptions();
+	const moveFile = folder$.move.mutationOptions();
 
 	/** An edit of one file's exact text, saved one write at a time after a pause. */
 	function textDraftOf(path: string) {
@@ -740,7 +741,7 @@ export function createNotes(
 	/** Show `path` in the detail. Opening never waits, writes, or asks. */
 	function open(path: string, as: OpenAs = defaultAs(path)) {
 		if (as === 'note') focusRequest += 1;
-		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
+		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (selected?.path === path && selected.as === as) return;
 		selected = { path, as, id: ++openings };
 	}
@@ -928,10 +929,11 @@ export function createNotes(
 	}
 
 	/**
-	 * Rename a file within its folder. A row renames through its table by
-	 * stem, unless it is open as text; any other file moves as exact bytes.
-	 * It waits for the file's saves to land and moves what the file holds
-	 * then. Edits of the file wait meanwhile.
+	 * Rename a file within its folder, through the folder's one move
+	 * (`folder$.move`): a row and any other file alike move as exact bytes,
+	 * a row to the path of its new stem. It waits for the file's saves to
+	 * land and moves what the file holds then. Edits of the file wait
+	 * meanwhile.
 	 */
 	function rename(path: string, name: string) {
 		const directory = dirname(path);
@@ -939,10 +941,7 @@ export function createNotes(
 		return defineMutation({
 			mutationKey: notesKeys.move(path),
 			mutationFn: async (): Promise<
-				Result<
-					Written | WrittenRow<unknown> | undefined,
-					WriteError | NotesError
-				>
+				Result<Written | undefined, WriteError | NotesError>
 			> => {
 				const why = refused() ?? nameProblem(directory, name);
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
@@ -956,15 +955,12 @@ export function createNotes(
 					});
 				await settledAt(path);
 				// A close that began meanwhile stops the move.
-				if (at !== undefined && nextStem !== undefined && !asText(path)) {
-					const late = refused();
-					if (late !== undefined)
-						return NotesError.NotStarted({ reason: late });
-					return at.rows.table.rename(at.stem, nextStem);
-				}
 				const late = refused();
 				if (late !== undefined) return NotesError.NotStarted({ reason: late });
-				return folder.move(path, to);
+				return runMutation(queryClient, moveFile, { path, next: to }).then(
+					(written) => Ok(written),
+					(error: WriteError) => Err(error),
+				);
 			},
 			onSuccess: async (renamed) => {
 				if (renamed === undefined) return;

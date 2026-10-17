@@ -4,7 +4,7 @@
  * its reply at an exact moment.
  *
  * Nothing here wraps the folder or its tables. A note's write is the
- * production `table.save`, and every fault acts where the folder writes:
+ * production `folder.write`, and every fault acts where the folder writes:
  * the stand-in's file streams. A stream that is asked for can be held open
  * (`hold`), a write can fail before anything is published (`failWrites`,
  * `failNextWrite`),

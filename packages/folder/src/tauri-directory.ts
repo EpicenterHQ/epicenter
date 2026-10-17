@@ -13,34 +13,37 @@ import type { Result } from 'wellcrafted/result';
 import { tauriChangeDetector } from './changes-tauri.js';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { tauriDirectoryPrimitives } from './directory-tauri.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import type { Granted } from './native/bindings.gen.js';
+import type { FolderSchema } from './open-at-root.js';
 import { cliHistory } from './tauri-history.js';
 
 export async function openGrantedFolder<
-	const TDefinition extends FolderDefinition,
+	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
 >({
-	definition,
+	schema,
 	lens,
 	id,
 	granted,
 }: {
-	/** The page's definition, or `'declared'` for the folder's own. */
-	readonly definition: TDefinition | 'declared';
+	/** The page's prepared definition, or `'declared'` for the folder's own. */
+	readonly schema: FolderSchema;
 	/** With `'declared'`, the prepared shape the folder must contain. */
 	readonly lens?: FolderDefinition;
 	readonly id: string;
 	readonly granted: Granted;
 }): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	const files = tauriDirectoryPrimitives(id);
-	return openDirectoryFolder({
-		definition,
+	return openDirectoryFolder<TDefinition, TDeclared>({
+		schema,
 		lens,
 		rootPath: granted.root,
 		files,
+		storage: createDirectoryStorage({ root: granted.root, primitives: files }),
 		// The CLI commits as the person's Git identity, or as Epicenter where
 		// Git names none, and refuses a data folder's first commit inside
 		// another repository.

@@ -42,7 +42,7 @@ export type GitBackend = {
 	/**
 	 * Create the repository if there is none yet. A directory backend has
 	 * this; history calls it inside `exclusive` before a whole-folder commit,
-	 * and staging or setting a remote creates it too. The browser backend
+	 * and setting a remote creates it too. The browser backend
 	 * creates its own with its first Git write. No backend creates one when
 	 * the folder opens.
 	 * Answers why no repository may be created here, having created nothing.
@@ -83,22 +83,18 @@ export type GitBackend = {
 	/** Point `refs/epicenter/publishing` at `oid`, or delete it with `undefined`. */
 	writePublishing(oid: string | undefined): Promise<void>;
 	/**
-	 * Why no commit or incoming update may run now, such as a detached
-	 * `HEAD`, a rebase in progress, or a merge another Git program began
-	 * (`MERGE_HEAD`). The folder never begins one; that merge is finished or
-	 * abandoned with Git outside it.
+	 * Why no whole-folder commit or publish may run now. A Git operation is
+	 * in progress: a detached `HEAD`, a rebase, or a merge another Git
+	 * program began (`MERGE_HEAD`), which the folder never begins and Git
+	 * outside it finishes or abandons. Or the repository is one such a commit
+	 * cannot represent faithfully: every file is written as plain `100644`
+	 * bytes with no attribute filters, so symbolic links, executables,
+	 * submodules, nested Git data, and normalizing attributes are refused
+	 * rather than silently rewritten. Unmerged index stages another Git
+	 * program left are refused too: a checkpoint would reset them and record
+	 * conflict markers as ordinary content.
 	 */
 	blocked(): Promise<string | undefined>;
-	/**
-	 * Why a whole-folder commit or fast-forward cannot represent this
-	 * repository faithfully: every file is written as plain `100644` bytes
-	 * with no attribute filters, so symbolic links, executables, submodules,
-	 * nested Git data, and normalizing attributes are refused rather than
-	 * silently rewritten. Unmerged index stages another Git program left are
-	 * refused too: a checkpoint would reset them and record conflict markers
-	 * as ordinary content.
-	 */
-	checkpointProblem(): Promise<string | undefined>;
 	/**
 	 * The first of `files` that `commit`'s own attribute files give a filter
 	 * or a byte conversion, or `undefined` when every one is plain bytes.

@@ -153,13 +153,14 @@ interpretation. Do not add per-record Source/Fields tabs, raw mode, or automatic
 Source fallback.
 
 The query cache holds the files. An edit is one immutable change to the cached
-row or text, written by a mutation keyed and scoped by the file's path and
-guarded by the hash the cache last confirmed. A failed write reads the file
-again, which rolls the row back, and a toast says what happened. Do not keep a
+row or text, written by a mutation keyed and scoped by the file's path as the
+change from the version the edit started from, which the folder merges into the
+file as it is now (ADR-0576). A failed write reads the file again, which rolls
+the row back, and a toast says what happened. Do not keep a
 draft, an edit session, an open-item slot, or a save bar beside the cache.
 `$state` holds only input that is not committed yet: a new-item box, a search,
 or a typed field that does not parse yet. A row whose text is not valid opens as
-text with its issues and is repaired through `files.save`. A rich widget
+text with its issues and is repaired through `folder.write`. A rich widget
 keeps its document, selection, and history; an unfinished Add, Send, or Save
 form owns a separate explicit-submission draft.
 

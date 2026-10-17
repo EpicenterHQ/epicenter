@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FolderStorage } from './boundary.js';
+import type { LockingStorage } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
@@ -31,9 +31,8 @@ import {
 import { openNativeFolder } from './directory.test-support.js';
 import { assembleFolder, createFileHints } from './folder.js';
 import type { GitBackend } from './git/backend.js';
-import { createHistory, type History } from './git/history.js';
+import { createHistory } from './git/history.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
-import { withPublication } from './storage.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
@@ -117,7 +116,7 @@ async function held() {
 	const order: string[] = [];
 	const { promise: released, resolve: release } = Promise.withResolvers<void>();
 	const { promise: reached, resolve: reach } = Promise.withResolvers<void>();
-	const boundary: FolderStorage = {
+	const boundary: LockingStorage = {
 		...base,
 		async put(path, bytes, ifMatch) {
 			if (path === DECLARATION_PATH) return base.put(path, bytes, ifMatch);
@@ -155,10 +154,10 @@ async function held() {
 	};
 	const history = createHistory({ backend, boundary, author });
 	const hints = createFileHints();
-	const folder = assembleFolder<typeof definition, typeof definition, History>({
+	const folder = assembleFolder<typeof definition, typeof definition>({
 		prepared: definition,
 		publishes: true,
-		storage: withPublication({ storage: boundary, history }),
+		storage: boundary,
 		history,
 		location: locationOf('close'),
 		hints,

@@ -11,11 +11,12 @@
  * refusing one that does not contain it by name. Only Todos's own folder
  * offers Connect (`OpenedTodosFolder`).
  *
- * The shell chooses, locks, and grants the directory; the page opens it with
- * the folder's file storage and the system `git`, and reads the author and
- * remote from Git's configuration. Pushes and fetches sign in through the
- * `epicenter` command, which holds the desktop grant and the person's Git
- * credential helper. Imports acquire nothing, and a folder that cannot be
+ * The shell chooses, locks, and grants the directory; the page reads and
+ * changes its files through the shell, and runs no Git: its history runs in
+ * the `epicenter` CLI over the system `git`, which reads the author and
+ * remote from Git's configuration. Pushes and fetches sign in through that
+ * command, which holds the desktop grant and the person's Git credential
+ * helper. Imports acquire nothing, and a folder that cannot be
  * opened is a refusal; browser storage is not opened.
  */
 import { openHandedFolder } from '@epicenter/folder/tauri';

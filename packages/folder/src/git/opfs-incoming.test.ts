@@ -45,17 +45,13 @@ import {
 	type MemoryOpfs,
 	memoryOpfs,
 	opfsEnvironment,
-} from '../opfs.test-support.js';
-import {
-	createOpfsStorage,
-	ensureDirectory,
 	presentFolder,
-} from '../opfs-store.js';
+} from '../opfs.test-support.js';
+import { createOpfsStorage, ensureDirectory } from '../opfs-store.js';
 import { overwrite } from '../put.test-support.js';
 import { useWebLocks } from '../web-locks.test-support.js';
 import { createStoredGitBackend } from './browser-backend.js';
 import { createHistory } from './history.js';
-import { createOpfsGitStore } from './opfs-git.js';
 
 useWebLocks();
 
@@ -87,7 +83,7 @@ async function folderAt(opfs = memoryOpfs()) {
 		await ensureDirectory(await environment.getDirectory(), ROOT),
 	);
 	const backend = await createStoredGitBackend({
-		store: createOpfsGitStore({ folder: presentFolder(root) }),
+		folder: presentFolder(root),
 		locks: environment.locks,
 		lockName: GIT_LOCK,
 		branch: 'main',
@@ -96,7 +92,6 @@ async function folderAt(opfs = memoryOpfs()) {
 		folder: presentFolder(root),
 		locks: environment.locks,
 		filesLock: FILES_LOCK,
-		landed: () => {},
 	});
 	const history = createHistory({ backend, boundary, author });
 	opened.push(history);
@@ -492,11 +487,18 @@ test("a local pattern Sync brings in keeps its files out of this open folder's n
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expectOk(await folder.write('drafts/secret.md', null, 'private'));
 	expectOk(await folder.write('notes.md', null, 'shared'));
-	expect(await changedPaths(folder)).toEqual(['notes.md']);
+	// The first write's publication names the pattern in `.gitignore` too.
+	const gitignore = expectOk(await folder.files.read('.gitignore'));
+	expect(new TextDecoder().decode(gitignore.bytes)).toBe('drafts/\n');
+	expect(await changedPaths(folder)).toEqual(['.gitignore', 'notes.md']);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	const tree = await git(bare, 'ls-tree', '-r', '--name-only', 'main');
-	expect(tree.split('\n').sort()).toEqual(['epicenter.json', 'notes.md']);
+	expect(tree.split('\n').sort()).toEqual([
+		'.gitignore',
+		'epicenter.json',
+		'notes.md',
+	]);
 
 	// A declaration that does not read leaves nothing known to keep local.
 	await overwriteDeclaration(folder, '{ not json');

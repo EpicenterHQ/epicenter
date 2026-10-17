@@ -1,12 +1,11 @@
 /**
  * Browser Git: isomorphic-git over a folder's private Git state.
  *
- * `createStoredGitBackend` is everything that is Git: status, staging,
- * commits, diffs, and transfers, through a filesystem view whose `/files` is
- * the folder's files, read-only, and whose `/git` is private Git state. A
- * `BrowserGitStore` decides where that private state lives and how the
- * branch, the index, and an incoming update publish; the browser folder's is
- * `.git` of its origin private file system directory (`opfs-git.ts`).
+ * `createStoredGitBackend` is everything that is Git: objects, refs, the
+ * index, the log, and transfers, through a filesystem view whose `/files` is
+ * the folder's files, read-only, and whose `/git` is private Git state, the
+ * `.git` of the folder's origin private file system directory
+ * (`opfs-git.ts`).
  *
  * The branch moves only by comparing the stored ref with the pinned value.
  * Index and branch work holds a Web Lock, which queues this tab's requests
@@ -14,9 +13,8 @@
  * Network transfers run outside the lock.
  */
 
-import type { PromiseFsClient } from 'isomorphic-git';
 import * as git from 'isomorphic-git';
-import type { OpfsLocks } from '../opfs-store.js';
+import type { OpfsFolder, OpfsLocks } from '../opfs-store.js';
 import { isAttributesPath, normalizingAttribute } from './attributes.js';
 import {
 	type CasResult,
@@ -32,6 +30,7 @@ import {
 } from './http.js';
 import { orphanStagesProblem, parseIndex } from './index-file.js';
 import { logCommits, type ObjectAccess, readBlob } from './objects.js';
+import { createOpfsGitStore, GITDIR, WORKDIR } from './opfs-git.js';
 import { gitignoreMatcher } from './scope.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
 
@@ -39,41 +38,8 @@ const decoder = new TextDecoder();
 const REMOTE_NAME = 'origin';
 const PUBLISHING_REF = 'refs/epicenter/publishing';
 
-/** One piece of Git work's filesystem view; `flush` persists its private writes. */
-export type GitFsSession = {
-	readonly fs: PromiseFsClient;
-	flush(): Promise<void>;
-};
-
-/** Where a browser folder's private Git state lives, and how it publishes. */
-export type BrowserGitStore<TSession extends GitFsSession> = {
-	session(): TSession;
-	/** A private Git file's bytes by its `/git/...` path, or `undefined`. */
-	readPrivate(path: string): Promise<Uint8Array | undefined>;
-	/** Move a ref only if it still names `expected`. */
-	casRef(
-		path: string,
-		expected: string | undefined,
-		next: string,
-	): Promise<CasResult>;
-};
-
-/** isomorphic-git's view of private Git state. */
-export const GITDIR = '/git';
-/** isomorphic-git's read-only view of the folder's files. */
-export const WORKDIR = '/files';
-
-export const sameBytes = (
-	left: Uint8Array | undefined,
-	right: Uint8Array | undefined,
-) =>
-	left === undefined || right === undefined
-		? left === right
-		: left.byteLength === right.byteLength &&
-			left.every((byte, index) => byte === right[index]);
-
 /** The commit a stored ref names, or `undefined` for anything else. */
-export function refValue(value: Uint8Array | undefined): string | undefined {
+function refValue(value: Uint8Array | undefined): string | undefined {
 	if (value === undefined) return undefined;
 	const text = decoder.decode(value).trim();
 	return /^[0-9a-f]{40}$/.test(text) ? text : undefined;
@@ -81,11 +47,11 @@ export function refValue(value: Uint8Array | undefined): string | undefined {
 
 /**
  * A backend over a private repository it creates when first needed: by the
- * first Git write (a commit, staging, or setting a remote), never by
+ * first Git write (a commit, a fetch, or setting a remote), never by
  * opening or a file save. Until then reads find no history.
  */
-export async function createStoredGitBackend<TSession extends GitFsSession>({
-	store,
+export async function createStoredGitBackend({
+	folder,
 	locks,
 	lockName,
 	createLock,
@@ -93,7 +59,8 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	httpFetch,
 	credentials,
 }: {
-	store: BrowserGitStore<TSession>;
+	/** The folder whose `.git` holds the repository. */
+	folder: OpfsFolder;
 	/** The Web Locks this folder's tabs share. */
 	locks: OpfsLocks;
 	lockName: string;
@@ -107,6 +74,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	httpFetch?: HttpFetch;
 	credentials?: GitCredentials;
 }): Promise<GitBackend> {
+	const store = createOpfsGitStore({ folder });
 	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const indexKey = `${GITDIR}/index`;
 	const mergeHeadKey = `${GITDIR}/MERGE_HEAD`;
@@ -267,17 +235,15 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async blocked() {
 			// A folder with no repository yet has nothing in progress.
-			if (!(await available())) return undefined;
-			const head = await store.readPrivate(`${GITDIR}/HEAD`);
-			if (head === undefined || !decoder.decode(head).startsWith('ref: '))
-				return 'HEAD is detached';
-			if (decoder.decode(head).trim() !== `ref: refs/heads/${branch}`)
-				return `HEAD is not on ${branch}`;
-			if ((await store.readPrivate(mergeHeadKey)) !== undefined)
-				return 'a Git merge is in progress (.git/MERGE_HEAD); this folder no longer finishes merges left in place. Remove .git/MERGE_HEAD and reset the index to continue, then Sync';
-			return undefined;
-		},
-		async checkpointProblem() {
+			if (await available()) {
+				const head = await store.readPrivate(`${GITDIR}/HEAD`);
+				if (head === undefined || !decoder.decode(head).startsWith('ref: '))
+					return 'HEAD is detached';
+				if (decoder.decode(head).trim() !== `ref: refs/heads/${branch}`)
+					return `HEAD is not on ${branch}`;
+				if ((await store.readPrivate(mergeHeadKey)) !== undefined)
+					return 'a Git merge is in progress (.git/MERGE_HEAD); this folder no longer finishes merges left in place. Remove .git/MERGE_HEAD and reset the index to continue, then Sync';
+			}
 			// Browser files are plain bytes with no modes, links, or filters.
 			// Stages are what is left of a merge an earlier version left in place.
 			return orphanStagesProblem([...(await unmergedStages()).keys()]);

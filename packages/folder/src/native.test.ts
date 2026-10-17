@@ -415,10 +415,15 @@ describe('native folder', () => {
 	test('a branch that moves again under the retry refuses the checkpoint; the branch is never forced', async () => {
 		const root = await scratch('native-cas-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
+		// This process is the directory's only writer, so its save lock is
+		// no lock at all.
 		const boundary = createDirectoryStorage({
 			root,
 			primitives: nodeDirectoryPrimitives,
-			landed: () => {},
+			hold: {
+				lock: <T>(work: () => Promise<T>) => work(),
+				held: nodeDirectoryPrimitives,
+			},
 		});
 		const backend = await createNativeGitBackend({
 			root,

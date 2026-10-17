@@ -28,7 +28,6 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
-	decodeHistory,
 	type HistoryReply,
 	type HistoryResults,
 	holdingHistoryLock,
@@ -104,7 +103,7 @@ async function reply<K extends keyof HistoryResults>(
 	expect(lines).toHaveLength(1);
 	return {
 		...ran,
-		reply: decodeHistory<HistoryReply<HistoryResults[K]>>(lines[0]!),
+		reply: JSON.parse(lines[0]!) as HistoryReply<HistoryResults[K]>,
 	};
 }
 
@@ -244,9 +243,6 @@ test('a sync of competing changes merges them into one commit this folder wins, 
 	expect(message).toContain(`Overrode: ${parents[0]} file "doc.md"`);
 	expect(await git(other, 'ls-remote', 'origin', 'main')).toStartWith(head);
 	expect(await git(folder, 'status', '--porcelain')).toBe('');
-	expect(existsSync(join(folder, '.git/epicenter/sync-journal.json'))).toBe(
-		false,
-	);
 });
 
 test('save-version and sync from two processes at once take turns and leave one linear history', async () => {

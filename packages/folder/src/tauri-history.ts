@@ -38,12 +38,11 @@ import type {
 import type { CommitSummary } from './git/objects.js';
 import { createPassRunner } from './git/runner.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
-import {
-	decodeHistory,
-	type GitMissingReply,
-	type HistoryReply,
-	type HistoryResults,
-	type HistoryState,
+import type {
+	GitMissingReply,
+	HistoryReply,
+	HistoryResults,
+	HistoryState,
 } from './history-wire.js';
 import { type CliError, type CliExit, commands } from './shell/bindings.gen.js';
 
@@ -87,7 +86,7 @@ async function ask<T>(
 		};
 	let value: unknown;
 	try {
-		value = decodeHistory(line);
+		value = JSON.parse(line);
 	} catch {
 		return { kind: 'failed', message: `epicenter answered ${line}` };
 	}
@@ -106,7 +105,7 @@ export function cliHistory({
 	scope,
 }: {
 	readonly scope: string;
-}): DirectoryHistory<FolderHistory> {
+}): DirectoryHistory {
 	return async ({ landed }) =>
 		() =>
 			createCliHistory({ scope, landed });
@@ -158,7 +157,6 @@ function createCliHistory({
 			},
 			lastCommit: state.lastCommit,
 			lastPush: state.lastPush,
-			lastFetch: undefined,
 			closed: closing.signal.aborted,
 		});
 		for (const listener of [...listeners])
@@ -209,31 +207,29 @@ function createCliHistory({
 					cause: answer.kind === 'failed' ? answer.message : 'no reply',
 				});
 
-	const scanRunner = createPassRunner<void, Result<FilesObservation, GitError>>(
-		{
-			async run() {
-				const capturedAt = ++clock;
-				const answer = await ask<HistoryResults['status']>(() =>
-					commands.status(scope),
-				);
-				if (answer.kind !== 'reply') {
-					const failure = gitFailure('status', answer);
-					files =
-						files.state === 'observed'
-							? { ...files, stale: true, error: failure.error.message }
-							: { state: 'unknown', error: failure.error.message };
-					emit();
-					return failure;
-				}
-				observe(answer.reply, capturedAt);
+	const scanRunner = createPassRunner<Result<FilesObservation, GitError>>({
+		async run() {
+			const capturedAt = ++clock;
+			const answer = await ask<HistoryResults['status']>(() =>
+				commands.status(scope),
+			);
+			if (answer.kind !== 'reply') {
+				const failure = gitFailure('status', answer);
+				files =
+					files.state === 'observed'
+						? { ...files, stale: true, error: failure.error.message }
+						: { state: 'unknown', error: failure.error.message };
 				emit();
-				return answer.reply.result;
-			},
-			failed: (cause) => GitError.Failed({ operation: 'status', cause }),
-			closed: () => GitError.Closed(),
-			onChange: () => emit(),
+				return failure;
+			}
+			observe(answer.reply, capturedAt);
+			emit();
+			return answer.reply.result;
 		},
-	);
+		failed: (cause) => GitError.Failed({ operation: 'status', cause }),
+		closed: () => GitError.Closed(),
+		onChange: () => emit(),
+	});
 
 	function commit({
 		message,

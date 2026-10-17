@@ -15,8 +15,9 @@
  * `epicenter merge-driver <dir>` makes the repository at `<dir>` use it: the
  * attribute `* merge=epicenter` in `.git/info/attributes`, and the driver in
  * the repository's own `.git/config`. Neither is committed: a clone never
- * runs a program its repository names, and a committed `merge=` attribute is
- * one the folder engine refuses (`mergeAttribute`). Without the
+ * runs a program its repository names. `.git/info/attributes` takes
+ * precedence over a committed `.gitattributes`, so the driver decides every
+ * path's merge whatever a committed `merge=` says. Without the
  * configuration, Git merges these files as text.
  */
 

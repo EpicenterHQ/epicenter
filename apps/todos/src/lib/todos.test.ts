@@ -36,8 +36,8 @@ import {
 	opfsOf,
 	testLocks,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
+import { holdCloses } from '../../../../packages/folder/src/opfs.test-support.js';
 import { todosDefinition } from './definition.js';
-import { holdCloses } from './opfs-holds.test-support.js';
 import {
 	cached,
 	listing,

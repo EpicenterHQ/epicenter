@@ -15,6 +15,7 @@ import {
 	defineFolder,
 	defineTable,
 	type FileContent,
+	type FileError,
 	type FileRead,
 	type FileTable,
 	type Folder,
@@ -35,7 +36,6 @@ import {
 	type Row,
 	type RowReadError,
 	type StoredRow,
-	type TableEnumerationError,
 	type TableListing,
 	type WriteError,
 	type Written,
@@ -448,7 +448,7 @@ async function typedValues(folder: Opened, instant: InstantString) {
 	// A listing is one array of per-file Results under one enumeration Result.
 	const listing = await folder.tables.todos.list();
 	expectTypeOf(listing).toEqualTypeOf<
-		Result<TableListing<Fields>, TableEnumerationError>
+		Result<TableListing<Fields>, FileError>
 	>();
 	if (listing.error === null) {
 		expectTypeOf(listing.data[0]!.stem).toEqualTypeOf<string>();

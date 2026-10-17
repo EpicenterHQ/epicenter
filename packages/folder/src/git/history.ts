@@ -31,18 +31,19 @@
  * and the last one reads the folder after every request was made.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FolderStorage } from '../boundary.js';
+import type { FolderStorage, LockingStorage } from '../boundary.js';
 import type { FolderDefinition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
+import type { FolderHistory } from '../folder.js';
 import { fileKindOf, localPatterns, sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
 	ancestors,
 	collisionKey,
 	DECLARATION_PATH,
+	isPortablePath,
 	pathProblem,
 } from '../paths.js';
-import { captureFiles } from '../storage.js';
 import { confirmedPut, writeFile } from '../write.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
@@ -96,8 +97,6 @@ export type CommitOutcome =
 	| { readonly status: 'failed'; readonly error: string }
 	/** The host did not acknowledge the operation; inspect history before retrying. */
 	| { readonly status: 'unconfirmed'; readonly error: string }
-	/** The caller's signal aborted; the pass may still complete. */
-	| { readonly status: 'stoppedWaiting' }
 	| { readonly status: 'closed' };
 
 /** What Sync's push of one commit did. */
@@ -105,12 +104,6 @@ export type PushOutcome =
 	| { readonly status: 'pushed'; readonly oid: string }
 	| { readonly status: 'failed'; readonly oid: string; readonly error: string }
 	| { readonly status: 'cancelled'; readonly oid: string };
-
-export type FetchOutcome = {
-	readonly status: 'fetched';
-	/** The remote branch head, or undefined when the remote has no such branch. */
-	readonly oid: string | undefined;
-};
 
 export type Observation<T> =
 	| { readonly state: 'unknown'; readonly error: string | undefined }
@@ -155,13 +148,8 @@ export type GitSnapshot = {
 	};
 	readonly lastCommit: Attempt<CommitOutcome> | undefined;
 	readonly lastPush: Attempt<PushOutcome> | undefined;
-	readonly lastFetch:
-		| Attempt<{ readonly result: Result<FetchOutcome, GitError> }>
-		| undefined;
 	readonly closed: boolean;
 };
-
-export type History = ReturnType<typeof createHistory>;
 
 export function createHistory({
 	backend,
@@ -171,13 +159,13 @@ export function createHistory({
 	landed = () => {},
 }: {
 	backend: GitBackend;
-	boundary: FolderStorage;
+	boundary: LockingStorage;
 	author: Author;
 	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
 	definition?: FolderDefinition;
 	/** Paths a Sync wrote or removed, whether or not it completed. */
 	landed?: (paths: readonly string[]) => void;
-}) {
+}): FolderHistory {
 	let clock = 0;
 	let lastEdit = 0;
 	/**
@@ -203,8 +191,6 @@ export function createHistory({
 	};
 	let lastCommit: GitSnapshot['lastCommit'];
 	let lastPush: GitSnapshot['lastPush'];
-	let lastFetch: GitSnapshot['lastFetch'];
-	let remoteSeq = 0;
 	/** Git work of this handle, other than runner passes, that close waits for. */
 	const admittedWork = new Set<Promise<unknown>>();
 	const listeners = new Set<(snapshot: GitSnapshot) => void>();
@@ -225,7 +211,6 @@ export function createHistory({
 			},
 			lastCommit,
 			lastPush,
-			lastFetch,
 			closed: closing.signal.aborted,
 		});
 		// A snapshot is published from inside saves and passes. A subscriber
@@ -295,17 +280,27 @@ export function createHistory({
 		}
 	}
 
+	/**
+	 * Every portable file's bytes, read now, for a commit or a status. A file
+	 * removed while it is read is left out, as if the listing had missed it;
+	 * a file that cannot be read throws, naming it.
+	 */
 	async function capture() {
-		const { data: captured, error: captureError } =
-			await captureFiles(boundary);
-		if (captureError !== null) throw new Error(captureError.message);
-		if (captured.unreadable.length > 0)
+		const { data: listed, error } = await boundary.list();
+		if (error !== null) throw new Error(error.message);
+		const files = new Map<string, Uint8Array>();
+		const unreadable: string[] = [];
+		for (const { path } of listed.files) {
+			if (!isPortablePath(path)) continue;
+			const read = await boundary.read(path);
+			if (read.error === null) files.set(path, read.data.bytes);
+			else if (read.error.name !== 'NotFound') unreadable.push(path);
+		}
+		if (unreadable.length > 0)
 			throw new Error(
-				`${captured.unreadable.length} files could not be read: ${captured.unreadable
-					.map((item) => item.path)
-					.join(', ')}`,
+				`${unreadable.length} files could not be read: ${unreadable.join(', ')}`,
 			);
-		return captured.files;
+		return files;
 	}
 
 	type IsLocal = (path: string) => boolean;
@@ -387,45 +382,38 @@ export function createHistory({
 		void scanRunner.attempt();
 	}
 
-	const scanRunner = createPassRunner<void, Result<FilesObservation, GitError>>(
-		{
-			async run() {
-				const capturedAt = ++clock;
-				try {
-					const captured = await capture();
-					const head = await backend.readBranch();
-					const committed = await headFiles(head);
-					// Status shows what a commit would record; with a declaration
-					// that cannot be read, by what the definition keeps.
-					const isLocal =
-						(await localNow()).data ?? localMatcher(definition?.local);
-					const hashes = await hashFiles(
-						await source(captured, committed, isLocal),
-					);
-					const value: FilesObservation = {
-						head,
-						changes: diffFileMaps(committed, hashes),
-					};
-					observeFiles(capturedAt, value);
-					await refreshSync({ head });
-					emit();
-					return Ok(value);
-				} catch (cause) {
-					failFiles(describe(cause));
-					emit();
-					return GitError.Failed({ operation: 'status', cause });
-				}
-			},
-			failed: (cause) => GitError.Failed({ operation: 'status', cause }),
-			closed: () => GitError.Closed(),
-			onChange: () => emit(),
+	const scanRunner = createPassRunner<Result<FilesObservation, GitError>>({
+		async run() {
+			const capturedAt = ++clock;
+			try {
+				const captured = await capture();
+				const head = await backend.readBranch();
+				const committed = await headFiles(head);
+				// Status shows what a commit would record; with a declaration
+				// that cannot be read, by what the definition keeps.
+				const isLocal =
+					(await localNow()).data ?? localMatcher(definition?.local);
+				const hashes = await hashFiles(
+					await source(captured, committed, isLocal),
+				);
+				const value: FilesObservation = {
+					head,
+					changes: diffFileMaps(committed, hashes),
+				};
+				observeFiles(capturedAt, value);
+				await refreshSync({ head });
+				emit();
+				return Ok(value);
+			} catch (cause) {
+				failFiles(describe(cause));
+				emit();
+				return GitError.Failed({ operation: 'status', cause });
+			}
 		},
-	);
-
-	/** Why this folder's history cannot take a whole-folder commit or update now. */
-	async function wholeFolderProblem(): Promise<string | undefined> {
-		return (await backend.blocked()) ?? (await backend.checkpointProblem());
-	}
+		failed: (cause) => GitError.Failed({ operation: 'status', cause }),
+		closed: () => GitError.Closed(),
+		onChange: () => emit(),
+	});
 
 	/**
 	 * One whole-folder commit, after waiting for the backend's protection. A
@@ -457,7 +445,7 @@ export function createHistory({
 		// A folder whose repository its first commit creates gets it here.
 		const unborn = await backend.createRepository?.();
 		if (unborn !== undefined) return { status: 'blocked', reason: unborn };
-		const blocked = await wholeFolderProblem();
+		const blocked = await backend.blocked();
 		if (blocked !== undefined) return { status: 'blocked', reason: blocked };
 		const unfinished = await finishPublishing();
 		if (unfinished !== undefined)
@@ -466,11 +454,11 @@ export function createHistory({
 		if (localProblem !== null)
 			return { status: 'blocked', reason: localProblem };
 		// Pin the parent, then capture, both inside the backend's
-		// protection. A pull or staged commit of this handle that changed
-		// files and the branch while this pass waited is part of the
-		// capture, so an older capture can never be committed on top of a
-		// newer parent. A branch move from outside the protection after
-		// this point fails the compare-and-swap below.
+		// protection. A publish of this handle that changed files and the
+		// branch while this pass waited is part of the capture, so an older
+		// capture can never be committed on top of a newer parent. A branch
+		// move from outside the protection after this point fails the
+		// compare-and-swap below.
 		const parent = await backend.readBranch();
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
@@ -537,30 +525,6 @@ export function createHistory({
 		};
 	}
 
-	/**
-	 * Run one commit, pull, or merge of this handle. It counts as active from
-	 * the moment it is asked for, including any wait for the backend's
-	 * protection, and `close()` waits for it. `work` must not reject.
-	 */
-	function owned<T>(kind: keyof typeof running, work: () => Promise<T>) {
-		running[kind]++;
-		const completion = Promise.withResolvers<T>();
-		const settled = completion.promise.finally(() => {
-			running[kind]--;
-			admittedWork.delete(settled);
-			emit();
-		});
-		admittedWork.add(settled);
-		// Register before work or observers can synchronously close this handle.
-		try {
-			void work().then(completion.resolve, completion.reject);
-		} catch (cause) {
-			completion.reject(cause);
-		}
-		emit();
-		return settled;
-	}
-
 	/** Whether `cause` is closing refusing a request that was still waiting. */
 	const refusedByClose = (cause: unknown) =>
 		closing.signal.aborted && cause === closing.signal.reason;
@@ -575,12 +539,6 @@ export function createHistory({
 			? { status: 'unconfirmed', error: describe(cause) }
 			: { status: 'failed', error: describe(cause) };
 
-	/** An operation that threw: `Unconfirmed` when a private write may have landed. */
-	const thrown = (operation: string, cause: unknown) =>
-		cause instanceof UnconfirmedWrite
-			? GitError.Unconfirmed({ operation, cause })
-			: GitError.Failed({ operation, cause });
-
 	/** Record what a commit that ran did and what is now known of the remote. */
 	async function settleCommit(outcome: CommitOutcome) {
 		lastCommit = { ...outcome, at: Date.now() };
@@ -591,7 +549,8 @@ export function createHistory({
 	/**
 	 * An explicit commit. It waits for the backend's protection and captures
 	 * inside it. Closing refuses it while it still waits; once inside, it runs
-	 * to its end and reports what it did.
+	 * to its end and reports what it did. It counts as active from the moment
+	 * it is asked for, including that wait, and `close()` waits for it.
 	 */
 	function commitNow(
 		onCapture?: (capturedAt: number) => void,
@@ -603,7 +562,17 @@ export function createHistory({
 			if (problem !== undefined)
 				return Promise.resolve({ status: 'failed', error: problem });
 		}
-		return owned('commit', async (): Promise<CommitOutcome> => {
+		// Registered before the commit starts: the commit, or an observer it
+		// notifies, can close this handle synchronously.
+		running.commit++;
+		const completion = Promise.withResolvers<CommitOutcome>();
+		const settled = completion.promise.finally(() => {
+			running.commit--;
+			admittedWork.delete(settled);
+			emit();
+		});
+		admittedWork.add(settled);
+		void (async (): Promise<CommitOutcome> => {
 			let outcome: CommitOutcome;
 			try {
 				outcome = await commitCurrentFiles(onCapture, subject);
@@ -614,22 +583,26 @@ export function createHistory({
 			}
 			await settleCommit(outcome);
 			return outcome;
-		});
+		})().then(completion.resolve, completion.reject);
+		emit();
+		return settled;
 	}
 
-	const fetchRunner = createPassRunner<void, Result<FetchOutcome, GitError>>({
-		async run(_input, signal) {
+	/**
+	 * Sync's fetches, one at a time: the remote branch head, or `undefined`
+	 * when the remote has no such branch.
+	 */
+	const fetchRunner = createPassRunner<Result<string | undefined, GitError>>({
+		async run(signal) {
 			if ((await backend.refreshRemote()) === undefined)
 				return GitError.NoRemote();
-			const sequence = ++remoteSeq;
-			let result: Result<FetchOutcome, GitError>;
+			let result: Result<string | undefined, GitError>;
 			try {
-				result = Ok({ status: 'fetched', oid: await backend.fetch(signal) });
+				result = Ok(await backend.fetch(signal));
 			} catch (cause) {
 				result = GitError.Failed({ operation: 'fetch', cause });
 			}
-			if (sequence === remoteSeq) await refreshSync();
-			lastFetch = { result, at: Date.now() };
+			await refreshSync();
 			emit();
 			return result;
 		},
@@ -901,7 +874,7 @@ export function createHistory({
 			SyncError
 		>
 	> {
-		const blocked = await wholeFolderProblem();
+		const blocked = await backend.blocked();
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
@@ -1046,32 +1019,6 @@ export function createHistory({
 	}
 
 	/**
-	 * Admit one explicit Git operation for its whole lifetime, including any
-	 * refresh after the backend call. Refused once closing starts; `close()`
-	 * drains admitted work before storage is released.
-	 */
-	function manual<T, E = never>(
-		operation: string,
-		work: () => Promise<Result<T, E | GitError>>,
-	): Promise<Result<T, E | GitError>> {
-		if (closing.signal.aborted) return Promise.resolve(GitError.Closed());
-		const settled = work().catch(
-			(cause): Result<T, E | GitError> =>
-				refusedByClose(cause) ? GitError.Closed() : thrown(operation, cause),
-		);
-		admittedWork.add(settled);
-		void settled.then(() => admittedWork.delete(settled));
-		return settled;
-	}
-
-	function guarded<T>(
-		operation: string,
-		work: () => Promise<T>,
-	): Promise<Result<T, GitError>> {
-		return manual<T>(operation, async () => Ok(await work()));
-	}
-
-	/**
 	 * Admit one sync call for its whole lifetime: refused once closing
 	 * starts, and drained by `close()`. Each step it composes is admitted on
 	 * its own as well.
@@ -1187,13 +1134,11 @@ export function createHistory({
 			// `null` before any rejection; `undefined` names a remote with no branch.
 			let rejectedAt: string | null | undefined = null;
 			for (let attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
-				const { data: fetched, error: fetchError } =
-					await fetchRunner.request();
+				const { data: theirs, error: fetchError } = await fetchRunner.request();
 				if (fetchError !== null)
 					return fetchError.name === 'Closed' || closing.signal.aborted
 						? SyncError.Closed()
 						: SyncError.Fetch({ error: fetchError });
-				const theirs = fetched.oid;
 				if (rejectedAt !== null && theirs === rejectedAt)
 					return SyncError.Failed({
 						cause: new Error(
@@ -1359,11 +1304,24 @@ export function createHistory({
 				return runSync(options);
 			},
 		}),
-		log: (depth: number): Promise<Result<CommitSummary[], GitError>> =>
-			guarded('log', () => backend.log(depth)),
+		/**
+		 * The last `depth` commits on the branch. It reads only, so it waits
+		 * for no protection; once closing starts it is refused, and `close()`
+		 * waits for one already running.
+		 */
+		log(depth: number): Promise<Result<CommitSummary[], GitError>> {
+			if (closing.signal.aborted) return Promise.resolve(GitError.Closed());
+			const settled = backend.log(depth).then(
+				(commits): Result<CommitSummary[], GitError> => Ok(commits),
+				(cause) => GitError.Failed({ operation: 'log', cause }),
+			);
+			admittedWork.add(settled);
+			void settled.then(() => admittedWork.delete(settled));
+			return settled;
+		},
 		/**
 		 * Resolve once nothing of this handle still uses storage: the commits,
-		 * pulls, and other Git operations already inside the backend's
+		 * publishes, and other Git operations already inside the backend's
 		 * protection finished, and the aborted network work returned. There is
 		 * no last commit: a save whose request was still waiting, or whose
 		 * checkpoint failed, is still uncommitted when this resolves.

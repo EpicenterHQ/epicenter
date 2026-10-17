@@ -1,9 +1,11 @@
 /**
- * Publication attempt contract: an awaited put where no file is when the
- * file is missing, a put guarded by the bytes read, never merged, when it
- * holds other bytes, no write when it holds the declaration's, every `local`
- * pattern the file lists kept, one more read when another writer got there
- * first, and failure diagnostics retaining uncertain outcomes.
+ * Publication attempt contract: the one write, as a create joining the file
+ * there. An awaited put where no file is when the file is missing; a put
+ * guarded by the bytes read, the definition winning the file, when it holds
+ * other bytes; no write when it holds the declaration's; every `local`
+ * pattern the file lists kept; another read when another writer got there
+ * first, up to the write's attempts; and failure diagnostics retaining
+ * uncertain outcomes.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
@@ -89,13 +91,16 @@ for (const [name, there] of [
 		formatDeclaration(definition).trimEnd(),
 	],
 ] as const)
-	test(`${name} are put over once, guarded by what was read, never merged`, async () => {
+	test(`${name} are put over once, guarded by what was read, the definition winning`, async () => {
 		const { storage, writes } = recording([holding(there)]);
 		await publishDefinition(definition, storage);
 		expect(writes).toEqual([
 			{ text: formatDeclaration(definition), ifMatch: await shaOf(there) },
 		]);
-		expect(events).toEqual([]);
+		// Logged as any write that replaced another writer's file is; no failure.
+		expect(events.map(({ level, source }) => ({ level, source }))).toEqual([
+			{ level: 'info', source: 'folder/save' },
+		]);
 	});
 
 test('a local pattern the file lists, from another device, is kept', async () => {
@@ -119,7 +124,7 @@ test('a local pattern the file lists, from another device, is kept', async () =>
 	expect(again.writes).toEqual([]);
 });
 
-test('another writer getting there first is read once more', async () => {
+test('another writer getting there first is read again, as many times as a write tries', async () => {
 	const theirs = '{"title":"Another app"}\n';
 	const { storage, writes } = recording([missing, holding(theirs)], async () =>
 		Ok('stale'),
@@ -128,11 +133,12 @@ test('another writer getting there first is read once more', async () => {
 	expect(writes.map((write) => write.ifMatch)).toEqual([
 		null,
 		await shaOf(theirs),
+		await shaOf(theirs),
 	]);
-	// Two reads at most: the second stale put is the last word.
 	expect(events).toHaveLength(1);
 	expect(events[0]?.data).toMatchObject({
-		cause: 'another writer changed the file on every attempt',
+		name: 'DefinitionPublicationUnconfirmed',
+		cause: { name: 'KeptChanging', attempts: 3 },
 	});
 });
 
@@ -172,7 +178,7 @@ test('a lost write reply preserves Unconfirmed and its actual cause in the diagn
 		data: {
 			name: 'DefinitionPublicationUnconfirmed',
 			path: 'epicenter.json',
-			cause: refusal.error,
+			cause: { name: 'Io', cause: refusal.error },
 		},
 	});
 });

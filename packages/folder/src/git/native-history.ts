@@ -5,8 +5,9 @@
  * remote (`remote.origin.url`, on `main`) and the author (`user.name` and
  * `user.email`, with `author` for whichever is missing).
  */
+import type { LockingStorage } from '../boundary.js';
 import type { DirectoryHistory } from '../directory-adapter.js';
-import { createHistory, type History } from './history.js';
+import { createHistory } from './history.js';
 import type { GitCredentials } from './http.js';
 import {
 	createNativeGitBackend,
@@ -17,6 +18,7 @@ import type { Author } from './objects.js';
 export function nativeHistory({
 	rootPath,
 	host,
+	boundary,
 	author,
 	credentials,
 	initProblem,
@@ -25,6 +27,8 @@ export function nativeHistory({
 	readonly rootPath: string;
 	/** The system `git` in `rootPath`, and the host's file system. */
 	readonly host: NativeGitHost;
+	/** The folder's files, which Sync publishes under their save lock. */
+	readonly boundary: LockingStorage;
 	/** Who commits, where Git's configuration does not say. */
 	readonly author: Author;
 	/** Asked before each push and fetch; see `GitCredentials`. */
@@ -36,7 +40,7 @@ export function nativeHistory({
 	 * is not read: two `git` runs a status or a log does not need.
 	 */
 	readonly commits?: boolean;
-}): DirectoryHistory<History> {
+}): DirectoryHistory {
 	const configured = async (key: string) => {
 		const { code, stdout } = await host.run(['config', '--get', key], {
 			allowFailure: true,
@@ -44,7 +48,7 @@ export function nativeHistory({
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	return async ({ boundary, landed }) => {
+	return async ({ landed }) => {
 		// The person's own Git identity, read once the repository exists.
 		let identity = author;
 		const readIdentity = async () => {

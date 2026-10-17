@@ -21,18 +21,24 @@
  * scratch files are this storage's own.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FileListing, FileRead, FolderStorage } from './boundary.js';
 import {
-	type DirectoryPrimitives,
-	type EntryKind,
-	type Expectation,
+	type FileRead,
+	type FolderStorage,
+	type HostFiles,
+	hostStorage,
+	type LockingStorage,
+	lockingStorage,
+	PRIVATE_DIRECTORY,
 	SCRATCH_DIRECTORY,
+	scratchName,
+} from './boundary.js';
+import type {
+	DirectoryPrimitives,
+	EntryKind,
+	Expectation,
 } from './directory-primitives.js';
 import { FileError, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
-import { pathProblem } from './paths.js';
-
-const PRIVATE_DIRECTORY = '.git';
 
 /** What a literal folder path names on disk. */
 type Found =
@@ -46,53 +52,48 @@ type Found =
 	/** `ancestor` is not a directory, so nothing can be below it. */
 	| { readonly kind: 'underFile'; readonly ancestor: string };
 
-function invalid(path: string): Result<never, FileError> | undefined {
-	const problem = pathProblem(path);
-	return problem === undefined
-		? undefined
-		: FileError.InvalidPath({ path, reason: problem });
-}
-
 const linkRefusal = (path: string) =>
 	FileError.InvalidPath({
 		path,
 		reason: 'the path passes through a symbolic link',
 	});
 
+/** The directory's save lock, and its primitives without it. */
+type Hold = {
+	lock<T>(work: () => Promise<T>): Promise<T>;
+	held: DirectoryPrimitives;
+};
+
 /**
  * The storage of the directory at absolute path `root`.
  *
  * Each change goes through `primitives`, whose renames and removals each
- * take the directory's save lock where the host has one in this process.
- * `hold` takes that lock for `lock`, which then changes files through
- * `held`, the same calls without it. A host without `hold` (a desktop page,
- * whose shell takes the lock for each change, and which never publishes)
- * runs `lock`'s work with its own storage.
+ * take the directory's save lock where the host has one in this process (a
+ * desktop page's shell takes it for each change itself). With `hold`, where
+ * Sync publishes (Bun), `lock` takes that lock and changes files through
+ * `held`, the same calls without it.
  */
+export function createDirectoryStorage(options: {
+	root: string;
+	primitives: DirectoryPrimitives;
+}): FolderStorage;
+export function createDirectoryStorage(options: {
+	root: string;
+	primitives: DirectoryPrimitives;
+	hold: Hold;
+}): LockingStorage;
 export function createDirectoryStorage({
 	root,
 	primitives,
 	hold,
-	landed,
 }: {
 	root: string;
 	primitives: DirectoryPrimitives;
-	hold?: {
-		lock<T>(work: () => Promise<T>): Promise<T>;
-		held: DirectoryPrimitives;
-	};
-	landed: (paths: readonly string[]) => void;
-}): FolderStorage {
+	hold?: Hold;
+}): FolderStorage | LockingStorage {
 	const absolute = (path: string) => (path === '' ? root : `${root}/${path}`);
-	let scratchCounter = 0;
-	const engine = crypto.randomUUID().replaceAll('-', '');
-	const nextScratch = () =>
-		`${root}/${SCRATCH_DIRECTORY}/${Date.now().toString(36)}-${engine}-${(scratchCounter++).toString(36)}`;
 
-	const storage = (
-		files: DirectoryPrimitives,
-		held: boolean,
-	): FolderStorage => {
+	const host = (files: DirectoryPrimitives): HostFiles => {
 		/** Whether `name` is stored in `parent` under exactly that name. */
 		async function literal(
 			parent: string,
@@ -192,7 +193,7 @@ export function createDirectoryStorage({
 			if (found.kind === 'underFile')
 				return FileError.NotADirectory({ path: found.ancestor });
 			const parent = path.split('/').slice(0, -1).join('/');
-			const scratch = nextScratch();
+			const scratch = `${root}/${SCRATCH_DIRECTORY}/${scratchName()}`;
 			try {
 				if (found.kind === 'absent' && parent !== '')
 					await files.mkdir(absolute(parent));
@@ -212,7 +213,7 @@ export function createDirectoryStorage({
 			return Ok('landed');
 		}
 
-		const self: FolderStorage = {
+		return {
 			async list() {
 				const entries: { path: string; size: number }[] = [];
 				const directories: string[] = [];
@@ -235,17 +236,9 @@ export function createDirectoryStorage({
 				} catch (cause) {
 					return FileError.Io({ path: '', operation: 'list', cause });
 				}
-				const listing: FileListing = {
-					files: entries.sort((a, b) => (a.path < b.path ? -1 : 1)),
-					directories: directories.sort(),
-				};
-				return Ok(listing);
+				return Ok({ files: entries, directories });
 			},
 			async children(directory) {
-				if (directory !== '') {
-					const refused = invalid(directory);
-					if (refused) return refused;
-				}
 				try {
 					const found = await find(directory);
 					if (found.kind === 'link') return linkRefusal(directory);
@@ -259,33 +252,14 @@ export function createDirectoryStorage({
 						if (directory === '' && entry.name === PRIVATE_DIRECTORY) continue;
 						(entry.kind === 'directory' ? nested : listed).push(entry.name);
 					}
-					return Ok({ files: listed.sort(), directories: nested.sort() });
+					return Ok({ files: listed, directories: nested });
 				} catch (cause) {
 					return FileError.Io({ path: directory, operation: 'list', cause });
 				}
 			},
-			async read(path) {
-				const refused = invalid(path);
-				if (refused) return refused;
-				return readOne(path);
-			},
-			async put(path, bytes, ifMatch) {
-				const refused = invalid(path);
-				if (refused) return refused;
-				const owned = bytes === null ? null : new Uint8Array(bytes);
-				let result: Result<'landed' | 'stale', FileError>;
-				try {
-					result = await change(path, owned, ifMatch);
-				} catch (cause) {
-					result = FileError.Io({ path, operation: 'write', cause });
-				}
-				if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
-					landed([path]);
-				return result;
-			},
+			read: readOne,
+			change,
 			async mkdir(path) {
-				const refused = invalid(path);
-				if (refused) return refused;
 				try {
 					const found = await find(path);
 					if (found.kind === 'link') return linkRefusal(path);
@@ -302,12 +276,9 @@ export function createDirectoryStorage({
 				} catch (cause) {
 					return FileError.Io({ path, operation: 'create directory', cause });
 				}
-				landed([path]);
 				return Ok(undefined);
 			},
 			async rmdir(path) {
-				const refused = invalid(path);
-				if (refused) return refused;
 				try {
 					const found = await find(path);
 					if (found.kind === 'link') return linkRefusal(path);
@@ -325,15 +296,13 @@ export function createDirectoryStorage({
 						return FileError.NotFound({ path });
 					return FileError.Io({ path, operation: 'remove directory', cause });
 				}
-				landed([path]);
 				return Ok(undefined);
 			},
-			lock: (work) =>
-				held || hold === undefined
-					? work(self)
-					: hold.lock(() => work(storage(hold.held, true))),
 		};
-		return self;
 	};
-	return storage(primitives, false);
+	if (hold === undefined) return hostStorage(host(primitives));
+	return lockingStorage(host(primitives), {
+		lock: hold.lock,
+		held: host(hold.held),
+	});
 }

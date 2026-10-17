@@ -57,7 +57,6 @@ function snapshot(overrides: Partial<GitSnapshot> = {}): GitSnapshot {
 		},
 		lastCommit: undefined,
 		lastPush: undefined,
-		lastFetch: undefined,
 		closed: false,
 		...overrides,
 	};

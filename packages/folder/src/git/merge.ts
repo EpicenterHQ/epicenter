@@ -43,9 +43,8 @@ export type Override = {
 };
 
 /** The tree of Sync's merge commit, and every unit a side lost in it. */
-export type HistoryMerge = {
+type HistoryMerge = {
 	readonly tree: string;
-	readonly files: ReadonlyMap<string, TreeFile>;
 	readonly overrides: readonly Override[];
 };
 
@@ -212,11 +211,7 @@ export async function mergeHistories(
 		for (let next = 2; taken(name); next++) name = `${beside}-${next}`;
 		result.set(name, entry);
 	}
-	return {
-		tree: await writeTreeFiles(access, result),
-		files: result,
-		overrides,
-	};
+	return { tree: await writeTreeFiles(access, result), overrides };
 }
 
 /** One unit as a trailer names it: fixed fields first, quoted values. */

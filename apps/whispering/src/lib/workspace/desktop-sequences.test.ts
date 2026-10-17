@@ -3,7 +3,7 @@
  *
  * The real library and its query cache run over `@epicenter/folder/tauri`,
  * on the page's own folder engine, in a directory the shell grants
- * (`granted-folder.test-support.ts`). That is where a change can be held
+ * (`granted-shell.test-support.ts` in the folder package). That is where a change can be held
  * while the person types, fail before it lands, or lose its reply after it
  * landed, and where a read can fail.
  *
@@ -26,17 +26,17 @@ import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';
-import { whisperingDefinition } from '../definition.js';
-import { settle, transformationEditor } from '../edits.test-support.js';
-import type { WriteNotice } from '../library.svelte.js';
-import { createQueryClient } from '../query.test-support.js';
-import { deferred, openTestWorkspace } from '../workspace.test-support.js';
 import {
 	createGrantedShell,
 	type DataChange,
 	type GrantedShell,
 	grantedDirectory,
-} from './granted-folder.test-support.js';
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
+import { whisperingDefinition } from '../definition.js';
+import { settle, transformationEditor } from '../edits.test-support.js';
+import type { WriteNotice } from '../library.svelte.js';
+import { createQueryClient } from '../query.test-support.js';
+import { deferred, openTestWorkspace } from '../workspace.test-support.js';
 import { WHISPERING_FOLDER_ID, type Workspace } from './types.js';
 
 let shell: GrantedShell;
@@ -77,7 +77,7 @@ const SEED = '---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n';
 /** The library over the desktop opener, in a granted directory holding `files`. */
 async function open(files: Record<string, string>, path = PATH) {
 	const root = await grantedDirectory();
-	shell = createGrantedShell(root, WHISPERING_FOLDER_ID);
+	shell = createGrantedShell(root);
 	for (const [path, text] of Object.entries(files))
 		await shell.write(path, text);
 	const stubs = await openTestWorkspace();

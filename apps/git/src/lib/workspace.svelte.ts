@@ -7,6 +7,7 @@ import type {
 } from '@epicenter/folder';
 import { openDataFolder } from '@epicenter/folder/browser';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
+import { createTextEditor, type TextEditor } from '@epicenter/folder/svelte';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import type { Result } from 'wellcrafted/result';
 
@@ -46,20 +47,14 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let changes = $state.raw<FilesObservation['changes']>([]);
 	let snapshot = $state.raw<GitSnapshot>(folder.git.snapshot);
 	let selected = $state('');
-	let buffer = $state('');
 	/** The file's text as the editor last read or wrote it. */
-	let saved = '';
+	let saved = $state('');
 	/** Whether the selected file is open as text. */
 	let editable = $state(false);
-	/**
-	 * The text the edit started from: the file's text at the first change,
-	 * then the text each landed save sent (ADR-0576). `undefined` with no edit.
-	 */
-	let from: string | undefined;
+	/** The selected file's text editor, which holds what is typed and saves it. */
+	let editor = $state.raw<TextEditor | undefined>();
 	let saveMessage = $state('');
-	let dirty = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	let saving: Promise<void> | undefined;
 	let reading: Promise<void> | undefined;
 	let readAgain = false;
 	let readFileAgain = false;
@@ -94,24 +89,55 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
 	}
 
+	/** Whether text is typed into the open file that its file does not hold. */
+	const isDirty = () => editor?.typed !== undefined && editor.typed !== saved;
+
+	/**
+	 * The text editor of the file at `path`: each save writes the typed text
+	 * as the change from the text it started from, which the write merges with
+	 * whatever changed elsewhere since, by line, the typed lines winning where
+	 * both changed the same lines (ADR-0576).
+	 */
+	function editorOf(path: string) {
+		return createTextEditor({
+			current: () => (editable && path === selected ? saved : undefined),
+			async write({ from, to }) {
+				saveMessage = 'Saving…';
+				const result = await folder.write(path, from, to);
+				if (result.error !== null) {
+					saveMessage = result.error.message;
+					throw new Error(result.error.message);
+				}
+				// A delete beats an edit it never saw: the text stays typed.
+				if (result.data.file === null) {
+					saveMessage = `No file exists at '${path}', so the edit was not saved.`;
+					return 'gone';
+				}
+				saved = new TextDecoder().decode(result.data.file.bytes);
+				saveMessage = 'Saved';
+				return 'landed';
+			},
+		});
+	}
+
 	async function readSelected() {
 		const path = selected;
 		const generation = selectGeneration;
-		if (!path || dirty || saving) return;
+		// Typed text is never read over: its save merges with what changed.
+		const typing = () => editor?.typed !== undefined || editor?.saving;
+		if (!path || typing()) return;
 		const result = await readTextFile(folder.files, path, 2 * 1024 * 1024);
 		if (
 			closed ||
 			generation !== selectGeneration ||
 			path !== selected ||
-			dirty ||
-			saving
+			typing()
 		)
 			return;
 		if (result.error !== null) {
 			saveMessage = result.error.message;
 			if (result.error.name === 'NotFound') {
 				editable = false;
-				buffer = '';
 				saved = '';
 			}
 			return;
@@ -119,14 +145,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		if (result.data.kind !== 'text') {
 			saveMessage = 'This file is binary or too large to edit here.';
 			editable = false;
-			buffer = '';
 			saved = '';
 			return;
 		}
 		editable = true;
-		from = undefined;
 		saved = result.data.text;
-		buffer = saved;
 		saveMessage = 'Saved';
 	}
 
@@ -169,45 +192,16 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		}
 	}
 	/**
-	 * Write the typed text as the change from the text it started from. The
-	 * write merges it with whatever changed elsewhere since, by line, and the
-	 * typed lines win where both changed the same lines (ADR-0576). With
-	 * nothing typed meanwhile, the editor shows what the file holds now;
-	 * otherwise the next save starts from what this one sent.
+	 * Save what is typed until nothing typed is unsent; one save runs at a
+	 * time, and callers meanwhile share it. Rejects with what the save
+	 * answered when the typed text could not be saved, which stays typed.
 	 */
-	async function saveOnce() {
-		const path = selected;
-		const base = from;
-		const sent = buffer;
-		if (base === undefined || !dirty) return;
-		saveMessage = 'Saving…';
-		const result = await folder.write(path, base, sent);
-		if (result.error !== null) {
-			saveMessage = result.error.message;
-			throw new Error(result.error.message);
-		}
-		// A delete beats an edit it never saw: the text stays typed.
-		if (result.data.file === null) {
-			saveMessage = `No file exists at '${path}', so the edit was not saved.`;
-			throw new Error(saveMessage);
-		}
-		saved = new TextDecoder().decode(result.data.file.bytes);
-		if (buffer === sent) {
-			from = undefined;
-			buffer = saved;
-		} else from = sent;
-		dirty = buffer !== saved;
-		saveMessage = dirty ? 'Unsaved changes' : 'Saved';
-	}
 	async function flush() {
 		clearTimeout(timer);
-		while (dirty || saving) {
-			if (!saving)
-				saving = saveOnce().finally(() => {
-					saving = undefined;
-				});
-			await saving;
-		}
+		const open = editor;
+		if (open === undefined) return;
+		await open.save();
+		if (open.typed !== undefined) throw new Error(saveMessage);
 	}
 	/** What a Git call returned, as the output shows it. */
 	function outcome(result: unknown): string {
@@ -282,10 +276,10 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			return selected;
 		},
 		get buffer() {
-			return buffer;
+			return editor?.text ?? '';
 		},
 		get dirty() {
-			return dirty;
+			return isDirty();
 		},
 		get saveMessage() {
 			return saveMessage;
@@ -328,18 +322,15 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			if (generation !== selectGeneration || closed) return;
 			selected = path;
 			editable = false;
-			from = undefined;
-			buffer = '';
 			saved = '';
+			editor = editorOf(path);
 			saveMessage = 'Opening…';
 			await readSelected();
 		},
 		input(text: string) {
-			if (closed || !editable || syncLocked()) return;
-			buffer = withFileNewlines(text, saved);
-			from ??= saved;
-			dirty = buffer !== saved;
-			saveMessage = dirty ? 'Unsaved changes' : 'Saved';
+			if (closed || !editable || syncLocked() || editor === undefined) return;
+			editor.change(withFileNewlines(text, saved));
+			saveMessage = isDirty() ? 'Unsaved changes' : 'Saved';
 			// Saved a second after the last keystroke, or at once on blur.
 			clearTimeout(timer);
 			timer = setTimeout(() => {
@@ -348,9 +339,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		},
 		async useSavedText() {
 			clearTimeout(timer);
-			if (saving) await saving.catch(() => {});
-			dirty = false;
-			from = undefined;
+			// A save already running finishes; nothing typed is sent after it,
+			// since what is typed is dropped before waiting for it.
+			const running = editor?.saving ? editor.save() : undefined;
+			editor?.discard();
+			await running;
 			await readSelected();
 		},
 		flush,
