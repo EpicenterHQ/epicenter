@@ -370,13 +370,19 @@ const refuse = (code: RefusalCode, message: string): Edit => ({
 	refusal: { code, message },
 });
 
-/** A thought's text as it is stored: LF lines, no blank edges, no whitespace-only lines. */
+/**
+ * A thought's text as it is stored: LF lines, no blank edges, and no
+ * whitespace-only lines. Markdown reads up to three spaces or a tab after a
+ * list marker as part of the marker, so that leading whitespace is dropped;
+ * four spaces start indented code, which reads back and stays.
+ */
 export function normalizeThought(text: string): string {
 	return toTextarea(text)
 		.split('\n')
 		.map((line) => (line.trim() === '' ? '' : line))
 		.join('\n')
-		.replace(/^\n+|\n+$/g, '');
+		.replace(/^\n+|\n+$/g, '')
+		.replace(/^(?! {4})[ \t]+/, '');
 }
 
 function renderItem(
@@ -499,7 +505,6 @@ export type CaptureBody = {
 
 /** Information a view needs in addition to the complete structured value. */
 export type CaptureBodyReading = CaptureBody & {
-	newline: Newline;
 	hasSection: boolean;
 	hasOtherContent: boolean;
 };
@@ -512,7 +517,6 @@ export const captureBody = {
 		return Ok({
 			text: document.text as string,
 			thoughts: document.thoughts,
-			newline: document.newline,
 			hasSection: document.hasSection,
 			hasOtherContent: document.hasOtherContent,
 		});

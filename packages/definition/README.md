@@ -264,12 +264,10 @@ schema's validator is not called. That order matters for a recursive schema
 JSON.
 
 Being JSON has no size: `isJsonSafe` sets no depth or width limit, and a value
-reachable by two paths is fine. The 16-level, 1024-key budget is `isJsonValue`
-and `isJsonObject`, which the storages that want it apply themselves. A value
-that is JSON and fails its schema gets TypeBox's own errors, at their own
-paths. If a recursive validator throws, that field reports `schema validation
-threw`, and valid sibling fields stay readable. No check changes the value it
-is given.
+reachable by two paths is fine. A value that is JSON and fails its schema gets
+TypeBox's own errors, at their own paths. If a recursive validator throws, that
+field reports `schema validation threw`, and valid sibling fields stay
+readable. No check changes the value it is given.
 
 ### Who owns a declared schema
 

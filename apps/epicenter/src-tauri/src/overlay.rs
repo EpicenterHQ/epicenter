@@ -22,6 +22,8 @@ use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelBuilder, PanelLevel, S
 // Must stay in sync with `RECORDING_OVERLAY_WINDOW_LABEL` and the pill's size in
 // Whispering's `recording-overlay/window-manager.tauri.ts`.
 pub const WINDOW_LABEL: &str = "recording-overlay";
+/// The overlay is Whispering's page, at any of its builds.
+const NAVIGATION_PREFIX: &str = "/apps/so.epicenter.whispering/";
 const OVERLAY_WIDTH: f64 = 224.0;
 const OVERLAY_HEIGHT: f64 = 40.0;
 
@@ -71,7 +73,7 @@ pub fn create_recording_overlay(app: &AppHandle, url: tauri::Url) -> tauri::Resu
             w.decorations(false)
                 .transparent(true)
                 .accept_first_mouse(true)
-                .on_navigation(|url| crate::scheme::is_allowed_navigation(WINDOW_LABEL, url))
+                .on_navigation(|url| crate::scheme::is_allowed_navigation(NAVIGATION_PREFIX, url))
                 .on_new_window(|_, _| NewWindowResponse::Deny)
         })
         .collection_behavior(

@@ -8,6 +8,7 @@ import { expect, test } from 'bun:test';
 import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
 import { asPrincipalId } from '@epicenter/principal';
 import { expectErr } from 'wellcrafted/testing';
+import { createAccountManagementUrl } from './account-management.js';
 import type { AuthState } from './auth-contract.ts';
 import { selfHostedServer } from './auth-server.ts';
 import {
@@ -83,7 +84,7 @@ test('the deployment is the one the status names: the hosted one has the account
 	await auth.refresh();
 	expect(auth.baseURL).toBe(PRODUCTION_API_URL);
 	expect(auth.getState().account?.authorityId).toBe('epicenter-api');
-	expect(auth.accountManagementUrl).toBeDefined();
+	expect(auth.accountManagementUrl).toBe(createAccountManagementUrl);
 });
 
 test('Account.fetch sends through the app audience and getProfile through api, with no token in the page', async () => {

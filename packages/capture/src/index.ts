@@ -9,10 +9,7 @@ export {
 	captureBody,
 	composeBody,
 	excerpt,
-	fromTextarea,
-	type Newline,
 	normalizeThought,
 	type Refusal,
 	type RefusalCode,
-	toTextarea,
 } from './document.js';

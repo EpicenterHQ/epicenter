@@ -108,8 +108,6 @@ current before it encodes. The codec needs no thought IDs.
 
 `excerpt(text)` shortens capture text for a list.
 
-`fromTextarea(original, value, newline)` carries a textarea's value (always
-LF) back into source that may use CRLF, rewriting only the changed middle.
 `composeBody(text, thoughts?)` builds a new capture's body: the text exactly
 as given, then the `## Thoughts` section. A capture is the same when reopened
 as when created:

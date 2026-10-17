@@ -17,6 +17,7 @@
  *   stops reading as text and thoughts
  * - A file that is not a valid capture shows its issues as text is typed,
  *   and opens as a capture once they are fixed
+ * - Editing a CRLF file as text shows LF and writes CRLF back
  * - While Epicenter asks to quit, the text boxes take nothing
  *
  * jsdom has no layout, focus, selection, or IME; these tests say what a
@@ -28,14 +29,30 @@ import {
 	blur,
 	button,
 	click,
-	field,
-	submit,
+	setWide,
 	type,
-} from '../svelte-dom.test-support.js';
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { openCaptures } = await import('../browser-folder.test-support.js');
 const { quiet } = await import('../query.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
+
+// A desktop-width window: `min-width` queries match, so the UI kit's modal
+// renders as a dialog, as it does in the desktop app.
+setWide(true);
+
+/** The textarea or input with this id, or `null`. */
+const field = (id: string) =>
+	document.getElementById(id) as HTMLTextAreaElement | null;
+
+/**
+ * Dispatch the submit event a form delivers, on the form itself. A detached
+ * form still delivers it to the listeners Svelte left on it.
+ */
+function submit(form: Element | null | undefined) {
+	if (!(form instanceof HTMLFormElement)) throw new Error('Expected a form');
+	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+}
 
 type Harness = Awaited<ReturnType<typeof openCaptures>>;
 const cleanup: (() => Promise<void>)[] = [];
@@ -143,7 +160,7 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	const contents = harness.target.querySelector('textarea');
 	expect(contents?.value).toBe(broken);
 	expect(harness.target.textContent).toContain('Line 2:');
-	expect(button('Open as capture').disabled).toBe(true);
+	expect(button(document, 'Open as capture').disabled).toBe(true);
 
 	const fixed = `---\ncapturedAt: ${AT}\n---\n\nRepaired\n\n## Thoughts\n`;
 	type(contents, fixed);
@@ -152,10 +169,24 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	blur(contents);
 	await settle(harness);
 	expect(await harness.text(PATH)).toBe(fixed);
-	click(button('Open as capture'));
+	click(document, 'Open as capture');
 	// Opening from text first reads the listing again, which no view observes now.
 	await until(() => harness.captures.opened?.mode === 'capture');
 	await settle(harness);
 	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(field('capture-text')?.value).toBe('Repaired');
+});
+
+test('editing a CRLF file as text shows LF lines and writes CRLF back', async () => {
+	const broken = '---\r\ncapturedAt: nope\r\n---\r\n\r\nBroken\r\n';
+	const harness = await setup({ [PATH]: broken }, 'capture');
+	const contents = harness.target.querySelector('textarea');
+	expect(contents?.value).toBe(broken.replaceAll('\r\n', '\n'));
+
+	type(contents, `---\ncapturedAt: ${AT}\n---\n\nRepaired\n`);
+	blur(contents);
+	await settle(harness);
+	expect(await harness.text(PATH)).toBe(
+		`---\r\ncapturedAt: ${AT}\r\n---\r\n\r\nRepaired\r\n`,
+	);
 });
