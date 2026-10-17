@@ -1,6 +1,6 @@
 /**
- * Publication attempt contract: the one write, from the file as it was
- * read to the formatted definition. An awaited put where no file is when the
+ * Publication attempt contract: the formatted definition put over the file
+ * as it was read, guarded by its hash. An awaited put where no file is when the
  * file is missing; a put guarded by the bytes read, the definition replacing
  * the file whole, when it holds other bytes; `local` the union of the
  * file's patterns and the definition's; no write when it holds the
@@ -19,7 +19,9 @@ import { events } from './publication-log.test-support.js';
 afterEach(() => {
 	events.length = 0;
 });
-const { publishDefinition } = await import('./publish-definition.js');
+const { publishDefinition, publishLocalPatterns } = await import(
+	'./publish-definition.js'
+);
 
 const definition = defineFolder({ tables: {} });
 const encode = (text: string) => new TextEncoder().encode(text);
@@ -142,16 +144,30 @@ test("the published local is the sorted union of the file's patterns and the def
 	expect(again.writes).toEqual([]);
 });
 
+test('a file another writer lands between the read and the put is read again and replaced, never merged', async () => {
+	const first = formatDefinition(definition).trimEnd();
+	const landed = '{"tables":{},"note":"landed meanwhile"}\n';
+	let puts = 0;
+	const { storage, writes } = recording(
+		[holding(first), holding(landed)],
+		async () => (puts++ === 0 ? Ok('stale') : Ok('landed')),
+	);
+	await publishDefinition(definition, storage);
+	expect(writes).toEqual([
+		{ text: formatDefinition(definition), ifMatch: await shaOf(first) },
+		{ text: formatDefinition(definition), ifMatch: await shaOf(landed) },
+	]);
+	expect(events).toEqual([]);
+});
+
 test('another writer getting there first is read again, as many times as a write tries', async () => {
 	const theirs = '{"title":"Another app"}\n';
 	const { storage, writes } = recording([missing, holding(theirs)], async () =>
 		Ok('stale'),
 	);
 	await publishDefinition(definition, storage);
-	// The file read as missing turns up before the create's put, so the
-	// publication reads it again and replaces it, losing each race.
 	expect(writes.map((write) => write.ifMatch)).toEqual([
-		await shaOf(theirs),
+		null,
 		await shaOf(theirs),
 		await shaOf(theirs),
 	]);
@@ -214,5 +230,20 @@ test('a thrown write retains its cause without claiming whether the save landed'
 		name: 'DefinitionPublicationUnconfirmed',
 		path: 'epicenter.json',
 		cause,
+	});
+});
+
+test('a .gitignore that cannot be read writes nothing and names .gitignore in the log', async () => {
+	const storage = {
+		read: async (path: string) => FileError.NotAFile({ path }),
+		put: async () => {
+			throw new Error('nothing is written');
+		},
+	} as unknown as Parameters<typeof publishLocalPatterns>[1];
+	await publishLocalPatterns(['audio/'], storage);
+	expect(events).toHaveLength(1);
+	expect(events[0]?.data).toMatchObject({
+		name: 'LocalPatternsUnconfirmed',
+		cause: { path: '.gitignore' },
 	});
 });

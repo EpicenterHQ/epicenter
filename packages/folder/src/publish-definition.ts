@@ -12,16 +12,28 @@
  * wrote them never enter a commit, plain `git add -A` included. It only adds
  * lines: a person's own lines stay as they are.
  *
- * Both go through the one write (`writeFile`), over the host's storage
- * rather than the handle's writes, so a publication never waits on itself.
+ * Both go through the host's storage rather than the handle's writes, so a
+ * publication never waits on itself: the definition as a put guarded by the
+ * hash it read, which replaces the file, and `.gitignore` through the one
+ * write (`writeFile`), which merges with it.
  */
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { FolderStorage } from './boundary.js';
 import { formatDefinition, localPatterns } from './declaration.js';
 import type { Definition } from './definition.js';
+import { WriteError } from './errors.js';
+import { hashBytes } from './hash.js';
+import { sameContent } from './merge-file.js';
 import { DEFINITION_PATH } from './paths.js';
-import { WRITE_ATTEMPTS, writeFailure, writeFile } from './write.js';
+import {
+	confirmedPut,
+	WRITE_ATTEMPTS,
+	writeFailure,
+	writeFile,
+} from './write.js';
+
+const encoder = new TextEncoder();
 
 const log = createLogger('folder/definition');
 /** What a publication reads and writes: the storage port's read and put, not a handle's writes. */
@@ -42,16 +54,16 @@ const PublicationError = defineErrors({
 });
 
 /**
- * Await one publication of `prepared` at `epicenter.json`: the one write
- * from the file as it was read to the formatted definition, so the
+ * Await one publication of `prepared` at `epicenter.json`: the formatted
+ * definition put over the file it read, guarded by that file's hash, so the
  * definition replaces what it read whole, keys only the file held included.
  * The one exception is `local`, the sorted union of the file's patterns and
  * the definition's, so a pattern a Sync brought from another device is kept
  * (ADR-0577) until templates replace `local`. A file already holding the
- * result is left as it is. Another writer changing the file after the read
- * merges with it as any overtaken write does, and a file created after a
- * read that found none is read again. A failure is logged and never refuses
- * the write it precedes.
+ * result is left as it is. Another writer landing between the read and the
+ * put makes the put stale, and the publication reads that file and replaces
+ * it instead, at most `WRITE_ATTEMPTS` times; it never merges with it. A
+ * failure is logged and never refuses the write it precedes.
  *
  * Answers the `local` patterns the file lists once published, for
  * `.gitignore`, or the definition's own when the publication failed.
@@ -61,7 +73,10 @@ export async function publishDefinition(
 	storage: Publisher,
 ): Promise<readonly string[]> {
 	const own = prepared.local ?? [];
-	let failure: unknown = 'another writer kept creating the file';
+	let failure: unknown = WriteError.KeptChanging({
+		path: DEFINITION_PATH,
+		attempts: WRITE_ATTEMPTS,
+	}).error;
 	try {
 		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 			const read = await storage.read(DEFINITION_PATH);
@@ -69,23 +84,27 @@ export async function publishDefinition(
 				failure = writeFailure(DEFINITION_PATH, read.error);
 				break;
 			}
-			const current = read.error === null ? read.data.bytes : null;
-			const listed = localPatterns(current) ?? [];
-			const published = listed.every((pattern) => own.includes(pattern))
-				? prepared
-				: { ...prepared, local: [...new Set([...own, ...listed])].sort() };
-			const { data: written, error } = await writeFile(
+			const current = read.error === null ? read.data : null;
+			const listed = localPatterns(current?.bytes ?? null) ?? [];
+			const local = listed.every((pattern) => own.includes(pattern))
+				? own
+				: [...new Set([...own, ...listed])].sort();
+			const bytes = encoder.encode(
+				formatDefinition(local === own ? prepared : { ...prepared, local }),
+			);
+			if (current !== null && sameContent(bytes, current.bytes)) return local;
+			const { data: put, error } = await confirmedPut(
 				storage,
 				DEFINITION_PATH,
-				current,
-				formatDefinition(published),
+				bytes,
+				current?.sha256 ?? null,
+				await hashBytes(bytes),
 			);
-			if (error?.name === 'Occupied') continue;
 			if (error !== null) {
-				failure = error;
+				failure = writeFailure(DEFINITION_PATH, error);
 				break;
 			}
-			return (written.file && localPatterns(written.file.bytes)) ?? own;
+			if (put === 'landed') return local;
 		}
 	} catch (cause) {
 		// A thrown write can also have landed. Retain the cause without claiming
@@ -121,7 +140,7 @@ export async function publishLocalPatterns(
 		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 			const read = await storage.read(GITIGNORE_PATH);
 			if (read.error !== null && read.error.name !== 'NotFound') {
-				failure = writeFailure(DEFINITION_PATH, read.error);
+				failure = writeFailure(GITIGNORE_PATH, read.error);
 				break;
 			}
 			const current = read.error === null ? read.data.bytes : null;
