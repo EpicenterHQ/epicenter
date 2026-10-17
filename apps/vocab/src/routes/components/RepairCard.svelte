@@ -10,7 +10,6 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
 	import { vocabFolder } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
@@ -18,9 +17,8 @@
 	let { entries, path }: { entries: Entries; path: string } = $props();
 
 	const opened = createQuery(() => entries.textQuery(path));
-	const saveLater = useDebounce(() => entries.saveRepair(), 1000);
-	// runed's timer outlives the card; save now instead.
-	onDestroy(() => void saveLater.runScheduledNow());
+	// The draft outlives the card; send what is typed now.
+	onDestroy(() => void entries.saveRepair());
 	/** The typed text not yet written, or the file's text as last read. */
 	const text = $derived(opened.data?.kind === 'text' ? (entries.repairText ?? opened.data.text) : undefined);
 	/** Why the text is not a word yet, read live from what is typed. */
@@ -39,10 +37,10 @@
 			bind:value={
 				() => text,
 				(next) => {
-					if (entries.inputText(path, next)) void saveLater();
+					entries.inputText(path, next);
 				}
 			}
-			onblur={() => void saveLater.runScheduledNow()}
+			onblur={() => void entries.saveRepair()}
 		/>
 		{#if issues}
 			<ul role="alert" class="space-y-1 text-destructive">

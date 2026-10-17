@@ -7,9 +7,9 @@
  * by their chat, so the list never reads them; the open conversation reads
  * its own. A chat this page starts is put in the list by the start itself.
  *
- * Starting a chat and saving each message are mutations. A message's save is
- * scoped to its chat's file, so one chat's messages are written in order,
- * and closing waits for every one under way.
+ * Starting a chat and saving each message are mutations. A message's save
+ * runs in its chat's file's turn (`inTurn`), so one chat's messages are
+ * written in order, and closing waits for every one under way.
  */
 
 import { AgentMessageStoreError, agentMessageText } from '@epicenter/agent';
@@ -51,11 +51,14 @@ export function createChats(
 	{
 		refused,
 		writeFailed,
+		inTurn,
 	}: {
 		/** Why no change starts now, if one does not. */
 		refused: () => string | undefined;
 		/** A message write failed; the app tells the learner and offers its text. */
 		writeFailed: (failure: WriteFailure) => void;
+		/** Run `work` in the turn of the file at `path`: the folder's one order of writes (`folderWrites`). */
+		inTurn: <T>(path: string, work: () => Promise<T>) => Promise<T>;
 	},
 ) {
 	const { defineMutation } = createQueryFactories(queryClient);
@@ -114,19 +117,20 @@ export function createChats(
 			},
 		}),
 		/**
-		 * How the open chat saves each message: a mutation scoped to the chat's
-		 * file, so its messages are written one at a time and in order, and
-		 * closing waits for them. A failed save is reported with its text.
+		 * How the open chat saves each message: a mutation run in the chat's
+		 * file's turn, so its messages are written one at a time and in
+		 * order, and closing waits for them. A failed save is reported with
+		 * its text.
 		 */
 		messageWriter(chatId: string): MessageWrite {
+			const chatPath = rowPath(tables.chats.name, chatId);
 			return async (message, save) => {
 				const why = refused();
 				if (why !== undefined)
 					return AgentMessageStoreError.WriteFailed({ cause: why });
 				return defineMutation({
 					mutationKey: vocabKeys.message(chatId),
-					scope: { id: rowPath(tables.chats.name, chatId) },
-					mutationFn: save,
+					mutationFn: () => inTurn(chatPath, save),
 					onError: (error) =>
 						writeFailed({
 							path: rowPath(

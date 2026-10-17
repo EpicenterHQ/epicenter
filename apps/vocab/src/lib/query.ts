@@ -16,11 +16,7 @@ export const vocabKeys = defineKeys({
 	/** Every action Vocab defines itself. */
 	all: ['vocab'],
 	add: ['vocab', 'add'],
-	delete: (path: string) => ['vocab', 'delete', path] as const,
 	startChat: ['vocab', 'start-chat'],
 	/** Every message write of one chat. */
 	message: (chatId: string) => ['vocab', 'message', chatId] as const,
 });
-
-/** Why a change did not start: the page is closing. */
-export const CLOSING = 'Vocab is closing, so nothing was changed.';

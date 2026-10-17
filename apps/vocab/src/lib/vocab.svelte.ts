@@ -4,18 +4,17 @@
  *
  * Every read is a query under the folder's keys, and `<FolderApp>` wires the
  * folder's one channel of outside change, `onFilesChanged`, to invalidate
- * exactly the queries a change reached. Every write and action is a
- * mutation, so leaving waits while one runs and closing waits until none
- * does; nothing asks to discard. Saves never commit (ADR-0529), and Vocab
+ * exactly the queries a change reached. Every write goes through the
+ * folder's edit layer (`edits`) and every other action is a mutation, so
+ * leaving waits while one runs and closing waits until none does; nothing
+ * asks to discard. Saves never commit (ADR-0529), and Vocab
  * offers no "Save version": its folder records history only through a sync,
  * which Vocab does not run.
  */
 import type { FolderContext } from '@epicenter/svelte/folder';
-import { createSubscriber } from 'svelte/reactivity';
 import { createChats } from './chat/chats.js';
 import type { vocabFolder } from './data.js';
 import { createEntries } from './entries.svelte.js';
-import { CLOSING } from './query.js';
 
 export type Vocab = ReturnType<typeof createVocab>;
 
@@ -23,34 +22,23 @@ export type Vocab = ReturnType<typeof createVocab>;
 export type VocabContext = FolderContext<typeof vocabFolder>;
 
 export function createVocab(context: VocabContext) {
-	const { folder, queries, queryClient, writeFailed } = context;
-	const trackMutations = createSubscriber((update) =>
-		queryClient.getMutationCache().subscribe(update),
-	);
-	let closing = false;
-	const refused = () => (closing ? CLOSING : undefined);
-	// Once the folder starts closing, no change starts; `<FolderApp>` then
-	// waits for every write and action and releases the folder.
-	context.beforeClose(() => {
-		closing = true;
-	});
+	const { folder, queries, queryClient, writeFailed, edits } = context;
 
 	return {
 		folder,
 		queries,
 		queryClient,
-		entries: createEntries(folder, queries, queryClient, {
-			refused,
-			writeFailed,
-		}),
+		/** The folder's edit layer: every draft and write. */
+		edits,
+		entries: createEntries(folder, queries, queryClient, edits),
 		chats: createChats(folder, queries, queryClient, {
-			refused,
+			refused: () => edits.refusal(),
 			writeFailed,
+			inTurn: edits.writes.inTurn,
 		}),
-		/** Whether a write or another action is running or waiting; read reactively. Leaving then could lose it. */
+		/** Whether text typed, a write, or another action is running or waiting; read reactively. Leaving then could lose it. */
 		get busy() {
-			trackMutations();
-			return queryClient.isMutating() > 0;
+			return edits.busy;
 		},
 	};
 }
