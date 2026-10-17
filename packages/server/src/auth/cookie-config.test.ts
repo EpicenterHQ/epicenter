@@ -5,7 +5,7 @@
  * attributes for local development and host-only Lax cookies in production.
  *
  * Key behaviors:
- * - Localhost uses host-only, Lax, non-secure cookies
+ * - Localhost and loopback (IPv4 and IPv6) use host-only, Lax, non-secure cookies
  * - A deployed origin uses host-only, SameSite=Lax, Secure cookies; there is
  *   no cross-subdomain option (ADR-0079 forbids the halfway `Domain=` cookie)
  */
@@ -15,26 +15,12 @@ import type { BetterAuthOptions } from 'better-auth';
 import { getCookies } from 'better-auth/cookies';
 import { createCookieAdvancedConfig } from './cookie-config.js';
 
-test('localhost cookies are host-only, Lax, and non-secure', () => {
-	const cookie = sessionTokenCookie('http://localhost:8787');
-
-	expect(cookie.name).toBe('better-auth.session_token');
-	expect(cookie.attributes.secure).toBe(false);
-	expect(cookie.attributes.sameSite).toBe('lax');
-	expect('domain' in cookie.attributes).toBe(false);
-});
-
-test('loopback cookies use localhost-compatible attributes', () => {
-	const cookie = sessionTokenCookie('http://127.0.0.1:8787');
-
-	expect(cookie.name).toBe('better-auth.session_token');
-	expect(cookie.attributes.secure).toBe(false);
-	expect(cookie.attributes.sameSite).toBe('lax');
-	expect('domain' in cookie.attributes).toBe(false);
-});
-
-test('IPv6 localhost cookies use localhost-compatible attributes', () => {
-	const cookie = sessionTokenCookie('http://[::1]:8787');
+test.each([
+	'http://localhost:8787',
+	'http://127.0.0.1:8787',
+	'http://[::1]:8787',
+])('%s cookies are host-only, Lax, and non-secure', (baseURL) => {
+	const cookie = sessionTokenCookie(baseURL);
 
 	expect(cookie.name).toBe('better-auth.session_token');
 	expect(cookie.attributes.secure).toBe(false);
