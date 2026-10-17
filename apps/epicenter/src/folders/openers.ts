@@ -18,8 +18,8 @@ import type { InstalledApp } from '@epicenter/cli';
 export type Opener = Pick<InstalledApp, 'id' | 'title' | 'commit'>;
 
 /**
- * The installed apps that can run, by title: those built at their commit,
- * and those whose commit may run and builds when opened.
+ * The installed apps that can run, by title: those whose commit is approved,
+ * built or not yet current. Opening makes that commit's build current first.
  */
 export function installedOpeners(apps: readonly InstalledApp[]): Opener[] {
 	return apps

@@ -92,15 +92,17 @@ On the desktop, Whispering is an installed app (ADR-0552). In Epicenter's
 Folders window, choose "Install from a repository…", enter this repository's
 URL or local path, choose Whispering (`apps/whispering`) from the apps it
 lists, and approve the build. Epicenter clones the
-repository, runs `bun install` at its root and `bun run build:installed` here,
-and serves `dist/` at `/apps/so.epicenter.whispering/`. Opening Whispering
+repository, builds each approved commit from a checkout of it alone
+(`bun install` at its root and `bun run build:installed` here), and serves
+that commit's `dist/` at `/apps/so.epicenter.whispering/<commit>/`. Opening Whispering
 from the Apps list opens its own folder, `so.epicenter.whispering`, under
 Epicenter's folder root. "Open in Whispering" beside another folder opens that
 folder through Whispering's definition, never rewriting its
 `epicenter.json`, and refuses one that lacks Whispering's tables, naming the
 folder. To try a change, commit it in the installed clone,
-`~/Epicenter/Apps/so.epicenter.whispering/`, and open the app again; a commit
-made there builds without asking.
+`~/Epicenter/Apps/so.epicenter.whispering/`, approve it in the Folders
+window, and open the app again; a window already open keeps the build it
+opened on.
 
 Inside Epicenter the shell grants the window its folder and holds the
 folder's lock. The page is the UI, and it opens the folder itself: it reads

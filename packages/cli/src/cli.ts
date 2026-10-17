@@ -143,13 +143,14 @@ that does not conform is left out of every table and named on stderr (in
 the folder, the definition, or the statement cannot be used.`,
 	'app install': `Clones the repository into Apps/<app-id>/, the id read from the
 epicenter.app.json in --folder (the root by default), then builds it with
-bun run build:installed. A commit nobody approved on this machine is not
-built: the command prints it with its log and exits 1 until it runs again
-with --approve. --json prints NDJSON progress lines and one result line.`,
+bun run build:installed in a checkout of that commit alone. A commit nobody
+approved on this machine is not built: the command prints it with its log and
+exits 1 until it runs again with --approve. --json prints NDJSON progress
+lines and one result line.`,
 	'app update': `Fetches the app's upstream, fast-forwards or rebases the commits made
-here, and builds the result if it may run. A commit made on this machine runs
-without asking; one fetched from elsewhere is printed with its log and diff
-stat, and the command exits 1 until it runs again with --approve.`,
+here, and builds the result once it is approved. Every commit is approved
+before it runs, including one made on this machine: the command prints it
+with its log and diff stat, and exits 1 until it runs again with --approve.`,
 	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
 under the connection's id, the stem of its row in so.epicenter/connections
 (ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on

@@ -1,31 +1,35 @@
 /**
- * Installed apps (ADR-0540, ADR-0552, ADR-0560): an app is a folder holding
- * `epicenter.app.json` in a Git repository, the repository's root unless
- * installing names another folder. The repository is cloned into
- * `Apps/<app-id>/` and the app is built there on this machine (`app-paths.ts`
- * says where each directory is).
+ * Installed apps (ADR-0540, ADR-0552, ADR-0560, ADR-0588): an app is a folder
+ * holding `epicenter.app.json` in a Git repository, the repository's root
+ * unless installing names another folder. The repository is cloned into
+ * `Apps/<app-id>/`, and each approved commit is built on this machine from a
+ * checkout of that commit alone (`app-paths.ts` says where each directory
+ * is).
  *
  * ```txt
  * Apps/<app-id>/                       a full clone of the repository
  * Apps/<app-id>/.git/config            epicenter.folder = apps/todos (absent: the root)
  * approvals.json                       { [appId]: { commit, approvedAt } }
- * builds/<app-id>/<commit>/            the built bundle the app window loads
+ * checkouts/<app-id>/                  a detached worktree of the commit, only while it builds
+ * builds/<app-id>/<commit>/            the built bundle, never replaced once finished
+ * builds/<app-id>/<commit>.built       written once that build finished
  * builds/<app-id>/<commit>.log         what the install and build printed
- * builds/<app-id>/current              the commit the app window loads
+ * builds/<app-id>/current              the commit a newly opened app window loads
  * ```
  *
  * Everything about an installed app is read from its clone: the folder from
  * `epicenter.folder`, the source from `origin`, and the commit from `HEAD`.
- * `bun install` runs at the repository's root, where the lockfile is, so
- * workspace packages resolve; `bun run build:installed` runs in the folder and
- * writes `dist/`, which is kept.
+ * The build never runs in the clone, so nothing uncommitted, untracked, or
+ * ignored there reaches it: `git worktree add --detach` checks the commit out
+ * under `checkouts/` (`checkOut`), `bun install` runs at that checkout's root, where the
+ * lockfile is, so workspace packages resolve, and `bun run build:installed`
+ * runs in the app's folder and writes `dist/`, which is kept. A window opened
+ * on a build keeps it until the window is opened again, so a commit's build
+ * directory is reused, never rebuilt over, and old builds stay, even after
+ * the app is removed.
  *
- * Approval guards code that arrived from elsewhere. A commit fetched from any
- * remote runs only once approved. A commit made on this machine runs without
- * asking: every commit between the approved one and `HEAD` must be
- * unreachable from every remote-tracking ref and from `FETCH_HEAD`. Building
- * such a commit records it as approved, so pushing it later does not ask
- * again.
+ * Every commit that runs is approved first, including one made on this
+ * machine: `HEAD` runs only when `approvals.json` names it.
  *
  * Approving trusts the app fully: its build runs with the person's
  * permissions. Git still runs through `@epicenter/folder`'s runner (no hooks,
@@ -73,8 +77,12 @@ const SKIPPED_FOLDERS = ['node_modules', '.git'];
 const BUILD_SCRIPT = 'build:installed';
 /** The folder, within the app's folder, that the build writes and Epicenter keeps. */
 const OUTPUT = 'dist';
-/** The file in an app's build directory naming the commit the app window loads. */
+/** The file in an app's build directory naming the commit a newly opened app window loads. */
 const CURRENT_BUILD = 'current';
+/** The directory of the cache directory holding each build's checkout while it builds. */
+const CHECKOUTS = 'checkouts';
+/** The suffix of the file beside `builds/<id>/<commit>/` saying that build finished. */
+const BUILT_MARKER = '.built';
 
 const GIT_TIMEOUT_MS = 5 * 60 * 1000;
 const BUILD_TIMEOUT_MS = 15 * 60 * 1000;
@@ -104,11 +112,11 @@ export type InstalledApp = {
 
 /** Whether an installed app can run. */
 export type AppState =
-	/** Built at its commit; it opens at once. */
+	/** Approved and built at its commit; it opens at once. */
 	| { kind: 'ready' }
-	/** Its commit may run but has not been built, as after a commit made on this machine. */
+	/** Its commit is approved but is not the current build, as after a build that failed. */
 	| { kind: 'unbuilt' }
-	/** Its commit arrived from elsewhere and runs only once approved. */
+	/** No one approved its commit on this machine, so it runs only once approved. */
 	| { kind: 'needsApproval'; review: Review }
 	/** It cannot run as it is. */
 	| { kind: 'broken'; problem: string };
@@ -381,8 +389,18 @@ const decoder = new TextDecoder();
 /** Run `git` in `dir` through `@epicenter/folder`'s runner and return stdout, trimmed. */
 async function git(dir: string, args: readonly string[]): Promise<string> {
 	const { code, stdout } = await runGit(dir, args, false);
-	if (code !== 0) throw new Error(`git ${args[0]} exited with ${code}`);
+	if (code !== 0)
+		throw new Error(`git ${subcommand(args)} exited with ${code}`);
 	return decoder.decode(stdout).trim();
+}
+
+/** The subcommand `args` runs, past any `-c <name>=<value>` and global options. */
+function subcommand(args: readonly string[]) {
+	for (let index = 0; index < args.length; index++) {
+		if (args[index] === '-c') index++;
+		else if (!args[index]?.startsWith('-')) return args[index];
+	}
+	return args[0];
 }
 
 /** Whether `git` in `dir` succeeds. */
@@ -487,7 +505,7 @@ function runBun(
 
 /**
  * One install, approval, update, build, or removal at a time on this
- * machine, so two never write the same clone or build directory: an
+ * machine, so two never write the same clone, checkout, or build directory: an
  * exclusive SQLite transaction on `<cacheDir>/apps.lock`, which the system
  * releases if the process dies.
  */
@@ -569,53 +587,34 @@ async function appDir(root: string, folder: string) {
 	return dir;
 }
 
-/** The commit `builds/<id>/current` names, when its build is there. */
+/** The commit `builds/<id>/current` names, when its build is complete. */
 export async function currentBuild(builds: string) {
 	const named = await readFile(join(builds, CURRENT_BUILD), 'utf8').catch(
 		() => undefined,
 	);
 	const commit = named?.trim();
-	if (
-		commit === undefined ||
-		!/^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(commit)
-	)
+	if (commit === undefined || !/^([0-9a-f]{40}|[0-9a-f]{64})$/.test(commit))
 		return undefined;
-	const page = await stat(join(builds, commit, 'index.html')).catch(
-		() => undefined,
-	);
-	return page?.isFile() ? commit : undefined;
+	return (await isCompleteBuild(builds, commit)) ? commit : undefined;
 }
 
-/** Whether `head` may run without asking, given the commit approved before. */
-async function mayRun(
-	source: string,
-	approved: string | undefined,
-	head: string,
-) {
-	if (approved === undefined) return false;
-	if (approved === head) return true;
-	if (!(await gitSucceeds(source, ['cat-file', '-e', `${approved}^{commit}`])))
-		return false;
-	const count = (extra: readonly string[]) =>
-		git(source, [
-			'rev-list',
-			'--count',
-			head,
-			'--not',
-			approved,
-			...extra,
-		]).catch(() => undefined);
-	const remote = ['--remotes'];
-	const fetched = await git(source, [
-		'rev-parse',
-		'--verify',
-		'-q',
-		'FETCH_HEAD',
-	]).catch(() => undefined);
-	if (fetched) remote.push(fetched);
-	// Every commit `head` adds is unreachable from what was fetched.
-	const [all, local] = await Promise.all([count([]), count(remote)]);
-	return all !== undefined && all === local;
+/**
+ * Whether `builds/<commit>/` is a build this module finished:
+ * `builds/<commit>.built` is written only after the build is renamed into
+ * place, so a directory without it, partly copied or left by another
+ * pipeline, is built again.
+ */
+async function isCompleteBuild(builds: string, commit: string) {
+	const [directory, page, marker] = await Promise.all([
+		kindOf(join(builds, commit)),
+		kindOf(join(builds, commit, 'index.html')),
+		kindOf(join(builds, `${commit}${BUILT_MARKER}`)),
+	]);
+	return (
+		directory?.isDirectory() === true &&
+		page?.isFile() === true &&
+		marker?.isFile() === true
+	);
 }
 
 async function review(
@@ -623,13 +622,22 @@ async function review(
 	approved: string | undefined,
 	head: string,
 ): Promise<Review> {
+	// What the person reviews is what `checkOut` builds: the commits' own
+	// history, never one a replace ref swapped in.
 	const from =
 		approved !== undefined &&
-		(await gitSucceeds(source, ['cat-file', '-e', `${approved}^{commit}`]))
+		(await gitSucceeds(source, [
+			'--no-replace-objects',
+			'cat-file',
+			'-e',
+			`${approved}^{commit}`,
+		]))
 			? approved
 			: null;
 	const text = (args: readonly string[]) =>
-		git(source, args).catch((cause: Error) => cause.message);
+		git(source, ['--no-replace-objects', ...args]).catch(
+			(cause: Error) => cause.message,
+		);
 	const logArgs = ['log', '--oneline', '--no-decorate', '-n', MAX_LOG_LINES];
 	const [log, diffStat] =
 		from === null
@@ -674,18 +682,17 @@ export async function inspect(
 	} catch (cause) {
 		return broken(manifest.title, (cause as Error).message);
 	}
+	// A commit runs only once approved, wherever it was made (ADR-0588).
+	const approved = (await readApprovals(paths.approvalsFile))[id]?.commit;
 	let state: AppState;
-	if ((await currentBuild(join(paths.buildsDir, id))) === commit)
+	if (approved !== commit)
+		state = {
+			kind: 'needsApproval',
+			review: await review(source, approved, commit),
+		};
+	else if ((await currentBuild(join(paths.buildsDir, id))) === commit)
 		state = { kind: 'ready' };
-	else {
-		const approved = (await readApprovals(paths.approvalsFile))[id]?.commit;
-		state = (await mayRun(source, approved, commit))
-			? { kind: 'unbuilt' }
-			: {
-					kind: 'needsApproval',
-					review: await review(source, approved, commit),
-				};
-	}
+	else state = { kind: 'unbuilt' };
 	const origin = await git(source, [
 		'config',
 		'--get',
@@ -814,8 +821,8 @@ type SettleOptions = {
 /**
  * Clone `source` into `Apps/<id>/`, the id read from the manifest in `folder`
  * (empty for the root), record `folder` in the clone's `.git/config`, then
- * build what may run. A commit no one approved on this machine waits for
- * approval unless `approve` is set.
+ * build its commit if it is approved. A commit no one approved on this
+ * machine waits for approval unless `approve` is set.
  */
 export async function install(
 	paths: AppPaths,
@@ -858,17 +865,28 @@ export async function install(
 }
 
 /**
- * Bring app `id` up to date and build what may run. Without `commit`, fetch
- * its upstream and bring its commits onto it: a fast-forward, or a rebase of
- * the commits made here, undone and reported if it conflicts. With `commit`,
- * fetch nothing and act only on that commit, the one a person was shown.
- * What arrived from elsewhere waits for approval unless `approve` is set.
+ * Bring app `id` up to date and build its commit if it is approved. Without
+ * `commit`, fetch its upstream and bring its commits onto it: a
+ * fast-forward, or a rebase of the commits made here, undone and reported if
+ * it conflicts. With `commit`, fetch nothing and act only on that commit, the
+ * one a person was shown. A commit not yet approved waits for approval
+ * unless `approve` is set.
  */
 export async function update(
 	paths: AppPaths,
 	id: string,
 	options: SettleOptions = {},
 ): Promise<InstalledApp> {
+	// Opening an app asks this for its commit every time. When that commit is
+	// already approved and current there is nothing to write, so it answers
+	// without the lock and opens while another app installs or builds.
+	// `approvals.json` and `current` are replaced by rename and the `.built`
+	// file is only created, so this unlocked read sees a whole state.
+	if (options.commit !== undefined && !options.approve) {
+		await installedSource(paths, id);
+		const app = await inspect(paths, id);
+		if (app.state.kind === 'ready' && app.commit === options.commit) return app;
+	}
 	return exclusively(paths, async () => {
 		const source = await installedSource(paths, id);
 		if (options.commit === undefined) {
@@ -909,9 +927,8 @@ export async function update(
 }
 
 /**
- * Build app `id` when its commit may run, or when `approve` approves it;
- * otherwise leave it waiting for approval. Building a commit made here
- * records it as approved.
+ * Build app `id` when its commit is approved, or when `approve` approves it;
+ * otherwise leave it waiting for approval.
  */
 async function settle(
 	paths: AppPaths,
@@ -927,13 +944,9 @@ async function settle(
 	if (app.state.kind === 'ready') return app;
 	if (app.state.kind === 'needsApproval') {
 		if (!approve) return app;
-		await requireClean(join(paths.appsDir, id));
 		await recordApproval(paths.approvalsFile, id, app.commit);
 	}
 	await build(paths, app, onProgress);
-	const approvals = await readApprovals(paths.approvalsFile);
-	if (approvals[id]?.commit !== app.commit)
-		await recordApproval(paths.approvalsFile, id, app.commit);
 	return inspect(paths, id);
 }
 
@@ -946,6 +959,7 @@ async function installedSource(paths: AppPaths, id: string) {
 	return source;
 }
 
+/** Refuse to fetch and rebase over changes that are not committed. */
 async function requireClean(source: string) {
 	const changes = await git(source, [
 		'status',
@@ -954,68 +968,130 @@ async function requireClean(source: string) {
 	]);
 	if (changes !== '')
 		throw new Error(
-			'This app has changes that are not committed. Commit or discard them first, so what runs is a commit.',
+			'This app has changes that are not committed. Commit or discard them first, so updating cannot lose them.',
 		);
 }
 
 /**
- * Build `app`'s commit, checked out in its clone, into
- * `builds/<id>/<commit>/` and make it current: `bun install` at the
- * repository's root, then `bun run build:installed` in the app's folder,
- * whose `dist/` is kept. What both print goes to `builds/<id>/<commit>.log`.
+ * Make `app`'s commit the current build: `builds/<id>/<commit>/` when it is
+ * a complete build (`isCompleteBuild`), which is kept as it is, since a
+ * window may be running it; otherwise a new build of that commit alone. The
+ * commit is checked out detached under `checkouts/<id>/` (`checkOut`), then
+ * `bun install` runs at the checkout's root and `bun run build:installed` in
+ * the app's folder, whose `dist/` is copied to a sibling of
+ * `builds/<id>/<commit>/`, renamed into place, and marked complete with
+ * `builds/<id>/<commit>.built`. The checkout is removed after. What both
+ * print goes to `builds/<id>/<commit>.log`.
  */
 async function build(
 	paths: AppPaths,
 	app: InstalledApp,
 	onProgress?: Progress,
 ) {
-	const source = join(paths.appsDir, app.id);
-	const dir = await appDir(source, app.folder);
-	const { title } = await readManifest(dir);
-	await requireClean(source);
 	const builds = join(paths.buildsDir, app.id);
+	const makeCurrent = () =>
+		writeReplacing(join(builds, CURRENT_BUILD), `${app.commit}\n`).catch(
+			(cause) => {
+				throw new Error(
+					`${app.title} could not be made current: ${String(cause)}`,
+				);
+			},
+		);
+	if (await isCompleteBuild(builds, app.commit)) {
+		await makeCurrent();
+		return;
+	}
+
 	await mkdir(builds, { recursive: true }).catch((cause) => {
 		throw new Error(`The build folder could not be made: ${String(cause)}`);
 	});
 	const logPath = join(builds, `${app.commit}.log`);
 	const failed = (problem: string) =>
-		new Error(`${title} did not build: ${problem}. See ${logPath}`);
-	const env = await buildEnvironment(paths.cacheDir);
-	const log = openSync(logPath, 'w');
+		new Error(`${app.title} did not build: ${problem}. See ${logPath}`);
+	const unreadable = (problem: string) =>
+		new Error(`${app.title} did not build: ${problem}.`);
+	const source = join(paths.appsDir, app.id);
+	const checkout = join(paths.cacheDir, CHECKOUTS, app.id);
+	// One build runs at a time (`exclusively`), so a checkout, or a dot entry
+	// in the build folder (a staged copy, a build moved aside, a staged
+	// `current`), was left by a build that did not finish.
 	try {
-		if ((await kindOf(join(source, 'package.json')))?.isFile()) {
-			onProgress?.('Installing dependencies…');
-			await runBun(
-				['install', '--frozen-lockfile', '--ignore-scripts'],
-				source,
-				env,
-				log,
-			);
-		}
-		onProgress?.(`Building ${title}…`);
-		await runBun(['run', BUILD_SCRIPT], dir, env, log);
+		await removeCheckout(source, checkout);
+		for (const name of await readdir(builds))
+			if (name.startsWith('.'))
+				await rm(join(builds, name), { recursive: true, force: true });
 	} catch (cause) {
-		throw failed((cause as Error).message);
-	} finally {
-		closeSync(log);
-	}
-
-	const root = await realpath(dir);
-	const output = await realpath(join(dir, OUTPUT)).catch(() => {
-		throw failed(`it wrote no ${OUTPUT}`);
-	});
-	const page = await stat(join(output, 'index.html')).catch(() => undefined);
-	if (!output.startsWith(root + sep) || !page?.isFile())
-		throw failed(
-			`${OUTPUT} must be a folder in the app's folder holding index.html`,
+		throw new Error(
+			`${checkout} or a staged copy in ${builds} is left from an earlier build and could not be removed: ${String(cause)}. Delete it and try again.`,
 		);
-	onProgress?.('Keeping the build…');
-	const staged = join(builds, `.${app.commit}-${randomSuffix()}`);
-	const destination = join(builds, app.commit);
-	// A rebuild of the same commit moves the old build aside rather than
-	// deleting it first, so the shell finds a build there except for the
-	// moment between the two renames, never for the length of a delete.
-	const aside = join(builds, `.${app.commit}-${randomSuffix()}-old`);
+	}
+	try {
+		onProgress?.('Checking out the commit…');
+		await checkOut(source, checkout, app.commit).catch((cause: Error) => {
+			throw unreadable(
+				`commit ${app.commit} could not be checked out (${cause.message})`,
+			);
+		});
+		const dir = await appDir(checkout, app.folder);
+		const { id, title } = await readManifest(dir).catch((cause: Error) => {
+			throw unreadable(cause.message);
+		});
+		if (id !== app.id)
+			throw unreadable(`at this commit ${MANIFEST} names the id '${id}'`);
+		const env = await buildEnvironment(paths.cacheDir);
+		const log = openSync(logPath, 'w');
+		try {
+			if ((await kindOf(join(checkout, 'package.json')))?.isFile()) {
+				onProgress?.('Installing dependencies…');
+				await runBun(
+					['install', '--frozen-lockfile', '--ignore-scripts'],
+					checkout,
+					env,
+					log,
+				);
+			}
+			onProgress?.(`Building ${title}…`);
+			await runBun(['run', BUILD_SCRIPT], dir, env, log);
+		} catch (cause) {
+			throw failed((cause as Error).message);
+		} finally {
+			closeSync(log);
+		}
+
+		const root = await realpath(dir);
+		const output = await realpath(join(dir, OUTPUT)).catch(() => {
+			throw failed(`it wrote no ${OUTPUT}`);
+		});
+		const page = await stat(join(output, 'index.html')).catch(() => undefined);
+		if (!output.startsWith(root + sep) || !page?.isFile())
+			throw failed(
+				`${OUTPUT} must be a folder in the app's folder holding index.html`,
+			);
+		onProgress?.('Keeping the build…');
+		await keep(output, builds, app.commit).catch((cause) => {
+			throw failed(`the build could not be kept: ${String(cause)}`);
+		});
+	} finally {
+		// Best effort: the build's own outcome is the result.
+		await removeCheckout(source, checkout).catch((cause) => {
+			process.stderr.write(
+				`the checkout ${checkout} could not be removed: ${String(cause)}\n`,
+			);
+		});
+	}
+	await makeCurrent();
+}
+
+/**
+ * Copy `output` beside `builds/<commit>/`, rename it into place, and write
+ * `builds/<commit>.built`. A directory already at `<commit>/` is an
+ * incomplete build, which is moved aside for the moment between the two
+ * renames and then deleted.
+ */
+async function keep(output: string, builds: string, commit: string) {
+	const destination = join(builds, commit);
+	const staged = join(builds, `.${commit}-${randomSuffix()}`);
+	const aside = join(builds, `.${commit}-${randomSuffix()}-old`);
 	let movedAside = false;
 	try {
 		await copyTree(output, staged);
@@ -1030,14 +1106,86 @@ async function build(
 	} catch (cause) {
 		if (movedAside) await rename(aside, destination).catch(() => {});
 		await rm(staged, { recursive: true, force: true });
-		throw failed(`the build could not be kept: ${String(cause)}`);
+		throw cause;
 	}
-	if (movedAside) await rm(aside, { recursive: true, force: true });
-	await writeReplacing(join(builds, CURRENT_BUILD), `${app.commit}\n`).catch(
-		(cause) => {
-			throw failed(`the build could not be made current: ${String(cause)}`);
-		},
+	await writeFile(join(builds, `${commit}${BUILT_MARKER}`), '');
+	// Best effort: the build is in place, and the next build's sweep of dot
+	// entries removes what is left.
+	if (movedAside)
+		await rm(aside, { recursive: true, force: true }).catch((cause) => {
+			process.stderr.write(
+				`the replaced build ${aside} could not be removed: ${String(cause)}\n`,
+			);
+		});
+}
+
+/**
+ * Configuration for the checkout's Git: every filter driver this clone's
+ * configuration names, from any level, emptied and not required, so no
+ * smudge, clean, or process command runs however `.gitattributes` or
+ * `.git/info/attributes` map files to it, Git LFS's included, so a file LFS
+ * tracks is checked out as its pointer. Replace refs are ignored with
+ * `--no-replace-objects`, and sparse checkout, which `worktree add` copies
+ * from the clone, is off, so the checkout holds the commit's whole tree.
+ */
+async function checkoutOptions(source: string) {
+	const names = await git(source, [
+		'config',
+		'--name-only',
+		'-z',
+		'--get-regexp',
+		'^filter\\..+\\.(smudge|clean|process|required)$',
+	]).catch(() => '');
+	const drivers = new Set(
+		names
+			.split('\0')
+			.filter((name) => name !== '')
+			.map((name) => name.slice('filter.'.length, name.lastIndexOf('.'))),
 	);
+	const options = ['-c', 'core.sparseCheckout=false', '--no-replace-objects'];
+	for (const driver of drivers)
+		for (const [key, value] of [
+			['smudge', ''],
+			['clean', ''],
+			['process', ''],
+			['required', 'false'],
+		])
+			options.unshift('-c', `filter.${driver}.${key}=${value}`);
+	return options;
+}
+
+/** Check `commit` out detached at `checkout`, a worktree of the clone at `source`. */
+async function checkOut(source: string, checkout: string, commit: string) {
+	await mkdir(dirname(checkout), { recursive: true });
+	// `--force --force` takes over a path a build that did not finish left
+	// registered, even one still locked while it was being added, without
+	// pruning anyone else's worktree.
+	await git(source, [
+		...(await checkoutOptions(source)),
+		'worktree',
+		'add',
+		'--force',
+		'--force',
+		'--detach',
+		'--',
+		checkout,
+		commit,
+	]);
+}
+
+/** Remove the checkout at `checkout` and its registration in the clone at `source`. */
+async function removeCheckout(source: string, checkout: string) {
+	if ((await kindOf(checkout)) === undefined) return;
+	await gitSucceeds(source, [
+		...(await checkoutOptions(source)),
+		'worktree',
+		'remove',
+		'--force',
+		'--force',
+		'--',
+		checkout,
+	]);
+	await rm(checkout, { recursive: true, force: true });
 }
 
 /** Copy the regular files and directories under `from` to `to`; links are left behind. */
@@ -1051,7 +1199,8 @@ async function copyTree(from: string, to: string) {
 }
 
 /**
- * Remove app `id`: its clone, its builds, and its approval. Refused while
+ * Remove app `id`: its clone and its approval. Its builds stay, since a
+ * window may still be running one (removing them is later work). Refused while
  * the clone holds work no remote has, uncommitted changes or commits made
  * here, since removing would lose it.
  */
@@ -1084,7 +1233,10 @@ export async function remove(paths: AppPaths, id: string): Promise<void> {
 				`has ${unpushed} commit${unpushed === '1' ? '' : 's'} made here that no remote has`,
 			);
 		await rm(source, { recursive: true, force: true });
-		await rm(join(paths.buildsDir, id), { recursive: true, force: true });
+		await rm(join(paths.cacheDir, CHECKOUTS, id), {
+			recursive: true,
+			force: true,
+		});
 		if ((await readApprovals(paths.approvalsFile))[id] !== undefined)
 			await recordApproval(paths.approvalsFile, id, undefined);
 	});
