@@ -460,11 +460,6 @@ export type DataFolder = {
 	id: string,
 	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
 	title: string,
-	/**
-	 *  The text of `epicenter.json`, or `None` when it is not UTF-8 text the
-	 *  shell could read. The page parses it; the shell does not judge it.
-	 */
-	declaration: string | null,
 };
 
 /**
