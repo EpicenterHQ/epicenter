@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (publication by the app a folder is named after, `folder.own`, and the read-through containment check) and [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (an app opens a folder whose declaration contains its shape; a folder names no app).
-- **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition", "Only `openFolder` publishes", the typed lens that opens a folder whose declaration contains its shape, the consequence that `openFolder`'s `definition` is the only way to create a folder, and "The folders under the Epicenter root are listed by finding `epicenter.json`": history and Sync read no definition, nothing publishes, no containment is checked, a folder is made from a template, and the listing is every real, non-dot directory. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed, and rows that do not fit read as invalid rows. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", "Paths the opened definition declares local never enter a commit", and the whole-file merge of `epicenter.json` with its union of `local`: a `.md` file with readable frontmatter merges by field wherever it is, `.gitignore` decides what a commit leaves out, and `epicenter.json` merges by line. [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine rule table, `publishLocalPatterns`, and the consequences about `local` merging: the template's `.gitignore` and Whispering's check before Sync replace them. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
-- **Unbuilt:** all of it: the merge by file without a definition, with ours' key order; `app` in `Definition`; `template/` in Todos, Capture, Honeycrisp, and Whispering, with `epicenter generate` writing `template/epicenter.json` and CI checking it; `epicenter new <dir> --from <app>`; the folder listing of every real, non-dot directory, which waits on installed apps leaving the Epicenter folder ([ADR-0586](0586-you-open-a-folder-never-an-app.md)); Whispering's check before Sync that `audio/` is ignored; Epicenter's own template for `so.epicenter`; and every deletion under Consequences.
+- **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition", "Only `openFolder` publishes", the typed lens that opens a folder whose declaration contains its shape, the consequence that `openFolder`'s `definition` is the only way to create a folder, and "The folders under the Epicenter root are listed by finding `epicenter.json`": history and Sync read no definition, nothing publishes, no containment is checked, a folder is made from a template, and the listing is every real, non-dot directory. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed, and rows that do not fit read as invalid rows. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", "Paths the opened definition declares local never enter a commit", and the whole-file merge of `epicenter.json` with its union of `local`: a `.md` file with readable frontmatter merges by field wherever it is, `.gitignore` decides what a commit leaves out, and `epicenter.json` merges by line. [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine rule table, `publishLocalPatterns`, and the consequences about `local` merging: the template's `.gitignore` and Whispering's check, before it records into a folder, that `audio/` is ignored and untracked replace them. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
+- **Unbuilt:** all of it: the merge by file without a definition, with ours' key order; `app` in `Definition`; `template/` in Todos, Capture, Honeycrisp, and Whispering, with `epicenter generate` writing `template/epicenter.json` and CI checking it; `epicenter new <dir> --from <app>`; the folder listing of every real, non-dot directory, which waits on installed apps leaving the Epicenter folder ([ADR-0586](0586-you-open-a-folder-never-an-app.md)); Whispering's check, before it records into a folder, that `audio/` is ignored and untracked; Epicenter's own template for `so.epicenter`; and every deletion under Consequences.
 
 ## Context
 
@@ -55,8 +55,12 @@ when `epicenter.json` does not read. `definitionWins` (`merge-file.ts:191`)
 unions `local` from both sides. A read-through handle also passes the
 reading app's patterns as `appLocal`, which the desktop sends to the CLI as
 `--app-local` (`app_local_options` in
-`apps/epicenter/src-tauri/src/history.rs`), so Whispering recording into
-another app's folder commits no audio there.
+`apps/epicenter/src-tauri/src/history.rs`), so Whispering's own status,
+save version, and sync of another app's folder commit no audio there. Only
+that handle passes them (`createCliHistory` in
+`packages/folder/src/tauri-history.ts`): the Folders window's Save version,
+the CLI run by hand, and an agent's plain `git` commit the same folder
+without them.
 
 The desktop shell lists a directory in the Epicenter folder only when it
 holds `epicenter.json` (`apps/epicenter/src-tauri/src/data_folders.rs:219-220`).
@@ -150,12 +154,16 @@ later.
 **`.gitignore` decides what a commit leaves out.** The engine follows plain
 Git ignore semantics on both backends, and the Definition has no `local`.
 Whispering's template ships `.gitignore` with `audio/`, so a folder made
-from it ignores audio before the first recording. Before each Sync,
-Whispering checks the folder it records into: when `folder.git.status()`
-lists a path under `audio/`, it offers to add `audio/` to `.gitignore`. It
-never refuses to record, and a person who declines syncs their audio. The
-check covers a folder made by hand, a browser folder, and another app's
-folder that Whispering was opened on.
+from it ignores audio before the first recording. Before Whispering
+records into a folder, it checks that the folder's `.gitignore` ignores
+`audio/` and that the index tracks nothing under `audio/`. If either fails,
+it asks the person before recording: add the line, or choose another
+folder. It never records into such a folder silently. The check runs before
+the audio exists, because any participant may commit the folder next: the
+Folders window's Save version, the CLI, or an agent's plain `git`, none of
+which knows what Whispering keeps on this machine. It covers a folder made
+by hand, a browser folder, and another app's folder that Whispering was
+opened on, which `appLocal` covered only for Whispering's own handle.
 
 **A data folder is every real, non-dot directory directly in the Epicenter
 folder.** `epicenter.json` stops being the marker. Each such folder may get
@@ -193,10 +201,10 @@ rewritten.
     their choice stands (ADR-0503).
   - A file committed before its ignore line stays tracked; the engine no
     longer drops it from the next commit. A folder made from the template
-    never tracks audio, since `.gitignore` exists before the first write. A
-    hand-made folder whose owner declined Whispering's offer has pushed its
-    audio; adding the line later needs `git rm --cached`, which the engine
-    does not run.
+    never tracks audio, since `.gitignore` exists before the first write,
+    and Whispering asks before recording into a folder that tracks or does
+    not ignore `audio/`. Audio that is already tracked needs
+    `git rm --cached`, which the engine does not run.
 - No released build reads these folders. A development folder that holds
   committed audio or a `local` key is made again from its template or
   cleaned by hand (`git rm --cached -r audio/`, deleting `local`); no code
