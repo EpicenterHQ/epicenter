@@ -431,6 +431,35 @@ test('a JSON number a rewrite would change is never rewritten: the file merges b
 	}
 });
 
+test('a rewritten JSON result keeps a byte-order mark either side had', async () => {
+	const BOM = '\uFEFF';
+	expect(
+		await clean(
+			{
+				base: json({ a: 1, b: 1 }),
+				ours: json({ a: 2, b: 1 }),
+				theirs: BOM + json({ a: 1, b: 2 }),
+			},
+			'x.json',
+		),
+	).toBe(BOM + json({ a: 2, b: 2 }));
+});
+
+test('JSON merged by line never writes one key twice: two keys added at one place compete', async () => {
+	const at = (...lines: string[]) =>
+		['{', '  // settings', '  "a": 1', ...lines, '}', ''].join('\n');
+	expect(
+		await merge('x.json', {
+			base: at(),
+			ours: at('  ,"b": 2'),
+			theirs: at('  ,"b": 3'),
+		}),
+	).toEqual({
+		content: at('  ,"b": 2'),
+		overridden: [{ kind: 'lines', part: 'text', line: 4, count: 1 }],
+	});
+});
+
 test('JSON with a byte-order mark merges by key and keeps the mark', async () => {
 	const BOM = '\uFEFF';
 	expect(

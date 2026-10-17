@@ -182,14 +182,21 @@ const linesOf = (part: 'body' | 'text', region: SettledRegion): Overridden => ({
 	count: region.kept.split('\n').length - 1,
 });
 
-/** Three texts by line, `winner` winning each competing region. */
+/**
+ * Three texts by line, `winner` winning each competing region. With `union:
+ * false`, two different insertions at one place compete too.
+ */
 async function textWins(
 	base: string | null,
 	ours: string,
 	theirs: string,
 	winner: Winner,
+	{ union = true }: { readonly union?: boolean } = {},
 ): Promise<Merged> {
-	const merged = await mergeLines({ base: base ?? '', ours, theirs });
+	const merged = await mergeLines(
+		{ base: base ?? '', ours, theirs },
+		{ union },
+	);
 	return {
 		content: merged[winner],
 		overridden: merged.regions.map((region) => linesOf('text', region)),
@@ -470,10 +477,11 @@ function mergeObjects(
 /**
  * A JSON file by key, `winner` winning each competing key. A version that
  * does not parse, or holds a number a rewrite would change, merges by line,
- * so neither side's edit leaves the file; JSON that is not an object merges
- * whole. A result equal to a side is that side's bytes; otherwise it is
- * written with a two-space indent, after ours' byte-order mark if it has
- * one.
+ * so neither side's edit leaves the file, with two insertions at one place
+ * competing, since joining them could write one key twice; JSON that is not
+ * an object merges whole. A result equal to a side is that side's bytes;
+ * otherwise it is written with a two-space indent, after a byte-order mark
+ * when either side has one.
  */
 async function jsonWins(
 	versions: FileVersions,
@@ -488,7 +496,7 @@ async function jsonWins(
 		readJson(theirs),
 	];
 	if ([b, o, t].some((read) => read?.kind === 'text'))
-		return textWins(base, ours, theirs, winner);
+		return textWins(base, ours, theirs, winner, { union: false });
 	if (
 		o.kind !== 'object' ||
 		t.kind !== 'object' ||
@@ -508,7 +516,7 @@ async function jsonWins(
 		? ours
 		: sameValue(value, t.value)
 			? theirs
-			: `${ours.startsWith(BOM) ? BOM : ''}${JSON.stringify(value, null, 2)}\n`;
+			: `${[ours, theirs].some((text) => text.startsWith(BOM)) ? BOM : ''}${JSON.stringify(value, null, 2)}\n`;
 	return { content, overridden };
 }
 

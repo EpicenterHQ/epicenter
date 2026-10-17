@@ -1155,11 +1155,12 @@ its extension, at any path.
   written in the standard form, keys in the writer's order, then keys only
   the file added. A merged JSON file is likewise a side's bytes when its
   value is that side's, and otherwise `JSON.stringify` with a two-space
-  indent, in the same key order, after the writer's byte-order mark. An
-  array is one unit, so two additions to one array compete instead of
-  joining into invalid JSON. JSON that does not parse, or holds a number a
-  rewrite would change (`12345678901234567890`, `1.0`, `1e3`), merges by
-  line, so no edit and no number is lost.
+  indent, in the same key order, after a byte-order mark when either side
+  has one. An array is one unit, so two additions to one array compete
+  instead of joining into invalid JSON. JSON that does not parse, or holds a
+  number a rewrite would change (`12345678901234567890`, `1.0`, `1e3`),
+  merges by line, so no edit and no number is lost; two insertions at one
+  place compete there, so the merge never writes one key twice.
 - Nothing is checked against a schema: every merged value is one side's,
   and a field is checked alone, so a field merge of two valid rows is valid.
 - A Markdown version whose frontmatter does not read merges as text, and
