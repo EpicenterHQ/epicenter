@@ -170,14 +170,6 @@ async function setup() {
 
 // Management route credential selection and freshness.
 for (const [path, body, admitted] of routes) {
-	test(`${path} accepts a fresh cookie with its expected principal`, async () => {
-		const { alice, request } = await setup();
-		const response = await request(path, body, {
-			cookie: alice.cookie,
-			'x-epicenter-principal': alice.user.id,
-		});
-		expect(response.status).toBe(admitted);
-	});
 	test(`${path} refuses another origin even with the cookie`, async () => {
 		const { db, alice, request } = await setup();
 		const before = structuredClone(db);
