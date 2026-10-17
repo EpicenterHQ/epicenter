@@ -54,6 +54,25 @@ test('empty thought strings round trip with or without an existing list', () => 
 	}
 });
 
+test('whitespace before a thought is dropped, because Markdown reads it as part of the marker', () => {
+	for (const body of [
+		'\nText\n\n## Thoughts\n',
+		'\nText\n\n## Thoughts\n\n- existing\n',
+	]) {
+		const encoded = expectOk(
+			captureBody.encode(
+				{ text: 'Text', thoughts: [' one', '  two  ', '\tthree\n  four'] },
+				body,
+			),
+		);
+		expect(expectOk(captureBody.decode(encoded)).thoughts).toEqual([
+			'one',
+			'two  ',
+			'three\n  four',
+		]);
+	}
+});
+
 test('ambiguous source and text that would absorb the thoughts are explicit failures', () => {
 	expect(
 		expectErr(captureBody.decode('\nText\n\n## Thoughts\n\n## Thoughts\n'))
