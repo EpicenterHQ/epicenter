@@ -111,14 +111,11 @@ export async function nativeCheckpointProblem({
 	if (blocking !== undefined)
 		return `${blocking.path} is ${blocking.reason}; ${plainOnly}`;
 
-	// An attribute file the commit would carry that names a filter.
+	// An attribute file in the folder that names a filter, ignored or not:
+	// Git reads every one when it checks a file out or adds it.
 	const attributeFiles: (readonly [string, Uint8Array])[] = [];
-	for (const path of new Set([...tracked, ...regular]))
-		if (isAttributesPath(path) && !excluded.has(path)) {
-			const full = `${root}/${path}`;
-			if ((await files.lstat(full))?.kind === 'file')
-				attributeFiles.push([path, await files.readFile(full)]);
-		}
+	for (const path of regular.filter(isAttributesPath))
+		attributeFiles.push([path, await files.readFile(`${root}/${path}`)]);
 	const filter = declaredFilter(attributeFiles);
 	if (filter !== undefined)
 		return `${filter.path} line ${filter.line} (${filter.text}) names a Git filter; ${plainOnly}`;

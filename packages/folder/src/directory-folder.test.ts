@@ -347,7 +347,7 @@ describe('a folder over an ordinary directory', () => {
 		}
 	});
 
-	test('an attribute file that names a filter refuses the commit; line-ending attributes commit the bytes on disk', async () => {
+	test('an attribute file that names a filter, ignored or not, refuses the commit; line-ending attributes commit the bytes on disk', async () => {
 		const { root, start } = await nativeRepository('directory-folder-filter-');
 		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
 		const folder = expectOk(await open(root));
@@ -368,6 +368,18 @@ describe('a folder over an ordinary directory', () => {
 		expect(refused.status).toBe('blocked');
 		expect(JSON.stringify(refused)).toContain(
 			'.gitattributes line 2 (*.wav filter=lfs) names a Git filter',
+		);
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+
+		// An ignored attribute file refuses too: Git reads it all the same.
+		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
+		await writeFile(join(root, '.gitignore'), 'local/\n');
+		await mkdir(join(root, 'local'));
+		await writeFile(join(root, 'local/.gitattributes'), '* filter=lfs\n');
+		const ignored = await folder.git.commit();
+		expect(ignored.status).toBe('blocked');
+		expect(JSON.stringify(ignored)).toContain(
+			'local/.gitattributes line 1 (* filter=lfs) names a Git filter',
 		);
 		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
 		await folder.close();
