@@ -71,7 +71,7 @@ async function open() {
 	const counter = { mdWrites: 0 };
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
@@ -108,7 +108,7 @@ async function open() {
 		async otherPage() {
 			const other = expectOk(
 				await openFolder({
-					id,
+					app: id,
 					definition: todosDefinition,
 					browser: {
 						author: { name: 'Other', email: 'other@example.test' },

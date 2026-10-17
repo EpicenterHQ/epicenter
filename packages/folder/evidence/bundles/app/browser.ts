@@ -6,4 +6,4 @@ const definition = defineFolder({
 });
 
 export const start = () =>
-	openFolder({ id: 'so.epicenter.bundlefixture', definition });
+	openFolder({ app: 'so.epicenter.bundlefixture', definition });

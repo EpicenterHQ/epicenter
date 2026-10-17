@@ -87,8 +87,10 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 	expect(
 		importers((specifier) => specifier === '@epicenter/folder/tauri'),
 	).toEqual(['lib/workspace/desktop.ts imports @epicenter/folder/tauri']);
-	expect(callers('openFolder')).toEqual(['lib/workspace/browser.ts']);
-	expect(callers('openHandedFolder')).toEqual(['lib/workspace/desktop.ts']);
+	expect(callers('openFolder')).toEqual([
+		'lib/workspace/browser.ts',
+		'lib/workspace/desktop.ts',
+	]);
 	const folderEntries = importers((specifier) =>
 		specifier.startsWith('@epicenter/folder'),
 	).map((found) => found.split(' imports ')[1]);

@@ -59,7 +59,7 @@ async function openDemo() {
 	await configureRemote(storage, id, session.remoteUrl);
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
@@ -158,7 +158,7 @@ test('Connect sends a first folder, gives the next one its todos, and asks befor
 	const open = async () => {
 		const folder = expectOk(
 			await openFolder({
-				id: `connect-${count++}`,
+				app: `connect-${count++}`,
 				definition: todosDefinition,
 				browser: {
 					author: { name: 'Todos', email: 'todos@localhost' },

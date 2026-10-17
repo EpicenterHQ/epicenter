@@ -29,7 +29,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openDataFolder } from './bun.js';
+import { openFolder } from './bun.js';
 import type { FileTable, StoredRow } from './contract.js';
 import type { AnyRow } from './row-merge.js';
 
@@ -66,7 +66,7 @@ async function setup() {
 	await writeFile(join(root, 'epicenter.json'), DECLARED);
 	await mkdir(join(root, 'notes'));
 	await writeFile(join(root, 'notes/one.md'), ROW);
-	const folder = expectOk(await openDataFolder({ root, git: { author } }));
+	const folder = expectOk(await openFolder({ root, git: { author } }));
 	const table = folder.tables.notes as AnyTable;
 	const read = async () => {
 		const stored = expectOk(await table.get('one'));

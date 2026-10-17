@@ -119,7 +119,7 @@ export const commands = {
 	 *  window open each one.
 	 * 
 	 *  Granted to the `folders` window alone. Every scope it returns is one that
-	 *  window is registered or permitted for, so `openDataFolder({ id })` there
+	 *  window is registered or permitted for, so `openFolder({ id })` there
 	 *  can be granted it. Off the main thread, since it reads the disk.
 	 */
 	listDataFolders: () => typedError<DataFolder[], string>(__TAURI_INVOKE("list_data_folders")),
@@ -165,16 +165,16 @@ export const commands = {
 	 */
 	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
 	/**  The folder's changed files, its head, and its remote, ahead and behind. */
-	status: (scope: string) => typedError<CliExit, CliError>(__TAURI_INVOKE("status", { scope })),
+	status: (scope: string, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("status", { scope, appLocal })),
 	/**  The folder's last `depth` versions. */
 	history: (scope: string, depth: number) => typedError<CliExit, CliError>(__TAURI_INVOKE("history", { scope, depth })),
 	/**  Record the folder's edits as a version, with `message` when a person gave one. */
-	saveVersion: (scope: string, message: string | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message })),
+	saveVersion: (scope: string, message: string | null, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message, appLocal })),
 	/**
 	 *  Record the folder's edits, fetch, merge by each file's kind into one
 	 *  merge commit, and push (ADR-0576). Sync asks the person nothing.
 	 */
-	sync: (scope: string, remote: string | null, allowUnrelated: boolean) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated })),
+	sync: (scope: string, remote: string | null, allowUnrelated: boolean, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, appLocal })),
 	/**
 	 *  Start the Command Line Tools installer, which gives this Mac a `git`,
 	 *  after the CLI answered `GitMissing` (ADR-0559). It is a one-time step.
@@ -211,9 +211,9 @@ export const commands = {
 	 *  window titled `title`. When that commit is not the build its window
 	 *  loads, the CLI builds it first, which it does only for a commit that may
 	 *  run (one made here, or approved). With `folder`, a scope the Folders
-	 *  window listed, the window is let into that folder and the app is handed
-	 *  it as `?folder=`. Without one, the app is handed its own folder,
-	 *  `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
+	 *  window listed, the window is let into that folder and handed it, which
+	 *  the page asks for with `window_folder`. Without one, the app is handed its
+	 *  own folder, `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
 	 */
 	openInstalledApp: (id: string, title: string, commit: string, folder: string | null) => typedError<null, string>(__TAURI_INVOKE("open_installed_app", { id, title, commit, folder })),
 	/**  When the host drops the resident model. */
@@ -456,7 +456,7 @@ export type CliExit = {
 
 /**  One data folder the Folders window can open. */
 export type DataFolder = {
-	/**  The scope to pass to `openDataFolder({ id })`. */
+	/**  The scope to pass to `openFolder({ id })`. */
 	id: string,
 	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
 	title: string,

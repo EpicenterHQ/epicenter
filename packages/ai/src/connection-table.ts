@@ -8,8 +8,9 @@
  * new.
  *
  * `so.epicenter`'s declaration (`epicenterDefinition` in
- * `packages/cli/src/epicenter-folder.ts`) includes this table. An installed app that uses connections opens
- * `so.epicenter` through {@link connectionsLens}.
+ * `packages/cli/src/epicenter-folder.ts`) includes this table. Epicenter
+ * publishes it; an installed app that uses connections reads `so.epicenter`
+ * through {@link connectionsDefinition}, by ID, which never publishes.
  */
 
 import { defineFolder, defineTable, field } from '@epicenter/folder';
@@ -27,8 +28,8 @@ export const connectionsTable = defineTable({
 	},
 });
 
-/** `so.epicenter` seen through its `connections` table alone. */
-export const connectionsLens = defineFolder({
+/** `so.epicenter` read through its `connections` table alone. */
+export const connectionsDefinition = defineFolder({
 	title: 'Epicenter',
 	tables: { connections: connectionsTable },
 });

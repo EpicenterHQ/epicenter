@@ -3,7 +3,8 @@
  *
  * Key behaviors:
  * - Every installed app that can run is offered, by title, whatever the
- *   folder declares; the app's own lens refuses a folder that does not fit
+ *   folder declares; the app refuses a folder whose declaration does not
+ *   contain its definition
  * - An installed app waiting for approval, or broken, is offered on no folder
  */
 import { expect, test } from 'bun:test';

@@ -268,11 +268,12 @@ Page (dist, served by Epicenter) runs @epicenter/folder's own engine over the
 
 The page chooses where its folder lives at build time through
 `#platform/folder`. The Epicenter host leaf
-(`folder.epicenter-host.ts`) opens the folder Epicenter handed the window
-as `?folder=<scope>`, or Honeycrisp's own, `so.epicenter.honeycrisp`, when
-none was handed. Its own folder opens with `openFolder` from
-`@epicenter/folder/tauri`, which publishes Honeycrisp's declaration; any other
-opens with `openDataFolder` and that declaration as the lens (ADR-0538). The
+(`folder.epicenter-host.ts`) opens the folder Epicenter handed the window,
+Honeycrisp's own, `so.epicenter.honeycrisp`, or the one a person chose "Open
+in" on, with `openFolder({ app, definition })` from
+`@epicenter/folder/tauri`. In its own folder that publishes Honeycrisp's
+declaration; any other is read through Honeycrisp's definition and never
+written over (ADR-0538, ADR-0583); `folder.own` says which. The
 browser leaf opens one OPFS directory, `Epicenter/local/so.epicenter.honeycrisp`,
 holding the notes and their `.git`, with `openFolder` from
 `@epicenter/folder/browser`. A browser folder an earlier version kept in

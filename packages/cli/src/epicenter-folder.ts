@@ -5,13 +5,13 @@
  * Each AI connection is a row, `connections/<id>.md`, holding its kind,
  * title, and model (ADR-0557). Its endpoint and key are never in the folder:
  * they are in this computer's keychain under the same id. The table is
- * `@epicenter/ai`'s, so an installed app opens it through the same lens.
+ * `@epicenter/ai`'s, so an installed app reads it through the same table.
  *
- * Epicenter creates this folder, so it owns the schema. An installed app
- * opens it through a lens the published declaration must contain (ADR-0538),
- * and a handle publishes its declaration only before its first write
- * (ADR-0508). So the desktop app runs `epicenter declare-epicenter-folder`
- * at every launch (`spawn_epicenter_folder_declaration` in
+ * The folder is named after Epicenter, so Epicenter publishes its
+ * declaration. An installed app reads it through a definition the published
+ * declaration must contain (ADR-0538), and a handle publishes its
+ * declaration only before its first write (ADR-0508). So the desktop app
+ * runs `epicenter declare-epicenter-folder` at every launch (`spawn_epicenter_folder_declaration` in
  * `apps/epicenter/src-tauri/src/cli.rs`), and opens no installed app before
  * it has finished, whichever window opened first.
  */
@@ -43,7 +43,8 @@ export const epicenterDefinition = defineFolder({
 
 /**
  * Make the handle's first write, which publishes its declaration first: the
- * `connections` table's directory, the table apps read through a lens. A
+ * `connections` table's directory, the table apps read through their
+ * definition. A
  * directory already there is left as it is, and so is an `epicenter.json`
  * that already holds the declaration's bytes.
  */
@@ -68,6 +69,7 @@ export async function declareEpicenterFolder(
 	const { openFolder } = await import('@epicenter/folder/bun');
 	const { data: folder, error } = await openFolder({
 		root,
+		app: EPICENTER_FOLDER_ID,
 		definition: epicenterDefinition,
 		git: { author: { name: 'Epicenter', email: 'epicenter@localhost' } },
 	});

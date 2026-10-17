@@ -89,7 +89,7 @@ async function competing() {
 	await configureRemote(storage, id, session.remoteUrl);
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
@@ -184,7 +184,7 @@ test.each([
 	const id = `todos-view-${count++}`;
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition: todosDefinition,
 			browser: browserStorage(createTestStorage()),
 		}),

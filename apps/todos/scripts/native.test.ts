@@ -54,7 +54,7 @@ test('browser sync, native sync, then a browser fast-forward and a native merge 
 	await configureRemote(storage, 'demo', session.remoteUrl);
 	const browser = expectOk(
 		await openFolder({
-			id: 'demo',
+			app: 'demo',
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },

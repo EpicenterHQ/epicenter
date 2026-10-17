@@ -1,39 +1,49 @@
 /**
- * Lens Tests
+ * Read-Through Tests
  *
- * `openDataFolder({ lens })` opens an existing folder whose own declaration
- * contains the lens's shape (ADR-0538).
+ * A folder that is not the opening app's own is read through the opener's
+ * definition: its own declaration must contain the definition's shape
+ * (ADR-0538), and nothing publishes the definition there. In Bun a folder
+ * is named by its directory, so only a directory named after `app` is the
+ * app's own.
  *
  * Key behaviors:
- * - A lens over a bigger folder opens with the lens's tables alone; the
- *   handle's `definition` is the folder's own declaration
- * - Rows read through the lens keep the fields it does not name, so a write
- *   keeps them, and every write is checked against the folder's declaration
+ * - An app opener publishes only in the directory named after the app, and
+ *   `folder.own` says which; anywhere else it reads through the definition
+ * - A definition over a bigger folder opens with the definition's tables
+ *   alone; the handle's `definition` is the folder's own declaration
+ * - Rows read through the definition keep the fields it does not name, so a
+ *   write keeps them, and every write is checked against the folder's
+ *   declaration
  * - `epicenter.json` is never written
- * - A lens the declaration does not contain is `ShapeMismatch`, listing every
- *   problem, and opening creates nothing
- * - A table whose folder requires a field the lens does not declare cannot
- *   add rows: `canCreate` is false and `create` is `InvalidValues` naming
- *   each such field
- * - A browser folder opened through a lens behaves the same
+ * - A definition the declaration does not contain is `ShapeMismatch`,
+ *   naming the folder, and the app when an app opened it, and listing every
+ *   problem; opening creates nothing
+ * - A table whose folder requires a field the definition does not declare
+ *   cannot add rows: `canCreate` is false and `create` is `InvalidValues`
+ *   naming each such field
+ * - A browser folder read through a definition behaves the same
+ * - What the definition keeps on this machine (`local`) never enters the
+ *   folder's history, while a file the folder already tracks stays tracked,
+ *   and the folder's `epicenter.json` and `.gitignore` are not changed
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openDataFolder as openBrowserDataFolder } from './browser.js';
+import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import { openDataFolder, readFolder } from './bun.js';
+import { openFolder, readFolder } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
-import { GIT_ENV, scratch } from './git-http.test-support.js';
+import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 
 const author = { name: 'Board', email: 'board@localhost' };
 
-/** A folder that declares more than any lens below reads, written by hand. */
+/** A folder that declares more than any definition below reads, written by hand. */
 const DECLARED = `{"title":"Todos","tables":{"settings":{"type":"object","properties":{"theme":{"enum":["light","dark"]},"density":{"type":"number"}},"required":[]},"todos":{"type":"object","properties":{"title":{"type":"string"},"status":{"enum":["todo","done"]},"priority":{"type":"integer","minimum":1,"maximum":3},"note":{"type":"string"}},"required":["title","status","priority"]},"projects":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}`;
 
 const ROW =
@@ -88,10 +98,50 @@ async function folderRoot(prefix: string) {
 	return root;
 }
 
-test('a lens over a bigger folder opens with its own tables, and the folder keeps what the lens does not name', async () => {
-	const root = await folderRoot('lens-bigger-');
+test('an app opener publishes in the directory named after the app, and reads through its definition anywhere else', async () => {
+	const parent = await scratch('read-through-app-');
+	const own = join(parent, 'so.epicenter.board');
+	await mkdir(own);
+	const opened = expectOk(
+		await openFolder({
+			root: own,
+			app: 'so.epicenter.board',
+			definition: board,
+			git: { author },
+		}),
+	);
+	expect(opened.id).toBe('so.epicenter.board');
+	expect(opened.own).toBe(true);
+	expect(opened.definition).toBe(board);
+	expectOk(
+		await opened.tables.todos.create(
+			{ fields: { title: 'Eggs', status: 'todo' }, body: '' },
+			{ stem: 'eggs' },
+		),
+	);
+	expect(existsSync(join(own, 'epicenter.json'))).toBe(true);
+	await opened.close();
+
+	const root = await folderRoot('read-through-other-');
+	const other = expectOk(
+		await openFolder({
+			root,
+			app: 'so.epicenter.board',
+			definition: board,
+			git: { author },
+		}),
+	);
+	expect(other.id).toBe(basename(root));
+	expect(other.own).toBe(false);
+	expectOk(await other.tables.todos.set('milk', { status: 'done' }));
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	await other.close();
+});
+
+test('a definition over a bigger folder opens with its own tables, and the folder keeps what the definition does not name', async () => {
+	const root = await folderRoot('read-through-bigger-');
 	const folder = expectOk(
-		await openDataFolder({ root, git: { author }, lens: board }),
+		await openFolder({ root, git: { author }, definition: board }),
 	);
 	expect(Object.keys(folder.tables)).toEqual(['settings', 'todos']);
 	expect(folder.definition).toEqual(
@@ -120,23 +170,23 @@ test('a lens over a bigger folder opens with its own tables, and the folder keep
 	await folder.close();
 });
 
-test("every write is checked against the folder's declaration, not the lens's", async () => {
-	const root = await folderRoot('lens-validation-');
+test("every write is checked against the folder's declaration, not the definition's", async () => {
+	const root = await folderRoot('read-through-validation-');
 	const folder = expectOk(
-		await openDataFolder({ root, git: { author }, lens: board }),
+		await openFolder({ root, git: { author }, definition: board }),
 	);
 	const todos = folder.tables.todos;
-	// The lens admits 'later'; the folder does not.
+	// The definition admits 'later'; the folder does not.
 	const refused = expectErr(await todos.set('milk', { status: 'later' }));
 	expect(refused.name).toBe('InvalidValues');
-	// A field the lens does not name is checked too.
+	// A field the definition does not name is checked too.
 	const milk = expectOk(await todos.get('milk'))!;
 	const fields = { ...milk.row.fields, priority: 9 };
 	expect(
 		expectErr(await todos.write('milk', milk.row, { ...milk.row, fields }))
 			.name,
 	).toBe('InvalidValues');
-	// The lens's string theme is checked against the folder's options.
+	// The definition's string theme is checked against the folder's options.
 	expect(
 		expectErr(
 			await folder.tables.settings.create(
@@ -149,10 +199,10 @@ test("every write is checked against the folder's declaration, not the lens's", 
 	await folder.close();
 });
 
-test('a lens that does not declare a required field cannot add rows', async () => {
-	const root = await folderRoot('lens-create-');
+test('a definition that does not declare a required field cannot add rows', async () => {
+	const root = await folderRoot('read-through-create-');
 	const folder = expectOk(
-		await openDataFolder({ root, git: { author }, lens: board }),
+		await openFolder({ root, git: { author }, definition: board }),
 	);
 	expect(folder.tables.todos.canCreate).toBe(false);
 	const refused = expectErr(
@@ -169,7 +219,7 @@ test('a lens that does not declare a required field cannot add rows', async () =
 	await folder.close();
 
 	const knowing = expectOk(
-		await openDataFolder({ root, git: { author }, lens: full }),
+		await openFolder({ root, git: { author }, definition: full }),
 	);
 	expect(knowing.tables.todos.canCreate).toBe(true);
 	const eggs = expectOk(
@@ -179,7 +229,7 @@ test('a lens that does not declare a required field cannot add rows', async () =
 		),
 	);
 	expect(eggs?.path).toBe('todos/eggs.md');
-	// The lens's number is still held to the folder's integer from 1 to 3.
+	// The definition's number is still held to the folder's integer from 1 to 3.
 	expect(
 		expectErr(
 			await knowing.tables.todos.create({
@@ -191,9 +241,10 @@ test('a lens that does not declare a required field cannot add rows', async () =
 	await knowing.close();
 });
 
-test('a lens the declaration does not contain is ShapeMismatch, listing every problem, and opens nothing', async () => {
-	const root = await folderRoot('lens-mismatch-');
-	const lens = defineFolder({
+test('a definition the declaration does not contain is ShapeMismatch, naming the folder and listing every problem, and opens nothing', async () => {
+	const root = await folderRoot('read-through-mismatch-');
+	const reader = defineFolder({
+		title: 'Calendar',
 		tables: {
 			settings: defineTable({
 				fields: { accent: field.optional(field.string()) },
@@ -209,7 +260,7 @@ test('a lens the declaration does not contain is ShapeMismatch, listing every pr
 		},
 	});
 	const refused = expectErr(
-		await openDataFolder({ root, git: { author }, lens }),
+		await openFolder({ root, git: { author }, definition: reader }),
 	);
 	expect(refused.name).toBe('ShapeMismatch');
 	if (refused.name !== 'ShapeMismatch') return;
@@ -226,27 +277,31 @@ test('a lens the declaration does not contain is ShapeMismatch, listing every pr
 		['incompatibleField', 'todos', 'note'],
 		['missingTable', 'events', undefined],
 	]);
+	// Read by no app, the refusal names the folder alone.
+	expect(refused.message).toStartWith(
+		`The folder '${basename(root)}' does not declare what this definition reads: `,
+	);
 	expect(refused.message).toContain("The folder declares no 'events' table");
 	expect(existsSync(join(root, '.git'))).toBe(false);
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
 });
 
-test('a folder without epicenter.json contains only a lens that reads nothing', async () => {
-	const root = await scratch('lens-undeclared-');
+test('a folder without epicenter.json contains only a definition that reads nothing', async () => {
+	const root = await scratch('read-through-undeclared-');
 	expect(
-		expectErr(await openDataFolder({ root, git: { author }, lens: board }))
+		expectErr(await openFolder({ root, git: { author }, definition: board }))
 			.name,
 	).toBe('ShapeMismatch');
 	const empty = defineFolder({ tables: {} });
 	const folder = expectOk(
-		await openDataFolder({ root, git: { author }, lens: empty }),
+		await openFolder({ root, git: { author }, definition: empty }),
 	);
 	expect(folder.tables).toEqual({});
 	await folder.close();
 });
 
-test('a closed folder table opens through a lens that reads a subset of it', async () => {
-	const root = await scratch('lens-closed-');
+test('a closed folder table opens through a definition that reads a subset of it', async () => {
+	const root = await scratch('read-through-closed-');
 	await writeFile(
 		join(root, 'epicenter.json'),
 		'{"tables":{"pages":{"type":"object","properties":{"title":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}}}',
@@ -256,11 +311,11 @@ test('a closed folder table opens through a lens that reads a subset of it', asy
 		join(root, 'pages/a.md'),
 		'---\ntitle: A\ntags:\n  - x\n---\n',
 	);
-	const lens = defineFolder({
+	const reader = defineFolder({
 		tables: { pages: defineTable({ fields: { title: field.string() } }) },
 	});
 	const folder = expectOk(
-		await openDataFolder({ root, git: { author }, lens }),
+		await openFolder({ root, git: { author }, definition: reader }),
 	);
 	const pages = folder.tables.pages;
 	expect(pages.canCreate).toBe(true);
@@ -280,18 +335,22 @@ test('a closed folder table opens through a lens that reads a subset of it', asy
 	await folder.close();
 });
 
-test('a browser folder opened through a lens reads, writes, and refuses alike', async () => {
+test('a browser folder read through a definition reads, writes, and refuses alike', async () => {
 	const environment = createTestStorage();
 	const storage = { ...browserStorage(environment), author };
 	const writer = expectOk(
-		await openBrowserDataFolder({ id: 'todos', browser: storage }),
+		await openBrowserFolder({ id: 'todos', browser: storage }),
 	);
 	expectOk(await writer.write('epicenter.json', null, DECLARED));
 	expectOk(await writer.write('todos/milk.md', null, ROW));
 	await writer.close();
 
 	const folder = expectOk(
-		await openBrowserDataFolder({ id: 'todos', browser: storage, lens: board }),
+		await openBrowserFolder({
+			id: 'todos',
+			browser: storage,
+			definition: board,
+		}),
 	);
 	expect(Object.keys(folder.tables)).toEqual(['settings', 'todos']);
 	expect(folder.tables.todos.canCreate).toBe(false);
@@ -313,11 +372,47 @@ test('a browser folder opened through a lens reads, writes, and refuses alike', 
 	});
 	expect(
 		expectErr(
-			await openBrowserDataFolder({
+			await openBrowserFolder({
 				id: 'todos',
 				browser: storage,
-				lens: mismatch,
+				definition: mismatch,
 			}),
 		).name,
 	).toBe('ShapeMismatch');
+});
+
+test("a definition's local files never enter the folder's history, and what it tracks stays", async () => {
+	const root = await folderRoot('read-through-local-');
+	await mkdir(join(root, 'audio'));
+	await writeFile(join(root, 'audio/kept.wav'), 'committed before');
+	await git(root, 'init', '--quiet', '--initial-branch=main');
+	await git(root, 'add', '-A');
+	await git(root, 'commit', '--quiet', '-m', 'base');
+	const recorder = defineFolder({
+		title: 'Recorder',
+		local: ['audio/'],
+		tables: board.tables,
+	});
+	const folder = expectOk(
+		await openFolder({ root, git: { author }, definition: recorder }),
+	);
+	expect(folder.own).toBe(false);
+	expectOk(await folder.write('audio/new.wav', null, 'recorded here'));
+	expectOk(await folder.write('audio/kept.wav', 'committed before', 'changed'));
+	expectOk(await folder.tables.todos.set('milk', { status: 'done' }));
+
+	const status = expectOk(await folder.git.status());
+	expect(status.changes.map((change) => change.path).sort()).toEqual([
+		'audio/kept.wav',
+		'todos/milk.md',
+	]);
+	expect((await folder.git.commit()).status).toBe('committed');
+	expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+		'audio/kept.wav',
+		'epicenter.json',
+		'todos/milk.md',
+	]);
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(existsSync(join(root, '.gitignore'))).toBe(false);
+	await folder.close();
 });

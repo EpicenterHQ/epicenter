@@ -52,12 +52,20 @@ const definition = defineFolder({
   },
 });
 
-const { data: folder, error } = await openFolder({ id: 'so.epicenter.todos', definition });
+// `app` is your app's id. Its own folder is named after it.
+const { data: folder, error } = await openFolder({ app: 'so.epicenter.todos', definition });
 if (error !== null) throw error;
 
 const listed = await folder.tables.todos.list();   // one { stem, result } per row file
 await folder.tables.todos.create({ fields: { title: 'Milk', done: false }, body: '' });
 ```
+
+One rule decides what the folder does with your definition: a folder's
+`epicenter.json` is written only by the app the folder is named after. In a
+browser your app opens its own folder. In the desktop app it opens the folder
+a person chose "Open in" on, or its own; `folder.own` says which. Any other
+folder is read through your definition: it must declare your tables, and its
+`epicenter.json` is never written.
 
 The same handle opens in a browser tab (the origin's private file system), a
 desktop page (`~/Epicenter/<folder-id>/`, through the desktop shell), and a Bun

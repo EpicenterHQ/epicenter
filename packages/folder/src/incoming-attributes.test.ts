@@ -146,7 +146,7 @@ async function incoming(kind: 'browser' | 'directory') {
 		);
 		folder = expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.incomingtest',
+				app: 'so.epicenter.incomingtest',
 				definition,
 				browser: {
 					author,

@@ -64,10 +64,10 @@ function fresh() {
 }
 fresh();
 
-async function open(options: { id?: string; hints?: boolean } = {}) {
+async function open(options: { app?: string; hints?: boolean } = {}) {
 	const folder = expectOk(
 		await openFolder({
-			id: options.id ?? 'test',
+			app: options.app ?? 'test',
 			definition,
 			browser: {
 				author,
@@ -495,7 +495,7 @@ describe('address and history', () => {
 		expect(decoder.decode(opfs.files('test').get('epicenter.json'))).toBe(
 			formatDeclaration(definition),
 		);
-		const other = await open({ id: 'other' });
+		const other = await open({ app: 'other' });
 		expectOk(await other.write('who.md', null, 'other'));
 		expect(decoder.decode(opfs.files('other').get('who.md'))).toBe('other');
 	});
@@ -505,7 +505,7 @@ describe('address and history', () => {
 			expect(
 				expectErr(
 					await openFolder({
-						id,
+						app: id,
 						definition,
 						browser: { author, opfs: opfsEnvironment(opfs) },
 					}),

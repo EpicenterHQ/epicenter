@@ -7,7 +7,7 @@
  * syncs, the merge commit names what lost, and the other copy receives it.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { openDataFolder } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder';
 import { compileModule } from 'svelte/compiler';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -88,7 +88,7 @@ async function setup() {
 async function elsewhere(workspace: (typeof opened)[number]) {
 	const { location } = workspace.folder;
 	if (location.kind !== 'opfs') throw new Error('Expected a browser copy');
-	const opened = await openDataFolder({ id: location.directory });
+	const opened = await openFolder({ id: location.directory });
 	if (opened.error !== null) throw new Error(opened.error.message);
 	others.push(opened.data);
 	return opened.data;

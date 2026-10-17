@@ -155,8 +155,9 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
  * Read a folder's own `epicenter.json` through `storage` and prepare it, as
- * `readFolder` and `openDataFolder` both do: `undefined` when the folder has
- * none, or why the file cannot be used. It writes nothing.
+ * `readFolder` does and `openFolder` does for any folder but an app's own:
+ * `undefined` when the folder has none, or why the file cannot be used. It
+ * writes nothing.
  */
 export async function readDeclaration(
 	storage: Pick<FolderStorage, 'read'>,

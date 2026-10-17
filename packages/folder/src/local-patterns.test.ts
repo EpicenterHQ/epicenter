@@ -212,7 +212,7 @@ async function browserFixture(): Promise<Opened> {
 		async open(withDefinition = definition) {
 			const folder = expectOk(
 				await openBrowserFolder({
-					id: 'local-patterns',
+					app: 'local-patterns',
 					definition: withDefinition,
 					browser: { author, httpFetch, ...browserStorage(storage) },
 				}),

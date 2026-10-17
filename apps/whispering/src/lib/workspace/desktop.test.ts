@@ -11,7 +11,7 @@
  * WebView.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, opened
- * through `connectionsLens`. The AI commands are scripted with the code the
+ * through `connectionsDefinition`. The AI commands are scripted with the code the
  * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
  * a stubbed endpoint, so a test about a key or a request runs against what
  * the CLI really checks and sends.
@@ -20,10 +20,13 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { connectionsLens } from '@epicenter/ai/connection-table';
+import { dirname, join } from 'node:path';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsDefinition,
+} from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -45,6 +48,7 @@ import {
 import { toneWav } from '../capture.js';
 import type { ConnectionCommands } from './desktop-connections.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
+import { WHISPERING_FOLDER_ID } from './types.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
@@ -110,7 +114,11 @@ afterEach(async () => {
 async function granted() {
 	const directory = await grantedDirectory();
 	cleanups.push(() => rm(directory, { recursive: true, force: true }));
-	shell = createGrantedShell(directory);
+	// The window runs Whispering on its own folder.
+	shell = createGrantedShell(directory, {
+		app: WHISPERING_FOLDER_ID,
+		folder: WHISPERING_FOLDER_ID,
+	});
 	// The recorder plugin beside the folder: no recording was ever cut off
 	// here, so there is nothing to repair.
 	const folderCommands = shell.invoke;
@@ -167,7 +175,12 @@ type ProviderCall = {
  * page is never handed it.
  */
 async function epicenter() {
-	const root = await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-'));
+	// Epicenter's own folder, named after it, where the CLI publishes.
+	const root = join(
+		await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-')),
+		CONNECTIONS_FOLDER_ID,
+	);
+	await mkdir(root);
 	const keychain = createMemorySecrets();
 	const provider: ProviderCall[] = [];
 	/** Every line the page was sent. */
@@ -253,7 +266,7 @@ async function epicenter() {
 			return { status: 'ok', data: { ...exit, reply: null }, error: null };
 		},
 	} as ConnectionCommands;
-	cleanups.push(() => rm(root, { recursive: true, force: true }));
+	cleanups.push(() => rm(dirname(root), { recursive: true, force: true }));
 	return {
 		root,
 		keychain,
@@ -263,7 +276,8 @@ async function epicenter() {
 		open: () =>
 			openBunFolder({
 				root,
-				definition: connectionsLens,
+				app: CONNECTIONS_FOLDER_ID,
+				definition: connectionsDefinition,
 				git: { author: { name: 'Test', email: 'test@localhost' } },
 			}),
 		lose(next: boolean) {
@@ -318,11 +332,15 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 		await openDesktopWorkspace({ commands: noCommands }),
 	);
 
-	// No root, author, or branch: the shell decided all of them.
-	expect(calls[0]).toEqual({ cmd: 'grant_directory', args: { scope: SCOPE } });
+	// The window's folder comes from the shell, and then no root, author, or
+	// branch: the shell decided all of them.
+	expect(calls.slice(0, 2)).toEqual([
+		{ cmd: 'window_folder', args: {} },
+		{ cmd: 'grant_directory', args: { scope: SCOPE } },
+	]);
 	expect(sent('grant_directory')).toHaveLength(1);
 	// Everything after the grant names the folder, never another.
-	for (const call of calls.slice(1)) expect(call.args.scope).toBe(SCOPE);
+	for (const call of calls.slice(2)) expect(call.args.scope).toBe(SCOPE);
 	expect(workspace.location).toBe(root);
 	expect(workspace.folder.git.snapshot.branch).toBe('main');
 	// Opening made no repository; the first commit does.
@@ -355,7 +373,10 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 			expect<string>(refused.refusal.name).toBe(
 				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
 			);
-		expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
+		expect(calls.map((call) => call.cmd)).toEqual([
+			'window_folder',
+			'grant_directory',
+		]);
 	}
 });
 

@@ -4,7 +4,7 @@
 	 * every data folder under the Epicenter folder, the apps that open each,
 	 * every other app, and the one folder opened. The shell lists the folders
 	 * (`list_data_folders`) and permits this window into each, so
-	 * `openDataFolder({ id })` opens one with its own `epicenter.json`, which
+	 * `openFolder({ id })` opens one with its own `epicenter.json`, which
 	 * it never writes. One folder is open at a time; choosing another closes
 	 * it first. A folder whose `epicenter.json` changes while it is open is
 	 * opened again, so its grid follows the new declaration.
@@ -21,7 +21,7 @@
 	 * "Open in" opens an installed app on that folder through the same verb
 	 * as the Apps list, which opens it on its own folder (ADR-0552). Every
 	 * installed app that can run is offered on every folder (`openers.ts`,
-	 * ADR-0560); the app refuses a folder its lens does not fit. The Settings button
+	 * ADR-0560); the app refuses a folder its definition does not fit. The Settings button
 	 * opens Settings with `open_home`.
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
@@ -34,7 +34,7 @@
 	 */
 	import type { Folder, FolderDefinition } from '@epicenter/folder';
 	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
-	import { openDataFolder } from '@epicenter/folder/tauri';
+	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -99,7 +99,7 @@
 	/** What the shell is doing for an app, said while it does it. */
 	let busy = $state<string | undefined>(undefined);
 
-	/** The apps every folder offers; each app's lens refuses a folder that does not fit. */
+	/** The apps every folder offers; each app refuses a folder its definition does not fit. */
 	const openers = $derived(installedOpeners(installed));
 	/** Each listed folder with the apps it offers. */
 	const listed = $derived(
@@ -215,7 +215,7 @@
 		release = undefined;
 		// One handle at a time: closing releases what this window holds.
 		await previous?.folder.close();
-		const { data, error } = await openDataFolder({ id });
+		const { data, error } = await openFolder({ id });
 		if (seq !== openSeq) {
 			await data?.close();
 			return;

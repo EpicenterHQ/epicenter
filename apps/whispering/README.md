@@ -96,7 +96,7 @@ repository, runs `bun install` at its root and `bun run build:installed` here,
 and serves `dist/` at `/apps/so.epicenter.whispering/`. Opening Whispering
 from the Apps list opens its own folder, `so.epicenter.whispering`, under
 Epicenter's folder root. "Open in Whispering" beside another folder opens that
-folder through Whispering's definition as a lens, never rewriting its
+folder through Whispering's definition, never rewriting its
 `epicenter.json`, and refuses one that lacks Whispering's tables, naming the
 folder. To try a change, commit it in the installed clone,
 `~/Epicenter/Apps/so.epicenter.whispering/`, and open the app again; a commit

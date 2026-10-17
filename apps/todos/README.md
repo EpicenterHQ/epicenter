@@ -157,14 +157,15 @@ or reloading drops it.
 The Rust shell registers the Todos folder under the ID the page opens,
 `so.epicenter.todos`, the first time installed Todos is opened without a
 folder or the Folders window lists it, and permits the Todos window into it
-(an installed app's own folder, ADR-0552). The shell hands each Todos window
-its folder's scope as `?folder=` in the window's URL (`open_installed_app`):
-`so.epicenter.todos`, or the scope the Folders window listed for another
-folder. For its own folder, or when handed none, Todos calls `openFolder`
-from `@epicenter/folder/tauri` with its definition; for any other folder it
-calls `openDataFolder` with its definition as the lens, which never writes
-that folder's declaration and refuses one without Todos's shape. Either asks
-the shell to grant the folder (`grant_directory`). The first grant creates the directory if it
+(an installed app's own folder, ADR-0552). The shell opens each Todos window
+on one folder and answers the page which (`window_folder`,
+`open_installed_app`): `so.epicenter.todos`, or the scope the Folders window
+listed for another folder. Todos calls `openFolder({ app, definition })` from
+`@epicenter/folder/tauri`, which opens that folder. In its own folder it publishes Todos's definition; any other it
+reads through the definition, never writing that folder's declaration and
+refusing one without Todos's tables (ADR-0583). `folder.own` says which, and
+only Todos's own folder offers Connect. Either way it asks the shell to grant
+the folder (`grant_directory`). The first grant creates the directory if it
 is missing, refuses a linked `.git`, and takes the cross-process lock. The
 Todos window then reads and changes that directory alone, through the folder
 plugin's commands.
@@ -424,7 +425,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
 | `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. It turns a failed write into a toast with **Copy your text**. |
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the folder the host handed the window (`?folder=`, its own when none) through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
+| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the folder the host handed the window (`window_folder`) through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528, ADR-0548): its own TanStack `QueryClient` with every rule (never stale, no retry, no focus refetch), the one line that wires `folder.onFilesChanged` to the cache, the browser leave check, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |

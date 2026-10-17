@@ -12,7 +12,7 @@ import { HONEYCRISP_FOLDER_ID, type OpenNotesFolder } from './types.js';
 /** Called from the mounted page; importing this module opens nothing. */
 export const openNotesFolder: OpenNotesFolder = async () => {
 	const { data: folder, error } = await openFolder({
-		id: HONEYCRISP_FOLDER_ID,
+		app: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
 		browser: { author: { name: 'Honeycrisp', email: 'honeycrisp@localhost' } },
 	});

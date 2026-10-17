@@ -53,7 +53,7 @@ async function setup({
 	if (remote !== undefined) await configureRemote(storage, id, remote);
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition: todosDefinition,
 			browser: { ...browserStorage(storage) },
 		}),

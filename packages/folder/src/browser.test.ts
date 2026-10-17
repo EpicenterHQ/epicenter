@@ -45,11 +45,11 @@ const author = { name: 'Browser', email: 'browser@example.test' };
 let environment: TestStorage;
 const opened: Folder<typeof definition>[] = [];
 
-async function open(options: { id?: string } = {}) {
+async function open(options: { app?: string } = {}) {
 	environment ??= createTestStorage();
 	const folder = expectOk(
 		await openFolder({
-			id: options.id ?? 'test',
+			app: options.app ?? 'test',
 			definition,
 			browser: {
 				author,
@@ -84,7 +84,7 @@ describe('browser folder tables', () => {
 		expect((await history.commit()).status).toBe('committed');
 		const previous = await backend.readBranch();
 		await history.close();
-		const folder = await open({ id: 'legacy-branch' });
+		const folder = await open({ app: 'legacy-branch' });
 		expectOk(await folder.write('saved.txt', null, 'saved'));
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'blocked',
@@ -331,7 +331,7 @@ describe('browser folder tables', () => {
 		});
 		const folder = expectOk(
 			await openFolder({
-				id: 'references',
+				app: 'references',
 				definition: withReference,
 				browser: {
 					author,
@@ -517,7 +517,7 @@ describe('browser folder persistence and history', () => {
 			);
 			const folder = expectOk(
 				await openFolder({
-					id: 'stall',
+					app: 'stall',
 					definition,
 					browser: {
 						author,

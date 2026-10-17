@@ -186,8 +186,8 @@ whose README states what a grant allows. What that means for Capture:
 
 ```text
 Capture window (WebView)
-   openFolder({ id, definition })     its own folder, from @epicenter/folder/tauri
-   openDataFolder({ id, lens })       any other folder it is handed
+   openFolder({ app, definition })    the folder it is handed, or its own,
+                                      from @epicenter/folder/tauri
    the folder engine, in the page
         |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
         |  plugin:epicenter-folder|list_folder, read_folder_children,
@@ -199,21 +199,22 @@ Capture window (WebView)
 Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 ```
 
-The page names the folder by its scope and nothing else. The shell hands the
-window that scope as `?folder=` in its URL (`open_installed_app`): Capture's
-own, `so.epicenter.capture` (`CAPTURE_FOLDER_ID` in
-`src/lib/platform/types.ts`), or the scope the Folders window listed for
-another folder. A window handed none opens Capture's own. The shell registers
+The page names the folder by its scope and nothing else. The shell opens the
+window on one folder and answers the page which (`window_folder`,
+`open_installed_app`): Capture's own, `so.epicenter.capture`
+(`CAPTURE_FOLDER_ID` in `src/lib/platform/types.ts`), or the scope the
+Folders window listed for another folder. The shell registers
 Capture's own scope with its directory and a fallback author as an installed
 app's own folder, and permits the Capture window into the folder it hands it
 (ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
 its files.
 
-`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. For
-Capture's own folder it calls `openFolder` from `@epicenter/folder/tauri`
-with `captureDefinition`; for any other folder it calls `openDataFolder` with
-`captureDefinition` as the lens, which never writes that folder's declaration
-and refuses one without Capture's shape. Either asks the shell for the
+`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. It
+calls `openFolder({ app, definition: captureDefinition })` from
+`@epicenter/folder/tauri`, which publishes `captureDefinition` only to
+Capture's own folder and reads any other through it, never writing that
+folder's declaration and refusing one without Capture's tables. Either way it
+asks the shell for the
 directory and opens it, or returns why it cannot, and the leaf hands the
 folder to the same store the
 browser build uses. The browser leaf calls `openFolder`

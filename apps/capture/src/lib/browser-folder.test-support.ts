@@ -32,7 +32,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	const counter = { mdWrites: 0 };
 	const folder = expectOk(
 		await openFolder({
-			id: `capture-test-${count++}`,
+			app: `capture-test-${count++}`,
 			definition: captureDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },

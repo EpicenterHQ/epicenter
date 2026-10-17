@@ -160,7 +160,8 @@ terminal finds `epicenter` once `~/.local/bin` is on `PATH`: add
 
 `declare-epicenter-folder` publishes `so.epicenter`'s declaration
 (`src/epicenter-folder.ts`), which the desktop app runs at every launch so an
-installed app's lens on its `connections` table fits before any app opens.
+installed app reading its `connections` table through its definition finds
+the table before any app opens.
 
 ## Signing in
 

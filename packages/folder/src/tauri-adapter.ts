@@ -11,36 +11,34 @@
  * and nothing else; the root is the shell's, and `credentials` and
  * `browser` options do not apply here.
  *
+ * The shell opens each installed app's window on one folder and records,
+ * for that window, which app it runs and which folder it was handed
+ * (`window_folder`): the app's own folder, named by the app's id, or any
+ * other folder a person chose "Open in" on (ADR-0560). An app opener asks
+ * the shell for it, so neither the page's URL nor its navigation decides
+ * the folder, and a page cannot open another app's folder as that app.
+ *
  * This module exports the opener alone. `tauri.ts` is the public entry; the
  * automatic entry loads this module directly. The engine is a chunk loaded
  * only once the shell grants a folder.
  *
- * `openDataFolder` opens a registered folder the same way, with the schema
- * in its own `epicenter.json`, until the shell issues opaque grants for
- * folders a person picks.
- *
- * Outside the desktop app these openers refuse. Inside it, a missing plugin, a
+ * Outside the desktop app the opener refuses. Inside it, a missing plugin, a
  * window without permission, or an unknown folder is returned as the refusal
  * it is. Nothing here opens browser storage.
  */
 
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type {
-	OpenDataFolder,
-	OpenDataFolderOptions,
-	OpenFolder,
-} from './contract.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import type { OpenFolder, OpenFolderOptions } from './contract.js';
+import type { FolderDefinition } from './definition.js';
 import { OpenFolderError } from './errors.js';
+import type { Folder } from './folder.js';
 import {
 	commands,
 	type GrantError,
 	type Granted,
 } from './native/bindings.gen.js';
+import { opening } from './opening.js';
 
 /** What a refused grant tells the page. */
 function grantRefusal(refusal: GrantError) {
@@ -84,51 +82,61 @@ async function grant(id: string): Promise<Result<Granted, OpenFolderError>> {
 }
 
 /**
- * Open the folder the shell registered under `id`. Refusals are returned, not
- * thrown: not running in the shell, a missing ID, a folder this window may
- * not use.
+ * The folder the shell handed this window, which must be running `app`.
+ * Refused when the window runs another app, or none.
  */
-export const openFolder: OpenFolder = async ({ definition, id }) => {
-	const { data: prepared, error: definitionError } =
-		prepareFolderDefinition(definition);
-	if (definitionError !== null)
-		return OpenFolderError.InvalidDefinition(definitionError);
-	const { data: granted, error } = await grant(id);
-	if (error !== null) return Err(error);
-	const { openGrantedFolder } = await import('./tauri-directory.js');
-	return openGrantedFolder<typeof definition>({
-		schema: prepared,
-		id,
-		granted,
-	});
-};
+async function handedFolder(
+	app: string,
+): Promise<Result<string, OpenFolderError>> {
+	let handed: Awaited<ReturnType<typeof commands.windowFolder>>;
+	try {
+		handed = await commands.windowFolder();
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	if (handed?.app !== app)
+		return OpenFolderError.AppMismatch({
+			app,
+			windowApp: handed?.app ?? null,
+		});
+	return Ok(handed.folder);
+}
 
 /**
- * Open the folder the shell registered under `id` with the schema in its own
- * `epicenter.json`, which the handle never writes. Refused as `openFolder`
- * is, with `InvalidDeclaration` for an `epicenter.json` that cannot be
- * used, and with `ShapeMismatch` for one that does not contain the `lens`.
- * Opening creates no repository; the first commit does.
+ * Open a folder the shell registered: for `app`, the folder the shell
+ * handed this window, which must be running `app`; for `id`, that folder.
+ * Refusals are returned, not thrown: not running in the shell, a window
+ * that runs another app or none (`AppMismatch`), a missing ID, a
+ * folder this window may not use, an `epicenter.json` that cannot be used,
+ * or one that does not contain the definition. Opening creates no
+ * repository; the first commit does.
  */
-export const openDataFolder: OpenDataFolder = async <
-	const TLens extends FolderDefinition = FolderDefinition,
->({
-	id,
-	lens,
-}: OpenDataFolderOptions<TLens>) => {
-	let shape: FolderDefinition | undefined;
-	if (lens !== undefined) {
-		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
-		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
-		shape = prepared;
+export async function openAnyFolder<
+	const TDefinition extends FolderDefinition = FolderDefinition,
+>(
+	options: OpenFolderOptions<TDefinition>,
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+	if (!isTauri()) return OpenFolderError.NotTauri();
+	let id: string;
+	if (options.app === undefined) id = options.id;
+	else {
+		const { data: handed, error: handedError } = await handedFolder(
+			options.app,
+		);
+		if (handedError !== null) return Err(handedError);
+		id = handed;
 	}
+	const { data: target, error: definitionError } = opening(
+		id,
+		options.app,
+		options.definition,
+	);
+	if (definitionError !== null) return Err(definitionError);
 	const { data: granted, error } = await grant(id);
 	if (error !== null) return Err(error);
 	const { openGrantedFolder } = await import('./tauri-directory.js');
-	return openGrantedFolder<TLens, FolderDefinition>({
-		schema: 'declared',
-		lens: shape,
-		id,
-		granted,
-	});
-};
+	return openGrantedFolder<TDefinition>({ opening: target, granted });
+}
+
+/** The opener, every form typed (`OpenFolder`). */
+export const openFolder: OpenFolder = openAnyFolder;

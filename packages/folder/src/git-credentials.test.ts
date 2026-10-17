@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { defineFolder, openFolder } from './browser.js';
 import {
@@ -114,7 +114,7 @@ test('a browser folder sends the credential it is given to that remote alone, fo
 	};
 	const folder = expectOk(
 		await openFolder({
-			id: 'com.example.credentials',
+			app: 'com.example.credentials',
 			definition,
 			credentials,
 			browser: {
@@ -151,7 +151,7 @@ test('a browser folder without a credential is refused by a server that needs on
 	const { serve, seen } = await guardedGit(root);
 	const folder = expectOk(
 		await openFolder({
-			id: 'com.example.refused',
+			app: 'com.example.refused',
 			definition,
 			credentials: async () => undefined,
 			browser: {
@@ -196,6 +196,7 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 	const asked: string[] = [];
 	const folder = expectOk(
 		await openBunFolder({
+			app: basename(directory),
 			root: directory,
 			definition,
 			git: {

@@ -362,8 +362,8 @@ pub fn run() {
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
-            // An installed app may read `so.epicenter` through a lens, so its
-            // declaration is published before any app opens.
+            // An installed app may read `so.epicenter` through a definition,
+            // so its declaration is published before any app opens.
             app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
             // Every window's page comes from the scheme, which reads these.
             app.manage(scheme::Roots {
@@ -655,33 +655,25 @@ pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
     }
 }
 
-/// Open installed app `id`, served at `/apps/<id>/`, in its own window, or
-/// reveal the one already open on the same folder. With `folder`, a
-/// registered scope, the window is permitted into it and the app is handed
-/// it as `?folder=<scope>`; an app opens it with `openDataFolder({ id, lens })`
-/// (ADR-0538). Every app's window is also permitted into `so.epicenter`,
-/// whose `connections` table its AI commands name (ADR-0557, ADR-0570).
-/// Approving an app trusts it fully (ADR-0540), so the shell does not check
-/// its shape against the folder.
+/// Open installed app `id`, served at `/apps/<id>/`, in its own window on
+/// `folder`, a registered scope, or reveal the one already open on it. The
+/// window is permitted into the folder and into `so.epicenter`, and handed
+/// the folder (`data_folders::admit_installed_window`): the app's
+/// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
+/// and opens it through the app's definition unless it is the app's own
+/// (ADR-0538, ADR-0583). The URL names no folder, so the page's navigation
+/// and reloads cannot lose or change it. Approving an app trusts it fully
+/// (ADR-0540), so the shell does not check its shape against the folder.
 pub(crate) fn open_installed_window(
     app: &DesktopAppHandle,
     id: &str,
     title: &str,
-    folder: Option<&str>,
+    folder: &str,
 ) -> Result<()> {
-    let label = installed_window_label(id, folder);
-    if let Some(folder) = folder {
-        app.folders()
-            .permit(folder, &label)
-            .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
-    }
-    app.folders()
-        .permit(data_folders::EPICENTER_FOLDER, &label)
-        .map_err(|error| anyhow!("the app cannot open Epicenter's folder: {error:?}"))?;
-    let mut url = scheme::url(&format!("/apps/{id}/"))?;
-    if let Some(folder) = folder {
-        url.query_pairs_mut().append_pair("folder", folder);
-    }
+    let label = installed_window_label(id, Some(folder));
+    data_folders::admit_installed_window(app.folders(), &label, id, folder)
+        .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
+    let url = scheme::url(&format!("/apps/{id}/"))?;
     let title = format!("Epicenter: {title}");
 
     let (sender, receiver) = mpsc::sync_channel(1);

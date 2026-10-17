@@ -5,13 +5,12 @@
  * change and runs the folder's `git`. It opens through the desktop entry
  * only, which refuses outside the shell.
  *
- * The shell opens the window with the folder it hands it as `?folder=<scope>`
- * (`open_installed_app`): Capture's own folder, `CAPTURE_FOLDER_ID`, or
- * another folder whose declaration contains Capture's shape (ADR-0538). A
- * window handed no folder opens Capture's own. Capture owns its own folder's
- * schema, so `openHandedFolder` publishes `captureDefinition` to that folder
- * and reads any other through it as a lens, refusing one that does not
- * contain it by name.
+ * The shell opens the window on one folder and answers the page which
+ * (`window_folder`): Capture's own folder, `CAPTURE_FOLDER_ID`, or another
+ * folder whose declaration contains Capture's tables (ADR-0538).
+ * `openFolder` publishes `captureDefinition` only to Capture's own folder,
+ * the one named after it, and reads any other through it, refusing one that
+ * does not contain it by name.
  *
  * The page names the folder by its scope and nothing else; the shell chose
  * the directory, the fallback author, and the windows that may use it. The
@@ -24,16 +23,15 @@
  * Quitting Epicenter asks this window nothing (ADR-0542).
  */
 import { captureDefinition } from '@epicenter/capture';
-import { openHandedFolder } from '@epicenter/folder/tauri';
+import { openFolder } from '@epicenter/folder/tauri';
 import { CAPTURE_FOLDER_ID, type OpenCaptureFolder } from './types.js';
 
 /** Called from a mounted component; importing this module opens nothing. */
 export const openCaptureFolder: OpenCaptureFolder = async () => {
-	const { data, error } = await openHandedFolder({
-		ownId: CAPTURE_FOLDER_ID,
+	const { data: folder, error } = await openFolder({
+		app: CAPTURE_FOLDER_ID,
 		definition: captureDefinition,
-		appTitle: 'Capture',
 	});
 	if (error) throw new Error(error.message, { cause: error });
-	return data.folder;
+	return folder;
 };

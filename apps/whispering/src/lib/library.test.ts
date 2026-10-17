@@ -33,17 +33,8 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
-import {
-	mkdir,
-	mkdtemp,
-	readdir,
-	readFile,
-	realpath,
-	rm,
-	writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { pathProblem } from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
@@ -67,6 +58,7 @@ import {
 	type ResultFailures,
 	TEST_BASE_URL,
 	testConnections,
+	whisperingDirectory,
 	withObstructedCreates,
 	withResultFailures,
 } from './workspace.test-support.js';
@@ -111,9 +103,7 @@ async function open({
 	root,
 	connections,
 }: Options = {}) {
-	const directory =
-		root ??
-		(await realpath(await mkdtemp(join(tmpdir(), 'whispering-library-'))));
+	const directory = root ?? (await whisperingDirectory('whispering-library-'));
 	if (root === undefined) roots.push(directory);
 	const folder = await openTestFolder(directory);
 	/** Result row writes still to fail. A test may arm more after opening. */
@@ -175,7 +165,7 @@ async function open({
 afterEach(async () => {
 	for (const library of opened.splice(0)) await library.close();
 	for (const root of roots.splice(0))
-		await rm(root, { recursive: true, force: true });
+		await rm(dirname(root), { recursive: true, force: true });
 });
 
 const git = (root: string, ...args: string[]) =>

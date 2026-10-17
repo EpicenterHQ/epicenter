@@ -35,8 +35,8 @@ import type { LocalTranscription } from './local-transcription.js';
 
 /**
  * A folder read through Whispering's definition: Whispering's own, whose
- * declaration is that definition, or another folder opened with it as the
- * lens, whose declaration is its own `epicenter.json`.
+ * declaration is that definition, or another folder read through it, whose
+ * declaration is its own `epicenter.json`.
  */
 export type WhisperingFolder = Folder<
 	typeof whisperingDefinition,

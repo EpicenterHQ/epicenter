@@ -22,7 +22,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { holdingFileLock, openDataFolder } from './bun.js';
+import { holdingFileLock, openFolder } from './bun.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { NothingChanged } from './errors.js';
@@ -70,7 +70,7 @@ test('a write waits for another process holding the save lock, then merges with 
 	const target = join(root, 'note.txt');
 	try {
 		await writeFile(target, 'old');
-		const folder = expectOk(await openDataFolder({ root, git: { author } }));
+		const folder = expectOk(await openFolder({ root, git: { author } }));
 
 		// Another process takes the lock as the shell does, and on a line from
 		// stdin lands its own save, then lets go.
@@ -144,9 +144,9 @@ test('two processes appending to one file through the one write keep every line 
 					'bun',
 					'-e',
 					`
-					const { openDataFolder } = await import(${JSON.stringify(join(import.meta.dir, 'bun.ts'))});
+					const { openFolder } = await import(${JSON.stringify(join(import.meta.dir, 'bun.ts'))});
 					const [root, rounds] = process.argv.slice(-2);
-					const { data: folder, error } = await openDataFolder({
+					const { data: folder, error } = await openFolder({
 						root,
 						git: { author: { name: 'Appender', email: 'appender@localhost' } },
 					});

@@ -78,7 +78,10 @@ export function localMatcher(
 
 /**
  * Keep tracked files and untracked files that are not ignored, never a file
- * `isLocal` matches.
+ * `isLocal` matches. `isAppLocal`, the `local` patterns of an app that reads
+ * a folder it is not the owner of, leaves out only untracked files: what the
+ * app keeps on this machine never enters that folder's history, and what the
+ * folder already tracks stays tracked, since its own declaration says so.
  */
 export async function sourceFiles(
 	current: ReadonlyMap<string, Uint8Array>,
@@ -88,9 +91,10 @@ export async function sourceFiles(
 		current: ReadonlyMap<string, Uint8Array>,
 	) => Promise<ReadonlySet<string>>,
 	isLocal: (path: string) => boolean = () => false,
+	isAppLocal: (path: string) => boolean = () => false,
 ): Promise<Map<string, Uint8Array>> {
 	const candidates = [...current.keys()].filter(
-		(path) => !tracked.has(path) && !isLocal(path),
+		(path) => !tracked.has(path) && !isLocal(path) && !isAppLocal(path),
 	);
 	const ignored =
 		candidates.length === 0
@@ -98,6 +102,11 @@ export async function sourceFiles(
 			: await ignoredPaths(candidates, current);
 	const source = new Map<string, Uint8Array>();
 	for (const [path, bytes] of current)
-		if (!ignored.has(path) && !isLocal(path)) source.set(path, bytes);
+		if (
+			!ignored.has(path) &&
+			!isLocal(path) &&
+			(tracked.has(path) || !isAppLocal(path))
+		)
+			source.set(path, bytes);
 	return source;
 }

@@ -14,7 +14,7 @@ import { CAPTURE_FOLDER_ID, type OpenCaptureFolder } from './types.js';
 /** Called from a mounted component; importing this module opens nothing. */
 export const openCaptureFolder: OpenCaptureFolder = async () => {
 	const { data: folder, error } = await openFolder({
-		id: CAPTURE_FOLDER_ID,
+		app: CAPTURE_FOLDER_ID,
 		definition: captureDefinition,
 		// Saves never commit; a version is recorded only when a person saves one (ADR-0529).
 		// History stays in this browser, with no remote to push to.

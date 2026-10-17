@@ -27,7 +27,7 @@ screen with the refusal's message. Nothing opens on import.
 <!-- +layout.svelte -->
 <script lang="ts">
 	let { children } = $props();
-	const opening = openFolder({ id: 'so.epicenter.reading', definition: reading });
+	const opening = openFolder({ app: 'so.epicenter.reading', definition: reading });
 </script>
 
 {#await opening}

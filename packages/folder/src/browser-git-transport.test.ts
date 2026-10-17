@@ -38,7 +38,7 @@ test('a folder routes only its Git requests through the injected transport and k
 	});
 	const open = () =>
 		openFolder({
-			id: 'com.example.transport',
+			app: 'com.example.transport',
 			definition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },

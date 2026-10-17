@@ -1,9 +1,10 @@
 ## Default Permission
 
-Ask for the folder the shell registered for this window, then read and change its files through the shell.
+Ask which app this window runs and the folder the shell handed it, ask for the folder the shell registered for this window, then read and change its files through the shell.
 
 #### This default permission set includes the following:
 
+- `allow-window-folder`
 - `allow-grant-directory`
 - `allow-list-folder`
 - `allow-read-folder-children`
@@ -199,6 +200,32 @@ Enables the remove_folder_directory command without any pre-configured scope.
 <td>
 
 Denies the remove_folder_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-window-folder`
+
+</td>
+<td>
+
+Enables the window_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-window-folder`
+
+</td>
+<td>
+
+Denies the window_folder command without any pre-configured scope.
 
 </td>
 </tr>

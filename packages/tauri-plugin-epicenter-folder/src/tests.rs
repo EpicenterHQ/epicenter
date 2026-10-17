@@ -27,6 +27,8 @@
 //!   its scope hears what changed outside it, as folder-relative paths, a
 //!   ref moving as `.git`, and everything when watching begins; Git's own
 //!   noise and other windows hear nothing.
+//! - `window_folder` answers each window the app and folder the shell handed
+//!   it, and `None` to a window it handed nothing; a page cannot set it.
 //! - After shutdown, a late change is refused.
 //! - A window without the plugin's permission cannot call it.
 
@@ -44,7 +46,7 @@ use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
-use crate::{init, FolderConfig, FolderExt, ScopeConfig, COMMANDS};
+use crate::{init, FolderConfig, FolderExt, ScopeConfig, WindowFolder, COMMANDS};
 
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -351,6 +353,44 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
     write(&fixture, &side, "b.md", "side's\n").unwrap();
     assert_eq!(read_file(&main, "notes", "b.md").unwrap(), b"side's\n");
     assert!(text(&grant(&other).unwrap_err()).contains("WindowNotPermitted"));
+}
+
+#[test]
+fn each_window_is_answered_the_app_and_folder_the_shell_handed_it() {
+    let fixture = fixture("handed");
+    let todos = window(&fixture.app, "app:so_epicenter_todos:6e6f746573");
+    let settings = window(&fixture.app, "home");
+    let plain = window(&fixture.app, "main");
+    fixture.app.folders().hand(
+        todos.label(),
+        WindowFolder {
+            app: "so.epicenter.todos".into(),
+            folder: "notes".into(),
+        },
+    );
+    fixture.app.folders().hand(
+        settings.label(),
+        WindowFolder {
+            app: "so.epicenter".into(),
+            folder: "so.epicenter".into(),
+        },
+    );
+
+    assert_eq!(
+        invoke(&todos, "window_folder", json!({})).unwrap(),
+        json!({ "app": "so.epicenter.todos", "folder": "notes" })
+    );
+    assert_eq!(
+        invoke(&settings, "window_folder", json!({})).unwrap(),
+        json!({ "app": "so.epicenter", "folder": "so.epicenter" })
+    );
+    // A window the shell handed nothing runs no app.
+    assert_eq!(invoke(&plain, "window_folder", json!({})).unwrap(), Value::Null);
+    // The answer is the window's, whatever the page passes or navigates to.
+    assert_eq!(
+        invoke(&todos, "window_folder", json!({ "folder": "so.epicenter" })).unwrap()["folder"],
+        "notes"
+    );
 }
 
 /// A data folder is opened only as a person left it: a missing one is

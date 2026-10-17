@@ -77,13 +77,16 @@ const SEED = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n';
 /** The library over the desktop opener, in a granted directory holding `files`. */
 async function open(files: Record<string, string>, path = PATH) {
 	const root = await grantedDirectory();
-	shell = createGrantedShell(root);
+	shell = createGrantedShell(root, {
+		app: WHISPERING_FOLDER_ID,
+		folder: WHISPERING_FOLDER_ID,
+	});
 	for (const [path, text] of Object.entries(files))
 		await shell.write(path, text);
 	const stubs = await openTestWorkspace();
 	const folder = expectOk(
 		await openFolder({
-			id: WHISPERING_FOLDER_ID,
+			app: WHISPERING_FOLDER_ID,
 			definition: whisperingDefinition,
 		}),
 	);

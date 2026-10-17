@@ -75,7 +75,7 @@ export function nativeHistory({
 			(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined
 		)
 			await readIdentity();
-		return (prepared) =>
+		return (prepared, appLocal) =>
 			createHistory({
 				backend,
 				boundary,
@@ -90,6 +90,7 @@ export function nativeHistory({
 					},
 				},
 				definition: prepared,
+				appLocal,
 				landed,
 			});
 	};

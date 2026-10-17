@@ -1,7 +1,7 @@
 /**
  * Data Folder Tests
  *
- * `openDataFolder` from `@epicenter/folder/bun` opens a directory that already
+ * `openFolder` from `@epicenter/folder/bun` opens a directory that already
  * exists with the schema in its own `epicenter.json` (ADR-0535).
  *
  * Key behaviors:
@@ -20,20 +20,20 @@
  * - The first commit of a folder inside another repository's working tree is
  *   `blocked`, and creates no repository of its own
  * - Sync merges rows by the folder's own declaration
- * - A browser folder opened by `openDataFolder` reads with its own
+ * - A browser folder opened by `openFolder` reads with its own
  *   declaration, as of the open, and never writes it
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openDataFolder as openBrowserDataFolder } from './browser.js';
+import { openFolder as openBrowserDataFolder } from './browser.js';
 import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import { openDataFolder, openFolder, readFolder } from './bun.js';
+import { openFolder, readFolder } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import {
 	createBareRemote,
@@ -75,7 +75,7 @@ async function dataFolder(prefix: string) {
 
 test('opens with its own declaration and never writes it', async () => {
 	const root = await dataFolder('data-folder-declared-');
-	const folder = expectOk(await openDataFolder({ root, git: { author } }));
+	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
 	expect(folder.definition.title).toBe('Vault');
 	expect(folder.definition).toEqual(
@@ -115,7 +115,7 @@ test('opens with its own declaration and never writes it', async () => {
 test('a folder without epicenter.json opens with no tables, and files and history work', async () => {
 	const root = await scratch('data-folder-undeclared-');
 	await writeFile(join(root, 'notes.txt'), 'kept\n');
-	const folder = expectOk(await openDataFolder({ root, git: { author } }));
+	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expect(folder.definition).toEqual({ tables: {} });
 	expect(folder.tables).toEqual({});
 	expectOk(await folder.write('more/a.md', null, 'a\n'));
@@ -128,13 +128,13 @@ test('a folder without epicenter.json opens with no tables, and files and histor
 test('an epicenter.json that cannot be used is InvalidDeclaration, and opening creates nothing', async () => {
 	const root = await scratch('data-folder-invalid-');
 	await writeFile(join(root, 'epicenter.json'), '{"tables":{}');
-	const refused = expectErr(await openDataFolder({ root, git: { author } }));
+	const refused = expectErr(await openFolder({ root, git: { author } }));
 	expect(refused.name).toBe('InvalidDeclaration');
 	expect(refused.message).toContain('not JSON');
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	await writeFile(join(root, 'epicenter.json'), '{"tables":{},"extra":1}');
-	expect(expectErr(await openDataFolder({ root, git: { author } })).name).toBe(
+	expect(expectErr(await openFolder({ root, git: { author } })).name).toBe(
 		'InvalidDeclaration',
 	);
 
@@ -143,14 +143,14 @@ test('an epicenter.json that cannot be used is InvalidDeclaration, and opening c
 		join(root, 'epicenter.json'),
 		'{"tables":{},"kv":{"theme":{"type":"string"}}}',
 	);
-	const kv = expectErr(await openDataFolder({ root, git: { author } }));
+	const kv = expectErr(await openFolder({ root, git: { author } }));
 	expect(kv.name).toBe('InvalidDeclaration');
 	expect(kv.message).toContain("'kv'");
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	const missing = join(root, 'missing');
 	expect(
-		expectErr(await openDataFolder({ root: missing, git: { author } })).name,
+		expectErr(await openFolder({ root: missing, git: { author } })).name,
 	).toBe('InvalidRoot');
 	expect(existsSync(missing)).toBe(false);
 });
@@ -159,7 +159,7 @@ test('opening creates no repository; status is every file uncommitted, and the f
 	const root = await dataFolder('data-folder-repository-');
 	await writeFile(join(root, '.gitignore'), 'ignored.txt\n');
 	await writeFile(join(root, 'ignored.txt'), 'local\n');
-	const folder = expectOk(await openDataFolder({ root, git: { author } }));
+	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	const status = expectOk(await folder.git.status());
@@ -200,7 +200,7 @@ test('the first commit inside another repository is blocked and creates no repos
 	const root = join(host, 'plan');
 	await mkdir(root);
 	await writeFile(join(root, 'epicenter.json'), DECLARED);
-	const folder = expectOk(await openDataFolder({ root, git: { author } }));
+	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expectOk(
 		await folder.tables.todos!.create({
 			fields: { title: 'Hosted', done: false },
@@ -237,7 +237,7 @@ test("sync merges rows by the folder's own declaration", async () => {
 
 	const root = join(project, 'desktop');
 	await git(project, 'clone', '--quiet', bare, root);
-	const folder = expectOk(await openDataFolder({ root, git: { author } }));
+	const folder = expectOk(await openFolder({ root, git: { author } }));
 
 	// The title changes on one side and `done` on the other: adjacent lines,
 	// which a line merge would hold for a person, and two fields, which a row
@@ -272,7 +272,12 @@ test('openFolder still publishes its own definition, and exposes it', async () =
 		tables: { todos: defineTable({ fields: { title: field.string() } }) },
 	});
 	const folder = expectOk(
-		await openFolder({ root, definition, git: { author } }),
+		await openFolder({
+			app: basename(root),
+			root,
+			definition,
+			git: { author },
+		}),
 	);
 	expect(folder.definition).toBe(definition);
 	// Opening creates no repository; the first commit does.

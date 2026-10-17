@@ -17,7 +17,10 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { connectionsLens } from '@epicenter/ai/connection-table';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsDefinition,
+} from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -222,11 +225,12 @@ function shell(): ConnectionCommands {
 }
 
 test('a transcription over an Epicenter connection reaches the deployment’s /v1 with an ai token from the app’s sign-in', async () => {
-	const root = join(scratch, 'so.epicenter');
+	const root = join(scratch, CONNECTIONS_FOLDER_ID);
 	await mkdir(root);
 	const opened = await openBunFolder({
 		root,
-		definition: connectionsLens,
+		app: CONNECTIONS_FOLDER_ID,
+		definition: connectionsDefinition,
 		git: { author: { name: 'Test', email: 'test@localhost' } },
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);

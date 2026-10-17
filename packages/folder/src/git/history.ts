@@ -156,6 +156,7 @@ export function createHistory({
 	boundary,
 	author,
 	definition,
+	appLocal,
 	landed = () => {},
 }: {
 	backend: GitBackend;
@@ -163,6 +164,12 @@ export function createHistory({
 	author: Author;
 	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
 	definition?: FolderDefinition;
+	/**
+	 * The `local` patterns of an app reading a folder that is not its own:
+	 * untracked files they match are never committed, and the folder's
+	 * declaration is not changed (`sourceFiles`).
+	 */
+	appLocal?: readonly string[];
 	/** Paths a Sync wrote or removed, whether or not it completed. */
 	landed?: (paths: readonly string[]) => void;
 }): FolderHistory {
@@ -327,13 +334,21 @@ export function createHistory({
 		return Ok(localMatcher([...own, ...declared]));
 	}
 
+	const isAppLocal = localMatcher(appLocal);
+
 	/** Captured files that are history source under the shared scope rule. */
 	function source(
 		current: ReadonlyMap<string, Uint8Array>,
 		tracked: ReadonlyMap<string, unknown>,
 		isLocal: IsLocal,
 	) {
-		return sourceFiles(current, tracked, backend.ignoredPaths, isLocal);
+		return sourceFiles(
+			current,
+			tracked,
+			backend.ignoredPaths,
+			isLocal,
+			isAppLocal,
+		);
 	}
 
 	/**

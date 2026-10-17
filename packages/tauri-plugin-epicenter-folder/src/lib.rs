@@ -17,7 +17,10 @@
 //!     })
 //! ```
 //!
-//! `Folders::permit` lets another window into a registered folder later. A
+//! `Folders::permit` lets another window into a registered folder later.
+//! `Folders::hand` records which app a window runs and the folder the shell
+//! handed it, which the window asks for with `window_folder`: an app's page
+//! opens that folder, so it never names its folder from its own URL. A
 //! page names a scope and nothing else. The root comes from `register`. The page runs `@epicenter/folder`'s engine over the
 //! directory `grant_directory` hands it: its folder storage is this plugin's
 //! commands, one per storage method (ADR-0581). Its history runs in the `epicenter` CLI,
@@ -35,7 +38,12 @@
 //! the scope's windows what changed outside them, as the Tauri event
 //! `epicenter-folder://changed` (`watcher`, ADR-0548).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+use serde::Serialize;
+use specta::Type;
 
 use tauri::plugin::TauriPlugin;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime};
@@ -55,12 +63,26 @@ pub use watcher::{FolderChanged, FOLDER_CHANGED_EVENT};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
+/// Which app a window runs, and the folder the shell handed it: what
+/// `window_folder` answers that window. The app's own folder is the scope
+/// named by its id; any other is a folder the person chose "Open in" on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowFolder {
+    /// The app's id, such as `so.epicenter.todos`.
+    pub app: String,
+    /// The scope of the folder the window opens.
+    pub folder: String,
+}
+
 /// The shell's folders. Reached with `app.folders()`.
 #[derive(Default)]
 pub struct Folders {
     registry: Registry,
     /// One watcher per granted root. See `watcher`.
     watchers: watcher::Watchers,
+    /// What each window was handed, by label (`hand`).
+    handed: Mutex<HashMap<String, WindowFolder>>,
 }
 
 impl Folders {
@@ -74,6 +96,27 @@ impl Folders {
     /// already permitted. It is granted the same root.
     pub fn permit(&self, scope: &str, window: &str) -> Result<(), GrantError> {
         self.registry.permit(scope, window)
+    }
+
+    /// Record that `window` runs `handed.app` on the folder `handed.folder`,
+    /// which `window_folder` answers it from then on. The shell calls this
+    /// when it opens the window, beside `permit`; it does not permit the
+    /// window into the folder. A label is one app on one folder, so handing
+    /// it again replaces the same answer.
+    pub fn hand(&self, window: &str, handed: WindowFolder) {
+        self.handed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(window.to_string(), handed);
+    }
+
+    /// What `window` was handed, or `None` for a window that runs no app.
+    pub fn handed(&self, window: &str) -> Option<WindowFolder> {
+        self.handed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(window)
+            .cloned()
     }
 
     /// The canonical root `window` was granted for `scope`: where the
@@ -143,6 +186,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
+            commands::window_folder::<tauri::Wry>,
             commands::grant_directory::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             commands::read_folder_children::<tauri::Wry>,
@@ -151,6 +195,7 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         ])
         .typ::<FolderChanged>()
         .typ::<PutOutcome>()
+        .typ::<WindowFolder>()
         .constant("FOLDER_CHANGED_EVENT", FOLDER_CHANGED_EVENT)
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }

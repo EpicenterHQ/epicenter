@@ -1,65 +1,55 @@
 /**
- * Which folder the desktop workspace opens, and how. The shell's openers are
- * stood in for by the directory openers of `@epicenter/folder/bun` over real
- * temporary directories, one per scope, so the lens check and what opening
- * writes are the folder package's own. The window's URL carries the folder
- * the shell handed it, as `open_installed_app` writes it.
+ * Which folder the desktop workspace opens, and how. The shell's `invoke` is
+ * the stand-in of `granted-shell.test-support.ts` in the folder package,
+ * granting a real temporary directory per test, named as the shell names
+ * it: an app's own folder by the app's id, another by its own name. The
+ * shell answers the window the folder it handed it (`window_folder`).
  *
  * Key behaviors:
- * - A window handed no folder, or Whispering's own, opens Whispering's own
- *   folder with Whispering's definition
- * - A window handed another folder opens it through Whispering's definition
- *   as the lens, leaves its declaration as it was, and records under its scope
- * - A handed folder whose declaration lacks Whispering's shape is refused by
- *   name
+ * - A window handed Whispering's own folder opens it with Whispering's
+ *   definition
+ * - A window handed another folder opens it through Whispering's
+ *   definition, leaves its declaration as it was, and records under its
+ *   scope
+ * - A handed folder whose declaration lacks Whispering's definition is
+ *   refused by name
  *
  * See also:
  * - `desktop.test.ts` for the rest of the desktop workspace
- * - `packages/folder/src/lens.test.ts` for the containment check
+ * - `packages/folder/src/handed-folder.test.ts` for the opener's rule
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type {
-	FolderDefinition,
-	OpenDataFolderOptions,
-	OpenFolderOptions,
-} from '@epicenter/folder';
+import { afterEach, expect, mock, test } from 'bun:test';
+import { mkdir, readFile, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { formatDeclaration } from '@epicenter/folder';
-import * as bun from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import {
+	createGrantedShell,
+	type GrantedShell,
+	grantedDirectory,
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
 import { whisperingDefinition } from '../definition.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
 import { WHISPERING_FOLDER_ID } from './types.js';
 
-const AUTHOR = { name: 'Whispering', email: 'whispering@localhost' };
+/** The shell; each test grants it the directory it opens (`register`). */
+let shell: GrantedShell = createGrantedShell('');
+/** The directories the tests made. */
+const made: string[] = [];
 
-type Opened = { opener: 'openFolder' | 'openDataFolder'; id: string };
-let opened: Opened[] = [];
-/** The directory the shell registered under each scope. */
-let roots: Record<string, string> = {};
+mock.module('@tauri-apps/api/core', () => ({
+	isTauri: () => true,
+	invoke: (
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) => shell.invoke(cmd, body, options),
+}));
 
-// `openHandedFolder` reaches the shell through the desktop adapter, so the
-// adapter is what stands in for the shell.
-mock.module('../../../../../packages/folder/src/tauri-adapter.js', () => ({
-	openFolder: (options: OpenFolderOptions<FolderDefinition>) => {
-		opened.push({ opener: 'openFolder', id: options.id });
-		return bun.openFolder({
-			root: roots[options.id] ?? '',
-			definition: options.definition,
-			git: { author: AUTHOR },
-		});
-	},
-	openDataFolder: (options: OpenDataFolderOptions) => {
-		opened.push({ opener: 'openDataFolder', id: options.id });
-		return bun.openDataFolder({
-			root: roots[options.id] ?? '',
-			lens: options.lens,
-			git: { author: AUTHOR },
-		});
-	},
+// The shell's watcher of the granted directory, which these tests never fire.
+mock.module('@tauri-apps/api/webviewWindow', () => ({
+	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
 }));
 
 const { openDesktopWorkspace } = await import('./desktop.js');
@@ -77,62 +67,58 @@ const noCommands: LocalTranscriptionCommands = {
 
 const open = () => openDesktopWorkspace({ commands: noCommands });
 
-/** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
-function openWindow(folder?: string) {
-	const url = new URL(
-		`epicenter-app://localhost/apps/${WHISPERING_FOLDER_ID}/`,
-	);
-	if (folder !== undefined) url.searchParams.set('folder', folder);
-	Object.defineProperty(globalThis, 'location', {
-		value: url,
-		configurable: true,
-	});
+/** The folder the shell handed the window, which runs this app: its own by default. */
+let handed = WHISPERING_FOLDER_ID;
+
+/** The shell opens the window on `folder`, or on the app's own folder. */
+function openWindow(folder: string = WHISPERING_FOLDER_ID) {
+	handed = folder;
 }
 
-/** Register a fresh directory under `scope`, holding `files`. */
+/**
+ * The shell grants a fresh directory for `scope`, holding `files`: the
+ * app's own named by its id, a data folder `data:<name>` named `<name>`.
+ */
 async function register(scope: string, files: Record<string, string> = {}) {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), 'whispering-host-')),
-	);
+	const name = scope.startsWith('data:') ? scope.slice('data:'.length) : scope;
+	const root = join(await grantedDirectory('whispering-host-'), name);
+	await mkdir(root);
 	for (const [path, text] of Object.entries(files)) {
 		await Bun.write(join(root, path), text);
 	}
-	roots[scope] = root;
+	made.push(dirname(root));
+	shell = createGrantedShell(root, {
+		app: WHISPERING_FOLDER_ID,
+		folder: handed,
+	});
 	return root;
 }
 
-beforeEach(() => {
-	opened = [];
-	roots = {};
-});
+/** The scopes this window asked the shell to grant. */
+const granted = () =>
+	shell.calls
+		.filter(({ cmd }) => cmd === 'grant_directory')
+		.map(({ args }) => args.scope);
+
 afterEach(async () => {
-	Reflect.deleteProperty(globalThis, 'location');
-	for (const root of Object.values(roots))
-		await rm(root, { recursive: true, force: true });
+	handed = WHISPERING_FOLDER_ID;
+	for (const directory of made.splice(0))
+		await rm(directory, { recursive: true, force: true });
 });
 
-test("a window handed no folder opens Whispering's own with its definition", async () => {
+test("a window handed Whispering's own folder opens it with its definition", async () => {
 	openWindow();
 	await register(WHISPERING_FOLDER_ID);
 
 	const workspace = expectOk(await open());
 
-	expect(opened).toEqual([{ opener: 'openFolder', id: WHISPERING_FOLDER_ID }]);
+	expect(granted()).toEqual([WHISPERING_FOLDER_ID]);
 	expect(workspace.folderId).toBe(WHISPERING_FOLDER_ID);
+	expect(workspace.folder.own).toBe(true);
 	await workspace.close();
 });
 
-test("a window handed Whispering's own folder opens it the same way", async () => {
-	openWindow(WHISPERING_FOLDER_ID);
-	await register(WHISPERING_FOLDER_ID);
-
-	const workspace = expectOk(await open());
-
-	expect(opened).toEqual([{ opener: 'openFolder', id: WHISPERING_FOLDER_ID }]);
-	await workspace.close();
-});
-
-test('a window handed another folder opens it through the lens and keeps its declaration', async () => {
+test('a window handed another folder opens it through the definition and keeps its declaration', async () => {
 	openWindow('data:Dictation');
 	// Whispering's tables, declared by the folder itself, with one more table.
 	const declared = JSON.parse(formatDeclaration(whisperingDefinition));
@@ -145,7 +131,8 @@ test('a window handed another folder opens it through the lens and keeps its dec
 
 	const workspace = expectOk(await open());
 
-	expect(opened).toEqual([{ opener: 'openDataFolder', id: 'data:Dictation' }]);
+	expect(granted()).toEqual(['data:Dictation']);
+	expect(workspace.folder.own).toBe(false);
 	// A recording is written under the handed folder's scope.
 	expect(workspace.folderId).toBe('data:Dictation');
 	expect(Object.keys(workspace.folder.definition.tables)).toContain('notes');

@@ -5,11 +5,15 @@
 //! folder this window was granted:
 //!
 //! ```txt
-//! status        epicenter status <root> --json --desktop
+//! status        epicenter status <root> [--app-local <json>] --json --desktop
 //! history       epicenter history <root> --depth <n> --json --desktop
-//! save_version  epicenter save-version <root> [--message <text>] --json --desktop
-//! sync          epicenter sync <root> [--to <url>] [--allow-unrelated] --json --desktop
+//! save_version  epicenter save-version <root> [--message <text>] [--app-local <json>] --json --desktop
+//! sync          epicenter sync <root> [--to <url>] [--allow-unrelated] [--app-local <json>] --json --desktop
 //! ```
+//!
+//! `app_local` is the `local` patterns of an app reading a folder that is not
+//! its own (ADR-0583): the CLI never commits an untracked file they match,
+//! and writes them nowhere.
 //!
 //! A page names a scope and nothing else; the root comes from the shell's
 //! grant (`Folders::granted_root`). The CLI decides the rest itself: who
@@ -51,14 +55,24 @@ async fn run_history<R: Runtime>(
         .await
 }
 
+/// `--app-local` with `patterns` as a JSON array, or nothing when there are none.
+fn app_local_options(patterns: &[String]) -> Vec<OsString> {
+    if patterns.is_empty() {
+        return Vec::new();
+    }
+    let json = serde_json::to_string(patterns).unwrap_or_else(|_| "[]".into());
+    vec!["--app-local".into(), json.into()]
+}
+
 /// The folder's changed files, its head, and its remote, ahead and behind.
 #[tauri::command]
 #[specta::specta]
 pub async fn status<R: Runtime>(
     webview: Webview<R>,
     scope: String,
+    app_local: Vec<String>,
 ) -> Result<CliExit, CliError> {
-    run_history(&webview, &scope, "status", Vec::new()).await
+    run_history(&webview, &scope, "status", app_local_options(&app_local)).await
 }
 
 /// The folder's last `depth` versions.
@@ -80,11 +94,13 @@ pub async fn save_version<R: Runtime>(
     webview: Webview<R>,
     scope: String,
     message: Option<String>,
+    app_local: Vec<String>,
 ) -> Result<CliExit, CliError> {
-    let options = match message {
+    let mut options = match message {
         Some(message) => vec!["--message".into(), message.into()],
         None => Vec::new(),
     };
+    options.extend(app_local_options(&app_local));
     run_history(&webview, &scope, "save-version", options).await
 }
 
@@ -111,8 +127,10 @@ pub async fn sync<R: Runtime>(
     scope: String,
     remote: Option<String>,
     allow_unrelated: bool,
+    app_local: Vec<String>,
 ) -> Result<CliExit, CliError> {
-    let options = sync_options(remote, allow_unrelated);
+    let mut options = sync_options(remote, allow_unrelated);
+    options.extend(app_local_options(&app_local));
     run_history(&webview, &scope, "sync", options).await
 }
 
@@ -207,6 +225,15 @@ mod tests {
     /// as the one fixed invocation, with the CLI's own author; save version
     /// and sync reach a local bare remote; and edits that compete merge into
     /// one commit this folder's edit wins, with nothing to settle.
+    #[test]
+    fn an_apps_local_patterns_reach_the_cli_as_one_json_flag() {
+        assert!(app_local_options(&[]).is_empty());
+        assert_eq!(
+            app_local_options(&["audio/".into(), "*.db".into()]),
+            vec![OsString::from("--app-local"), OsString::from(r#"["audio/","*.db"]"#)]
+        );
+    }
+
     #[tokio::test]
     async fn the_history_commands_run_the_cli_on_the_granted_folder_only() {
         std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");

@@ -86,7 +86,7 @@ async function openDemo() {
 	const openTodos = async () => {
 		const folder = expectOk(
 			await openFolder({
-				id,
+				app: id,
 				definition: todosDefinition,
 				browser: {
 					author: { name: 'Todos', email: 'todos@localhost' },

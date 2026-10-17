@@ -107,16 +107,19 @@ export function cliHistory({
 	readonly scope: string;
 }): DirectoryHistory {
 	return async ({ landed }) =>
-		() =>
-			createCliHistory({ scope, landed });
+		(_definition, appLocal = []) =>
+			createCliHistory({ scope, landed, appLocal });
 }
 
 function createCliHistory({
 	scope,
 	landed,
+	appLocal,
 }: {
 	scope: string;
 	landed: (paths: readonly string[]) => void;
+	/** The reading app's `local` patterns, which the CLI never commits. */
+	appLocal: readonly string[];
 }): FolderHistory {
 	const closing = new AbortController();
 	let clock = 0;
@@ -211,7 +214,7 @@ function createCliHistory({
 		async run() {
 			const capturedAt = ++clock;
 			const answer = await ask<HistoryResults['status']>(() =>
-				commands.status(scope),
+				commands.status(scope, [...appLocal]),
 			);
 			if (answer.kind !== 'reply') {
 				const failure = gitFailure('status', answer);
@@ -243,7 +246,7 @@ function createCliHistory({
 			try {
 				const capturedAt = ++clock;
 				const answer = await ask<HistoryResults['saveVersion']>(() =>
-					commands.saveVersion(scope, message ?? null),
+					commands.saveVersion(scope, message ?? null, [...appLocal]),
 				);
 				if (answer.kind === 'missing')
 					return {
@@ -291,6 +294,7 @@ function createCliHistory({
 					scope,
 					connect ?? null,
 					options.allowUnrelatedHistories === true,
+					[...appLocal],
 				),
 			),
 		);

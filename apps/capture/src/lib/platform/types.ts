@@ -22,8 +22,8 @@ export const CAPTURE_FOLDER_ID = manifest.id;
  * The folder a leaf opens: its captures table, its files (a capture's exact
  * text), its Git history, and its channel of outside changes. Its own
  * `definition` is `captureDefinition` for Capture's own folder, and the
- * folder's declaration for any other folder the desktop opens with Capture's
- * shape as the lens.
+ * folder's declaration for any other folder the desktop hands Capture, read
+ * through Capture's definition.
  */
 export type CaptureFolder = Folder<typeof captureDefinition, FolderDefinition>;
 

@@ -76,6 +76,16 @@ is all the window needs; no fs plugin is installed. The capability only lets
 a window call the plugin. Which folders it reaches is decided by `windows` in
 `ScopeConfig` and by `permit`.
 
+## Which folder a window opens
+
+A window an app runs opens one folder, which the shell decides. When it
+opens the window it calls
+`app.folders().hand(label, WindowFolder { app, folder })`, beside `permit`,
+and the page asks `window_folder()`: the app's id and the scope of the
+folder it was handed, or `null` for a window that runs no app. The page
+never reads its folder from its URL, so its navigation and reloads cannot
+change or lose it, and it cannot claim another app. `hand` permits nothing.
+
 ## The grant
 
 The page calls `grant_directory(scope)`. A window the scope does not name is

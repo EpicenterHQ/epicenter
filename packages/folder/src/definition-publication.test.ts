@@ -7,7 +7,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
@@ -72,7 +72,7 @@ test('opening writes nothing, so a fresh browser copy takes an existing remote a
 	const url = 'http://git.test/remote.git';
 	const open = (environment = createTestStorage()) =>
 		openBrowser({
-			id: 'publication-remote',
+			app: 'publication-remote',
 			definition,
 			browser: { author, httpFetch, ...browserStorage(environment) },
 		});
@@ -110,12 +110,13 @@ for (const adapter of ['browser', 'bun'] as const) {
 			expectOk(
 				adapter === 'bun'
 					? await openBun({
+							app: basename(root),
 							root,
 							definition: schema,
 							git: { author },
 						})
 					: await openBrowser({
-							id: 'publication',
+							app: 'publication',
 							definition: schema,
 							browser: {
 								...browserStorage(environment),
@@ -185,9 +186,14 @@ for (const adapter of ['browser', 'bun'] as const) {
 		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
 			expectOk(
 				adapter === 'bun'
-					? await openBun({ root, definition: schema, git: { author } })
+					? await openBun({
+							app: basename(root),
+							root,
+							definition: schema,
+							git: { author },
+						})
 					: await openBrowser({
-							id: 'unchanged',
+							app: 'unchanged',
 							definition: schema,
 							browser: { ...browserStorage(environment), author },
 						}),
@@ -254,9 +260,14 @@ for (const adapter of ['browser', 'bun'] as const) {
 		const open = async () =>
 			expectOk(
 				adapter === 'bun'
-					? await openBun({ root, definition, git: { author } })
+					? await openBun({
+							app: basename(root),
+							root,
+							definition,
+							git: { author },
+						})
 					: await openBrowser({
-							id: 'history',
+							app: 'history',
 							definition,
 							browser: { ...browserStorage(environment), author },
 						}),
@@ -289,7 +300,9 @@ for (const adapter of ['browser', 'bun'] as const) {
 test('Bun publication failure leaves the folder usable and reports the actual destination failure', async () => {
 	const root = await scratch('definition-failure-');
 	await mkdir(join(root, 'epicenter.json'));
-	const folder = expectOk(await openBun({ root, definition, git: { author } }));
+	const folder = expectOk(
+		await openBun({ app: basename(root), root, definition, git: { author } }),
+	);
 	try {
 		expectOk(await folder.write('usable.txt', null, 'usable'));
 		expect(

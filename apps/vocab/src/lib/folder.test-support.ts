@@ -90,7 +90,7 @@ export function createBrowser(
 		async open(): Promise<VocabFolder> {
 			const folder = expectOk(
 				await openFolder({
-					id: VOCAB_FOLDER_ID,
+					app: VOCAB_FOLDER_ID,
 					definition: vocabFolder,
 					browser: { ...storage },
 				}),

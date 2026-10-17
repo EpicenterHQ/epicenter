@@ -47,7 +47,10 @@ import {
 	parseDeclaration,
 	parseRow,
 } from './contract.js';
-import { prepareFolderDefinition } from './definition.js';
+import {
+	type FolderDefinition,
+	prepareFolderDefinition,
+} from './definition.js';
 import { installWebLocks } from './web-locks.test-support.js';
 
 afterAll(installWebLocks());
@@ -57,9 +60,7 @@ afterEach(async () => {
 	for (const close of closers.splice(0)) await close();
 });
 
-async function open<
-	const TDefinition extends Parameters<typeof openFolder>[0]['definition'],
->(
+async function open<const TDefinition extends FolderDefinition>(
 	definition: TDefinition,
 	{
 		id = 'so.epicenter.definitiontest',
@@ -68,7 +69,7 @@ async function open<
 ) {
 	const folder = expectOk(
 		await openFolder({
-			id,
+			app: id,
 			definition,
 			browser: {
 				author: { name: 'Definition', email: 'definition@example.test' },
@@ -172,7 +173,7 @@ test('a definition names no folder: an id is refused where it is written and whe
 	const storage = createTestStorage();
 	const refused = expectErr(
 		await openFolder({
-			id: 'so.epicenter.named',
+			app: 'so.epicenter.named',
 			definition: { ...declared, id: 'so.epicenter.named' } as never,
 			browser: browserStorage(storage),
 		}),

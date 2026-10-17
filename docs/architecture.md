@@ -36,11 +36,12 @@ its sync Durable Objects, and the apps built only on it are deleted.
   folder
   ([ADR-0532](adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
 - **A folder declares its shape and names no app.** An app opens any folder
-  whose `epicenter.json` contains the tables and fields it reads. The app that
-  creates a folder publishes its declaration; every other app opens it with a
-  lens and never rewrites it
+  whose `epicenter.json` contains the tables and fields it reads. Only the app
+  a folder is named after publishes its declaration; every other app reads it
+  through its definition and never rewrites it
   ([ADR-0535](adr/0535-an-existing-folder-opens-with-its-own-declaration.md),
-  [ADR-0538](adr/0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md)).
+  [ADR-0538](adr/0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md),
+  [ADR-0583](adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md)).
 - **One write path.** `table.save` merges by field, and the body by line, when
   the file changed since it was read, and reports what it replaced. Sync uses
   the same merge and asks the person only about overlapping edits.
@@ -100,7 +101,7 @@ The Epicenter desktop app (`apps/epicenter`) opens to its Folders window
 ([ADR-0537](adr/0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)).
 It lists every folder under `~/Epicenter` that holds an `epicenter.json`,
 opens one with its own declaration, edits its rows, and offers every installed
-app as "Open in"; an app refuses a folder its lens does not fit. Settings (the
+app as "Open in"; an app refuses a folder its definition does not fit. Settings (the
 `home` window) keeps Chat and model administration.
 
 Epicenter's own folder is `~/Epicenter/so.epicenter`. What a person or agent

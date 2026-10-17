@@ -44,7 +44,7 @@ const encoder = new TextEncoder();
 async function open() {
 	const folder = expectOk(
 		await openFolder({
-			id: 'ownership',
+			app: 'ownership',
 			definition,
 			browser: {
 				author: { name: 'Owner', email: 'owner@example.test' },

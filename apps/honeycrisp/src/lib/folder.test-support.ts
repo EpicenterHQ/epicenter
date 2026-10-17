@@ -40,7 +40,7 @@ export async function openNotesFolder() {
 	const openTab = async () =>
 		expectOk(
 			await openFolder({
-				id: ID,
+				app: ID,
 				definition: honeycrispDefinition,
 				browser: {
 					author: { name: 'Test', email: 'test@example.test' },
