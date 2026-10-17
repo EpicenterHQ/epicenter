@@ -26,7 +26,7 @@ export const ActionError = defineErrors({
 });
 export type ActionError = InferErrors<typeof ActionError>;
 
-/** Every error `describeWriteError` words. */
+/** The errors `describeWriteError` words by name. */
 export type DescribedError =
 	| RowWriteError
 	| FileError
@@ -34,11 +34,17 @@ export type DescribedError =
 	| SyncError
 	| ActionError;
 
+/**
+ * Any other failure an app reports, such as an agent's message store
+ * refusing a save: a person reads its message.
+ */
+export type OtherError = { readonly name: string; readonly message: string };
+
 /** A save that failed, and what it held. */
 export type WriteFailure = {
 	/** The file the save was for. */
 	readonly path: string;
-	readonly error: DescribedError;
+	readonly error: DescribedError | OtherError;
 	/** The text that was typed and is not in the file; `''` when none is lost. */
 	readonly unsaved: string;
 	/**
@@ -54,20 +60,26 @@ const UNCONFIRMED =
 /**
  * What a person is told about a failed write or action. A write that failed
  * wrote nothing (ADR-0576), unless its reply was lost, which leaves the
- * outcome unknown; an action the app refused says why.
+ * outcome unknown; an action the app refused says why. Any other error is
+ * its message.
  */
-export function describeWriteError(error: DescribedError): string {
-	switch (error.name) {
+export function describeWriteError(error: DescribedError | OtherError): string {
+	// Narrowed by name. A field is checked where an error of another kind
+	// could share the name.
+	const known = error as DescribedError;
+	switch (known.name) {
 		case 'NotStarted':
-			return error.reason;
+			return 'reason' in known ? known.reason : error.message;
 		case 'Io':
-			return (error.cause as FileError | undefined)?.name === 'Unconfirmed'
-				? `${UNCONFIRMED} ${error.message}`
+			return (known.cause as FileError | undefined)?.name === 'Unconfirmed'
+				? `${UNCONFIRMED} ${known.message}`
 				: error.message;
 		case 'Unconfirmed':
-			return `${UNCONFIRMED} ${error.message}`;
+			return `${UNCONFIRMED} ${known.message}`;
 		case 'InvalidValues':
-			return error.issues.map((issue) => issue.message).join(' ');
+			return 'issues' in known
+				? known.issues.map((issue) => issue.message).join(' ')
+				: error.message;
 		case 'Occupied':
 			return 'Another file already has this name, so nothing was changed.';
 		case 'KeptChanging':
@@ -79,6 +91,6 @@ export function describeWriteError(error: DescribedError): string {
 		case 'Closed':
 			return 'The folder was closed, so nothing was changed.';
 		default:
-			return error.message;
+			return known.message;
 	}
 }
