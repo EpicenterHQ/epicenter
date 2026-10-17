@@ -32,6 +32,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { OpenFolder, OpenFolderOptions } from './contract.js';
 import type { FolderDefinition } from './definition.js';
 import { OpenFolderError } from './errors.js';
+import type { Folder } from './folder.js';
 import {
 	commands,
 	type GrantError,
@@ -110,11 +111,11 @@ async function handedFolder(
  * or one that does not contain the definition. Opening creates no
  * repository; the first commit does.
  */
-export const openFolder: OpenFolder = async <
+export async function openAnyFolder<
 	const TDefinition extends FolderDefinition = FolderDefinition,
 >(
 	options: OpenFolderOptions<TDefinition>,
-) => {
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
 	if (!isTauri()) return OpenFolderError.NotTauri();
 	let id: string;
 	if (options.app === undefined) id = options.id;
@@ -135,4 +136,7 @@ export const openFolder: OpenFolder = async <
 	if (error !== null) return Err(error);
 	const { openGrantedFolder } = await import('./tauri-directory.js');
 	return openGrantedFolder<TDefinition>({ opening: target, granted });
-};
+}
+
+/** The opener, every form typed (`OpenFolder`). */
+export const openFolder: OpenFolder = openAnyFolder;

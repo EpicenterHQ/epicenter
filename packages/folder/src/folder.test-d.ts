@@ -12,6 +12,7 @@ import type * as contract from './contract.js';
 import * as root from './index.js';
 import {
 	type CreateRowOf,
+	type DefinedFolderOptions,
 	defineFolder,
 	defineTable,
 	type FileContent,
@@ -228,7 +229,10 @@ expectTypeOf(root.openFolder<typeof definition>).returns.toEqualTypeOf<
 >();
 expectTypeOf(root.openFolder<typeof definition>)
 	.parameter(0)
-	.toEqualTypeOf<OpenFolderOptions<typeof definition>>();
+	.toEqualTypeOf<DefinedFolderOptions<typeof definition>>();
+// Without a definition the tables are the folder's own, whatever is claimed.
+// @ts-expect-error A definition-less open takes no definition type.
+void root.openFolder<typeof definition>({ id: 'empty' });
 // An app names itself; the definition names no folder.
 expectTypeOf<
 	Extract<OpenFolderOptions<typeof definition>, { app: string }>['app']
@@ -327,12 +331,17 @@ expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 
 // The directory opener is its own contract: an explicit root and history.
-expectTypeOf(bun.openFolder<FolderDefinition>).returns.toEqualTypeOf<
+const git = { author: { name: 'Tool', email: 'tool@example.test' } };
+expectTypeOf(bun.openFolder({ root: '/vault', git })).toEqualTypeOf<
 	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
 >();
+// @ts-expect-error A definition-less open takes no definition type.
+void bun.openFolder<typeof definition>({ root: '/vault', git });
+// @ts-expect-error An app opens its directory through its definition.
+void bun.openFolder({ root: '/vault', app: 'so.epicenter.todos', git });
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
-	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();
+	.toEqualTypeOf<bun.DefinedDirectoryOptions<typeof definition>>();
 expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Opened, OpenFolderError>>
 >();

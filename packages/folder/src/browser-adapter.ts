@@ -127,11 +127,11 @@ function folderAddress(id: string): FolderAddress {
  * first write creates its directory, and its first commit or remote creates
  * its repository.
  */
-export const openFolder: OpenFolder = async <
+export async function openAnyFolder<
 	const TDefinition extends FolderDefinition = FolderDefinition,
 >(
 	options: OpenFolderOptions<TDefinition>,
-): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> => {
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
 	const { credentials, browser = {} } = options;
 	const id = options.app === undefined ? options.id : options.app;
 	const { data: target, error: definitionError } = opening(
@@ -195,4 +195,7 @@ export const openFolder: OpenFolder = async <
 			};
 		},
 	});
-};
+}
+
+/** The opener, every form typed (`OpenFolder`). */
+export const openFolder: OpenFolder = openAnyFolder;

@@ -13,7 +13,11 @@
  * or `@epicenter/folder/tauri`, or alias this exact specifier to one of them.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import type { OpenFolder } from './contract.js';
+import type {
+	FolderDefinition,
+	OpenFolder,
+	OpenFolderOptions,
+} from './contract.js';
 
 export * from './contract.js';
 
@@ -24,10 +28,14 @@ export * from './contract.js';
  * whose folder cannot be opened gets that refusal; it is never given browser
  * storage instead.
  */
-export const openFolder: OpenFolder = async (options) =>
+export const openFolder: OpenFolder = async <
+	const TDefinition extends FolderDefinition = FolderDefinition,
+>(
+	options: OpenFolderOptions<TDefinition>,
+) =>
 	// The adapters are loaded by themselves, not through the explicit entries:
 	// those re-export the whole contract, which would tie each adapter's chunk
 	// to everything the other one shares with it.
 	isTauri()
-		? (await import('./tauri-adapter.js')).openFolder(options)
-		: (await import('./browser-adapter.js')).openFolder(options);
+		? (await import('./tauri-adapter.js')).openAnyFolder(options)
+		: (await import('./browser-adapter.js')).openAnyFolder(options);

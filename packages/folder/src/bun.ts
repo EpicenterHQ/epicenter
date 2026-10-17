@@ -130,18 +130,31 @@ export {
  */
 export type DirectoryFolderOptions<
 	TDefinition extends FolderDefinition = FolderDefinition,
-> = {
+> = DefinedDirectoryOptions<TDefinition> | DeclaredDirectoryOptions;
+
+type DirectoryRoot = {
 	/** An existing directory. Opening creates nothing in it; its first commit creates its repository. */
 	readonly root: string;
 	readonly git: FolderGitOptions;
-} & (
-	| {
-			/** The app's id, such as `so.epicenter.todos`, which names its own folder. */
-			readonly app: string;
-			readonly definition: TDefinition;
-	  }
-	| { readonly app?: never; readonly definition?: TDefinition }
-);
+};
+
+/** The forms that read the directory through a definition: with or without `app`. */
+export type DefinedDirectoryOptions<TDefinition extends FolderDefinition> =
+	DirectoryRoot &
+		(
+			| {
+					/** The app's id, such as `so.epicenter.todos`, which names its own folder. */
+					readonly app: string;
+					readonly definition: TDefinition;
+			  }
+			| { readonly app?: never; readonly definition: TDefinition }
+		);
+
+/** `{ root, git }` alone: the directory read with its own `epicenter.json`. */
+export type DeclaredDirectoryOptions = DirectoryRoot & {
+	readonly app?: never;
+	readonly definition?: undefined;
+};
 
 /**
  * Open the directory at `root`, named by its directory's name (`folder.id`).
@@ -157,6 +170,12 @@ export type DirectoryFolderOptions<
  * another repository's working tree: that commit is `blocked`, and the
  * files are committed with that repository's Git (ADR-0517).
  */
+export async function openFolder<const TDefinition extends FolderDefinition>(
+	options: DefinedDirectoryOptions<TDefinition>,
+): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>>;
+export async function openFolder(
+	options: DeclaredDirectoryOptions,
+): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>;
 export async function openFolder<
 	const TDefinition extends FolderDefinition = FolderDefinition,
 >(

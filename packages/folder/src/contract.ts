@@ -162,28 +162,43 @@ type HostOptions = {
  */
 export type OpenFolderOptions<
 	TDefinition extends FolderDefinition = FolderDefinition,
-> = HostOptions &
-	(
-		| {
-				readonly app: string;
-				readonly definition: TDefinition;
-				readonly id?: never;
-		  }
-		| {
-				readonly id: string;
-				readonly definition?: TDefinition;
-				readonly app?: never;
-		  }
-	);
+> = DefinedFolderOptions<TDefinition> | DeclaredFolderOptions;
+
+/** The forms that read a folder through a definition: `{ app }` and `{ id }`. */
+export type DefinedFolderOptions<TDefinition extends FolderDefinition> =
+	HostOptions &
+		(
+			| {
+					readonly app: string;
+					readonly definition: TDefinition;
+					readonly id?: never;
+			  }
+			| {
+					readonly id: string;
+					readonly definition: TDefinition;
+					readonly app?: never;
+			  }
+		);
+
+/** `{ id }` alone: the folder read with its own `epicenter.json`. */
+export type DeclaredFolderOptions = HostOptions & {
+	readonly id: string;
+	readonly definition?: undefined;
+	readonly app?: never;
+};
 
 /**
  * The one opener signature. Every entry but `/bun`, which opens a directory
  * by its path, exports an `openFolder` of exactly this type. The handle's
  * `definition` is the folder's own declaration wherever the folder is not
- * the app's own, so it is typed as any definition.
+ * the app's own, so it is typed as any definition. Without a definition the
+ * tables are the folder's own, typed as any, whatever a caller claims.
  */
-export type OpenFolder = <
-	const TDefinition extends FolderDefinition = FolderDefinition,
->(
-	options: OpenFolderOptions<TDefinition>,
-) => Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>>;
+export type OpenFolder = {
+	<const TDefinition extends FolderDefinition>(
+		options: DefinedFolderOptions<TDefinition>,
+	): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>>;
+	(
+		options: DeclaredFolderOptions,
+	): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>;
+};
