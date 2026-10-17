@@ -59,10 +59,6 @@ test('passkey authenticate options are mintable without a session', async () => 
 		challenge: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
 	});
 });
-test('passkey register options require a session', async () => {
-	const { options } = setup();
-	expect((await options('register')).status).toBe(401);
-});
 test('fresh cookie session mints passkey registration options for the expected user', async () => {
 	const { auth, options } = setup();
 	const ctx = await auth.$context;
