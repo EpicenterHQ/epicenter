@@ -5,6 +5,7 @@
 - **Supersedes:** [ADR-0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md), whose folder MCP server at `https://mcp.epicenter.so/mcp` is deleted.
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at the third-party MCP client row, the `https://mcp.epicenter.so/mcp` resource row, the MCP uses of `folders:read` and `folders:write`, and `cimd(...)`: there is no `mcp` audience, and no client identifies itself by a client ID metadata document. [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) at "only `mcp` limits scopes" and the `mcp` column of its audience table: a deployment has two audiences, `api` and `git`, and both allow every scope.
 - **Amended by:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at the kept `grant-target.ts` and "with a folder choice": the `/consent` page stays for device codes, and `grant-target.ts` is deleted.
+- **Amended by:** [ADR-0603](0603-a-machine-holds-one-account-grant-in-the-epicenter-cli.md) at the `/consent` row's `so.epicenter.cli`: the device codes approved there are `so.epicenter`'s.
 
 ## Context
 
