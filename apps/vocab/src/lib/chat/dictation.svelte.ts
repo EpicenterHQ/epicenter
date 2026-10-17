@@ -59,9 +59,7 @@ export function createDictation(
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
-		| Promise<
-				Result<void, VadRecorderError | RecorderError | TranscribeError>
-		  >
+		| Promise<Result<void, VadRecorderError | RecorderError | TranscribeError>>
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
 	let closing: Promise<void> | undefined;
