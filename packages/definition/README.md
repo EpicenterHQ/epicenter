@@ -36,8 +36,8 @@ check(schema.tables.settings.fields, { theme: 'dark' }, 'input'); // no issues
 A schema is a `DataSchema`: `{ title?, local?, tables }`. It names no dataset;
 the storage that opens it does. Each table is `{ fields }`, where `fields` is
 a record of native schemas by field name, plus `additionalProperties: false`
-when the table is closed. Settings are a table too, `settings`
-(`SETTINGS_TABLE`). `prepareSchema` returns that same shape with the same
+when the table is closed. Settings, when an app keeps them, are a table too,
+`settings` (`SETTINGS_TABLE`). `prepareSchema` returns that same shape with the same
 literal type, so `CreateRowOf` and every field's `Static<>` read a
 prepared schema exactly as they read the declaration. A top-level key the
 shape does not name, such as an `id` or the `kv` section an earlier build

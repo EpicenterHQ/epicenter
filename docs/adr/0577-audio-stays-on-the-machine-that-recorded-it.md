@@ -66,7 +66,7 @@ The rule is the engine's, on both backends, whatever `.gitignore` says
 | untracked | never history source: status does not offer it, and no commit carries it |
 | committed before the rule | the next whole-folder commit leaves it out of the tree, and the index is reset to that tree, as `git rm --cached` would; the file stays on disk |
 | named by a `!` exception in `.gitignore` | left out all the same: the declaration wins |
-| staged by hand (`git.stage`) | left out of the index; a tracked one is removed from it |
+| staged by hand with plain `git add -f` | left out of the next commit Epicenter makes, and the index is reset to that commit's tree |
 
 **The handle also writes the patterns into the root `.gitignore`**, which
 mirrors them for plain `git`. `publishLocalPatterns`

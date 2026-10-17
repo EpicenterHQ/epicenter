@@ -37,7 +37,7 @@ export type DirectoryHistory = (wiring: {
  *
  * The directory is the folder, and a repository someone already made there
  * is used as it is. Opening creates nothing: a directory with no repository
- * gets one with its first commit, staging, or remote. With a prepared
+ * gets one with its first commit or remote. With a prepared
  * definition as its `schema`, the handle publishes it to `epicenter.json`
  * before its first write. With `'declared'`, the handle reads with the
  * folder's own `epicenter.json` and never writes it.

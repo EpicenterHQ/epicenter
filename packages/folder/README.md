@@ -29,8 +29,10 @@ if (setError !== null) show(setError.message);         // invalid values, or kep
 await folder.close();                                  // closed either way
 ```
 
-Settings are rows too: a table named `settings`, one row per concern, such as
-`settings/display.md` (ADR-0576). Every field it declares is `field.optional`,
+An app that keeps settings keeps them as rows too: a table named `settings`,
+one row per concern, such as `settings/display.md` (ADR-0576). This is the
+convention for when an app has settings; no first-party app declares the
+table yet. Every field it declares is `field.optional`,
 so a setting may always be unset and the app's own default applies;
 `defineFolder` refuses a required one, and a published declaration that has
 one still opens. Reading and writing it is reading and writing any table, so
@@ -146,8 +148,9 @@ The engine decides this itself, on both backends, whatever `.gitignore` says.
 A path `local` matches is never history source (`git/scope.ts`): status does
 not offer it, a whole-folder commit leaves it out, and a file committed before
 the rule is removed from the next commit's tree and from the index, as
-`git rm --cached` would, its bytes kept on disk. Staging by hand never stages
-one either. A person's `!` exception in `.gitignore` does not override it.
+`git rm --cached` would, its bytes kept on disk. A path staged by hand with
+plain `git add -f` is left out of the next commit Epicenter makes too. A
+person's `!` exception in `.gitignore` does not override it.
 
 With the declaration, before the same first write, the handle also makes the
 root `.gitignore` name each pattern `epicenter.json` then lists, its
@@ -201,6 +204,7 @@ folder ID.
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 | `@epicenter/folder/query` | Nothing: TanStack Query option factories over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
 | `@epicenter/folder/svelte` | Nothing: `createTextEditor`, one document's text opened over the folder's write, and `createBodyEditor`, its row case, each read reactively with its save loop ([Editing text](#editing-text)). Loads Svelte's runes only. | A Svelte editor of a note body or a file's text. |
+| `@epicenter/folder/file-browser` | Nothing: path helpers, visible tree rows, newline preservation, and `readTextFile` over a folder's files ([File-browser helpers](#file-browser-helpers)). | A file tree or a file view. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -263,7 +267,7 @@ openDataFolder({
 | `epicenter.json` | published before the first write, if its bytes differ | never written |
 | No `epicenter.json` | published on the first write | no tables; files, history, and Sync work |
 | An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens |
-| Repository on disk | created when the folder opens | created by the first commit (Save version, or Sync's checkpoint), staging, or `sync.connect`; until then status is an empty history with every file uncommitted |
+| Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same |
 | Tables | typed by the definition | keyed by any name, rows checked at run time; with a `lens`, the lens's tables, typed by it ([below](#opening-another-apps-folder-through-a-lens)) |
 
 Both return the same handle, and `folder.definition` is the prepared
@@ -322,15 +326,15 @@ problem with the reason, and the app widens its lens. A folder without
 | `epicenter.json` | never written |
 
 Fields the lens does not name are kept only on the row the lens read. A row
-built from scratch and passed to `save` drops them, and the folder refuses
-it when one of them is required.
+built from scratch and passed to `write` or `create` drops them, and the
+folder refuses it when one of them is required.
 
 ### The folder, opened lazily, and its remote
 
 Opening a browser folder writes nothing. The folder's first write creates its
 directory, and publishes `epicenter.json` just before it; each table's
 directory appears with its first row. Its repository comes with its first
-commit, staging, or remote, as on every host (see
+commit or remote, as on every host (see
 [Repository creation](#repository-creation)). Reads never write: a folder
 nobody wrote to lists nothing, has no history, and a commit of it writes
 nothing. An ID that cannot name one directory (empty, `.` or `..`,
@@ -656,9 +660,8 @@ linked table directory is that table's `InvalidPath`, never followed.
 top-level `$schema` (which only helps an editor offer completion), `title`,
 `local`, and `tables`, each table `{ type: 'object', properties, required? }`
 with every `required` name declared. A table without `required` has only
-optional fields. A `kv` section, which an earlier build wrote for the
-settings it kept as keys, is admitted and not read, so a folder that build
-published still opens (ADR-0576). Any other key, a visible `~` key on a
+optional fields. Any other top-level key, a `kv` section an earlier build
+wrote included, a visible `~` key on a
 field, or a field preparation refuses, such as one with an unknown `format`
 or a `$ref` that names nothing in the field, is `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.
@@ -1170,7 +1173,8 @@ const stopChanges = folder$.invalidateOnChange(queryClient);
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
 | each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `delete(stem)`; a rename is `table.rename` |
-| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
+| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | none |
+| the folder (`folder$`) | `query({ paths, key, queryFn })` | `write({ path, from, to })` (`folder.write`: a create from `null`, an edit, or a delete to `null`), `move({ path, next })` (`folder.move`) |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
 
 `folder$.query({ paths, key, queryFn })` is a query of the page's own over
@@ -1413,9 +1417,8 @@ renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
 A definition is `{ title?, local?, tables }` and nothing else. `defineFolder`
-throws on an `id`, and on a `kv`, naming the `settings` table that replaced
-it; an opener given an untyped definition with one returns
-`InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
+throws on any other key, an `id` or a `kv` included, and an opener given an
+untyped definition with one returns `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
 
 `defineFolder` returns the prepared definition. It has the shape and type of
