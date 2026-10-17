@@ -1,7 +1,7 @@
 /**
  * The opened folder a folder app's components read and write through
- * (ADR-0574): the handle, its query layer, and the one query client and
- * write-failure report the whole page shares.
+ * (ADR-0574): the handle, its reads, its edit layer, and the one query
+ * client and write-failure report the whole page shares.
  *
  * `<FolderApp>` opens the app's folder, builds this with
  * `createFolderContext`, provides it with `<FolderProvider>`, and closes it
@@ -14,13 +14,10 @@
  */
 import type { Definition, Folder } from '@epicenter/folder';
 import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
-import { focusManager, QueryClient } from '@tanstack/query-core';
+import { QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
-import { createLogger } from 'wellcrafted/logger';
 import { createEdits, type Edits } from './edits.svelte.js';
 import type { WriteFailure } from './write-failure.js';
-
-const log = createLogger('svelte/folder-context');
 
 /** What `getFolder()` answers: one opened folder and the page's cache over it. */
 export type FolderContext<TDefinition extends Definition = Definition> = {
@@ -39,9 +36,8 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	 */
 	readonly isOwn: boolean;
 	/**
-	 * The TanStack Query layer over the folder: each read's query options and
-	 * each write's mutation options (`folderOptions` in
-	 * `@epicenter/folder/query`).
+	 * The TanStack Query layer over the folder: each read's query options
+	 * (`folderOptions` in `@epicenter/folder/query`).
 	 */
 	readonly queries: FolderOptions<TDefinition>;
 	/**
@@ -62,17 +58,9 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	 */
 	readonly writeFailed: (failure: WriteFailure) => void;
 	/**
-	 * Run `step` first when the folder closes: fence new input, or send what
-	 * is typed and not yet saved. Every step starts as `close` is called, and
-	 * the steps run together. Close then waits for every write and action,
-	 * so a save a step starts lands before the folder is released.
-	 */
-	readonly beforeClose: (step: () => Promise<void> | void) => void;
-	/**
-	 * Run the steps given to `beforeClose`, then close the edit layer: fence
-	 * new input and wait for every draft, write, and action. Then stop the
-	 * change wiring and release the folder. Work that starts
-	 * meanwhile is waited for too; after that the folder refuses with
+	 * Fence new input (`edits.close`), wait for every draft, write, and
+	 * action, stop the change wiring, then release the folder. Work that
+	 * starts meanwhile is waited for too; after that the folder refuses with
 	 * `Closed`. Every call answers the same completion.
 	 */
 	readonly close: () => Promise<void>;
@@ -98,15 +86,6 @@ export function createFolderContext<TDefinition extends Definition>(
 		writeFailed?: (failure: WriteFailure) => void;
 	} = {},
 ): FolderContext<TDefinition> {
-	// A mutation waiting its turn in a TanStack scope resumes only while the
-	// page counts as focused, and a save must not wait for the person to come
-	// back to the window. Nothing reads again on focus, so the page counts as
-	// focused always. The focus manager is global; this sets it the same way
-	// every time.
-	focusManager.setEventListener((setFocused) => {
-		setFocused(true);
-		return undefined;
-	});
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: {
@@ -123,7 +102,6 @@ export function createFolderContext<TDefinition extends Definition>(
 	// Wired before anything reads, so no change falls between.
 	const stopChanges = queries.invalidateOnChange(queryClient);
 	const edits = createEdits({ folder, queries, queryClient, writeFailed });
-	const steps: (() => Promise<void> | void)[] = [];
 	let closing: Promise<void> | undefined;
 
 	return {
@@ -133,27 +111,8 @@ export function createFolderContext<TDefinition extends Definition>(
 		edits,
 		queryClient,
 		writeFailed,
-		beforeClose: (step) => {
-			steps.push(step);
-		},
 		close() {
-			// The edit layer refuses new input from the call on.
-			edits.fence();
 			closing ??= (async () => {
-				// Every step starts as `close` is called, so input each one fences
-				// is refused from then, and they run together. A step that throws
-				// is logged; the folder is still released.
-				await Promise.all(
-					steps.map(async (step) => {
-						try {
-							await step();
-						} catch (cause) {
-							log.error(
-								new Error('A step before closing the folder threw.', { cause }),
-							);
-						}
-					}),
-				);
 				await edits.close();
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: queries.key });

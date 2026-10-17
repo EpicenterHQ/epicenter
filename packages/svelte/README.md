@@ -58,9 +58,8 @@ definition, and everything below it reads the opened folder through
   one (`staleTime: Infinity`, no refetch on focus), nothing waits for a
   network (`networkMode: 'always'`), and failures are shown, not retried
   (`retry: false`). `invalidateOnChange` is wired once, before anything
-  reads. TanStack's global focus manager counts the page as focused always:
-  a mutation waiting its turn in a scope resumes only while the page is
-  focused, and a save must not wait for the person to come back.
+  reads.
+- One edit layer (`edits`), described below.
 - One write-failure toast. An app reports `{ path, error, unsaved, retry? }`
   to `getFolder().writeFailed`; the toast says `Could not save <path>` and
   words the error with `describeWriteError`. It offers the unsaved text with
@@ -70,29 +69,77 @@ definition, and everything below it reads the opened folder through
   started, and when none did the toast comes back with only the text to
   copy. A failed field set reports the field the person typed, such as a
   title, and no text for a click, a move, or a delete.
-- `beforeClose` steps all start when close is called.
-- Closing when the page goes away: the app's `beforeClose` steps run first
-  (fence input, send typed text), then every write and action lands, the
-  change wiring stops, and the folder is released.
+- Closing when the page goes away: the edit layer fences input from the
+  moment close is called, sends what is typed, waits for every write,
+  rename, delete, and app action, then the change wiring stops and the
+  folder is released.
 
 `getFolder<typeof definition>()` answers `FolderContext`: `folder`, `isOwn`
 (the handle's `folder.own`: the app's own folder, for a feature such as
-Todos' Connect), `queries` (the TanStack Query layer over the folder,
-`folderOptions(folder)`), `queryClient`, `writeFailed`, `beforeClose`, and
+Todos' Connect), `queries` (the TanStack Query reads over the folder,
+`folderOptions(folder)`), `edits`, `queryClient`, `writeFailed`, and
 `close`. Call it while a component initializes. An app module that builds
 compound actions takes the context from the component that calls it.
 
 `createFolderContext(folder, { writeFailed })` builds the same context over a
 folder a test opened, and `<FolderProvider context>` provides it to mounted
 views. `@epicenter/svelte/folder` and `@epicenter/svelte/write-failure` are
-plain modules, so a store imports them without loading components.
+plain modules, so a store imports them without loading components; the
+context builds the edit layer, a runes module, so a test loads
+`@epicenter/svelte/folder` with a dynamic `import()` after its runes loader.
 `ActionError.NotStarted({ reason })` is the error an app returns for an
 action it refused before changing anything.
 
+### The edit layer (`@epicenter/svelte/edits`)
+
+`createEdits({ folder, queries, queryClient, writeFailed })` is the one
+place a folder app keeps what a person typed and has not saved, so each
+app's store holds only its product logic. `<FolderApp>` builds it as
+`getFolder().edits`; Whispering, which opens its folder itself, builds its
+own.
+
+```ts
+const { edits } = getFolder<typeof todosDefinition>();
+const title = edits.field('todos', stem, 'title');
+const notes = edits.body('todos', stem);
+edits.set('todos', stem, { done: true });
+await edits.exclusive(path, () => edits.writes.tables.todos.delete(stem));
+await edits.saveVersion();
+```
+
+- `edits.writes` is `folderWrites(folder, queryClient)` from
+  `@epicenter/folder/query`: the folder's write, move, and row helpers, each
+  answering the engine's Result and keeping the cache in step. Writes to one
+  file run one at a time, in the order made, whoever made them; `inTurn`
+  runs other work in a file's turn.
+- `body(table, stem)`, `text(path)`, and `field(table, stem, name)` hold
+  what is typed by path until it is in the file. Each saves a second after
+  the last change (`SAVE_AFTER_MS`), and at once on `save()`, which a view
+  calls when the person leaves the control and when the view goes away. A
+  draft outlives its view, and a read never replaces it.
+- A save that fails keeps what is typed and reports it to `writeFailed`
+  with the text and a `retry` that starts a save while the draft is still
+  held and the folder is not closing.
+- A delete beats an edit that never saw it. A draft whose file was deleted,
+  as a save found or a listing without its row says, is let go and its text
+  offered once (`NotFound`). A field set on a deleted row offers what was
+  typed; `set`, a click, offers nothing.
+- `exclusive(path, work)` runs a rename or delete once the path's drafts
+  and writes landed; `locked(path)` and `refusal(path)` answer while it
+  runs, and while the folder closes.
+- `settled(path?)` sends what is typed and waits for every write, again
+  until nothing is left. `saveVersion()` and `sync({ url? })` start after
+  it.
+- `writing(path?)`, `unsaved(path?)`, `busy`, and `fenced` are read
+  reactively.
+- `close()` fences new input when it is called, then waits for every draft,
+  write, lock, and app action; it releases nothing.
+
 ### Running a sync from a page
 
-A page runs `folder.sync.run()` as one of its own mutations, invalidating
-the page's queries when it settles; this package keeps no sync state. Sync
+A page runs `edits.sync()` as one of its own mutations: it settles every
+draft and write first, then syncs, and reads the page's queries again; this
+package keeps no sync state. Sync
 asks nothing (ADR-0576): what both sides changed merges into one commit,
 and the result is `synced`, `saved` (merged here, not yet on the remote), or
 a `SyncError` saying why it stopped.

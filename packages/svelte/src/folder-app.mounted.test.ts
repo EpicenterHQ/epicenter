@@ -288,7 +288,7 @@ test('unmounting closes the folder once its writes land', async () => {
 	expect(refusal).toBe('Closed');
 });
 
-test('every step before close starts when close is called', async () => {
+test('close fences the edit layer when it is called, and releases the folder once it settled', async () => {
 	const { data: folder, error } = await openFolder({
 		app: `so.epicenter.app-test-${count++}`,
 		definition,
@@ -296,19 +296,9 @@ test('every step before close starts when close is called', async () => {
 	});
 	if (error !== null) throw new Error(error.message);
 	const context = createFolderContext(folder);
-	const fenced: string[] = [];
-	const first = Promise.withResolvers<void>();
-	context.beforeClose(async () => {
-		fenced.push('first');
-		await first.promise;
-	});
-	context.beforeClose(() => {
-		fenced.push('second');
-	});
 	const closing = context.close();
-	// The second fence is up although the first step still waits.
-	expect(fenced).toEqual(['first', 'second']);
-	first.resolve();
+	expect(context.edits.fenced).toBe(true);
+	expect(context.close()).toBe(closing);
 	await closing;
 	expect(folder.signal.aborted).toBe(true);
 });
