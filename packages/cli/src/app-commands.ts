@@ -6,9 +6,11 @@
  * `app install` and `app update` print NDJSON: `{"progress": "<sentence>"}`
  * while they work, then one result line, `{"app": <InstalledApp>}`, or
  * `{"error": "<message>"}` when they cannot finish. They exit 0 when the app
- * is built at its commit, 1 when it waits for approval (the result carries
- * its review), and 2 on an error. The desktop shell runs these and pipes each
- * line to the Folders window.
+ * has an approved commit, 1 when nothing is approved yet (the result's
+ * `pending` carries the review), and 2 on an error. A fetched commit waiting
+ * for approval beside an approved one is in `pending` too, and exits 0, since
+ * the approved commit still opens. The desktop shell runs these and pipes
+ * each line to the Folders window.
  */
 
 import { resolveAppPaths } from './app-paths.ts';
@@ -18,6 +20,7 @@ import {
 	listInstalled,
 	listRepository,
 	type Progress,
+	type Review,
 	remove,
 	update,
 } from './installed-apps.ts';
@@ -37,7 +40,9 @@ function stateText(app: InstalledApp) {
 		case 'ready':
 			return 'ready';
 		case 'unbuilt':
-			return 'approved, made current when opened';
+			return 'approved, built when opened';
+		case 'damaged':
+			return 'damaged: its build changed on disk, and a fresh copy waits beside it';
 		case 'needsApproval':
 			return 'waiting for approval';
 		case 'broken':
@@ -45,33 +50,43 @@ function stateText(app: InstalledApp) {
 	}
 }
 
+/** The review of `app`'s commit waiting for approval, as text, with the command that approves it. */
+function reviewText(app: InstalledApp, review: Review) {
+	return [
+		review.from === null
+			? `${app.title} (${app.id}) is waiting for approval at commit ${review.commit}.`
+			: `An update of ${app.title} (${app.id}) to commit ${review.commit} is waiting for approval.`,
+		'',
+		review.from === null
+			? 'Commits:'
+			: `New commits since ${review.from.slice(0, 12)} was approved:`,
+		review.log || '(none)',
+		...(review.from === null
+			? []
+			: ['', 'Changed files:', review.diffStat || '(none)']),
+		'',
+		review.statement,
+		`To approve it, run: epicenter app update ${app.id} --commit=${review.commit} --approve`,
+	].join('\n');
+}
+
 /** The result of `app install` or `app update`, and its exit code. */
 function settled(app: InstalledApp, json: boolean) {
-	const waiting = app.state.kind === 'needsApproval';
 	if (json) writeJson({ app });
-	else if (app.state.kind === 'needsApproval') {
-		const { review } = app.state;
-		writeOut(
-			[
-				`${app.title} (${app.id}) is waiting for approval at commit ${app.commit}.`,
-				'',
-				review.from === null
-					? 'Commits:'
-					: `New commits since ${review.from.slice(0, 12)} was approved:`,
-				review.log || '(none)',
-				...(review.from === null
-					? []
-					: ['', 'Changed files:', review.diffStat || '(none)']),
-				'',
-				review.statement,
-				`To approve it, run: epicenter app update ${app.id} --approve`,
-			].join('\n'),
-		);
-	} else
-		writeOut(
-			`${app.title} (${app.id}) is ${stateText(app)} at commit ${app.commit.slice(0, 12)}.`,
-		);
-	return waiting ? EXIT.finding : EXIT.ok;
+	else {
+		const lines =
+			app.state.kind === 'needsApproval'
+				? []
+				: [
+						`${app.title} (${app.id}) is ${stateText(app)} at commit ${app.commit.slice(0, 12)}.`,
+					];
+		if (app.pending !== null) {
+			if (lines.length > 0) lines.push('');
+			lines.push(reviewText(app, app.pending));
+		}
+		writeOut(lines.join('\n'));
+	}
+	return app.state.kind === 'needsApproval' ? EXIT.finding : EXIT.ok;
 }
 
 export async function appList(options: Options, json: boolean) {
@@ -98,9 +113,15 @@ export async function appList(options: Options, json: boolean) {
 	else
 		for (const app of apps)
 			writeOut(
-				[app.id, app.title, stateText(app), app.folder || '.', app.source].join(
-					'\t',
-				),
+				[
+					app.id,
+					app.title,
+					app.pending !== null && app.state.kind !== 'needsApproval'
+						? `${stateText(app)}, update waiting for approval`
+						: stateText(app),
+					app.folder || '.',
+					app.source,
+				].join('\t'),
 			);
 	return EXIT.ok;
 }

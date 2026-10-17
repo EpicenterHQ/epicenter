@@ -4,8 +4,9 @@
  *
  * The Folders window's "Open in" buttons and its Apps list are the same act
  * on the same verb, `open_installed_app`: on the folder it was offered on, or
- * without one, on the app's own folder. The CLI answers for an approved commit
- * only, building it first when it is not the current build. A window already
+ * without one, on the app's own folder. The CLI answers for the approved
+ * commit only, building it first when it is not built and checking its build
+ * when it is; a build changed on disk is restored unless a window runs it. A window already
  * open on the folder is revealed when it runs that commit and otherwise
  * refused, since it keeps the build it opened on. Nothing here remembers who
  * asked or where they came from

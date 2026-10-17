@@ -5,11 +5,10 @@
  * the CLI the app runs read and write the same places.
  *
  * ```txt
- * <folderDir>/Apps/<app-id>/                 a full clone of the app's repository
- * <dataDir>/approvals.json                   { [appId]: { commit, approvedAt } }
+ * <dataDir>/apps/<app-id>/                  a bare clone of the app's repository; its detached HEAD is the approved commit
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
  * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
- * <cacheDir>/checkouts/<app-id>/             the commit an app builds from, only while it builds
+ * <cacheDir>/sources/<app-id>/               the approved commit's files, only while its build runs
  * <cacheDir>/builds/<app-id>/<commit>/       the built bundle a window of that commit loads
  * ```
  *
@@ -28,19 +27,17 @@ import { isAbsolute, join } from 'node:path';
 const IDENTIFIER = 'so.epicenter';
 /** The release app's folder under the home directory. */
 const FOLDER_NAME = 'Epicenter';
-/** The directory under the folder root holding installed apps' sources. */
-export const APPS_DIRECTORY = 'Apps';
+/** The directory under the data directory holding installed apps' clones. */
+export const APPS_DIRECTORY = 'apps';
 
 export type AppPaths = {
-	/** One repository per installed app, at `<app-id>/`. */
+	/** One bare clone per installed app, at `<app-id>/`. */
 	readonly appsDir: string;
-	/** The Epicenter folder: `Apps/` and Epicenter's own `so.epicenter/`. */
+	/** The Epicenter folder: the data folders and Epicenter's own `so.epicenter/`. */
 	readonly folderDir: string;
 	/** Built bundles, at `<app-id>/<commit>/`. */
 	readonly buildsDir: string;
-	/** Which app commits may run on this machine. */
-	readonly approvalsFile: string;
-	/** Machine state worth keeping: approvals and the sign-in locks. */
+	/** Machine state worth keeping: the installed apps' clones and the sign-in locks. */
 	readonly dataDir: string;
 	/**
 	 * The `epicenter` every Git configuration Epicenter writes runs, and a
@@ -82,10 +79,9 @@ export function resolveAppPaths(
 		join(home, 'Library', 'Caches', IDENTIFIER),
 	);
 	return {
-		appsDir: join(folderDir, APPS_DIRECTORY),
+		appsDir: join(dataDir, APPS_DIRECTORY),
 		folderDir,
 		buildsDir: join(cacheDir, 'builds'),
-		approvalsFile: join(dataDir, 'approvals.json'),
 		dataDir,
 		commandLink: join(home, '.local', 'bin', 'epicenter'),
 		cacheDir,
