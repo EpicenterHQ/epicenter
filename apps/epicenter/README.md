@@ -429,9 +429,10 @@ same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
 `~/Library/Application Support/so.epicenter/apps/<app-id>/`, writes
 `info/attributes` so no attribute changes a byte (`neutralizeAttributes`),
 writes the one refspec `+refs/heads/<default>:refs/remotes/origin/<default>`,
-fetches once with that refspec passed explicitly, so no refspec from a
-person's global configuration applies, deletes the clone's local branch, and
-records the folder in the clone's `config` as
+deletes every ref the clone wrote (its own branch, and any a refspec in a
+person's global configuration mapped), fetches once with that refspec passed
+on the command line with `--refmap=` and `--no-tags`, so the tracking ref is
+the clone's only ref, and records the folder in the clone's `config` as
 `epicenter.folder` (absent for the root). Its `HEAD` stays symbolic, so
 nothing is approved and nothing builds: the CLI exits 1 with the app and the
 fetched commit's review (`pending`). Everything about an installed app is
@@ -490,12 +491,14 @@ The scheme serves each build of an installed app at
 (`epicenter app update --commit=<commit>`), which answers only for the
 approved commit. It builds that commit when it is not built, and otherwise
 compares `builds/<app-id>/<commit>/` with the commit's build tree by path and
-blob hash, ignoring a `.DS_Store`. When no window runs that commit
-(`InstalledWindowCommits`), the shell reserves it and passes `--restore`: a
-build that differs, edited, partly copied, or with a file added, is extracted
-again into a new sibling, checked, and swapped in. When a window runs it, the
-CLI writes nothing and answers `damaged`, and the shell opens nothing and asks
-the person to close that app's windows first. A window is pinned to its
+blob hash, ignoring a `.DS_Store`, and writes nothing. A build that differs,
+edited, partly copied, or with a file added, is answered `damaged`; the shell
+then reserves that commit, which succeeds only when no window runs it
+(`InstalledWindowCommits`) and no other open holds it, and asks again with
+`--restore`, which extracts the build again into a new sibling, checks it,
+and swaps it in. Opens of an intact build take no reservation, so two of them
+never refuse each other. When the reservation fails, the shell opens nothing
+and asks the person to close that app's windows first. A window is pinned to its
 commit before its WebView is created, so no page loads a build being
 replaced. The check runs at each open, not at each request: bytes a local
 process changes under `builds/` afterward are served until the next open,

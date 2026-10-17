@@ -30,8 +30,8 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
 | `epicenter app list [--repository <url>]` | built | `src/installed-apps.ts` |
-| `epicenter app install <url> [--folder <path>] [--approve]` | built | `src/installed-apps.ts` |
-| `epicenter app update <id> [--approve]` | built | `src/installed-apps.ts` |
+| `epicenter app install <url> [--folder <path>] [--commit <sha>] [--approve]` | built | `src/installed-apps.ts` |
+| `epicenter app update <id> [--commit <sha>] [--approve]` | built | `src/installed-apps.ts` |
 | `epicenter app remove <id>` | built | `src/installed-apps.ts` |
 | `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
@@ -44,8 +44,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter declare-epicenter-folder` | built, hidden | `src/epicenter-folder.ts` |
 
 `send`, `history`, `save-version`, `install-command`,
-`declare-epicenter-folder`, `app update --commit`, `sync --allow-unrelated`,
+`declare-epicenter-folder`, `app update --restore`, `sync --allow-unrelated`,
 and `--desktop` are left out of `--help`: the desktop app runs them.
+`--commit` is listed, and `--approve` requires it.
 
 ## Hosted repositories
 
@@ -227,8 +228,9 @@ approved yet. Approving needs the commit that was shown:
 `app install --commit <sha> --approve` or `app update --commit <sha>
 --approve` approves that commit, and only when it is the one waiting, with
 `git update-ref --no-deref HEAD`, so approving never covers a commit nobody
-saw. `--approve` without `--commit` is refused, and approving fetches
-nothing.
+saw. `--approve` without `--commit` is refused, approving fetches nothing,
+and `app install --commit` without `--approve` is refused, since installing
+approves nothing.
 
 Until publishing builds apps (ADR-0589), the approved commit is built from
 source: it is extracted with `git archive` into `sources/<app-id>/` in the
@@ -236,8 +238,8 @@ cache directory, `bun install --frozen-lockfile --ignore-scripts` runs at its
 root and `bun run build:installed` in the app's folder, run by this binary as
 `bun` (`BUN_BE_BUN=1`). The regular files of its `dist/` are written into the
 clone as the tree `refs/epicenter/builds/<commit>`, which is extracted with
-`git archive` into `builds/<app-id>/<commit>/`. `app update --commit <sha>`,
-hidden, is what the shell runs before every open: it answers only for the
+`git archive` into `builds/<app-id>/<commit>/`. `app update --commit <sha>`
+without `--approve` is what the shell runs before every open: it answers only for the
 approved commit, builds it when it is not built, and checks its build
 directory against that tree by path and blob hash. A damaged build is
 reported (`state: damaged`) and left as it is, since a window may be running

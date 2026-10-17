@@ -46,17 +46,30 @@ approved commit.**
   only the default branch, records `remote.origin.tagOpt=--no-tags`, and
   writes no fetch refspec. The installer reads
   `<default>` from the clone's symbolic `HEAD`, writes the refspec above,
-  fetches once, and detaches `HEAD` at the commit the person approves
+  deletes every ref the clone wrote (its own `refs/heads/<default>`, and any
+  a refspec in a person's global configuration mapped), fetches once, and
+  detaches `HEAD` at the commit the person approves
   (`git update-ref --no-deref HEAD <commit>`). A clone whose `HEAD` is still
-  a symbolic ref has no approved commit and opens nothing.
+  a symbolic ref has no approved commit and opens nothing; with its branch
+  deleted, no local ref remains that `rev-parse` could take for another
+  name.
 - Fetching writes `refs/remotes/origin/<default>` and never `HEAD`, and
-  never fetches the `template` branch or tags (ADR-0598). An update is
-  available when `refs/remotes/origin/<default>` differs from `HEAD`.
+  never fetches the `template` branch or tags (ADR-0598). Every fetch passes
+  the clone's one refspec on the command line with `--refmap=` and
+  `--no-tags`, so no refspec in a person's global or system configuration
+  writes another ref. An update is available when
+  `refs/remotes/origin/<default>` differs from `HEAD`.
+- Approving names the commit the person was shown and fetches nothing, so
+  an approval never covers a commit nobody saw.
 - `git pull` and `git merge` refuse to run in a bare repository ("this
   operation must be run in a work tree"), so nothing but approving moves
   `HEAD`.
 - Approving a commit is `git update-ref --no-deref HEAD <commit>`. A newly
   opened window loads `HEAD`.
+- A build's tree is read only from the exact ref
+  `refs/epicenter/builds/<commit>` (`git show-ref --verify`), and only when
+  that ref names a tree object, never a commit peeled to one, so no upstream
+  branch or tag of that name can supply it.
 
 **A build directory is `git archive` of its commit, byte for byte.** The
 installer extracts `git archive <commit>` into a sibling of
@@ -75,17 +88,19 @@ compares `<cache_dir>/builds/<encoded address>/<commit>/` with the commit's
 tree, by path and blob hash. A difference, or a check that cannot finish,
 is a damaged build.
 
-**A damaged build is replaced only when no window runs it.** When
-`InstalledWindowCommits` (`apps/epicenter/src-tauri/src/lib.rs`) names no
-window on that commit, `open_installed_app` reserves that commit, so no
-other open pins a window to it meanwhile, and asks the CLI to restore it
-(`--restore`): the CLI extracts the commit into a new sibling directory,
+**A damaged build is replaced only when no window runs it.**
+`open_installed_app` asks the CLI once without restoring, so opens of an
+intact build never reserve it or refuse each other. When the CLI answers
+that the build is damaged, the shell reserves that commit, which succeeds
+only when `InstalledWindowCommits` (`apps/epicenter/src-tauri/src/lib.rs`)
+names no window on it and no other open holds it, and asks the CLI again
+with `--restore`: the CLI extracts the commit into a new sibling directory,
 checks it, moves the damaged directory aside, renames the fresh one into
 place, and removes the damaged one. Every window is pinned to its commit
 before its WebView is created, so no page loads a build being replaced.
-When a window runs that commit, the CLI writes nothing and answers that
-the build was damaged, and the shell opens nothing and reports it to the
-person, so the windows on that commit are closed before it is replaced.
+Without `--restore` the CLI writes nothing. When the reservation fails, the
+shell opens nothing and reports the damaged build to the person, so the
+windows on that commit are closed before it is replaced.
 ADR-0588's per-commit directories and URLs, and a window keeping the build
 it opened on, stand.
 
@@ -102,8 +117,9 @@ check at open finds a partial build as it finds an edited one.
 - A person or an agent can approve by hand with the same `git update-ref`,
   as one could write `approvals.json` before: approval guards against
   remote code, not local processes (ADR-0556).
-- Every open reads each file of the build once and hashes it. An app's
-  build is a few megabytes.
+- Every open reads each file of the build once and hashes it, and a
+  restore hashes the fresh copy once more. An app's build is a few
+  megabytes.
 - The build is verified when an app opens, not as each file is served:
   bytes a local process changes under `builds/` after that check are
   served until the next open. That is the trust ADR-0540 already grants
