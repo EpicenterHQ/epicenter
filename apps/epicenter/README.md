@@ -7,26 +7,28 @@ page source                        build output            served at
 
 apps/epicenter/src/ui -----------> dist/home ------------> epicenter-app://localhost/home/
 apps/epicenter/src/folders ------> dist/folders ---------> epicenter-app://localhost/folders/
-an installed app's folder -------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/
+an installed app's folder -------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/<commit>/
 ```
 
 Rust serves every page Epicenter shows from one origin,
 `epicenter-app://localhost`, through a scheme the shell registers
 (`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
-`/home/`, the Folders window at `/folders/`, and each installed app at
-`/apps/<app-id>/`. No server listens on a port and no Bun process outlives a
+`/home/`, the Folders window at `/folders/`, and each installed app's build of
+one commit at `/apps/<app-id>/<commit>/`. No server listens on a port and no Bun process outlives a
 command. The `epicenter-host` build condition selects each product's host
 integrations.
 
 The scheme answers GET only. It serves a regular file inside the page's
-directory or the app's current build, refusing a symbolic link and any path
+directory or the build of the commit the URL names, refusing a symbolic link and any path
 that leaves it, and answers an extensionless path that names no file with that
 directory's `index.html`, so client-side routes load. Every response carries
 one Content-Security-Policy: a page reaches its own origin and Tauri's IPC
 (`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
-document's policy admits each of its inline scripts by hash. Windows navigate
-only within the origin; a new-window link opens in the system browser only
-when it is the hosted account website.
+document's policy admits each of its inline scripts by hash. Each window
+navigates only below the path it opened at: a built-in page's, or an installed
+app's `/apps/<app-id>/<commit>/`, so an app window never loads another build;
+a new-window link opens in the system browser only when it is the hosted
+account website.
 
 Installed apps reach native file folders through the shared Folder plugin.
 Each page runs `@epicenter/folder`'s own engine over a directory the shell
@@ -132,13 +134,15 @@ Files split by what they cost to lose (ADR-0539):
 ~/Epicenter/                                  read, edited, and versioned as files
   Apps/<app-id>/                              an installed app's source repository
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
-  approvals.json                              which app commits may run here (the CLI writes it)
+  approvals.json                              the commit of each app approved to run here (the CLI writes it)
   connections.json                            this computer's AI connections (the CLI writes it)
   local-transcription.json                    the active local model and when to unload it
 ~/Library/Caches/so.epicenter/                disposable
-  builds/<app-id>/<commit>/                   built app bundles
+  checkouts/<app-id>/                         the commit an app builds from, only while it builds
+  builds/<app-id>/<commit>/                   built app bundles; a finished one is never replaced, and none is cleaned up yet
+  builds/<app-id>/<commit>.built              that commit's build finished
   builds/<app-id>/<commit>.log                what the install and build printed
-  builds/<app-id>/current                     the commit the shell serves
+  builds/<app-id>/current                     the commit a newly opened window of the app loads
   apps.lock                                   one install or build at a time
 ```
 Overrides select an explicit location, so pointing both builds at the same
@@ -403,7 +407,7 @@ list_repository_apps   epicenter app list --repository=<source> --json
 install_app            epicenter app install [--folder=<folder>] --json -- <source>
 update_app             epicenter app update --json -- <id>
 approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
-open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not built
+open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not current
 ```
 
 The Folders window's Apps list has "Install from a repository…"
@@ -425,26 +429,32 @@ its clone, never from a row. The page shows the title, the source, the
 commit, its log, and that building runs the app's code on this computer.
 "Approve and build" calls `approve_app` with the commit shown; the CLI
 refuses if the clone moved since, then records the commit in
-`approvals.json`, runs `bun install --frozen-lockfile --ignore-scripts` at the
-repository's root (when it has a `package.json`), runs
-`bun run build:installed` in the app's folder, and copies its `dist/` to
-`builds/<app-id>/<commit>/`. Approval covers the whole repository's commit.
-`epicenter app remove <id>` deletes the clone, its builds, and its approval,
-refusing while the clone holds uncommitted changes or commits no remote has;
-the window has no Remove yet.
+`approvals.json` and builds that commit alone: it checks the commit out with
+`git --no-replace-objects worktree add --force --force --detach` into
+`checkouts/<app-id>/`, with the clone's filter drivers emptied so no smudge
+filter runs (Git LFS files build as their pointers) and sparse checkout off,
+never building in the clone. It runs
+`bun install --frozen-lockfile --ignore-scripts` at the checkout's root (when
+it has a `package.json`), runs `bun run build:installed` in the app's folder,
+copies its `dist/` beside `builds/<app-id>/<commit>/`, renames it into place,
+writes `builds/<app-id>/<commit>.built`, and removes the checkout with
+`git worktree remove --force --force`. A commit whose build carries its `.built`
+file is not built again; the directory is made current as it is. Approval
+covers the whole repository's commit.
+`epicenter app remove <id>` deletes the clone and its approval and leaves its
+builds for any window still running one, refusing while the clone holds
+uncommitted changes or commits no remote has; the window has no Remove yet.
 
-What runs is decided per commit:
+Every commit runs only once `approvals.json` names it (ADR-0588):
 
 - A commit made on this machine, by a person or an agent committing in
-  `Apps/<app-id>/`, runs without asking: every commit since the approved one
-  is unreachable from every remote-tracking ref and from `FETCH_HEAD`.
-  Opening the app builds it and records it as approved, so pushing it later
-  does not ask again.
-- Anything else, such as "Update" (fetch, then a fast-forward or a rebase of
-  the commits made here onto upstream), waits for approval with `git log` and
-  `git diff --stat` since the approved commit. A rebase that conflicts is
-  undone and reported.
-- Uncommitted changes do not build: what runs is always a commit.
+  `Apps/<app-id>/`, waits for approval like any other.
+- "Update" (fetch, then a fast-forward or a rebase of the commits made here
+  onto upstream) refuses while the clone has uncommitted changes, and its
+  result waits for approval with `git log` and `git diff --stat` since the
+  approved commit. A rebase that conflicts is undone and reported.
+- Uncommitted, untracked, and ignored files in the clone never reach a
+  build: what runs is always a commit.
 
 The CLI runs every Git command for an app through `@epicenter/folder`'s
 runner (`createGitRunner`): no hooks, no fsmonitor, no terminal prompt, and
@@ -456,11 +466,21 @@ running the command: in a release the bundled
 `bun` first on the build's `PATH`); in development the CLI's source runs under
 the `bun` on `PATH`.
 
-The scheme serves an installed app's current build, the commit
-`builds/<app-id>/current` names, at `epicenter-app://localhost/apps/<app-id>/`.
-`open_installed_app` opens it in its own window, after the CLI builds the
-listed commit when it is not the current build, labelled
-`app:<id with _ for .>:<folder scope in hex>`. Opened from the Apps list, the
+The scheme serves each build of an installed app at
+`epicenter-app://localhost/apps/<app-id>/<commit>/`, from
+`builds/<app-id>/<commit>/`, refusing a linked build directory.
+`open_installed_app` asks the CLI before every open
+(`epicenter app update --commit=<commit>`), which answers only for an
+approved commit and makes its build current (`builds/<app-id>/current`),
+then opens the commit it answered ready in its own window, labelled
+`app:<id with _ for .>:<folder scope in hex>`. The window keeps that build
+until it is closed and opened again: a later approval and build changes
+which commit the next window opens, never an open window. Opening an app
+whose window is already open on that folder reveals that window when the
+shell recorded it opening on the same commit, and otherwise leaves it and
+says the app is open on another version.
+Navigation pins a window's page and its relative assets to its build; every
+app shares the one origin, so it does not fence requests. Opened from the Apps list, the
 app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open
 in", the folder it was opened on. The window is permitted into that folder's
 scope and no other, and the folder plugin records which app the window runs

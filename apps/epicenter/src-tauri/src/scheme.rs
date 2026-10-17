@@ -2,9 +2,13 @@
 //! one origin `epicenter-app://localhost` (ADR-0561).
 //!
 //! ```txt
-//! epicenter-app://localhost/<page>/…       Epicenter's own pages (`BuiltInApp`), from `<pages>/<page>/`
-//! epicenter-app://localhost/apps/<id>/…    an installed app, from `<builds>/<id>/<commit>/`
+//! epicenter-app://localhost/<page>/…                Epicenter's own pages (`BuiltInApp`), from `<pages>/<page>/`
+//! epicenter-app://localhost/apps/<id>/<commit>/…    an installed app's build of one commit, from `<builds>/<id>/<commit>/`
 //! ```
+//!
+//! An installed app's URL names its commit, so a window keeps the build it
+//! opened on, every file of it, until it is opened again; a newer build only
+//! changes which commit the next window opens (ADR-0588).
 //!
 //! The handler answers GET only. It serves a regular file inside the page's
 //! or the app's directory and refuses a symbolic link and anything outside it;
@@ -35,7 +39,7 @@ pub struct Roots {
     /// Epicenter's own pages, one directory per `BuiltInApp` id.
     pub pages: PathBuf,
     /// Installed apps' builds: `<builds>/<id>/<commit>/`, the commit named by
-    /// `<builds>/<id>/current` (ADR-0540).
+    /// the URL (ADR-0588).
     pub builds: PathBuf,
 }
 
@@ -57,36 +61,24 @@ pub fn url(path: &str) -> anyhow::Result<Url> {
     Ok(format!("{SCHEME}://{HOST}{path}").parse()?)
 }
 
-/// Whether the window labelled `label` may navigate to `url`: only on the
-/// one origin, and only below its own page's prefix, so an app's window never
-/// becomes Settings, the Folders window, or another app's.
-pub fn is_allowed_navigation(label: &str, url: &Url) -> bool {
+/// The path installed app `id`'s build of `commit` is served below.
+pub fn installed_app_path(id: &str, commit: &str) -> String {
+    format!("/apps/{id}/{commit}/")
+}
+
+/// Whether a window opened at `prefix`, the path its page is served below,
+/// may navigate to `url`: only on the one origin, and only below that path,
+/// so a built-in page's window stays that page, and an installed app's
+/// window stays on its app and the commit it opened on.
+pub fn is_allowed_navigation(prefix: &str, url: &Url) -> bool {
     url.scheme() == SCHEME
         && url.host_str() == Some(HOST)
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none()
-        && window_prefix(label).is_some_and(|prefix| url.path().starts_with(&prefix))
-}
-
-/// The path prefix the window labelled `label` is served below: a built-in
-/// page's `/<page>/`, or `/apps/<id>/` for an installed app's
-/// `app:<id with _ for .>[:<folder>]` (an id has no `_`, so the mapping
-/// reverses). The recording overlay is Whispering's.
-fn window_prefix(label: &str) -> Option<String> {
-    if let Some(built_in) = BuiltInApp::from_id(label) {
-        return Some(built_in.path().to_string());
-    }
-    #[cfg(target_os = "macos")]
-    if label == crate::overlay::WINDOW_LABEL {
-        return Some("/apps/so.epicenter.whispering/".to_string());
-    }
-    let id = label
-        .strip_prefix(crate::INSTALLED_WINDOW_PREFIX)?
-        .split(':')
-        .next()
-        .filter(|id| !id.is_empty())?;
-    Some(format!("/apps/{}/", id.replace('_', ".")))
+        && prefix.starts_with('/')
+        && prefix.ends_with('/')
+        && url.path().starts_with(prefix)
 }
 
 /// Register the scheme. A response is read off disk on a blocking thread, so
@@ -138,13 +130,18 @@ fn resolve(roots: &Roots, path: &str) -> Option<PathBuf> {
     }
 
     let (root, rest) = match segments.as_slice() {
-        ["apps", id, rest @ ..] => {
-            if !installed_apps::is_app_id(id) {
+        ["apps", id, commit, rest @ ..] => {
+            if !installed_apps::is_app_id(id) || !installed_apps::is_commit(commit) {
                 return None;
             }
-            let builds = roots.builds.join(id);
-            let commit = installed_apps::current_build(&builds)?;
-            (builds.join(commit), rest)
+            let app = roots.builds.join(id);
+            let build = app.join(commit);
+            // `contained_file` canonicalizes the root, so a linked app or
+            // build directory is refused here, before it would be followed.
+            if !is_real_directory(&app) || !is_real_directory(&build) {
+                return None;
+            }
+            (build, rest)
         }
         [page, rest @ ..] => (roots.pages.join(BuiltInApp::from_id(page)?.id()), rest),
         [] => return None,
@@ -182,6 +179,12 @@ fn contained_file(root: &Path, rest: &[&str]) -> Option<PathBuf> {
         }
     }
     regular_file(&root.join("index.html"))
+}
+
+/// Whether `path` is a directory and not a symbolic link to one.
+fn is_real_directory(path: &Path) -> bool {
+    path.symlink_metadata()
+        .is_ok_and(|metadata| metadata.is_dir())
 }
 
 /// `path` itself when it is a regular file reached through no symbolic link.
@@ -315,9 +318,13 @@ mod tests {
     use std::fs;
 
     const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+    /// An earlier build of the same app, which a window opened before
+    /// `COMMIT` was built still runs.
+    const EARLIER: &str = "89abcdef0123456789abcdef0123456789abcdef";
+    const BOARD: &str = "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/";
 
-    /// A pages directory with Folders and Settings, and one installed app's
-    /// current build, under a fresh temporary directory.
+    /// A pages directory with Folders and Settings, and two builds of one
+    /// installed app, `COMMIT` current, under a fresh temporary directory.
     fn fixture() -> (tempfile::TempDir, Roots) {
         let temporary = tempfile::tempdir().unwrap();
         let base = temporary.path().canonicalize().unwrap();
@@ -349,6 +356,10 @@ mod tests {
         )
         .unwrap();
         fs::write(app.join(COMMIT).join("assets/app.wasm"), b"\0asm\x01\0\0\0").unwrap();
+        fs::write(app.join(COMMIT).join("assets/chunk-new.js"), "new").unwrap();
+        fs::create_dir_all(app.join(EARLIER).join("assets")).unwrap();
+        fs::write(app.join(EARLIER).join("index.html"), "<html>earlier</html>").unwrap();
+        fs::write(app.join(EARLIER).join("assets/chunk-old.js"), "old").unwrap();
         (temporary, Roots { pages, builds })
     }
 
@@ -369,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn serves_each_page_and_an_installed_apps_current_build() {
+    fn serves_each_page_and_an_installed_apps_build_by_commit() {
         let (_temporary, roots) = fixture();
         assert_eq!(
             body(&get(&roots, "/folders/")),
@@ -388,12 +399,19 @@ mod tests {
             "export {};"
         );
         assert_eq!(
-            body(&get(&roots, "/apps/com.example.board/")),
+            body(&get(&roots, BOARD)),
             "<html><script>boot()</script></html>"
         );
-        // An app with no current build, and a page Epicenter does not have.
+        // An app with no build, a URL naming no commit or one never built,
+        // and a page Epicenter does not have.
         for missing in [
-            "/apps/com.example.other/",
+            "/apps/com.example.other/0123456789abcdef0123456789abcdef01234567/",
+            "/apps/com.example.board/",
+            "/apps/com.example.board",
+            "/apps/com.example.board/current/",
+            "/apps/com.example.board/HEAD/",
+            "/apps/com.example.board/0123456789abcdef/",
+            "/apps/com.example.board/ffffffffffffffffffffffffffffffffffffffff/",
             "/apps/",
             "/apps",
             "/unknown/",
@@ -407,6 +425,51 @@ mod tests {
         }
     }
 
+    /// A window keeps the build it opened on: every file of each commit comes
+    /// from that commit's directory, whatever `current` names, so a page
+    /// never mixes one build's document with another's chunks.
+    #[test]
+    fn each_commit_is_served_from_its_own_build_whatever_is_current() {
+        let (_temporary, roots) = fixture();
+        let earlier = format!("/apps/com.example.board/{EARLIER}/");
+        assert_eq!(body(&get(&roots, &earlier)), "<html>earlier</html>");
+        assert_eq!(
+            body(&get(&roots, &format!("{earlier}assets/chunk-old.js"))),
+            "old"
+        );
+        assert_eq!(
+            body(&get(&roots, &format!("{earlier}todo/42"))),
+            "<html>earlier</html>"
+        );
+        assert_eq!(
+            body(&get(&roots, &format!("{BOARD}assets/chunk-new.js"))),
+            "new"
+        );
+        for other_builds_chunk in [
+            format!("{earlier}assets/chunk-new.js"),
+            format!("{BOARD}assets/chunk-old.js"),
+        ] {
+            assert_eq!(
+                get(&roots, &other_builds_chunk).status(),
+                StatusCode::NOT_FOUND,
+                "{other_builds_chunk}"
+            );
+        }
+        // Moving `current`, or removing it, changes nothing a URL names.
+        let app = roots.builds.join("com.example.board");
+        fs::write(app.join("current"), format!("{EARLIER}\n")).unwrap();
+        assert_eq!(
+            body(&get(&roots, BOARD)),
+            "<html><script>boot()</script></html>"
+        );
+        fs::remove_file(app.join("current")).unwrap();
+        assert_eq!(body(&get(&roots, &earlier)), "<html>earlier</html>");
+        assert_eq!(
+            body(&get(&roots, BOARD)),
+            "<html><script>boot()</script></html>"
+        );
+    }
+
     #[test]
     fn an_extensionless_route_falls_back_to_its_own_document() {
         let (_temporary, roots) = fixture();
@@ -414,7 +477,7 @@ mod tests {
             "/folders/data/notes",
             "/folders/assets/",
             "/folders",
-            "/apps/com.example.board/board/42",
+            "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/board/42",
         ] {
             let response = get(&roots, route);
             assert_eq!(response.status(), StatusCode::OK, "{route}");
@@ -425,13 +488,16 @@ mod tests {
             );
         }
         assert_eq!(
-            body(&get(&roots, "/apps/com.example.board/board/42")),
+            body(&get(
+                &roots,
+                "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/board/42"
+            )),
             "<html><script>boot()</script></html>"
         );
         // A missing asset is not a route.
         for missing in [
             "/folders/assets/index-missing.js",
-            "/apps/com.example.board/favicon.ico",
+            "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/favicon.ico",
         ] {
             assert_eq!(
                 get(&roots, missing).status(),
@@ -484,13 +550,41 @@ mod tests {
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{link}");
         }
 
-        // An app's `current` naming something other than a commit is refused.
+        // A build directory, or an app's builds directory, that is a link is
+        // refused, wherever it points.
+        let linked = "fedcba9876543210fedcba9876543210fedcba98";
         let app = roots.builds.join("com.example.board");
-        fs::write(app.join("current"), "../../pages/folders").unwrap();
+        std::os::unix::fs::symlink(app.join(COMMIT), app.join(linked)).unwrap();
+        std::os::unix::fs::symlink(&app, roots.builds.join("com.example.alias")).unwrap();
+        for link in [
+            format!("/apps/com.example.board/{linked}/"),
+            format!("/apps/com.example.board/{linked}/assets/app.wasm"),
+            format!("/apps/com.example.alias/{COMMIT}/"),
+        ] {
+            assert_eq!(get(&roots, &link).status(), StatusCode::NOT_FOUND, "{link}");
+        }
+        // Uppercase hex names no build.
         assert_eq!(
-            get(&roots, "/apps/com.example.board/").status(),
+            get(
+                &roots,
+                &format!("/apps/com.example.board/{}/", COMMIT.to_uppercase())
+            )
+            .status(),
             StatusCode::NOT_FOUND
         );
+
+        // A commit segment that is not a commit never leaves the app's builds.
+        for escape in [
+            "/apps/com.example.board/..%2f..%2fpages/folders/",
+            "/apps/com.example.board/%2e%2e/",
+            "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567%2f..%2f../",
+        ] {
+            assert_eq!(
+                get(&roots, escape).status(),
+                StatusCode::NOT_FOUND,
+                "{escape}"
+            );
+        }
     }
 
     #[test]
@@ -534,7 +628,7 @@ mod tests {
             ),
             ("/folders/assets/icon.svg", "image/svg+xml; charset=utf-8"),
             (
-                "/apps/com.example.board/assets/app.wasm",
+                "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/assets/app.wasm",
                 "application/wasm",
             ),
         ] {
@@ -558,8 +652,11 @@ mod tests {
                 .to_string()
         };
         let boot = format!("'sha256-{}'", STANDARD.encode(Sha256::digest(b"boot()")));
-        assert!(policy("/apps/com.example.board/").contains(&boot));
-        assert!(policy("/apps/com.example.board/board/42").contains(&boot));
+        assert!(policy(BOARD).contains(&boot));
+        assert!(policy(
+            "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/board/42"
+        )
+        .contains(&boot));
         for other in ["/folders/", "/folders/assets/index-abc.js", "/missing/"] {
             let policy = policy(other);
             assert!(!policy.contains("sha256-"), "{other}");
@@ -604,56 +701,66 @@ mod tests {
             "https://api.epicenter.so/dashboard",
         ] {
             assert!(
-                !is_allowed_navigation("folders", &denied.parse().unwrap()),
+                !is_allowed_navigation("/folders/", &denied.parse().unwrap()),
                 "{denied}"
             );
         }
     }
 
-    /// Each window stays below its own page: Folders, Settings, and each
-    /// installed app's windows on any folder, and nothing else.
+    /// Each window stays below the path it opened at: Folders and Settings
+    /// at their pages, and an installed app's window at its app and the
+    /// commit it opened on, so it never loads another build, even its own
+    /// app's newer one.
     #[test]
-    fn each_window_navigates_only_below_its_own_prefix() {
-        let todos = crate::installed_window_label("so.epicenter.todos", None);
-        let todos_on_folder =
-            crate::installed_window_label("so.epicenter.todos", Some("data:Groceries"));
-        for (label, path) in [
-            ("folders", "/folders/"),
-            ("folders", "/folders/table/notes?row=1#x"),
-            ("home", "/home/"),
-            (todos.as_str(), "/apps/so.epicenter.todos/"),
-            (
-                todos_on_folder.as_str(),
-                "/apps/so.epicenter.todos/?folder=data%3AGroceries",
-            ),
-            (todos_on_folder.as_str(), "/apps/so.epicenter.todos/todo/42"),
+    fn each_window_navigates_only_below_the_path_it_opened_at() {
+        let todos = installed_app_path("so.epicenter.todos", COMMIT);
+        let todos_earlier = installed_app_path("so.epicenter.todos", EARLIER);
+        assert_eq!(
+            url(&todos).unwrap().as_str(),
+            format!("epicenter-app://localhost/apps/so.epicenter.todos/{COMMIT}/")
+        );
+        for (prefix, path) in [
+            ("/folders/", "/folders/".to_string()),
+            ("/folders/", "/folders/table/notes?row=1#x".to_string()),
+            ("/home/", "/home/".to_string()),
+            (todos.as_str(), todos.clone()),
+            (todos.as_str(), format!("{todos}?folder=data%3AGroceries")),
+            (todos.as_str(), format!("{todos}todo/42")),
+            (todos_earlier.as_str(), format!("{todos_earlier}todo/42")),
         ] {
             assert!(
-                is_allowed_navigation(label, &url(path).unwrap()),
-                "{label} {path}"
+                is_allowed_navigation(prefix, &url(&path).unwrap()),
+                "{prefix} {path}"
             );
         }
-        for (label, path) in [
-            ("folders", "/home/"),
-            ("folders", "/folders"),
-            ("home", "/folders/"),
-            ("home", "/apps/so.epicenter.todos/"),
-            (todos.as_str(), "/folders/"),
-            (todos.as_str(), "/home/"),
-            (todos.as_str(), "/apps/so.epicenter.whispering/"),
-            (todos.as_str(), "/apps/so.epicenter.todosx/"),
-            (todos.as_str(), "/apps/so.epicenter.todos/../../home/"),
+        for (prefix, path) in [
+            ("/folders/", "/home/".to_string()),
+            ("/folders/", "/folders".to_string()),
+            ("/home/", "/folders/".to_string()),
+            ("/home/", todos.clone()),
+            (todos.as_str(), "/folders/".to_string()),
+            (todos.as_str(), "/home/".to_string()),
+            (todos.as_str(), todos_earlier.clone()),
+            (todos_earlier.as_str(), format!("{todos}todo/42")),
+            (todos.as_str(), "/apps/so.epicenter.todos/".to_string()),
             (
                 todos.as_str(),
-                "/apps/so.epicenter.todos/%2e%2e/%2e%2e/home/",
+                format!("/apps/so.epicenter.whispering/{COMMIT}/"),
             ),
-            (todos_on_folder.as_str(), "/apps/so.epicenter.whispering/"),
-            ("app:", "/apps/so.epicenter.todos/"),
-            ("unknown", "/folders/"),
+            (
+                todos.as_str(),
+                format!("/apps/so.epicenter.todosx/{COMMIT}/"),
+            ),
+            (todos.as_str(), format!("{todos}../{EARLIER}/")),
+            (todos.as_str(), format!("{todos}%2e%2e/{EARLIER}/")),
+            (todos.as_str(), format!("{todos}../../../home/")),
+            (todos.as_str(), format!("{todos}%2e%2e/%2e%2e/%2e%2e/home/")),
+            ("", "/folders/".to_string()),
+            ("/apps", todos.clone()),
         ] {
             assert!(
-                !is_allowed_navigation(label, &url(path).unwrap()),
-                "{label} {path}"
+                !is_allowed_navigation(prefix, &url(&path).unwrap()),
+                "{prefix} {path}"
             );
         }
     }

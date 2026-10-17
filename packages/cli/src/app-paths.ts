@@ -10,7 +10,8 @@
  * <dataDir>/connections.json                 this machine's AI connections (connections.ts)
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
  * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
- * <cacheDir>/builds/<app-id>/<commit>/       the built bundle the app window loads
+ * <cacheDir>/checkouts/<app-id>/             the commit an app builds from, only while it builds
+ * <cacheDir>/builds/<app-id>/<commit>/       the built bundle a window of that commit loads
  * ```
  *
  * Each directory is its environment variable when set, which must be an

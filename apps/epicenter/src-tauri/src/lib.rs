@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{mpsc, Mutex};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -366,6 +367,7 @@ pub fn run() {
                 pages: scheme::pages_dir(app.handle())?,
                 builds: desktop_paths.builds_dir(),
             });
+            app.manage(InstalledWindowCommits::default());
             // The active local model and the unload policy are device-local host
             // state (ADR-0180), so they live in the app's data directory beside
             // `approvals.json`, never in a folder that could carry them to a
@@ -584,8 +586,7 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
         return Ok(());
     }
 
-    let url = scheme::url(built_in.path())?;
-    let window = create_app_window(app, built_in.id(), built_in.title(), url)?;
+    let window = create_app_window(app, built_in.id(), built_in.title(), built_in.path())?;
     let close_window = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -597,22 +598,23 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     Ok(())
 }
 
-/// One window on the `epicenter-app` origin (ADR-0561). Navigation stays on
-/// the origin; a link that opens a new window reaches the system browser only
-/// when it is a hosted account page.
+/// One window on the `epicenter-app` origin (ADR-0561), opened at `path`.
+/// Navigation stays below `path`; a link that opens a new window reaches the
+/// system browser only when it is a hosted account page.
 fn create_app_window(
     app: &DesktopAppHandle,
     label: &str,
     title: &str,
-    url: tauri::Url,
+    path: &str,
 ) -> Result<WebviewWindow<Wry>> {
     let account_opener = app.clone();
-    let navigating = label.to_string();
+    let url = scheme::url(path)?;
+    let prefix = path.to_string();
     WebviewWindowBuilder::new(app, label, WebviewUrl::CustomProtocol(url))
         .title(title)
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
-        .on_navigation(move |url| scheme::is_allowed_navigation(&navigating, url))
+        .on_navigation(move |url| scheme::is_allowed_navigation(&prefix, url))
         .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {title} WebView"))
@@ -636,24 +638,39 @@ fn installed_window_label(id: &str, folder: Option<&str>) -> String {
 
 const INSTALLED_WINDOW_PREFIX: &str = "app:";
 
-/// Reload every open window of installed app `id`, on any folder, once its
-/// build changed, so a running page never asks the new build for a chunk only
-/// the old one had.
-pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
-    let own = installed_window_label(id, None);
-    let on_folder = format!("{own}:");
-    for (label, window) in app.webview_windows() {
-        if label == own || label.starts_with(&on_folder) {
-            if let Err(error) = window.reload() {
-                log::warn!("reload the {label} window: {error}");
-            }
-        }
+/// The commit each open installed app window was opened on, by window label,
+/// recorded when the window is made and forgotten when it is destroyed. The
+/// page's own `history.pushState` cannot change it, as it can the window's
+/// URL.
+#[derive(Default)]
+pub(crate) struct InstalledWindowCommits(Mutex<HashMap<String, String>>);
+
+impl InstalledWindowCommits {
+    fn opened(&self, label: &str) -> Option<String> {
+        self.commits().get(label).cloned()
+    }
+
+    fn record(&self, label: &str, commit: &str) {
+        self.commits().insert(label.to_string(), commit.to_string());
+    }
+
+    fn forget(&self, label: &str) {
+        self.commits().remove(label);
+    }
+
+    fn commits(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
-/// Open installed app `id`, served at `/apps/<id>/`, in its own window on
-/// `folder`, a registered scope, or reveal the one already open on it. The
-/// window is permitted into the folder, and no other, and handed it
+/// Open installed app `id`'s build of `commit`, served at
+/// `/apps/<id>/<commit>/`, in its own window on `folder`, a registered scope,
+/// or reveal the one already open on it when it runs that build
+/// (`reveal_on_build`). A window keeps the build it opened on until it is
+/// closed and opened again (ADR-0588). The window is permitted into the
+/// folder, and no other, and handed it
 /// (`data_folders::admit_installed_window`): the app's
 /// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
 /// and opens it through the app's definition unless it is the app's own
@@ -663,24 +680,37 @@ pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
 pub(crate) fn open_installed_window(
     app: &DesktopAppHandle,
     id: &str,
+    commit: &str,
     title: &str,
     folder: &str,
 ) -> Result<()> {
     let label = installed_window_label(id, Some(folder));
     data_folders::admit_installed_window(app.folders(), &label, id, folder)
         .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
-    let url = scheme::url(&format!("/apps/{id}/"))?;
+    let path = scheme::installed_app_path(id, commit);
+    let name = title.to_string();
     let title = format!("Epicenter: {title}");
+    let commit = commit.to_string();
 
     let (sender, receiver) = mpsc::sync_channel(1);
     let window_app = app.clone();
     app.run_on_main_thread(move || {
+        let commits = window_app.state::<InstalledWindowCommits>();
         let result = match window_app.get_webview_window(&label) {
             Some(window) => {
-                focus(window);
-                Ok(())
+                reveal_on_build(window, commits.opened(&label).as_deref(), &commit, &name)
             }
-            None => create_app_window(&window_app, &label, &title, url).map(focus),
+            None => create_app_window(&window_app, &label, &title, &path).map(|window| {
+                commits.record(&label, &commit);
+                let forgetting = window_app.clone();
+                let closed = label.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::Destroyed = event {
+                        forgetting.state::<InstalledWindowCommits>().forget(&closed);
+                    }
+                });
+                focus(window);
+            }),
         };
         let _ = sender.send(result);
     })
@@ -688,6 +718,23 @@ pub(crate) fn open_installed_window(
     receiver
         .recv()
         .context("the main thread stopped before opening the window")?
+}
+
+/// Reveal `window`, already open on an installed app's folder, when it was
+/// opened on `commit`. One opened on another commit keeps that build, so
+/// opening `commit` is refused, and the window left where it is, until it is
+/// closed, rather than showing the other build as if it were this one.
+fn reveal_on_build<R: Runtime>(
+    window: WebviewWindow<R>,
+    opened: Option<&str>,
+    commit: &str,
+    title: &str,
+) -> Result<()> {
+    if opened != Some(commit) {
+        bail!("{title} is open on another version. Close its window, then open it again.");
+    }
+    focus(window);
+    Ok(())
 }
 
 fn focus<R: Runtime>(window: WebviewWindow<R>) {
@@ -706,6 +753,39 @@ mod tests {
 
     /// Every capability file, for checks that hold for all of them.
     const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP];
+
+    /// Opening an app whose window was opened on another commit is refused,
+    /// so that build is never shown as the one asked for; a window opened on
+    /// the commit asked for is revealed, wherever its page has since moved
+    /// its address with `history.pushState`.
+    #[test]
+    fn an_open_window_on_another_build_is_refused() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let earlier = "a".repeat(40);
+        let approved = "b".repeat(40);
+        let window = WebviewWindowBuilder::new(
+            &app,
+            "app:com_example_board:61",
+            WebviewUrl::CustomProtocol(scheme::url("/todo/42").unwrap()),
+        )
+        .build()
+        .unwrap();
+        let commits = InstalledWindowCommits::default();
+        commits.record("app:com_example_board:61", &earlier);
+        let opened = commits.opened("app:com_example_board:61");
+        let refused =
+            reveal_on_build(window.clone(), opened.as_deref(), &approved, "Board").unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "Board is open on another version. Close its window, then open it again."
+        );
+        assert!(reveal_on_build(window.clone(), None, &approved, "Board").is_err());
+        assert!(reveal_on_build(window, opened.as_deref(), &earlier, "Board").is_ok());
+        commits.forget("app:com_example_board:61");
+        assert_eq!(commits.opened("app:com_example_board:61"), None);
+    }
 
     #[test]
     fn built_in_window_table_has_stable_ids_routes_and_titles() {
