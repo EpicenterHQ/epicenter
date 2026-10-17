@@ -1,11 +1,8 @@
 /**
- * `@epicenter/cli`: the `epicenter` command line as one function, for the
- * binary that composes it, and the shapes `epicenter app … --json` prints,
- * for the Folders window that reads them.
+ * `@epicenter/cli`: the shapes `epicenter app … --json` prints, for the
+ * Folders window that reads them. The `epicenter` binary is `src/bin.ts`.
  */
-export { runCli } from './cli.ts';
 export type {
-	AppState,
 	InstalledApp,
 	RepositoryApp,
 	Review,

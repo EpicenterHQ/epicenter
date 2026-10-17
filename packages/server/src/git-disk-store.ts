@@ -157,13 +157,8 @@ async function cgiResponse(
  * The disk store over `root`, which it creates when missing. Throws when
  * this server has no `git`.
  */
-export function createDiskGitHost({
-	root,
-	git = findGit(),
-}: {
-	root: string;
-	git?: string;
-}): GitHost {
+export function createDiskGitHost({ root }: { root: string }): GitHost {
+	const git = findGit();
 	const noHooks = join(root, '.no-hooks');
 	let ready: Promise<void> | undefined;
 	const prepare = () => {
