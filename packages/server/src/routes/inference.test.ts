@@ -94,13 +94,14 @@ describe('inference gateway', () => {
 	});
 
 	test('OpenAI: forwards to the OpenAI endpoint with the house key and streams back', async () => {
+		const upstream = sse([
+			{ choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] },
+		]);
 		const calls = stubUpstream(
-			new Response(
-				sse([
-					{ choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] },
-				]),
-				{ status: 200, headers: { 'content-type': 'text/event-stream' } },
-			),
+			new Response(upstream, {
+				status: 200,
+				headers: { 'content-type': 'text/event-stream' },
+			}),
 		);
 		const res = await post(
 			createTestApp(),
@@ -108,7 +109,7 @@ describe('inference gateway', () => {
 			{ OPENAI_API_KEY: 'sk-house' },
 		);
 		expect(res.status).toBe(200);
-		expect(await res.text()).toContain('"content":"hi"');
+		expect(await res.text()).toBe(upstream);
 
 		expect(calls[0]?.url).toBe('https://api.openai.com/v1/chat/completions');
 		expect(calls[0]?.headers.authorization).toBe('Bearer sk-house');
@@ -162,44 +163,6 @@ describe('inference gateway', () => {
 			'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
 		);
 		expect(calls[0]?.headers.authorization).toBe('Bearer g-house');
-	});
-
-	test('OpenAI stream passes through untouched (indices preserved, not reassigned)', async () => {
-		const upstream = sse([
-			{
-				choices: [
-					{
-						delta: {
-							tool_calls: [
-								{
-									index: 0,
-									id: 'c0',
-									function: { name: 'a', arguments: '{}' },
-								},
-								{
-									index: 1,
-									id: 'c1',
-									function: { name: 'b', arguments: '{}' },
-								},
-							],
-						},
-						finish_reason: 'tool_calls',
-					},
-				],
-			},
-		]);
-		stubUpstream(
-			new Response(upstream, {
-				status: 200,
-				headers: { 'content-type': 'text/event-stream' },
-			}),
-		);
-		const res = await post(
-			createTestApp(),
-			{ model: 'gpt-5.5', messages: [{ role: 'user', content: 'go' }] },
-			{ OPENAI_API_KEY: 'sk-house' },
-		);
-		expect(await res.text()).toBe(upstream);
 	});
 
 	test('forwards an upstream OpenAI-shaped error with its status', async () => {
