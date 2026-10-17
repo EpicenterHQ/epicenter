@@ -201,8 +201,10 @@ export async function createNativeGitBackend({
 		if (await exists()) return undefined;
 		const problem = await initProblem?.();
 		if (problem !== undefined) return problem;
-		await init();
+		// First, since `git init` keeps it: a repository is never there
+		// without it, even when this process stops between the two.
 		await neutralizeAttributes(files, gitdir);
+		await init();
 		present = true;
 		await initialized?.();
 		return undefined;

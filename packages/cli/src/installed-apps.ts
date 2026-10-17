@@ -762,7 +762,8 @@ async function withStagedClone<T>(
 			checkout &&
 			(await gitSucceeds(staging, ['rev-parse', '--verify', '-q', 'HEAD']))
 		)
-			await git(staging, ['checkout', '--quiet']);
+			// Like the clone, which no `submodule.recurse` reaches.
+			await git(staging, ['checkout', '--quiet', '--no-recurse-submodules']);
 		return await work(staging);
 	} finally {
 		// A rename moved it into place; otherwise nothing of it is kept.
@@ -913,6 +914,9 @@ export async function update(
 	return exclusively(paths, async () => {
 		const source = await installedSource(paths, id);
 		if (options.commit === undefined) {
+			// The fast-forward or rebase below checks files out in the clone,
+			// which may predate its attributes file.
+			await neutralizeAttributes(nodeDirectoryPrimitives, join(source, '.git'));
 			await requireClean(source);
 			options.onProgress?.('Fetching updates…');
 			await git(source, ['fetch', '--no-recurse-submodules', 'origin']);

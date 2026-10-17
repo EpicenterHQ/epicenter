@@ -112,10 +112,20 @@ export async function nativeCheckpointProblem({
 	if (blocking !== undefined)
 		return `${blocking.path} is ${blocking.reason}; ${plainOnly}`;
 
-	// An attribute file in the folder that names a filter, ignored or not:
-	// Git reads every one when it checks a file out or adds it.
+	// An attribute file that names a filter and governs a recorded file:
+	// recorded itself, or, ignored, in a directory holding a recorded path.
+	// Git applies `D/.gitattributes` to paths under `D/` alone, so one in an
+	// ignored directory that holds nothing recorded, such as
+	// `node_modules/`, governs nothing a commit carries.
+	const recorded = regular.filter(
+		(path) => tracked.has(path) || !excluded.has(path),
+	);
+	const governs = (path: string) => {
+		const directory = path.slice(0, path.lastIndexOf('/') + 1);
+		return recorded.some((file) => file.startsWith(directory));
+	};
 	const attributeFiles: (readonly [string, Uint8Array])[] = [];
-	for (const path of regular.filter(isAttributesPath))
+	for (const path of regular.filter(isAttributesPath).filter(governs))
 		attributeFiles.push([path, await files.readFile(`${root}/${path}`)]);
 	const filter = declaredFilter(attributeFiles);
 	if (filter !== undefined)

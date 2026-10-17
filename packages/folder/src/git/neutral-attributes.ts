@@ -9,30 +9,51 @@
  * `working-tree-encoding`. A file checked out that way differs from its blob,
  * and the next Save version would commit the difference. Git reads
  * `$GIT_DIR/info/attributes` before every committed `.gitattributes` and
- * before `core.attributesFile`, and a state found there is final, so one
- * line unsetting each attribute for every path makes every checkout, archive,
- * and `git add` in the repository take the blob's bytes as they are. The
- * file sits in Git's common directory, so linked worktrees read it too.
+ * before `core.attributesFile`, a state found there is final, and within the
+ * file a later line wins. So one last line unsetting each attribute for
+ * every path makes every checkout, archive, and `git add` in the repository
+ * take the blob's bytes as they are, whatever lines above it say. The file
+ * sits in Git's common directory, so linked worktrees read it too.
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 
-/** The whole of `$GIT_DIR/info/attributes` in a repository Epicenter made. */
+/** The last line of `$GIT_DIR/info/attributes` in a repository Epicenter made. */
 export const NEUTRAL_ATTRIBUTES =
-	'* -filter -text -eol -ident -working-tree-encoding -export-ignore -export-subst\n';
+	'* -filter -text -eol -ident -working-tree-encoding -export-ignore -export-subst';
 
 /**
- * Write `NEUTRAL_ATTRIBUTES` as `info/attributes` in `gitdir`, the
- * repository's Git directory (or, for a repository with linked worktrees,
- * its common directory), replacing what was there. Run it after `git init`
- * or `git clone --no-checkout` and before the first checkout.
+ * Make `NEUTRAL_ATTRIBUTES` the last line of `info/attributes` in `gitdir`,
+ * the repository's Git directory (or, with linked worktrees, its common
+ * directory). Lines a person wrote there stay, above it. The new file is
+ * written beside it and renamed over it, so a link at that path is replaced,
+ * never followed. Nothing is written when the line is already last. Run it
+ * before the first checkout: before `git init`, which keeps the file, or
+ * after `git clone --no-checkout`.
  */
 export async function neutralizeAttributes(
 	files: DirectoryPrimitives,
 	gitdir: string,
 ): Promise<void> {
-	await files.mkdir(`${gitdir}/info`);
+	const info = `${gitdir}/info`;
+	const path = `${info}/attributes`;
+	await files.mkdir(info);
+	const lines =
+		(await files.lstat(path))?.kind === 'file'
+			? new TextDecoder().decode(await files.readFile(path)).split('\n')
+			: [];
+	if (lines.at(-1) === '') lines.pop();
+	if (lines.at(-1) === NEUTRAL_ATTRIBUTES) return;
+	const kept = lines.filter((line) => line.trimEnd() !== NEUTRAL_ATTRIBUTES);
+	const staged = `${path}.${crypto.randomUUID()}`;
 	await files.writeFile(
-		`${gitdir}/info/attributes`,
-		new TextEncoder().encode(NEUTRAL_ATTRIBUTES),
+		staged,
+		new TextEncoder().encode(`${[...kept, NEUTRAL_ATTRIBUTES].join('\n')}\n`),
+		{ createNew: true },
 	);
+	try {
+		await files.rename(staged, path, 'any');
+	} catch (cause) {
+		await files.remove(staged).catch(() => {});
+		throw cause;
+	}
 }

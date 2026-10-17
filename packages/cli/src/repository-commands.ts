@@ -199,10 +199,14 @@ export async function clone(
 		allowFailure: true,
 	});
 	if (born.code === 0) {
-		const checkedOut = await runGit(['checkout', '--quiet'], {
-			cwd: dir,
-			allowFailure: true,
-		});
+		// Like the clone, which no `submodule.recurse` reaches.
+		const checkedOut = await runGit(
+			['checkout', '--quiet', '--no-recurse-submodules'],
+			{
+				cwd: dir,
+				allowFailure: true,
+			},
+		);
 		if (checkedOut.code !== 0)
 			return fail(
 				checkedOut.stderr.trim() || `git checkout exited ${checkedOut.code}`,

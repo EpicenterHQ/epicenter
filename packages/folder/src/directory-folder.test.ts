@@ -331,7 +331,7 @@ describe('a folder over an ordinary directory', () => {
 			// The folder's first commit creates its repository.
 			expect((await folder.git.commit()).status).toBe('committed');
 			expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
-				NEUTRAL_ATTRIBUTES,
+				`${NEUTRAL_ATTRIBUTES}\n`,
 			);
 			if (where === 'repository')
 				await git(root, 'config', 'core.autocrlf', 'true');
@@ -383,7 +383,7 @@ describe('a folder over an ordinary directory', () => {
 		}
 	});
 
-	test('an attribute file that names a filter, ignored or not, refuses the commit; line-ending attributes commit the bytes on disk', async () => {
+	test('an attribute file that names a filter and governs a recorded file, ignored or not, refuses the commit; line-ending attributes commit the bytes on disk', async () => {
 		const { root, start } = await nativeRepository('directory-folder-filter-');
 		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
 		const folder = expectOk(await open(root));
@@ -407,17 +407,31 @@ describe('a folder over an ordinary directory', () => {
 		);
 		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
 
-		// An ignored attribute file refuses too: Git reads it all the same.
+		// An ignored attribute file over nothing recorded governs nothing a
+		// commit carries.
 		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
-		await writeFile(join(root, '.gitignore'), 'local/\n');
+		await writeFile(join(root, '.gitignore'), 'local/\nnode_modules/\n');
+		await mkdir(join(root, 'node_modules/pkg'), { recursive: true });
+		await writeFile(
+			join(root, 'node_modules/pkg/.gitattributes'),
+			'* filter=lfs\n',
+		);
+		await writeFile(join(root, 'node_modules/pkg/index.js'), 'x\n');
+		const unaffected = await folder.git.commit();
+		expect(unaffected.status).toBe('committed');
+		const next = await git(root, 'rev-parse', 'HEAD');
+
+		// One in an ignored directory that holds a recorded file refuses.
 		await mkdir(join(root, 'local'));
+		await writeFile(join(root, 'local/kept.md'), 'kept\n');
+		await git(root, 'add', '--force', 'local/kept.md');
 		await writeFile(join(root, 'local/.gitattributes'), '* filter=lfs\n');
 		const ignored = await folder.git.commit();
 		expect(ignored.status).toBe('blocked');
 		expect(JSON.stringify(ignored)).toContain(
 			'local/.gitattributes line 1 (* filter=lfs) names a Git filter',
 		);
-		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(next);
 		await folder.close();
 	});
 

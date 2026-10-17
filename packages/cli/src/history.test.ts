@@ -12,6 +12,8 @@
  * - `epicenter clone` checks out each blob's bytes whatever the commit's
  *   attributes or the person's Git configuration say, so an immediate
  *   save-version records nothing
+ * - `epicenter clone` of an empty remote, or of one with a submodule under a
+ *   global `submodule.recurse`, succeeds as a plain clone does
  * - Without a usable `git`, every history command exits 2 with `GitMissing`
  * - A sync runs only the `git` `locateGit` finds, never one from `PATH`
  *
@@ -396,6 +398,65 @@ test("epicenter clone checks out each blob's bytes, so a save-version right afte
 		'.gitattributes line 4 (*.f filter=upper) names a Git filter',
 	);
 	expect(await git(filtered, 'rev-parse', 'HEAD')).toBe(filteredHead);
+});
+
+test('epicenter clone of an empty remote, or of a submodule under a global submodule.recurse, succeeds as git clone does', async () => {
+	const project = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-clone-edges-')),
+	);
+	temporary.push(project);
+	const config = join(project, 'gitconfig');
+	await writeFile(config, '[submodule]\n\trecurse = true\n\tactive = .\n');
+	const env = {
+		GIT_CONFIG_GLOBAL: config,
+		EPICENTER_TEST_SECRETS: '{}',
+		EPICENTER_DATA_DIR: join(project, '.data'),
+		EPICENTER_API_URL: 'http://127.0.0.1:9',
+	};
+	const clone = (bare: string, dir: string) =>
+		epicenter(['clone', `file://${bare}`, dir, '--json'], { env });
+
+	// An empty remote has no commit to check out.
+	const empty = join(project, 'empty.git');
+	await git(
+		project,
+		'init',
+		'--quiet',
+		'--bare',
+		'--initial-branch=main',
+		empty,
+	);
+	const emptyClone = join(project, 'empty');
+	expect((await clone(empty, emptyClone)).exitCode).toBe(0);
+	expect(await git(emptyClone, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
+	expect(
+		await readFile(join(emptyClone, '.git/info/attributes'), 'utf8'),
+	).toEndWith('-export-subst\n');
+
+	// A submodule `clone` never recurses into, whatever the configuration.
+	const upstream = join(project, 'upstream');
+	await git(project, 'init', '--quiet', '--initial-branch=main', upstream);
+	await write(upstream, 'a.md', 'a\n');
+	await write(
+		upstream,
+		'.gitmodules',
+		'[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n',
+	);
+	await git(upstream, 'add', 'a.md', '.gitmodules');
+	await git(
+		upstream,
+		'update-index',
+		'--add',
+		'--cacheinfo',
+		`160000,${'1'.repeat(40)},sub`,
+	);
+	await git(upstream, 'commit', '--quiet', '-m', 'Submodule');
+	const bare = join(project, 'remote.git');
+	await git(project, 'clone', '--quiet', '--bare', upstream, bare);
+	const withSubmodule = join(project, 'with-submodule');
+	const ran = await clone(bare, withSubmodule);
+	expect([ran.exitCode, ran.stderr]).toEqual([0, '']);
+	expect(await readFile(join(withSubmodule, 'a.md'), 'utf8')).toBe('a\n');
 });
 
 test('without a usable git, every history command exits 2 with GitMissing', async () => {

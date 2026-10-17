@@ -1454,19 +1454,21 @@ advertises no resolvable `HEAD`; that failure changes nothing.
 
 A whole-folder commit on disk records every file as plain `100644` bytes,
 so it is refused in a repository it would misrepresent: symbolic links,
-executables, submodules, nested `.git` data, or a `.gitattributes`
-anywhere in the folder, ignored or not, that names a filter. Reads and file
-saves still work.
+executables, submodules, nested `.git` data, or a `.gitattributes` that
+names a filter and governs a recorded file: recorded itself, or, ignored,
+in a directory that holds a recorded path. Reads and file saves still work.
 
 Git's own checkout does apply attributes: a smudge filter, `text` and
 `eol`, `ident`, and `working-tree-encoding`. A file checked out that way
 differs from its blob, and the next Save version would commit the
 difference. So every repository Epicenter creates or clones gets
-`$GIT_DIR/info/attributes` holding exactly
+`$GIT_DIR/info/attributes` ending with the line
 `* -filter -text -eol -ident -working-tree-encoding -export-ignore -export-subst`
-before anything is checked out (`neutralizeAttributes`,
+before anything is checked out, below any lines a person wrote there, since
+a later line wins (`neutralizeAttributes`,
 `src/git/neutral-attributes.ts`): the folder's first commit or connect,
-`epicenter clone`, and an installed app's clone and build worktree. Git
+`epicenter clone`, and an installed app's clone, update, and build
+worktree. Git
 reads that file before any `.gitattributes` and `core.attributesFile`, so
 every checkout there, a person's included, writes each blob's bytes. Every
 `git` Epicenter runs also sets `core.autocrlf=false` and `core.eol=lf`,
