@@ -451,30 +451,36 @@ each taking folder-relative paths, so a read and a put are one call each. In
 Bun the directory's storage (`directory-store.ts`) is built on seven calls
 over `node:fs` (`directory-primitives.ts`, `directory-node.ts`): `readDir`,
 `lstat`, `readFile`, `writeFile` with `createNew`, `rename`, `remove`, and
-`mkdir`. The two give the same outcomes. A write's bytes are staged under
+`mkdir`. The two give the same outcomes, held to one vector file both run
+(the plugin's `fixtures/storage-outcomes.json`). They differ in one race: a
+parent directory another writer prunes while a put waits for the save lock
+is made again under the lock on the desktop, and fails the rename in Bun,
+which makes parents before taking the lock. A write's bytes are staged under
 `.git/epicenter/scratch` and renamed over the path, so another program sees
-the old file or the new one, never an empty or partial one; what a stopped
-write left there an hour or more ago is cleared when Bun opens the folder,
-and by the shell at each grant. Symbolic links and special entries are
-listed and never followed, and a path through a link is refused. On the
+the old file or the new one, never an empty or partial one; a put that does
+not land leaves neither its staged file nor a directory it made. What a
+stopped write left there an hour or more ago is cleared when Bun opens the
+folder, and by the shell at each grant. Symbolic links and special entries
+are listed and never followed, and a path through a link is refused. On the
 desktop the shell checks every path itself: any data path the shared path
 rule accepts (`paths.ts`, held to the plugin's `fixtures/path-rules.json`
 with its Rust twin), with no link on the way, and never `.git`. A put names
 what it expects at its path: no file, or a file with a given SHA-256. The
-shell checks it and changes the path under one lock per root, which every
-window's changes share, and the folder's save lock, so a save that carries
-what it read (a hash, or a create) and that another window landed after
-this page checked is `stale`, never `Unconfirmed`; a save lock another
-process held too long is `Io`, and nothing changed. In Bun,
-`directory-node.ts` makes the same check as a separate step before the
-change, and `bun.ts` holds the folder's save lock across both, the lock the
-shell takes around its own (below); `lock(work)` holds it across several
-changes, which then go through `node:fs` without asking for it again. On
-the desktop a put whose reply is lost is `Unconfirmed`, except a removal,
-which the page checks once and is done if the path is then gone. A write
-reads an `Unconfirmed` put back once (`write.ts`): a removal is done if the
-path is gone, a write if it holds the bytes sent, and anything else stays
-`Unconfirmed`. Objects
+shell checks it again and changes the path under one lock per root and the
+folder's save lock, which every window's puts and directory removals share
+(`mkdir` takes neither), so a save that carries what it read (a hash, or a
+create) and that another window landed after this page checked is `stale`,
+never `Unconfirmed`. A save lock another process held too long is `Io`, and
+nothing changed, on both hosts. In Bun, `directory-node.ts` makes the same
+check as a separate step before the change, and `bun.ts` holds the folder's
+save lock across both, the lock the shell takes around its own (below);
+`lock(work)` holds it across several changes, which then go through
+`node:fs` without asking for it again. On the desktop a change whose invoke
+rejected without the shell's answer is `Unconfirmed`: a rejection is
+almost always one the command never ran for, but that cannot be shown, and
+the path's state afterwards is no receipt. A write reads an `Unconfirmed`
+put back once (`write.ts`): a removal is done if the path is gone, a write
+if it holds the bytes sent, and anything else stays `Unconfirmed`. Objects
 are stored with `git hash-object -w` through the host (`ObjectStore` in
 `git/primitive-fs.ts`), in Bun as on the desktop, so no object file is
 written by hand.

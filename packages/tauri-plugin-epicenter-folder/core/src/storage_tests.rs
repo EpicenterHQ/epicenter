@@ -702,3 +702,94 @@ fn an_entry_appearing_during_an_rmdir_is_directory_not_empty() {
     );
     assert!(root.join("notes/a.md").exists());
 }
+
+/// The vectors `storage-outcomes.test.ts` in `@epicenter/folder` runs over
+/// the Bun directory storage, run here over the shell's.
+#[test]
+fn storage_follows_the_shared_outcomes() {
+    use serde_json::{json, Value};
+    let vectors: Value =
+        serde_json::from_str(include_str!("../../fixtures/storage-outcomes.json")).unwrap();
+    let cases = vectors["cases"].as_array().unwrap();
+    assert!(cases.len() >= 30, "the fixture holds the cases");
+    let text = |value: &Value| value.as_str().map(str::to_string);
+    let mut ran = 0;
+    for (index, case) in cases.iter().enumerate() {
+        let name = case["name"].as_str().unwrap();
+        let temp = TempDir::new(&format!("storage-outcome-{index}"));
+        let root = temp.folder("root");
+        let outside = temp.folder("outside");
+        fs::write(outside.join("secret.md"), b"secret").unwrap();
+        match case["requires"].as_str() {
+            Some("caseInsensitive") if !ignores_case(&root) => continue,
+            #[cfg(not(unix))]
+            Some("links") => continue,
+            _ => {}
+        }
+        let tree = &case["tree"];
+        for directory in tree["directories"].as_array().into_iter().flatten() {
+            fs::create_dir_all(root.join(directory.as_str().unwrap())).unwrap();
+        }
+        for (path, content) in tree["files"].as_object().into_iter().flatten() {
+            let target = root.join(path);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, content.as_str().unwrap()).unwrap();
+        }
+        #[cfg(unix)]
+        for (path, target) in tree["links"].as_object().into_iter().flatten() {
+            std::os::unix::fs::symlink(target.as_str().unwrap(), root.join(path)).unwrap();
+        }
+        let call = &case["call"];
+        let path = call["path"].as_str().unwrap_or_default();
+        let if_match = text(&call["ifMatch"]).map(|bytes| sha256(bytes.as_bytes()));
+        let answer: Result<Value, StorageError> = match call["method"].as_str().unwrap() {
+            "read" => read(&root, path)
+                .map(|bytes| json!({ "text": String::from_utf8(bytes).unwrap() })),
+            "put" => {
+                let bytes = text(&call["bytes"]);
+                put_now(&root, path, bytes.as_deref().map(str::as_bytes), if_match.as_deref())
+                    .map(|outcome| json!(outcome))
+            }
+            "mkdir" => mkdir(&root, path).map(|()| Value::Null),
+            "rmdir" => rmdir_now(&root, path).map(|()| Value::Null),
+            "children" => children(&root, path).map(|mut found| {
+                found.files.sort();
+                found.directories.sort();
+                json!(found)
+            }),
+            "list" => list(&root).map(|mut listing| {
+                listing.files.sort_by(|a, b| a.path.cmp(&b.path));
+                listing.directories.sort();
+                json!(listing)
+            }),
+            other => panic!("{name}: no method {other}"),
+        };
+        let expected = &case["expect"];
+        match answer {
+            Ok(value) => assert_eq!(&value, &expected["value"], "{name}"),
+            Err(error) => {
+                let error = json!(error);
+                let wanted = &expected["error"];
+                assert!(wanted.is_object(), "{name}: {error}");
+                for (field, want) in wanted.as_object().unwrap() {
+                    assert_eq!(&error[field], want, "{name}: {error}");
+                }
+            }
+        }
+        let after = &case["after"];
+        for (path, content) in after["files"].as_object().into_iter().flatten() {
+            assert_eq!(
+                fs::read_to_string(root.join(path)).ok().as_deref(),
+                content.as_str(),
+                "{name}: {path}"
+            );
+        }
+        for path in after["absent"].as_array().into_iter().flatten() {
+            let path = path.as_str().unwrap();
+            assert!(fs::symlink_metadata(root.join(path)).is_err(), "{name}: {path}");
+        }
+        assert!(staged(&root).is_empty(), "{name}: a staged file was left");
+        ran += 1;
+    }
+    assert!(ran >= 25, "only {ran} cases ran");
+}

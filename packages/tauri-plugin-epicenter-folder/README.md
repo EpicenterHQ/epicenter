@@ -20,6 +20,7 @@ it. The page names the scope and nothing else: it never supplies a root.
 | `src/` | The Tauri plugin: the commands, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
+| `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
 
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
@@ -134,7 +135,8 @@ list of a folder's files; which data paths a folder has is the page's
 business. `.git` at the root is never listed and never named.
 
 `storage.rs` resolves every path literally, with the outcomes of the Bun
-directory storage (`directory-store.ts`):
+directory storage (`directory-store.ts`), held to one vector file both run
+(`fixtures/storage-outcomes.json`):
 
 - No link is followed. A path through a link, or naming one, is
   `InvalidPath`; a listing reports a link as a file.
