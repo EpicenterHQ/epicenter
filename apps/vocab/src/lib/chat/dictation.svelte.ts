@@ -24,7 +24,7 @@ import { TranscribeError } from '@epicenter/client';
 import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import {
 	createVadRecorder,
-	type DeviceStreamError,
+	type RecorderError,
 	type VadRecorderError,
 } from '@epicenter/recorder/browser';
 import type OpenAI from 'openai';
@@ -60,7 +60,7 @@ export function createDictation(
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
 		| Promise<
-				Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+				Result<void, VadRecorderError | RecorderError | TranscribeError>
 		  >
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
@@ -116,7 +116,7 @@ export function createDictation(
 		}: {
 			onTranscript: (result: Result<string, TranscribeError>) => void;
 		}): Promise<
-			Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+			Result<void, VadRecorderError | RecorderError | TranscribeError>
 		> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
 			const client = await getClient();
@@ -130,7 +130,7 @@ export function createDictation(
 			starting = (async () => {
 				const { error: startError } = await vad.startActiveListening({
 					// Default device: vocab has no device picker (the package reads no
-					// store; the caller passes a deviceId, and vocab refuses to have one).
+					// store; the caller passes an input, and vocab refuses to have one).
 					// Status writes are gated on an armed session so a callback that fires
 					// during the start or stop window cannot flip a closed session's state;
 					// the blob itself is still delivered (the user spoke it).

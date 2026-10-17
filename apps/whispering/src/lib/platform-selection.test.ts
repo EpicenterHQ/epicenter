@@ -66,7 +66,7 @@ describe('#platform/workspace', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/lib\/workspace\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|device-stream|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
+						/lib\/workspace\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|microphone|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
 							path,
 						),
 				),
