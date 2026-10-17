@@ -369,6 +369,8 @@ mod tests {
     struct Fixture {
         app: App<MockRuntime>,
         folder_dir: PathBuf,
+        /// The installed apps' clones, in app data beside the folder root.
+        apps_dir: PathBuf,
         scopes: DataFolderScopes,
     }
 
@@ -376,6 +378,7 @@ mod tests {
         fn drop(&mut self) {
             self.app.folders().shutdown();
             let _ = fs::remove_dir_all(&self.folder_dir);
+            let _ = fs::remove_dir_all(&self.apps_dir);
         }
     }
 
@@ -383,7 +386,7 @@ mod tests {
         fn list(&self) -> Vec<DataFolder> {
             list_in(
                 &self.folder_dir,
-                &self.folder_dir.join("Apps"),
+                &self.apps_dir,
                 self.app.folders(),
                 &self.scopes,
             )
@@ -426,9 +429,11 @@ mod tests {
             .build(context)
             .expect("mock app");
         register_epicenter_folder(app.folders(), &folder_dir).unwrap();
+        let apps_dir = PathBuf::from(format!("{}-apps", folder_dir.display()));
         Fixture {
             app,
             folder_dir,
+            apps_dir,
             scopes: DataFolderScopes::default(),
         }
     }
@@ -593,7 +598,7 @@ mod tests {
 
         let fixture = self::fixture("installed");
         data_folder(&fixture, "so.epicenter.todos", r#"{ "title": "Todos" }"#);
-        fs::create_dir_all(fixture.folder_dir.join("Apps/so.epicenter.todos")).unwrap();
+        fs::create_dir_all(fixture.apps_dir.join("so.epicenter.todos")).unwrap();
         assert_eq!(
             fixture.list(),
             [DataFolder {
@@ -681,19 +686,6 @@ mod tests {
             invoke(&fixture.window(stray), "window_folder", json!({})).unwrap(),
             Value::Null
         );
-    }
-
-    #[test]
-    fn installed_app_sources_are_not_listed() {
-        let fixture = fixture("apps");
-        // An app's source is a repository under `Apps/`, which holds no
-        // declaration of its own, even when the app's repository does.
-        let source = fixture.folder_dir.join("Apps").join("com.example.board");
-        fs::create_dir_all(&source).unwrap();
-        fs::write(source.join(DECLARATION), "{}").unwrap();
-        fs::write(source.join("epicenter.app.json"), "{}").unwrap();
-
-        assert_eq!(fixture.list(), []);
     }
 
     #[test]
@@ -806,7 +798,7 @@ mod tests {
         data_folder(&fixture, "so.epicenter.todos", "{}");
         assert_eq!(fixture.list()[0].id, "data:so.epicenter.todos");
 
-        fs::create_dir_all(fixture.folder_dir.join("Apps/so.epicenter.todos")).unwrap();
+        fs::create_dir_all(fixture.apps_dir.join("so.epicenter.todos")).unwrap();
         assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
         assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
         assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");

@@ -70,22 +70,22 @@ impl DesktopPaths {
     }
 
     /// Built app bundles, at `<app-id>/<commit>/`. The `epicenter` CLI
-    /// writes them, and `approvals.json` in `data_dir`, from the same
-    /// directories, which the shell hands it (`installed_apps.rs`).
+    /// writes them, and the installed apps' clones in `data_dir`, from the
+    /// same directories, which the shell hands it (`installed_apps.rs`).
     pub fn builds_dir(&self) -> PathBuf {
         self.cache_dir.join("builds")
     }
 
-    /// Installed apps' sources, one repository each at `<app-id>/`. Beside
-    /// the data folders, never inside one (ADR-0539).
+    /// Installed apps, one bare clone each at `<app-id>/`, whose detached
+    /// `HEAD` is the approved commit (ADR-0597). Machine state, never inside
+    /// a data folder (ADR-0539).
     pub fn apps_dir(&self) -> PathBuf {
-        self.folder_dir.join(APPS_DIRECTORY)
+        self.data_dir.join(APPS_DIRECTORY)
     }
 }
 
-/// The directory under the folder root that holds installed apps' sources.
-/// It holds no `epicenter.json`, so the folder listing skips it.
-pub const APPS_DIRECTORY: &str = "Apps";
+/// The directory under the data directory that holds installed apps' clones.
+pub const APPS_DIRECTORY: &str = "apps";
 
 /// These names are durable destinations, independent of the app's display name.
 fn checkout_folder_name(identifier: &str) -> Result<&'static str> {
@@ -189,6 +189,6 @@ mod tests {
             cache_dir: PathBuf::from("/caches/so.epicenter"),
         };
         assert_eq!(paths.builds_dir(), Path::new("/caches/so.epicenter/builds"));
-        assert_eq!(paths.apps_dir(), Path::new("/home/Epicenter/Apps"));
+        assert_eq!(paths.apps_dir(), Path::new("/support/so.epicenter/apps"));
     }
 }

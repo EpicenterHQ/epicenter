@@ -5,8 +5,9 @@
  * Each command streams the CLI's NDJSON to a `Channel`: `{"progress"}` lines
  * while it works, then one result line. This module hands each progress
  * sentence to the caller and returns the result as `{ data, error }`. Exit 0
- * and exit 1 (an app waiting for approval, which carries its review) both
- * return the app; anything else returns the CLI's `{"error"}` message.
+ * and exit 1 (an app with no approved commit, whose `pending` carries the
+ * review) both return the app; anything else returns the CLI's `{"error"}`
+ * message.
  */
 
 import type { InstalledApp, RepositoryApp } from '@epicenter/cli';
@@ -101,7 +102,7 @@ function app(outcome: Outcome<Line>): Outcome<InstalledApp> {
 		: { data: outcome.data.app, error: null };
 }
 
-/** Every app installed under `Apps/`, with whether it can run. */
+/** Every installed app, with whether it can run and any commit waiting for approval. */
 export async function listInstalledApps(): Promise<Outcome<InstalledApp[]>> {
 	const outcome = await run((onLine) => commands.listInstalledApps(onLine));
 	if (outcome.error !== null) return outcome;
@@ -119,7 +120,7 @@ export async function listRepositoryApps(
 	return { data: (outcome.data.apps ?? []) as RepositoryApp[], error: null };
 }
 
-/** Clone the app at `folder` of the repository at `source`; it waits for approval. */
+/** Clone the app at `folder` of the repository at `source`; nothing is approved yet. */
 export async function installApp(
 	source: string,
 	folder: string,
@@ -144,7 +145,7 @@ export async function approveApp(
 	);
 }
 
-/** Fetch app `id`'s upstream and build what may run. */
+/** Fetch app `id`'s default branch; a fetched commit waits for approval in `pending`. */
 export async function updateApp(
 	id: string,
 	onProgress?: (message: string) => void,

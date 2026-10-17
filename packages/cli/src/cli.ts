@@ -141,16 +141,19 @@ EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
 "excluded" with --json); check says why. Exits 0 when it answers and 2 when
 the folder, the definition, or the statement cannot be used.`,
-	'app install': `Clones the repository into Apps/<app-id>/, the id read from the
-epicenter.app.json in --folder (the root by default), then builds it with
-bun run build:installed in a checkout of that commit alone. A commit nobody
-approved on this machine is not built: the command prints it with its log and
-exits 1 until it runs again with --approve. --json prints NDJSON progress
-lines and one result line.`,
-	'app update': `Fetches the app's upstream, fast-forwards or rebases the commits made
-here, and builds the result once it is approved. Every commit is approved
-before it runs, including one made on this machine: the command prints it
-with its log and diff stat, and exits 1 until it runs again with --approve.`,
+	'app install': `Clones the repository's default branch bare into Epicenter's app data,
+the id read from the epicenter.app.json in --folder (the root by default).
+Nothing is approved yet: the command prints the fetched commit with its log
+and exits 1; approve it with app update <id> --commit <sha> --approve, which
+builds it with bun run build:installed from that commit's files alone.
+--commit with --approve approves at install, when it names the fetched
+commit. --json prints NDJSON progress lines and one result line.`,
+	'app update': `Fetches the app's default branch, which never changes the approved commit,
+and prints a fetched commit waiting for approval with its log and diff stat.
+--commit with --approve approves the commit shown, without fetching, and
+builds it; --approve alone is refused. --commit alone opens: it answers for
+the approved commit only, building it when it is not built and checking its
+build when it is.`,
 	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
 under the connection's id, the stem of its row in so.epicenter/connections
 (ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on

@@ -30,8 +30,8 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
 | `epicenter app list [--repository <url>]` | built | `src/installed-apps.ts` |
-| `epicenter app install <url> [--folder <path>] [--approve]` | built | `src/installed-apps.ts` |
-| `epicenter app update <id> [--approve]` | built | `src/installed-apps.ts` |
+| `epicenter app install <url> [--folder <path>] [--commit <sha>] [--approve]` | built | `src/installed-apps.ts` |
+| `epicenter app update <id> [--commit <sha>] [--approve]` | built | `src/installed-apps.ts` |
 | `epicenter app remove <id>` | built | `src/installed-apps.ts` |
 | `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
@@ -44,8 +44,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter declare-epicenter-folder` | built, hidden | `src/epicenter-folder.ts` |
 
 `send`, `history`, `save-version`, `install-command`,
-`declare-epicenter-folder`, `app update --commit`, `sync --allow-unrelated`,
+`declare-epicenter-folder`, `app update --restore`, `sync --allow-unrelated`,
 and `--desktop` are left out of `--help`: the desktop app runs them.
+`--commit` is listed, and `--approve` requires it.
 
 ## Hosted repositories
 
@@ -212,28 +213,41 @@ reaches `/api/*` with a token for the audience it names.
 ADR-0552, ADR-0560), in the directories the desktop shell uses: its
 `EPICENTER_DATA_DIR`, `EPICENTER_FOLDER_DIR`, and `EPICENTER_CACHE_DIR`, which
 the shell sets when it runs the CLI, or the release app's when they are unset
-(`src/app-paths.ts`). `app install` clones a repository into
-`Apps/<app-id>/`, reading the id from the `epicenter.app.json` in `--folder`
-(only `id` and `title`, nothing else). `app list --repository <url>` lists
-the apps a repository holds without installing any.
+(`src/app-paths.ts`). `app install` clones a repository's default branch
+bare into `apps/<app-id>/` in the data directory, reading the id from the
+`epicenter.app.json` in `--folder` (only `id` and `title`, nothing else).
+`app list --repository <url>` lists the apps a repository holds without
+installing any.
 
-Every commit builds only once approved, including one made on this machine:
-without `--approve`, `install` and `update` print it with its log and diff
-stat and exit 1. The build runs in a detached `git worktree` of that commit
-under `checkouts/<app-id>/` in the cache directory, never in the clone, so
-nothing uncommitted, untracked, or ignored there reaches it. The checkout
-ignores replace refs and runs none of the clone's filter drivers. Then
-`bun install --frozen-lockfile --ignore-scripts` runs at the checkout's root
-and `bun run build:installed` in the app's folder, run by this binary as
-`bun` (`BUN_BE_BUN=1`). Its `dist/` is copied beside
-`builds/<app-id>/<commit>/`, renamed into place, and marked finished with
-`builds/<app-id>/<commit>.built`, and the checkout is removed. A finished
-build is not built again, since a window may be running it. `app update --commit <sha>`,
-hidden, fetches nothing and acts only on that commit: the Folders window
-passes the commit it showed, so approving never covers a commit nobody saw.
-`app remove` deletes the clone and the approval, leaves the builds for
-windows still running them, and refuses while the clone holds uncommitted
-changes or commits no remote has.
+The clone's detached `HEAD` is the approved commit (ADR-0597). A fresh
+install's `HEAD` is symbolic and approves nothing; `app update` fetches,
+which writes `refs/remotes/origin/<default>` and never `HEAD`. Without
+`--approve`, `install` and `update` print the fetched commit waiting for
+approval with its log and diff stat; `install` exits 1, since nothing is
+approved yet. Approving needs the commit that was shown:
+`app install --commit <sha> --approve` or `app update --commit <sha>
+--approve` approves that commit, and only when it is the one waiting, with
+`git update-ref --no-deref HEAD`, so approving never covers a commit nobody
+saw. `--approve` without `--commit` is refused, approving fetches nothing,
+and `app install --commit` without `--approve` is refused, since installing
+approves nothing.
+
+Until publishing builds apps (ADR-0589), the approved commit is built from
+source: it is extracted with `git archive` into `sources/<app-id>/` in the
+cache directory, `bun install --frozen-lockfile --ignore-scripts` runs at its
+root and `bun run build:installed` in the app's folder, run by this binary as
+`bun` (`BUN_BE_BUN=1`). The regular files of its `dist/` are written into the
+clone as the tree `refs/epicenter/builds/<commit>`, which is extracted with
+`git archive` into `builds/<app-id>/<commit>/`. `app update --commit <sha>`
+without `--approve` is what the shell runs before every open: it answers only for the
+approved commit, builds it when it is not built, and checks its build
+directory against that tree by path and blob hash. A damaged build is
+reported (`state: damaged`) and left as it is, since a window may be running
+it; the shell, when no window runs that commit, adds the hidden `--restore`,
+which extracts the tree again, checks it, and swaps it in. From a terminal,
+opening the app in Epicenter restores it. `app remove` deletes the clone and
+leaves the builds for windows still running them. Clones from before this
+layout, in `~/Epicenter/Apps/`, are left on disk and never read.
 
 Git runs through `@epicenter/folder`'s runner (`createGitRunner`), with no
 hooks and the `ext` and `fd` transports refused. One install, update, or

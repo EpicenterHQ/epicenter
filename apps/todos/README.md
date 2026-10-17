@@ -34,8 +34,8 @@ repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
 names the id `so.epicenter.todos` and the title; Epicenter runs
 `bun run build:installed`, which writes `dist`. The Folders
 window Epicenter opens to offers "Install Todos" while no app is installed:
-it clones the repository into `~/Epicenter/Apps/so.epicenter.todos/`, and
-approving it runs `bun install` at the repository's root and the build here.
+it clones the repository bare into Epicenter's app data, and approving it
+runs `bun install` at the repository's root and the build here.
 Then open Todos from the Folders window's Apps list, or with "Open in Todos"
 beside a folder whose declaration contains its shape. Opened from the Apps
 list, it opens its own folder, `so.epicenter.todos`. Opened with "Open in

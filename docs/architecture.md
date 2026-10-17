@@ -105,8 +105,8 @@ app as "Open in"; an app refuses a folder its definition does not fit. Settings 
 `home` window) keeps Chat and model administration.
 
 Epicenter's own folder is `~/Epicenter/so.epicenter`. What a person or agent
-edits lives in folders; what only Epicenter writes, such as `approvals.json`,
-lives in app data; built bundles live in Caches
+edits lives in folders; what only Epicenter writes, such as the installed
+apps' clones, lives in app data; built bundles live in Caches
 ([ADR-0539](adr/0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md)).
 
 ## Built-in and installed apps
@@ -118,9 +118,11 @@ The Git lab and Vocab run in the browser.
 
 An installed app is a folder holding `epicenter.app.json` in a Git
 repository, the repository's root unless installing names another folder.
-Epicenter clones the repository into `~/Epicenter/Apps/<app-id>/`, builds the
-app, and runs a
-commit fetched from elsewhere only after a person approves it. Approval trusts
+Epicenter clones the repository's default branch bare into app data, and the
+clone's detached `HEAD` is the commit approved to run: fetching never moves
+it, and only a person's approval does
+([ADR-0597](adr/0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md)).
+Epicenter builds the approved commit and checks the build at every open. Approval trusts
 the app's code fully; it never makes a synced folder trusted
 ([ADR-0540](adr/0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)).
 The first-party apps install from their folders in Epicenter's own
