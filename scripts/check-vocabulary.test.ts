@@ -71,14 +71,14 @@ test('the settled words pass', () => {
 	});
 });
 
-test('a retired word fails, with its file, line, and replacement', () => {
+test('a retired word fails, with its file, line, replacement, and the ADR that retired it', () => {
 	withRepo((dir) => {
 		write(dir, 'packages/app/src/data/row.ts', '// ok\n// a scalar field\n');
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(1);
 		expect(out).toContain('packages/app/src/data/row.ts:2');
-		expect(out).toContain('use value');
+		expect(out).toContain('use value (ADR-0309)');
 	});
 });
 

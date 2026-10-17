@@ -11,7 +11,8 @@ shapes, see `docs/adr/`.
   with a canonical base URL and its own auth, storage, sync, and billing policy.
 - **Connection**: the authenticated transport a client uses to reach one
   deployment. It carries credentials, cookies, or bearer behavior, but is not the
-  data identity.
+  data identity. The word also names an AI connection (Data API, below); which
+  sense keeps it is undecided (ADR-0584).
 - **Principal**: the authenticated identity Epicenter uses as the partition key
   (ADR-0092). Every deployment resolves principals from Better Auth users.
   Durable keys use `principals/<principalId>/...`.
@@ -19,7 +20,7 @@ shapes, see `docs/adr/`.
 - **Account**: one resolved principal inside one deployment. Credentials may
   rotate, but deployment identity plus `principalId` is the stable identity of
   the person's synchronized Epicenter.
-- **Epicenter**: one person's logical body of application data: their data
+- **Epicenter**: one person's logical body of application data: their
   folders, each a directory of files with Git history beside it.
 - **The Ark**: the public home of an Epicenter. It makes selected authored work
   publicly inhabitable as living pages whose text, audio, and video are
@@ -112,18 +113,50 @@ shapes, see `docs/adr/`.
 
 ## Data API
 
-- **Data folder** (ADR-0517): a directory containing `epicenter.json`, which
-  declares the `<table>/<stem>.md` directories beside it. It may
-  sit at any depth in any Git repository; apps open and sync only one at a
-  repository root.
-- **Owned attachment** (ADR-0456): zero or one `<id>.<extension>` sibling of
-  `<table>/<id>.md`, created and deleted with its row; links do not acquire ownership.
-- **Query projection** (ADR-0494): an in-memory SQLite database built from a
-  data folder's current files for one query or session; nothing persists it.
+Each concept below has one noun in code, on the wire, and in docs (ADR-0584).
+Screens keep the word a person already has: "Save version", "Rename",
+"folder". Code still carries a retired name until its rename lands.
+
+- **App**: an installed program, named by its reverse-domain id such as
+  `so.epicenter.todos`. Code says `app` (`openFolder({ app, definition })`),
+  not `application`.
+- **Folder** (ADR-0517, ADR-0583): a directory a person owns, named by its id,
+  usually with an `epicenter.json`. Code says `Folder` and `folder.id`, the wire
+  says `folderId`; "data folder" and the folder sense of `scope` are retired. An
+  app's own folder is the one named after it (`folder.own`); only there does
+  the app publish its definition.
+- **Definition**: what `epicenter.json` holds and `defineFolder` returns: the
+  folder's tables, their fields, and its `local` patterns. Code says
+  `Definition`; "schema" means a field's JSON Schema only, and "declaration"
+  and "shape" are retired at the folder level.
+- **Table**: a directory of rows that a definition names. `defineTable`
+  returns a `TableDefinition`; `folder.tables.<name>` is a `Table`.
+- **Row** and **stem** (ADR-0457, ADR-0480): a row is one `<table>/<stem>.md`,
+  and a table owns only those files. The stem is the row's address everywhere,
+  never `id`, since it changes when the row moves. A field naming another row
+  is named for that row's table in the singular, such as `chat`.
+- **File** and **path**: any file in a folder, at a folder-relative `path`
+  (`folder.files`). A table method takes a stem; a `files` method takes a path.
+  A directory inside a folder is a `directory` in code.
+- **Write** (ADR-0576): the one verb that changes a folder's files: `write`,
+  `move`, `create`, `delete`, serialized by the write lock (formerly the save
+  lock). Messages say "written", not "saved".
+- **Version** and **history** (ADR-0529): a version is a commit, and history is
+  the folder's commits. Code, wire, and CLI say `commit` and `history`; the
+  button says "Save version". Commits are serialized by the history lock.
 - **Remote** (ADR-0532, ADR-0521): the folder's `remote.origin.url`, set by
   Connect. A sync fetches and pushes plain Git, with a token, to that server.
-- **Sync** (ADR-0489): the one explicit action that saves, commits, fetches,
-  combines, and pushes a folder. Nothing transfers on its own.
+- **Sync** (ADR-0489): the one explicit action that commits a folder's written
+  files, fetches, merges, and pushes. Nothing transfers on its own. A sync that
+  committed but could not push is `'unpushed'`.
+- **AI connection** (ADR-0557, ADR-0564): a row in `so.epicenter` naming an
+  AI provider; its key and endpoint stay in this machine's keychain. Its names
+  are decided in a later change (ADR-0584).
+- **Errors**: one union per verb: `OpenError`, `ReadError`, `WriteError`,
+  `GitError`, `CommitError`, `SyncError`. Absence is `null`; `undefined` means
+  not given.
+- **Query projection** (ADR-0494): an in-memory SQLite database built from a
+  folder's current files for one query or session; nothing persists it.
 
 The Yjs store and its vocabulary (stores, store definitions, the store
 authority, generations, and row nodes) were removed on 2026-10-14; read them in

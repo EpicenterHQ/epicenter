@@ -806,3 +806,4 @@ When you add an ADR, add its row here.
 | [0580](0580-a-local-model-is-pinned-by-commit-and-content-hash-under-a-frozen-id.md) | A local model is pinned by commit and content hash under a frozen id | Accepted |
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Accepted (amends 0531 and 0533) |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Accepted (amends 0533, 0535, 0538, 0548, and 0560) |
+| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted |
