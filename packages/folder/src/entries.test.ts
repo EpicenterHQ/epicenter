@@ -14,7 +14,8 @@
  * - On a server, or anywhere without the origin private file system, opening
  *   is a returned refusal
  * - The browser entry refuses inside the desktop app, even with storage
- *   handed to it; the desktop entry refuses outside it; neither falls back
+ *   handed to it; the desktop entry refuses outside it; neither falls back,
+ *   for a folder opened by ID either
  * - A browser folder has a local author by default and needs an explicit one
  *   to use a remote
  * - Handles that share browser storage hear each other's saves
@@ -30,23 +31,17 @@ import {
 	createTestStorage,
 	locationOf,
 } from './browser-storage.test-support.js';
+import type { FilesChanged } from './contract.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 let inShell = false;
 const invoked: string[] = [];
-const listened: string[] = [];
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(cmd: string) {
 		invoked.push(cmd);
 		// What Tauri answers when the shell never installed the plugin.
 		throw 'plugin epicenter-folder not found';
-	},
-}));
-mock.module('@tauri-apps/api/event', () => ({
-	async listen(name: string) {
-		listened.push(name);
-		return () => {};
 	},
 }));
 
@@ -60,7 +55,6 @@ const contract = await import('./contract.js');
 
 const id = 'so.epicenter.entriestest';
 const definition = root.defineFolder({
-	kv: {},
 	tables: {
 		notes: root.defineTable({ fields: { title: root.field.string() } }),
 	},
@@ -70,12 +64,10 @@ const author = { name: 'Entries', email: 'entries@example.test' };
 afterEach(() => {
 	inShell = false;
 	invoked.length = 0;
-	listened.length = 0;
 });
 
 test('importing every entry opens nothing and adds no global', () => {
 	expect(invoked).toEqual([]);
-	expect(listened).toEqual([]);
 	expect(
 		Object.getOwnPropertyNames(globalThis).filter(
 			(name) => !globalsBefore.has(name),
@@ -98,10 +90,7 @@ test('every entry exports the same contract beside its opener', () => {
 	expect(shared).toContain('FileError');
 	expect(names(root)).toEqual(shared);
 	expect(names(tauri)).toEqual(shared);
-	// The browser entry adds only its download.
-	expect(names(browser)).toEqual(
-		[...shared, 'DownloadFolderError', 'downloadFolder'].sort(),
-	);
+	expect(names(browser)).toEqual(shared);
 	// The directory entry adds its own tools to the same contract.
 	expect(names(bun)).toEqual(expect.arrayContaining(shared));
 	for (const entry of [root, browser, tauri, bun]) {
@@ -119,14 +108,58 @@ test('every entry exports the same contract beside its opener', () => {
 
 test('on a server the automatic entry refuses, and so does each explicit entry', async () => {
 	for (const entry of [root, browser])
-		expect(expectErr(await entry.openFolder({ id, definition }))).toMatchObject(
-			{ name: 'NoFileSystem', missing: 'navigator.storage.getDirectory' },
-		);
-	expect(expectErr(await tauri.openFolder({ id, definition })).name).toBe(
+		expect(
+			expectErr(await entry.openFolder({ app: id, definition })),
+		).toMatchObject({
+			name: 'NoFileSystem',
+			missing: 'navigator.storage.getDirectory',
+		});
+	expect(expectErr(await tauri.openFolder({ app: id, definition })).name).toBe(
 		'NotTauri',
 	);
+	for (const entry of [root, browser])
+		expect(expectErr(await entry.openFolder({ id }))).toMatchObject({
+			name: 'NoFileSystem',
+		});
+	expect(expectErr(await tauri.openFolder({ id })).name).toBe('NotTauri');
 	expect(invoked).toEqual([]);
-	expect(listened).toEqual([]);
+});
+
+test('a browser whose file handles cannot move a file is refused at open', async () => {
+	const storage = createTestStorage();
+	const before = {
+		navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
+		handle: Object.getOwnPropertyDescriptor(globalThis, 'FileSystemFileHandle'),
+	};
+	Object.defineProperty(globalThis, 'navigator', {
+		configurable: true,
+		value: {
+			storage: { getDirectory: () => storage.opfs.getDirectory() },
+			locks: {},
+		},
+	});
+	Object.defineProperty(globalThis, 'FileSystemFileHandle', {
+		configurable: true,
+		value: class {
+			createWritable() {}
+		},
+	});
+	try {
+		expect(
+			expectErr(await browser.openFolder({ app: id, definition })),
+		).toMatchObject({
+			name: 'NoFileSystem',
+			missing: 'FileSystemFileHandle.move',
+		});
+	} finally {
+		for (const [name, descriptor] of [
+			['navigator', before.navigator],
+			['FileSystemFileHandle', before.handle],
+		] as const)
+			if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+			else Reflect.deleteProperty(globalThis, name);
+	}
+	expect(storage.opfs.directories()).toEqual([]);
 });
 
 test('every opener refuses a missing folder ID before it acquires anything, even from an untyped caller', async () => {
@@ -143,13 +176,12 @@ test('every opener refuses a missing folder ID before it acquires anything, even
 	expect(expectErr(await tauri.openFolder(untyped)).name).toBe('InvalidId');
 	expect(expectErr(await root.openFolder(untyped)).name).toBe('InvalidId');
 	expect(invoked).toEqual([]);
-	expect(listened).toEqual([]);
 });
 
 test('the automatic entry decides when it is called: the desktop adapter in the shell, and no browser storage when that fails', async () => {
 	const storage = createTestStorage();
 	const options = {
-		id,
+		app: id,
 		definition,
 		browser: { author, ...browserStorage(storage) },
 	};
@@ -159,16 +191,15 @@ test('the automatic entry decides when it is called: the desktop adapter in the 
 	expect(inBrowser.location).toEqual(locationOf('so.epicenter.entriestest'));
 	await inBrowser.close();
 	expect(invoked).toEqual([]);
-	expect(storage.opfs.directories()).toContain(
-		'Epicenter/local/so.epicenter.entriestest',
-	);
+	// Opening wrote nothing.
+	expect(storage.opfs.directories()).toEqual([]);
 
 	inShell = true;
 	const other = createTestStorage();
 	const refused = expectErr(
 		await root.openFolder({
 			definition,
-			id: 'another.folder',
+			app: 'another.folder',
 			browser: { author, ...browserStorage(other) },
 		}),
 	);
@@ -176,7 +207,9 @@ test('the automatic entry decides when it is called: the desktop adapter in the 
 	// a browser folder in another place.
 	expect(refused.name).toBe('Unavailable');
 	expect(refused.message).toContain('plugin epicenter-folder not found');
-	expect(invoked).toEqual(['plugin:epicenter-folder|attach']);
+	// The shell decides which folder and engine open, so the window's folder
+	// is asked first; a shell without the plugin answers nothing further.
+	expect(invoked).toEqual(['plugin:epicenter-folder|window_folder']);
 	expect(other.opfs.directories()).toEqual([]);
 });
 
@@ -185,67 +218,46 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 	const storage = createTestStorage();
 	const refused = expectErr(
 		await browser.openFolder({
-			id,
+			app: id,
 			definition,
 			browser: { author, ...browserStorage(storage) },
 		}),
 	);
 	expect(refused.name).toBe('InsideTauri');
-	const download = expectErr(
-		await browser.downloadFolder({
-			id,
-			scope: {
-				channel: 'release',
-				account: {
-					authorityId: 'https://api.epicenter.test',
-					principalId: 'alice' as never,
-				},
-			},
-			remote: { url: 'https://example.test/data.git', branch: 'main' },
-			...browserStorage(storage),
-		}),
-	);
-	expect(download.name).toBe('InsideTauri');
+	expect(
+		expectErr(
+			await browser.openFolder({
+				id,
+				browser: { author, ...browserStorage(storage) },
+			}),
+		).name,
+	).toBe('InsideTauri');
 	expect(storage.opfs.directories()).toEqual([]);
 	expect(invoked).toEqual([]);
 });
 
-test('a browser folder defaults to a local author and local automatic history; a remote needs an explicit author', async () => {
+test('a browser folder defaults to a local author and no remote', async () => {
 	const environment = createTestStorage();
-	const withoutAuthor = expectErr(
-		await browser.openFolder({
-			id,
-			definition,
-			browser: {
-				remote: { url: 'http://git.test/remote.git', branch: 'main' },
-				...browserStorage(environment),
-			},
-		}),
-	);
-	expect(withoutAuthor.name).toBe('AuthorRequired');
 	expect(
-		expectErr(await browser.openFolder({ definition, id: ' ' })).name,
+		expectErr(await browser.openFolder({ definition, app: ' ' })).name,
 	).toBe('InvalidId');
 	expect(environment.opfs.directories()).toEqual([]);
 
 	const folder = expectOk(
 		await browser.openFolder({
-			id,
+			app: id,
 			definition,
 			browser: browserStorage(environment),
 		}),
 	);
-	// The policy in effect is observable on the handle.
+	// The history settings in effect are observable on the handle.
 	expect(folder.git.snapshot).toMatchObject({
 		remote: undefined,
 		branch: 'main',
 	});
-	expectOk(await folder.files.create('a.md', 'a'));
-	for (let waited = 0; waited < 400; waited++) {
-		if (folder.git.snapshot.lastCommit !== undefined) break;
-		await Bun.sleep(5);
-	}
-	expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+	expectOk(await folder.write('a.md', null, 'a'));
+	expect(folder.git.snapshot.lastCommit).toBeUndefined();
+	expect((await folder.git.commit()).status).toBe('committed');
 	const [commit] = expectOk(await folder.git.log(1));
 	expect(commit?.author).toMatchObject({
 		name: 'Local',
@@ -259,7 +271,7 @@ test('handles sharing browser storage hear each other, when the storage carries 
 	const open = async () =>
 		expectOk(
 			await browser.openFolder({
-				id,
+				app: id,
 				definition,
 				browser: {
 					author,
@@ -269,28 +281,31 @@ test('handles sharing browser storage hear each other, when the storage carries 
 		);
 	const first = await open();
 	const second = await open();
-	// Drain the second opening's cross-context publication hint.
+	// Each handle's first write publishes the declaration; drain those hints.
+	expectOk(await first.write('first.md', null, 'x'));
+	expectOk(await second.write('second.md', null, 'x'));
 	await Bun.sleep(20);
-	const heardByFirst: string[] = [];
-	const heardBySecond: string[] = [];
-	first.onFilesChanged((paths) => heardByFirst.push(...paths));
-	second.onFilesChanged((paths) => heardBySecond.push(...paths));
+	const heardByFirst: FilesChanged[] = [];
+	const heardBySecond: FilesChanged[] = [];
+	first.onFilesChanged((change) => heardByFirst.push(change));
+	second.onFilesChanged((change) => heardBySecond.push(change));
 
-	expectOk(await first.files.create('from-first.md', 'x'));
+	expectOk(await first.write('from-first.md', null, 'x'));
 	for (let waited = 0; waited < 200 && heardBySecond.length === 0; waited++)
 		await Bun.sleep(5);
-	expect(heardByFirst).toEqual(['from-first.md']);
-	expect(heardBySecond).toEqual(['from-first.md']);
+	// A handle's own write is not reported to it; the other page hears it.
+	expect(heardByFirst).toEqual([]);
+	expect(heardBySecond).toEqual([['from-first.md']]);
 	// The second handle reads what the hint asked it to look at.
 	expectOk(await second.files.read('from-first.md'));
 
 	// A closed handle hears nothing more and stops relaying.
 	await second.close();
-	expectOk(await first.files.create('after-close.md', 'x'));
+	expectOk(await first.write('after-close.md', null, 'x'));
 	await Bun.sleep(20);
-	expect(heardBySecond).toEqual(['from-first.md']);
+	expect(heardBySecond).toEqual([['from-first.md']]);
 	await first.close();
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

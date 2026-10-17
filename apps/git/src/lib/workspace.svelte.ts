@@ -1,135 +1,177 @@
-import {
-	defineFolder,
-	type FileCapture,
-	type FileListing,
-	type GitSnapshot,
-	openFolder,
-	type PathStatus,
+import type {
+	FileListing,
+	FilesObservation,
+	GitSnapshot,
+	SyncError,
+	SyncOutcome,
 } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder/browser';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
-import { createSyncController } from '@epicenter/svelte/sync';
+import { createTextEditor, type TextEditor } from '@epicenter/folder/svelte';
 import { describeSync } from '@epicenter/svelte/sync-line';
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import type { Result } from 'wellcrafted/result';
 
-const definition = defineFolder({ kv: {}, tables: {} });
 export type WorkingCopy = NonNullable<
 	Awaited<ReturnType<typeof openWorkingCopy>>
 >;
 
 export async function openWorkingCopy(copy: string, remote: string) {
 	remote = remote.trim();
-	let id: string;
-	if (isTauri()) id = await invoke<string>('open_copy', { copy, remote });
-	else {
-		if (remote) {
-			const url = new URL(remote);
-			if (!['http:', 'https:'].includes(url.protocol))
-				throw new Error('Use an HTTP or HTTPS Git remote');
-		}
-		const digest = await crypto.subtle.digest(
-			'SHA-256',
-			new TextEncoder().encode(remote),
-		);
-		const key = Array.from(new Uint8Array(digest), (b) =>
-			b.toString(16).padStart(2, '0'),
-		).join('');
-		id = `so.epicenter.git.${key}.${copy}`;
+	if (remote) {
+		const url = new URL(remote);
+		if (!['http:', 'https:'].includes(url.protocol))
+			throw new Error('Use an HTTP or HTTPS Git remote');
 	}
+	const digest = await crypto.subtle.digest(
+		'SHA-256',
+		new TextEncoder().encode(remote),
+	);
+	const key = Array.from(new Uint8Array(digest), (b) =>
+		b.toString(16).padStart(2, '0'),
+	).join('');
+	const id = `so.epicenter.git.${key}.${copy}`;
+	// A working copy is an existing folder, not this app's data: it opens with
+	// its own epicenter.json, if any, and saving never writes that file.
 	const opened = await openFolder({
 		id,
-		definition,
 		browser: {
-			scope: { channel: 'development' },
 			author: {
 				name: `Working copy ${copy.toUpperCase()}`,
 				email: `${copy}@git-lab.localhost`,
 			},
-			...(remote && { remote: { url: remote, branch: 'main' } }),
 		},
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const folder = opened.data;
 	let listing = $state.raw<FileListing>({ files: [], directories: [] });
-	let paths = $state.raw<PathStatus[]>([]);
+	let changes = $state.raw<FilesObservation['changes']>([]);
 	let snapshot = $state.raw<GitSnapshot>(folder.git.snapshot);
 	let selected = $state('');
-	let buffer = $state('');
-	let saved = '';
-	let capture = $state.raw<FileCapture>();
+	/** The file's text as the editor last read or wrote it. */
+	let saved = $state('');
+	/** Whether the selected file is open as text. */
+	let editable = $state(false);
+	/** The selected file's text editor, which holds what is typed and saves it. */
+	let editor = $state.raw<TextEditor | undefined>();
 	let saveMessage = $state('');
-	let dirty = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	let saving: Promise<void> | undefined;
 	let reading: Promise<void> | undefined;
 	let readAgain = false;
+	let readFileAgain = false;
+	let readError = $state('');
 	let closed = false;
 	let selectGeneration = 0;
-	let command = $state('');
 	let running = $state(false);
 	let output = $state('');
-	const terminal = folder.terminal();
 	/**
-	 * Sync with the remote: commit, fetch, merge, and push, asking before a
-	 * conflict is written. The review is modal: the editor and the terminal
-	 * take no input until it is applied or cancelled.
+	 * Sync with the remote: commit, fetch, merge, and push. It asks nothing:
+	 * what both copies changed merges, this copy's version winning (ADR-0576).
 	 */
-	const syncs = createSyncController({
-		folder,
-		beforeSync: () => flush(),
-		afterSync: () => refresh(),
-		refused: () => (closed ? 'The working copy is closed.' : undefined),
-	});
+	let syncing = $state(false);
+	const syncLocked = () => syncing;
+
+	/** One folder sync call: saved text lands first, and the copy is read again after. */
+	async function syncStep(
+		call: () => Promise<Result<SyncOutcome, SyncError>>,
+	): Promise<Result<SyncOutcome, SyncError>> {
+		syncing = true;
+		try {
+			await flush();
+			return await call();
+		} finally {
+			syncing = false;
+			await refresh();
+		}
+	}
+
+	function report(result: Result<SyncOutcome, SyncError>) {
+		const line = describeSync(result);
+		output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
+	}
+
+	/** Whether text is typed into the open file that its file does not hold. */
+	const isDirty = () => editor?.typed !== undefined && editor.typed !== saved;
+
+	/**
+	 * The text editor of the file at `path`: each save writes the typed text
+	 * as the change from the text it started from, which the write merges with
+	 * whatever changed elsewhere since, by line, the typed lines winning where
+	 * both changed the same lines (ADR-0576).
+	 */
+	function editorOf(path: string) {
+		return createTextEditor({
+			current: () => (editable && path === selected ? saved : undefined),
+			async write({ from, to }) {
+				saveMessage = 'Saving…';
+				const result = await folder.write(path, from, to);
+				if (result.error !== null) {
+					saveMessage = result.error.message;
+					throw new Error(result.error.message);
+				}
+				// A delete beats an edit it never saw: the text stays typed.
+				if (result.data.file === null) {
+					saveMessage = `No file exists at '${path}', so the edit was not saved.`;
+					return 'gone';
+				}
+				saved = new TextDecoder().decode(result.data.file.bytes);
+				saveMessage = 'Saved';
+				return 'landed';
+			},
+		});
+	}
 
 	async function readSelected() {
 		const path = selected;
 		const generation = selectGeneration;
-		if (!path || dirty || saving) return;
+		// Typed text is never read over: its save merges with what changed.
+		const typing = () => editor?.typed !== undefined || editor?.saving;
+		if (!path || typing()) return;
 		const result = await readTextFile(folder.files, path, 2 * 1024 * 1024);
 		if (
 			closed ||
 			generation !== selectGeneration ||
 			path !== selected ||
-			dirty ||
-			saving
+			typing()
 		)
 			return;
 		if (result.error !== null) {
 			saveMessage = result.error.message;
 			if (result.error.name === 'NotFound') {
-				capture = undefined;
-				buffer = '';
+				editable = false;
 				saved = '';
 			}
 			return;
 		}
 		if (result.data.kind !== 'text') {
-			saveMessage =
-				'This file is binary or too large to edit. Use the terminal to inspect it.';
-			capture = undefined;
-			buffer = '';
+			saveMessage = 'This file is binary or too large to edit here.';
+			editable = false;
 			saved = '';
 			return;
 		}
-		capture = result.data.file;
-		saved = result.data.file.text;
-		buffer = saved;
+		editable = true;
+		saved = result.data.text;
 		saveMessage = 'Saved';
 	}
 
-	async function refreshOnce() {
-		const [files, statuses] = await Promise.all([
+	async function refreshOnce(readFile: boolean) {
+		const [files, status] = await Promise.all([
 			folder.files.list(),
-			folder.git.paths(),
+			folder.git.status(),
 		]);
 		if (closed) return;
 		if (files.error !== null) throw new Error(files.error.message);
-		if (statuses.error !== null) throw new Error(statuses.error.message);
+		if (status.error !== null) throw new Error(status.error.message);
 		listing = files.data;
-		paths = statuses.data;
-		await folder.git.status();
-		await readSelected();
+		changes = status.data.changes;
+		if (readFile) await readSelected();
 	}
-	async function refresh(): Promise<void> {
+	/**
+	 * Read the listing and status again, and the open file when `readFile`.
+	 * Calls during a read join it and run once more after; the open file is
+	 * read in that run if any of them asked for it.
+	 */
+	async function refresh(readFile = true): Promise<void> {
+		readFileAgain ||= readFile;
 		if (reading) {
 			readAgain = true;
 			return reading;
@@ -137,44 +179,43 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		reading = (async () => {
 			do {
 				readAgain = false;
-				await refreshOnce();
+				const file = readFileAgain;
+				readFileAgain = false;
+				await refreshOnce(file);
 			} while (readAgain && !closed);
 		})();
 		try {
 			await reading;
+			readError = '';
 		} finally {
 			reading = undefined;
 		}
 	}
-	async function saveOnce(mode: 'replace' | 'overwrite' = 'replace') {
-		if (!capture || !dirty) return;
-		const text = buffer;
-		saveMessage = 'Saving…';
-		const result =
-			mode === 'replace'
-				? await folder.files.replace(capture, text)
-				: await folder.files.overwrite(capture.path, text);
-		if (result.error !== null) {
-			saveMessage = result.error.message;
-			throw new Error(result.error.message);
-		}
-		capture = result.data;
-		saved = text;
-		dirty = buffer !== saved;
-		saveMessage = dirty ? 'Unsaved changes' : 'Saved';
-	}
+	/**
+	 * Save what is typed until nothing typed is unsent; one save runs at a
+	 * time, and callers meanwhile share it. Rejects with what the save
+	 * answered when the typed text could not be saved, which stays typed.
+	 */
 	async function flush() {
 		clearTimeout(timer);
-		while (dirty || saving) {
-			if (!saving)
-				saving = saveOnce().finally(() => {
-					saving = undefined;
-				});
-			await saving;
-		}
+		const open = editor;
+		if (open === undefined) return;
+		await open.save();
+		if (open.typed !== undefined) throw new Error(saveMessage);
 	}
+	/** What a Git call returned, as the output shows it. */
+	function outcome(result: unknown): string {
+		if (typeof result !== 'object' || result === null) return `${result}\n`;
+		if ('error' in result && result.error !== null)
+			return `${(result.error as { message: string }).message}\n`;
+		const value = 'data' in result ? result.data : result;
+		return `${JSON.stringify(value, null, 2)}\n`;
+	}
+	/** One Git call, reported in the output under its label. */
+	const action = (label: string, call: () => Promise<unknown>) => () =>
+		execute(label, async () => outcome(await call()));
 	async function execute(label: string, work: () => Promise<string>) {
-		if (running || closed || syncs.locked) return;
+		if (running || closed || syncLocked()) return;
 		running = true;
 		output += `\n$ ${label}\n`;
 		try {
@@ -187,29 +228,34 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			running = false;
 		}
 	}
-	const stopFiles = folder.onFilesChanged(() => {
-		void refresh().catch((e) => {
-			output += `\n${String(e)}\n`;
-		});
-	});
 	const stopGit = folder.git.subscribe((next) => {
 		snapshot = next;
 	});
+	// Changes made outside this handle, and the files its own Sync wrote. The
+	// open file is read again only when the change names it, and never over
+	// typed input: an edited buffer keeps the version it started from, and
+	// its save merges with what changed since.
+	const stopChanges = folder.onFilesChanged((change) => {
+		if (closed) return;
+		const readFile =
+			change === 'everything' || (selected !== '' && change.includes(selected));
+		void refresh(readFile).catch((error) => {
+			if (!closed)
+				readError = error instanceof Error ? error.message : String(error);
+		});
+	});
 	try {
 		await refresh();
-		if (
-			remote &&
-			folder.git.snapshot.files.state === 'observed' &&
-			folder.git.snapshot.files.value.head === undefined &&
-			(await folder.files.list()).data?.files.length === 0
-		) {
-			output = '$ git pull --ff-only\n';
-			const result = await terminal.exec('git pull --ff-only');
-			output += result.stdout + result.stderr;
-			await refresh();
+		// A copy with no origin yet connects, once, to the remote it was
+		// opened with: an empty copy takes the remote's history, and one with
+		// files sends them. The origin lives in the copy's Git configuration,
+		// so a reopened copy keeps it.
+		if (remote && folder.git.snapshot.remote === undefined) {
+			output = '$ Connect\n';
+			report(await syncStep(() => folder.sync.connect(remote)));
 		}
 	} catch (error) {
-		stopFiles();
+		stopChanges();
 		stopGit();
 		await folder.close();
 		throw error;
@@ -219,8 +265,9 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		get listing() {
 			return listing;
 		},
-		get paths() {
-			return paths;
+		/** What changed since the last version, by path. */
+		get changes() {
+			return changes;
 		},
 		get snapshot() {
 			return snapshot;
@@ -229,50 +276,42 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			return selected;
 		},
 		get buffer() {
-			return buffer;
+			return editor?.text ?? '';
 		},
 		get dirty() {
-			return dirty;
+			return isDirty();
 		},
 		get saveMessage() {
 			return saveMessage;
 		},
 		get editable() {
-			return capture !== undefined;
-		},
-		get command() {
-			return command;
-		},
-		set command(next: string) {
-			command = next;
+			return editable;
 		},
 		get running() {
 			return running;
 		},
-		/** The sync controller: its attempt, while one waits, is the modal review. */
-		syncs,
-		/** Whether anything but the review takes input now. */
-		get locked() {
-			return running || syncs.locked;
+		/** Why the last read after an outside change failed, until a read succeeds. */
+		get readError() {
+			return readError;
 		},
-		/** Sync, reporting the result in the terminal output. */
+		/** Whether a Sync is in flight. */
+		get syncing() {
+			return syncing;
+		},
+		/** Whether the editor and the Git actions wait for work in flight. */
+		get locked() {
+			return running || syncLocked();
+		},
+		/** Sync, reporting the result in the output. */
 		async sync() {
-			if (running || closed || syncs.locked) return;
+			if (running || closed || syncLocked()) return;
 			running = true;
 			output += '\n$ Sync\n';
 			try {
-				const ran = await syncs.run();
-				const line = describeSync(ran);
-				output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
+				report(await syncStep(() => folder.sync.run()));
 			} finally {
 				running = false;
 			}
-		},
-		/** Apply the review's choices, reporting the result in the terminal output. */
-		async applySync(...[attempt, choices]: Parameters<typeof syncs.apply>) {
-			const resolved = await syncs.apply(attempt, choices);
-			const line = describeSync(resolved);
-			output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
 		},
 		get output() {
 			return output;
@@ -282,64 +321,50 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await flush();
 			if (generation !== selectGeneration || closed) return;
 			selected = path;
-			capture = undefined;
-			buffer = '';
+			editable = false;
 			saved = '';
+			editor = editorOf(path);
 			saveMessage = 'Opening…';
 			await readSelected();
 		},
 		input(text: string) {
-			if (closed || !capture || syncs.locked) return;
-			buffer = withFileNewlines(text, saved);
-			dirty = buffer !== saved;
-			saveMessage = dirty ? 'Unsaved changes' : 'Saved';
+			if (closed || !editable || syncLocked() || editor === undefined) return;
+			editor.change(withFileNewlines(text, saved));
+			saveMessage = isDirty() ? 'Unsaved changes' : 'Saved';
+			// Saved a second after the last keystroke, or at once on blur.
 			clearTimeout(timer);
 			timer = setTimeout(() => {
 				void flush().catch(() => {});
-			}, 350);
-		},
-		async keepMyText() {
-			clearTimeout(timer);
-			while (saving) await saving.catch(() => {});
-			if (!selected || !dirty) return;
-			saving = saveOnce('overwrite').finally(() => {
-				saving = undefined;
-			});
-			await saving;
-			await refresh();
+			}, 1000);
 		},
 		async useSavedText() {
 			clearTimeout(timer);
-			if (saving) await saving.catch(() => {});
-			dirty = false;
+			// A save already running finishes; nothing typed is sent after it,
+			// since what is typed is dropped before waiting for it.
+			const running = editor?.saving ? editor.save() : undefined;
+			editor?.discard();
+			await running;
 			await readSelected();
 		},
 		flush,
-		refresh,
-		async run(line = command) {
-			if (running || closed || !line.trim()) return;
-			command = '';
-			await execute(line, async () => {
-				const result = await terminal.exec(line);
-				return (
-					result.stdout +
-					result.stderr +
-					(result.exitCode ? `[exit ${result.exitCode}]\n` : '')
-				);
+		status: action('Status', () => folder.git.status()),
+		commit: action('Save version', () => folder.git.commit()),
+		/** Create an empty file at a folder-relative path and open it; a file already there is refused. */
+		async create(path: string) {
+			path = path.trim();
+			if (!path) return;
+			await execute(`New file ${path}`, async () => {
+				const created = await folder.write(path, null, '');
+				if (created.error !== null) throw new Error(created.error.message);
+				return '';
 			});
-		},
-		async recover() {
-			await execute('Recover incoming update', async () => {
-				const result = await folder.git.recoverIncoming();
-				if (result.error !== null) throw new Error(result.error.message);
-				return `Incoming recovery: ${result.data.status}\n`;
-			});
+			await this.select(path);
 		},
 		async close() {
 			await flush();
 			closed = true;
 			clearTimeout(timer);
-			stopFiles();
+			stopChanges();
 			stopGit();
 			await folder.close();
 		},

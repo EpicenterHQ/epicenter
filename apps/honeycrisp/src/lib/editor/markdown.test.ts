@@ -12,7 +12,7 @@
  * - HTML, images, and tables are refused with a reason
  * - The schema has no underline and no image
  * - A note's body decodes and encodes back byte-identical, keeping its
- *   leading blank lines and CRLF line endings
+ *   leading blank lines
  */
 import { describe, expect, test } from 'bun:test';
 import type { Node } from 'prosemirror-model';
@@ -466,10 +466,10 @@ describe("a note's whole body", () => {
 		});
 	});
 
-	test('encoding keeps CRLF line endings and the blank lines at the start', () => {
+	test('encoding keeps the blank lines at the start and writes line feeds', () => {
 		const two = doc(p(t('one')), p(t('two')));
-		expect(expectOk(bodyCodec.encode(two, '\r\none\r\n'))).toBe(
-			'\r\none\r\n\r\ntwo\r\n',
+		expect(expectOk(bodyCodec.encode(two, '\n\none\n'))).toBe(
+			'\n\none\n\ntwo\n',
 		);
 		expect(expectOk(bodyCodec.encode(doc(p()), '\nold\n'))).toBe('\n');
 		expect(expectOk(bodyCodec.encode(doc(p(t('new'))), 'old'))).toBe('new\n');

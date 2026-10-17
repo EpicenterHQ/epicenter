@@ -9,13 +9,9 @@ import type { Brand } from 'wellcrafted/brand';
  * opens a local database with no auth at all (`openLocal(definition)`), and the auth client
  * runs with no store (the hosted dashboard). A leaf is what two siblings share.
  *
- * On hosted Cloud, this is the principal Better Auth resolved for the request.
- * On a self-hosted instance, this is the literal {@link INSTANCE_PRINCIPAL_ID}.
- * By definition, every server path, R2 key, Durable Object name, local database
- * name, and HKDF derivation label uses this value as the partition key.
- *
- * The instance constant's bytes are pinned. Changing them changes HKDF labels,
- * R2 prefixes, Durable Object names, and IndexedDB keys.
+ * It is the principal Better Auth resolved for the request. By definition,
+ * every server path, R2 key, local database name, and HKDF derivation label
+ * uses this value as the partition key.
  *
  * The type is declared first and the validator is annotated to it, so the brand
  * is written once and the schema conforms to it rather than the reverse. Both
@@ -43,6 +39,3 @@ export type AccountIdentity = {
  */
 export const asPrincipalId = (value: string): PrincipalId =>
 	value as PrincipalId;
-
-/** Byte-pinned principal id for the single-partition self-hosted instance. */
-export const INSTANCE_PRINCIPAL_ID = asPrincipalId('instance');

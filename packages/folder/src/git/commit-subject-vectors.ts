@@ -1,11 +1,9 @@
 /**
  * Golden vectors for automatic commit subjects.
  *
- * `commitSubject` in `messages.ts` decides the subject a browser folder
- * writes. The Rust port in the desktop plugin's `core/src/messages.rs` must
- * write the same one, so both are pinned to the plugin's
- * `fixtures/commit-subjects.txt`: this script derives the file from the
- * TypeScript implementation, and a Rust test reads it.
+ * `commitSubject` in `messages.ts` decides the subject a folder writes. Its
+ * output is pinned in `fixtures/commit-subjects.txt`, which this script
+ * derives, so a change to any subject shows up as a change to that file.
  *
  * Run `bun run gen:vectors` in `packages/folder` to rewrite the fixture, or
  * import `renderVectors` to compare it without writing.
@@ -83,7 +81,7 @@ export function renderVectors(): string {
 }
 
 export const VECTORS_PATH = new URL(
-	'../../../tauri-plugin-epicenter-folder/fixtures/commit-subjects.txt',
+	'../../fixtures/commit-subjects.txt',
 	import.meta.url,
 );
 

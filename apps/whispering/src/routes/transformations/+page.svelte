@@ -43,7 +43,6 @@
 			<TransformationDetail
 				{library}
 				path={selected.path}
-				draft={selected.draft}
 				entry={selected.entry}
 				bind:applyTo={view.applyTo}
 				bind:applySource={view.applySource}

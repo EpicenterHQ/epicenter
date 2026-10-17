@@ -1,961 +1,506 @@
-//! Installed applications: which IDs a Bun generation serves, and the native
-//! folder each one opens.
+//! Installed apps: the Folders window's commands for them, and the build an
+//! app's window loads (ADR-0540, ADR-0552, ADR-0556, ADR-0597).
 //!
-//! Bun discovers the installed releases once at boot and names their IDs in
-//! its ready frame. Rust never reads the catalog from disk; it checks that the
-//! IDs can name managed folders (`read_ready_frame`), admits `app-` windows
-//! only for the active generation's IDs (`admit_installed_app`), and registers
-//! one Folder scope per ID on the first launch that creates its window.
+//! Installing lives in the `epicenter` CLI (`packages/cli/src/installed-apps.ts`):
+//! the bare clone under `<data_dir>/apps/<app-id>/`, whose detached `HEAD` is
+//! the approved commit, `epicenter.app.json`, Git, `bun install`, and the
+//! build into `<cache_dir>/builds/<app-id>/<commit>/`. Each command here is one fixed
+//! `epicenter app …` invocation, run as every command runs the CLI
+//! (`cli::window_invocation`: this shell's deployment and directories, and
+//! ended with the Folders window's page), whose NDJSON lines go to the
+//! page's `Channel` as the CLI prints them.
 //!
-//! An installed app's folder is one dataset, named by its app ID, under the
-//! owner the native process captured from Bun's first ready frame (ADR-0461):
-//! `<folderDir>/local/<app-id>` for Local, and
-//! `<folderDir>/accounts/<account-key>/<app-id>` for an account. A Local folder
-//! is created on launch. An account folder is only opened: it arrives by an
-//! explicit download, never by launching the app. The ID rules are the managed
-//! folder-name rules in ADR-0488. Compiled Todos and Capture keep their
-//! existing directories.
+//! ```txt
+//! list_installed_apps    epicenter app list --json
+//! list_repository_apps   epicenter app list --repository=<source> --json
+//! install_app            epicenter app install [--folder=<folder>] --json -- <source>
+//! update_app             epicenter app update --json -- <id>
+//! approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
+//! open_installed_app     epicenter app update --commit=<commit> --json -- <id>, before every open
+//! ```
 //!
-//! The download (`download_dataset`) asks the active Bun generation for the
-//! account's pairing of the folder whose ID is the app's ID, fetches it
-//! through a relay into staging beside the destination, and publishes it only
-//! where nothing is (`hosted.rs`, and the Folder core's `download`). It writes
-//! the folder's binding (`binding.rs`): the one record of which repository was
-//! selected. An account folder's owner gets a transport that relays each push
-//! and fetch for exactly that repository; without a usable binding it refuses
-//! transfers and nothing else.
+//! What stays here is what must be native: opening an app's window at the
+//! commit the CLI answered ready, with its folder grant
+//! (`open_installed_window`). An open window keeps the build it opened on
+//! (ADR-0588), so a new build changes no open window. The CLI checks a
+//! build against its commit at every open. Only when it answers that the
+//! build is damaged does the open reserve that commit (`BuildReservation`),
+//! which fails while a window runs it, and ask the CLI to restore it in place
+//! (`--restore`); otherwise the damaged build is left for the windows running
+//! it (`checked_open`).
 
-use std::collections::BTreeSet;
-use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::ffi::OsString;
 
-use anyhow::{anyhow, bail, Context, Result};
-use tauri::{AppHandle, Runtime};
-use tauri_plugin_epicenter_folder::{
-    has_repository, Author, FolderConfig, FolderExt, ScopeConfig,
-};
+use tauri::ipc::Channel;
+use tauri::{Manager, Webview};
 
-use crate::device_owner::{self, AccountIdentity};
+use crate::cli::{window_invocation, CliError, CliExit};
+use crate::data_folders;
+use crate::BuildReservation;
 
-mod binding;
-mod hosted;
+/// Whether `value` is a full commit id, SHA-1 or SHA-256, in the lowercase
+/// hex Git prints, and so can name a directory under `builds/<id>/`.
+pub(crate) fn is_commit(value: &str) -> bool {
+    matches!(value.len(), 40 | 64)
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
 
-pub(crate) use hosted::{CurrentGeneration, Generation};
+/// What `epicenter app update --commit=<commit> --json` answered for an
+/// open, from its last line, `{"app": {"commit": …, "state": {…}}}`.
+#[derive(Debug, PartialEq)]
+enum Answer {
+    /// The approved commit, built, its build intact.
+    Ready(String),
+    /// The approved commit, whose build directory changed on disk and was
+    /// left as it is, since a window may be running it.
+    Damaged(String),
+}
 
-/// Folder scopes the compiled applications register at startup. An installed
-/// app cannot take one: its scope ID is its app ID.
-pub(crate) const TODOS_FOLDER_SCOPE: &str = "so.epicenter.todos";
-pub(crate) const CAPTURE_FOLDER_SCOPE: &str = "so.epicenter.capture";
-
-/// The owner directory under the folder root for account-independent data.
-const LOCAL_OWNER: &str = "local";
-
-/// The directory under the folder root that holds one child per account key.
-const ACCOUNTS_OWNER: &str = "accounts";
-
-/// A managed folder name is at most this many bytes (ADR-0488).
-const MAX_FOLDER_NAME_BYTES: usize = 128;
-
-/// Windows device basenames. Windows resolves `con.example` to the `CON`
-/// device, so the label before the first dot must not be one of these.
-const WINDOWS_DEVICE_NAMES: &[&str] = &[
-    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-];
-
-/// Check one ID against the managed folder-name rules: two or more
-/// dot-separated lowercase ASCII labels, each starting and ending with a letter
-/// or digit and otherwise holding letters, digits, and hyphens; at most 128
-/// bytes; no Windows device basename before the first dot. Nothing is escaped,
-/// case-folded, or renamed.
-pub(crate) fn check_folder_name(id: &str) -> Result<()> {
-    if id.len() > MAX_FOLDER_NAME_BYTES {
-        bail!("installed app id is longer than {MAX_FOLDER_NAME_BYTES} bytes: {id:?}");
-    }
-    let labels: Vec<&str> = id.split('.').collect();
-    let is_edge = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    let well_formed = labels.len() >= 2
-        && labels.iter().all(|label| {
-            let bytes = label.as_bytes();
-            match (bytes.first(), bytes.last()) {
-                (Some(&first), Some(&last)) => {
-                    is_edge(first)
-                        && is_edge(last)
-                        && bytes.iter().all(|&byte| is_edge(byte) || byte == b'-')
-                }
-                _ => false,
+/// The CLI's answer for `commit`, or why it opens nothing: waiting for
+/// approval, another commit, or a failure.
+fn answer_for(exit: &CliExit, commit: &str, title: &str) -> Result<Answer, String> {
+    match exit.code {
+        0 => match answer(exit.reply.as_deref()) {
+            Some(Answer::Ready(built) | Answer::Damaged(built)) if built != commit => {
+                Err(format!("{title} was not built at {commit}."))
             }
-        });
-    if !well_formed {
-        bail!(
-            "installed app id must be two or more lowercase dot-separated labels: {id:?}"
-        );
-    }
-    if WINDOWS_DEVICE_NAMES.contains(&labels[0]) {
-        bail!("installed app id begins with a reserved Windows device name: {id:?}");
-    }
-    Ok(())
-}
-
-/// Validate the installed IDs one ready frame names. Any invalid, duplicated,
-/// or compiled-scope ID refuses the whole frame, so membership is never a
-/// partial reading of what Bun sent.
-pub(crate) fn validate_installed_ids(ids: Vec<String>) -> Result<Vec<String>> {
-    let mut seen = BTreeSet::new();
-    for id in &ids {
-        check_folder_name(id)?;
-        if id == TODOS_FOLDER_SCOPE || id == CAPTURE_FOLDER_SCOPE {
-            bail!("installed app id names a compiled application's folder: {id:?}");
-        }
-        if !seen.insert(id.as_str()) {
-            bail!("installed app id appears more than once: {id:?}");
-        }
-    }
-    Ok(ids)
-}
-
-/// Make `<folder_dir>/local/<id>` exist and return it.
-///
-/// `folder_dir` is the root native startup captured; it is created when
-/// missing and may itself be a link a person chose. `local` and the app's
-/// directory are created one level at a time, and an existing one must be a
-/// real directory: a symbolic link or a file there is refused, so the folder
-/// never resolves outside the managed layout. This is checked when the window
-/// opens; it does not defend against a later swap.
-pub(crate) fn prepare_local_folder(folder_dir: &Path, id: &str) -> Result<PathBuf> {
-    check_folder_name(id)?;
-    fs::create_dir_all(folder_dir)
-        .with_context(|| format!("create the folder root at {}", folder_dir.display()))?;
-    if !folder_dir.is_dir() {
-        bail!("the folder root at {} is not a directory", folder_dir.display());
-    }
-    let local = folder_dir.join(LOCAL_OWNER);
-    ensure_real_directory(&local)?;
-    let root = local.join(id);
-    ensure_real_directory(&root)?;
-    Ok(root)
-}
-
-/// Return `<folder_dir>/accounts/<account-key>/<id>` when it is already a Git
-/// repository: one a download published, or a clone a person made.
-///
-/// Nothing is created. An account's dataset arrives by an explicit download,
-/// and launching the app must not stand in for one, so a missing level
-/// refuses with a request to download first. A directory that is there but is
-/// not a repository, empty or holding files, is refused too, and left exactly
-/// as it is: opening it would start a history unrelated to the account's.
-/// `accounts`, the account directory, and the dataset must each be a real
-/// directory, as in [`prepare_local_folder`]; the captured root may be a link
-/// a person chose. Local is not read or touched. A missing or unusable
-/// hosted record does not matter here; it only disables syncing.
-pub(crate) fn open_account_folder(
-    folder_dir: &Path,
-    account: &AccountIdentity,
-    id: &str,
-) -> Result<PathBuf> {
-    match locate_account_folder(folder_dir, account, id)? {
-        AccountFolder::Repository(root) => Ok(root),
-        AccountFolder::Absent(root) => bail!(
-            "{id} has no data folder for this account on this device at {}. Download it explicitly before opening {id}.",
-            root.display()
-        ),
-        AccountFolder::Unclaimed(root) => bail!("{}", unclaimed_message(id, &root)),
+            Some(answer) => Ok(answer),
+            None => Err(format!("{title} was not built at {commit}.")),
+        },
+        1 => Err(format!(
+            "{title} is waiting for approval. Review and approve it first."
+        )),
+        _ => Err(exit.failure("app update")),
     }
 }
 
-/// What a person is told about a directory at an account dataset's path that
-/// is not a repository: why it stays closed, and how to repair it by hand.
-fn unclaimed_message(id: &str, root: &Path) -> String {
-    format!(
-        "{id}'s data folder for this account at {} is not a Git repository, so Epicenter will not open it, start a history in it, or download over it. Nothing in it was changed. To keep its files, move the folder somewhere else, download {id}, then copy the files you want back in.",
-        root.display()
+/// Settle how `commit` opens. The CLI is asked once without restoring, so
+/// opens of an intact build never reserve it and never refuse each other.
+/// Only when it answers that the build changed on disk is the build reserved
+/// (`reserve`, which fails while a window runs that commit or another open
+/// restores it) and the CLI asked again with `--restore`. Answers the
+/// reservation the window is pinned under, when one was taken.
+async fn checked_open<G, Ask, Asked>(
+    commit: &str,
+    title: &str,
+    mut ask: Ask,
+    reserve: impl FnOnce() -> Option<G>,
+) -> Result<Option<G>, String>
+where
+    Ask: FnMut(bool) -> Asked,
+    Asked: std::future::Future<Output = Result<CliExit, String>>,
+{
+    if let Answer::Ready(_) = answer_for(&ask(false).await?, commit, title)? {
+        return Ok(None);
+    }
+    let Some(reservation) = reserve() else {
+        return Err(format!(
+            "{title}'s files for this version changed on disk. Close its windows, or wait for the other open to restore them, then open it again."
+        ));
+    };
+    match answer_for(&ask(true).await?, commit, title)? {
+        Answer::Ready(_) => Ok(Some(reservation)),
+        Answer::Damaged(_) => Err(format!(
+            "{title}'s files for this version changed on disk and were not restored."
+        )),
+    }
+}
+
+fn answer(reply: Option<&str>) -> Option<Answer> {
+    let value = serde_json::from_str::<serde_json::Value>(reply?).ok()?;
+    let app = value.get("app")?;
+    let commit = app.get("commit")?.as_str()?.to_string();
+    match app.pointer("/state/kind")?.as_str()? {
+        "ready" => Some(Answer::Ready(commit)),
+        "damaged" => Some(Answer::Damaged(commit)),
+        _ => None,
+    }
+}
+
+/// Whether `id` can name a directory under `builds/`: the characters of a
+/// reverse-domain app id, never `..`. The CLI checks the whole rule.
+pub(crate) fn is_app_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with(['.', '-'])
+        && !id.contains("..")
+        && id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.' || byte == b'-'
+        })
+}
+
+/// The arguments for `epicenter app list --json`, or with `source`, the apps
+/// in that repository.
+fn list_args(source: Option<&str>) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["app".into(), "list".into()];
+    if let Some(source) = source {
+        args.push(format!("--repository={}", source.trim()).into());
+    }
+    args.push("--json".into());
+    args
+}
+
+/// The arguments for installing the app at `folder` (empty for the root) of
+/// the repository at `source`. It builds nothing that waits for approval.
+fn install_args(source: &str, folder: &str) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["app".into(), "install".into()];
+    if !folder.trim().is_empty() {
+        args.push(format!("--folder={}", folder.trim()).into());
+    }
+    args.extend(["--json".into(), "--".into(), source.trim().into()]);
+    args
+}
+
+/// The arguments for updating app `id`. With `commit`, nothing is fetched
+/// and only that commit, the one a person was shown, is built; `approve`
+/// approves it first. `restore` asks an open to restore a damaged build in
+/// place, which only an open that reserved that build may ask.
+fn update_args(id: &str, commit: Option<&str>, approve: bool, restore: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["app".into(), "update".into()];
+    if let Some(commit) = commit {
+        args.push(format!("--commit={commit}").into());
+    }
+    if approve {
+        args.push("--approve".into());
+    }
+    if restore {
+        args.push("--restore".into());
+    }
+    args.extend(["--json".into(), "--".into(), id.into()]);
+    args
+}
+
+/// Run `epicenter <args>` for `webview`'s page, every line it prints sent to
+/// `on_line`.
+async fn stream(
+    webview: &Webview,
+    args: Vec<OsString>,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    window_invocation(webview)?
+        .run(&args, None, |line| {
+            on_line.send(line).map_err(|error| error.to_string())
+        })
+        .await
+}
+
+// ---------------------------------------------------------------------------
+// Commands, granted to the Folders window alone
+
+/// `epicenter app list --json`: every installed app, with whether it can
+/// run and any fetched commit waiting for approval.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_installed_apps(
+    webview: Webview,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    stream(&webview, list_args(None), on_line).await
+}
+
+/// The apps in the repository at `source`, a Git URL or a local path, each
+/// with the folder to install it from.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_repository_apps(
+    webview: Webview,
+    source: String,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    stream(&webview, list_args(Some(&source)), on_line).await
+}
+
+/// Clone the repository at `source` bare into app data, with the app at
+/// `folder` within it, or at its root when `folder` is empty. Nothing is
+/// approved yet: the CLI exits 1 with the fetched commit's review.
+#[tauri::command]
+#[specta::specta]
+pub async fn install_app(
+    webview: Webview,
+    source: String,
+    folder: String,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    stream(&webview, install_args(&source, &folder), on_line).await
+}
+
+/// Approve `commit` of app `id`, the commit the person was shown, and build
+/// it.
+#[tauri::command]
+#[specta::specta]
+pub async fn approve_app(
+    webview: Webview,
+    id: String,
+    commit: String,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    stream(
+        &webview,
+        update_args(&id, Some(&commit), true, false),
+        on_line,
     )
+    .await
 }
 
-/// Where an account's dataset stands on this device. Read from directory
-/// entries alone; nothing records that a download happened.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum AccountFolder {
-    /// Nothing at the path, or a level above it is missing.
-    Absent(PathBuf),
-    /// A real directory that is a Git repository (`has_repository`).
-    Repository(PathBuf),
-    /// A real directory that is not a repository: never opened or replaced.
-    Unclaimed(PathBuf),
+/// Fetch app `id`'s default branch, which never moves its approved commit. A
+/// fetched commit waits for approval, reviewed in the result.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_app(
+    webview: Webview,
+    id: String,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    stream(&webview, update_args(&id, None, false, false), on_line).await
 }
 
-/// `<folder_dir>/accounts/<account-key>/<id>` and what is there, under the
-/// rules of [`open_account_folder`].
-fn locate_account_folder(
-    folder_dir: &Path,
-    account: &AccountIdentity,
-    id: &str,
-) -> Result<AccountFolder> {
-    check_folder_name(id)?;
-    let key = device_owner::account_key(account).map_err(|error| anyhow!(error))?;
-    let accounts = folder_dir.join(ACCOUNTS_OWNER);
-    let account_directory = accounts.join(&key);
-    let root = account_directory.join(id);
-    match fs::metadata(folder_dir) {
-        Ok(metadata) if metadata.is_dir() => {}
-        Ok(_) => bail!("the folder root at {} is not a directory", folder_dir.display()),
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return Ok(AccountFolder::Absent(root))
-        }
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("inspect the folder root at {}", folder_dir.display()));
-        }
+/// Open app `id` at `commit`, the commit the Folders window listed, in its own
+/// window titled `title`, served at `/apps/<id>/<commit>/`. The CLI is asked
+/// first, every time, and answers only for the approved commit, building it
+/// when it is not built and checking its build when it is. A build that
+/// changed on disk is restored only under a reservation, taken when no window
+/// runs that commit (`checked_open`); otherwise the open is refused. A window
+/// already open on the folder is revealed when it runs that build, and
+/// refused when it runs another. With
+/// `folder`, a scope the Folders window listed, the window is let into that
+/// folder and handed it, which the page asks for with `window_folder`.
+/// Without one, the app is handed its own folder, `<folder_dir>/<id>`, whose
+/// scope is its id (ADR-0552).
+#[tauri::command]
+#[specta::specta]
+pub async fn open_installed_app(
+    webview: Webview,
+    id: String,
+    title: String,
+    commit: String,
+    folder: Option<String>,
+) -> Result<(), String> {
+    if !is_app_id(&id) || !is_commit(&commit) {
+        return Err(format!(
+            "'{id}' at '{commit}' is not an installed app's commit."
+        ));
     }
-    let mut present = true;
-    for level in [&accounts, &account_directory, &root] {
-        if !is_real_directory(level)? {
-            present = false;
-            break;
-        }
-    }
-    if !present {
-        return Ok(AccountFolder::Absent(root));
-    }
-    Ok(if has_repository(&root).map_err(anyhow::Error::msg)? {
-        AccountFolder::Repository(root)
-    } else {
-        AccountFolder::Unclaimed(root)
-    })
-}
-
-/// Make `<folder_dir>/accounts/<account-key>` exist and return its canonical
-/// path: the parent a download reserves its destination in and publishes
-/// into. Only an explicit download calls this; launching never creates an
-/// account directory. `accounts` and the account directory must be real
-/// directories; the captured root may be a link a person chose.
-pub(crate) fn prepare_account_parent(folder_dir: &Path, account: &AccountIdentity) -> Result<PathBuf> {
-    let key = device_owner::account_key(account).map_err(|error| anyhow!(error))?;
-    fs::create_dir_all(folder_dir)
-        .with_context(|| format!("create the folder root at {}", folder_dir.display()))?;
-    if !folder_dir.is_dir() {
-        bail!("the folder root at {} is not a directory", folder_dir.display());
-    }
-    let accounts = folder_dir.join(ACCOUNTS_OWNER);
-    ensure_real_directory(&accounts)?;
-    let parent = accounts.join(key);
-    ensure_real_directory(&parent)?;
-    fs::canonicalize(&parent).with_context(|| format!("resolve {}", parent.display()))
-}
-
-/// What an installed app's data looks like on this device, without creating
-/// or opening anything.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum InstalledData {
-    /// Signed out: launching creates or opens the Local folder.
-    Local,
-    /// The account's dataset is a repository here; launching opens it. How
-    /// it got here, a download or a clone, is not recorded or claimed.
-    Available,
-    /// The account's dataset is not here; it must be downloaded first.
-    NotDownloaded,
-    /// Something that is not a repository is at the dataset's path; it is
-    /// neither opened nor downloaded over. The message says how to repair it.
-    Unclaimed { message: String },
-}
-
-pub(crate) fn installed_data(
-    folder_dir: &Path,
-    owner: Option<&AccountIdentity>,
-    id: &str,
-) -> Result<InstalledData> {
-    match owner {
-        None => {
-            check_folder_name(id)?;
-            Ok(InstalledData::Local)
-        }
-        Some(account) => Ok(match locate_account_folder(folder_dir, account, id)? {
-            AccountFolder::Repository(_) => InstalledData::Available,
-            AccountFolder::Absent(_) => InstalledData::NotDownloaded,
-            AccountFolder::Unclaimed(root) => InstalledData::Unclaimed {
-                message: unclaimed_message(id, &root),
-            },
-        }),
-    }
-}
-
-/// Download `account`'s dataset `id` to `<folderDir>/accounts/<key>/<id>`
-/// from the repository its pairing names, recording that selection in it.
-/// Refuses when anything is already there. `cancel` stops it before
-/// publication; nothing is left behind then.
-pub(crate) fn download_dataset(
-    folder_dir: &Path,
-    account: &AccountIdentity,
-    id: &str,
-    current: &CurrentGeneration,
-    cancel: &AtomicBool,
-) -> Result<PathBuf> {
-    check_folder_name(id)?;
-    let parent = prepare_account_parent(folder_dir, account)?;
-    let root = hosted::download_dataset(&parent, account, id, current, cancel)
-        .map_err(anyhow::Error::msg)?;
-    // A cancel that arrives after the folder landed (quitting, or the Bun
-    // generation that started it going away) leaves the folder where it is
-    // and is reported, so nothing opens it as a finished download.
-    if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-        bail!("{}", hosted::interrupted_message(&root));
-    }
-    Ok(root)
-}
-
-/// Prepare the folder `owner` holds for `id`: create the Local one, or open the
-/// account one that is already there.
-pub(crate) fn prepare_folder(
-    folder_dir: &Path,
-    owner: Option<&AccountIdentity>,
-    id: &str,
-) -> Result<PathBuf> {
-    match owner {
-        None => prepare_local_folder(folder_dir, id),
-        Some(account) => open_account_folder(folder_dir, account, id),
-    }
-}
-
-/// Whether `path` is a real directory, `false` when nothing is there. A link
-/// or a file there is refused rather than reported missing.
-fn is_real_directory(path: &Path) -> Result<bool> {
-    let kind = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata.file_type(),
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            return Err(error).with_context(|| format!("inspect {}", path.display()));
+    let app = webview.app_handle().clone();
+    let ask = |restore: bool| {
+        let args = update_args(&id, Some(&commit), false, restore);
+        let webview = &webview;
+        async move {
+            window_invocation(webview)
+                .map_err(|error| format!("{error:?}"))?
+                .run(&args, None, |_| Ok(()))
+                .await
+                .map_err(|error| match error {
+                    CliError::Failed { message } => message,
+                    other => format!("{other:?}"),
+                })
         }
     };
-    if kind.is_symlink() {
-        bail!("{} is a symbolic link, not a folder Epicenter manages", path.display());
+    // A reservation, when a restore took one, is held until this open's
+    // window is pinned, so no other open replaces the build while it loads.
+    let reservation = checked_open(&commit, &title, ask, || {
+        BuildReservation::take(&app, &id, &commit)
+    })
+    .await?;
+    // The app may read `so.epicenter` through a definition its declaration
+    // must contain, so it waits for this launch to publish it.
+    if let Some(declared) = app.try_state::<crate::cli::EpicenterFolderDeclared>() {
+        declared.finished().await;
     }
-    if !kind.is_dir() {
-        bail!("{} is not a directory", path.display());
-    }
-    Ok(true)
-}
-
-fn ensure_real_directory(path: &Path) -> Result<()> {
-    match fs::create_dir(path) {
-        Ok(()) => return Ok(()),
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
-        Err(error) => {
-            return Err(error).with_context(|| format!("create {}", path.display()));
-        }
-    }
-    if !is_real_directory(path)? {
-        bail!("{} disappeared while it was being prepared", path.display());
-    }
-    Ok(())
-}
-
-/// Prepare an installed app's folder under `owner` and register it for
-/// exactly its window, once for the native process.
-///
-/// `registered` holds the IDs already registered and outlives Bun restarts,
-/// because the Folder plugin keeps a scope for the process lifetime and
-/// refuses to register one twice. That is sound only because `owner` is the
-/// one the native process captured and never changes: a scope's path is fixed
-/// by the first registration. An ID is inserted only after registration
-/// succeeds, so a refused attempt is retried by the next launch. The directory
-/// is prepared on every launch that creates the window, so a deleted Local
-/// folder is recreated, a deleted account folder is refused, and a swapped
-/// link is refused before that window opens.
-///
-/// An account folder's pushes and fetches go through a relay of the current
-/// Bun generation, for the repository its binding names (`hosted.rs`); its
-/// `origin` stays that repository's canonical URL. A Local folder transfers
-/// with whatever `origin` it has, as before.
-///
-/// The caller has already checked that the active Bun generation named `id`;
-/// this function grants whatever ID it is given.
-pub(crate) fn ensure_folder<R: Runtime>(
-    app: &AppHandle<R>,
-    registered: &Mutex<BTreeSet<String>>,
-    folder_dir: &Path,
-    owner: Option<&AccountIdentity>,
-    current: CurrentGeneration,
-    id: &str,
-    window: &str,
-) -> Result<()> {
-    let root = prepare_folder(folder_dir, owner, id)?;
-    let mut registered = registered
-        .lock()
-        .expect("installed folder registry lock poisoned");
-    if registered.contains(id) {
-        return Ok(());
-    }
-    let mut folder = FolderConfig::new(
-        root,
-        Author {
-            name: id.to_string(),
-            email: format!("{id}@localhost"),
-        },
-    );
-    folder.use_repository_author = true;
-    folder.use_repository_origin = true;
-    // Checked again by the owner under the folder's lock: a `.git` that went
-    // missing since `prepare_folder` refuses instead of starting new history.
-    folder.require_existing_repository = owner.is_some();
-    if let Some(account) = owner {
-        folder.transport = Some(Arc::new(hosted::AccountTransport::new(
-            account.clone(),
-            id,
-            current,
-        )));
-    }
-    app.folders()
-        .register(ScopeConfig {
-            scope: id.to_string(),
-            folder,
-            windows: vec![window.to_string()],
-        })
-        .map_err(anyhow::Error::msg)
-        .with_context(|| format!("register the folder for {id}"))?;
-    registered.insert(id.to_string());
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = match folder {
+            Some(folder) => folder,
+            None => data_folders::own_folder(&app, &id)?,
+        };
+        let opened =
+            crate::open_installed_window(&app, &id, &commit, &title, &folder, reservation.as_ref())
+                .map_err(|error| format!("{error:#}"));
+        drop(reservation);
+        opened
+    })
+    .await
+    .map_err(|error| format!("the app window could not be opened: {error}"))?
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
-    struct TempDirectory(PathBuf);
-
-    impl Drop for TempDirectory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    fn strings(args: Vec<OsString>) -> Vec<String> {
+        args.into_iter()
+            .map(|arg| arg.into_string().unwrap())
+            .collect()
     }
 
-    fn temp(label: &str) -> TempDirectory {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "epicenter-installed-{label}-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::SeqCst)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).unwrap();
-        TempDirectory(path)
-    }
-
+    /// Each command is one fixed invocation, and what a page typed lands
+    /// after `--` or inside `--name=value`, so it is never read as an option.
     #[test]
-    fn folder_names_follow_the_managed_rules() {
-        for accepted in [
-            "so.epicenter.zhongwen",
-            "com.example.notes",
-            "a.b",
-            "x1.y-2.z3",
-            "console.example",
-            "com10.example",
-            "example.con",
-        ] {
-            check_folder_name(accepted)
-                .unwrap_or_else(|error| panic!("{accepted:?} refused: {error:#}"));
-        }
-        let longest = format!("a.{}", "b".repeat(MAX_FOLDER_NAME_BYTES - 2));
-        assert_eq!(longest.len(), MAX_FOLDER_NAME_BYTES);
-        check_folder_name(&longest).unwrap();
-
-        let too_long = format!("{longest}b");
-        for denied in [
-            "",
-            "zhongwen",
-            "So.epicenter.zhongwen",
-            "so..epicenter",
-            ".so.epicenter",
-            "so.epicenter.",
-            "so.-epicenter",
-            "so.epicenter-",
-            "so_epicenter.app",
-            "so.epicenter/app",
-            "so.epicenter\\app",
-            "so.épicenter",
-            "con.example",
-            "prn.example",
-            "aux.example",
-            "nul.example",
-            "com1.example",
-            "com9.example",
-            "lpt1.example",
-            "lpt9.example",
-            too_long.as_str(),
-        ] {
-            assert!(check_folder_name(denied).is_err(), "{denied:?} accepted");
-        }
-    }
-
-    #[test]
-    fn a_frame_with_an_invalid_duplicate_or_compiled_id_is_refused_whole() {
+    fn each_command_is_one_fixed_invocation() {
+        assert_eq!(strings(list_args(None)), ["app", "list", "--json"]);
         assert_eq!(
-            validate_installed_ids(vec![
-                "com.example.notes".into(),
-                "so.epicenter.zhongwen".into()
-            ])
-            .unwrap(),
-            ["com.example.notes", "so.epicenter.zhongwen"]
+            strings(list_args(Some(" --upload-pack=x "))),
+            ["app", "list", "--repository=--upload-pack=x", "--json"]
         );
-        assert!(validate_installed_ids(Vec::new()).unwrap().is_empty());
-        for invalid in [
-            vec!["com.example.notes".to_string(), "com.example.notes".to_string()],
-            vec!["com.example.notes".to_string(), "notes".to_string()],
-            vec!["lpt3.example".to_string()],
-            vec![TODOS_FOLDER_SCOPE.to_string()],
-            vec![CAPTURE_FOLDER_SCOPE.to_string()],
-        ] {
-            assert!(validate_installed_ids(invalid.clone()).is_err(), "{invalid:?}");
-        }
-    }
-
-    #[test]
-    fn the_local_folder_is_created_under_the_captured_root() {
-        let directory = temp("fresh");
-        let folder_dir = directory.0.join("Epicenter Dev");
-
-        let root = prepare_local_folder(&folder_dir, "so.epicenter.zhongwen").unwrap();
-
-        assert_eq!(root, folder_dir.join("local").join("so.epicenter.zhongwen"));
-        assert!(root.is_dir());
-        // Nothing is created inside it: the Folder owner lays it out.
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
-        // Preparing again keeps what is there.
-        fs::write(root.join("note.md"), "kept").unwrap();
         assert_eq!(
-            prepare_local_folder(&folder_dir, "so.epicenter.zhongwen").unwrap(),
-            root
+            strings(install_args("https://example.com/r.git", "apps/todos")),
+            [
+                "app",
+                "install",
+                "--folder=apps/todos",
+                "--json",
+                "--",
+                "https://example.com/r.git"
+            ]
         );
-        assert_eq!(fs::read_to_string(root.join("note.md")).unwrap(), "kept");
-    }
-
-    #[test]
-    fn a_file_where_the_local_or_app_folder_belongs_is_refused() {
-        let directory = temp("file");
-        let folder_dir = directory.0.clone();
-        fs::write(folder_dir.join("local"), "not a folder").unwrap();
-        assert!(prepare_local_folder(&folder_dir, "so.epicenter.zhongwen").is_err());
         assert_eq!(
-            fs::read_to_string(folder_dir.join("local")).unwrap(),
-            "not a folder"
+            strings(install_args("--evil", " ")),
+            ["app", "install", "--json", "--", "--evil"]
         );
-
-        let directory = temp("leaf-file");
-        let folder_dir = directory.0.clone();
-        fs::create_dir(folder_dir.join("local")).unwrap();
-        let leaf = folder_dir.join("local").join("so.epicenter.zhongwen");
-        fs::write(&leaf, "not a folder").unwrap();
-        assert!(prepare_local_folder(&folder_dir, "so.epicenter.zhongwen").is_err());
-        assert_eq!(fs::read_to_string(&leaf).unwrap(), "not a folder");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_linked_local_or_app_folder_is_refused() {
-        let directory = temp("linked-local");
-        let elsewhere = directory.0.join("elsewhere");
-        fs::create_dir(&elsewhere).unwrap();
-        let folder_dir = directory.0.join("root");
-        fs::create_dir(&folder_dir).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, folder_dir.join("local")).unwrap();
-        assert!(prepare_local_folder(&folder_dir, "so.epicenter.zhongwen").is_err());
-        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
-
-        let directory = temp("linked-leaf");
-        let elsewhere = directory.0.join("elsewhere");
-        fs::create_dir(&elsewhere).unwrap();
-        let folder_dir = directory.0.join("root");
-        fs::create_dir_all(folder_dir.join("local")).unwrap();
-        std::os::unix::fs::symlink(
-            &elsewhere,
-            folder_dir.join("local").join("so.epicenter.zhongwen"),
-        )
-        .unwrap();
-        assert!(prepare_local_folder(&folder_dir, "so.epicenter.zhongwen").is_err());
-
-        // The captured root itself may be a link a person chose.
-        let directory = temp("linked-root");
-        let real = directory.0.join("real");
-        fs::create_dir(&real).unwrap();
-        let alias = directory.0.join("alias");
-        std::os::unix::fs::symlink(&real, &alias).unwrap();
-        let root = prepare_local_folder(&alias, "so.epicenter.zhongwen").unwrap();
-        assert_eq!(root, alias.join("local").join("so.epicenter.zhongwen"));
-        assert!(real.join("local").join("so.epicenter.zhongwen").is_dir());
-    }
-
-    #[test]
-    fn an_id_outside_the_rules_creates_nothing() {
-        let directory = temp("invalid");
-        let folder_dir = directory.0.join("root");
-        assert!(prepare_local_folder(&folder_dir, "../escape").is_err());
-        assert!(prepare_local_folder(&folder_dir, "con.example").is_err());
-        assert!(!folder_dir.exists());
-    }
-
-    fn account() -> AccountIdentity {
-        AccountIdentity {
-            authority_id: "epicenter-api".into(),
-            principal_id: "user-123".into(),
-        }
-    }
-
-    /// `account-key.test.ts`'s golden vector for `account()`.
-    const ACCOUNT_KEY: &str = "b7efec8b3e072ff278fe2e331ce495dee36882be0ad2981c4e0196aeecbc1fc7";
-
-    /// `git init` in `path`, as a download or a clone leaves an unborn `main`,
-    /// with this machine's Git configuration kept out.
-    fn init_repository(path: &Path) {
-        let status = std::process::Command::new("git")
-            .args(["init", "--quiet", "--initial-branch=main"])
-            .current_dir(path)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .status()
-            .unwrap();
-        assert!(status.success());
-    }
-
-    #[test]
-    fn only_a_repository_at_the_account_path_is_opened_and_anything_else_is_left_as_it_is() {
-        let id = "so.epicenter.zhongwen";
-        for (label, prepare) in [
-            ("empty directory", (|_: &Path| {}) as fn(&Path)),
-            ("files without history", |dataset: &Path| {
-                fs::write(dataset.join("mine.md"), "mine").unwrap();
-            }),
-            ("an empty .git", |dataset: &Path| {
-                fs::create_dir(dataset.join(".git")).unwrap();
-            }),
-        ] {
-            let directory = temp("account-unclaimed");
-            let folder_dir = directory.0.join("Epicenter");
-            let dataset = folder_dir.join("accounts").join(ACCOUNT_KEY).join(id);
-            fs::create_dir_all(&dataset).unwrap();
-            prepare(&dataset);
-            let before = tree(&folder_dir);
-            let error = open_account_folder(&folder_dir, &account(), id).unwrap_err();
-            let message = format!("{error:#}");
-            assert!(message.contains("is not a Git repository"), "{label}: {message}");
-            assert!(message.contains("move the folder somewhere else"), "{label}");
-            assert!(matches!(
-                installed_data(&folder_dir, Some(&account()), id).unwrap(),
-                InstalledData::Unclaimed { .. }
-            ));
-            assert_eq!(tree(&folder_dir), before, "{label}: nothing was written");
-        }
-
-        // An unborn main, as an empty download leaves it, is a repository.
-        let directory = temp("account-unborn");
-        let folder_dir = directory.0.join("Epicenter");
-        let dataset = folder_dir.join("accounts").join(ACCOUNT_KEY).join(id);
-        fs::create_dir_all(&dataset).unwrap();
-        init_repository(&dataset);
-        assert_eq!(open_account_folder(&folder_dir, &account(), id).unwrap(), dataset);
         assert_eq!(
-            installed_data(&folder_dir, Some(&account()), id).unwrap(),
-            InstalledData::Available
+            strings(update_args("com.example.board", None, false, false)),
+            ["app", "update", "--json", "--", "com.example.board"]
+        );
+        assert_eq!(
+            strings(update_args("com.example.board", Some("abc"), true, false)),
+            [
+                "app",
+                "update",
+                "--commit=abc",
+                "--approve",
+                "--json",
+                "--",
+                "com.example.board"
+            ]
+        );
+        assert_eq!(
+            strings(update_args("com.example.board", Some("abc"), false, true)),
+            [
+                "app",
+                "update",
+                "--commit=abc",
+                "--restore",
+                "--json",
+                "--",
+                "com.example.board"
+            ]
         );
     }
 
-    /// Every entry below `root`, so a refusal can be shown to write nothing.
-    fn tree(root: &Path) -> Vec<PathBuf> {
-        let mut entries = Vec::new();
-        let mut stack = vec![root.to_path_buf()];
-        while let Some(directory) = stack.pop() {
-            for entry in fs::read_dir(&directory).unwrap() {
-                let path = entry.unwrap().path();
-                if fs::symlink_metadata(&path).unwrap().is_dir() {
-                    stack.push(path.clone());
-                }
-                entries.push(path);
-            }
-        }
-        entries.sort();
-        entries
-    }
-
+    /// A window opens only on the build the CLI answered ready,
+    /// never on a commit it is still waiting to approve or failed to build.
     #[test]
-    fn an_account_folder_opens_under_its_account_key_and_leaves_local_alone() {
-        let directory = temp("account");
-        let folder_dir = directory.0.join("Epicenter");
-        let id = "so.epicenter.zhongwen";
-        let local = prepare_local_folder(&folder_dir, id).unwrap();
-        fs::write(local.join("local.md"), "local").unwrap();
-        let dataset = folder_dir.join("accounts").join(ACCOUNT_KEY).join(id);
-        fs::create_dir_all(&dataset).unwrap();
-        init_repository(&dataset);
-        fs::write(dataset.join("account.md"), "account").unwrap();
-        let before = tree(&folder_dir);
-
-        assert_eq!(prepare_folder(&folder_dir, Some(&account()), id).unwrap(), dataset);
-        assert_eq!(tree(&folder_dir), before);
-        assert_eq!(fs::read_to_string(local.join("local.md")).unwrap(), "local");
-        // Local is still what a Local owner opens.
-        assert_eq!(prepare_folder(&folder_dir, None, id).unwrap(), local);
-    }
-
-    #[test]
-    fn a_missing_account_dataset_asks_for_a_download_and_creates_nothing() {
-        let id = "so.epicenter.zhongwen";
-
-        // No folder root at all.
-        let directory = temp("account-no-root");
-        let folder_dir = directory.0.join("Epicenter");
-        let error = open_account_folder(&folder_dir, &account(), id).unwrap_err();
-        assert!(format!("{error:#}").contains("Download it explicitly before opening"));
-        assert!(!folder_dir.exists());
-
-        // A root holding only Local data, then each missing level in turn.
-        let directory = temp("account-missing");
-        let folder_dir = directory.0.clone();
-        fs::create_dir_all(folder_dir.join("local").join(id)).unwrap();
-        fs::write(folder_dir.join("local").join(id).join("note.md"), "kept").unwrap();
-        for existing in [
-            None,
-            Some(folder_dir.join("accounts")),
-            Some(folder_dir.join("accounts").join(ACCOUNT_KEY)),
-        ] {
-            if let Some(existing) = existing {
-                fs::create_dir(existing).unwrap();
-            }
-            let before = tree(&folder_dir);
-            let error = open_account_folder(&folder_dir, &account(), id).unwrap_err();
-            assert!(
-                format!("{error:#}").contains("Download it explicitly before opening"),
-                "{error:#}"
-            );
-            assert_eq!(tree(&folder_dir), before);
-        }
-        // Another account's dataset is not this account's.
-        let other = folder_dir.join("accounts").join("0".repeat(64)).join(id);
-        fs::create_dir_all(&other).unwrap();
-        assert!(open_account_folder(&folder_dir, &account(), id).is_err());
-        assert_eq!(
-            fs::read_to_string(folder_dir.join("local").join(id).join("note.md")).unwrap(),
-            "kept"
-        );
-    }
-
-    #[test]
-    fn a_file_where_an_account_level_belongs_is_refused() {
-        let id = "so.epicenter.zhongwen";
-        let accounts = |root: &Path| root.join("accounts");
-        let key = |root: &Path| root.join("accounts").join(ACCOUNT_KEY);
-        for depth in 0..3 {
-            let directory = temp("account-file");
-            let folder_dir = directory.0.clone();
-            let levels = [accounts(&folder_dir), key(&folder_dir), key(&folder_dir).join(id)];
-            for level in &levels[..depth] {
-                fs::create_dir(level).unwrap();
-            }
-            fs::write(&levels[depth], "not a folder").unwrap();
-            let error = open_account_folder(&folder_dir, &account(), id).unwrap_err();
-            assert!(format!("{error:#}").contains("is not a directory"), "{error:#}");
-            assert_eq!(fs::read_to_string(&levels[depth]).unwrap(), "not a folder");
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_linked_account_level_is_refused() {
-        let id = "so.epicenter.zhongwen";
-        for depth in 0..3 {
-            let directory = temp("account-link");
-            let elsewhere = directory.0.join("elsewhere");
-            // A complete dataset outside the managed layout, at every depth.
-            fs::create_dir_all(elsewhere.join(ACCOUNT_KEY).join(id)).unwrap();
-            let folder_dir = directory.0.join("root");
-            let levels = [
-                folder_dir.join("accounts"),
-                folder_dir.join("accounts").join(ACCOUNT_KEY),
-                folder_dir.join("accounts").join(ACCOUNT_KEY).join(id),
-            ];
-            fs::create_dir(&folder_dir).unwrap();
-            for level in &levels[..depth] {
-                fs::create_dir(level).unwrap();
-            }
-            let target = match depth {
-                0 => elsewhere.clone(),
-                1 => elsewhere.join(ACCOUNT_KEY),
-                _ => elsewhere.join(ACCOUNT_KEY).join(id),
-            };
-            std::os::unix::fs::symlink(&target, &levels[depth]).unwrap();
-            let error = open_account_folder(&folder_dir, &account(), id).unwrap_err();
-            assert!(format!("{error:#}").contains("symbolic link"), "{error:#}");
-        }
-
-        // The captured root itself may be a link a person chose.
-        let directory = temp("account-linked-root");
-        let real = directory.0.join("real");
-        let dataset = real.join("accounts").join(ACCOUNT_KEY).join(id);
-        fs::create_dir_all(&dataset).unwrap();
-        init_repository(&dataset);
-        let alias = directory.0.join("alias");
-        std::os::unix::fs::symlink(&real, &alias).unwrap();
-        assert_eq!(
-            open_account_folder(&alias, &account(), id).unwrap(),
-            alias.join("accounts").join(ACCOUNT_KEY).join(id)
-        );
-    }
-
-    #[test]
-    fn an_account_folder_refuses_an_invalid_id_or_identity() {
-        let directory = temp("account-invalid");
-        assert!(open_account_folder(&directory.0, &account(), "../escape").is_err());
-        let invalid = AccountIdentity {
-            authority_id: "epicenter-api".into(),
-            principal_id: "user\n".into(),
+    fn a_window_opens_only_on_the_commit_the_cli_answered_for() {
+        let commit = "a".repeat(40);
+        let reply = |state: &str| {
+            format!(r#"{{"app":{{"id":"com.example.board","commit":"{commit}","state":{state}}}}}"#)
         };
-        assert!(open_account_folder(&directory.0, &invalid, "so.epicenter.zhongwen").is_err());
-        assert!(tree(&directory.0).is_empty());
-    }
-
-    #[test]
-    fn a_folder_is_registered_once_for_its_window_and_only_after_success() {
-        let app = tauri::test::mock_builder()
-            .plugin(tauri_plugin_epicenter_folder::init())
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
-        let handle = app.handle();
-        let registered = Mutex::new(BTreeSet::new());
-        let directory = temp("register");
-        let id = "so.epicenter.zhongwen";
-
-        let window = "app-so_epicenter_zhongwen";
-        ensure_folder(handle, &registered, &directory.0, None, no_generation(), id, window)
-            .unwrap();
-        // The plugin refuses a second registration of one scope, so a second
-        // launch, including one after a Bun restart, must not ask again.
-        ensure_folder(handle, &registered, &directory.0, None, no_generation(), id, window)
-            .unwrap();
-        assert_eq!(registered.lock().unwrap().iter().collect::<Vec<_>>(), [id]);
-
-        // A refused preparation registers nothing and records nothing.
-        let blocked = temp("register-blocked");
-        fs::write(blocked.0.join("local"), "not a folder").unwrap();
-        assert!(ensure_folder(
-            handle,
-            &registered,
-            &blocked.0,
+        assert_eq!(
+            answer(Some(&reply(r#"{"kind":"ready"}"#))),
+            Some(Answer::Ready(commit.clone()))
+        );
+        assert_eq!(
+            answer(Some(&reply(r#"{"kind":"damaged"}"#))),
+            Some(Answer::Damaged(commit.clone()))
+        );
+        for state in [
+            r#"{"kind":"unbuilt"}"#,
+            r#"{"kind":"needsApproval"}"#,
+            r#"{"kind":"broken","problem":"x"}"#,
+        ] {
+            assert_eq!(answer(Some(&reply(state))), None, "{state}");
+        }
+        for other in [
             None,
-            no_generation(),
-            "com.example.notes",
-            "app-com_example_notes"
-        )
-        .is_err());
-        assert!(!registered.lock().unwrap().contains("com.example.notes"));
-
-        // So does an account dataset that was never downloaded.
-        assert!(ensure_folder(
-            handle,
-            &registered,
-            &directory.0,
-            Some(&account()),
-            no_generation(),
-            "com.example.notes",
-            "app-com_example_notes"
-        )
-        .is_err());
-        assert!(!registered.lock().unwrap().contains("com.example.notes"));
-        assert!(!directory.0.join("accounts").exists());
-
-        // A refused registration is not recorded, so the next launch retries.
-        handle
-            .folders()
-            .register(ScopeConfig {
-                scope: "com.example.taken".into(),
-                folder: FolderConfig::new(
-                    directory.0.join("elsewhere"),
-                    Author {
-                        name: "Other".into(),
-                        email: "other@localhost".into(),
-                    },
-                ),
-                windows: vec!["other".into()],
-            })
-            .unwrap();
-        assert!(ensure_folder(
-            handle,
-            &registered,
-            &directory.0,
-            None,
-            no_generation(),
-            "com.example.taken",
-            "app-com_example_taken"
-        )
-        .is_err());
-        assert!(!registered.lock().unwrap().contains("com.example.taken"));
+            Some(""),
+            Some(r#"{"error":"Board did not build"}"#),
+            Some(r#"{"progress":"x"}"#),
+        ] {
+            assert_eq!(answer(other), None, "{other:?}");
+        }
     }
 
-    /// No Bun generation: a transport built with this starts nothing.
-    fn no_generation() -> CurrentGeneration {
-        Arc::new(|| None)
+    /// Opens of an intact build ask once and take no reservation, so two of
+    /// them never refuse each other; only a damaged build is reserved, and
+    /// restored only under that reservation.
+    #[test]
+    fn only_a_damaged_build_is_reserved_and_restored() {
+        let commit = "a".repeat(40);
+        let reply = |kind: &str| CliExit {
+            code: 0,
+            reply: Some(format!(
+                r#"{{"app":{{"commit":"{commit}","state":{{"kind":"{kind}"}}}}}}"#
+            )),
+            stderr: String::new(),
+        };
+        let open = |states: &[&'static str], reservable: bool| {
+            let asked = std::cell::RefCell::new(Vec::new());
+            let reserved = std::cell::Cell::new(false);
+            let mut states = states.iter();
+            let result = tauri::async_runtime::block_on(checked_open(
+                &commit,
+                "Board",
+                |restore| {
+                    asked.borrow_mut().push(restore);
+                    std::future::ready(Ok(reply(states.next().unwrap())))
+                },
+                || {
+                    reserved.set(true);
+                    reservable.then_some("reservation")
+                },
+            ));
+            (result, asked.into_inner(), reserved.get())
+        };
+
+        for _ in 0..2 {
+            assert_eq!(open(&["ready"], false), (Ok(None), vec![false], false));
+        }
+        assert_eq!(
+            open(&["damaged", "ready"], true),
+            (Ok(Some("reservation")), vec![false, true], true)
+        );
+        let (refused, asked, _) = open(&["damaged"], false);
+        assert!(refused.unwrap_err().contains("Close its windows"));
+        assert_eq!(asked, [false], "no restore without the reservation");
     }
 
     #[test]
-    fn a_download_parent_is_the_canonical_account_directory_and_nothing_else() {
-        let directory = temp("download-parent");
-        let real = directory.0.join("Real Epicenter");
-        fs::create_dir(&real).unwrap();
-        // The captured root may be a link a person chose.
-        let folder_dir = directory.0.join("Epicenter");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&real, &folder_dir).unwrap();
-        #[cfg(not(unix))]
-        let folder_dir = real.clone();
-
-        let parent = prepare_account_parent(&folder_dir, &account()).unwrap();
-        assert_eq!(
-            parent,
-            fs::canonicalize(&real).unwrap().join("accounts").join(ACCOUNT_KEY)
-        );
-        // Only the account directory: no dataset, and Local untouched.
-        assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
-        assert!(!real.join("local").exists());
-        assert_eq!(prepare_account_parent(&folder_dir, &account()).unwrap(), parent);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_download_parent_refuses_a_linked_account_level() {
-        let directory = temp("download-parent-link");
-        let outside = directory.0.join("outside");
-        fs::create_dir(&outside).unwrap();
-        let folder_dir = directory.0.join("Epicenter");
-        fs::create_dir(&folder_dir).unwrap();
-        std::os::unix::fs::symlink(&outside, folder_dir.join("accounts")).unwrap();
-        assert!(prepare_account_parent(&folder_dir, &account()).is_err());
-        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+    fn opening_takes_only_an_app_id_and_a_commit() {
+        for id in ["so.epicenter.todos", "com.example.board"] {
+            assert!(is_app_id(id), "{id}");
+        }
+        for id in ["", "..", "../x", "a/b", ".hidden", "-x", "A.b", "a..b"] {
+            assert!(!is_app_id(id), "{id}");
+        }
+        assert!(is_commit(&"0".repeat(40)));
+        assert!(is_commit(&"0123456789abcdef".repeat(4)));
+        assert!(!is_commit("HEAD"));
+        assert!(!is_commit(&"A".repeat(40)), "Git prints lowercase hex");
     }
 
     #[test]
-    fn installed_data_reads_what_is_there_and_creates_nothing() {
-        let directory = temp("installed-data");
-        let folder_dir = directory.0.join("Epicenter");
-        let id = "com.bradenwong.zhongwen";
-        assert_eq!(installed_data(&folder_dir, None, id).unwrap(), InstalledData::Local);
+    fn a_failure_reads_the_clis_error_line_first() {
+        let exit = |reply: Option<&str>, code: i32, stderr: &str| CliExit {
+            code,
+            reply: reply.map(str::to_string),
+            stderr: stderr.into(),
+        };
         assert_eq!(
-            installed_data(&folder_dir, Some(&account()), id).unwrap(),
-            InstalledData::NotDownloaded
+            exit(
+                Some(r#"{"error":"Board did not build"}"#),
+                2,
+                "for people\n"
+            )
+            .failure("app update"),
+            "Board did not build"
         );
-        assert!(!folder_dir.exists());
-        let dataset = folder_dir.join("accounts").join(ACCOUNT_KEY).join(id);
-        fs::create_dir_all(&dataset).unwrap();
-        // A directory alone is not data that is available here.
-        assert!(matches!(
-            installed_data(&folder_dir, Some(&account()), id).unwrap(),
-            InstalledData::Unclaimed { .. }
-        ));
-        init_repository(&dataset);
         assert_eq!(
-            installed_data(&folder_dir, Some(&account()), id).unwrap(),
-            InstalledData::Available
+            exit(Some(r#"{"progress":"x"}"#), 2, "for people\n").failure("app update"),
+            "for people"
         );
-        assert!(installed_data(&folder_dir, Some(&account()), "../escape").is_err());
-        assert!(installed_data(&folder_dir, None, "../escape").is_err());
+        assert_eq!(
+            exit(None, 3, "").failure("app update"),
+            "epicenter app update exited with 3"
+        );
     }
 }

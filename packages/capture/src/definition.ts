@@ -13,7 +13,6 @@ import { defineFolder } from '@epicenter/folder';
  */
 export const captureDefinition = defineFolder({
 	title: 'Capture',
-	kv: {},
 	tables: {
 		captures: defineTable({ fields: { capturedAt: field.datetime() } }),
 	},

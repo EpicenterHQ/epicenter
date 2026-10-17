@@ -56,10 +56,12 @@ starting: a prior session may already have completed it.
 
 ## Complete the account-folder journey from sign-in to explicit cloud transfer
 
-- Revised direction (2026-10-11): ADR-0521 replaces folder-ID pairings with each
-  checkout's Git origin and a provider interface in the hosted API, and the CLI
-  keeps no Epicenter account system; developers use Git and `gh`. Bullets below
-  that assume a server pairing table or CLI sign-in predate that decision.
+- Proposed direction (2026-10-11): ADR-0521 explores replacing folder-ID
+  pairings with each checkout's Git origin and a provider interface. That
+  provider and its repository-based discovery are unbuilt. Todos currently
+  uses the connector's account pairing so a second browser can find the
+  repository before it has a checkout. The CLI keeps no Epicenter account
+  system; developers use Git and `gh`.
 - Current direction (2026-10-05): One GitHub connection supports several
   account-folder pairings, each with its own private repository and history.
   GitHub owns remote storage; Epicenter owns connection authorization, pairing,
@@ -79,7 +81,7 @@ starting: a prior session may already have completed it.
   without landing on 2026-10-11 (ADR-0520, ADR-0521). Whispering still opens
   its Local default; its browser opener names no account. Cloud serves the
   existing store-sync authority, with no folder repository lifecycle/listing or
-  Git endpoint. ADR-0461, ADR-0488, and ADR-0489 describe the remaining design;
+  Git endpoint. ADR-0488 and ADR-0489 describe the remaining design;
   they do not establish its implementation. No live cloud journey was
   exercised.
 - Smallest discovery continuation: With a designated development GitHub App
@@ -159,7 +161,8 @@ starting: a prior session may already have completed it.
   the restriction.
 - Manual inspection: Start from the repository root with
   `bun dev:whispering:ui` and open the printed URL yourself. For native
-  inspection, run `WHISPERING_DATA_ROOT=/tmp/whispering-ui-acceptance-20261002 bun dev:whispering`. Use disposable recording history and
+  inspection, install Whispering in `bun dev:epicenter` (`EPICENTER_FOLDER_DIR`
+  names a disposable folder root). Use disposable recording history and
   a test endpoint for bulk transcription.
 
   1. On Recordings, search words from an older transcript and check the
@@ -234,7 +237,8 @@ starting: a prior session may already have completed it.
 - Desired result: Physical recording interrupted by account-change restart
   releases the microphone and staging resources; a reopened app can record
   again while previously saved audio survives.
-- Grounding: The [runtime lifetime plan](specs/20260919T090341-runtime-lifetime-collapse.md)
+<!-- doc-path-check: ignore-next-line -->
+- Grounding: The runtime lifetime plan (`specs/20260919T090341-runtime-lifetime-collapse.md`, deleted; recover via `git log --all --full-history`)
   retains this gate. Previous attempts failed before acquisition because macOS
   exposed no input device. Synthetic capture and restart evidence are recorded
   there but do not prove physical capture interruption.
@@ -542,10 +546,9 @@ starting: a prior session may already have completed it.
     cell, so one entry point served both deployment kinds.
   The blob half is also superseded in shape. [ADR-0173](docs/adr/0173-each-row-owns-at-most-one-write-once-immutable-blob.md)
   withdrew its row-owned write-once slot. [ADR-0393](docs/adr/0393-rows-refer-to-blobs-without-owning-their-lifetime.md)
-  lets rows cite independently owned blobs, and
-  [ADR-0438](docs/adr/0438-hosted-blobs-have-stable-authority-urls.md) gives
-  hosted blobs stable authority URLs. A future command should derive its file
-  and URL contract from that current model.
+  lets rows cite independently owned blobs, and Epicenter now hosts no blobs
+  at all ([ADR-0577](docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
+  A future command should derive its file contract from that current model.
   Authentication is now owned entirely by the apps, and there is no headless
   login workflow. Any future headless tool should be designed around a concrete
   workflow and re-derive its credential story from that, treating the above as
@@ -564,10 +567,10 @@ starting: a prior session may already have completed it.
   projection. It never had a UI and never ran as an application, and was deleted
   in
   [commit b32125ed](https://github.com/EpicenterHQ/epicenter/commit/b32125ed0a).
-  The lens classification idea is the durable part and already informs Matter's
-  handling of absent versus null frontmatter. The settled rejection is worth
+  The lens classification idea is the durable part; the deleted Matter app
+  used it for absent versus null frontmatter. The settled rejection is worth
   keeping too: a tag is not a page.
-- Revisit when: Matter or another surface needs user-defined types over
+- Revisit when: the Folders window or another surface needs user-defined types over
   markdown, rather than one fixed frontmatter schema.
 
 ## Re-earn a file-and-folder view over Epicenter data
@@ -625,6 +628,7 @@ starting: a prior session may already have completed it.
   separated songs, recordings, and platform entries. It suggested external
   matching services as candidates, but did not establish their coverage or
   commit Epicenter to building this app. The draft
+  <!-- doc-path-check: ignore-next-line -->
   `specs/20260511T111700-item-tagging-schema.md` concerns tags on music and other
   items; it does not settle cross-service recording identity.
 - Revisit when: Building a music collection or importing likes from more than

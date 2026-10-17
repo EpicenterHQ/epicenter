@@ -1,15 +1,15 @@
 # @epicenter/definition
 
-The declaration vocabulary every Epicenter storage reads: the field helpers,
-table and KV declarations, the durable name grammars, the preparation that
-checks a declaration and owns its schemas, and the one read over a prepared
+The definition vocabulary every Epicenter storage reads: the field helpers,
+table definitions, the table name grammar, the preparation that checks a
+definition and owns its field schemas, and the one read over a prepared
 definition.
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its only
 dependencies are `typebox` and `wellcrafted`.
 
 ```ts
-import { check, defineTable, field, prepareData } from '@epicenter/definition';
+import { check, defineTable, field, prepareDefinition } from '@epicenter/definition';
 import { Type } from 'typebox';
 
 const todos = defineTable({
@@ -21,55 +21,52 @@ const todos = defineTable({
   },
 });
 
-const { data: definition } = prepareData({
-  id: 'so.epicenter.todos',
-  kv: { theme: field.select(['light', 'dark']) },
-  tables: { todos },
+const settings = defineTable({
+  fields: { theme: field.optional(field.select(['light', 'dark'])) },
 });
 
-check(definition.tables.todos.fields, stored, 'read');  // { conforming, issues }
-check(definition.kv, { theme: 'dark' }, 'patch');        // no issues
+const { data: definition } = prepareDefinition({ tables: { todos, settings } });
+
+check(definition.tables.todos.fields, stored, 'read');                // { conforming, issues }
+check(definition.tables.settings.fields, { theme: 'dark' }, 'input'); // no issues
 ```
 
-## One shape, declared and prepared
+## One type, written and prepared
 
-A definition is `{ id, title?, kv, tables }`: a `DataSchema`, which is
-`{ title?, kv, tables }`, and the ID of the data it describes. `kv` is a record
-of native schemas by field name, and each table is `{ fields, body? }`, where
-`fields` is the same kind of record. `prepareData` returns that same shape with
-the same literal type, so `RowOf`, `KvOf`, and every field's `Static<>` read a
-prepared definition exactly as they read the declaration. There is no second,
+A definition is a `Definition`: `{ title?, local?, tables }`. It names no dataset;
+the storage that opens it does. Each table is `{ fields }`, where `fields` is
+a record of native schemas by field name, plus `additionalProperties: false`
+when the table is closed. Settings, when an app keeps them, are a table too,
+`settings` (`SETTINGS_TABLE`). `prepareDefinition` returns that same structure with the
+same literal type, so `CreateRowOf` and every field's `Static<>` read a
+prepared definition exactly as they read the one written. A top-level key the
+type does not name, such as an `id` or a `kv`, is malformed. There is no second,
 compiled representation: no field wrapper, no table object with methods, no
 `Map`, and no name stored anywhere but the record key.
 
 What preparation adds is ownership and a validator:
 
-- It checks the id, the title, the table and field names, each body
-  conversion, that every schema is plain JSON (see
+- It checks the title, the table and field names, that every schema is plain JSON (see
   [A field is plain JSON](#a-field-is-plain-json)), and that TypeBox can
   compile it.
 - Each field becomes the declared schema's JSON, deeply frozen, `x-field` hint
-  included. `kv`, `tables`, and each `fields` are frozen records with no
+  included. `tables` and each `fields` are frozen records with no
   prototype, so a table or field named `constructor` or `toString` is an
-  ordinary entry and a name the definition lacks reads as `undefined`.
-- Every KV field becomes optional: an unset setting means the application's
-  default.
+  ordinary entry and a name the schema lacks reads as `undefined`.
+- A table named `settings` (`SETTINGS_TABLE`) holds settings, one row per
+  concern, and declares only `field.optional` fields: a setting may always be
+  unset. A required field there is refused with its name; `defineFolder`
+  refuses it in the types too.
 - TypeBox's compiled validator for each field is held privately beside it.
   `check` looks it up by the field's identity.
 
-`prepareData` is memoized on the declaration object and on the definition it
-returns, so preparing a prepared definition returns it. `defineStore` and
-`defineFolder` return the prepared definition, and the stores and folders
-opened from it read through that snapshot.
-
-A storage that selects its dataset when it opens, as a file folder does,
-declares the schema alone. `prepareSchema` prepares it exactly as above, minus
-the ID: it requires none and refuses one. The two preparations keep separate
-memos, so neither returns the other's result, and a store definition is never
-accepted as a schema.
+`prepareDefinition` is memoized on the definition object and on the one it
+returns, so preparing a prepared definition returns it. A definition with an
+`id` is malformed. `defineFolder` returns the prepared definition, and the
+folders opened from it read through that snapshot.
 
 The one read is `check(fields, values, mode)`; see
-[Checking values](#checking-values). A schema that was never prepared has no
+[Checking values](#checking-values). A field that was never prepared has no
 validator. Handing one to `check` throws: it is a programmer error, not a
 value that failed. Nothing is compiled lazily, and the answer is never a
 silent `false`.
@@ -78,26 +75,22 @@ silent `false`.
 
 | Package | What it adds |
 | --- | --- |
-| `@epicenter/app` | `defineStore`, and a table body bound to a Yjs node (`BodyCodec`, `plainText()`). It re-exports this vocabulary from its root, `/field`, and `/definition`. |
-| `@epicenter/folder` | `defineFolder`, which prepares a `DataSchema` and refuses a body conversion, because a folder's row body is the file's Markdown text. The opener names the folder. |
+| `@epicenter/folder` | `defineFolder`, which prepares a `Definition`. A folder's row body is the file's Markdown text. The opener names the folder. |
 
-Both get the same `defineTable` brand, the same `RowOf`, `CreateRowOf`, and
-`KvOf` lenses, and the same `check` over the same prepared fields. Neither
-copies a validator.
+It gets the `defineTable` brand, the `CreateRowOf` lens, and `check` over the prepared fields. It does not copy a validator.
 
 ## Why this name
 
-The package holds what App already exported as `@epicenter/app/definition` and
-`@epicenter/app/field`: the things a `DataDefinition` is made of and the
-function that prepares one. Its import closure is those modules and nothing
-else:
+The package holds the things a `Definition` is made of and the function that
+prepares one. Its import closure is those modules and nothing else:
 
 ```text
 src/field/        the field.* helpers, the editor hint, and fieldEditorOf (./field)
-src/declaration   FieldMap, TableDeclaration, DataSchema, DataDefinition, row lenses
+src/declaration   FieldMap, TableDeclaration, Definition, row lenses
 src/define        defineTable and the declared-table brand
-src/prepare       prepareData, prepareSchema, check, isOptional
-src/addresses     data ID, table name, and row ID grammars
+src/prepare       prepareDefinition, check, isOptional
+src/shape         mismatches, containment, requiredOutside
+src/table-name    the table name grammar
 src/json          JsonValue and its guards
 ```
 
@@ -108,8 +101,8 @@ what it is more exactly than `schema`, `data`, or `core` would.
 
 A field is any native TypeBox schema that is plain JSON. `Static<>` reads it,
 and TypeBox's `Compile` decides whether a value conforms. A bare
-`Type.Object(...)`, `Type.Enum(...)`, or `Type.Any()` is a field, in
-`defineTable` and in `kv`, with the exact `Static<>` TypeBox gives it. A
+`Type.Object(...)`, `Type.Enum(...)`, or `Type.Any()` is a field in
+`defineTable`, with the exact `Static<>` TypeBox gives it. A
 `Type.Refine(...)` or codec is refused: its callback cannot be written to a
 file. Declared as a field, its type is refused where it is written; nested
 inside another schema, preparation refuses it.
@@ -154,7 +147,7 @@ recovered from a default. An application that wants one applies it itself.
 checked against `inner`. Absent and `null` stay distinct:
 `field.optional(field.nullable(inner))` allows both. Optionality is
 outermost, so `field.nullable` and `field.json` refuse an optional inner. Every
-KV field is optional already, so `KvOf` is `Partial`.
+field of the `settings` table is one.
 
 `field.json` and `field.nullable` take any required native schema. `field.json(inner)`
 adds no validation: it is `inner` with the JSON editor chosen, which matters
@@ -171,11 +164,11 @@ identically.
 `fieldEditorOf(schema)` reads the editor a schema asks for:
 
 ```ts
-const { status } = definition.kv;
+const { status } = definition.tables.posts.fields;
 
 fieldEditorOf(status);
 // { kind: 'select', options: ['draft', 'published'] }
-check({ status }, { status: null }, 'patch').issues;
+check({ status }, { status: null }, 'input').issues;
 // []: this field is field.nullable(field.select([...]))
 ```
 
@@ -259,9 +252,6 @@ TypeBox's hidden `~` keywords are dropped, except that an optional field keeps
 keyword such as `maxLenght` is inert, as JSON Schema treats any unknown
 keyword.
 
-A body conversion is not a field. It stays in code, carried by reference on the
-prepared table, and a storage that cannot keep one refuses it.
-
 ### Every field holds JSON
 
 A schema can be structural about what it admits: `Type.Any()` admits a
@@ -274,12 +264,10 @@ schema's validator is not called. That order matters for a recursive schema
 JSON.
 
 Being JSON has no size: `isJsonSafe` sets no depth or width limit, and a value
-reachable by two paths is fine. The 16-level, 1024-key budget is `isJsonValue`
-and `isJsonObject`, which the storages that want it apply themselves. A value
-that is JSON and fails its schema gets TypeBox's own errors, at their own
-paths. If a recursive validator throws, that field reports `schema validation
-threw`, and valid sibling fields stay readable. No check changes the value it
-is given.
+reachable by two paths is fine. A value that is JSON and fails its schema gets
+TypeBox's own errors, at their own paths. If a recursive validator throws, that
+field reports `schema validation threw`, and valid sibling fields stay
+readable. No check changes the value it is given.
 
 ### Who owns a declared schema
 
@@ -288,10 +276,10 @@ a wrapped schema after the call changes nothing, and nothing the caller passed
 in is frozen. An author who edits a schema before preparation owns that edit,
 and the editor follows the schema.
 
-`prepareData` takes ownership. Every field of every preparation gets its own
-frozen copy and validator, so one declared schema used in two definitions, or
-under two names, is prepared twice: edit it between two `defineStore` calls
-and the first store keeps the checks it was defined with while the second
+`prepareDefinition` takes ownership. Every field of every preparation gets its own
+frozen copy and validator, so one declared schema used in two declarations, or
+under two names, is prepared twice: edit it between two `defineFolder` calls
+and the first folder keeps the checks it was defined with while the second
 reads the edit. The author's own schema object is not a prepared field, and
 `check` refuses it.
 
@@ -313,8 +301,7 @@ at a time, so a field that fails never takes a valid one with it:
 const { fields } = definition.tables.todos;
 
 check(fields, stored, 'read');      // a stored row
-check(fields, supplied, 'input');   // a whole row to write
-check(definition.kv, { theme }, 'patch'); // some fields to write
+check(fields, supplied, 'input');   // a row to write
 // { conforming, issues }
 ```
 
@@ -322,7 +309,6 @@ check(definition.kv, { theme }, 'patch'); // some fields to write
 | --- | --- | --- |
 | `read` | ignored | issue |
 | `input` | issue | issue |
-| `patch` | issue | no issue |
 
 An absent optional field is never an issue, and a top-level key holding
 `undefined` is absent. `conforming` holds each present field whose value is
@@ -334,8 +320,8 @@ field late in a row would read as valid, and a missing key inside a nested
 object would be blamed on a top-level field of the same name.
 
 Which mode a storage runs is that storage's rule. App checks names and that a
-value is JSON when it writes, and reads through `read`. Folder reads a row file
-with `read`, and checks a setting with `patch` before it writes `kv.json`.
+value is JSON when it writes, and reads through `read`. Folder checks a row it
+reads or writes with `read`, or with `input` for a closed table.
 
 An issue is `{ field, path?, message }`. TypeBox's compiled `Check` is the
 authority: a value it refuses is an issue even when its error report is empty.
@@ -346,28 +332,57 @@ so a path through a key containing `/` or `~` is reported against the whole
 field. Messages and the number of issues are for people, not for code to match
 on.
 
-## The body conversion
+## Whether one definition contains another
 
-A table may declare how its separately edited body becomes file text. What a
-body is belongs to the storage that keeps one, so this package types the
-conversion as opaque (`TableBody`) and takes the storage's own type as a
-parameter:
+An app that opens a folder it did not define reads it through its own
+definition: the tables and fields it knows (ADR-0538). `mismatches(declared,
+shape)` lists every way the folder's definition (`declared`) does not contain
+the reader's (`shape`), empty when it does:
 
 ```ts
-import type { DataDefinition, DefineTable } from '@epicenter/definition';
-
-type MyDefinition = DataDefinition<MyBodyCodec>;
-const defineMyTable: DefineTable<MyBodyCodec> = defineTable;
+mismatches(folder.definition, board);
+// [{ kind: 'missingField', table: 'todos', field: 'due', message }, ...]
 ```
 
-`prepareData` checks that a declared conversion has both verbs and carries it
-through unread, by reference, on the prepared table. It returns the type it
-was given, so a storage's own body type survives preparation with no adapter.
-A storage that keeps no live body refuses a definition that declares one.
+| Mismatch | When |
+| --- | --- |
+| `missingTable` | the reader reads a table the folder's definition lacks |
+| `missingField` | the reader reads a field the folder's definition lacks |
+| `incompatibleField` | the folder admits a value there the reader refuses, or lets a row leave out a field the reader requires |
+| `incompatibleTable` | the reader closes a table (`additionalProperties: false`) the folder leaves open or defines more fields in |
+
+`containment(shape, declared)` answers for one field: `undefined` when
+every value the folder's field admits is one the reader's field accepts, or
+why not. Containment of JSON Schemas is not decidable in general, so it asks a
+fixed set of questions and refuses what they cannot decide, naming the
+keyword. Its reasons call the reader's field "the shape":
+
+- A reader field that constrains nothing accepts everything. Two schemas whose
+  keywords match, annotations and `x-field` aside, contain each other.
+- A folder `enum` or `const` is contained when the reader field's validator
+  accepts each listed value, so a reader select contains a select of some of
+  its options, and a reader `string` contains any select.
+- A folder `anyOf` or `oneOf` is contained when each member is, so a reader
+  `field.nullable(x)` contains both `x` and `x | null`. A reader `anyOf`
+  contains what one member contains.
+- Otherwise both name one `type`, the same, or `integer` under a reader
+  `number`. The reader's string length, `pattern`, and `format`, numeric
+  bounds and `multipleOf`, array `items`, bounds, and `uniqueItems`, and
+  object `properties`, `required`, and `additionalProperties` must each be
+  implied by the folder's own. `field.datetime()` contains
+  `field.instant()`, not the reverse.
+
+A keyword the folder adds beyond these only narrows it, so it is ignored. A
+reader keyword outside them, or a reader `oneOf`, `not`, conditional, or
+`$ref`, is refused.
+
+`requiredOutside(declaredTable, shapeTable)` lists the fields the folder's
+table requires that the reader's table does not define: a row added through
+the reader's table could not supply them.
 
 ## Commands
 
 ```sh
-bun test          # field helpers, name grammars, preparation and check
+bun test          # field helpers, table name grammar, preparation and check
 bun run typecheck
 ```

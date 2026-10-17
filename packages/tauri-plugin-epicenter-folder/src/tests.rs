@@ -1,40 +1,52 @@
 //! The plugin through Tauri's real invoke path, on the mock runtime.
 //!
 //! Each test builds an app with the plugin installed, creates windows, and
-//! sends `plugin:epicenter-folder|...` requests exactly as a page's `invoke` would. The
-//! folder is a real directory with a real repository.
+//! sends `plugin:epicenter-folder|...` requests exactly as a page's `invoke`
+//! would. The folder is a real directory; a test makes its repository with
+//! the real `git`, which the plugin itself never runs (ADR-0559).
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
-//! - A window attaches only to scopes registered for its label.
-//! - A session belongs to the window that attached it; another window that
-//!   names it is denied, and a page never supplies a root.
-//! - Two windows share one owner: saves, conflicts, events, and history.
-//! - Detaching one window leaves the other and the commit already admitted.
-//! - Saves are not ordered by the page: one held before the folder lands
-//!   after a later one and stays, and a second delivery lands again. One the
-//!   plugin took before its session ended still lands. A second scope cannot
-//!   open the same root.
-//! - A page built for another protocol is refused at attach.
-//! - A push request withdrawn before the owner starts its transport never
-//!   reaches the remote; one already started finishes, and ending a session
-//!   withdraws only what had not started.
-//! - `merge_incoming`'s unrelated-history consent and conflict versions are
-//!   optional arguments: absent or `null` is `false`, and sent they reach the
-//!   owner, with each side's bytes on the wire.
+//! - A scope is granted only to the windows registered or permitted for it,
+//!   each the same root, and a page never supplies a root.
+//! - Two windows of one scope racing to save one file over the same version
+//!   publish one at a time: exactly one lands, and the other is `stale`.
+//! - Storage reaches the data paths of the granted root and nothing else:
+//!   never `.git`, never another window's root, never through a link.
+//! - A grant adds nothing to the app's access control, so an app that
+//!   already scopes another permission grants and reads as any other does.
+//! - Changes land only after a grant, only under the root, and never in
+//!   Git's private state. A grant sweeps staged files a stopped save left.
+//! - A put takes its bytes as a raw body and its arguments as
+//!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
+//!   fallback, is accepted too. A file read returns its bytes raw. A
+//!   refusal is a `StorageError` naming the page's `FileError`.
+//! - `granted_root` names a granted scope's root to its windows alone, for
+//!   the `epicenter` CLI the shell runs.
+//! - From its first grant a folder is watched: every window permitted into
+//!   its scope hears what changed outside it, as folder-relative paths, a
+//!   ref moving as `.git`, and everything when watching begins; Git's own
+//!   noise and other windows hear nothing.
+//! - `window_folder` answers each window the app and folder the shell handed
+//!   it, and `None` to a window it handed nothing; a page cannot set it.
+//! - After shutdown, a late change is refused.
+//! - A window without the plugin's permission cannot call it.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::http::{HeaderMap, HeaderValue};
+use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody, RuntimeAuthority};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
+use tauri::utils::acl::manifest::Manifest;
+use tauri::utils::acl::resolved::Resolved;
+use tauri::utils::acl::capability::Capability;
 use tauri::utils::acl::ExecutionContext;
+use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
-use tauri::{App, Listener, Manager, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
-use crate::{init, Author, FolderConfig, FolderExt, Remote, ScopeConfig, COMMANDS, PROTOCOL};
+use crate::{init, FolderConfig, FolderExt, ScopeConfig, WindowFolder, COMMANDS};
 
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -66,7 +78,13 @@ fn the_committed_typescript_bindings_match_the_registered_commands() {
         committed == fresh,
         "packages/folder/src/native/bindings.gen.ts is stale; run `FOLDER_WRITE_BINDINGS=1 cargo test --offline bindings` in packages/tauri-plugin-epicenter-folder"
     );
-    for command in COMMANDS {
+    // `put_folder_file` takes a raw body and `read_folder_file` returns
+    // one, which specta cannot type; the page invokes them by name.
+    const RAW: [&str; 2] = ["put_folder_file", "read_folder_file"];
+    for command in RAW {
+        assert!(!fresh.contains(command), "{command}");
+    }
+    for command in COMMANDS.iter().filter(|command| !RAW.contains(command)) {
         assert!(
             fresh.contains(&format!("'plugin:epicenter-folder|{command}'"))
                 || fresh.contains(&format!("\"plugin:epicenter-folder|{command}\"")),
@@ -103,22 +121,31 @@ fn temp(label: &str) -> TempDirectory {
     TempDirectory(std::fs::canonicalize(path).unwrap())
 }
 
-/// An app whose windows may call every plugin command, with the scope
-/// `notes` registered for `windows`.
-fn fixture(label: &str, windows: &[&str]) -> Fixture {
-    fixture_in(temp(label), windows, None)
+/// The mock context, allowing every command of this plugin.
+fn context() -> tauri::Context<MockRuntime> {
+    let mut context = mock_context(noop_assets());
+    allow_plugin(&mut context);
+    context
 }
 
-fn fixture_in(directory: TempDirectory, windows: &[&str], remote: Option<Remote>) -> Fixture {
-    let root = directory.0.join("notes");
-    std::fs::create_dir(&root).unwrap();
-    let mut context = mock_context(noop_assets());
+fn allow_plugin(context: &mut tauri::Context<MockRuntime>) {
     for command in COMMANDS {
         context.runtime_authority_mut().__allow_command(
             format!("plugin:epicenter-folder|{command}"),
             ExecutionContext::Local,
         );
     }
+}
+
+/// An app whose windows may call every plugin command, with the scope
+/// `notes` registered for the window `main`.
+fn fixture(label: &str) -> Fixture {
+    fixture_in(label, context())
+}
+
+fn fixture_in(label: &str, context: tauri::Context<MockRuntime>) -> Fixture {
+    let directory = temp(label);
+    let root = directory.0.join("notes");
     let app = mock_builder()
         .plugin(init())
         .build(context)
@@ -126,19 +153,8 @@ fn fixture_in(directory: TempDirectory, windows: &[&str], remote: Option<Remote>
     app.folders()
         .register(ScopeConfig {
             scope: "notes".to_string(),
-            folder: FolderConfig {
-                remote,
-                watch_events: false,
-                watch_interval: None,
-                ..FolderConfig::new(
-                    &root,
-                    Author {
-                        name: "Test Author".to_string(),
-                        email: "test@example.com".to_string(),
-                    },
-                )
-            },
-            windows: windows.iter().map(|window| window.to_string()).collect(),
+            folder: FolderConfig::new(&root),
+            windows: vec!["main".to_string()],
         })
         .unwrap();
     Fixture {
@@ -156,6 +172,25 @@ fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
 
 /// One request through the IPC handler: the resolved value, or the rejection.
 fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Result<Value, Value> {
+    request(window, command, InvokeBody::Json(args), Default::default())
+}
+
+fn request(
+    window: &WebviewWindow<MockRuntime>,
+    command: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Result<Value, Value> {
+    response(window, command, body, headers)
+        .map(|body| body.deserialize::<Value>().expect("a JSON response"))
+}
+
+fn response(
+    window: &WebviewWindow<MockRuntime>,
+    command: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Result<InvokeResponseBody, Value> {
     tauri::test::get_ipc_response(
         window,
         InvokeRequest {
@@ -163,1840 +198,801 @@ fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Re
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: "tauri://localhost".parse().unwrap(),
-            body: InvokeBody::Json(args),
-            headers: Default::default(),
+            body,
+            headers,
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
-    .map(|body| body.deserialize::<Value>().expect("a JSON response"))
 }
 
-fn attach(window: &WebviewWindow<MockRuntime>) -> u64 {
-    let attached = invoke(
-        window,
-        "attach",
-        json!({ "scope": "notes", "protocol": PROTOCOL }),
-    )
-    .expect("attach");
-    attached["session"].as_u64().expect("a session resource ID")
-}
-
-fn create(path: &str, content: &str) -> Value {
-    json!({ "kind": "create", "path": path, "bytes": content.as_bytes() })
-}
-
-fn overwrite(path: &str, content: &str) -> Value {
-    json!({ "kind": "overwrite", "path": path, "bytes": content.as_bytes() })
-}
-
-/// A replacement conditional on the hash a read returned.
-fn replace(path: &str, content: &str, expected_sha256: &Value) -> Value {
-    json!({
-        "kind": "replace",
-        "path": path,
-        "bytes": content.as_bytes(),
-        "expectedSha256": expected_sha256,
-    })
-}
-
-fn apply(
+/// `read_folder_file` as `tauri-files.ts` asks for it: the bytes, which
+/// arrive raw, or the refusal.
+fn read_file(
     window: &WebviewWindow<MockRuntime>,
-    session: u64,
-    changes: Value,
-) -> Result<Value, Value> {
+    scope: &str,
+    path: &str,
+) -> Result<Vec<u8>, Value> {
+    match response(
+        window,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "scope": scope, "path": path })),
+        Default::default(),
+    )? {
+        InvokeResponseBody::Raw(bytes) => Ok(bytes),
+        InvokeResponseBody::Json(json) => panic!("the bytes came back as JSON: {json}"),
+    }
+}
+
+fn children(window: &WebviewWindow<MockRuntime>, scope: &str, directory: &str) -> Result<Value, Value> {
     invoke(
         window,
-        "apply",
-        json!({ "session": session, "changes": changes }),
+        "read_folder_children",
+        json!({ "scope": scope, "directory": directory }),
     )
 }
 
-/// Return once no commit the owner admitted is still running. `paths` takes
-/// the Git lock, which an admitted commit holds from before its save returned
-/// until it has recorded its outcome.
-fn idle(window: &WebviewWindow<MockRuntime>, session: u64) {
-    invoke(window, "paths", json!({ "session": session })).expect("paths");
+/// `put_folder_file` as `tauri-files.ts` sends it: the bytes as the raw
+/// body, the rest in percent-encoded headers. `None` removes the file.
+fn put(
+    window: &WebviewWindow<MockRuntime>,
+    path: &str,
+    bytes: Option<&[u8]>,
+    if_match: Option<&str>,
+) -> Result<Value, Value> {
+    request(
+        window,
+        "put_folder_file",
+        InvokeBody::Raw(bytes.unwrap_or_default().to_vec()),
+        put_headers(path, bytes.is_none(), if_match),
+    )
 }
 
-fn git(root: &Path, args: &[&str]) -> String {
+fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
+    let encoded = |value: &str| {
+        HeaderValue::from_str(
+            &percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC)
+                .to_string(),
+        )
+        .unwrap()
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert("scope", encoded("notes"));
+    headers.insert("path", encoded(path));
+    headers.insert("remove", encoded(&remove.to_string()));
+    if let Some(if_match) = if_match {
+        headers.insert("if-match", encoded(if_match));
+    }
+    headers
+}
+
+fn text(value: &Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn grant(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
+    invoke(window, "grant_directory", json!({ "scope": "notes" }))
+}
+
+/// Write a file over whatever is there, as a page that just read it does.
+fn write(
+    fixture: &Fixture,
+    window: &WebviewWindow<MockRuntime>,
+    relative: &str,
+    content: &str,
+) -> Result<Value, Value> {
+    let there = std::fs::read(fixture.root.join(relative)).ok();
+    let landed = put(
+        window,
+        relative,
+        Some(content.as_bytes()),
+        there.as_deref().map(sha256).as_deref(),
+    )?;
+    assert_eq!(landed, "landed");
+    Ok(landed)
+}
+
+/// Run the real `git` in the root `window` was granted for `notes`, as a
+/// person or the `epicenter` CLI would; the plugin runs none.
+fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, String> {
+    let root = window
+        .folders()
+        .granted_root("notes", window.label())
+        .map_err(|refusal| format!("{refusal:?}"))?;
     let output = std::process::Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
         .args(args)
         .current_dir(root)
         .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-fn eventually(what: &str, condition: impl Fn() -> bool) {
-    for _ in 0..2000 {
-        if condition() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(5));
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    panic!("timed out waiting for {what}");
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 #[test]
-fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
-    let fixture = fixture("round-trip", &["main"]);
+fn a_scope_is_granted_to_its_windows_and_no_other() {
+    let fixture = fixture("grant");
     let main = window(&fixture.app, "main");
-    let attached = invoke(
-        &main,
-        "attach",
-        json!({ "scope": "notes", "protocol": PROTOCOL }),
-    )
-    .unwrap();
-    let session = attached["session"].as_u64().unwrap();
-    assert_eq!(attached["snapshot"]["branch"], "main");
-    assert!(attached["snapshot"].get("commitOnEdit").is_none());
+    let other = window(&fixture.app, "other");
+    let side = window(&fixture.app, "side");
     assert_eq!(
-        attached["snapshot"]["files"],
-        json!({ "state": "unknown", "error": null })
-    );
-    assert_eq!(attached["snapshot"]["closed"], false);
-    assert_eq!(
-        attached["snapshot"]["activity"]["commit"],
-        json!({ "active": false }),
-        "activity reports what is running and nothing else"
-    );
-
-    apply(
-        &main,
-        session,
-        json!([
-            create("todos/a.md", "first"),
-            create("todos/a.png", "image"),
-        ]),
-    )
-    .unwrap();
-    let read = invoke(
-        &main,
-        "read",
-        json!({ "session": session, "path": "todos/a.md" }),
-    )
-    .unwrap();
-    assert_eq!(read["bytes"], json!("first".as_bytes()));
-    // A read is its bytes and their hash, computed by the owner.
-    assert_eq!(
-        read["sha256"],
-        "a7937b64b8caa58f03721bb6bacf5c78cb235febe0e70b1b84cd99541461a08e"
-    );
-    assert_eq!(read.as_object().unwrap().len(), 2);
-    let sha256 = read["sha256"].clone();
-    assert_eq!(
-        invoke(
-            &main,
-            "children",
-            json!({ "session": session, "directory": "todos" })
-        )
-        .unwrap(),
-        json!({ "files": ["a.md", "a.png"], "directories": [] })
+        grant(&other).unwrap_err(),
+        json!({ "name": "WindowNotPermitted", "scope": "notes", "window": "other" })
     );
     assert_eq!(
-        invoke(&main, "list", json!({ "session": session })).unwrap(),
-        json!({
-            "files": [{ "path": "todos/a.md", "size": 5 }, { "path": "todos/a.png", "size": 5 }],
-            "directories": ["todos"],
-        })
-    );
-    let many = invoke(
-        &main,
-        "read_many",
-        json!({ "session": session, "paths": ["todos/a.png", "missing.md"] }),
-    )
-    .unwrap();
-    assert_eq!(many[0]["status"], "ok");
-    assert_eq!(many[0]["value"]["bytes"], json!("image".as_bytes()));
-    assert_eq!(
-        many[1],
-        json!({ "status": "err", "error": { "name": "NotFound", "path": "missing.md" } })
-    );
-
-    // A typed refusal crosses as the rejection, with nothing written.
-    let occupied = apply(&main, session, json!([create("todos/a.md", "again")])).unwrap_err();
-    assert_eq!(
-        occupied,
-        json!({ "name": "Refused", "error": { "name": "Exists", "path": "todos/a.md" } })
-    );
-    let escaped = apply(&main, session, json!([overwrite("../outside.md", "x")])).unwrap_err();
-    assert_eq!(escaped["error"]["name"], "InvalidPath");
-    assert!(!fixture.root.parent().unwrap().join("outside.md").exists());
-
-    // A replacement naming a hash the file does not have is a conflict, and
-    // one for a missing file reports no actual hash.
-    let stale = "0".repeat(64);
-    for (path, actual) in [("todos/a.md", sha256.clone()), ("missing.md", Value::Null)] {
-        let conflict = apply(
-            &main,
-            session,
-            json!([replace(path, "never lands", &json!(stale))]),
-        )
-        .unwrap_err();
-        assert_eq!(
-            conflict["error"],
-            json!({
-                "name": "Conflict",
-                "path": path,
-                "expectedSha256": stale,
-                "actualSha256": actual,
-            })
-        );
-    }
-
-    // A replacement naming the exact hash that was read replaces the file.
-    apply(
-        &main,
-        session,
-        json!([replace("todos/a.md", "second", &sha256)]),
-    )
-    .unwrap();
-    assert_eq!(
-        std::fs::read_to_string(fixture.root.join("todos/a.md")).unwrap(),
-        "second"
-    );
-
-    // A move and a removal name the hash as `expectedSha256`, or omit it.
-    // The earlier `write` shape with an `expected` object is not a change.
-    assert!(apply(
-        &main,
-        session,
-        json!([{
-            "kind": "write",
-            "path": "old.md",
-            "bytes": [],
-            "expected": { "kind": "any" },
-        }]),
-    )
-    .is_err());
-    assert!(!fixture.root.join("old.md").exists());
-    apply(&main, session, json!([create("scratch.md", "first")])).unwrap();
-    let guarded = apply(
-        &main,
-        session,
-        json!([{ "kind": "move", "from": "scratch.md", "to": "moved.md", "expectedSha256": stale }]),
-    )
-    .unwrap_err();
-    assert_eq!(guarded["error"]["name"], "Conflict");
-    assert_eq!(guarded["error"]["actualSha256"], sha256);
-    apply(
-        &main,
-        session,
-        json!([
-            { "kind": "move", "from": "scratch.md", "to": "moved.md", "expectedSha256": sha256 },
-            create("other.md", "other"),
-        ]),
-    )
-    .unwrap();
-    let occupied = apply(
-        &main,
-        session,
-        json!([{ "kind": "move", "from": "other.md", "to": "moved.md" }]),
-    )
-    .unwrap_err();
-    assert_eq!(
-        occupied["error"],
-        json!({ "name": "Exists", "path": "moved.md" })
-    );
-    apply(
-        &main,
-        session,
-        json!([
-            { "kind": "remove", "path": "moved.md", "expectedSha256": sha256 },
-            { "kind": "remove", "path": "other.md" },
-        ]),
-    )
-    .unwrap();
-    assert!(!fixture.root.join("moved.md").exists() && !fixture.root.join("other.md").exists());
-
-    // Every save asked for a commit; once they ran, nothing is uncommitted.
-    eventually("the saves to be committed", || {
-        invoke(&main, "status", json!({ "session": session })).unwrap()["changes"] == json!([])
-    });
-    // A file another program writes waits for a commit someone asks for.
-    std::fs::write(fixture.root.join("outside.md"), "outside").unwrap();
-    std::fs::write(fixture.root.join("todos/a.png"), "edited").unwrap();
-    let status = invoke(&main, "status", json!({ "session": session })).unwrap();
-    assert_eq!(
-        status["changes"],
-        json!([{ "path": "outside.md", "kind": "add" }, { "path": "todos/a.png", "kind": "modify" }])
-    );
-    // The commit command replies with the settled outcome itself.
-    let committed = invoke(&main, "commit", json!({ "session": session })).unwrap();
-    assert_eq!(committed["status"], "committed");
-    assert_eq!(committed["message"], "Update 2 files");
-    assert_eq!(committed["changedPaths"], 2);
-    assert!(committed.get("outcome").is_none() && committed.get("followingPush").is_none());
-    assert_eq!(
-        git(&fixture.root, &["log", "-1", "--format=%s"]),
-        "Update 2 files"
-    );
-    let log = invoke(&main, "log", json!({ "session": session, "depth": 5 })).unwrap();
-    assert_eq!(log[0]["oid"], committed["oid"]);
-    assert_eq!(log[0]["author"]["name"], "Test Author");
-    assert_eq!(
-        push(&main, session, open_request(&main, session)).unwrap(),
-        json!({ "status": "noRemote" })
-    );
-    let fetching = open_request(&main, session);
-    let fetch = || {
-        invoke(
-            &main,
-            "fetch",
-            json!({ "session": session, "request": fetching }),
-        )
-        .unwrap_err()
-    };
-    assert_eq!(fetch(), json!({ "name": "NoRemote" }));
-    // A request serves one command. Once that command has its answer the
-    // request is gone, and naming it again starts nothing.
-    let gone = fetch();
-    assert_eq!(gone["name"], "Denied");
-    assert!(
-        gone["reason"].as_str().unwrap().contains("no such request"),
-        "{gone}"
-    );
-    assert_eq!(
-        invoke(&main, "pull_fast_forward", json!({ "session": session })).unwrap_err(),
-        json!({ "name": "Git", "error": { "name": "NoRemote" } })
-    );
-    // A merge needs a remote first.
-    assert_eq!(
-        invoke(&main, "merge_incoming", json!({ "session": session })).unwrap_err(),
-        json!({ "name": "Pull", "error": { "name": "Git", "error": { "name": "NoRemote" } } })
-    );
-
-    // Paths and diff report a change another program made, unstaged.
-    std::fs::write(fixture.root.join("outside.md"), "changed").unwrap();
-    assert_eq!(
-        invoke(&main, "paths", json!({ "session": session })).unwrap(),
-        json!([{ "path": "outside.md", "index": " ", "worktree": "M" }])
-    );
-    let diff = invoke(&main, "diff", json!({ "session": session, "paths": [] })).unwrap();
-    assert!(diff.as_str().unwrap().contains("+changed"), "{diff}");
-
-    for response in [&status, &committed] {
-        assert!(response.to_string().len() < 1024, "{response}");
-    }
-}
-
-#[test]
-fn a_window_reaches_only_its_own_scopes_and_its_own_sessions() {
-    let fixture = fixture("sessions", &["a", "b"]);
-    let a = window(&fixture.app, "a");
-    let b = window(&fixture.app, "b");
-    let intruder = window(&fixture.app, "intruder");
-
-    assert_eq!(
-        invoke(
-            &intruder,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL })
-        )
-        .unwrap_err(),
-        json!({ "name": "WindowNotPermitted", "scope": "notes", "window": "intruder" })
-    );
-    assert_eq!(
-        invoke(
-            &a,
-            "attach",
-            json!({ "scope": "elsewhere", "protocol": PROTOCOL })
-        )
-        .unwrap_err(),
+        invoke(&main, "grant_directory", json!({ "scope": "elsewhere" })).unwrap_err(),
         json!({ "name": "UnknownScope", "scope": "elsewhere" })
     );
-    assert!(
-        !fixture.root.join(".git").exists(),
-        "a refused attach opens nothing"
-    );
-    // A page cannot name a root: the command has no such argument to honor.
-    let ignored = invoke(
-        &a,
-        "attach",
-        json!({ "scope": "notes", "protocol": PROTOCOL, "root": "/tmp/elsewhere" }),
-    )
-    .unwrap();
-    assert_eq!(
-        ignored["root"],
-        fixture.root.display().to_string(),
-        "attach reports the owner's root"
-    );
-    assert_eq!(
-        invoke(
-            &b,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL + 1 })
-        )
-        .unwrap_err(),
-        json!({ "name": "Incompatible", "host": PROTOCOL, "page": PROTOCOL + 1 })
-    );
-    // A page built for the previous protocol is refused before other calls.
-    assert_eq!(
-        invoke(
-            &b,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL - 1 })
-        )
-        .unwrap_err(),
-        json!({ "name": "Incompatible", "host": PROTOCOL, "page": PROTOCOL - 1 })
-    );
-    let no_session = invoke(&b, "list", json!({ "session": 1 })).unwrap_err();
-    assert_eq!(
-        no_session["name"], "Denied",
-        "the refused page has no session"
-    );
-    let a_session = ignored["session"].as_u64().unwrap();
-    assert!(
-        fixture.root.join(".git/HEAD").is_file(),
-        "the registered root was opened"
-    );
-    apply(&a, a_session, json!([create("a.md", "from a")])).unwrap();
+    // Nothing reaches the folder before a grant, from any window.
+    let early = write(&fixture, &main, "a.md", "a").unwrap_err();
+    assert_eq!(early["name"], "Io", "{early}");
+    assert!(text(&early["message"]).contains("not been granted"), "{early}");
+    assert!(!fixture.root.exists());
 
-    // Another window naming A's session is denied on every kind of call.
-    let denied = json!({
-        "name": "Denied",
-        "reason": "this window has no such folder session; attach first",
-    });
-    for window in [&b, &intruder] {
-        assert_eq!(
-            invoke(
-                window,
-                "read",
-                json!({ "session": a_session, "path": "a.md" })
-            )
-            .unwrap_err(),
-            denied
-        );
-        assert_eq!(
-            apply(window, a_session, json!([overwrite("a.md", "stolen")])).unwrap_err(),
-            json!({ "name": "Refused", "error": denied })
-        );
-        for command in ["commit", "status"] {
-            assert_eq!(
-                invoke(window, command, json!({ "session": a_session })).unwrap_err(),
-                denied
-            );
-        }
-        assert_eq!(
-            invoke(
-                window,
-                "mkdir",
-                json!({ "session": a_session, "path": "made" })
-            )
-            .unwrap_err(),
-            denied
-        );
-        assert_eq!(
-            invoke(window, "pull_fast_forward", json!({ "session": a_session })).unwrap_err(),
-            json!({ "name": "Git", "error": denied })
-        );
-    }
-    assert!(!fixture.root.join("made").exists());
+    let granted = grant(&main).unwrap();
     assert_eq!(
-        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
-        "from a"
+        granted,
+        json!({ "root": fixture.root.to_str().unwrap() })
     );
+    // A reloaded page asks again and gets the same folder.
+    assert_eq!(grant(&main).unwrap(), granted);
+    assert!(text(&write(&fixture, &other, "a.md", "a").unwrap_err())
+        .contains("WindowNotPermitted"));
+
+    // A window the shell permits later gets the same folder, and both
+    // windows read and change it.
+    fixture.app.folders().permit("notes", "side").unwrap();
+    assert_eq!(grant(&side).unwrap(), granted);
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
+    write(&fixture, &main, "a.md", "main's\n").unwrap();
+    assert_eq!(read_file(&side, "notes", "a.md").unwrap(), b"main's\n");
+    write(&fixture, &side, "b.md", "side's\n").unwrap();
+    assert_eq!(read_file(&main, "notes", "b.md").unwrap(), b"side's\n");
+    assert!(text(&grant(&other).unwrap_err()).contains("WindowNotPermitted"));
 }
 
 #[test]
-fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
-    let fixture = fixture("shared", &["a", "b"]);
-    let a = window(&fixture.app, "a");
-    let b = window(&fixture.app, "b");
-    let heard: Arc<Mutex<Vec<Value>>> = Arc::default();
-    let listener = Arc::clone(&heard);
-    fixture.app.listen_any(
-        "plugin:epicenter-folder:folder-files-changed",
-        move |event| {
-            listener
-                .lock()
-                .unwrap()
-                .push(serde_json::from_str(event.payload()).unwrap());
+fn each_window_is_answered_the_app_and_folder_the_shell_handed_it() {
+    let fixture = fixture("handed");
+    let todos = window(&fixture.app, "app:so_epicenter_todos:6e6f746573");
+    let settings = window(&fixture.app, "home");
+    let plain = window(&fixture.app, "main");
+    fixture.app.folders().hand(
+        todos.label(),
+        WindowFolder {
+            app: "so.epicenter.todos".into(),
+            folder: "notes".into(),
         },
     );
-    let a_session = attach(&a);
-    let b_session = attach(&b);
-
-    apply(&a, a_session, json!([create("a.md", "base")])).unwrap();
-    let base = invoke(&b, "read", json!({ "session": b_session, "path": "a.md" })).unwrap()
-        ["sha256"]
-        .clone();
-
-    // Both windows replace the bytes they both read: exactly one lands.
-    let results: Vec<Result<Value, Value>> = std::thread::scope(|scope| {
-        let saves = [(&a, a_session, "from a"), (&b, b_session, "from b")].map(
-            |(window, session, content)| {
-                let expected = base.clone();
-                scope.spawn(move || {
-                    apply(
-                        window,
-                        session,
-                        json!([replace("a.md", content, &expected)]),
-                    )
-                })
-            },
-        );
-        saves.into_iter().map(|save| save.join().unwrap()).collect()
-    });
-    assert_eq!(
-        results.iter().filter(|result| result.is_ok()).count(),
-        1,
-        "{results:?}"
+    fixture.app.folders().hand(
+        settings.label(),
+        WindowFolder {
+            app: "so.epicenter".into(),
+            folder: "so.epicenter".into(),
+        },
     );
-    let lost = results
-        .iter()
-        .find_map(|result| result.as_ref().err())
-        .unwrap();
-    assert_eq!(lost["error"]["name"], "Conflict");
-    assert_eq!(lost["error"]["expectedSha256"], base);
-    assert!(lost["error"]["actualSha256"].is_string());
 
-    // Each attached window heard the saves, whichever window made them.
-    eventually("both windows to hear both saves", || {
-        heard.lock().unwrap().len() >= 4
-    });
-    assert!(heard
-        .lock()
-        .unwrap()
-        .iter()
-        .all(|event| event["scope"] == "notes" && event["paths"] == json!(["a.md"])));
-
-    // Window A saves and goes away at once. The owner admitted the save's
-    // commit before the save returned, and finishes it without the window.
-    // The earlier saves' commits are let finish first: a save made while one
-    // of them held the Git lock would have its own attempt skipped.
-    idle(&a, a_session);
-    apply(
-        &a,
-        a_session,
-        json!([create("last.md", "saved as the page closed")]),
-    )
-    .unwrap();
-    invoke(&a, "detach", json!({ "session": a_session })).unwrap();
     assert_eq!(
-        invoke(&a, "read", json!({ "session": a_session, "path": "a.md" })).unwrap_err()["name"],
-        "Denied"
-    );
-    eventually("the detached window's save to be committed", || {
-        fixture.root.join(".git/refs/heads/main").exists()
-            && git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]) == "a.md\nlast.md"
-    });
-
-    // Window B is untouched: same session, same owner, same history.
-    idle(&b, b_session);
-    apply(&b, b_session, json!([create("b.md", "after a left")])).unwrap();
-    idle(&b, b_session);
-    assert_eq!(
-        git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]),
-        "a.md\nb.md\nlast.md"
-    );
-    let status = invoke(&b, "status", json!({ "session": b_session })).unwrap();
-    assert_eq!(status["changes"], json!([]));
-
-    // The commands a page built for the terminal lease would send are gone.
-    // One is refused before the plugin sees it, and holds nothing.
-    for command in ["acquire_lease", "release_lease"] {
-        let refused = invoke(&b, command, json!({ "session": b_session, "lease": 1 })).unwrap_err();
-        assert!(refused.is_string(), "{command}: {refused}");
-    }
-    // A new session of window A saves at once: nothing of B's holds it out.
-    let a_again = attach(&a);
-    apply(&a, a_again, json!([create("again.md", "x")])).unwrap();
-
-    // Shutdown drains what was admitted and refuses what comes after. That
-    // save was admitted for its commit when it landed, with the folder free.
-    fixture.app.folders().shutdown();
-    assert_eq!(
-        apply(&b, b_session, json!([create("late.md", "x")])).unwrap_err(),
-        json!({ "name": "Refused", "error": { "name": "Closed" } })
+        invoke(&todos, "window_folder", json!({})).unwrap(),
+        json!({ "app": "so.epicenter.todos", "folder": "notes" })
     );
     assert_eq!(
-        invoke(
-            &a,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL })
-        )
-        .unwrap_err(),
-        json!({ "name": "ShuttingDown" })
+        invoke(&settings, "window_folder", json!({})).unwrap(),
+        json!({ "app": "so.epicenter", "folder": "so.epicenter" })
     );
+    // A window the shell handed nothing runs no app.
+    assert_eq!(invoke(&plain, "window_folder", json!({})).unwrap(), Value::Null);
+    // The answer is the window's, whatever the page passes or navigates to.
     assert_eq!(
-        git(&fixture.root, &["status", "--porcelain"]),
-        "",
-        "the admitted commit finished before shutdown returned"
+        invoke(&todos, "window_folder", json!({ "folder": "so.epicenter" })).unwrap()["folder"],
+        "notes"
     );
 }
 
-/// A bare remote whose `pre-receive` hook holds every push that carries
-/// commits: the real `git push` the owner started stays in flight until the
-/// test releases it. Each held push records what it carries.
-#[cfg(unix)]
-struct HeldRemote {
-    bare: PathBuf,
-    gate: PathBuf,
-}
-
-#[cfg(unix)]
-impl HeldRemote {
-    fn new(directory: &Path) -> (Self, Remote) {
-        use std::os::unix::fs::PermissionsExt;
-        let bare = directory.join("remote.git");
-        let gate = directory.join("gate");
-        std::fs::create_dir_all(&bare).unwrap();
-        std::fs::create_dir(&gate).unwrap();
-        git(
-            &bare,
-            &["init", "--quiet", "--bare", "--initial-branch=main"],
-        );
-        // The update is written under another name first, so a file named
-        // `arrived-N` is always complete.
-        let script = [
-            "#!/bin/sh",
-            &format!("cd '{}' || exit 1", gate.display()),
-            "n=$(($(ls | grep -c '^arriv') + 1))",
-            "cat > \"arriving-$n\"",
-            "mv \"arriving-$n\" \"arrived-$n\"",
-            "while [ ! -e \"release-$n\" ]; do sleep 0.02; done",
-            "",
-        ]
-        .join("\n");
-        let hook = bare.join("hooks/pre-receive");
-        std::fs::write(&hook, script).unwrap();
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let remote = Remote {
-            url: bare.display().to_string(),
-            branch: "main".to_string(),
-        };
-        (Self { bare, gate }, remote)
-    }
-
-    /// Wait for the `n`th push to reach the remote, and say which commit it
-    /// carries. It stays held there.
-    fn arrived(&self, n: usize) -> String {
-        let arrived = self.gate.join(format!("arrived-{n}"));
-        eventually("a push to reach the remote", || arrived.is_file());
-        let update = std::fs::read_to_string(arrived).unwrap();
-        update.split_whitespace().nth(1).unwrap().to_string()
-    }
-
-    /// How many pushes have reached the remote so far.
-    fn arrivals(&self) -> usize {
-        std::fs::read_dir(&self.gate)
-            .unwrap()
-            .flatten()
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with("arriv"))
-            .count()
-    }
-
-    fn release(&self, n: usize) {
-        std::fs::write(self.gate.join(format!("release-{n}")), "").unwrap();
-    }
-
-    fn head(&self) -> String {
-        git(&self.bare, &["rev-parse", "main"])
-    }
-}
-
-/// A folder that does not commit on edit, with a remote whose pushes are held.
-#[cfg(unix)]
-fn held_fixture(label: &str, windows: &[&str]) -> (Fixture, HeldRemote) {
-    let directory = temp(label);
-    let (held, remote) = HeldRemote::new(&directory.0);
-    (fixture_in(directory, windows, Some(remote)), held)
-}
-
-fn open_request(window: &WebviewWindow<MockRuntime>, session: u64) -> u64 {
-    invoke(window, "open_request", json!({ "session": session }))
-        .expect("open a request")
-        .as_u64()
-        .expect("a request number")
-}
-
-fn push(window: &WebviewWindow<MockRuntime>, session: u64, request: u64) -> Result<Value, Value> {
-    invoke(
-        window,
-        "push",
-        json!({ "session": session, "request": request }),
-    )
-}
-
-#[cfg(unix)]
-fn withdraw(window: &WebviewWindow<MockRuntime>, session: u64, request: u64) {
-    invoke(
-        window,
-        "withdraw_request",
-        json!({ "session": session, "request": request }),
-    )
-    .expect("withdrawing never fails");
-}
-
-/// Save one file and commit it; the commit's ID.
-#[cfg(unix)]
-fn commit_file(window: &WebviewWindow<MockRuntime>, session: u64, path: &str) -> String {
-    apply(window, session, json!([create(path, path)])).unwrap();
-    // The save's automatic commit, or this one if it gets there first.
-    let committed = invoke(window, "commit", json!({ "session": session })).unwrap();
-    assert!(
-        committed["status"] == "committed" || committed["status"] == "unchanged",
-        "{committed}"
-    );
-    let head = invoke(window, "log", json!({ "session": session, "depth": 1 })).unwrap();
-    assert_eq!(
-        head[0]["message"].as_str().unwrap().trim_end(),
-        format!("Add {path}")
-    );
-    head[0]["oid"].as_str().unwrap().to_string()
-}
-
-/// What the owner replies for a push it never started: this request pinned
-/// no commit and sent nothing. A push that named a request the session no
-/// longer has is refused on arrival instead; that started nothing either.
-/// Which of the two a test sees depends on whether the push command had
-/// reached the owner when its request was withdrawn.
-#[cfg(unix)]
-fn assert_never_started(reply: Result<Value, Value>) {
-    match reply {
-        Ok(outcome) => assert_eq!(outcome, json!({ "status": "cancelled", "oid": null })),
-        Err(refused) => assert_eq!(refused["name"], "Denied", "{refused}"),
-    }
-}
-
-#[cfg(unix)]
+/// A data folder is opened only as a person left it: a missing one is
+/// `Missing` and is not created, and one inside another repository's working
+/// tree is granted as it is. `granted_root` names it to its window alone,
+/// for the `epicenter` CLI, which refuses a nested `git init` itself.
 #[test]
-fn a_push_withdrawn_before_its_transport_starts_never_reaches_the_remote() {
-    let (fixture, remote) = held_fixture("withdraw", &["a", "b"]);
-    let a = window(&fixture.app, "a");
-    let b = window(&fixture.app, "b");
-    let a_session = attach(&a);
-    let b_session = attach(&b);
-    let first = commit_file(&a, a_session, "one.md");
-    let (a, b) = (&a, &b);
-
-    std::thread::scope(|scope| {
-        // A's push is a real `git push`, held inside the remote.
-        let a_request = open_request(&a, a_session);
-        let a_pushing = scope.spawn(move || push(a, a_session, a_request));
-        assert_eq!(remote.arrived(1), first);
-        // Its request is in use: a second command cannot take it.
-        let duplicate = push(&a, a_session, a_request).unwrap_err();
-        assert_eq!(duplicate["name"], "Denied");
-        assert!(
-            duplicate["reason"]
-                .as_str()
-                .unwrap()
-                .contains("already in use"),
-            "{duplicate}"
-        );
-        // A second commit, so a push started for B would carry it.
-        let second = commit_file(&a, a_session, "two.md");
-
-        // Withdrawn before the push command arrives: refused, nothing queued.
-        let early = open_request(&a, a_session);
-        withdraw(&a, a_session, early);
-        let refused = push(&a, a_session, early).unwrap_err();
-        assert_eq!(refused["name"], "Denied");
-        assert!(
-            refused["reason"]
-                .as_str()
-                .unwrap()
-                .contains("nothing was started"),
-            "{refused}"
-        );
-
-        // B asks behind A and withdraws while A is still in flight.
-        let b_request = open_request(&a, a_session);
-        let b_pushing = scope.spawn(move || push(a, a_session, b_request));
-        withdraw(&a, a_session, b_request);
-        assert_never_started(b_pushing.join().unwrap());
-        // Withdrawing again, or using the request now, does nothing.
-        withdraw(&a, a_session, b_request);
-        assert_eq!(
-            push(&a, a_session, b_request).unwrap_err()["name"],
-            "Denied"
-        );
-
-        // A was admitted before any of this, and finishes.
-        remote.release(1);
-        assert_eq!(
-            a_pushing.join().unwrap().unwrap(),
-            json!({ "status": "pushed", "oid": first })
-        );
-        assert_eq!(remote.head(), first);
-
-        // The next push to reach the remote is P's, carrying the third
-        // commit. Had B's push started when A finished, it would have reached
-        // the remote first, carrying the second.
-        let third = commit_file(&a, a_session, "three.md");
-        let p_request = open_request(&a, a_session);
-        let p_pushing = scope.spawn(move || push(a, a_session, p_request));
-        assert_eq!(remote.arrived(2), third);
-        assert_ne!(second, third);
-
-        // C asks behind P from window A. Window B cannot withdraw or use it:
-        // it has neither A's session nor a request of that number.
-        let c_request = open_request(&a, a_session);
-        let c_pushing = scope.spawn(move || push(a, a_session, c_request));
-        withdraw(&b, a_session, c_request);
-        withdraw(&b, b_session, c_request);
-        for session in [a_session, b_session] {
-            assert_eq!(push(&b, session, c_request).unwrap_err()["name"], "Denied");
-        }
-        let fourth = commit_file(&b, b_session, "four.md");
-        remote.release(2);
-        assert_eq!(
-            p_pushing.join().unwrap().unwrap(),
-            json!({ "status": "pushed", "oid": third })
-        );
-        // C was not withdrawn: its push runs, once, after P.
-        assert_eq!(remote.arrived(3), fourth);
-        remote.release(3);
-        assert_eq!(
-            c_pushing.join().unwrap().unwrap(),
-            json!({ "status": "pushed", "oid": fourth })
-        );
-        assert_eq!(remote.head(), fourth);
-        assert_eq!(remote.arrivals(), 3, "A, P, and C; never B");
-    });
-}
-
-#[cfg(unix)]
-#[test]
-fn ending_a_session_withdraws_its_unstarted_push_and_keeps_the_one_in_flight() {
-    for ending in ["reload", "destroyed"] {
-        let (fixture, remote) = held_fixture(ending, &["a", "b"]);
-        let a = window(&fixture.app, "a");
-        let b = window(&fixture.app, "b");
-        let a_session = attach(&a);
-        let b_session = attach(&b);
-        let first = commit_file(&a, a_session, "one.md");
-        let (a, b) = (&a, &b);
-
-        std::thread::scope(|scope| {
-            // Window A has one push in flight at the remote and one behind it.
-            let a_request = open_request(&a, a_session);
-            let a_pushing = scope.spawn(move || push(a, a_session, a_request));
-            assert_eq!(remote.arrived(1), first, "{ending}");
-            commit_file(&b, b_session, "two.md");
-            let b_request = open_request(&a, a_session);
-            let b_pushing = scope.spawn(move || push(a, a_session, b_request));
-
-            // The page goes away, or its window does.
-            if ending == "reload" {
-                crate::commands::end_page(a.as_ref());
-            } else {
-                a.as_ref().close().unwrap();
-                crate::window_destroyed(fixture.app.handle(), "a");
-            }
-
-            // The push that had not started never will, and the ended
-            // session can neither use the request nor open another.
-            assert_never_started(b_pushing.join().unwrap());
-            assert_eq!(
-                push(&a, a_session, b_request).unwrap_err()["name"],
-                "Denied",
-                "{ending}"
-            );
-            assert_eq!(
-                invoke(&a, "open_request", json!({ "session": a_session })).unwrap_err()["name"],
-                "Denied",
-                "{ending}"
-            );
-
-            // The push the owner had already started is the owner's: it
-            // finishes without the session that asked.
-            remote.release(1);
-            assert_eq!(
-                a_pushing.join().unwrap().unwrap(),
-                json!({ "status": "pushed", "oid": first }),
-                "{ending}"
-            );
-            assert_eq!(remote.head(), first, "{ending}");
-
-            // The next push to reach the remote is window B's own, carrying
-            // a commit made after the session ended.
-            let third = commit_file(&b, b_session, "three.md");
-            let p_request = open_request(&b, b_session);
-            let p_pushing = scope.spawn(move || push(b, b_session, p_request));
-            assert_eq!(remote.arrived(2), third, "{ending}");
-            remote.release(2);
-            assert_eq!(
-                p_pushing.join().unwrap().unwrap(),
-                json!({ "status": "pushed", "oid": third }),
-                "{ending}"
-            );
-            assert_eq!(remote.arrivals(), 2, "{ending}");
-        });
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
-    // This folder commits on edit, and its remote holds every push.
-    let directory = temp("network-held");
-    let (remote, configured) = HeldRemote::new(&directory.0);
-    let fixture = fixture_in(directory, &["a", "b"], Some(configured));
-    let a = window(&fixture.app, "a");
-    let b = window(&fixture.app, "b");
-    let a_session = attach(&a);
-    let b_session = attach(&b);
-    let head = || git(&fixture.root, &["rev-parse", "HEAD"]);
-    let subjects = || git(&fixture.root, &["log", "--format=%s"]);
-    let (a, b) = (&a, &b);
-
-    // Window A saves. The owner commits it on its own and pushes nothing:
-    // only a push request sends history to the remote.
-    apply(a, a_session, json!([create("one.md", "one")])).unwrap();
-    idle(a, a_session);
-    assert_eq!(subjects(), "Add one.md");
-    let first = head();
-    assert_eq!(remote.arrivals(), 0, "an automatic commit stays local");
-
-    std::thread::scope(|scope| {
-        // A asks for a push. It is a real `git push`, held inside the remote.
-        let held = open_request(a, a_session);
-        let held_pushing = scope.spawn(move || push(a, a_session, held));
-        assert_eq!(remote.arrived(1), first);
-
-        // A's terminal runs `git push`: a request it opened, waiting behind
-        // the push in flight. Nothing of it holds the folder.
-        let request = open_request(a, a_session);
-        let pushing = scope.spawn(move || push(a, a_session, request));
-
-        // Window B saves, and both windows' terminals make directories and
-        // save, while one push is in flight and another waits. Every call
-        // returns, and each complete save is committed by its own attempt.
-        apply(b, b_session, json!([create("two.md", "two")])).unwrap();
-        idle(b, b_session);
-        assert_eq!(subjects(), "Add two.md\nAdd one.md");
-        invoke(a, "mkdir", json!({ "session": a_session, "path": "made" })).unwrap();
-        apply(a, a_session, json!([create("made/three.md", "three")])).unwrap();
-        idle(a, a_session);
-        assert_eq!(subjects(), "Add made/three.md\nAdd two.md\nAdd one.md");
-        let third = head();
-        let status = invoke(b, "status", json!({ "session": b_session })).unwrap();
-        assert_eq!(status["changes"], json!([]));
-        assert_eq!(remote.arrivals(), 1, "the first push is still in flight");
-
-        // The held push finishes with the commit it carried. A's waiting
-        // push then starts, and carries everything committed meanwhile.
-        remote.release(1);
-        assert_eq!(
-            held_pushing.join().unwrap().unwrap(),
-            json!({ "status": "pushed", "oid": first })
-        );
-        assert_eq!(remote.arrived(2), third);
-        assert_eq!(remote.head(), first);
-        remote.release(2);
-        assert_eq!(
-            pushing.join().unwrap().unwrap(),
-            json!({ "status": "pushed", "oid": third })
-        );
-        assert_eq!(remote.head(), third);
-        assert_eq!(
-            remote.arrivals(),
-            2,
-            "the two requested pushes, and no other"
-        );
-    });
-}
-
-#[test]
-fn a_page_reload_ends_that_pages_sessions_and_nothing_else() {
-    let fixture = fixture("reload", &["a", "b"]);
-    let a = window(&fixture.app, "a");
-    let b = window(&fixture.app, "b");
-    let a_session = attach(&a);
-    let b_session = attach(&b);
-    // Another plugin's resource in the same webview must survive the reload.
-    struct Unrelated;
-    impl tauri::Resource for Unrelated {}
-    let unrelated = a.as_ref().resources_table().add(Unrelated);
-
-    // The old page saved before it is replaced.
-    apply(
-        &a,
-        a_session,
-        json!([create("before.md", "saved before the reload")]),
-    )
-    .unwrap();
-    // Let that save's commit finish, so window B's save below is not skipped
-    // for finding the Git lock held.
-    idle(&b, b_session);
-    crate::commands::end_page(a.as_ref());
-
-    // Its session is gone.
-    assert_eq!(
-        invoke(
-            &a,
-            "read",
-            json!({ "session": a_session, "path": "before.md" })
-        )
-        .unwrap_err()["name"],
-        "Denied"
-    );
-    assert!(
-        a.as_ref().resources_table().has(unrelated),
-        "other resources are untouched"
-    );
-    apply(
-        &b,
-        b_session,
-        json!([create("b.md", "window b never waited")]),
-    )
-    .unwrap();
-
-    // The new page attaches again and finds what the old one saved.
-    let again = attach(&a);
-    assert_ne!(again, a_session);
-    let read = invoke(&a, "read", json!({ "session": again, "path": "before.md" })).unwrap();
-    assert_eq!(read["bytes"], json!("saved before the reload".as_bytes()));
-    eventually("the old page's save to be committed", || {
-        fixture.root.join(".git/refs/heads/main").exists()
-            && git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]) == "b.md\nbefore.md"
-    });
-}
-
-type AttachHook = Arc<dyn Fn() + Send + Sync>;
-
-/// Runs inside `attach` for one window label, after the folder was opened
-/// and before the session is registered: where a slow open would leave it.
-static ATTACH_HOOKS: Mutex<Vec<(String, AttachHook)>> = Mutex::new(Vec::new());
-
-pub(crate) fn attach_opened(label: &str) {
-    run_hook(&ATTACH_HOOKS, label);
-}
-
-/// Runs inside `apply` for one window label, after its session admitted the
-/// batch and before the owner sees it: where a worker pool that is slow to
-/// start the call would leave it.
-static APPLY_HOOKS: Mutex<Vec<(String, AttachHook)>> = Mutex::new(Vec::new());
-
-pub(crate) fn apply_admitted(label: &str) {
-    run_hook(&APPLY_HOOKS, label);
-}
-
-fn run_hook(hooks: &Mutex<Vec<(String, AttachHook)>>, label: &str) {
-    let hook = hooks
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(held, _)| held == label)
-        .map(|(_, hook)| Arc::clone(hook));
-    if let Some(hook) = hook {
-        hook();
-    }
-}
-
-/// Hold the first attach from `label` after its folder opened. Returns what
-/// tells the test the attach is held, and what lets it go.
-fn hold_first_attach(label: &str) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
-    hold_next(&ATTACH_HOOKS, label)
-}
-
-/// Hold the next call from `label` that reaches one of `hooks`, replacing
-/// any earlier hold for it. Later calls pass.
-fn hold_next(
-    hooks: &Mutex<Vec<(String, AttachHook)>>,
-    label: &str,
-) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
-    let (reached, at_hook) = std::sync::mpsc::channel::<()>();
-    let (release, gate) = std::sync::mpsc::channel::<()>();
-    let gate = Mutex::new(gate);
-    let once = std::sync::atomic::AtomicBool::new(true);
-    let mut hooks = hooks.lock().unwrap();
-    hooks.retain(|(held, _)| held != label);
-    hooks.push((
-        label.to_string(),
-        Arc::new(move || {
-            if once.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                reached.send(()).unwrap();
-                gate.lock().unwrap().recv().unwrap();
-            }
-        }),
-    ));
-    (at_hook, release)
-}
-
-#[test]
-fn a_save_held_before_the_folder_lands_after_its_sessions_later_save_and_stays() {
-    let fixture = fixture("last-landed", &["last-landed"]);
-    let page = window(&fixture.app, "last-landed");
-    let session = attach(&page);
-    let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).ok();
-
-    // The earlier save is in the plugin and waits before the folder. The
-    // later one lands first; the earlier one then lands over it and stays.
-    let (at_hook, release) = hold_next(&APPLY_HOOKS, "last-landed");
-    std::thread::scope(|scope| {
-        let earlier =
-            scope.spawn(|| apply(&page, session, json!([overwrite("note.md", "earlier")])));
-        at_hook.recv().unwrap();
-        apply(&page, session, json!([overwrite("note.md", "later")])).unwrap();
-        release.send(()).unwrap();
-        earlier.join().unwrap().expect("the held save lands");
-    });
-    assert_eq!(read("note.md").as_deref(), Some("earlier"));
-
-    // A save the plugin took before its session ended still lands.
-    let (at_hook, release) = hold_next(&APPLY_HOOKS, "last-landed");
-    std::thread::scope(|scope| {
-        let admitted = scope.spawn(|| apply(&page, session, json!([overwrite("kept.md", "kept")])));
-        at_hook.recv().unwrap();
-        invoke(&page, "detach", json!({ "session": session })).unwrap();
-        release.send(()).unwrap();
-        admitted.join().unwrap().expect("the admitted save lands");
-    });
-    assert_eq!(read("kept.md").as_deref(), Some("kept"));
-}
-
-#[test]
-fn a_second_delivery_of_a_save_lands_again_through_any_session() {
-    let fixture = fixture("late-delivery", &["late-delivery", "elsewhere"]);
-    let page = window(&fixture.app, "late-delivery");
-    let (one, two) = (attach(&page), attach(&page));
-    let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).ok();
-
-    // A save lands and its reply is lost; a later save lands; then Tauri's
-    // IPC fallback delivers the first again. Nothing numbers saves, so it
-    // lands, through whichever session carried it, and is final.
-    apply(&page, one, json!([overwrite("lost.md", "three")])).unwrap();
-    apply(&page, two, json!([overwrite("lost.md", "four")])).unwrap();
-    apply(&page, one, json!([overwrite("lost.md", "three")])).unwrap();
-    assert_eq!(read("lost.md").as_deref(), Some("three"));
-
-    // Another window's save is the same: the last to land wins.
-    let elsewhere = window(&fixture.app, "elsewhere");
-    let there = attach(&elsewhere);
-    apply(
-        &elsewhere,
-        there,
-        json!([overwrite("lost.md", "elsewhere")]),
-    )
-    .unwrap();
-    assert_eq!(read("lost.md").as_deref(), Some("elsewhere"));
-}
-
-#[test]
-fn a_second_scope_on_the_same_root_cannot_open() {
-    let fixture = fixture("alias-scope", &["main"]);
-    // The same directory, spelled through its parent.
-    let spelled = fixture.root.join("..").join("notes");
-    fixture
-        .app
-        .folders()
-        .register(ScopeConfig {
-            scope: "alias".to_string(),
-            folder: FolderConfig {
-                watch_events: false,
-                watch_interval: None,
-                ..FolderConfig::new(
-                    &spelled,
-                    Author {
-                        name: "Test Author".to_string(),
-                        email: "test@example.com".to_string(),
-                    },
-                )
-            },
-            windows: vec!["main".to_string()],
-        })
-        .unwrap();
-    let main = window(&fixture.app, "main");
-    attach(&main);
-    let refused = invoke(
-        &main,
-        "attach",
-        json!({ "scope": "alias", "protocol": PROTOCOL }),
-    )
-    .unwrap_err();
-    assert_eq!(refused["name"], "Busy", "{refused}");
-}
-
-#[test]
-fn a_destroyed_window_ends_its_sessions_after_the_manager_forgot_its_webview() {
-    let fixture = fixture("destroyed", &["a", "b"]);
-    let a = window(&fixture.app, "a");
-    let b = window(&fixture.app, "b");
-    let a_session = attach(&a);
-    let b_session = attach(&b);
-    apply(
-        &a,
-        a_session,
-        json!([create("before.md", "saved before the window closed")]),
-    )
-    .unwrap();
-    // Let that save's commit finish, so window B's save below is not skipped
-    // for finding the Git lock held.
-    idle(&b, b_session);
-
-    // What Tauri does before any plugin hears `Destroyed`: the manager drops
-    // the webview. From here the plugin cannot look the webview up by label,
-    // which is how the old cleanup found the sessions and why it found none.
-    a.as_ref().close().unwrap();
-    assert!(
-        fixture.app.get_webview_window("a").is_none(),
-        "the manager no longer has the webview"
-    );
-    // The plugin's `Destroyed` handler, in that order.
-    crate::window_destroyed(fixture.app.handle(), "a");
-
-    // The session ended, and window B carries on.
-    apply(
-        &b,
-        b_session,
-        json!([create("b.md", "window b carried on")]),
-    )
-    .unwrap();
-    // A request that still reaches the old webview finds no live session.
-    let ended = invoke(
-        &a,
-        "read",
-        json!({ "session": a_session, "path": "before.md" }),
-    )
-    .unwrap_err();
-    assert_eq!(ended["name"], "Denied");
-    assert_eq!(
-        apply(&a, a_session, json!([overwrite("late.md", "x")])).unwrap_err()["error"]["name"],
-        "Denied"
-    );
-    assert!(!fixture.root.join("late.md").exists());
-    // Window B keeps its session, and the save made before the window closed
-    // is in the folder and in history.
-    let read = invoke(
-        &b,
-        "read",
-        json!({ "session": b_session, "path": "before.md" }),
-    )
-    .unwrap();
-    assert_eq!(
-        read["bytes"],
-        json!("saved before the window closed".as_bytes())
-    );
-    eventually("both saves to be committed", || {
-        fixture.root.join(".git/refs/heads/main").exists()
-            && git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]) == "b.md\nbefore.md"
-    });
-    // Destroying it again, or a window that never attached, changes nothing.
-    crate::window_destroyed(fixture.app.handle(), "a");
-    crate::window_destroyed(fixture.app.handle(), "never-existed");
-    assert!(invoke(&b, "list", json!({ "session": b_session })).is_ok());
-}
-
-#[test]
-fn a_stale_webview_handle_neither_joins_nor_ends_another_webviews_sessions() {
-    // Two real webviews, each with the identity the webview-ready hook gave
-    // it. The mock manager keeps a destroyed window's entry, so the second
-    // cannot be built under the first one's label here; the same-label case
-    // is exercised on the identity objects in the test after this one.
-    let fixture = fixture("stale-handle", &["old", "successor"]);
-    let old = window(&fixture.app, "old");
-    let old_session = attach(&old);
-    old.as_ref().close().unwrap();
-    crate::window_destroyed(fixture.app.handle(), "old");
-    let successor = window(&fixture.app, "successor");
-    let session = attach(&successor);
-    apply(
-        &successor,
-        session,
-        json!([create("new.md", "from the new window")]),
-    )
-    .unwrap();
-
-    // A request the old page sent before it died is only now delivered. It
-    // arrives on the old webview handle, whose own instance has ended.
-    assert_eq!(
-        invoke(
-            &old,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL })
-        )
-        .unwrap_err(),
-        json!({ "name": "Unavailable", "message": "the page that was attaching is gone" })
-    );
-    assert_eq!(
-        invoke(
-            &old,
-            "read",
-            json!({ "session": old_session, "path": "new.md" })
-        )
-        .unwrap_err()["name"],
-        "Denied"
-    );
-    // A late page-load callback for the old webview ends nothing elsewhere,
-    // and neither does a repeated `Destroyed` for its window.
-    crate::commands::end_page(old.as_ref());
-    crate::window_destroyed(fixture.app.handle(), "old");
-    let read = invoke(
-        &successor,
-        "read",
-        json!({ "session": session, "path": "new.md" }),
-    )
-    .unwrap();
-    assert_eq!(read["bytes"], json!("from the new window".as_bytes()));
-    let registered = |window: &WebviewWindow<MockRuntime>| {
-        window
-            .as_ref()
-            .resources_table()
-            .names()
-            .filter(|(_, name)| name == "epicenter-folder-session")
-            .count()
-    };
-    assert_eq!(registered(&successor), 1);
-}
-
-#[test]
-fn a_window_recreated_under_the_same_label_is_a_separate_instance() {
-    use crate::lifecycle::{Lifecycles, Live, SessionState};
-    use epicenter_folder_core::registry::Registry;
-
-    // Real sessions on a real folder; the identity objects are the ones the
-    // plugin keeps per webview. No webview is involved, because the mock
-    // runtime cannot hold two under one label.
-    let directory = temp("same-label");
-    let root = directory.0.join("notes");
-    std::fs::create_dir(&root).unwrap();
-    let registry = Registry::new();
-    registry
-        .register(ScopeConfig {
-            scope: "notes".to_string(),
-            folder: FolderConfig {
-                watch_events: false,
-                watch_interval: None,
-                ..FolderConfig::new(
-                    &root,
-                    Author {
-                        name: "Test Author".to_string(),
-                        email: "test@example.com".to_string(),
-                    },
-                )
-            },
-            windows: vec!["late".to_string()],
-        })
-        .unwrap();
-    let session_for = |instance: &Arc<crate::lifecycle::Instance>| {
-        let session = registry.attach("notes", "late").unwrap();
-        let subscription = session.authorize("late").unwrap().subscribe(|_| {});
-        SessionState::new(
-            instance,
-            Live {
-                session,
-                requests: Default::default(),
-                _subscription: subscription,
-            },
-        )
-    };
-    let live = |session: &Arc<SessionState>| session.owner("late").is_ok();
-
-    let lifecycles = Lifecycles::default();
-    // The first window labelled `late`, with a session and an attach in flight.
-    let old = lifecycles.created("late");
-    let old_page = old.page().unwrap();
-    let old_session = session_for(&old);
-    assert_eq!(old.register(old_page, &old_session, || ()), Some(()));
-    let in_flight = session_for(&old);
-
-    // It is destroyed, and a window is created again under the same label.
-    lifecycles.window_destroyed("late");
-    assert!(!live(&old_session));
-    let new = lifecycles.created("late");
-    let new_page = new.page().unwrap();
-    let new_session = session_for(&new);
-    assert_eq!(new.register(new_page, &new_session, || ()), Some(()));
-
-    // The old instance is over for good: the attach that was in flight, and
-    // one that only starts now on the old handle, both register nothing.
-    assert_eq!(old.page(), None);
-    assert_eq!(old.register(old_page, &in_flight, || ()), None);
-    assert_eq!(old.register(new_page, &in_flight, || ()), None);
-    // A late reload callback for the old instance ends nothing of the new one.
-    old.page_started();
-    assert!(live(&new_session));
-    assert_eq!(
-        new.page(),
-        Some(new_page),
-        "the new instance's page did not move"
-    );
-
-    // The new instance's own reload ends its own sessions and fences its own
-    // pending attach.
-    let pending = session_for(&new);
-    new.page_started();
-    assert!(!live(&new_session));
-    assert_eq!(new.register(new_page, &pending, || ()), None);
-    let reloaded = session_for(&new);
-    assert_eq!(
-        new.register(new.page().unwrap(), &reloaded, || ()),
-        Some(())
-    );
-
-    // `Destroyed` for the label now ends the new instance, and only then.
-    lifecycles.window_destroyed("late");
-    assert!(!live(&reloaded));
-    assert_eq!(new.page(), None);
-    registry.shutdown();
-}
-
-#[test]
-fn an_attach_that_finishes_after_its_window_was_destroyed_registers_nothing() {
-    let fixture = fixture("late-attach", &["late", "b"]);
-    let late = window(&fixture.app, "late");
-    let b = window(&fixture.app, "b");
-    let b_session = attach(&b);
-
-    // The first attach from `late` is held after the folder opened.
-    let (at_hook, release) = hold_first_attach("late");
-
-    std::thread::scope(|scope| {
-        let in_flight = scope.spawn(|| {
-            invoke(
-                &late,
-                "attach",
-                json!({ "scope": "notes", "protocol": PROTOCOL }),
-            )
-        });
-        at_hook.recv().unwrap();
-
-        // Its window is destroyed, manager first, as in the app's event loop.
-        late.as_ref().close().unwrap();
-        crate::window_destroyed(fixture.app.handle(), "late");
-
-        // The old attach finishes now. Its webview's instance has ended.
-        release.send(()).unwrap();
-        let refused = in_flight.join().unwrap().unwrap_err();
-        assert_eq!(
-            refused,
-            json!({ "name": "Unavailable", "message": "the page that was attaching is gone" })
-        );
-        // It registered nothing in the webview it still held.
-        let sessions = late
-            .as_ref()
-            .resources_table()
-            .names()
-            .filter(|(_, name)| name == "epicenter-folder-session")
-            .count();
-        assert_eq!(sessions, 0);
-        // The folder it opened stays open for the window that is still there.
-        assert!(invoke(&b, "list", json!({ "session": b_session })).is_ok());
-    });
-
-    // An attach that only starts now on the old handle is refused as well.
-    assert_eq!(
-        invoke(
-            &late,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL })
-        )
-        .unwrap_err(),
-        json!({ "name": "Unavailable", "message": "the page that was attaching is gone" })
-    );
-}
-
-#[test]
-fn a_reload_fences_an_attach_in_flight_for_the_old_page() {
-    let fixture = fixture("reload-attach", &["reloading"]);
-    let page = window(&fixture.app, "reloading");
-    let (at_hook, release) = hold_first_attach("reloading");
-
-    std::thread::scope(|scope| {
-        let in_flight = scope.spawn(|| {
-            invoke(
-                &page,
-                "attach",
-                json!({ "scope": "notes", "protocol": PROTOCOL }),
-            )
-        });
-        at_hook.recv().unwrap();
-        // The page-load hook's body, for a reload of the same webview.
-        crate::commands::end_page(page.as_ref());
-        let new_session = attach(&page);
-        release.send(()).unwrap();
-        assert_eq!(
-            in_flight.join().unwrap().unwrap_err()["name"],
-            "Unavailable"
-        );
-        assert!(invoke(&page, "list", json!({ "session": new_session })).is_ok());
-    });
-}
-
-/// Runs inside `end_page` for one webview label, after the page advanced and
-/// before the old page's table entries are removed.
-static PAGE_HOOKS: Mutex<Vec<(String, AttachHook)>> = Mutex::new(Vec::new());
-
-pub(crate) fn page_advanced(label: &str) {
-    let hook = PAGE_HOOKS
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(held, _)| held == label)
-        .map(|(_, hook)| Arc::clone(hook));
-    if let Some(hook) = hook {
-        hook();
-    }
-}
-
-#[test]
-fn a_session_the_new_page_attaches_during_reload_cleanup_survives_it() {
-    let fixture = fixture("reload-cleanup", &["reloading-cleanup"]);
-    let page = window(&fixture.app, "reloading-cleanup");
-    let old_session = attach(&page);
-
-    // The reload has advanced the page and ended the old page's sessions, and
-    // has not yet removed their table entries. The new page attaches here.
-    let new_session: Arc<Mutex<Option<u64>>> = Arc::default();
-    let attached = Arc::clone(&new_session);
-    let attaching = page.clone();
-    let once = std::sync::atomic::AtomicBool::new(true);
-    PAGE_HOOKS.lock().unwrap().push((
-        "reloading-cleanup".to_string(),
-        Arc::new(move || {
-            if once.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                *attached.lock().unwrap() = Some(attach(&attaching));
-            }
-        }),
-    ));
-    crate::commands::end_page(page.as_ref());
-
-    let new_session = new_session.lock().unwrap().expect("the new page attached");
-    assert_ne!(new_session, old_session);
-    // The new page's session is live and still in the table.
-    apply(
-        &page,
-        new_session,
-        json!([create("new.md", "from the new page")]),
-    )
-    .expect("the cleanup of the old page did not close the new page's session");
-    // The old page's session ended and its entry is gone.
-    assert_eq!(
-        invoke(&page, "list", json!({ "session": old_session })).unwrap_err(),
-        json!({
-            "name": "Denied",
-            "reason": "this window has no such folder session; attach first",
-        })
-    );
-    let registered = page
-        .as_ref()
-        .resources_table()
-        .names()
-        .filter(|(_, name)| name == "epicenter-folder-session")
-        .count();
-    assert_eq!(registered, 1, "only the new page's session remains");
-}
-
-/// A line-oriented bridge to the real invoke handler, for the TypeScript
-/// adapter's conformance tests in `packages/app/src/files/tauri-native.test.ts`.
-///
-/// Each stdin line is `{ id, window, cmd, args }`; each reply is one stdout
-/// line `FOLDER_BRIDGE { id, ok | err }`. Events a window receives are printed
-/// as `FOLDER_BRIDGE { event, window, payload }`. Requests run concurrently,
-/// as a page's would. Closing stdin shuts the folders down.
-/// `FOLDER_BRIDGE_REMOTE` names the URL the folder pushes to and fetches from.
-#[test]
-#[ignore = "run through packages/app/src/files/tauri-native.test.ts"]
-fn invoke_bridge() {
-    use std::io::{BufRead, Write};
-
-    fn emit(value: Value) {
-        let mut stdout = std::io::stdout().lock();
-        writeln!(stdout, "FOLDER_BRIDGE {value}").unwrap();
-        stdout.flush().unwrap();
-    }
-
-    let root = PathBuf::from(std::env::var("FOLDER_BRIDGE_ROOT").expect("the folder to open"));
-    std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
-    std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
-    let mut context = mock_context(noop_assets());
-    for command in COMMANDS {
-        context.runtime_authority_mut().__allow_command(
-            format!("plugin:epicenter-folder|{command}"),
-            ExecutionContext::Local,
-        );
-    }
+fn a_data_folder_is_never_created_or_given_a_nested_repository() {
+    let directory = temp("data-folder");
+    std::fs::create_dir(directory.0.join(".git")).unwrap();
+    let root = directory.0.join("vault");
     let app = mock_builder()
         .plugin(init())
-        .build(context)
+        .build(context())
         .expect("mock app");
     app.folders()
         .register(ScopeConfig {
             scope: "notes".to_string(),
-            folder: FolderConfig {
-                remote: std::env::var("FOLDER_BRIDGE_REMOTE")
-                    .ok()
-                    .map(|url| Remote {
-                        url,
-                        branch: "main".to_string(),
-                    }),
-                watch_events: false,
-                watch_interval: None,
-                ..FolderConfig::new(
-                    &root,
-                    Author {
-                        name: "Test Author".to_string(),
-                        email: "test@example.com".to_string(),
-                    },
-                )
-            },
-            windows: vec!["a".to_string(), "b".to_string()],
+            folder: FolderConfig::data(&root),
+            windows: vec!["main".to_string()],
         })
         .unwrap();
-    let windows: std::collections::BTreeMap<&str, WebviewWindow<MockRuntime>> =
-        ["a", "b", "intruder"]
+    let main = window(&app, "main");
+    assert_eq!(
+        grant(&main).unwrap_err(),
+        json!({ "name": "Missing", "root": root.to_str().unwrap() })
+    );
+    assert!(!root.exists());
+
+    std::fs::create_dir(&root).unwrap();
+    grant(&main).unwrap();
+    assert_eq!(
+        app.folders().granted_root("notes", "main").unwrap(),
+        std::fs::canonicalize(&root).unwrap()
+    );
+    assert!(app.folders().granted_root("notes", "other").is_err());
+    assert!(!root.join(".git").exists());
+    app.folders().shutdown();
+}
+
+/// Two windows of one scope save the same file over the version both read,
+/// at once. The shell checks and renames under the root's mutex, so exactly
+/// one save lands and the other is `stale`, whichever wins.
+#[test]
+fn two_windows_saving_one_file_over_the_same_version_publish_once() {
+    const ROUNDS: usize = 8;
+    let fixture = fixture("two-editors");
+    fixture.app.folders().permit("notes", "side").unwrap();
+    let main = window(&fixture.app, "main");
+    let side = window(&fixture.app, "side");
+    grant(&main).unwrap();
+    grant(&side).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
+    write(&fixture, &main, "a.md", "round 0\n").unwrap();
+    for round in 1..=ROUNDS {
+        let expected = sha256(format!("round {}\n", round - 1).as_bytes());
+        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let saves: Vec<_> = [&main, &side]
             .into_iter()
-            .map(|label| {
-                let created = window(&app, label);
-                for event in [
-                    "plugin:epicenter-folder:folder-snapshot-changed",
-                    "plugin:epicenter-folder:folder-files-changed",
-                ] {
-                    created.listen(event, move |received| {
-                        emit(json!({
-                            "event": event,
-                            "window": label,
-                            "payload": serde_json::from_str::<Value>(received.payload()).unwrap(),
-                        }));
-                    });
-                }
-                (label, created)
+            .map(|editor| {
+                let content = format!("round {round}\n{}\n", editor.label());
+                let (editor, start, expected) =
+                    (editor.clone(), std::sync::Arc::clone(&start), expected.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    let outcome = put(&editor, "a.md", Some(content.as_bytes()), Some(&expected));
+                    (content, outcome)
+                })
             })
             .collect();
-    emit(json!({ "ready": true }));
+        let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
+        let landed: Vec<_> = outcomes
+            .iter()
+            .filter(|(_, outcome)| *outcome == Ok(json!("landed")))
+            .collect();
+        assert_eq!(landed.len(), 1, "round {round}: {outcomes:?}");
+        let won = &landed[0].0;
+        assert_eq!(&std::fs::read_to_string(fixture.root.join("a.md")).unwrap(), won);
+        assert!(
+            outcomes.iter().any(|(_, outcome)| *outcome == Ok(json!("stale"))),
+            "round {round}: {outcomes:?}"
+        );
+        // The next round expects what landed, as an editor that read again
+        // after its `stale` would.
+        write(&fixture, &main, "a.md", &format!("round {round}\n")).unwrap();
+    }
+    assert_eq!(staged(&fixture), Vec::<String>::new());
+}
 
-    std::thread::scope(|scope| {
-        for line in std::io::stdin().lock().lines() {
-            let request: Value = serde_json::from_str(&line.unwrap()).expect("a JSON request");
-            let window = &windows[request["window"].as_str().expect("a window label")];
-            scope.spawn(move || {
-                let result = tauri::test::get_ipc_response(
-                    window,
-                    InvokeRequest {
-                        cmd: request["cmd"].as_str().expect("a command").to_string(),
-                        callback: CallbackFn(0),
-                        error: CallbackFn(1),
-                        url: "tauri://localhost".parse().unwrap(),
-                        body: InvokeBody::Json(request["args"].clone()),
-                        headers: Default::default(),
-                        invoke_key: INVOKE_KEY.to_string(),
-                    },
-                );
-                emit(match result {
-                    Ok(body) => {
-                        json!({ "id": request["id"], "ok": body.deserialize::<Value>().unwrap() })
-                    }
-                    Err(error) => json!({ "id": request["id"], "err": error }),
-                });
-            });
+/// The staged files left in the folder.
+fn staged(fixture: &Fixture) -> Vec<String> {
+    std::fs::read_dir(fixture.root.join(".git/epicenter/scratch"))
+        .map(|entries| {
+            entries
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn changes_land_under_the_root_and_never_in_git_state() {
+    let fixture = fixture("changes");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+
+    invoke(
+        &main,
+        "make_folder_directory",
+        json!({ "scope": "notes", "path": "notes/sub" }),
+    )
+    .unwrap();
+    assert!(fixture.root.join("notes/sub").is_dir());
+    assert_eq!(
+        invoke(&main, "remove_folder_directory", json!({ "scope": "notes", "path": "notes" }))
+            .unwrap_err(),
+        json!({ "name": "DirectoryNotEmpty", "path": "notes" })
+    );
+    put(&main, "notes/a.md", Some(b"first\n"), None).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("notes/a.md")).unwrap(),
+        "first\n"
+    );
+    assert_eq!(
+        put(&main, "notes/a.md", None, Some(&sha256(b"first\n"))).unwrap(),
+        "landed"
+    );
+    for path in ["notes/sub", "notes"] {
+        invoke(&main, "remove_folder_directory", json!({ "scope": "notes", "path": path }))
+            .unwrap();
+    }
+    assert!(!fixture.root.join("notes").exists());
+    assert_eq!(staged(&fixture), Vec::<String>::new());
+
+    // Git's private state and anything outside the root are refused.
+    for refused in [".git/config", "../outside.md", "/outside.md", "notes//a.md"] {
+        let answer = put(&main, refused, Some(b"x"), None).unwrap_err();
+        assert_eq!(answer["name"], "InvalidPath", "{refused}: {answer}");
+        assert_eq!(answer["path"], refused, "{answer}");
+    }
+    assert!(!fixture.root.join(".git/config").exists());
+    assert!(!fixture.root.parent().unwrap().join("outside.md").exists());
+}
+
+/// The lowercase hexadecimal SHA-256 the page computes.
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[test]
+fn a_save_lands_only_on_what_the_page_expected() {
+    let fixture = fixture("expected");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
+    assert_eq!(put(&main, "a.md", Some(b"first\n"), None).unwrap(), "landed");
+    assert_eq!(put(&main, "a.md", Some(b"again\n"), None).unwrap(), "stale");
+    let stale = sha256(b"stale\n");
+    assert_eq!(put(&main, "b.md", Some(b"b\n"), Some(&stale)).unwrap(), "stale");
+    assert_eq!(put(&main, "a.md", Some(b"mine\n"), Some(&stale)).unwrap(), "stale");
+    assert_eq!(put(&main, "a.md", None, Some(&stale)).unwrap(), "stale");
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+        "first\n"
+    );
+    assert!(!fixture.root.join("b.md").exists());
+    assert_eq!(
+        put(&main, "a.md", Some(b"second\n"), Some(&sha256(b"first\n"))).unwrap(),
+        "landed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+        "second\n"
+    );
+    // A directory where the file would be is refused by name.
+    std::fs::create_dir(fixture.root.join("todos")).unwrap();
+    assert_eq!(
+        put(&main, "todos", Some(b"x"), None).unwrap_err(),
+        json!({ "name": "NotAFile", "path": "todos" })
+    );
+    assert_eq!(
+        put(&main, "a.md/b.md", Some(b"x"), None).unwrap_err(),
+        json!({ "name": "NotADirectory", "path": "a.md" })
+    );
+    assert_eq!(staged(&fixture), Vec::<String>::new());
+}
+
+#[test]
+fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
+    let fixture = fixture("raw-write");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+
+    // Every byte value arrives as it is, and the path decodes whole: the
+    // headers encode every `/`, `.`, and space in it.
+    let bytes: Vec<u8> = (0..=255).collect();
+    assert_eq!(put(&main, "notes/all of it.bin", Some(&bytes), None).unwrap(), "landed");
+    assert_eq!(std::fs::read(fixture.root.join("notes/all of it.bin")).unwrap(), bytes);
+
+    // The bytes as a JSON array, Tauri's postMessage fallback, also land.
+    request(
+        &main,
+        "put_folder_file",
+        InvokeBody::Json(json!([0, 120, 255])),
+        put_headers("fallback.bin", false, None),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(fixture.root.join("fallback.bin")).unwrap(), vec![0, 120, 255]);
+
+    // Any other JSON body, or a header missing, is refused.
+    let json = request(
+        &main,
+        "put_folder_file",
+        InvokeBody::Json(json!({ "bytes": [1] })),
+        put_headers("refused.bin", false, None),
+    )
+    .unwrap_err();
+    assert!(text(&json["message"]).contains("raw body"), "{json}");
+    for header in ["remove", "scope", "path"] {
+        let mut headers = put_headers("refused.bin", false, None);
+        headers.remove(header);
+        let missing = request(&main, "put_folder_file", InvokeBody::Raw(b"x".to_vec()), headers)
+            .unwrap_err();
+        assert!(text(&missing["message"]).contains(header), "{missing}");
+    }
+    assert!(!fixture.root.join("refused.bin").exists());
+    assert_eq!(staged(&fixture), Vec::<String>::new());
+}
+
+#[test]
+fn storage_reaches_the_data_paths_of_the_granted_root_and_nothing_else() {
+    let fixture = fixture("reads");
+    let main = window(&fixture.app, "main");
+    // Nothing is read before a grant.
+    let early = invoke(&main, "list_folder", json!({ "scope": "notes" })).unwrap_err();
+    assert!(text(&early["message"]).contains("not been granted"), "{early}");
+    grant(&main).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
+    write(&fixture, &main, "todos/a.md", "first\n").unwrap();
+    std::fs::create_dir(fixture.root.join("empty")).unwrap();
+
+    let mut listed = invoke(&main, "list_folder", json!({ "scope": "notes" })).unwrap();
+    listed["directories"]
+        .as_array_mut()
+        .unwrap()
+        .sort_by_key(text);
+    assert_eq!(
+        listed,
+        json!({ "files": [{ "path": "todos/a.md", "size": 6 }], "directories": ["empty", "todos"] })
+    );
+    let mut top = children(&main, "notes", "").unwrap();
+    top["directories"]
+        .as_array_mut()
+        .unwrap()
+        .sort_by_key(text);
+    assert_eq!(top, json!({ "files": [], "directories": ["empty", "todos"] }));
+    assert_eq!(
+        children(&main, "notes", "todos").unwrap(),
+        json!({ "files": ["a.md"], "directories": [] })
+    );
+    assert_eq!(
+        children(&main, "notes", "todos/a.md").unwrap_err(),
+        json!({ "name": "NotADirectory", "path": "todos/a.md" })
+    );
+    // Every byte value arrives as it is, raw.
+    let bytes: Vec<u8> = (0..=255).collect();
+    std::fs::write(fixture.root.join("todos/all.bin"), &bytes).unwrap();
+    assert_eq!(read_file(&main, "notes", "todos/all.bin").unwrap(), bytes);
+    assert_eq!(
+        read_file(&main, "notes", "todos/b.md").unwrap_err(),
+        json!({ "name": "NotFound", "path": "todos/b.md" })
+    );
+    assert_eq!(
+        read_file(&main, "notes", "todos").unwrap_err(),
+        json!({ "name": "NotAFile", "path": "todos" })
+    );
+
+    // Git's own files, anything outside the root, and a sibling whose name
+    // extends it are refused.
+    let outside = fixture.root.parent().unwrap().join("outside.md");
+    std::fs::write(&outside, b"theirs").unwrap();
+    let root = fixture.root.to_str().unwrap().to_string();
+    for path in [
+        ".git/HEAD".to_string(),
+        "../outside.md".to_string(),
+        outside.to_str().unwrap().to_string(),
+        format!("{root}2/a.md"),
+        "todos/../../outside.md".to_string(),
+    ] {
+        assert_eq!(read_file(&main, "notes", &path).unwrap_err()["name"], "InvalidPath", "{path}");
+        assert_eq!(children(&main, "notes", &path).unwrap_err()["name"], "InvalidPath", "{path}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_path_through_a_link_or_naming_one_is_refused() {
+    let fixture = fixture("read-links");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    let elsewhere = fixture.root.parent().unwrap().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("secret.md"), b"theirs").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, fixture.root.join("todos")).unwrap();
+    std::os::unix::fs::symlink(elsewhere.join("secret.md"), fixture.root.join("a.md")).unwrap();
+
+    let link = |path: &str| {
+        json!({
+            "name": "InvalidPath",
+            "path": path,
+            "reason": "the path passes through a symbolic link",
+        })
+    };
+    for path in ["todos/secret.md", "a.md"] {
+        assert_eq!(read_file(&main, "notes", path).unwrap_err(), link(path));
+        assert_eq!(put(&main, path, Some(b"mine"), None).unwrap_err(), link(path));
+    }
+    assert_eq!(children(&main, "notes", "todos").unwrap_err(), link("todos"));
+    // A link is listed as a file, never followed.
+    let listed = children(&main, "notes", "").unwrap();
+    let mut files: Vec<String> = listed["files"].as_array().unwrap().iter().map(text).collect();
+    files.sort();
+    assert_eq!(files, ["a.md", "todos"]);
+    assert_eq!(std::fs::read(elsewhere.join("secret.md")).unwrap(), b"theirs");
+}
+
+#[test]
+fn two_windows_each_read_only_their_own_folder() {
+    let fixture = fixture("two-readers");
+    let other_root = fixture.root.parent().unwrap().join("other-notes");
+    fixture
+        .app
+        .folders()
+        .register(ScopeConfig {
+            scope: "other-notes".to_string(),
+            folder: FolderConfig::new(&other_root),
+            windows: vec!["other".to_string()],
+        })
+        .unwrap();
+    let main = window(&fixture.app, "main");
+    let other = window(&fixture.app, "other");
+    grant(&main).unwrap();
+    invoke(&other, "grant_directory", json!({ "scope": "other-notes" })).unwrap();
+    std::fs::write(fixture.root.join("mine.md"), b"main's").unwrap();
+    std::fs::write(other_root.join("mine.md"), b"other's").unwrap();
+
+    assert_eq!(read_file(&main, "notes", "mine.md").unwrap(), b"main's");
+    assert_eq!(read_file(&other, "other-notes", "mine.md").unwrap(), b"other's");
+    // Neither reaches the other's root by the other's scope.
+    assert!(text(&read_file(&main, "other-notes", "mine.md").unwrap_err())
+        .contains("WindowNotPermitted"));
+    assert!(text(&children(&other, "notes", "").unwrap_err()).contains("WindowNotPermitted"));
+}
+
+/// A save that stopped before its rename leaves its staged file. A grant
+/// removes the ones an hour old, and none younger, which another process's
+/// save may still be about to rename.
+#[test]
+fn a_grant_sweeps_staged_files_a_stopped_save_left() {
+    let fixture = fixture("sweep");
+    let scratch = fixture.root.join(".git/epicenter/scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let name = |made: u64| {
+        let mut digits = Vec::new();
+        let mut value = made;
+        while value > 0 {
+            digits.push(b"0123456789abcdefghijklmnopqrstuvwxyz"[(value % 36) as usize]);
+            value /= 36;
         }
-    });
-    app.folders().shutdown();
-    emit(json!({ "finished": true }));
+        digits.reverse();
+        format!("{}-0123456789abcdef0123456789abcdef-0", String::from_utf8(digits).unwrap())
+    };
+    let old = name(now - 2 * 60 * 60 * 1000);
+    let young = name(now - 60 * 1000);
+    for staged in [&old, &young] {
+        std::fs::write(scratch.join(staged), b"x").unwrap();
+    }
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    assert_eq!(staged(&fixture), [young]);
+}
+
+/// Before Tauri 2.12 a capability added at run time numbered its scopes from
+/// zero, so a grant that added one collided with a scope the app already
+/// had, and every read failed to deserialize its scope. A grant now adds
+/// nothing to the app's access control: here the app scopes a permission of
+/// another plugin, and the grant and its reads work as they do in any app.
+#[test]
+fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
+    let mut context = mock_context(noop_assets());
+    let permission = serde_json::from_value(json!({
+        "identifier": "allow-fetch",
+        "commands": { "allow": ["fetch"] },
+    }))
+    .unwrap();
+    let http = Manifest {
+        default_permission: None,
+        permissions: [("allow-fetch".to_string(), permission)].into(),
+        permission_sets: Default::default(),
+        global_scope_schema: None,
+    };
+    let acl = [("http".to_string(), http)].into();
+    let capability: Capability = serde_json::from_value(json!({
+        "identifier": "main",
+        "windows": ["main"],
+        "permissions": [
+            { "identifier": "http:allow-fetch", "allow": [{ "url": "https://example.com/*" }] },
+        ],
+    }))
+    .unwrap();
+    let resolved = Resolved::resolve(
+        &acl,
+        [("main".to_string(), capability)].into(),
+        Target::current(),
+    )
+    .unwrap();
+    assert!(!resolved.command_scope.is_empty(), "the app scopes a permission");
+    *context.runtime_authority_mut() = RuntimeAuthority::new(acl, resolved);
+    allow_plugin(&mut context);
+    let fixture = fixture_in("scoped-app", context);
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
+    assert_eq!(read_file(&main, "notes", "a.md").unwrap(), b"read");
+    assert_eq!(children(&main, "notes", "").unwrap()["files"], json!(["a.md"]));
+}
+
+#[test]
+fn after_shutdown_a_late_change_is_refused() {
+    let fixture = fixture("shutdown");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    write(&fixture, &main, "kv.json", "{}\n").unwrap();
+    fixture.app.folders().shutdown();
+    assert!(text(&write(&fixture, &main, "kv.json", "late\n").unwrap_err())
+        .contains("ShuttingDown"));
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),
+        "{}\n"
+    );
+    assert_eq!(grant(&main).unwrap_err(), json!({ "name": "ShuttingDown" }));
 }
 
 #[test]
 fn a_window_without_the_permission_cannot_call_the_plugin() {
-    let directory = temp("acl");
     let app = mock_builder()
         .plugin(init())
         .build(mock_context(noop_assets()))
         .unwrap();
     let main = window(&app, "main");
-    for (command, args) in [
-        ("attach", json!({ "scope": "notes", "protocol": PROTOCOL })),
-        ("recover_incoming", json!({ "session": 1 })),
-    ] {
-        let refused = invoke(&main, command, args).unwrap_err();
-        assert!(
-            refused
-                .as_str()
-                .is_some_and(|message| message.contains("not allowed")),
-            "{command}: {refused}"
-        );
+    for command in COMMANDS {
+        let refused = invoke(&main, command, json!({})).unwrap_err();
+        assert!(text(&refused).contains("not allowed"), "{command}: {refused}");
     }
-    drop(directory);
 }
 
-#[test]
-fn recovering_an_incoming_update_is_a_command_of_a_session_on_that_scope() {
-    let fixture = fixture("recover-scope", &["owner", "other"]);
-    let owner = window(&fixture.app, "owner");
-    let other = window(&fixture.app, "other");
-    let intruder = window(&fixture.app, "intruder");
-    let session = attach(&owner);
-    let other_session = attach(&other);
-    let recover = |window: &WebviewWindow<MockRuntime>, session: u64| {
-        invoke(window, "recover_incoming", json!({ "session": session }))
-    };
-
-    // Nothing is pending.
-    assert_eq!(
-        recover(&owner, session).unwrap(),
-        json!({ "status": "none" })
-    );
-
-    // A window naming a session it did not attach is denied, whether or not
-    // the scope lists it, and nothing is read or written for it.
-    let denied = json!({
-        "name": "Git",
-        "error": {
-            "name": "Denied",
-            "reason": "this window has no such folder session; attach first",
-        },
+/// The change events `window` hears: each one's scope and paths, `None` for
+/// everything.
+fn hear(window: &WebviewWindow<MockRuntime>) -> std::sync::mpsc::Receiver<(String, Option<Vec<String>>)> {
+    use tauri::Listener;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window.listen(crate::FOLDER_CHANGED_EVENT, move |event| {
+        let change: Value = serde_json::from_str(event.payload()).unwrap();
+        let paths = change["paths"].as_array().map(|paths| {
+            paths
+                .iter()
+                .map(|path| path.as_str().unwrap().to_string())
+                .collect()
+        });
+        let _ = sender.send((change["scope"].as_str().unwrap().to_string(), paths));
     });
-    assert_eq!(recover(&other, session).unwrap_err(), denied);
-    assert_eq!(recover(&intruder, session).unwrap_err(), denied);
-    assert_eq!(
-        invoke(
-            &intruder,
-            "attach",
-            json!({ "scope": "notes", "protocol": PROTOCOL })
-        )
-        .unwrap_err()["name"],
-        "WindowNotPermitted"
-    );
-
-    // A record the folder cannot read is reported to every session of the
-    // scope, refused by name, and never removed.
-    let record = fixture.root.join(".git/epicenter/incoming.json");
-    std::fs::create_dir_all(record.parent().unwrap()).unwrap();
-    std::fs::write(&record, "not a record").unwrap();
-    invoke(&owner, "status", json!({ "session": session })).unwrap();
-    for (window, session) in [(&owner, session), (&other, other_session)] {
-        let refused = recover(window, session).unwrap_err();
-        assert_eq!(refused["name"], "RecoveryRefused", "{refused}");
-        assert_eq!(refused["pending"]["state"], "unreadable", "{refused}");
-        assert_eq!(refused["paths"], json!([]));
-    }
-    assert!(record.exists());
-    let blocked = invoke(&other, "commit", json!({ "session": other_session })).unwrap();
-    assert_eq!(blocked["status"], "blocked", "{blocked}");
-    let attached = invoke(
-        &other,
-        "attach",
-        json!({ "scope": "notes", "protocol": PROTOCOL }),
-    )
-    .unwrap();
-    assert_eq!(
-        attached["snapshot"]["pendingIncoming"]["state"],
-        "unreadable"
-    );
+    receiver
 }
 
-/// The merge options are optional arguments: a request without them is the
-/// version 8 request it always was, and each one reaches the owner when sent.
-#[test]
-fn merge_options_are_optional_arguments_that_reach_the_owner() {
-    let directory = temp("merge-options");
-    let bare = directory.0.join("remote.git");
-    std::fs::create_dir(&bare).unwrap();
-    git(
-        &bare,
-        &["init", "--quiet", "--bare", "--initial-branch=main"],
-    );
-    // The remote's history shares no commit with the folder's.
-    let upstream = directory.0.join("upstream");
-    std::fs::create_dir(&upstream).unwrap();
-    git(&upstream, &["init", "--quiet", "--initial-branch=main"]);
-    std::fs::write(upstream.join("same.bin"), [0u8, 254, 9]).unwrap();
-    std::fs::write(upstream.join("theirs.md"), "theirs\n").unwrap();
-    git(&upstream, &["add", "--all"]);
-    git(
-        &upstream,
-        &[
-            "-c",
-            "user.name=Upstream",
-            "-c",
-            "user.email=upstream@example.com",
-            "commit",
-            "--quiet",
-            "-m",
-            "their root",
-        ],
-    );
-    git(
-        &upstream,
-        &["push", "--quiet", &bare.display().to_string(), "main"],
-    );
-    let remote = Remote {
-        url: bare.display().to_string(),
-        branch: "main".to_string(),
-    };
-    let fixture = fixture_in(directory, &["main"], Some(remote));
-    let main = window(&fixture.app, "main");
-    let session = attach(&main);
-    apply(
-        &main,
-        session,
-        json!([
-            { "kind": "create", "path": "same.bin", "bytes": [0, 255, 1] },
-            create("ours.md", "ours\n"),
-        ]),
-    )
-    .unwrap();
-    // The save's automatic commit, or this one if it gets there first.
-    invoke(&main, "commit", json!({ "session": session })).unwrap();
-    let ours = json!(git(&fixture.root, &["rev-parse", "HEAD"]));
-    let request = open_request(&main, session);
-    let theirs = invoke(
-        &main,
-        "fetch",
-        json!({ "session": session, "request": request }),
-    )
-    .unwrap()["oid"]
-        .clone();
-    let merge = |args: Value| invoke(&main, "merge_incoming", args).unwrap_err();
-    let conflicts = json!([{ "reason": "binary", "path": "same.bin" }]);
+/// Every path `changes` reports until each of `expected` has been reported.
+/// A batch names each path once, sorted. A report of everything on the way
+/// is allowed: the operating system may ask for a rescan at any time.
+fn until_heard(
+    changes: &std::sync::mpsc::Receiver<(String, Option<Vec<String>>)>,
+    expected: &[&str],
+) -> std::collections::BTreeSet<String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut heard = std::collections::BTreeSet::new();
+    while !expected.iter().all(|path| heard.contains(*path)) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let Ok((scope, paths)) = changes.recv_timeout(left) else {
+            panic!("heard {heard:?}, never all of {expected:?}");
+        };
+        assert_eq!(scope, "notes");
+        if let Some(paths) = paths {
+            assert!(paths.windows(2).all(|pair| pair[0] < pair[1]), "{paths:?}");
+            heard.extend(paths);
+        }
+    }
+    heard
+}
 
-    // Neither option: unrelated histories are refused.
+/// Give a new watch a moment to start before the disk changes under it.
+fn settle() {
+    std::thread::sleep(std::time::Duration::from_millis(300));
+}
+
+/// ADR-0548: from its first grant a folder is watched, and every window
+/// permitted into its scope, then or later, hears what changed outside it,
+/// relative to the root, and no other window hears anything. Watching
+/// begins with a report of everything.
+#[test]
+fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
+    let fixture = fixture("watch");
+    let main = window(&fixture.app, "main");
+    let other = window(&fixture.app, "other");
+    let side = window(&fixture.app, "side");
+    let main_hears = hear(&main);
+    let other_hears = hear(&other);
+    let side_hears = hear(&side);
+
+    grant(&main).unwrap();
     assert_eq!(
-        merge(json!({ "session": session })),
-        json!({ "name": "UnsupportedHistory", "head": ours, "fetched": theirs, "bases": 0 })
+        main_hears.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+        ("notes".to_string(), None)
     );
-    // Consent and versions: the two-sided addition conflicts, with the exact
-    // committed bytes of each side.
+    // A reloaded page's grant does not start a second watch.
+    grant(&main).unwrap();
+    settle();
+
+    let root = &fixture.root;
+    std::fs::create_dir_all(root.join("todos")).unwrap();
+    std::fs::write(root.join("todos/a.md"), "a\n").unwrap();
+    std::fs::write(root.join("todos/b.md"), "b\n").unwrap();
+    until_heard(&main_hears, &["todos/a.md", "todos/b.md"]);
+    std::fs::write(root.join("todos/a.md"), "a, changed\n").unwrap();
+    until_heard(&main_hears, &["todos/a.md"]);
+    std::fs::rename(root.join("todos/b.md"), root.join("todos/c.md")).unwrap();
+    until_heard(&main_hears, &["todos/b.md", "todos/c.md"]);
+    std::fs::remove_file(root.join("todos/c.md")).unwrap();
+    until_heard(&main_hears, &["todos/c.md"]);
+
+    // A save through the plugin, before the folder has a repository, stages
+    // in `.git/epicenter/scratch`. The saved path is reported, and `.git`
+    // once for the directory the save made; the staged file is not.
+    settle();
+    while main_hears.try_recv().is_ok() {}
+    write(&fixture, &main, "kv.json", "{}\n").unwrap();
+    let heard = until_heard(&main_hears, &["kv.json"]);
+    assert!(
+        heard.iter().all(|path| path == "kv.json" || path == ".git"),
+        "{heard:?}"
+    );
+
+    // A window permitted later hears what changes from then on.
+    fixture.app.folders().permit("notes", "side").unwrap();
+    std::fs::write(root.join("todos/d.md"), "d\n").unwrap();
+    until_heard(&side_hears, &["todos/d.md"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(other_hears.try_recv().is_err(), "a window outside the scope heard a change");
+    fixture.app.folders().shutdown();
+}
+
+/// Inside `.git`, a ref moving is reported as the one path `.git`, and Git's
+/// objects, index, and logs are not reported at all.
+#[test]
+fn the_folder_watcher_reports_history_moving_and_not_gits_own_noise() {
+    let fixture = fixture("watch-git");
+    let main = window(&fixture.app, "main");
+    let main_hears = hear(&main);
+    grant(&main).unwrap();
+    settle();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
+    std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
+    until_heard(&main_hears, &[".git", "a.md"]);
+    settle();
+    while main_hears.try_recv().is_ok() {}
+
+    // Staging writes objects and the index, which move no history.
+    let git_in_root = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+            .args(args)
+            .current_dir(&fixture.root)
+            .status()
+            .unwrap();
+        assert!(status.success(), "{args:?}");
+    };
+    git_in_root(&["add", "a.md"]);
+    assert!(
+        main_hears
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .is_err(),
+        "staging reported a change"
+    );
+
+    // A commit moves the branch: history, and nothing else.
+    git_in_root(&["commit", "--quiet", "-m", "first"]);
     assert_eq!(
-        merge(json!({
-            "session": session,
-            "allowUnrelatedHistories": true,
-            "versions": true,
-        })),
-        json!({
-            "name": "Conflicted",
-            "conflicts": conflicts,
-            "versions": [{ "path": "same.bin", "ours": [0, 255, 1], "theirs": [0, 254, 9] }],
-        })
+        until_heard(&main_hears, &[".git"]).into_iter().collect::<Vec<_>>(),
+        [".git"]
     );
-    // `null` is `false`: consent alone refuses the conflict without bytes.
-    assert_eq!(
-        merge(json!({
-            "session": session,
-            "allowUnrelatedHistories": true,
-            "versions": null,
-        })),
-        json!({ "name": "Conflicted", "conflicts": conflicts, "versions": null })
-    );
-    // Nothing was written, and the snapshot carries no bytes.
-    assert_eq!(
-        git(&fixture.root, &["rev-parse", "main"]),
-        ours.as_str().unwrap()
-    );
-    assert!(!fixture.root.join("theirs.md").exists());
-    assert_eq!(
-        std::fs::read(fixture.root.join("same.bin")).unwrap(),
-        [0u8, 255, 1]
-    );
-    let reattached = invoke(
-        &main,
-        "attach",
-        json!({ "scope": "notes", "protocol": PROTOCOL }),
-    )
-    .unwrap();
-    assert_eq!(
-        reattached["snapshot"]["lastMerge"]["result"],
-        json!({
-            "status": "err",
-            "error": { "name": "Conflicted", "conflicts": conflicts, "versions": null },
-        })
-    );
+    fixture.app.folders().shutdown();
 }

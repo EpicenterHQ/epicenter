@@ -1,29 +1,27 @@
 {
 	"name": "@epicenter/todos",
-	"description": "File-first todos: Markdown rows, browser Git history, and a folder terminal",
+	"description": "File-first todos: Markdown rows and Git history",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"exports": {
+		"./definition": "./src/lib/definition.ts"
+	},
 	"imports": {
-		"#platform/folder": {
-			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
-			"default": "./src/lib/platform/folder.browser.ts"
-		},
-		"#platform/departure": {
-			"epicenter-host": "./src/lib/platform/departure.epicenter-host.ts",
-			"default": "./src/lib/platform/departure.browser.ts"
+		"#platform/auth": {
+			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
+			"default": "./src/lib/platform/auth.browser.ts"
 		}
 	},
 	"scripts": {
 		"dev": "bun scripts/dev.ts",
 		"dev:ui": "vite dev",
-		"dev:git": "bun server/git-server.ts",
-		"native": "bun run --cwd ../../packages/folder build:addon && bun scripts/native.ts",
+		"native": "bun scripts/native.ts",
 		"build": "NODE_ENV=production vite build",
-		"build:epicenter": "EPICENTER_HOST=1 bun run build",
+		"build:installed": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun run --cwd ../../packages/folder build:addon && bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
+		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte mounted.test",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && tsc -p tsconfig.scripts.json"
 	},
@@ -45,11 +43,16 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/constants": "workspace:*",
 		"@epicenter/epicenter": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
+		"@tanstack/query-core": "catalog:",
+		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"buffer": "^6.0.3",
+		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"

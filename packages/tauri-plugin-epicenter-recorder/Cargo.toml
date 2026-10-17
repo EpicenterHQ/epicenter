@@ -1,0 +1,52 @@
+[package]
+name = "tauri-plugin-epicenter-recorder"
+version = "0.0.1"
+description = "The desktop shell's microphone recorder, which writes a recording into its folder from the moment it starts"
+authors = ["Epicenter"]
+repository = "https://github.com/EpicenterHQ/epicenter"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+links = "tauri-plugin-epicenter-recorder"
+
+[workspace]
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+# The folder a recording is written into: the granted root and the shared path rule.
+epicenter-folder-core = { path = "../tauri-plugin-epicenter-folder/core" }
+tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
+cpal = "0.18.1"
+hound = "3.5"
+# Converts the microphone's own rate to the recording's 16 kHz; the shell's decoder uses the same crate.
+rubato = "0.15"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+specta = "=2.0.0-rc.26"
+specta-typescript = "=0.0.13"
+tauri = "2.12"
+tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
+thiserror = "2.0.12"
+
+# Microphone access: `permission.rs` reads and requests it through AVFoundation.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6"
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+# The mock runtime drives the real invoke handler in tests. Test builds only.
+tauri = { version = "2.12", features = ["test"] }
+
+# The same pins as apps/epicenter/src-tauri/Cargo.toml. They apply when this
+# crate is built on its own; a shell that depends on it carries its own copy.
+[patch.crates-io]
+specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
+specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }

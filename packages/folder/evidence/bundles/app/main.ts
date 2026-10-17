@@ -11,17 +11,14 @@ import {
 } from '@epicenter/folder';
 
 const definition = defineFolder({
-	kv: {},
 	tables: { notes: defineTable({ fields: { title: field.string() } }) },
 });
 
 export async function start() {
 	const { data: folder, error: openError } = await openFolder({
-		id: 'so.epicenter.bundlefixture',
+		app: 'so.epicenter.bundlefixture',
 		definition,
 	});
 	if (openError !== null) return openError.name;
-	const terminal = folder.terminal();
-	await terminal.exec('ls');
 	return folder.location.kind;
 }

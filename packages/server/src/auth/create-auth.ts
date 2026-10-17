@@ -6,7 +6,7 @@ import {
 	type User,
 } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import type { Db } from '../db/create-db.js';
 import * as schema from '../db/schema/index.js';
 import {
 	APPLE_AUDIENCE,
@@ -14,18 +14,19 @@ import {
 } from './apple-client-secret.js';
 import { BASE_AUTH_CONFIG } from './base-config.js';
 import { createCookieAdvancedConfig } from './cookie-config.js';
-import { authPlugins } from './plugins.js';
+import {
+	authPlugins,
+	type OAuthServerConfig,
+	oauthServerPlugins,
+} from './plugins.js';
 import { requireAccountSession, SESSION_POLICY } from './session-policy.js';
-
-type Db = NodePgDatabase<typeof schema>;
 
 /**
  * The cloud-only auth env, as BOTH an arktype schema and its inferred type, and
  * the single SSOT for the relational-auth layer's secrets. It lives beside its
  * reader (cloud-only, reached only through `createCloudContextMiddleware`), NOT in the portable
- * {@link ServerBindings}: the relational-auth substrate is a Cloud-only layer, so
- * its env contract is too, and the single-partition instance's env never inherits
- * secrets it does not read (ADR-0076). The cloud threads it onto
+ * {@link ServerBindings}, so the route library never reads an auth secret. The
+ * cloud threads it onto
  * `createAuth` through `createCloudContextMiddleware` from its own deploy-gated env, the
  * same honest-edge move every Cloudflare-only binding already makes (ADR-0066),
  * so this builder can resolve provider credentials once rather than scattering
@@ -113,25 +114,31 @@ export function configuredProviders(env: CloudAuthBindings) {
  * - Drizzle adapter (portable Postgres wire; Hyperdrive on Workers, a pool on Node)
  * - Google OAuth, plus GitHub, Microsoft, and Apple when their credentials are
  *   configured (email/password is disabled; see {@link BASE_AUTH_CONFIG})
- * - Plugins: signed session bearer, PKCE session handoff, passkey (WebAuthn)
+ * - Plugins: passkey (WebAuthn) and the OAuth 2.1 authorization server
+ *   (ADR-0549); a session is only the authorization server's own cookie
  *
- * `/api/session` is the single Epicenter session surface; this builder no longer
- * enriches `/auth/get-session` with encryption keys.
+ * An app reads its account from the provider's `/auth/oauth2/userinfo`; this
+ * builder does not enrich `/auth/get-session`.
  */
 export function createAuth({
 	db,
 	env,
 	baseURL,
 	trustedOrigins,
-	sessionCallbacks = [],
+	oauth,
 }: {
 	db: Db;
 	env: CloudAuthBindings;
 	baseURL: string;
 	/** Deployment-supplied trusted origins (CORS, CSRF, redirect allow-list). */
 	trustedOrigins: string[];
-	/** Exact callbacks approved by this deployment, independent of CORS trust. */
-	sessionCallbacks?: readonly string[];
+	/**
+	 * The authorization server's audiences.
+	 * Only the `/auth/*` routes compose it: the provider seeds its resources
+	 * when an instance initializes, and a Worker builds one per request, so a
+	 * route that only resolves a session must not pay those reads.
+	 */
+	oauth?: Omit<OAuthServerConfig, 'db'>;
 }) {
 	// Better Auth signs session credentials and OAuth state with this secret. Handed
 	// an empty or missing one, the library silently falls back to its PUBLIC default
@@ -177,9 +184,7 @@ export function createAuth({
 		// Each provider is registered only when its credentials are configured.
 		// The hosted apps/api deployable requires the four providers its static UI
 		// shows, while this shared builder keeps the lower-level register-when-present
-		// behavior. The single-partition instance offers none: it composes no Better
-		// Auth at all (this builder is cloud-only, reached only through
-		// `createCloudContextMiddleware`), and the operator bearer is its only gate (ADR-0075).
+		// behavior.
 		// better-auth requests `read:user` +
 		// `user:email` for GitHub by default, so it reads the primary email and
 		// GitHub's verification flag. GitHub is deliberately NOT a trusted linking
@@ -214,8 +219,9 @@ export function createAuth({
 		session: SESSION_POLICY,
 		// Cookie transport for browser clients: host-only, SameSite=Lax
 		// everywhere (non-secure on localhost so the Vite `/auth` proxy works).
-		// Hosted sign-in uses cookies; dashboard management and application data
-		// use captured session bearers. No cross-subdomain cookie is needed.
+		// The cookie is the authorization server's own: sign-in, consent, device
+		// approval, and account management on this origin. Every other client
+		// holds access tokens (ADR-0549). No cross-subdomain cookie is needed.
 		//
 		// NOTE: We intentionally omit `partitioned: true` (CHIPS).
 		// Partitioned cookies are keyed by the top-level site at creation
@@ -238,12 +244,15 @@ export function createAuth({
 		// "memory", so on the Worker each isolate keeps its own counters.
 		// Acceptable here because email/password is disabled and social OAuth is
 		// the only sign-in path (see BASE_AUTH_CONFIG), so there is no password
-		// brute-force surface a shared counter would protect; a single self-host
+		// brute-force surface a shared counter would protect; the single Bun
 		// process gets exact in-memory limiting for free. Upgrade trigger: add a
 		// `rateLimit` table to the schema and set `storage: 'database'` if
 		// durable, shared limiting is ever needed.
 		rateLimit: { storage: 'memory' },
-		plugins: authPlugins(baseURL, sessionCallbacks),
+		plugins: [
+			...authPlugins(baseURL),
+			...(oauth ? oauthServerPlugins({ ...oauth, db }) : []),
+		],
 		hooks: {
 			before: requireAccountSession(
 				(headers): Promise<{ session: Session; user: User } | null> =>

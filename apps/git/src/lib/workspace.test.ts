@@ -1,11 +1,13 @@
 /**
  * Working-copy editor regressions over a real browser folder and held OPFS writes.
- * Concurrent save waiters share writes, file switches wait for saves, and outside
- * changes cannot replace typed input or silently resolve a failed conditional save.
- * Two copies on one remote sync: a competing line waits for a modal review that
- * locks the editor, Cancel forgets it, and an applied choice reaches the remote.
+ * Concurrent save waiters share writes, file switches wait for saves, and another
+ * page's change rereads a clean editor but never replaces typed input: the save
+ * merges with it, and the typed text wins the lines both changed.
+ * Two copies on one remote sync: a line both changed goes to the copy that
+ * syncs, the merge commit names what lost, and the other copy receives it.
  */
 import { afterEach, expect, test } from 'bun:test';
+import { openFolder } from '@epicenter/folder';
 import { compileModule } from 'svelte/compiler';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -42,12 +44,14 @@ const originalHandle = Object.getOwnPropertyDescriptor(
 	'FileSystemFileHandle',
 );
 const opened: Awaited<ReturnType<typeof openWorkingCopy>>[] = [];
+const others: { close(): Promise<void> }[] = [];
 
 afterEach(async () => {
 	for (const workspace of opened.splice(0)) {
 		await workspace.useSavedText();
 		await workspace.close();
 	}
+	for (const folder of others.splice(0)) await folder.close();
 	if (originalNavigator)
 		Object.defineProperty(globalThis, 'navigator', originalNavigator);
 	else Reflect.deleteProperty(globalThis, 'navigator');
@@ -69,15 +73,32 @@ async function setup() {
 		configurable: true,
 		value: class {
 			createWritable() {}
+			move() {}
 		},
 	});
 	const workspace = await openWorkingCopy('a', '');
 	opened.push(workspace);
-	expectOk(await workspace.folder.files.create('a.txt', 'original\n'));
-	expectOk(await workspace.folder.files.create('b.txt', 'other\n'));
-	await workspace.refresh();
+	expectOk(await workspace.folder.write('a.txt', null, 'original\n'));
+	expectOk(await workspace.folder.write('b.txt', null, 'other\n'));
 	await workspace.select('a.txt');
 	return { workspace, opfs };
+}
+
+/** Another page's handle on the same copy: its writes reach the workspace as change reports. */
+async function elsewhere(workspace: (typeof opened)[number]) {
+	const { location } = workspace.folder;
+	if (location.kind !== 'opfs') throw new Error('Expected a browser copy');
+	const opened = await openFolder({ id: location.directory });
+	if (opened.error !== null) throw new Error(opened.error.message);
+	others.push(opened.data);
+	return opened.data;
+}
+
+async function until(check: () => boolean) {
+	for (let waited = 0; !check(); waited += 5) {
+		if (waited > 2000) throw new Error('Timed out waiting for a change report');
+		await Bun.sleep(5);
+	}
 }
 
 function holdNextWrite(opfs: ReturnType<typeof memoryOpfs>) {
@@ -100,6 +121,35 @@ function holdNextWrite(opfs: ReturnType<typeof memoryOpfs>) {
 		},
 	};
 }
+
+test('a copy keeps its own epicenter.json: saves and commits never write it, and reopening reads its tables', async () => {
+	const { workspace } = await setup();
+	// Hand-formatted, as no publication would write it.
+	const declared =
+		'{"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"}}}}}';
+	const read = async (folder: typeof workspace.folder) =>
+		new TextDecoder().decode(
+			expectOk(await folder.files.read('epicenter.json')).bytes,
+		);
+	expectOk(await workspace.folder.write('epicenter.json', null, declared));
+	workspace.input('edited\n');
+	await workspace.flush();
+	await workspace.commit();
+	expect(workspace.snapshot.lastCommit?.status).toBe('committed');
+	expect(await read(workspace.folder)).toBe(declared);
+	// Opened before the declaration existed, this handle has no tables.
+	expect(workspace.folder.definition.tables).toEqual({});
+
+	await workspace.close();
+	opened.splice(opened.indexOf(workspace), 1);
+	const again = await openWorkingCopy('a', '');
+	opened.push(again);
+	expect(Object.keys(again.folder.definition.tables)).toEqual(['notes']);
+	await again.select('a.txt');
+	again.input('edited again\n');
+	await again.flush();
+	expect(await read(again.folder)).toBe(declared);
+});
 
 test('concurrent flush waiters share the write of newer input', async () => {
 	const { workspace, opfs } = await setup();
@@ -140,74 +190,62 @@ test('switching files waits through the active save and newer input', async () =
 	expect(workspace.buffer).toBe('other\n');
 });
 
-test('outside changes preserve typed text and block switching until an explicit choice', async () => {
+/** Make `path` of `folder` hold `content`, whatever is there. */
+async function put(
+	folder: Awaited<ReturnType<typeof elsewhere>>,
+	path: string,
+	content: string,
+) {
+	const current = await folder.files.read(path);
+	return expectOk(
+		await folder.write(
+			path,
+			current.error === null ? current.data.bytes : null,
+			content,
+		),
+	);
+}
+
+const fileText = async (workspace: (typeof opened)[number], path: string) =>
+	new TextDecoder().decode(
+		expectOk(await workspace.folder.files.read(path)).bytes,
+	);
+
+test('a change from another page rereads a clean editor; typed text merges with it and wins the lines both changed', async () => {
 	const { workspace } = await setup();
-	workspace.input('my unsaved text\n');
-	expectOk(await workspace.folder.files.overwrite('a.txt', 'outside\n'));
-	await workspace.refresh();
-	expect(workspace.buffer).toBe('my unsaved text\n');
-	await expect(workspace.select('b.txt')).rejects.toThrow();
-	expect(workspace.selected).toBe('a.txt');
-	expect(workspace.dirty).toBe(true);
-	expect(workspace.saveMessage).toContain('captured SHA-256');
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('a.txt')).bytes,
-		),
-	).toBe('outside\n');
-	await workspace.keepMyText();
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('a.txt')).bytes,
-		),
-	).toBe('my unsaved text\n');
+	const other = await elsewhere(workspace);
+	await put(other, 'a.txt', 'first outside\n');
+	await until(() => workspace.buffer === 'first outside\n');
 	expect(workspace.dirty).toBe(false);
+
+	workspace.input('my unsaved text\n');
+	await put(other, 'a.txt', 'outside\n');
+	expectOk(await other.write('c.txt', null, ''));
+	await until(() =>
+		workspace.listing.files.some((file) => file.path === 'c.txt'),
+	);
+	expect(workspace.buffer).toBe('my unsaved text\n');
+	// Both changed the one line: the typed text stands.
+	await workspace.flush();
+	expect(workspace.dirty).toBe(false);
+	expect(workspace.buffer).toBe('my unsaved text\n');
+	expect(await fileText(workspace, 'a.txt')).toBe('my unsaved text\n');
 });
 
-test('discarding failed input reloads the current saved text and clean deletion closes editing', async () => {
+test('a save of a file deleted elsewhere fails and keeps the text; discarding it closes editing', async () => {
 	const { workspace } = await setup();
 	workspace.input('my text\n');
-	const external = expectOk(
-		await workspace.folder.files.overwrite('a.txt', 'outside\n'),
-	);
+	const other = await elsewhere(workspace);
+	expectOk(await other.write('a.txt', null, null));
 	await expect(workspace.flush()).rejects.toThrow();
+	expect(workspace.buffer).toBe('my text\n');
+	expect(workspace.dirty).toBe(true);
 	await workspace.useSavedText();
-	expect(workspace.buffer).toBe('outside\n');
-	expect(workspace.dirty).toBe(false);
-	expectOk(await workspace.folder.files.remove(external));
-	await workspace.refresh();
 	expect(workspace.editable).toBe(false);
 	expect(workspace.saveMessage).toContain('No file');
 });
 
-test('switching during explicit replacement keeps its receipt on the original file', async () => {
-	const { workspace, opfs } = await setup();
-	workspace.input('my repair\n');
-	expectOk(await workspace.folder.files.overwrite('a.txt', 'outside\n'));
-	await expect(workspace.flush()).rejects.toThrow();
-	const hold = holdNextWrite(opfs);
-	const replacing = workspace.keepMyText();
-	await hold.started;
-	const selecting = workspace.select('b.txt');
-	hold.release();
-	await Promise.all([replacing, selecting]);
-	expect(workspace.selected).toBe('b.txt');
-	expect(workspace.buffer).toBe('other\n');
-	workspace.input('edit b\n');
-	await workspace.flush();
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('a.txt')).bytes,
-		),
-	).toBe('my repair\n');
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('b.txt')).bytes,
-		),
-	).toBe('edit b\n');
-});
-
-test('two copies sync; a competing line waits for a modal review that Cancel forgets', async () => {
+test('two copies sync; a line both changed goes to the copy that syncs, and the other receives it', async () => {
 	const { workspace: unused } = await setup();
 	void unused;
 	const root = await scratch('git-lab-sync-');
@@ -218,7 +256,7 @@ test('two copies sync; a competing line waits for a modal review that Cancel for
 		const remote = 'http://git.test/remote.git';
 		const a = await openWorkingCopy('a', remote);
 		opened.push(a);
-		expectOk(await a.folder.files.create('notes/color.txt', 'color=blue\n'));
+		expectOk(await a.folder.write('notes/color.txt', null, 'color=blue\n'));
 		await a.sync();
 		const b = await openWorkingCopy('b', remote);
 		opened.push(b);
@@ -231,27 +269,14 @@ test('two copies sync; a competing line waits for a modal review that Cancel for
 		await a.sync();
 		b.input('color=green\n');
 		await b.sync();
-		const attempt = b.syncs.attempt;
-		expect(
-			attempt?.conflicts.map(({ kind, path }) => ({ kind, path })),
-		).toEqual([{ kind: 'file', path: 'notes/color.txt' }]);
-		expect(b.locked).toBe(true);
-		b.input('typed during the review\n');
-		expect(b.buffer).toBe('color=green\n');
-
-		b.syncs.cancel();
-		expect(b.syncs.attempt).toBeUndefined();
-		expect(b.locked).toBe(false);
-
-		await b.sync();
-		const again = b.syncs.attempt;
-		if (again === undefined) throw new Error('Expected a review');
-		await b.applySync(again, {
-			[again.conflicts[0]!.id]: { kind: 'take', side: 'local' },
-		});
-		expect(b.syncs.attempt).toBeUndefined();
-		expect(await git(bare, 'show', 'main:notes/color.txt')).toBe('color=green');
 		expect(b.output).toContain('Synced');
+		// B synced last: its line stands, and the merge names A's as lost.
+		expect(await git(bare, 'show', 'main:notes/color.txt')).toBe('color=green');
+		expect(await git(bare, 'log', '-1', '--format=%B', 'main')).toContain(
+			'Overrode:',
+		);
+		await a.sync();
+		expect(a.buffer).toBe('color=green\n');
 	} finally {
 		globalThis.fetch = originalFetch;
 	}

@@ -1,28 +1,31 @@
 <h1 align="center">Whispering</h1>
 <p align="center">Record → transcribe → transform → keep it all as files.</p>
 
-Whispering is a standalone desktop app for voice notes. It records audio,
+Whispering is an app for voice notes. It records audio,
 transcribes it with an OpenAI-compatible endpoint you choose, turns a transcript
 into another text with prompts you write, and keeps every recording, transcript,
 prompt, result, and setting as an ordinary file in one Git-versioned folder. It
-needs no account, no Epicenter desktop, and no hosted API.
+needs no account and no hosted API. On the desktop it is an app you install in
+Epicenter
+([ADR-0493](../../docs/adr/0493-whisperings-only-desktop-shell-is-epicenter.md),
+[ADR-0552](../../docs/adr/0552-every-app-is-installed-from-a-folder-in-any-git-repository.md));
+in a browser tab it keeps its folder in the browser's storage.
 
 This is a development milestone, not a release. Its voice-note workflow is launch, record,
 stop, save, play, transcribe, transform, inspect files and history, quit, reopen.
-Native verification results and remaining checks are recorded below. The
-current build's desktop window has not been checked by hand: recording
-publication as two separate saves is covered by tests, not yet by a desktop
-run. Dictating into other apps is not part
+The installed app has not been run in Epicenter by hand: recording into the
+folder through Epicenter's recorder, and transcription through Epicenter, are
+covered by tests, not yet by a desktop run. Dictating into other apps is not part
 of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ## The data folder
 
 ```text
-~/Epicenter/local/so.epicenter.whispering/
-├── kv.json                          transcription endpoint and model an earlier version saved; read, never written
+~/Epicenter/so.epicenter.whispering/
 ├── recordings/
-│   ├── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
-│   └── <recording-id>.<extension>   the audio that row names, with the extension its bytes call for
+│   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
+├── audio/
+│   └── <recording-id>.<extension>   the audio a row names, with the extension its bytes call for; never committed
 ├── transcriptions/
 │   └── <result-id>.md               names its recording in frontmatter; transcript in the body
 ├── transformations/
@@ -31,7 +34,8 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 │   └── <run-id>.md                  a result on a transcript: what it was made from and with; the result in the body
 ├── text_runs/
 │   └── <run-id>.md                  a result on pasted text you saved: what was sent and with what; the result in the body
-└── .git/                            ordinary Git: Markdown, kv.json, and audio bytes
+├── .gitignore                       names audio/, so the audio stays on the device that recorded it
+└── .git/                            ordinary Git: Markdown and .gitignore
 ```
 
 Opening the folder creates Git metadata. Where requests go is set up per
@@ -41,18 +45,25 @@ result files are created by explicit actions. A folder has no
 `transformations/` until you create a transformation, and no `text_runs/`
 until you save a result on pasted text.
 
-These files are the data. The app, the embedded terminal, and any other program
-edit the same paths; there is no export step and no second copy. Set
-`WHISPERING_DATA_ROOT` to use another directory, such as a disposable one for a
-test.
+These files are the data. The app and any other program edit the same paths;
+there is no export step and no second copy. In Epicenter the folder is
+`<folder root>/so.epicenter.whispering`; set `EPICENTER_FOLDER_DIR` when
+starting Epicenter to use another root, such as a disposable one for a test.
 
-A recording's ID is its file stem, set when the recording ends
+A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
-frontmatter and never moves a file. Audio is committed as real bytes. There is no
-LFS pointer and no LFS service.
+frontmatter and never moves a file. Audio is never committed: no commit the
+app makes carries a file under `audio/`, and one committed by an earlier build
+is removed from the index on the next commit, its file kept. Before its first
+write the app also adds `audio/` to the folder's `.gitignore`, keeping any
+lines already there, so plain `git` agrees; a `!` exception you add there does
+not get audio into the app's commits. A copy of the folder made with Git, such
+as a clone on another computer, has each recording's row, notes, and
+transcripts, and no audio. There a recording says "This recording's audio
+isn't on this device", and it cannot be played or transcribed.
 
 A recording's file names its audio in `audioPath`, such as
-`audioPath: recordings/20260102-030405-k3f9.wav`. That line is the only link
+`audioPath: audio/20260102-030405-k3f9.wav`. That line is the only link
 between the two files:
 
 - The app plays, transcribes, and lists only the file `audioPath` names. A file
@@ -67,52 +78,54 @@ between the two files:
 
 ## Run it
 
-From the repository root. Rust and Bun are required, and `git` must be on `PATH`.
+From the repository root, with Bun, and `git` on `PATH`.
 
 ```sh
-# The desktop app: builds the page and the host, then opens the window
+# The page alone in a browser tab, over a folder kept in the browser's OPFS
 bun dev:whispering
 
-# The same app against a disposable folder
-WHISPERING_DATA_ROOT=/tmp/whispering-demo bun dev:whispering
-
-# A release bundle: apps/whispering/src-tauri/target/release/bundle
-bun build:whispering
-
-# The page alone in a browser tab, over a folder kept in the browser's OPFS
-bun dev:whispering:ui
+# Epicenter, the desktop app Whispering installs into (needs Rust)
+bun dev:epicenter
 ```
 
-`bun dev:whispering` runs `tauri dev`. There is no hot reload: the page is built
-once and served by Whispering's host process. Use `bun dev:whispering:ui` for a
-fast UI loop.
+On the desktop, Whispering is an installed app (ADR-0552). In Epicenter's
+Folders window, choose "Install from a repository…", enter this repository's
+URL or local path, choose Whispering (`apps/whispering`) from the apps it
+lists, and approve the build. Epicenter clones the
+repository, builds each approved commit from a checkout of it alone
+(`bun install` at its root and `bun run build:installed` here), and serves
+that commit's `dist/` at `/apps/so.epicenter.whispering/<commit>/`. Opening Whispering
+from the Apps list opens its own folder, `so.epicenter.whispering`, under
+Epicenter's folder root. "Open in Whispering" beside another folder opens that
+folder through Whispering's definition, never rewriting its
+`epicenter.json`, and refuses one that lacks Whispering's tables, naming the
+folder. To try a change, run `epicenter app remove so.epicenter.whispering`
+(its data folder stays), install Whispering again from your own clone of the
+repository by its absolute path, commit there on the branch that was checked
+out when you installed, since Update fetches only that branch, then choose
+Update and approve the commit in the Folders window, and open the app again;
+a window already open keeps the build it opened on.
 
-The desktop app has three parts. The window's shell owns the data folder and
-is the only thing that saves to it or records its history. A host process
-serves the page, runs the terminal, and sends transcription and transformation
-requests. The page is the UI. The host cannot be run on its own: only the
-shell starts it, with the folder it chose.
+Inside Epicenter the shell grants the window its folder and holds the
+folder's lock. The page is the UI, and it opens the folder itself: it reads
+the files, saves them, and records history, and every save and every `git`
+command goes through the shell, which keeps them inside the folder and out of
+Git's private files. The shell's recorder writes a recording into the folder
+as it captures. Requests to an endpoint go through the `epicenter` CLI,
+which adds the connection's key.
 
 Checks, from `apps/whispering`:
 
 ```sh
-bun run --filter @epicenter/folder build:addon   # once: the Bun opener's file exchange (macOS, Linux)
-bun run typecheck                 # the page, then the host
-bun run test                      # host, workspace, publication, and workflow tests, then the mounted row views
-bun run build                     # the page, into build/
-bun run build:sidecar             # the compiled host, for the desktop bundle
-cargo test --manifest-path src-tauri/Cargo.toml   # the shell: folder registration and window grant
+bun run typecheck                 # the page
+bun run test                      # workspace and workflow tests, then the mounted row views
+bun run build                     # the browser build, into build/
+bun run build:installed           # Epicenter's build, into dist/
 ```
 
-### Environment
-
-| Variable | Meaning |
-| --- | --- |
-| `WHISPERING_DATA_ROOT` | The data folder. Default `~/Epicenter/local/so.epicenter.whispering`. Created when absent. |
-| `WHISPERING_TRANSCRIPTION_API_KEY` | Makes the transcription connection for this launch: this key (empty for none) at `WHISPERING_TRANSCRIPTION_BASE_URL` with `WHISPERING_TRANSCRIPTION_MODEL`. It replaces the saved transcription connection and cannot be changed from the app. It is never used for text. |
-| `WHISPERING_TRANSCRIPTION_BASE_URL`, `WHISPERING_TRANSCRIPTION_MODEL` | With the key above, that connection's base URL and model (default `https://api.openai.com/v1` and `whisper-1`). Without it, only where the transcription form starts. |
-| `WHISPERING_AUDIO_FIXTURE` | Debug builds only. A file whose bytes answer every recording. See [Fixture audio](#fixture-audio). |
-| `WHISPERING_BUN` | Debug builds only. The Bun executable that runs the host, when `bun` is not on `PATH`. |
+`epicenter.app.json` names the app (`so.epicenter.whispering`) and its title
+(ADR-0560). Epicenter's own checks cover what
+it grants Whispering: `cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml`.
 
 ## Using it
 
@@ -128,45 +141,42 @@ forward, and refresh work.
 | Transformations | `/transformations` | The instructions you apply to transcripts or pasted text, and the results they produced. |
 
 Changing pages keeps everything in progress: a recording keeps recording, a
-request keeps running, unsaved typing stays in its editor, and the terminal
-keeps its output, history, and directory. One folder is opened when the app
+request keeps running, and what you typed is already in its file. One folder is opened when the app
 starts and it stays open until the app closes.
 
 The header is the same on every page: the status line, a recorder control,
-Settings, Reveal folder, Files, and Terminal. Directly under it, also on every
-page, is anything that is not saved yet.
+Settings, and Files.
 
 | Control | What it does |
 | --- | --- |
-| Start recording / Stop recording (Space) | On Home. Records, then saves the audio and its row to `recordings/`. Space also starts and stops it on Home when focus is on the page or microphone. Fields, other controls, and open popovers keep their own keyboard behavior. On other pages the header has a microphone button to start, and while a recording runs it shows the elapsed time and Stop. |
+| Start recording / Stop recording (Space) | On Home. Writes the recording's row to `recordings/` when it starts and its audio beside it, then its length when it stops. Space also starts and stops it on Home when focus is on the page or microphone. Fields, other controls, and open popovers keep their own keyboard behavior. On other pages the header has a microphone button to start, and while a recording runs it shows the elapsed time and Stop. |
 | Microphone input | On Home, under the recorder. Chooses the microphone the next recording uses: System default, or one by name. See [Under the recorder](#under-the-recorder). |
 | Transcription model | On Home, under the recorder. Shows the transcription connection in use and opens its part of Settings. |
 | Post-processing | On Home, under the recorder. Chooses one of your transformations, or None. Choosing sends nothing; **Run** on the latest transcript does. |
-| Transcribe | Sends the saved audio over the transcription connection in Settings and saves the answer as a row in `transcriptions/`. Nothing is transcribed until you press it. |
+| Transcribe | Writes a row in `transcriptions/`, sends the saved audio over the transcription connection in Settings, and writes the answer into that row. Nothing is transcribed until you press it. |
 | A recording | Opens an optional detail pane for playback, title, transcript editing, Copy, Transform, and notes. Close restores the full table. Narrow windows show the detail with Back. Source edits the recording's Markdown. |
 | Search recordings | Matches the title, notes, ID, and every transcript. Excerpts show the matching passage. Recording files that need repair are listed apart, under the table, and never searched out. |
 | Sort | Click Recording, Recorded, Length, or Status to sort; click again to reverse. |
 | Select recordings | Check individual rows or every row shown. Search keeps hidden selections; bulk actions use only selected rows shown. |
-| Transcribe selected | Sends recordings shown with no transcript, one at a time. Existing transcripts, missing audio, and pending or unsaved requests are skipped. Closing stops queued requests. |
+| Transcribe selected | Sends recordings shown with no transcript, one at a time. Existing transcripts, finished or not, missing audio, and running requests are skipped. Closing stops queued requests. |
 | Copy transcripts | Copies the newest transcript of each selected row shown, in table order, with titles when copying several. |
 | Delete selected | Captures the selected rows shown and their results before confirmation. Audio stays in the folder. |
 | Transform | On a transcript. Applies one of your transformations and saves the answer as a new file under the transcript. |
-| Status | Saved files, uncommitted changes, the last commit attempt, and the folder path as separate lines, with Check again and Commit now. |
+| Status | Saved files, changes since the last version, the last version saved, and the folder path as separate lines, with Save version. |
+| Save version | In the status details. Records the saved files as a version in the folder's Git history. Nothing else records one. |
 | Settings | The two connections, transcription and text: each an endpoint, a default model, and an optional key, kept on this device and outside history. See [Connections](#connections). |
-| Reveal folder | Opens the data folder in Finder. |
 | Files (Ctrl+Shift+E) | The folder's files, beside any page. A recording row opens on Recordings and a transformation on Transformations; an audio file opens a player and other text a plain editor, both on Recordings. |
-| Terminal (Ctrl+\`) | Commands in the data folder, under any page. Its output, history, typed command, and directory stay when it is hidden. |
 
 ### Working with recordings
 
 The table starts at full width. Activate a recording to open its detail pane,
 then close the pane to return that space to the collection. Search, sorting,
-selection, and typed drafts stay when you change pages or hide details.
+and selection stay when you change pages or hide details.
 
-Edit transcript text beside playback. Each transcript is its own draft beside
-the recording, saved as you type; opening its file from Files shows the same
-draft. Copy uses the text shown; Transform first waits for its saves and reads
-the saved transcript.
+Edit transcript text beside playback. Each change is written to the
+transcript's file as you type; opening the file from Files shows the same
+text. Copy uses the text shown; Transform first waits for what is being
+written and reads the saved transcript.
 Dates, file paths, capture information, endpoint, and history are under
 **File details**.
 
@@ -181,10 +191,14 @@ on a narrow window. Each opens its own popover.
 
 **Microphone input.** System default, or one microphone by name.
 
-- Opening the popover lists the inputs the app is already allowed to see. It
-  never asks for microphone access. Until access is allowed, inputs are not
-  listed by name; **Enable microphones** asks for it, which opens the system
-  default microphone for a moment and records nothing.
+- Opening the popover lists the inputs. It never asks for microphone access.
+  In Epicenter every input is listed by name, and Epicenter asks macOS for
+  microphone access the first time you test or record. If access was denied,
+  **Open Microphone Settings** takes you to the place in System Settings to
+  allow it; with no microphone connected, the popover says so. In a browser, inputs
+  are not listed by name until access is allowed; **Enable microphones** asks
+  for it, which opens the system default microphone for a moment and records
+  nothing.
 - A microphone you choose is the only one a recording will use. If it is not
   connected, the recording does not start and says so. No other microphone is
   used in its place; connect it or choose another input.
@@ -194,19 +208,21 @@ on a narrow window. Each opens its own popover.
 - **Test microphone** opens the chosen input and shows its level. Nothing is
   recorded, sent, or saved. The test, and a pending Enable microphones, end
   when you close the popover, leave Home, start a recording, or close the app.
-  Only one of the two runs at a time, and never beside a recording.
-- The choice is kept on this device and is never written to `kv.json`. In the
-  desktop app it is in the same file as the connections, under the folder's
-  `.git`; in a browser tab it is in `localStorage`.
+  Only one of the two runs at a time, and never beside a recording. A test
+  whose microphone is unplugged or loses access ends and says why.
+- The choice is kept on this device and is never written to the folder. It is
+  in the page's `localStorage`, in Epicenter and in a browser tab; Epicenter
+  serves every app from one fixed address, so the choice lasts between
+  launches.
 - A microphone is identified by the ID the app is given for it, never by its
   name: two microphones can share a name. If the saved ID is not among the
   listed inputs, the choice is shown as "not listed" and nothing is chosen
   for you. Not being listed does not prove the microphone is gone, since the
   list can be limited by permission, so a recording still asks for exactly
-  that ID. If it cannot be opened, the recording does not start and no other
-  microphone is used. Choose the input again, or System default, to change
-  it. The desktop app may be given new IDs on a later launch, so this
-  can happen after a restart; that has not been checked on hardware.
+  that ID. In Epicenter the ID is the one macOS keeps for the device, so it
+  lasts across launches and reconnections. If it cannot be opened, the
+  recording does not start and no other microphone is used. Choose the input
+  again, or System default, to change it.
 - With fixture audio there is no real input: the popover says so, and no
   microphone is listed, asked for, or opened.
 
@@ -250,13 +266,6 @@ sent is the text connection in Settings, never the file.
 - A model typed in a transformation is used instead of the text connection's;
   leave it empty to use the connection's. Whispering keeps no list of
   providers or models.
-- A transformation an earlier version wrote names an endpoint. That file still
-  reads and runs, but its endpoint is only a condition: it runs while the text
-  connection is exactly that base URL, and otherwise says so and sends
-  nothing. Its page says so at the top of Instructions, and in Try it when the
-  endpoint is what stops it; **Remove the endpoint and use the text
-  connection** sets it to `null`. The app never rewrites these files on its
-  own.
 - Run one from a transcript's **Transform** menu on Recordings, or from Try it
   on the transformation's page, on a chosen transcript or on pasted text
   (below). When it cannot run, Try it says why and offers the fix it can:
@@ -266,9 +275,10 @@ sent is the text connection in Settings, never the file.
 
 Running sends one request: `POST <text connection>/chat/completions` with the
 model, the instructions as the system message, and the transcript or pasted
-text as the user message. An answer on a transcript is saved as a new file in
-`transformation_runs/`. The transcript's own file is never written, so the
-original text is always there.
+text as the user message. A run on a transcript writes a new file in
+`transformation_runs/` before the request goes out, and the answer into it
+when it arrives. The transcript's own file is never written, so the original
+text is always there.
 
 Each result file records what it came from, when, the model and endpoint, and
 the exact instructions and text that were sent. A result therefore still reads
@@ -278,54 +288,55 @@ same way twice.
 
 **Pasted text.** Try it has **A transcript** and **Pasted text**. Paste any
 text and press **Run on pasted text**; no recording is needed. The pasted text
-stays while you move between pages and transformations, and is never written
-anywhere.
+stays while you move between pages and transformations, and is written only
+into the result of a run on it.
 
-- Running saves open edits to the transformation first, then fixes the run
+- Running waits for edits being written to land first, then fixes the run
   before anything is sent: its file name and the exact instructions, text,
   model, and endpoint. Editing the text, the transformation, or Settings
   afterward changes nothing about that run.
-- The answer is shown beside the text that was sent, with **Copy**, **Save**,
-  and **Discard**. It is held in the window, not saved, until you press
-  **Save**, which writes it to `text_runs/`. A held answer keeps the app from
-  closing without asking, and the notice under the header points to it from
-  every page. Its **Open to save or discard** shows Try it, even when that
-  transformation is already open on Instructions or Source. The Try it tab shows
-  when a run is in progress, failed, or waiting to be saved. Reopening that
-  transformation starts on Try it.
-- One transformation holds one answer on pasted text at a time. While it runs,
-  or while its answer waits, Run on pasted text sends nothing.
-- Saved results on pasted text are listed with the transformation's results as
+- The run is saved as it starts, in `text_runs/`, and its answer is written
+  into that file when it arrives. There is no separate Save; **Delete** on a
+  result discards it.
+- While a transformation runs on pasted text, Run on pasted text sends
+  nothing more for it. Each later run is its own result.
+- Results on pasted text are listed with the transformation's results as
   "Pasted text", and open, copy, and delete like any other result. They name
   no recording, so they are never deleted with one, and a file in
   `text_runs/` that does not read never stops a recording from being deleted.
 Deleting a recording deletes its file, its transcripts, and the results made
 from them. Its audio file is kept, and the confirmation says so; delete it
-from Files when you no longer want it. A recording cannot be deleted while a transcription or transformation of it is
-running, or while an answer for it is waiting to be saved: finish it, save it
-again, or discard it in the notice under the header first.
+from Files when you no longer want it. A recording cannot be deleted while a
+transcription or transformation of it is running: wait for it to finish
+first.
 
 What is sent is always what the folder holds when you press the button. If the
 transcript's file was edited in Files, the terminal, or another program, the
 edited text is sent; if it or its recording is gone, or the file cannot be
 read, nothing is sent and the app says why.
 
-When a request fails, the notice under the header (for a transcript) or the
-transformation's page (for pasted text) says why and offers **Try again**,
-which sends the same request, under the same file name, only while the text
-connection is still the endpoint it was prepared for. If you changed the
-connection since, it is not sent: dismiss it and run again. When an answer
-cannot be written, the text is kept in the window and saving it again writes
-the same file. Saving again never calls the endpoint, recognizes a file an
-earlier save already wrote, and never overwrites another file of that name.
+A transcript or result with no answer in its file says why where it is
+shown: its request is running, its request failed, or it is unfinished
+because the window that sent it closed before the answer was written. Nothing
+in the file says which; the window knows what it is doing, and a file with no
+answer and nothing running is unfinished. **Run again** sends the same
+request, from what the file records, and writes the answer into the same
+file, only while the connection is still the endpoint the file names. If you
+changed the connection since, it is not sent: delete it and run anew.
+**Delete** discards it.
 
 ### Connections
 
 Settings has two connections, **Transcription** and **Text**. Each is a base
 URL, the model used when a request names none, and an optional API key. They
-are kept on this device: in the desktop app in the folder's `.git` (Git never
-commits it, but copying the whole directory carries it), in a browser tab in
-this site's `localStorage`. Nothing about them is in `kv.json` or history.
+are never in Whispering's folder. In Epicenter each is a row of Epicenter's
+own folder `so.epicenter` ("Whispering transcription" and "Whispering
+text"), which other apps in Epicenter can use too. The row holds the model
+and syncs with that folder; the base URL and key stay in this computer's
+keychain. A connection synced from another computer is not set up on this
+one until you save its base URL, and key, here. In a browser tab they are in
+this site's `localStorage`. Nothing about them is in the folder or its
+history.
 
 - Nothing is sent until a connection is saved. A keyless local endpoint is
   set up the same way, with no key.
@@ -343,163 +354,134 @@ this site's `localStorage`. Nothing about them is in `kv.json` or history.
   carried to another URL. Base URLs are `http` or `https` with no user name,
   password, query, or fragment.
 - The window is told only each connection's endpoint, model, and whether it
-  has a key. In the desktop app the key never reaches the window, the folder,
-  or history, and errors that echo it have it removed.
-- In a browser tab (`bun dev:whispering:ui`) the tab sends requests itself, so
+  has a key. In Epicenter the key never reaches the window, a folder, or
+  history: the `epicenter` CLI adds it to the request, and the endpoint needs
+  no CORS headers.
+- In a browser tab (`bun dev:whispering`) the tab sends requests itself, so
   the endpoint must allow the page's origin (CORS). Most hosted providers
-  refuse that; a local endpoint or the desktop app works.
+  refuse that; a local endpoint or Epicenter works. The key is saved in this
+  browser, where code running on the site can read it, and the key form says
+  so. Errors that echo the key have it removed.
 
-**From an earlier version.** An earlier version kept one key for every
-endpoint, and the endpoint and model in `kv.json`. That key stays where it was
-and is sent nowhere. Settings shows it as "A key saved by an earlier version";
-tick the connections it may go to, each at the endpoint its form shows, and
-press **Use the earlier key there**. It moves into those connections and is
-removed from where it was; it is never shown. The `kv.json` endpoint and model
-fill in the transcription form until you save it; this version never writes
-`kv.json`.
-
-One failure is different. If the desktop app's host process stops answering
-partway, the window cannot tell whether the request reached the endpoint: it
+One failure is different. If Epicenter stops answering partway, the window cannot tell whether the request reached the endpoint: it
 may have been sent, and even answered, with the reply lost on the way back. The
 notice says the outcome is not known, not that nothing was sent. Whispering
 never sends it again on its own; **Try again** is one more request, and with a
 paid endpoint possibly one more charge. This applies to transcription too.
 
-### Saved is not committed
+### Saved is not a version
 
-A save writes files. A commit records them in history. They are separate
-outcomes and the status reports them separately.
+A save writes files. A version records them in the folder's Git history. They
+are separate outcomes and the status reports them separately.
 
-- Every content save through tables, KV, or Files tries one commit
-  automatically. Typing saves after a short pause.
-- In the desktop app that try happens only if the folder is free at that
-  moment. A save that lands while another save or commit is running is saved
-  and not committed; nothing retries it later. The next save's commit, or
-  **Commit now**, includes it.
+- Every change is saved as you make it, and no save records a version.
+- **Save version**, in the status details, records one: it waits for what is
+  being written, then commits the saved files. It is the only thing in the
+  app that does. `git commit` in the folder works too.
+- A version is recorded as the person Git's configuration names: `user.name`
+  and `user.email` from the folder's repository or your global Git settings.
+  Only when neither is set is it recorded as `Whispering <whispering@localhost>`.
+- The status says "Saved" once your changes are in files. How many files
+  changed since the last version is shown as a detail, not as a warning.
 - A commit that fails or is blocked never undoes a save and never reports the
-  save as failed. The status says "Saved" and what happened to the commit, and
-  **Commit now** tries again.
-- Quitting commits nothing. Saves that are underway finish, and whatever was
-  saved and not yet committed stays that way until the next commit.
-- The browser terminal's saves commit like any other, and it has no `git add` or
-  `git commit`.
-- Desktop terminal commands and other programs edit disk directly. Their changes
-  enter the next automatic checkpoint or an explicit commit.
+  save as failed. The status says what happened to it, and **Save version**
+  tries again.
+- Quitting records no version. Whatever changed since the last version stays
+  that way until the next one.
+- Terminal commands and other programs edit the files directly. Their changes
+  enter the next version you save.
+- The folder reports what changes in it: on the desktop the shell watches the
+  data folder, so a change another program or the terminal makes appears
+  within a moment; in a browser tab, another tab's writes are reported the
+  same way. A save over a file that changed since your edit started merges
+  with the change (see [Editing](#editing)).
+
+### Where a recording is while it runs
+
+A recording is in the folder from the moment it starts. Its row is written
+then, naming its audio in `audioPath`, with the time it started; its length
+is written when it stops. Nothing in the row says whether it is still
+recording: the window knows that, and only while it runs.
+
+- In Epicenter the shell writes the audio as it is captured, to
+  `audio/<id>.wav`, and brings its header up to date about once a
+  second. Stop finishes the file. Reloading or closing the window finishes it
+  too. A quit, a crash, or power loss keeps the audio up to that moment; when
+  the folder next opens, the app rewrites the header of any recording that
+  was cut off so it plays to its end. Its row then has no length.
+- In a browser tab the audio is held in the page and written on stop, as
+  `recordings/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
+  Reloading or closing the tab loses it, and the row stays without its audio.
+- Cancel deletes both the row and the audio.
+
+A recording that is still recording cannot be transcribed; stop it first.
 
 ### When a save does not finish
 
-Captured audio stays in the window until the folder is known to have both files. If writing
-stops partway (the audio is saved and its row is not), the recording appears in
-the notice under the header, on every page, with what happened, a player for
-the audio held in the window, and **Try again**. Trying again keeps the
-recording's ID and cannot create a second recording. It first reads what the
-folder has. If the audio there is exactly the audio held in the window, it
-saves the recording's file beside it and does not write the audio again.
-Another program could still change the audio between that read and the save;
-the audio and the recording's file are two saves, never one. If a different
-file is at the recording's audio path or its own path, even audio of the same
-length, nothing is overwritten and the recording stays pending. A file that only shares the recording's name with
-another extension is not in the way.
+When an answer arrives but its file cannot be written, the window keeps the
+answer and writes it again while it is open, waiting longer each time. The
+status says how many answers are not written yet, and the result shows the
+text with **Copy**. If the window closes first, the file stays without its
+answer and shows as unfinished, to run again.
 
-Once both files are confirmed, the recording opens. If its file cannot be read
-then, or another program removed it in between, the details say so; it is
-never written a second time.
-
-A transcript or a transformation result whose file could not be written is kept
-the same way: the status says it is not saved, and the notice shows the text
-with **Save it again** and **Copy**. A transformation result keeps the file name
-it was given when the run began, so saving again cannot produce a second result,
-and if another file has taken that name it is left alone.
-
-Pending audio, an unsaved transcript or result, and unsaved typing live only in
-the open window. They are not written anywhere else.
+If a recording's row cannot be written when it starts, the recording still
+runs and says so; its audio is saved without a row naming it, as an ordinary
+file. If its length cannot be written when it stops, the recording keeps its
+row and audio and says so.
 
 ### Closing and quitting
 
-Closing the window (the close button or Command-W) and quitting (Command-Q,
-the Whispering menu, or on macOS Quit in the Dock, a logout, restart, or
-shutdown) all ask the window first:
+Closing the window and quitting are immediate. Nothing is asked and nothing
+is waited for, because nothing that matters lives only in the window: a
+recording is in the folder from the moment it starts, and a transcription or
+transformation writes its file before its request goes out.
 
-- When nothing is held, typing that can still be saved is saved and the app
-  closes with no prompt.
-- When something is held (a recording in progress, a recording that is not in
-  the folder, a transcript or transformation result whose file was not written,
-  a result on pasted text not saved yet, a running transcription or
-  transformation, or edits whose save failed, conflicted, or was not
-  confirmed),
-  the app stays open and shows what would be lost. **Keep working** closes the
-  prompt and changes nothing. **Discard and quit** closes the app and drops
-  what was held.
+- In Epicenter a recording keeps its audio up to the moment the app
+  closed, and the next time the folder opens its header is repaired so it
+  plays to its end.
+- A transcription or transformation whose answer had not arrived stays
+  unfinished, to run again.
+- A change typed in the last instant before quitting can be lost, as it can
+  be in any app. Every earlier change is already in its file.
 
-Only leaving the app asks. Moving between Home, Recordings, and
-Transformations never does, because nothing is lost by it.
+Force Quit, a crash, and power loss leave the folder the same way.
 
-The app closes only on an explicit answer from the window. A window that is
-busy or slow keeps the app open until it answers; closing again only asks
-again.
+Moving between Home, Recordings, and Transformations never asks either. In a
+browser tab (`bun dev:whispering:ui`) the browser's own leave warning appears
+while a change is not in its file yet, and reloading or closing the tab loses
+a recording in progress.
 
-A logout, restart, or shutdown is always stopped while Whispering is open,
-even when nothing is held: Whispering asks the window as for any quit, and the
-logout does not continue on its own. Start it again once Whispering has
-closed.
+### Editing
 
-If Whispering's host process stops while the window is open, the terminal,
-Reveal folder, and new transcription and transformation requests stop working
-until you restart the app. Saving does not stop: the folder belongs to the
-window's shell, so changes to recordings, transcripts, and other files can
-still be saved, a pending recording can still be tried again, and **Commit
-now** still works. A save can still fail for its own reasons, such as a full
-disk, exactly as it can at any other time.
+Every change is written to its file as you type: a recording's title and
+notes, a transcript, a transformation's fields, and any text file opened from
+Files. There is no save button. An edit starts from the version of the file it
+was typed over, and the window holds what you typed until it is in the file;
+the table shows the row once it is saved.
 
-What the window can no longer do is be asked through the host whether it may
-close. Closing or quitting then shows a prompt that says so and lists what is
-still only in the window. The list follows what you save, and **Keep working**
-lets you save, play a pending recording, or copy text out first. The app stays
-open until you choose **Discard and quit** (or **Quit** when nothing is held);
-in this state it never closes without that choice.
-
-If the folder could not be opened at all and the window shows "Could not open
-the recordings folder", nothing is open and nothing can be unsaved, so closing
-or quitting just closes it.
-
-This covers an ordinary close or quit. It does not cover the process being
-ended from outside: Force Quit, `kill`, a crash, or power loss discard whatever
-was only in the window, and nothing can recover it afterwards. Force Quit is
-also the only way out if the window itself stops responding, or is closed
-while it is still opening the folder and never finishes, since a window that
-cannot answer is never closed on its behalf.
-
-In a browser tab (`bun dev:whispering:ui`) the browser's own leave warning
-applies instead.
-
-### Editing and conflicts
-
-Each open file is a draft, saved as you type: the recording or file you
-selected, the recording's transcripts beside it, and the transformation you
-selected. Selecting another item leaves the drafts it replaces once their
-saves land.
-
-- Every save is guarded by the version this window last saved. When the file
-  changed elsewhere, nothing is written and the save line asks: **Reload
-  theirs** shows the file as it is now (a text file that is no longer text
-  opens as what it is), **Keep mine** saves your version over it. When the
-  file was deleted elsewhere, **Keep mine** creates it again from
-  your version and **Discard** closes it. A recording deleted elsewhere offers
-  only **Discard**, because its audio may be gone too.
-- A save that failed, or whose reply never arrived, keeps your edits on screen.
-  **Try again** (or **Save again**) saves them; your next edit saves too.
-- Leaving an item whose save failed or conflicted asks "Discard unsaved
-  changes?" first. Keeping it keeps the item open.
-- Deleting an item whose save failed or conflicted goes ahead: it deletes the
-  version last saved, and the delete dialog says edits that are not saved are
-  discarded too.
-- A draft that is not a valid row, such as a field with the wrong kind of
-  value, is never written; the save line names what to fix.
-- Text typed or pasted into a field that a file cannot hold exactly (a lone
-  surrogate) is saved with U+FFFD in its place.
-- The lists are read when the page opens, after this window's own actions and
-  terminal commands, and when you return to the window or its tab. Returning
-  also takes a newer version of an open file that has nothing unsaved.
+- Each file is written one change at a time. Changes typed while one write
+  runs are written next, so fast typing writes what you typed last.
+- A save merges with a change made elsewhere since your edit started: fields
+  and lines only one side changed are both kept. Where both changed the same
+  field or the same lines, your edit wins, with no notice. Reading the folder again never touches
+  what you are typing.
+- Text edited as a whole file (Source, or any text file from Files) merges the
+  same way, by line (ADR-0551).
+- A file deleted elsewhere stays deleted. A change to it is reported with
+  **Copy what was lost**, and the recording, transcript, or transformation
+  closes. Nothing creates it again.
+- A save that fails for another reason, or whose reply never arrived, is
+  reported and your edit is kept in the window; it is saved again with your
+  next change, and before anything that reads the file, such as a run or a
+  deletion. The status says an edit is not saved yet.
+- A value that a file cannot hold, such as a field with the wrong kind of
+  value, is refused and nothing in the file changes.
+- Text typed or pasted into a field or a body that a file cannot hold
+  exactly (a lone surrogate) is saved with U+FFFD in its place.
+- Notes, transcripts, and instructions are saved with LF line endings. A file
+  written with CRLF becomes LF the next time Whispering saves it.
+- The lists are read when the page opens, after this window's own actions,
+  and when the folder reports that files changed.
 
 A recording, transcript, or transformation file whose text does not read as a
 row is listed under "Needs repair" with why, and opens as its text with its
@@ -515,22 +497,14 @@ exact text, edit it in Source.
 Any file name works for a row, including a trailing space or `recordings/.md`.
 Only `.md` in lowercase makes a file a row.
 
+A deletion runs after the changes being written to that file, and the
+confirmation says when the file has changes that are in no saved version.
 Deleting a recording also deletes its results; its audio stays. It is refused
 while any result file cannot say which recording it belongs to (text that does
 not read, or a file that is not text). Repair or remove those from Files
 first.
 
-### The terminal
-
-On the desktop the terminal runs your own shell (`zsh`, `bash`, or `sh`) with
-the data folder as its working directory, so `git log`, `git status`, `cat`,
-`sed -i`, and redirection work on the real files.
-
-It is not an interactive terminal. Each command runs in a new shell that starts
-where the last one ended, so `cd recordings` holds but shell variables and
-functions do not. There is no terminal device, so full-screen programs such as
-`vim` or `less` exit at once; `git` output is not paged. A command that leaves
-the data folder returns to its root. A command is stopped after two minutes.
+### Executable files
 
 Avoid making files executable in the data folder. History records plain files
 only, so while an executable file is present a commit is not made, the branch
@@ -540,89 +514,62 @@ own line. Remove the executable bit (`chmod -x <file>`) and commit again.
 
 ## Fixture audio
 
-For repeatable automation, a debug build can answer every recording with the
-bytes of one file:
-
-```sh
-WHISPERING_DATA_ROOT=/tmp/whispering-demo \
-WHISPERING_AUDIO_FIXTURE=/path/to/tone.wav \
-bun dev:whispering
-```
-
-The header shows a "Fixture audio" badge on every page and the recorder on Home
-says the microphone is not used. Recordings made this way are saved with
-`capture: fixture` and labelled on Home, in the list, and in details. A release
-build refuses the variable, says so under the recorder, and records from the
-microphone.
+For repeatable automation, a development build in a browser tab
+(`bun dev:whispering`) opened with `?fixture=tone` answers every recording
+with a generated tone instead of the microphone. Recordings made this way are
+saved with `capture: fixture` and labelled on Home, in the list, and in
+details. A production build ignores the parameter. Inside Epicenter, recording
+always uses the microphone.
 
 A fixture recording proves the save, playback, transcription, and history path.
-It proves nothing about the microphone. Test the microphone separately, in a
-launch without the fixture: with it, the microphone input control says there
-is no real input and opens none.
+It proves nothing about the microphone: with it, the microphone input control
+says there is no real input and opens none.
 
-## Failures you can cause on purpose
-
-A debug build has a bug-icon menu in the header:
-
-| Control | Effect |
-| --- | --- |
-| Fail the next recording file write | The next save lands the audio and fails the row, leaving audio with no recording file. Each press arms one more. |
-| Fail the next audio write | The next save of a new recording fails before anything is written. |
-| Lock the branch | Creates a lock on the branch ref, where an interrupted Git process leaves one, so commits fail while saves succeed. Press again to unlock. It never replaces a lock that already exists and only ever removes the lock it created. |
-
-Both publication failures are real: for the length of that one save, the host
-puts an empty directory where the file would be written, so the folder itself
-fails that step and reports it. The directory is removed afterward.
-
-The same failures can be armed at launch with
-`WHISPERING_DEBUG_FAIL_ROW_WRITES=<n>`, `WHISPERING_DEBUG_FAIL_AUDIO_WRITES=<n>`,
-and `WHISPERING_DEBUG_BLOCK_COMMITS=1`. The branch lock is taken when the
-window has opened the folder, since there is no branch before that. To cause the commit failure by hand in
-any build:
+To make commits fail while saves succeed, lock the branch by hand:
 
 ```sh
-touch "$WHISPERING_DATA_ROOT/.git/refs/heads/main.lock"   # commits now fail
-rm "$WHISPERING_DATA_ROOT/.git/refs/heads/main.lock"      # Commit now works again
+touch ~/Epicenter/so.epicenter.whispering/.git/refs/heads/main.lock   # commits now fail
+rm ~/Epicenter/so.epicenter.whispering/.git/refs/heads/main.lock      # Save version works again
 ```
 
 ## Restoring from history
 
-History is ordinary Git, so a recording can be recovered without the app:
+History is ordinary Git, so a recording's row, notes, and transcripts can be
+recovered without the app. Its audio is not in history: it is only in `audio/`
+on the device that recorded it.
 
 ```sh
-git -C "$WHISPERING_DATA_ROOT" log --oneline -- recordings/
-git clone "$WHISPERING_DATA_ROOT" /tmp/whispering-restore
-afplay /tmp/whispering-restore/recordings/<recording-id>.wav
+git -C ~/Epicenter/so.epicenter.whispering log --oneline -- recordings/
+git clone ~/Epicenter/so.epicenter.whispering /tmp/whispering-restore
+cat /tmp/whispering-restore/recordings/<recording-id>.md
 ```
 
 ## Changed promises
 
-This build edits files through the folder's edit sessions. These promises of
-the earlier build changed:
+This build writes each change to its file a second after you stop typing,
+or when you leave the field, holding only what is not in the file yet; a
+choice or a button writes at once. A field you change is set on the file as
+it is now, so it never undoes another writer's other fields (ADR-0576).
+These promises of the earlier build changed:
 
-- A change made elsewhere is a conflict, not overwritten. The next save of
-  an open recording, transcript, or transformation used to write over another
-  program's change unless you chose **Reload from file**. Now it asks
-  **Reload theirs** or **Keep mine**.
-- A file deleted elsewhere can be created again from your version (Keep
-  mine), except a recording. It used to be never created again.
-- No "Keep both". A conflicting text file used to offer writing your
-  version to `conflicts/<name>-<time>.md`.
-- No paused autosave. The debug menu's "Pause autosave" is gone; every
-  draft saves as you type.
-- Several drafts are no longer kept per path. Leaving an item releases its
-  draft once its saves land; one whose save failed asks before it is
-  discarded. Drafts used to stay in the window for every file you had opened.
-- A row that does not read is repaired as text. A recording with one bad
-  field used to stay in the table and keep playing and transcribing; now it is
-  listed under "Needs repair" until its text reads.
-- A lone surrogate is saved as U+FFFD. It used to be refused with a notice.
-- No "saved, cannot be shown" notice for a new recording. Once both files
-  are confirmed the capture is dropped and the recording opens; the
-  "Saved · 1 recording to check" status and its Refresh are gone.
-- The lists no longer follow change hints. They used to refresh within a
-  couple of seconds of any program's change; now they refresh when you return
-  to the window, act, or press Check again.
+- A change made elsewhere merges on save without asking. The earlier build
+  asked about parts you both changed; now your edit wins there, and what
+  only they changed stays (ADR-0548).
+- A file deleted elsewhere stays deleted, transcripts included. The earlier
+  build could create one again from your edit.
+- No save bar, **Try again**, or **Discard unsaved changes?**. A failed save
+  is reported once and saved again with your next change. Closing and opening
+  another item never ask about edits.
+- No commit after a save. Each save used to try one commit; now a version is
+  recorded only by **Save version**, which replaces **Commit now**. Changes
+  since the last version are a neutral count in the status, not a warning.
+- A row that does not read is repaired as text, and a lone surrogate is saved
+  as U+FFFD, as before.
+- The lists follow the folder's reports of what changed. Returning to the
+  window reads nothing on its own.
+- A version is recorded as you. The earlier build recorded every version as
+  `Whispering <whispering@localhost>` and ignored Git's configuration; now
+  `user.name` and `user.email` decide, with Whispering only as the fallback.
 
 ## What is not supported
 
@@ -630,7 +577,7 @@ These are absent, not hidden behind a setting:
 
 - Accounts, sign-in, sync between devices, and any hosted transport. Recordings
   are local.
-- Git remotes, push, and pull from the app. Use `git` in the terminal.
+- Git remotes, push, and pull from the app. Use `git` in the folder.
 - Git LFS.
 - System-wide dictation: global shortcuts, push-to-talk, voice-activated
   recording, and delivering text to the cursor or clipboard automatically. Copy
@@ -638,7 +585,13 @@ These are absent, not hidden behind a setting:
   the app's window has focus.
 - Automatic transcription or transformation after a recording. Each is a button
   you press, so nothing is sent to a paid endpoint on its own.
-- On-device transcription models. Transcription needs an endpoint.
+- Choosing transcription on this computer. Epicenter grants Whispering its
+  local model, and the workspace can transcribe with it
+  (`src/lib/workspace/local-transcription.ts`), but Settings has no way to
+  choose it yet, so transcription needs an endpoint.
+- A terminal and Reveal folder. The standalone desktop app ran them in its own
+  host; Epicenter gives Whispering neither. Use a terminal or Finder on the
+  folder.
 - Transformations beyond one prompt and one request: chained steps, find and
   replace rules, tools, running code, importing the earlier Whispering's
   transformations or recipes, a provider or model catalog, and a connection or
@@ -649,17 +602,11 @@ These are absent, not hidden behind a setting:
 - Importing audio files and recording overlays.
 - Running post-processing on its own after a recording or a transcript. It is
   a button you press.
-- Windows and Linux are untested. The terminal needs a POSIX shell.
-- A release pipeline. `bun build:whispering` produces a locally signed bundle.
-- Running inside the Epicenter desktop host. `bun run build:epicenter` still
-  emits the page for that host, but the page opens nothing there. Epicenter
-  does not start Whispering's host process and registers no Whispering
-  folder, so the page shows "Could not open the recordings folder" and says
-  that the desktop app did not start Whispering's host. Browser storage is
-  never used inside a desktop app. The host's Whispering commands in
-  `apps/epicenter/src-tauri` are not called by this app.
-- Running the host process by hand, or opening the desktop folder from a
-  browser tab. The folder belongs to the window's shell.
+- Windows and Linux are untested.
+- A desktop app of its own. Whispering's standalone Tauri shell is deleted
+  (ADR-0493); on the desktop it runs only in Epicenter.
+- Opening the desktop folder from a browser tab. The shell grants the folder
+  to Whispering's window alone.
 - Moving a recording's audio and having the recording follow. Nothing repairs
   `audioPath`, and nothing collects audio files that no recording names.
 - Recordings saved by an earlier build of this app, whose files have no
@@ -673,6 +620,5 @@ from it.
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit,
 [recipes and connections](./docs/recipe-playground.md) for why requests are
 routed by device connections and what that change costs an existing folder, and
-[desktop verification](./docs/desktop-verification.md) for native acceptance
-results, screenshots, the microphone hardware limit, and what has not been
-checked in the desktop app since the pages and transformations were added.
+[desktop verification](./docs/desktop-verification.md) for what was checked in
+the standalone desktop app before it was deleted.

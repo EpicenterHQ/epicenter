@@ -13,20 +13,21 @@
  * - A new chat is its focus file: listed before any answer, and refused
  *   without one to three expressions
  * - A message file is named by its chat, and a chat reads only its own
- *   files and the ones an earlier version saved
- * - Earlier, message-only chats are listed by their first learner question
+ *   files; the chat list reads none
  * - A message file that cannot be read is reported, never dropped silently
  * - A refused or closed folder fails the write and the tutor is not asked
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import {
 	type AgentEngine,
 	type AgentMessage,
 	createConversation,
 } from '@epicenter/agent';
+import { folderOptions, folderWrites } from '@epicenter/folder/query';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
+import type { VocabFolder, vocabFolder } from '../data.js';
 import {
 	createBrowser,
 	fileText,
@@ -35,9 +36,14 @@ import {
 	settle,
 	tableFiles,
 } from '../folder.test-support.js';
+import { vocabKeys } from '../query.js';
+import { createQueryClient } from '../query.test-support.js';
+import { type ChatListing, createChats } from './chats.js';
 import { createChatMessageStore, startChat } from './messages.js';
 
-const { createChatsState } = await import('./chats.svelte.js');
+const { createFolderContext } = await import('@epicenter/svelte/folder');
+
+const { createVocab } = await import('../vocab.svelte.ts');
 
 const question: AgentMessage = {
 	id: 'question',
@@ -76,25 +82,33 @@ async function transcript(folder: VocabFolder, chatId: string) {
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** Every chat as the folder's files list them. */
-async function listed(folder: VocabFolder) {
-	const chats = createChatsState(folder);
-	await chats.refresh();
-	return chats.chats;
+/** The chat list over `folder`, or over `over` in its place, in a cache of its own. */
+function chatsOver(
+	folder: VocabFolder,
+	over: Partial<Pick<VocabFolder, 'tables' | 'files'>> = {},
+) {
+	const queryClient = createQueryClient();
+	const queries = folderOptions(folder);
+	const failures: WriteFailure[] = [];
+	const chats = createChats({ ...folder, ...over }, queries, queryClient, {
+		refused: () => undefined,
+		writeFailed: (failure) => failures.push(failure),
+		inTurn: folderWrites(folder, queryClient).inTurn,
+	});
+	return {
+		chats,
+		failures,
+		/** Read the list from the folder now, as opening the page does. */
+		list: () => queryClient.fetchQuery({ ...chats.chatsQuery(), staleTime: 0 }),
+		/** The list the cache holds now. */
+		cachedList: () =>
+			queryClient.getQueryData<ChatListing>(chats.chatsQuery().queryKey),
+	};
 }
 
-/** Save a message file as an earlier version did: named by its message ID alone. */
-async function saveEarlier(
-	folder: VocabFolder,
-	chat: string,
-	message: AgentMessage,
-) {
-	expectOk(
-		await folder.tables.messages.create(
-			{ fields: { chat, message }, body: '' },
-			{ stem: message.id },
-		),
-	);
+/** Every chat as the folder's files list them. */
+async function listed(folder: VocabFolder) {
+	return (await chatsOver(folder).list()).chats;
 }
 
 test('a message write resolves only after its file exists, and chats stay apart across reopening', async () => {
@@ -171,28 +185,24 @@ test('Unicode message text survives reopening and retry; changed content cannot 
 test('a new chat is its focus file: listed before any answer, there after reopening, and it keeps the expression text', async () => {
 	await using context = await setup();
 	const { browser, folder } = context;
-	const chats = createChatsState(folder);
-	await chats.refresh();
+	const { chats, list, cachedList } = chatsOver(folder);
+	await list();
 
 	const starting = chats.start([
 		{ entryId: 'deleted-entry', text: '顺便 lucid' },
 	]);
-	expect(chats.chats).toEqual([]);
+	expect(cachedList()?.chats).toEqual([]);
 	const chat = expectOk(await starting);
 	const expected = [
 		{
 			id: chat.id,
 			title: '顺便 lucid',
 			focus: [{ entryId: 'deleted-entry', text: '顺便 lucid' }],
-			legacy: false,
 		},
 	];
-	expect(chats.chats).toMatchObject(expected);
+	expect(cachedList()?.chats).toMatchObject(expected);
 	expect(await tableFiles(folder, 'chats')).toEqual([`chats/${chat.id}.md`]);
-
-	const reopened = createChatsState(await browser.open());
-	await reopened.refresh();
-	expect(reopened.chats).toMatchObject(expected);
+	expect(await listed(await browser.open())).toMatchObject(expected);
 });
 
 test('focus requires one to three expressions, and a refused focus writes nothing', async () => {
@@ -219,17 +229,16 @@ test('a chat the folder refuses is not listed, and a closed folder reports that 
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, table } = gated(folder.tables.chats);
-	const chats = createChatsState({
+	const { chats, list, cachedList } = chatsOver(folder, {
 		tables: { ...folder.tables, chats: table },
-		files: folder.files,
 	});
-	await chats.refresh();
+	await list();
 
 	gate.failing = true;
 	expect(
 		expectErr(await chats.start([{ entryId: 'entry', text: 'lucid' }])).name,
 	).toBe('NotSaved');
-	expect(chats.chats).toEqual([]);
+	expect(cachedList()?.chats).toEqual([]);
 	expect(await tableFiles(folder, 'chats')).toEqual([]);
 
 	gate.failing = false;
@@ -237,48 +246,29 @@ test('a chat the folder refuses is not listed, and a closed folder reports that 
 	expect(
 		expectErr(await chats.start([{ entryId: 'entry', text: 'lucid' }])).name,
 	).toBe('NotSaved');
-	await chats.refresh();
-	expect(chats.loadError).not.toBeNull();
+	expect(list()).rejects.toBeDefined();
 });
 
-test('chats are ordered newest first, and an earlier message-only chat is titled by its first question', async () => {
+test('chats are ordered newest first by when they started, and a message does not move one', async () => {
 	await using context = await setup();
 	const { folder } = context;
-	const focused = expectOk(
+	const older = expectOk(
 		await startChat(folder.tables.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	);
-	// Saved out of order: the title is still the earliest question.
-	await saveEarlier(folder, 'old-chat', {
-		...nextQuestion,
-		id: 'later',
-		createdAt: 20,
-	});
-	await saveEarlier(folder, 'old-chat', { ...question, id: 'earlier' });
-	// A message saved now is named by its chat; the list does not read it.
-	expectOk(
-		await createChatMessageStore(folder, 'old-chat').set(answer.id, answer),
+	await Bun.sleep(2);
+	const newer = expectOk(
+		await startChat(folder.tables.chats, [
+			{ entryId: 'entry', text: 'opaque' },
+		]),
 	);
-
+	expectOk(
+		await createChatMessageStore(folder, older.id).set(question.id, question),
+	);
 	expect(
-		(await listed(folder)).map(({ id, title, legacy, focus }) => ({
-			id,
-			title,
-			legacy,
-			focus,
-		})),
+		(await listed(folder)).map(({ id, title }) => ({ id, title })),
 	).toEqual([
-		{
-			id: focused.id,
-			title: 'lucid',
-			legacy: false,
-			focus: [{ entryId: 'entry', text: 'lucid' }],
-		},
-		{
-			id: 'old-chat',
-			title: 'What does "lucid" mean?',
-			legacy: true,
-			focus: [],
-		},
+		{ id: newer.id, title: 'opaque' },
+		{ id: older.id, title: 'lucid' },
 	]);
 });
 
@@ -297,10 +287,10 @@ test('a message file that cannot be read is reported and left as it is, and two 
 	const wrongShape = '---\nchat: chat-a\nmessage:\n  id: broken\n---\n';
 	const unparsed = 'not a row\n';
 	expectOk(
-		await folder.files.create('messages/chat-a.wrong-shape.md', wrongShape),
+		await folder.write('messages/chat-a.wrong-shape.md', null, wrongShape),
 	);
-	// An earlier file, named by message ID alone, names no chat it can be read for.
-	expectOk(await folder.files.create('messages/unparsed.md', unparsed));
+	// A file named for no chat is read by none.
+	expectOk(await folder.write('messages/unparsed.md', null, unparsed));
 
 	expectOk(await store.load());
 	expect([...store.entries()]).toEqual([{ key: question.id, val: question }]);
@@ -309,23 +299,26 @@ test('a message file that cannot be read is reported and left as it is, and two 
 		'messages/chat-a.wrong-shape.md',
 	]);
 
-	// The chat list reports the earlier file, which belongs to no chat it can name.
-	const chats = createChatsState(folder);
-	await chats.refresh();
-	expect(chats.unreadable.map((file) => file.path)).toEqual([
-		'messages/unparsed.md',
-	]);
+	// The chat list reads no message file.
+	expect((await chatsOver(folder).list()).unreadable).toEqual([]);
 	expect(await fileText(folder, 'messages/chat-a.wrong-shape.md')).toBe(
 		wrongShape,
 	);
 	expect(await fileText(folder, 'messages/unparsed.md')).toBe(unparsed);
 });
 
-test('a chat reads its own files and the earlier ones, never another chat’s', async () => {
+test('a chat reads its own files, never another chat’s', async () => {
 	await using context = await setup();
 	const { folder } = context;
-	await saveEarlier(folder, 'chat-a', question);
-	await saveEarlier(folder, 'chat-b', nextQuestion);
+	expectOk(
+		await createChatMessageStore(folder, 'chat-a').set(question.id, question),
+	);
+	expectOk(
+		await createChatMessageStore(folder, 'chat-b').set(
+			nextQuestion.id,
+			nextQuestion,
+		),
+	);
 	expectOk(
 		await createChatMessageStore(folder, 'chat-a').set(answer.id, answer),
 	);
@@ -353,7 +346,7 @@ test('a chat reads its own files and the earlier ones, never another chat’s', 
 		question,
 		answer,
 	]);
-	expect(reads.sort()).toEqual(['chat-a.answer', 'next-question', 'question']);
+	expect(reads.sort()).toEqual(['chat-a.answer', 'chat-a.question']);
 });
 
 test('a message saved again after its answer was lost is found by its own file, with no second one', async () => {
@@ -529,27 +522,70 @@ test('an older listing delivered after a newer one does not replace it', async (
 	expect([...store.entries()]).toEqual([{ key: question.id, val: question }]);
 });
 
-test('closing the chats waits for a message write already under way', async () => {
+test('one chat’s message writes run one at a time in its file’s turn, and close waits for them', async () => {
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
-	const chats = createChatsState(gatedFolder);
-	const store = createChatMessageStore(gatedFolder, 'chat-a', chats.admit);
+	const opened = createFolderContext<typeof vocabFolder>({
+		...folder,
+		...gatedFolder,
+	} as VocabFolder);
+	const vocab = createVocab(opened);
+	const store = createChatMessageStore(
+		gatedFolder,
+		'chat-a',
+		vocab.chats.messageWriter('chat-a'),
+	);
 	const writing = Promise.withResolvers<void>();
 	gate.heldCreate = writing.promise;
-	const saving = store.set(question.id, question);
-	expect(chats.busy).toBe(true);
+	const first = store.set(question.id, question);
+	const second = store.set(answer.id, answer);
+	await Bun.sleep(5);
+	// The answer waits its turn; only the question is being written.
+	expect(gate.creates).toBe(0);
+	expect(
+		vocab.queryClient.isMutating({ mutationKey: vocabKeys.message('chat-a') }),
+	).toBe(2);
+	expect(vocab.edits.writes.pending('chats/chat-a.md')).toBe(2);
+	expect(vocab.busy).toBe(true);
 	let closed = false;
-	const closing = chats.close().then(() => {
+	const closing = opened.close().then(() => {
 		closed = true;
 	});
 	await Bun.sleep(5);
 	expect(closed).toBe(false);
 	writing.resolve();
-	expectOk(await saving);
+	expectOk(await first);
+	expectOk(await second);
 	await closing;
-	expect(chats.busy).toBe(false);
-	expect(await tableFiles(folder, 'messages')).toEqual([
+	expect(gate.creates).toBe(2);
+	// The folder closed after both landed; a reload reads them.
+	expect(await tableFiles(await context.browser.open(), 'messages')).toEqual([
+		'messages/chat-a.answer.md',
 		'messages/chat-a.question.md',
+	]);
+	// Nothing is written once closing began.
+	expect(expectErr(await store.set(nextQuestion.id, nextQuestion)).name).toBe(
+		'WriteFailed',
+	);
+});
+
+test('a message write the folder refuses is reported with its text', async () => {
+	await using context = await setup();
+	const { folder } = context;
+	const { gate, folder: gatedFolder } = gatedMessages(folder);
+	const { chats, failures } = chatsOver(folder, gatedFolder);
+	const store = createChatMessageStore(
+		gatedFolder,
+		'chat-a',
+		chats.messageWriter('chat-a'),
+	);
+	gate.failing = true;
+	expectErr(await store.set(answer.id, answer));
+	expect(failures).toMatchObject([
+		{
+			path: 'messages/chat-a.answer.md',
+			unsaved: 'Clear and easy to understand: 清楚。',
+		},
 	]);
 });

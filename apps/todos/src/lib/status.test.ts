@@ -6,32 +6,20 @@
  *
  * Key behaviors:
  * - Observed divergence gives fixed guidance, never the push transport's text
- * - A pull refused as diverged gives the same guidance, chosen by error name
- * - A merge stopped by conflicts names each file and what each side did,
- *   without library vocabulary; a merge reports that nothing was pushed
- * - The header leads with current state, not a neutral past commit attempt
- * - A pending incoming update leads the header in each record state; pulls
- *   and merges it refuses say history waits, and a refused recovery names
- *   its paths and says nothing was written
+ * - Changes since the last version are neutral detail: saves never make
+ *   versions, so the header does not warn about them
  * - Observation times are absolute
  */
 import { expect, test } from 'bun:test';
-import { type GitSnapshot, MergeError, PullError } from '@epicenter/folder';
-import { Ok } from 'wellcrafted/result';
+import type { GitSnapshot } from '@epicenter/folder';
 import {
-	commitAndPushToast,
-	commitLine,
 	DIVERGED,
 	filesLine,
-	INCOMING_WAITS,
-	incomingLine,
-	mergeLine,
-	mergeOutcomeLine,
-	pullOutcomeLine,
+	lastVersionLine,
 	pushLine,
-	recoveryLine,
 	summaryLine,
-	uncommittedLine,
+	versionLine,
+	versionOutcomeLine,
 } from './status.js';
 
 const idle = { active: false };
@@ -66,14 +54,9 @@ function snapshot(overrides: Partial<GitSnapshot> = {}): GitSnapshot {
 			commit: idle,
 			push: idle,
 			fetch: idle,
-			pull: idle,
-			merge: idle,
 		},
 		lastCommit: undefined,
 		lastPush: undefined,
-		lastFetch: undefined,
-		lastPull: undefined,
-		lastMerge: undefined,
 		closed: false,
 		...overrides,
 	};
@@ -103,192 +86,59 @@ test('observed divergence gives guidance instead of the push error', () => {
 	expect(line.detail).toContain(DIVERGED);
 	expect(line.detail).not.toContain('force');
 
-	const toast = commitAndPushToast(
-		{
-			commit: {
-				status: 'unchanged',
-				head: 'a'.repeat(40),
-				indexWarning: undefined,
-			},
-			push: { status: 'failed', oid: 'a'.repeat(40), error: rejected },
-		},
-		git,
-	);
-	expect(toast.tone).toBe('error');
-	expect(toast.detail).toBe(DIVERGED);
-
 	expect(pushLine(snapshot({ sync: divergedSync }))).toMatchObject({
 		short: 'Diverged',
 		tone: 'error',
 	});
 });
 
-test('a pull refused as diverged gives the same guidance', () => {
-	const refused = PullError.Diverged({ head: 'a', fetched: 'b' });
-	expect(pullOutcomeLine(refused).detail).toBe(DIVERGED);
-});
-
-test('a merge that stopped on conflicts names each file and what each side did', () => {
-	const line = mergeOutcomeLine(
-		MergeError.Conflicted({
-			conflicts: [
-				{
-					reason: 'kvKey',
-					path: 'kv.json',
-					key: 'theme',
-					base: '"light"',
-					ours: '"dark"',
-					theirs: null,
-				},
-				{ reason: 'content', path: 'todos/a.md' },
-				{ reason: 'deleted', path: 'notes.md', deletedBy: 'theirs' },
-				{ reason: 'binary', path: 'take.webm' },
-			],
-		}),
-	);
-	expect(line).toMatchObject({ short: 'Conflicts', tone: 'error' });
-	expect(line.detail).toBe(
-		[
-			'kv.json: "theme" is "dark" here and not set on the remote (was "light")',
-			'todos/a.md: both sides changed the same lines',
-			'notes.md: changed here and deleted on the remote',
-			'take.webm: both sides changed it, and it cannot be combined line by line',
-			'Nothing was changed.',
-		].join('\n'),
-	);
-	for (const jargon of ['kvKey', 'binary', 'ours', 'theirs', 'Conflicted'])
-		expect(`${line.label}\n${line.detail}`).not.toContain(jargon);
-});
-
-test('a merged result says what changed and that nothing was pushed', () => {
-	const line = mergeOutcomeLine(
-		Ok({
-			status: 'merged',
-			from: 'a'.repeat(40),
-			to: 'c'.repeat(40),
-			fetched: 'b'.repeat(40),
-			changedPaths: ['kv.json'],
-		}),
-	);
-	expect(line).toEqual({
-		label: 'Merged 1 file',
-		detail: 'aaaaaaa + bbbbbbb → ccccccc\nNot pushed yet.',
-		tone: 'good',
-	});
-	const busy = snapshot({
-		activity: { ...snapshot().activity, merge: { active: true } },
-	});
-	expect(mergeLine(busy)).toEqual({ label: 'Merging…', tone: 'busy' });
-	expect(pushLine(busy).label).toBe('Merging…');
-});
-
-test('the header leads with current state, not a neutral past commit attempt', () => {
+test('the header leads with current state; changes since the last version are neutral detail', () => {
 	const git = snapshot();
 	const lines = {
-		files: filesLine({ saving: false, problems: 0, unsaved: false }),
-		uncommitted: uncommittedLine(git),
-		commit: commitLine(git),
+		files: filesLine({ saving: false }),
+		versions: versionLine(git),
+		lastVersion: lastVersionLine(git),
 		remote: pushLine(git),
 	};
-	expect(lines.commit.label).toBe('No commit this session');
+	expect(lines.files.label).toBe('Saved');
+	expect(lines.lastVersion.label).toBe('No version saved this session');
 	expect(summaryLine(lines).label).toBe('Up to date');
 
-	const failing = filesLine({ saving: false, problems: 1, unsaved: false });
-	expect(failing.detail).toBe('Open the file to review it.');
-	expect(summaryLine({ ...lines, files: failing }).short).toBe('1 not saved');
-});
-
-test('a pending incoming update leads the header for every record state, and refused pulls and merges say history waits', () => {
-	const recorded = snapshot({
-		pendingIncoming: {
-			state: 'recorded',
-			operationId: 'op-1',
-			branch: 'main',
-			expectedHead: 'a'.repeat(40),
-			nextHead: 'b'.repeat(40),
+	const changed = snapshot({
+		files: {
+			state: 'observed',
+			value: {
+				head: 'a'.repeat(40),
+				changes: [{ path: 'todos/milk.md', kind: 'modify' }],
+			},
+			checkedAt,
+			stale: false,
+			error: undefined,
 		},
 	});
-	const line = incomingLine(recorded)!;
-	expect(line).toMatchObject({
-		label: 'Incoming update not finished',
-		tone: 'error',
+	const versions = versionLine(changed);
+	expect(versions).toMatchObject({
+		label: '1 change since the last version',
+		tone: 'neutral',
 	});
-	expect(line.detail).toContain('aaaaaaa → bbbbbbb on main');
-	expect(line.detail).toContain('You can still edit and save files');
-	expect(
-		incomingLine(snapshot({ pendingIncoming: { state: 'unadmitted' } })),
-	).toMatchObject({ label: 'Incoming update never started' });
-	expect(
-		incomingLine(
-			snapshot({
-				pendingIncoming: { state: 'unreadable', reason: 'not JSON' },
-			}),
-		)?.detail,
-	).toContain('not JSON');
-	expect(incomingLine(snapshot())).toBeUndefined();
-
-	const lines = {
-		files: filesLine({ saving: false, problems: 0, unsaved: false }),
-		uncommitted: uncommittedLine(recorded),
-		commit: commitLine(recorded),
-		remote: pushLine(recorded),
-	};
-	expect(summaryLine({ ...lines, incoming: line }).short).toBe(
-		'Update pending',
+	expect(summaryLine({ ...lines, versions }).label).toBe('Up to date');
+	expect(summaryLine({ ...lines, files: filesLine({ saving: true }) })).toEqual(
+		{ label: 'Saving…', tone: 'busy' },
 	);
-
-	const waits = PullError.IncomingPending({
-		pending: { state: 'unadmitted' },
-	});
-	expect(pullOutcomeLine(waits)).toEqual({
-		label: 'Pull waits',
-		detail: INCOMING_WAITS,
-		tone: 'warning',
-	});
-	expect(mergeOutcomeLine(waits).detail).toBe(INCOMING_WAITS);
-});
-
-test('a refused recovery names its paths and says nothing was written; open edits and success say so plainly', () => {
-	const pending = { state: 'unadmitted' } as const;
-	const refused = recoveryLine({
-		kind: 'ran',
-		result: PullError.RecoveryRefused({
-			pending,
-			paths: ['todos/milk.md', '.git/index'],
-			reason:
-				"todos/milk.md holds neither the update's before nor its after state",
+	expect(
+		versionOutcomeLine({
+			status: 'committed',
+			oid: 'c'.repeat(40),
+			parent: undefined,
+			message: 'Update todos/milk.md',
+			changedPaths: 1,
+			indexWarning: undefined,
 		}),
-	});
-	expect(refused.label).toBe('Incoming update not recovered');
-	expect(refused.detail).toContain('todos/milk.md\n.git/index');
-	expect(refused.detail).toContain('Nothing was written');
-	expect(
-		recoveryLine({ kind: 'unsettled', paths: ['todos/milk.md'] }).detail,
-	).toContain('todos/milk.md');
-	expect(
-		recoveryLine({
-			kind: 'ran',
-			result: Ok({
-				status: 'completed',
-				pending: {
-					state: 'recorded',
-					operationId: 'op-1',
-					branch: 'main',
-					expectedHead: undefined,
-					nextHead: 'b'.repeat(40),
-				},
-				changedPaths: ['todos/milk.md'],
-			}),
-		}),
-	).toMatchObject({ label: 'Incoming update finished: 1 file', tone: 'good' });
-	expect(
-		recoveryLine({ kind: 'ran', result: Ok({ status: 'admissionCleared' }) })
-			.detail,
-	).toContain('never changed a file');
+	).toMatchObject({ label: 'Saved version ccccccc', tone: 'good' });
 });
 
 test('observation times are absolute', () => {
-	expect(uncommittedLine(snapshot()).detail).toBe(
+	expect(versionLine(snapshot()).detail).toBe(
 		`Checked at ${new Date(checkedAt).toLocaleString()}`,
 	);
 	expect(pushLine(snapshot()).detail).toContain(

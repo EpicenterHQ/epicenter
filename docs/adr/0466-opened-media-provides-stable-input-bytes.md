@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
+- **Amended:** 2026-10-17: `files.open` is deleted. `files.read(path)` returns the bytes detached from storage, which is the stable input this record asks for, and it is the one read for media.
 - **Unbuilt:** stable native media reads, operation-scoped capture cleanup, and migrated transcription workflows.
 
 ## Context
@@ -18,14 +19,14 @@ The experiment does not implement a native file-folder adapter.
 
 ## Decision
 
-**`files.open(path)` supplies stable media bytes for consumption.** It takes a
+**`files.read(path)` supplies stable media bytes for consumption.** It takes a
 literal folder-relative path and reports a read failure if the media cannot be
 obtained. Once captured, the content consumed by the operation does not change
 when the source path is replaced, renamed, or deleted. The read does not promise
 a filesystem-wide atomic snapshot against concurrent native writers.
 
 Opening media requires no content hash or media version token. There is no
-media `FileRef` or conditional `files.open(ref)` contract. Browser immutable
+media `FileRef` or conditional `files.read(ref)` contract. Browser immutable
 objects can supply the bytes; native reads can capture them into memory or an
 operation-scoped temporary file. The transport remains an implementation choice
 and must account for capture lifetime and cleanup through consumption.
@@ -61,8 +62,8 @@ additional hash pass. See the [Git LFS specification](https://github.com/git-lfs
 - Memory captures cost memory proportional to recording size. Temporary captures
   trade memory for disk and explicit cleanup on success, failure, or cancellation.
   No permanent mirror of every current file is required.
-- The `read` byte API and `open` media API retain their transport distinction;
-  neither name introduces mandatory media hashing.
+- The `read` byte API is the one media read; there is no separate `open`
+  media API, and reading introduces no mandatory media hashing.
 - Table entries retain Markdown versions for conditional edits. Historical
   media retrieval remains separate from opening current files.
 

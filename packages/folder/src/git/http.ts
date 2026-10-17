@@ -12,6 +12,31 @@ export type HttpFetch = (
 	init?: RequestInit,
 ) => Promise<Response>;
 
+/** A username and password for one remote. A token is the password. */
+export type GitCredential = {
+	readonly username: string;
+	readonly password: string;
+};
+
+/**
+ * Asked right before each push and fetch, with the exact URL Git is about to
+ * reach. `undefined` sends no credential; a throw refuses the transfer. The
+ * folder keeps nothing it returns: not in `origin`, its files, or its Git
+ * configuration.
+ */
+export type GitCredentials = (
+	url: string,
+	signal: AbortSignal,
+) => Promise<GitCredential | undefined>;
+
+/** The `Authorization` value for `credential`: HTTP Basic, UTF-8. */
+export function basicAuthorization({ username, password }: GitCredential) {
+	const bytes = new TextEncoder().encode(`${username}:${password}`);
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return `Basic ${btoa(binary)}`;
+}
+
 async function collect(
 	body: GitHttpRequest['body'],
 ): Promise<Uint8Array | undefined> {
@@ -51,11 +76,18 @@ export function abortableHttp(
 	return {
 		async request({ url, method = 'GET', headers = {}, body }) {
 			const payload = await collect(body);
+			const authorized = Object.keys(headers).some(
+				(name) => name.toLowerCase() === 'authorization',
+			);
 			const response = await httpFetch(url, {
 				method,
 				headers,
 				body: payload as Uint8Array<ArrayBuffer> | undefined,
 				signal,
+				// Git needs no cookie, and a credential goes to the URL it was
+				// given for, never wherever a redirect points.
+				credentials: 'omit',
+				redirect: authorized ? 'error' : 'follow',
 			});
 			return {
 				url: response.url,

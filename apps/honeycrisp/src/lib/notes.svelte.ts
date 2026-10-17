@@ -1,201 +1,143 @@
 /**
- * The Honeycrisp product state over one opened notes folder.
+ * The Honeycrisp product state over one opened notes folder, read through a
+ * TanStack Query cache (ADR-0548) and written through the folder's edit
+ * layer (`edits`, ADR-0576).
  *
- * Three listings refresh together: the note rows, the folder rows, and the
- * file listing the file browser shows. They are read when the page opens,
- * after each of the app's own actions and terminal commands, and when the
- * person returns to the window. The latest refresh wins. The note list
- * offers the rows that read as notes and names the rest, with why, for
- * repair as text.
+ * Reads are queries from the folder's query layer (`queries`): the note rows, the folder
+ * rows, the file listing the file browser shows, Git status, and the text of
+ * each file opened as text. The cache changes in two ways only. Changes the
+ * page did not make arrive on `folder.onFilesChanged`, which makes exactly
+ * the queries they name stale (`<FolderApp>` wires it once). The page's own
+ * writes put their result in the cache, or make what they changed stale.
+ * Nothing rereads on focus.
  *
- * One item is open at a time, in the shared open-item slot
- * (`@epicenter/svelte/open-item`), keyed by its path and how it opens. A
- * note opened from the list is a row session over its fields and body; any
- * other text file, a note whose text is not a valid row, or a note opened as
- * its file, is a text session over its exact text. Leaving an item waits for
- * its saves, then releases its session and lists again. A save that failed or
- * conflicted keeps the item open until the person discards the draft (`open`
- * answers `unsaved` with that session, and the view asks). Opening the item
- * already open, the way it is open, does nothing.
+ * A field edit sets fields of the file as it is now (`set`, ADR-0576): a
+ * note's title, folder, and pin, a list action on any note, and a folder's
+ * name each set their fields and keep every field another writer changed.
+ * A note's body, from rich text or Source, is the row's body draft, and a
+ * file open as its exact text is its text draft: the edit layer holds each
+ * until it is in the file, saves it a second after the last change or at
+ * once when the view leaves it, keeps it on screen when a save fails, and
+ * offers its text when the file was deleted elsewhere. Writes to one file
+ * run one at a time, in the order made. Where a save meets another writer's
+ * change to the same lines, the save wins (ADR-0576).
  *
- * Every save is guarded by the bytes the session last saved, so a change
- * made elsewhere is a conflict the person resolves: Reload theirs or Keep
- * mine. Returning to the window never replaces an open note's draft, so its
- * rich-text undo history survives; the next save reports the change.
- *
- * A field change from a list (pin, folder, Recently Deleted, a folder's
- * name) goes into the open note's draft when that note is open, and is
- * otherwise a guarded `replace` of the row the list read.
+ * Every other action is a mutation: create, rename (`folder.move` for a file
+ * that is not a row), delete (a write to no file, whatever the file holds
+ * by then), deleting a folder, and Save version. A rename or delete runs
+ * once the file's drafts and saves landed, and its edits wait meanwhile.
+ * When the folder starts closing, the edit layer fences new input and sends
+ * what is typed; `<FolderApp>` then waits for every save and action and
+ * releases the folder. Saves never commit (ADR-0529); a version is recorded
+ * only by Save version.
  */
-import type {
-	AutosaveError,
-	FileCapture,
-	FileError,
-	FileListing,
-	MoveError,
-	RowReadError,
-	StoredRow,
-	TableError,
-} from '@epicenter/folder';
-import { parseRow, rowPath } from '@epicenter/folder';
+import { InstantString } from '@epicenter/definition';
 import {
-	ancestorsOf,
+	type CommitOutcome,
+	type FileError,
+	type FileListing,
+	type Row,
+	type RowReadError,
+	type RowWriteError,
+	rowPath,
+	rowStemOf,
+	type StoredRow,
+	type TableListing,
+	type WriteError,
+	type Written,
+	type WrittenRow,
+} from '@epicenter/folder';
+import {
+	ancestors,
 	basename,
 	dirname,
 	joinPath,
+	type OpenedFile,
+	readTextFile,
 } from '@epicenter/folder/file-browser';
-import { createAdmissions } from '@epicenter/svelte/admissions';
+import { CLOSING } from '@epicenter/svelte/edits';
+import type { FolderContext } from '@epicenter/svelte/folder';
 import {
-	createRowSession,
-	createTextSession,
-	type RowSession,
-	type TextSession,
-} from '@epicenter/svelte/edit-session';
-import { createOpenItem, type Opening } from '@epicenter/svelte/open-item';
-import { createTerminalSession } from '@epicenter/svelte/terminal-session';
+	ActionError,
+	type DescribedError,
+	describeWriteError,
+} from '@epicenter/svelte/write-failure';
+import type { MutationFilters } from '@tanstack/svelte-query';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
-import { createLogger } from 'wellcrafted/logger';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { createQueryFactories, defineKeys } from 'wellcrafted/query';
+import { Err, Ok, type Result, unwrap } from 'wellcrafted/result';
 import {
 	type FolderEntry,
 	type FolderFields,
-	honeycrispDefinition,
+	type honeycrispDefinition,
 	NOTES,
 	type NoteEntry,
 	type NoteFields,
 	noteIdOf,
-	instantNow as now,
 } from './data.js';
-import { nameProblem, readTextFile } from './files.js';
+import type { NoteBody } from './editor/rich-text.js';
+import { nameProblem } from './files.js';
 import { displayTitle } from './note-source.js';
-import type { NotesHost } from './platform/types.js';
-
-const log = createLogger('honeycrisp');
 
 export type Notes = ReturnType<typeof createNotes>;
+
+/**
+ * The opened notes folder, as `getFolder()` answers it. Its own
+ * `definition` is `honeycrispDefinition` for Honeycrisp's own folder, and the
+ * folder's declaration for any other folder Epicenter hands it. The app
+ * never syncs; remotes are outside it.
+ */
+export type NotesFolder = FolderContext<typeof honeycrispDefinition>;
 
 /** How a path opens: as the note it is, or as its exact text. */
 export type OpenAs = 'note' | 'text';
 
-/** The open item's edit session: a note's row, or a file's text. */
-export type Session = RowSession<NoteFields> | TextSession;
-
-/** What a path loads as. */
-type Item =
-	| { readonly kind: 'note'; readonly session: RowSession<NoteFields> }
-	| { readonly kind: 'text'; readonly session: TextSession }
-	| { readonly kind: 'failed'; readonly path: string; readonly message: string }
-	| {
-			readonly kind: 'binary' | 'tooLarge';
-			readonly path: string;
-			readonly size: number;
-	  };
-
-/** The one open item, or the path still loading: what the detail shows. */
-export type Opened = Item | { readonly kind: 'loading'; readonly path: string };
-
 /**
- * The open-item key: a path, and how it opens. A key asked without `as`
- * opens a note as a note when its text reads as one. `reread` marks the key
- * of an item shown without a session (failed, binary, too large): no open
- * matches it, so opening it again reads it again.
+ * What the detail shows. `id` names one opening: a rename keeps it, so the
+ * view, and the rich-text editor's undo history, stay.
  */
-type Key = {
+export type Selection = {
 	readonly path: string;
-	readonly as: OpenAs | undefined;
-	readonly reread?: true;
+	readonly as: OpenAs;
+	readonly id: number;
 };
 
-/**
- * The key `item` is shown under now: its session's path, which follows a
- * rename, and the way it opened, which for a note whose text is not a valid
- * row is text.
- */
-function keyOf(item: Item): Key {
-	if (item.kind === 'note' || item.kind === 'text')
-		return { path: item.session.path, as: item.kind };
-	return { path: item.path, as: undefined, reread: true };
-}
+/** The two row tables, by directory. */
+type TableName = 'notes' | 'folders';
+const FOLDERS = 'folders';
 
-/**
- * Whether opening `key` would show `shown` again. A path asked without `as`
- * matches however the item opened.
- */
-function sameKey(shown: Key, key: Key): boolean {
-	return (
-		shown.reread !== true &&
-		shown.path === key.path &&
-		(key.as === undefined || key.as === shown.as)
-	);
-}
+/** Every note row file, as the table lists it: a row, or why it is not one. */
+export type NoteListing = TableListing<NoteFields>;
+/** Every folder row file, as the table lists it. */
+export type FolderListing = TableListing<FolderFields>;
 
 /** A listed file the lists cannot show as a row, and why. */
 export type Problem = { readonly path: string; readonly message: string };
 
-/** What a confirmed deletion removes, captured when the person was asked. */
+/** What a confirmed deletion removes, as the person was asked about it. */
 export type Deletion =
-	| (FileCapture & {
+	| { readonly kind: 'folder'; readonly path: string }
+	| {
 			readonly kind: 'file';
+			readonly path: string;
 			/** The note's name, when the file is a note that reads as one. */
 			readonly title: string | undefined;
-	  })
-	| { readonly kind: 'folder'; readonly path: string };
+			/**
+			 * Whether the file has changes that are in no saved version, as Git
+			 * status last checked; `undefined` when the check failed.
+			 */
+			readonly unversioned: boolean | undefined;
+	  };
 
-const CLOSING = 'The app is closing, so nothing was changed.';
-const BUSY =
-	'A change to this note is still running. Try again when it finishes.';
 const OPEN_AS_TEXT =
-	'This note is open as a file. Open it as a note to change it here.';
-const GONE = 'This file is no longer in the folder.';
-/** Why a new note did not open: the open one holds changes it could not save. */
-const UNSAVED_STAYS =
-	'It was added, but the open note has changes that are not saved, so it stays open.';
-const FOLDERS = 'folders';
+	'This file is open as text. Change it there, or open it as a note.';
+const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
 
-/** The path an open item is at. */
-export function pathOf(item: Opened): string {
-	return item.kind === 'note' || item.kind === 'text'
-		? item.session.path
-		: item.path;
-}
-
-/**
- * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, a move that kept its source left both
- * files, and a lost reply leaves the outcome unknown.
- */
-export function describeError(
-	error:
-		| FileError
-		| MoveError
-		| TableError
-		| AutosaveError
-		| { readonly name: string; readonly message: string },
-): string {
-	// A session's own refusals are named failures with a message of their own.
-	const known = error as FileError | MoveError | TableError;
-	switch (known.name) {
-		case 'Exists':
-			return `"${basename(known.path)}" already exists here.`;
-		case 'Conflict':
-			return known.actualSha256 === undefined
-				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Check it and try again.';
-		case 'DirectoryNotEmpty':
-			return 'The folder is not empty, so nothing was deleted.';
-		case 'SourceNotRemoved':
-			return `The file was copied to ${known.to}, but ${known.from} could not be removed, so the folder now has both. Delete whichever you do not want.`;
-		case 'Unconfirmed':
-			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${known.message}`;
-		case 'InvalidValues':
-			return known.issues.map((issue) => issue.message).join(' ');
-		case 'NotFound':
-			return GONE;
-		default:
-			return known.message;
-	}
-}
+/** Cache identity for the app's own actions; the folder's reads are `queries`'. */
+export const notesKeys = defineKeys({
+	saveVersion: ['honeycrisp', 'save-version'],
+});
 
 /** Why a listed row file cannot be shown as a row. */
 function problemOf(path: string, error: RowReadError): Problem {
@@ -212,52 +154,58 @@ function problemOf(path: string, error: RowReadError): Problem {
 	return { path, message: error.message };
 }
 
-/**
- * One table listing: the rows that read, the files whose text is not
- * a valid row (each opens as text for repair), and the files that cannot be
- * read as text at all.
- */
-function split<TFields>(
-	table: string,
-	listing: readonly {
-		stem: string;
-		result: Result<StoredRow<TFields>, RowReadError>;
-	}[],
-) {
-	const rows: (StoredRow<TFields> & { stem: string })[] = [];
-	const repairs: Problem[] = [];
-	const unreadable: Problem[] = [];
-	for (const { stem, result } of listing) {
+/** The rows of a listing that read, each with its stem. */
+function rowsOf<TFields>(
+	listing: TableListing<TFields>,
+): (StoredRow<TFields> & { readonly stem: string })[] {
+	const rows: (StoredRow<TFields> & { readonly stem: string })[] = [];
+	for (const { stem, result } of listing)
 		if (result.error === null) rows.push({ ...result.data, stem });
-		else {
-			const problem = problemOf(rowPath(table, stem), result.error);
-			if (result.error.name === 'InvalidRow') repairs.push(problem);
-			else unreadable.push(problem);
-		}
-	}
-	return { rows, repairs, unreadable };
+	return rows;
 }
 
-export function createNotes(host: NotesHost) {
-	const { folder } = host;
-	const notesTable = folder.tables.notes;
-	const foldersTable = folder.tables.folders;
+/** The note rows that read as notes. */
+export const notesOf = (listing: NoteListing): NoteEntry[] => rowsOf(listing);
+/** The folder rows that read as folders. */
+export const foldersOf = (listing: FolderListing): FolderEntry[] =>
+	rowsOf(listing);
 
-	let notes = $state.raw<NoteEntry[]>([]);
-	let folders = $state.raw<FolderEntry[]>([]);
-	/** Note files that do not read as notes but are text: each opens for repair. */
-	let repairs = $state.raw<Problem[]>([]);
-	/** Note files that are not text, and folder files that do not read as folders. */
-	let unreadable = $state.raw<Problem[]>([]);
-	/** Every note file in the last listing, note or not. */
-	let notePaths = $state.raw<ReadonlySet<string>>(new Set());
-	let listError = $state<string | undefined>();
-	let listing = $state.raw<FileListing | undefined>();
-	let listingError = $state<string | undefined>();
+/** Note files whose text does not read as a note: each opens as text for repair. */
+export function repairsOf(listing: NoteListing): Problem[] {
+	const repairs: Problem[] = [];
+	for (const { stem, result } of listing)
+		if (result.error?.name === 'InvalidRow')
+			repairs.push(problemOf(rowPath(NOTES, stem), result.error));
+	return repairs;
+}
+
+/** Note files that are not text, and folder files that do not read as folders. */
+export function unreadableOf(
+	notes: NoteListing | undefined,
+	folders: FolderListing | undefined,
+): Problem[] {
+	const unreadable: Problem[] = [];
+	for (const { stem, result } of notes ?? [])
+		if (result.error !== null && result.error.name !== 'InvalidRow')
+			unreadable.push(problemOf(rowPath(NOTES, stem), result.error));
+	for (const { stem, result } of folders ?? [])
+		if (result.error !== null)
+			unreadable.push(problemOf(rowPath(FOLDERS, stem), result.error));
+	return unreadable;
+}
+
+export function createNotes(opened: NotesFolder) {
+	const { folder, queries, queryClient, edits } = opened;
+	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
-	/** Bumped when a note is opened, so its editor takes focus. */
-	let focusRequest = $state(0);
-	/** Which notes the list shows. */
+	const trackMutations = createSubscriber((update) =>
+		queryClient.getMutationCache().subscribe(update),
+	);
+	const trackQueries = createSubscriber((update) =>
+		queryClient.getQueryCache().subscribe(update),
+	);
+
+	/** Which notes the list shows; input not yet committed, like a search. */
 	let view = $state<{
 		folderId: string | null;
 		deleted: boolean;
@@ -265,325 +213,428 @@ export function createNotes(host: NotesHost) {
 	}>({ folderId: null, deleted: false, query: '' });
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>([NOTES]);
-	let refreshSequence = 0;
-	/** Set while a close is answered: no input and no action is taken. */
-	let fenced = $state(false);
-	/** Set once `close` begins. Nothing opens after it, and the fence stays. */
-	let closing: Promise<void> | undefined;
-	/** Set once the folder is being released: nothing reads it after. */
-	let released = false;
-	/** Actions admitted and not finished; a close waits for them. */
-	const admissions = createAdmissions();
+	/** What the detail shows. */
+	let selected = $state.raw<Selection | undefined>();
+	let openings = 0;
+	/** Bumped when a note is opened, so its editor takes focus. */
+	let focusRequest = $state(0);
 
-	/** Whether the open item refuses input now. */
-	const locked = () => fenced || closing !== undefined;
-
-	/** Why no action starts now, if one does not. */
-	const refused = () => (locked() ? CLOSING : undefined);
-
-	function sessionOf(item: Item): Session | undefined {
-		return item.kind === 'note' || item.kind === 'text'
-			? item.session
-			: undefined;
-	}
-
-	const slot = createOpenItem<Key, Item, Session>({
-		load,
-		sessionOf,
-		keyOf,
-		sameKey,
-		closed: () => closing !== undefined,
-	});
-
-	/** What the detail shows; one object per load, so the view can key on it. */
-	const opened = $derived.by((): Opened | undefined => {
-		const shown = slot.shown;
-		if (shown === undefined) return undefined;
-		return shown.status === 'open'
-			? shown.item
-			: { kind: 'loading', path: shown.key.path };
-	});
-
-	/** The open note's session when `path` is open as a note. */
-	function noteAt(path: string) {
-		const item = slot.item;
-		return item?.kind === 'note' && item.session.path === path
-			? item.session
-			: undefined;
-	}
-
-	const terminal = createTerminalSession({
-		terminal: host.terminal,
-		afterRun: check,
-		fenced: locked,
-	});
+	/** Why no action starts now, if one does not: the folder is closing. */
+	const refused = () => edits.refusal();
 
 	/**
-	 * One listing pass. A pass that a newer one overtook, or that answers
-	 * after the folder was released, changes nothing. An action a close is
-	 * waiting for still lists until then.
+	 * After the app's own action: what it changed at `paths` is read again,
+	 * Git status included. The folder does not report a page's own writes
+	 * to it.
 	 */
-	async function refresh() {
-		if (released) return;
-		const sequence = ++refreshSequence;
-		const [noteRows, folderRows, files] = await Promise.all([
-			notesTable.list(),
-			foldersTable.list(),
-			folder.files.list(),
-		]);
-		if (released || sequence !== refreshSequence) return;
-		const folderList =
-			folderRows.error === null
-				? split<FolderFields>(FOLDERS, folderRows.data)
-				: undefined;
-		if (noteRows.error !== null) {
-			// Keep the previous list visible; never show an empty list for a failed read.
-			listError = noteRows.error.message;
-		} else {
-			const noteList = split<NoteFields>(NOTES, noteRows.data);
-			listError = undefined;
-			notes = noteList.rows;
-			repairs = noteList.repairs;
-			unreadable = [
-				...noteList.unreadable,
-				...(folderList
-					? [...folderList.repairs, ...folderList.unreadable]
-					: []),
-			];
-			notePaths = new Set(
-				noteRows.data.map(({ stem }) => rowPath(NOTES, stem)),
-			);
-		}
-		if (folderList !== undefined) folders = folderList.rows;
-		if (files.error !== null) listingError = files.error.message;
-		else {
-			listingError = undefined;
-			listing = files.data;
-		}
-	}
+	const changed = (...paths: string[]) =>
+		queryClient.invalidateQueries(queries.pathFilter(paths));
 
-	/** The listings and Git status: the person's "Check again", and returning to the window. */
-	async function check() {
-		if (closing !== undefined) return;
-		await Promise.all([
-			refresh(),
-			folder.git.status().catch(() => undefined),
-			slot.adopt(),
-		]);
-	}
+	/** Whether `path` is open as its exact text, so its text is what saves. */
+	const asText = (path: string) =>
+		selected?.path === path && selected.as === 'text';
 
-	function openNote(stored: StoredRow<NoteFields>): Item {
-		return {
-			kind: 'note',
-			session: createRowSession(notesTable, stored, { locked }),
-		};
-	}
+	/** One table's listing, as the cache holds it now. */
+	const listingOf = <TFields>(table: TableName) =>
+		queryClient.getQueryData<TableListing<TFields>>(
+			queries.tables[table].list.queryKey(),
+		);
 
-	function openText(file: FileCapture & { text: string }): Item {
-		return {
-			kind: 'text',
-			session: createTextSession(folder.files, file, { locked }),
-		};
-	}
-
-	/** Read `key.path` the way it opens: a note as a row unless `key.as` says text. */
-	async function load({ path, as }: Key): Promise<Item> {
-		const stem = noteIdOf(path);
-		if (stem !== undefined && as !== 'text') {
-			const { data: stored, error } = await notesTable.get(stem);
-			// A note whose text is not a valid row is repaired as text.
-			if (error?.name === 'InvalidRow') return openText(error);
-			if (error !== null)
-				return {
-					kind: 'failed',
-					path,
-					message: problemOf(path, error).message,
-				};
-			if (stored === undefined) return { kind: 'failed', path, message: GONE };
-			return openNote(stored);
-		}
-		const { data: read, error } = await readTextFile(folder.files, path);
-		if (error !== null)
-			return { kind: 'failed', path, message: describeError(error) };
-		if (read.kind !== 'text') return { ...read, path };
-		return openText(read.file);
+	/** The row the cache holds for `stem` in `table`, if it reads as one. */
+	function storedOf<TFields>(
+		table: TableName,
+		stem: string,
+	): StoredRow<TFields> | undefined {
+		const result = listingOf<TFields>(table)?.find(
+			(entry) => entry.stem === stem,
+		)?.result;
+		return result?.error === null ? result.data : undefined;
 	}
 
 	/**
-	 * Show `path`: a note as its fields and body, unless `as` asks for its
-	 * text; any other file as its text. The open item's saves land first, and
-	 * the listings are read again. Opening the item already open, the way it
-	 * is open, changes nothing. Answers `unsaved`, opening nothing, when the
-	 * open item holds a draft it could not save; the view asks the person,
-	 * and `discard` names the session whose draft they chose to let go.
+	 * Why fields of the row at `stem` take no set or body now, if they do
+	 * not: closing, a rename or delete of the file, the file open as text,
+	 * or a row the list does not hold.
 	 */
-	async function open(
-		path: string,
-		{ as, discard }: { as?: OpenAs; discard?: Session } = {},
-	): Promise<Opening<Session>> {
-		focusRequest += 1;
-		const opening = await slot.open({ path, as }, { discard });
-		if (opening.kind !== 'done') return opening;
-		if (opening.left) void refresh();
-		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
-		return opening;
-	}
-
-	/** The capture a deletion or rename of a closed file acts on: the file as it is now. */
-	async function captureNow(
-		path: string,
-	): Promise<Result<FileCapture, FileError>> {
-		const { data: read, error } = await folder.files.read(path);
-		if (error !== null) return Err(error);
-		return Ok({ path: read.path, sha256: read.sha256 });
-	}
-
-	/** The open item's save problem, if it has one. */
-	function saveError() {
-		const state = slot.session?.state;
-		return state?.status === 'error' ? state.error : undefined;
-	}
-
-	/** The fields the lists show for `entry`: the open draft's when it is open. */
-	function fieldsOf(entry: NoteEntry): NoteFields {
-		return noteAt(entry.path)?.draft.fields ?? entry.row.fields;
-	}
-
-	/**
-	 * Change a note's fields. The open note takes the change as an edit to
-	 * its draft. A closed note is replaced, guarded by the version the list
-	 * read: one that changed since is refused, and the list reads it again.
-	 */
-	const changeNote = admissions.command(async function changeNote(
-		path: string,
-		fields: Partial<NoteFields>,
-	): Promise<string | undefined> {
-		const why = refused();
+	function refusalAt(table: TableName, stem: string): string | undefined {
+		const path = rowPath(table, stem);
+		const why = edits.refusal(path);
 		if (why !== undefined) return why;
-		const session = noteAt(path);
-		if (session !== undefined) {
-			if (session.locked) return BUSY;
-			session.edit((row) => {
-				Object.assign(row.fields, fields);
-			});
-			return undefined;
-		}
-		const item = slot.item;
-		if (item?.kind === 'text' && item.session.path === path)
-			return OPEN_AS_TEXT;
-		const entry = notes.find((note) => note.path === path);
-		if (entry === undefined)
-			return 'This note is not in the list as last read. Check again and retry.';
-		const { error } = await notesTable.replace(entry, {
-			fields: { ...entry.row.fields, ...fields },
-			body: entry.row.body,
-		});
-		await refresh();
-		return error === null ? undefined : describeError(error);
-	});
-
-	/**
-	 * Delete `file`. The open item's session is released first and its last
-	 * saves land, so the delete removes what this app saved last; a file
-	 * another program changed since is refused, and the open item shows the
-	 * file again as it is now, in a new session.
-	 */
-	const removeFile = admissions.command(
-		async (file: FileCapture): Promise<string | undefined> => {
-			const session = slot.session;
-			const removed =
-				session?.path === file.path
-					? await slot.removeOpen(session, (capture) =>
-							folder.files.remove(capture),
-						)
-					: await folder.files.remove(file);
-			const error = removed?.error ?? null;
-			// An item shown without a session (binary, too large) closes with its file.
-			if (
-				error === null &&
-				opened !== undefined &&
-				pathOf(opened) === file.path
-			)
-				slot.forget();
-			await refresh();
-			return error === null ? undefined : describeError(error);
-		},
-	);
-
-	/** Delete a folder after moving its notes out; see `deleteFolder` below. */
-	async function deleteFolder(entry: FolderEntry): Promise<string | undefined> {
-		const why = refused();
-		if (why !== undefined) return why;
-		if (listError !== undefined)
-			return `The notes could not be listed, so it is not known which are in this folder: ${listError}`;
-		const unknown = [
-			...repairs,
-			...unreadable.filter((problem) => noteIdOf(problem.path) !== undefined),
-		];
-		if (unknown.length > 0)
-			return `Some notes cannot be read well enough to tell which folder they are in (${unknown
-				.slice(0, 3)
-				.map((problem) => basename(problem.path))
-				.join(', ')}). Repair or remove them first.`;
-		const id = entry.stem;
-		const members = () =>
-			notes.filter((note) => fieldsOf(note).folderId === id);
-		for (const note of members()) {
-			const problem = await changeNote(note.path, { folderId: null });
-			if (problem !== undefined)
-				return `A note could not be moved out of the folder: ${problem}`;
-		}
-		const settled = await slot.session?.settled();
-		if (settled?.status === 'error')
-			return 'The open note could not be saved outside the folder, so the folder was kept.';
-		await refresh();
-		const remaining = members();
-		if (remaining.length > 0)
-			return `Some notes were put in this folder while it was being deleted (${remaining
-				.slice(0, 3)
-				.map((note) => basename(note.path))
-				.join(', ')}). Delete it again to move them out.`;
-		const listed = folders.find((item) => item.path === entry.path) ?? entry;
-		const problem = await removeFile(listed);
-		if (problem !== undefined) return problem;
-		if (view.folderId === id) view = { ...view, folderId: null };
+		if (asText(path)) return OPEN_AS_TEXT;
+		if (storedOf(table, stem) === undefined) return NOT_LISTED;
 		return undefined;
 	}
 
+	/**
+	 * Set fields of the row at `stem` as its file is now; answers why not, if
+	 * not. A typed title or folder name is offered to copy when the set
+	 * fails; a pin, a move, or a trash carries no text the person typed.
+	 */
+	function set<K extends TableName>(
+		table: K,
+		stem: string,
+		fields: Partial<K extends 'notes' ? NoteFields : FolderFields>,
+		unsaved: string,
+	): string | undefined {
+		return (
+			refusalAt(table, stem) ??
+			edits.set(table, stem, fields as never, { unsaved })
+		);
+	}
+
+	/** The row table `path` is in, and its stem, if it is a row file. */
+	function rowAt(path: string) {
+		const noteStem = rowStemOf(NOTES, path);
+		if (noteStem !== undefined)
+			return { table: 'notes' as const, stem: noteStem };
+		const folderStem = rowStemOf(FOLDERS, path);
+		if (folderStem !== undefined)
+			return { table: 'folders' as const, stem: folderStem };
+		return undefined;
+	}
+
+	/** The note at `stem` as shown: its body typed while one is held, else as the cache holds it. */
+	function noteRowOf(stem: string): Row<NoteFields> | undefined {
+		const stored = storedOf<NoteFields>('notes', stem);
+		if (stored === undefined) return undefined;
+		const typed = edits.body('notes', stem).typed;
+		return typed === undefined
+			? stored.row
+			: { fields: stored.row.fields, body: typed };
+	}
+
+	/**
+	 * Type `body` as the body of the note at `path`; it saves after a pause.
+	 * Answers why the change was refused, changing nothing, if it was.
+	 */
+	function editBody(path: string, body: string): string | undefined {
+		const stem = noteIdOf(path);
+		if (stem === undefined) return NOT_LISTED;
+		const why = refusalAt('notes', stem);
+		if (why !== undefined) return why;
+		return edits.body('notes', stem).change(body) ? undefined : NOT_LISTED;
+	}
+
+	/** Save the body of the note at `path` now, as leaving it does. */
+	function saveBody(path: string): Promise<void> {
+		const stem = noteIdOf(path);
+		return stem === undefined
+			? Promise.resolve()
+			: edits.body('notes', stem).save();
+	}
+
+	const textKey = (path: string) => queries.files.text.queryKey(path);
+
+	/** The text of `path` as the cache holds it, when it opens as text. */
+	const shownText = (path: string) => {
+		const opened = queryClient.getQueryData<OpenedFile>(textKey(path));
+		return opened?.kind === 'text' ? opened.text : undefined;
+	};
+
+	/** Set some fields of a note as its file is now: pin, move to a folder, trash, restore. */
+	function patchNote(path: string, fields: Partial<NoteFields>) {
+		const stem = noteIdOf(path);
+		if (stem === undefined) return NOT_LISTED;
+		return set('notes', stem, fields, fields.title ?? '');
+	}
+
+	/** After a rename: the open item follows the file. */
+	function moved(from: string, to: string) {
+		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
+		if (selected?.path === from) selected = { ...selected, path: to };
+	}
+
+	/** After a delete: the open item lets the file go. */
+	function deleted(path: string) {
+		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
+		if (selected?.path === path) selected = undefined;
+	}
+
+	/** How a path opens when nothing says: a note as a note, unless its text is not one. */
+	function defaultAs(path: string): OpenAs {
+		const stem = noteIdOf(path);
+		if (stem === undefined) return 'text';
+		const result = listingOf<NoteFields>('notes')?.find(
+			(entry) => entry.stem === stem,
+		)?.result;
+		return result === undefined || result.error === null ? 'note' : 'text';
+	}
+
+	/** Show `path` in the detail. Opening never waits, writes, or asks. */
+	function open(path: string, as: OpenAs = defaultAs(path)) {
+		if (as === 'note') focusRequest += 1;
+		for (const ancestor of ancestors(path)) expanded.add(ancestor);
+		if (selected?.path === path && selected.as === as) return;
+		selected = { path, as, id: ++openings };
+	}
+
+	/** What a person reads about an action's outcome: nothing, or why it failed. */
+	function problem(result: Result<unknown, DescribedError>) {
+		return result.error === null ? undefined : describeWriteError(result.error);
+	}
+
+	/** Why a file named `name` in `directory` cannot be made, if it cannot. */
+	function placeProblem(directory: string, name: string) {
+		const why = refused() ?? nameProblem(directory, name);
+		if (why !== undefined) return why;
+		const path = joinPath(directory, name);
+		const listing = queryClient.getQueryData<FileListing>(
+			queries.files.list.queryKey(),
+		);
+		if (
+			listing?.directories.includes(path) ||
+			listing?.files.some((file) => file.path === path)
+		)
+			return `"${name}" already exists here.`;
+		return undefined;
+	}
+
+	const createNote = defineMutation({
+		mutationKey: ['honeycrisp', 'create-note'],
+		mutationFn: async (
+			stem: string,
+		): Promise<Result<WrittenRow<NoteFields>, RowWriteError | ActionError>> => {
+			const why = refused();
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
+			return edits.writes.tables.notes.create(
+				{
+					fields: {
+						folderId: view.deleted ? null : view.folderId,
+						title: '',
+						pinned: false,
+						createdAt: InstantString.now(),
+						deletedAt: null,
+					},
+					body: '',
+				},
+				{ stem },
+			);
+		},
+		onSuccess: (_, stem) => open(rowPath(NOTES, stem), 'note'),
+	});
+
+	const createFolder = defineMutation({
+		mutationKey: ['honeycrisp', 'create-folder'],
+		mutationFn: async ({
+			stem,
+			name,
+		}: {
+			stem: string;
+			name: string;
+		}): Promise<
+			Result<WrittenRow<FolderFields>, RowWriteError | ActionError>
+		> => {
+			const why = refused();
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
+			return edits.writes.tables.folders.create(
+				{ fields: { name, icon: null }, body: '' },
+				{ stem },
+			);
+		},
+	});
+
+	const createFile = defineMutation({
+		mutationKey: ['honeycrisp', 'create-file'],
+		mutationFn: async ({
+			directory,
+			name,
+		}: {
+			directory: string;
+			name: string;
+		}): Promise<Result<Written, WriteError | ActionError>> => {
+			const why = placeProblem(directory, name);
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
+			// A write from no file places it only where none is.
+			return edits.writes.write(joinPath(directory, name), null, '');
+		},
+		onSuccess: (created) => open(created.path, 'text'),
+	});
+
+	const createDirectory = defineMutation({
+		mutationKey: ['honeycrisp', 'create-directory'],
+		mutationFn: async ({
+			directory,
+			name,
+		}: {
+			directory: string;
+			name: string;
+		}): Promise<Result<undefined, FileError | ActionError>> => {
+			const why = placeProblem(directory, name);
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
+			return folder.files.mkdir(joinPath(directory, name));
+		},
+		onSuccess: (_, { directory, name }) => {
+			if (directory !== '') expanded.add(directory);
+			return changed(joinPath(directory, name));
+		},
+	});
+
+	/**
+	 * Delete a folder after moving its notes out. Refused while any note
+	 * cannot say which folder it is in. What is typed and the writes running
+	 * land first; each note then moves out by a set, like any list action;
+	 * once every write landed, the notes are read again, and the folder's
+	 * file goes only when none is still in it. Not one atomic step: a note
+	 * already moved out stays moved out if the delete stops, and another
+	 * program can still put a note in the folder after the last read.
+	 */
+	async function deleteFolder(
+		entry: FolderEntry,
+	): Promise<Result<undefined, WriteError | FileError | ActionError>> {
+		const why = refused();
+		if (why !== undefined) return ActionError.NotStarted({ reason: why });
+		const deleting = await edits.exclusive(entry.path, async () => {
+			// Every write lands first, so the listing says where each note is.
+			await edits.settled();
+			const listing = listingOf<NoteFields>('notes');
+			if (listing === undefined)
+				return ActionError.NotStarted({
+					reason:
+						'The notes could not be listed, so it is not known which are in this folder.',
+				});
+			const unknown = [...repairsOf(listing), ...unreadableOf(listing, [])];
+			if (unknown.length > 0)
+				return ActionError.NotStarted({
+					reason: `Some notes cannot be read well enough to tell which folder they are in (${unknown
+						.slice(0, 3)
+						.map((item) => basename(item.path))
+						.join(', ')}). Repair or remove them first.`,
+				});
+			const id = entry.stem;
+			for (const note of notesOf(listing)) {
+				if (note.row.fields.folderId !== id) continue;
+				const refusal = patchNote(note.path, { folderId: null });
+				if (refusal !== undefined)
+					return ActionError.NotStarted({
+						reason: `A note could not be moved out of the folder: ${refusal}`,
+					});
+			}
+			await edits.settled();
+			const reread = await folder.tables.notes.list();
+			if (reread.error !== null) return Err(reread.error);
+			const remaining = notesOf(reread.data).filter(
+				(note) => note.row.fields.folderId === id,
+			);
+			if (remaining.length > 0)
+				return ActionError.NotStarted({
+					reason: `Some notes are still in this folder (${remaining
+						.slice(0, 3)
+						.map((note) => basename(note.path))
+						.join(', ')}), so it was kept. Delete it again to move them out.`,
+				});
+			return edits.writes.tables.folders.delete(entry.stem);
+		});
+		if (deleting.error !== null) return deleting;
+		deleted(entry.path);
+		if (view.folderId === entry.stem) view = { ...view, folderId: null };
+		return deleting;
+	}
+
+	/**
+	 * Rename a file within its folder, through the folder's one move: a row
+	 * and any other file alike move as exact bytes, a row to the path of its
+	 * new stem. It waits for the file's drafts and saves to land and moves
+	 * what the file holds then. Edits of the file, and of the name it takes,
+	 * wait meanwhile; typing in it whose save failed refuses the rename.
+	 */
+	async function rename(
+		path: string,
+		name: string,
+	): Promise<Result<Written | undefined, WriteError | ActionError>> {
+		const directory = dirname(path);
+		const to = joinPath(directory, name);
+		const why = refused() ?? nameProblem(directory, name);
+		if (why !== undefined) return ActionError.NotStarted({ reason: why });
+		if (to === path) return Ok(undefined);
+		const at = rowAt(path);
+		const nextStem = at === undefined ? undefined : rowStemOf(at.table, to);
+		if (at !== undefined && nextStem === undefined)
+			return ActionError.NotStarted({
+				reason: `A ${at.table === NOTES ? 'note' : 'folder'} file keeps its .md extension.`,
+			});
+		const renamed = await edits.exclusive([path, to], async () =>
+			// A close that began meanwhile stops the move.
+			edits.fenced
+				? ActionError.NotStarted({ reason: CLOSING })
+				: edits.writes.move(path, to),
+		);
+		if (renamed.error !== null) return renamed;
+		// The listings take the new name before the open item follows it.
+		await changed(path, to);
+		moved(path, to);
+		return renamed;
+	}
+
+	/**
+	 * Delete what was confirmed. It waits for the file's drafts and saves to
+	 * land, so what this app saved last goes with it, and deletes the file
+	 * whatever another program changed in it since: the deleter wins
+	 * (ADR-0576).
+	 */
+	async function deleteConfirmed(
+		deletion: Deletion,
+	): Promise<Result<unknown, FileError | WriteError | ActionError>> {
+		const why = refused();
+		if (why !== undefined) return ActionError.NotStarted({ reason: why });
+		const removed =
+			deletion.kind === 'folder'
+				? await folder.files.rmdir(deletion.path)
+				: await edits.exclusive(deletion.path, () =>
+						edits.writes.write(deletion.path, null, null),
+					);
+		if (removed.error !== null) return removed;
+		deleted(deletion.path);
+		await changed(deletion.path);
+		return removed;
+	}
+
 	return {
-		host,
-		terminal,
-		/** Rows that read as notes, as last listed. */
-		get notes() {
-			return notes;
-		},
-		/** Rows that read as folders, as last listed. */
-		get folders() {
-			return folders;
-		},
-		/** Note files whose text does not read as a note; each opens as text for repair. */
-		get repairs() {
-			return repairs;
-		},
-		/** Note files that are not text, and folder files that do not read as folders. */
-		get unreadable() {
-			return unreadable;
-		},
-		get listError() {
-			return listError;
-		},
-		/** Every file and directory in the folder, as last listed. */
-		get listing() {
-			return listing;
-		},
-		get listingError() {
-			return listingError;
-		},
+		/** The opened folder; `<FolderApp>` releases it. */
+		folder,
+		queryClient,
+		/** The folder's query options; views read through these. */
+		queries,
+		/** The folder's edit layer: every draft, set, and write. */
+		edits,
 		expanded,
 		get git() {
 			trackGit();
 			return folder.git.snapshot;
 		},
+
+		// ------------------------------------------------------------------
+		// Reads
+		// ------------------------------------------------------------------
+
+		/** One file's complete text, or its type and size when it is not editable text. */
+		textQuery(path: string) {
+			return {
+				...queries.files.text.queryOptions(path),
+				// A note opened as its file while its row is being saved is read
+				// once that save lands, never under it.
+				queryFn: async () => {
+					await edits.settled(path);
+					return unwrap(await readTextFile(folder.files, path));
+				},
+			};
+		},
+		/**
+		 * Read the listings and Git status when the page opens. A listing that
+		 * fails is shown where it is used.
+		 */
+		async load() {
+			await Promise.all([
+				queryClient.prefetchQuery(queries.notes.list.queryOptions()),
+				queryClient.prefetchQuery(queries.folders.list.queryOptions()),
+				queryClient.prefetchQuery(queries.files.list.queryOptions()),
+				queryClient.prefetchQuery(queries.history.status.queryOptions()),
+			]);
+		},
+
+		// ------------------------------------------------------------------
+		// What the lists and the detail show
+		// ------------------------------------------------------------------
+
 		get view() {
 			return view;
 		},
@@ -596,280 +647,149 @@ export function createNotes(host: NotesHost) {
 		setQuery(query: string) {
 			view = { ...view, query };
 		},
-		/** The open item, or `undefined`. */
-		get opened() {
-			return opened;
-		},
-		/** The open item's path. */
-		get selectedPath() {
-			return opened && pathOf(opened);
+		get selected() {
+			return selected;
 		},
 		get focusRequest() {
 			return focusRequest;
 		},
-		/** Whether `path` is a note file, whether or not its text reads as a note. */
-		isNote(path: string) {
-			return notePaths.has(path);
-		},
-		fieldsOf,
-		/** The open note's session when `path` is open as a note. */
-		noteAt,
-		/** 1 while the open item has a save running or a draft it could not save, or an action runs. */
-		get unsettled() {
-			return slot.unsaved || admissions.busy ? 1 : 0;
-		},
+		open,
+
+		// ------------------------------------------------------------------
+		// State read reactively
+		// ------------------------------------------------------------------
+
+		/** Whether a save of a row or a file's text is running, or typing waits to be sent. */
 		get saving() {
-			return slot.session?.state.status === 'saving' || admissions.busy;
+			return edits.writing();
 		},
-		/** 1 when the open item's draft is known not to be in its file. */
-		get notSaved() {
-			const error = saveError();
-			return error !== undefined && error.name !== 'Unconfirmed' ? 1 : 0;
+		/** Whether text typed did not save, with no save running or waiting. */
+		get unsaved() {
+			return edits.unsaved();
 		},
-		/** 1 when the open item's last save may or may not have landed. */
-		get unconfirmed() {
-			return saveError()?.name === 'Unconfirmed' ? 1 : 0;
+		/** Whether anything is saving or mutating: a save or an action. */
+		get busy() {
+			return edits.busy;
 		},
-		/** Whether input and actions are held back while a close is answered. */
+		/** How many mutations match `filters`. */
+		mutating(filters?: MutationFilters) {
+			trackMutations();
+			return queryClient.isMutating(filters);
+		},
+		/** Whether a write of `path` is running, or typing there waits to be sent. */
+		isWriting: (path: string) => edits.writing(path),
+		/** Whether typing at `path`, its body, a field, or its exact text, did not save, with no save running. */
+		isUnsaved: (path: string) => edits.unsaved(path),
+		/** Whether edits of `path` are refused now: closing, or a rename or delete runs. */
+		isLocked: (path: string) => edits.locked(path),
+		/** Whether input and actions are held back because the notes are closing. */
 		get fenced() {
-			return fenced;
+			return edits.fenced;
+		},
+
+		// ------------------------------------------------------------------
+		// Edits
+		// ------------------------------------------------------------------
+
+		/** Why the note at `path` takes no set or body now, if it does not. */
+		refusalAt(path: string): string | undefined {
+			const stem = noteIdOf(path);
+			return stem === undefined ? NOT_LISTED : refusalAt('notes', stem);
 		},
 		/**
-		 * Stop taking input and actions, before drafts are settled for a close.
-		 * Returns the release, for a close that was declined or refused.
+		 * Type `body` as the note's body; it saves a second after the last
+		 * change, or at once with `saveBody`. Answers why not, if not.
 		 */
-		fenceInput(): () => void {
-			fenced = true;
-			return () => {
-				// A close keeps its fence for good.
-				if (closing === undefined) fenced = false;
+		editBody,
+		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
+		saveBody,
+		/**
+		 * The note at `path` as the rich-text editor uses it: the row shown
+		 * now, read reactively, with the body typed while one is held;
+		 * whether it takes edits; and `edit`, which types a body and answers
+		 * whether it was taken.
+		 */
+		noteBody(path: string): NoteBody {
+			const row = () => {
+				trackQueries();
+				const stem = noteIdOf(path);
+				return stem === undefined ? undefined : noteRowOf(stem);
+			};
+			return {
+				get row() {
+					return row();
+				},
+				get locked() {
+					return edits.locked(path);
+				},
+				edit(body) {
+					const shown = row();
+					if (shown === undefined) return false;
+					if (body === shown.body) return true;
+					return editBody(path, body) === undefined;
+				},
 			};
 		},
-		/**
-		 * Wait for running actions and the open item's saves. The caller fences
-		 * input first. Resolves how many drafts closing now would lose: the open
-		 * item's, when its save failed, conflicted, or was not confirmed.
-		 */
-		async settleAll(): Promise<number> {
-			await admissions.quiet();
-			const settled = await slot.session?.settled();
-			return settled?.status === 'error' ? 1 : 0;
+		/** Save again a body of `path` whose save failed. */
+		saveAgain(path: string) {
+			if (edits.fenced) return;
+			void saveBody(path);
 		},
-		refresh,
-		check,
-		open,
-		/**
-		 * Reload theirs for `session`, the open item's: show the file as it is
-		 * now. A file that is gone closes; one that no longer reads the way it
-		 * opened (a note whose text is not a valid row, a file that is no
-		 * longer text) opens again as what it is now. Answers what the person
-		 * is told, if anything.
-		 */
-		reloadTheirs: admissions.command(
-			async (session: Session): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const reloaded = await slot.reloadTheirs(session);
-				if (reloaded === undefined) return undefined;
-				if (reloaded.error !== null) return describeError(reloaded.error);
-				await refresh();
-				return undefined;
-			},
-		),
-		/** Keep mine for `session`, the open item's: save the draft over the file, or create it again. */
-		keepMine: admissions.command(
-			async (session: Session): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const kept = await slot.keepMine(session);
-				if (kept === undefined) return undefined;
-				await refresh();
-				return kept.error === null ? undefined : describeError(kept.error);
-			},
-		),
-		/** Discard the open item's draft and close it. Nothing is written. */
-		discard() {
-			slot.forget();
-		},
-		/** Create a note in the folder being shown and open it. */
-		createNote: admissions.command(async (): Promise<string | undefined> => {
-			const why = refused();
-			if (why !== undefined) return why;
-			const at = now();
-			const { data: created, error } = await notesTable.create(
-				{
-					fields: {
-						folderId: view.deleted ? null : view.folderId,
-						title: '',
-						pinned: false,
-						createdAt: at,
-						updatedAt: at,
-						deletedAt: null,
-					},
-					body: '',
-				},
-				{ stem: newId() },
-			);
-			if (error !== null) return describeError(error);
-			await refresh();
-			return (await open(created.path)).kind === 'unsaved'
-				? UNSAVED_STAYS
-				: undefined;
-		}),
-		/** Change a note's fields from the list: in its draft when it is open, else guarded by what was listed. */
-		patchNote: changeNote,
+		/** Set some fields of a note as its file is now: pin, move to a folder, trash, restore. */
+		patchNote,
 		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
-		trashNote: (path: string) => changeNote(path, { deletedAt: now() }),
-		restoreNote: (path: string) => changeNote(path, { deletedAt: null }),
-		createFolder: admissions.command(
-			async (name: string): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const { error } = await foldersTable.create(
-					{ fields: { name, icon: null }, body: '' },
-					{ stem: newId() },
-				);
-				await refresh();
-				return error === null ? undefined : describeError(error);
-			},
-		),
-		/** Change a folder's fields, guarded by the version the list read. */
-		patchFolder: admissions.command(
-			async (
-				entry: FolderEntry,
-				fields: Partial<FolderFields>,
-			): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				if (slot.session?.path === entry.path)
-					return 'This folder is open as a file. Change it there, or close it first.';
-				const { error } = await foldersTable.replace(entry, {
-					fields: { ...entry.row.fields, ...fields },
-					body: entry.row.body,
-				});
-				await refresh();
-				return error === null ? undefined : describeError(error);
-			},
-		),
-		/**
-		 * Delete a folder after moving its notes out. It is refused while any
-		 * note cannot say which folder it is in. Each note moves through its
-		 * draft when open, else guarded by what was listed, so a move made
-		 * elsewhere is not undone. The folder is read again before its file
-		 * goes. This is not one atomic step: a note already moved out stays
-		 * moved out if the delete stops, and another program can still put a
-		 * note in the folder after the last read.
-		 */
-		deleteFolder: admissions.command(deleteFolder),
-		/**
-		 * Put a committed version of a note in its draft, which saves it: the
-		 * version's fields over the draft's, and its body. A version that does
-		 * not read as a note is refused.
-		 */
-		useVersion(
-			session: RowSession<NoteFields>,
-			source: string,
-		): string | undefined {
-			const why = refused();
-			if (why !== undefined) return why;
-			if (session.locked) return BUSY;
-			const { data: version, error } = parseRow(
-				honeycrispDefinition.tables.notes,
-				source,
-			);
-			if (error !== null)
-				return `This version does not read as a note (${error[0].message}). Use Edit as file to change the text by hand.`;
-			session.edit((row) => ({
-				fields: { ...row.fields, ...version.fields },
-				body: version.body,
-			}));
-			return undefined;
+		trashNote: (path: string) =>
+			patchNote(path, { deletedAt: InstantString.now() }),
+		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
+		/** Set a folder's fields as its file is now; answers why not, if not. */
+		patchFolder(path: string, fields: Partial<FolderFields>) {
+			const stem = rowStemOf(FOLDERS, path);
+			if (stem === undefined) return NOT_LISTED;
+			return set('folders', stem, fields, fields.name ?? '');
 		},
+		/** The text typed into `path` and not yet written, read reactively. */
+		typedText: (path: string) => edits.text(path).typed,
 		/**
-		 * Rename a file within its folder. The open item waits for its saves and
-		 * moves from what its last save confirmed; a closed file moves from what
-		 * it holds now. A note keeps its .md extension.
+		 * Type `text` as the whole text of `path`; it is written a second after
+		 * the last change, or at once with `saveText`. Answers whether the
+		 * change was taken.
 		 */
-		rename: admissions.command(
-			async (path: string, name: string): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const directory = dirname(path);
-				const problem = nameProblem(directory, name);
-				if (problem !== undefined) return problem;
-				const to = joinPath(directory, name);
-				if (to === path) return undefined;
-				if (notePaths.has(path) && noteIdOf(to) === undefined)
-					return 'A note file keeps its .md extension.';
-				const item = slot.item;
-				const session = slot.session;
-				let moved: Result<unknown, Parameters<typeof describeError>[0]>;
-				if (
-					item?.kind === 'note' &&
-					item.session.path === path &&
-					noteIdOf(to) === undefined
-				)
-					moved = Err({
-						name: 'Refused',
-						message: 'A note file keeps its .md extension.',
-					});
-				else if (session?.path === path)
-					moved = await session.rename((file) => folder.files.move(file, to));
-				else {
-					const { data: file, error } = await captureNow(path);
-					if (error !== null) moved = Err(error);
-					// A close that began during the read stops the move.
-					else if (refused() !== undefined)
-						moved = Err({ name: 'Closing', message: CLOSING });
-					else moved = await folder.files.move(file, to);
-				}
-				await refresh();
-				return moved.error === null ? undefined : describeError(moved.error);
-			},
-		),
-		/** A new empty text file; it never replaces an existing one. */
-		createFile: admissions.command(
-			async (directory: string, name: string): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const problem = nameProblem(directory, name);
-				if (problem !== undefined) return problem;
-				const path = joinPath(directory, name);
-				const { error } = await folder.files.create(path, '');
-				if (error !== null) return describeError(error);
-				await refresh();
-				return (await open(path, { as: 'text' })).kind === 'unsaved'
-					? UNSAVED_STAYS
-					: undefined;
-			},
-		),
-		createDirectory: admissions.command(async function createDirectory(
-			directory: string,
-			name: string,
-		): Promise<string | undefined> {
-			const why = refused();
-			if (why !== undefined) return why;
-			const problem = nameProblem(directory, name);
-			if (problem !== undefined) return problem;
-			const path = joinPath(directory, name);
-			if (
-				listing?.directories.includes(path) ||
-				listing?.files.some((file) => file.path === path)
-			)
-				return `"${name}" already exists here.`;
-			const { error } = await folder.files.mkdir(path);
-			if (error !== null) return describeError(error);
-			if (directory !== '') expanded.add(directory);
-			await refresh();
-			return undefined;
-		}),
+		editText(path: string, text: string): boolean {
+			if (shownText(path) === undefined && edits.text(path).typed === undefined)
+				return false;
+			return edits.text(path).change(text);
+		},
+		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
+		saveText: (path: string) => edits.text(path).save(),
+
+		// ------------------------------------------------------------------
+		// Actions; each answers what the person is told, if anything
+		// ------------------------------------------------------------------
+
+		/** Create a note in the folder being shown and open it. */
+		createNote: async () => problem(await createNote(newId())),
+		createFolder: async (name: string) =>
+			problem(await createFolder({ stem: newId(), name })),
+		/** A new empty text file, opened; it never replaces an existing one. */
+		createFile: async (directory: string, name: string) =>
+			problem(await createFile({ directory, name })),
+		createDirectory: async (directory: string, name: string) =>
+			problem(await createDirectory({ directory, name })),
+		deleteFolder: async (entry: FolderEntry) =>
+			problem(await deleteFolder(entry)),
+		rename: async (path: string, name: string) =>
+			problem(await rename(path, name)),
 		/**
-		 * Capture what deleting `path` would remove, for the person to confirm.
-		 * An open item's saves land first. Only empty folders can be deleted.
+		 * What deleting `path` would remove, for the person to confirm, and
+		 * whether its latest changes are in no saved version. Only empty
+		 * folders can be deleted.
 		 */
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			const why = refused();
 			if (why !== undefined) return Err(why);
+			const listing = queryClient.getQueryData<FileListing>(
+				queries.files.list.queryKey(),
+			);
 			if (listing?.directories.includes(path)) {
 				const prefix = `${path}/`;
 				const occupied =
@@ -881,60 +801,33 @@ export function createNotes(host: NotesHost) {
 					);
 				return Ok({ kind: 'folder', path });
 			}
-			const session = slot.session;
-			const listed = notes.find((note) => note.path === path);
-			let file: FileCapture;
-			if (session?.path === path) file = (await session.settled()).file;
-			else if (listed !== undefined) file = listed;
-			else {
-				const { data, error } = await captureNow(path);
-				if (error !== null) return Err(describeError(error));
-				file = data;
-			}
-			const row = noteAt(path)?.draft ?? listed?.row;
+			const { error } = await folder.files.read(path);
+			if (error !== null) return Err(describeWriteError(error));
+			const status = await queryClient
+				.fetchQuery(queries.history.status.queryOptions())
+				.then(
+					(observed) => observed,
+					() => undefined,
+				);
+			const stem = noteIdOf(path);
+			const row = stem === undefined ? undefined : noteRowOf(stem);
 			return Ok({
 				kind: 'file',
-				path: file.path,
-				sha256: file.sha256,
+				path,
 				title: row && displayTitle(row.fields.title, row.body),
+				unversioned: status?.changes.some((change) => change.path === path),
 			});
 		},
-		/** Delete what was confirmed; a file that changed since is refused. */
-		remove: admissions.command(
-			async (deletion: Deletion): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				if (deletion.kind === 'file') return removeFile(deletion);
-				const { error } = await folder.files.rmdir(deletion.path);
-				await refresh();
-				return error === null ? undefined : describeError(error);
-			},
-		),
-		/** Commit the saved files now. Unsaved drafts are not included. */
-		commitNow: (): ReturnType<typeof folder.git.commit> =>
-			locked()
-				? Promise.resolve({ status: 'blocked', reason: CLOSING })
-				: admissions.admit(() => folder.git.commit()),
+		delete: async (deletion: Deletion) =>
+			problem(await deleteConfirmed(deletion)),
 		/**
-		 * Fence input for good, let running actions and the open item's saves
-		 * finish, and release the folder. A draft that could not save ends with
-		 * the page. A second call returns the same promise.
+		 * Record a version: commit the saved files (ADR-0529). What is typed
+		 * and the saves still running land first.
 		 */
-		close(): Promise<void> {
-			closing ??= (async () => {
-				fenced = true;
-				await admissions.quiet();
-				const unsaved = await slot.close();
-				if (unsaved !== undefined)
-					log.warn(
-						new Error(
-							`Closed with a draft that could not be saved, in ${unsaved}`,
-						),
-					);
-				released = true;
-				await host.close();
-			})();
-			return closing;
-		},
+		saveVersion: defineMutation({
+			mutationKey: notesKeys.saveVersion,
+			mutationFn: (): Promise<Result<CommitOutcome, ActionError>> =>
+				edits.saveVersion(),
+		}),
 	};
 }

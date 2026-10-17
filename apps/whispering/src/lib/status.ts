@@ -8,134 +8,55 @@
  * screen.
  */
 import type { CommitOutcome, GitSnapshot } from '@epicenter/folder';
+import {
+	changeList,
+	localTime,
+	mostSevere,
+	type StatusLine,
+	shortOid,
+	withTime,
+} from '@epicenter/svelte/status-line';
 
-export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
-export type StatusLine = {
-	readonly label: string;
-	/** A compact label for narrow windows, when `label` is long. */
-	readonly short?: string;
-	readonly detail?: string;
-	readonly tone: Tone;
-};
-
-const short = (oid: string | undefined) => oid?.slice(0, 7) ?? 'none';
-
-function at(time: number) {
-	const date = new Date(time);
-	return date.toDateString() === new Date().toDateString()
-		? date.toLocaleTimeString()
-		: date.toLocaleString();
-}
-
-const SEVERITY: Record<Tone, number> = {
-	error: 4,
-	busy: 3,
-	warning: 2,
-	neutral: 1,
-	good: 0,
-};
-
-function withTime(
-	line: StatusLine,
-	event: 'Checked' | 'Last attempt',
-	time: number,
-): StatusLine {
-	const when = `${event} at ${at(time)}`;
-	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
-}
-
-/** What is saved to files: open drafts and captured recordings waiting to be written. */
+/** What is saved to files: edits being written or kept after a failed write, and answers whose write failed. */
 export function filesLine(state: {
-	saving: boolean;
-	/** Open drafts whose save failed or conflicted. */
-	problems: number;
-	/** Captured recordings not known to be in the folder. */
-	pendingCaptures: number;
-	capturesSaving: boolean;
-	/** Transcripts received whose result file could not be written. */
-	unsavedResults: number;
-	/** Transformation results received whose file could not be written. */
-	unsavedTransformations: number;
-	/** Results on pasted text received and not saved yet, by choice or by failure. */
-	unsavedTextResults?: number;
-}): StatusLine {
-	if (state.pendingCaptures > 0 && !state.capturesSaving)
-		return {
-			label: `${state.pendingCaptures} ${state.pendingCaptures === 1 ? 'recording' : 'recordings'} not saved`,
-			short: 'Recording not saved',
-			detail:
-				'The audio is kept in this window. Use Try again on the recording.',
-			tone: 'error',
-		};
-	if (state.unsavedResults > 0)
-		return {
-			label: `${state.unsavedResults} ${state.unsavedResults === 1 ? 'transcription' : 'transcriptions'} not saved`,
-			short: 'Transcription not saved',
-			detail:
-				'The transcript is kept in this window. Use Save it again in the notice under the header.',
-			tone: 'error',
-		};
-	if (state.unsavedTransformations > 0)
-		return {
-			label: `${state.unsavedTransformations} transformation ${state.unsavedTransformations === 1 ? 'result' : 'results'} not saved`,
-			short: 'Result not saved',
-			detail:
-				'The text is kept in this window. Use Save it again in the notice under the header; the endpoint is not called again.',
-			tone: 'error',
-		};
-	const textResults = state.unsavedTextResults ?? 0;
-	if (textResults > 0)
-		return {
-			label: `${textResults} ${textResults === 1 ? 'result' : 'results'} on pasted text not saved`,
-			short: 'Result not saved',
-			detail:
-				'The text is kept in this window. Save or discard it on its transformation’s page; the endpoint is not called again.',
-			tone: 'warning',
-		};
-	if (state.problems > 0)
-		return {
-			label: `${state.problems} ${state.problems === 1 ? 'file' : 'files'} not saved`,
-			short: `${state.problems} not saved`,
-			detail: 'Open the file to review it.',
-			tone: 'error',
-		};
-	if (state.saving || state.capturesSaving)
-		return { label: 'Saving…', tone: 'busy' };
-	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
-}
-
-/** The files line for the product state, as the header shows it. */
-export function filesLineOf(library: {
 	readonly saving: boolean;
-	readonly saveProblems: number;
-	readonly pending: readonly { readonly state: { readonly kind: string } }[];
-	readonly unsavedResults: number;
-	readonly unsavedTransformations: number;
-	readonly unsavedTextResults: number;
+	/** An edit is kept in this window because its write failed. */
+	readonly unsaved?: boolean;
+	/** Answers that arrived and whose result file could not be written yet. */
+	readonly unwrittenAnswers: number;
 }): StatusLine {
-	return filesLine({
-		saving: library.saving,
-		problems: library.saveProblems,
-		pendingCaptures: library.pending.length,
-		capturesSaving: library.pending.some(
-			(item) => item.state.kind === 'saving',
-		),
-		unsavedResults: library.unsavedResults,
-		unsavedTransformations: library.unsavedTransformations,
-		unsavedTextResults: library.unsavedTextResults,
-	});
+	const unwritten = state.unwrittenAnswers;
+	if (unwritten > 0)
+		return {
+			label: `${unwritten} ${unwritten === 1 ? 'answer' : 'answers'} not written yet`,
+			short: 'Answer not written',
+			detail:
+				'Whispering keeps writing it while this window is open. If the window closes first, its file stays without the answer, and you can run it again.',
+			tone: 'error',
+		};
+	if (state.saving) return { label: 'Saving…', tone: 'busy' };
+	if (state.unsaved)
+		return {
+			label: 'An edit is not saved yet',
+			short: 'Not saved',
+			detail:
+				'Its write failed. The edit is kept in this window and is saved again with your next change to it.',
+			tone: 'error',
+		};
+	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
 }
 
 function changesLabel(count: number) {
 	return count === 0
-		? 'No uncommitted changes'
-		: `${count} uncommitted ${count === 1 ? 'change' : 'changes'}`;
+		? 'No changes since the last version'
+		: `${count} ${count === 1 ? 'change' : 'changes'} since the last version`;
 }
 
 /**
- * Saved files that are not in history yet. Only a current, successful
- * observation may say there are none; a stale or failed one says it needs
- * checking and names what the last check saw.
+ * Saved files that are in no saved version yet. A count is neutral detail,
+ * not a warning (ADR-0529). Only a current, successful observation may say
+ * there are none; a stale or failed one says it needs checking and names
+ * what the last check saw.
  */
 export function uncommittedLine(git: GitSnapshot): StatusLine {
 	const files = git.files;
@@ -154,7 +75,7 @@ export function uncommittedLine(git: GitSnapshot): StatusLine {
 						tone: 'neutral',
 					};
 	const count = files.value.changes.length;
-	const last = `Last check at ${at(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
+	const last = `Last check at ${localTime(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
 	if (files.error)
 		return {
 			label: 'Check failed',
@@ -170,37 +91,31 @@ export function uncommittedLine(git: GitSnapshot): StatusLine {
 					detail: `Files changed after the last check. ${last}`,
 					tone: 'neutral',
 				};
-	const changes = files.value.changes
-		.slice(0, 8)
-		.map(
-			(change) =>
-				`${change.kind === 'add' ? 'new' : change.kind === 'delete' ? 'deleted' : 'modified'} ${change.path}`,
-		);
 	return withTime(
 		{
 			label: changesLabel(count),
-			short: count === 0 ? undefined : `${count} to commit`,
-			detail: changes.join('\n') || undefined,
-			tone: count === 0 ? 'good' : 'warning',
+			short: count === 0 ? undefined : `${count} changed`,
+			detail: changeList(files.value.changes).join('\n') || undefined,
+			tone: count === 0 ? 'good' : 'neutral',
 		},
 		'Checked',
 		files.checkedAt,
 	);
 }
 
-/** One commit attempt, as the last-commit line and the Commit now toast report it. */
+/** One commit attempt, as the last-version line and the Save version toast report it. */
 export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 	switch (outcome.status) {
 		case 'committed':
 			return outcome.indexWarning
 				? {
-						label: `Committed ${short(outcome.oid)} · index not updated`,
+						label: `Committed ${shortOid(outcome.oid)} · index not updated`,
 						short: 'Index issue',
 						detail: `${outcome.message}\nIndex not updated: ${outcome.indexWarning}`,
 						tone: 'warning',
 					}
 				: {
-						label: `Committed ${short(outcome.oid)}`,
+						label: `Committed ${shortOid(outcome.oid)}`,
 						detail: outcome.message,
 						tone: 'good',
 					};
@@ -209,7 +124,7 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 				? {
 						label: 'Git index not updated',
 						short: 'Index issue',
-						detail: `${outcome.indexWarning}\nCommit now retries it.`,
+						detail: `${outcome.indexWarning}\nSave version retries it.`,
 						tone: 'warning',
 					}
 				: { label: 'Nothing new to commit', tone: 'neutral' };
@@ -230,7 +145,7 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 		case 'failed':
 			return {
 				label: 'Commit failed',
-				detail: `${outcome.error}\nYour files are still saved. Commit now tries again.`,
+				detail: `${outcome.error}\nYour files are still saved. Save version tries again.`,
 				tone: 'error',
 			};
 		case 'unconfirmed':
@@ -239,8 +154,6 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 				detail: outcome.error,
 				tone: 'warning',
 			};
-		case 'stoppedWaiting':
-			return { label: 'Commit may still be running', tone: 'neutral' };
 		case 'closed':
 			return { label: 'Closed', tone: 'neutral' };
 	}
@@ -265,7 +178,7 @@ export function headLine(git: GitSnapshot): StatusLine {
 		files.value.head === undefined
 			? { label: 'No commits yet', tone: 'neutral' }
 			: {
-					label: `${git.branch} at ${short(files.value.head)}`,
+					label: `${git.branch} at ${shortOid(files.value.head)}`,
 					tone: 'neutral',
 				};
 	if (!files.stale && !files.error) return line;
@@ -283,7 +196,7 @@ export function headLine(git: GitSnapshot): StatusLine {
 /**
  * The one line the header shows: the most severe current fact, the earlier one
  * on a tie. Unsaved files take priority over history. The last commit attempt
- * counts only when it needs attention.
+ * and the changes since the last version count only when they need attention.
  */
 export function summaryLine(lines: {
 	files: StatusLine;
@@ -292,31 +205,16 @@ export function summaryLine(lines: {
 }): StatusLine {
 	if (lines.files.tone === 'busy' || lines.files.tone === 'error')
 		return lines.files;
-	let chosen: StatusLine | undefined;
-	for (const line of [
+	const needsAttention = (line: StatusLine) =>
+		line.tone !== 'neutral' && line.tone !== 'good';
+	const chosen = mostSevere([
 		lines.files,
-		lines.commit.tone === 'neutral' || lines.commit.tone === 'good'
-			? undefined
-			: lines.commit,
-		lines.uncommitted,
-	])
-		if (
-			line &&
-			(chosen === undefined || SEVERITY[line.tone] > SEVERITY[chosen.tone])
-		)
-			chosen = line;
+		needsAttention(lines.commit) ? lines.commit : undefined,
+		// How many files changed since the last version is detail, not news.
+		needsAttention(lines.uncommitted) ? lines.uncommitted : undefined,
+	]);
 	if (chosen === undefined || chosen.tone === 'good')
-		return {
-			label: 'Saved · no uncommitted changes',
-			short: 'Saved',
-			tone: 'good',
-		};
-	// A saved file with history still to record: say both halves.
-	if (chosen === lines.uncommitted && chosen.tone === 'warning')
-		return {
-			...chosen,
-			label: `Saved · ${chosen.label.toLowerCase()}`,
-		};
+		return { label: 'Saved', tone: 'good' };
 	if (chosen === lines.commit)
 		return { ...chosen, label: `Saved · ${chosen.label.toLowerCase()}` };
 	return chosen;

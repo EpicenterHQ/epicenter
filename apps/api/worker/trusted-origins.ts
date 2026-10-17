@@ -1,18 +1,20 @@
-import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
+import { APPS, localUrl } from '@epicenter/constants/apps';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the
  * shared `@epicenter/server` library: it names Epicenter's own app origins,
- * which only the hosted deployment should trust. A
- * self-host (`apps/self-host`) supplies its own origins instead, so it never
- * inherits trust in epicenter.so domains it has no relationship with.
+ * which only apps/api should trust.
  */
 
 /**
  * Production origins trusted on every Epicenter cloud deployment: each app's
- * canonical origin (and aliases), plus the Tauri webview origin.
+ * production `url`.
  *
  * Adding an app to `APPS` auto-extends this.
+ *
+ * No desktop webview origin is trusted. Epicenter's windows never call this
+ * API themselves: the desktop host relays their account traffic with its own
+ * bearer token, and no `tauri://localhost` page calls the API.
  *
  * No browser extension is trusted. Tab Manager's pinned
  * `chrome-extension://` origin used to sit here and outlived the extension:
@@ -24,10 +26,9 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
  * exceptions; self-distributed XPIs get a random per-install UUID) rather than
  * a wildcard, which is what defeated CSRF protection the first time.
  */
-const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = [
-	'tauri://localhost',
-	...Object.values(APPS).flatMap(prodOrigins),
-];
+const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = Object.values(APPS).map(
+	(app) => app.url,
+);
 
 /**
  * Development-only origins: each app's `localhost:<port>` dev server plus the
@@ -43,11 +44,16 @@ const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = [
  */
 const DEVELOPMENT_TRUSTED_ORIGINS: readonly string[] = [
 	'http://localhost:5177',
+	`http://127.0.0.1:${APPS.TODOS.port}`,
 	...Object.values(APPS).map((app) => localUrl(app)),
 	`http://${new URL(APPS.API.url).host}`,
 ];
 
-function isLocalDeployment(baseURL: string): boolean {
+/**
+ * Whether the deployment's own origin is a loopback host, which is what makes
+ * it a local development deployment. An unparseable origin is not local.
+ */
+export function isLocalDeployment(baseURL: string): boolean {
 	try {
 		const { hostname } = new URL(baseURL);
 		return (
@@ -61,8 +67,8 @@ function isLocalDeployment(baseURL: string): boolean {
 }
 
 /**
- * Origins Epicenter cloud permits for CORS, Better Auth CSRF / redirect checks,
- * and cookie-mutation guards.
+ * Origins Epicenter cloud permits for CORS and Better Auth CSRF / redirect
+ * checks.
  *
  * A local deployment additionally trusts the localhost dev origins so a
  * developer can iterate against a local API; a deployed origin trusts only the

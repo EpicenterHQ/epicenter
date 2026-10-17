@@ -1,10 +1,11 @@
 /**
  * Svelte Entry Boundary Tests
  *
- * Svelte is an optional peer: no package entry may reach it.
+ * Svelte is an optional peer: only `@epicenter/folder/svelte` may reach it.
  * These tests follow every runtime import from each package export through
  * the package's own modules, so a re-export or a stray helper import that
- * would make core or platform code load Svelte fails here.
+ * would make core or platform code load Svelte fails here. The Svelte entry
+ * itself loads only its editors: no host, storage backend, or Git.
  */
 import { expect, test } from 'bun:test';
 import { dirname, join } from 'node:path';
@@ -34,17 +35,27 @@ async function reached(entry: string) {
 const entries = Object.entries(manifest.exports);
 
 test('no core or platform entry loads Svelte or the adapter', async () => {
-	const platformEntries = entries;
+	const platformEntries = entries.filter(([name]) => name !== './svelte');
 	expect(platformEntries.map(([name]) => name)).toEqual([
 		'.',
 		'./browser',
 		'./tauri',
 		'./bun',
 		'./file-browser',
+		'./query',
 	]);
 	for (const [, entry] of platformEntries) {
 		const { files, outside } = await reached(entry);
 		expect(outside.filter((path) => /^svelte(\/|$)/.test(path))).toEqual([]);
 		expect(files.filter((file) => file.includes('/src/svelte/'))).toEqual([]);
 	}
+});
+
+test('the Svelte entry loads only its editors, and no platform', async () => {
+	const { files, outside } = await reached(manifest.exports['./svelte']);
+	// No host, storage backend, or Git: the folder's write merges.
+	expect(files.map((file) => file.slice(packageRoot.length + 1))).toEqual([
+		'src/svelte/editor.svelte.ts',
+	]);
+	expect(outside).toEqual([]);
 });

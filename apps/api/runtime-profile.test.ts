@@ -5,34 +5,39 @@
  * Each `mount*` declares one reusable surface. This test pins down the part
  * each entry writes by hand: which surfaces it chose to mount.
  *
- * The Worker is the deployed hosted artifact; the Bun entry is local dev and the
- * runtime-parity smoke (ADR-0066). Four surfaces are Worker-only for reasons that
- * survive scrutiny, and each says so in its row. Everything the shared library can
+ * The Worker is the deployed hosted artifact; the Bun entry is local dev and
+ * self-host (ADR-0066). Two surfaces are Worker-only for reasons that survive
+ * scrutiny, and each says so in its row. Everything the shared library can
  * mount on both is expected on both, so dropping one from the dev host (which is
  * how `/v1/audio/transcriptions` went missing) fails here.
  *
  * How the probe reads an entry's surface: send one request per row and ask only
  * whether the path routed at all. A mounted surface answers 401 (or 403, or 503
- * when unconfigured); an unmounted one answers Hono's 404. Every probe carries a
- * bearer so the `/api/*` CSRF gate is skipped, otherwise an unmounted mutating
- * path would 403 before it could 404. Nothing here asserts a status code beyond
- * that in the profile checks. Outage checks below additionally verify shell
- * availability and protected-operation rejection through both entrypoints.
+ * when unconfigured); an unmounted one answers Hono's 404. Nothing here asserts
+ * a status code beyond that in the profile checks. Outage checks below
+ * additionally verify shell availability and protected-operation rejection
+ * through both entrypoints.
  */
 
 import { expect, mock, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
-import { CURRENT_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { makeSignature } from 'better-auth/crypto';
 
 // Exercise the real runtime compositions with a controllable database outage.
 let databaseUnavailable = false;
 let databaseCalls = 0;
 class ProbeClient {
+	// A pool's connect hands back a client to release, as the Bun entry's
+	// boot-time registration transaction needs.
 	async connect() {
 		databaseCalls++;
 		if (databaseUnavailable) throw new Error('Postgres unavailable');
+		return this;
 	}
+	release() {}
 	async end() {}
 	async query() {
 		databaseCalls++;
@@ -46,10 +51,6 @@ mock.module('pg', () => ({
 	Client: ProbeClient,
 	Pool: ProbeClient,
 }));
-
-// The Worker entry re-exports Durable Objects whose modules import
-// `cloudflare:workers`. Only the class identity matters for route composition.
-mock.module('cloudflare:workers', () => ({ DurableObject: class {} }));
 
 type Presence = 'served' | 'absent';
 
@@ -76,13 +77,6 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'mountSessionApp',
-		method: 'GET',
-		url: API_ROUTES.session.url(ORIGIN),
-		worker: 'served',
-		bun: 'served',
-	},
-	{
 		surface: 'mountInferenceApp',
 		method: 'POST',
 		url: API_ROUTES.ai.completions.url(ORIGIN),
@@ -97,16 +91,16 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'Personal authority collection',
-		method: 'POST',
-		url: `${ORIGIN}/api/blobs/personal/probe/private`,
+		surface: 'Repository listing',
+		method: 'GET',
+		url: `${ORIGIN}/api/repos`,
 		worker: 'served',
 		bun: 'served',
 	},
 	{
-		surface: 'Personal authority object',
-		method: 'DELETE',
-		url: `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`,
+		surface: 'Git data plane',
+		method: 'GET',
+		url: `${ORIGIN}/git/aaaaaaaaaaaa/probe.git/info/refs?service=git-upload-pack`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -124,14 +118,6 @@ const PROFILE: Surface[] = [
 		worker: 'served',
 		bun: 'absent',
 		why: "Billing is the deployed hosted Worker's concern: it needs the Autumn secret and the after-response drain. The dev host meters nothing, which is also why its inference and transcription gateways carry no policy.",
-	},
-	{
-		surface: 'account deletion',
-		method: 'DELETE',
-		url: `${ORIGIN}/api/account`,
-		worker: 'served',
-		bun: 'absent',
-		why: 'Deletion is a hosted resource sweep. A dev host holds none of those resources, and a partial sweep is worse than no route.',
 	},
 	{
 		surface: 'dashboard SPA',
@@ -153,8 +139,6 @@ async function readProfile(
 		const response = await fetcher(
 			new Request(row.url, {
 				method: row.method,
-				// Bearer requests skip the `/api/*` CSRF gate, which would otherwise
-				// answer 403 for an unmounted mutating path and hide its absence.
 				headers: { authorization: 'Bearer runtime-profile-probe' },
 			}),
 		);
@@ -199,8 +183,15 @@ const workerFetcher = once(async () => {
  * `Bun.serve` for a recorder lets the entry boot exactly as it does in
  * production and hands back the composed app's `fetch`, with no port bound.
  */
+/** The built pages the Bun entry serves: a shell and one asset. */
+const uiDir = mkdtempSync(join(tmpdir(), 'epicenter-runtime-profile-ui-'));
+mkdirSync(join(uiDir, '_app', 'immutable'), { recursive: true });
+writeFileSync(join(uiDir, 'fallback.html'), '<html>Cloud UI</html>');
+writeFileSync(join(uiDir, '_app', 'immutable', 'start.js'), 'export {};');
+
 const bunFetcher = once(async () => {
 	Object.assign(process.env, {
+		API_UI_DIR: uiDir,
 		DATABASE_URL: 'postgres://probe@localhost:5432/probe',
 		BETTER_AUTH_SECRET: 'runtime-profile-probe-secret-not-a-real-key',
 		GOOGLE_CLIENT_ID: 'probe',
@@ -220,7 +211,7 @@ const bunFetcher = once(async () => {
 			captured = options.fetch;
 			return { port: 0, stop: () => {} };
 		};
-		entry.startBunApiServer();
+		await entry.startBunApiServer();
 	} finally {
 		Bun.serve = realServe;
 	}
@@ -242,14 +233,6 @@ test('the Bun entry serves its declared profile', async () => {
 	);
 });
 
-test('anonymous public blob reads bypass hosted session setup on both runtimes', async () => {
-	const url = `${ORIGIN}/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA`;
-	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
-		const response = await fetcher(new Request(url));
-		expect(response.status).toBe(503); // Storage is deliberately unconfigured.
-	}
-});
-
 test('an unmounted path reads as absent on both runtimes', async () => {
 	for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
 		const response = await fetcher(
@@ -262,35 +245,39 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 	}
 });
 
-test('Worker public HTML shells and both runtimes unrelated 404s survive Postgres outage without database calls', async () => {
+test("both runtimes' public HTML shells and unrelated 404s survive Postgres outage without database calls", async () => {
 	const worker = await workerFetcher();
 	const bun = await bunFetcher();
 	databaseUnavailable = true;
 	databaseCalls = 0;
 	try {
-		for (const path of [
-			'/sign-in',
-			'/session/callback',
-			'/dashboard',
-			'/dashboard/usage',
-		]) {
+		const authPages = ['/sign-in', '/consent', '/device'];
+		for (const path of [...authPages, '/dashboard', '/dashboard/usage']) {
 			const response = await worker(new Request(`${ORIGIN}${path}`));
 			expect(response.status).toBe(200);
 			expect(await response.text()).toBe('<html>Cloud UI</html>');
-			if (path === '/sign-in' || path === '/session/callback') {
+			if (authPages.includes(path)) {
 				expect(response.headers.get('cache-control')).toBe('no-store');
 				expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 			}
 		}
-		// Bun intentionally delegates browser UI to Vite; its existing diagnostic
-		// must remain available without consulting the shared pool.
-		for (const path of ['/sign-in', '/session/callback']) {
+		// Bun serves the same built shell, and its assets, from disk.
+		for (const path of authPages) {
 			const response = await bun(new Request(`${ORIGIN}${path}`));
-			expect(response.status).toBe(503);
-			expect(await response.text()).toContain(
-				'Hosted auth UI is served by the SvelteKit app',
-			);
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe('<html>Cloud UI</html>');
+			expect(response.headers.get('cache-control')).toBe('no-store');
 		}
+		const asset = await bun(new Request(`${ORIGIN}/_app/immutable/start.js`));
+		expect(asset.status).toBe(200);
+		expect(asset.headers.get('cache-control')).toContain('immutable');
+		for (const path of [
+			'/_app/..%2ffallback.html',
+			'/_app/%2e%2e/fallback.html',
+			'/_app/immutable',
+			'/_app/missing.js',
+		])
+			expect((await bun(new Request(`${ORIGIN}${path}`))).status).toBe(404);
 		for (const fetcher of [worker, bun]) {
 			for (const path of [
 				'/missing',
@@ -305,15 +292,18 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 			}
 		}
 		for (const fetcher of [worker, bun]) {
+			// Epicenter hosts no MCP server and no blobs (ADR-0577).
 			for (const [method, path] of [
-				['DELETE', '/api/session'],
-				['GET', '/api/blobs'],
+				['POST', '/mcp'],
+				['GET', '/.well-known/oauth-protected-resource/mcp'],
+				['GET', '/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA'],
 				['PUT', '/api/blobs/personal/probe/public/AAAAAAAAAAAAAAAAAAAAAA'],
 				['GET', '/v1/chat/completions'],
 				['GET', '/v1/audio/transcriptions'],
 				['POST', '/api/billing/plans'],
-				['GET', '/api/account'],
+				['GET', '/api/store/v1/sync'],
 				['POST', '/api/store/v1/sync'],
+				['POST', '/api/store/v1/current/so.epicenter.notes/personal/test.data'],
 				['DELETE', '/api/data/v1/test.data/generations'],
 				['POST', '/api/data/v1/test.data/generations/1'],
 			]) {
@@ -335,50 +325,44 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 test('both runtime compositions fail closed on protected operations during a database outage', async () => {
 	const worker = await workerFetcher();
 	const bun = await bunFetcher();
-	const token = `probe.${await makeSignature('probe', 'runtime-profile-probe-secret-not-a-real-key')}`;
+	// An access token for the resources, and a session cookie for the
+	// account-management routes, which read no Authorization header.
+	const token = 'ep_at_runtime-profile-probe';
+	const cookie = `better-auth.session_token=probe.${await makeSignature('probe', 'runtime-profile-probe-secret-not-a-real-key')}`;
 	databaseUnavailable = true;
 	try {
 		for (const [fetcher, runtime] of [
 			[worker, 'worker'],
 			[bun, 'bun'],
 		] as const) {
+			// Neither entry has a Git store here, so the Git data plane answers
+			// 503 before it reads Postgres.
 			for (const row of PROFILE.filter(
 				(row) =>
 					row[runtime] === 'served' &&
-					!['health', 'dashboard SPA'].includes(row.surface),
+					!['health', 'dashboard SPA', 'Git data plane'].includes(row.surface),
 			)) {
 				const callsBefore = databaseCalls;
 				const response = await fetcher(
 					new Request(row.url, {
 						method: row.method,
-						headers: { authorization: `Bearer ${token}` },
+						headers: { authorization: `Bearer ${token}`, cookie },
 					}),
 				);
-				expect(response.status).toBeGreaterThanOrEqual(500);
-				expect(databaseCalls).toBe(callsBefore + 1);
+				// The Worker opens its connection per request, before any route
+				// runs, so every protected operation is Hono's bare 500. On Bun the
+				// resources check the token and answer 503, while Better Auth's
+				// session route answers its own 500.
+				expect(response.status).toBe(
+					runtime === 'worker' || row.surface === 'mountAuthRoutes' ? 500 : 503,
+				);
+				// On Bun the pool is already open, so the authorization server's
+				// instance makes one more attempt: the provider seeding its
+				// resources as it initializes. The Worker fails at connect.
+				const attempts =
+					runtime === 'bun' && row.surface === 'mountAuthRoutes' ? 2 : 1;
+				expect(databaseCalls).toBe(callsBefore + attempts);
 			}
-		}
-		for (const [method, url] of [
-			['GET', `${ORIGIN}${STORE_SYNC_ROUTE.pattern}`],
-			[
-				'POST',
-				CURRENT_ROUTE.url(
-					ORIGIN,
-					'so.epicenter.notes',
-					'personal',
-					'test.data',
-				),
-			],
-		] as const) {
-			const callsBefore = databaseCalls;
-			const response = await worker(
-				new Request(url, {
-					method,
-					headers: { authorization: `Bearer ${token}` },
-				}),
-			);
-			expect(response.status).toBe(500);
-			expect(databaseCalls).toBe(callsBefore + 1);
 		}
 		for (const path of [
 			'generations',

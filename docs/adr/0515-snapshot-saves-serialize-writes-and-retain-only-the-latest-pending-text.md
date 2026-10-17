@@ -1,6 +1,7 @@
 # 0515. Snapshot saves serialize writes and retain only the latest pending text
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0528](0528-applications-edit-files-through-the-query-cache.md)
 - **Date:** 2026-10-11
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (what a session reads and writes), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (the text each save writes), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (conditional replacement without retry)
 - **Unbuilt:** an automatic commit for a save a host reported `Unconfirmed` that a read then proved landed, and acceptance on a real storage host with a person editing.
@@ -99,6 +100,7 @@ session from the renamed capture.
 
 ## Verification
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/folder/src/autosave.test.ts` covers construction and waiting,
 latest-pending coalescing, the guard chain, synchronous preparation,
 preparation-failure precedence over an older write, the confirmed capture on

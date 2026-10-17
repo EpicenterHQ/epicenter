@@ -1,6 +1,14 @@
-import { startGitServer } from '../server/git-server.js';
+/**
+ * Starts or reuses the loopback Git backend on port 5191, then the Vite UI.
+ * `GIT_LAB_DEMO_ROOT` reopens a root an earlier run printed.
+ */
+import {
+	type GitSession,
+	startGitServer,
+} from '../../../packages/folder/src/git-demo-server.test-support.js';
 
-const response = await fetch('http://127.0.0.1:5191/session', {
+const PORT = 5191;
+const response = await fetch(`http://127.0.0.1:${PORT}/session`, {
 	signal: AbortSignal.timeout(1000),
 }).catch(() => undefined);
 const existing = response
@@ -14,33 +22,32 @@ const existing = response
 				!value.browserRemotePath.startsWith('/git/') ||
 				new URL(value.remoteUrl).pathname !== value.browserRemotePath
 			)
-				throw new Error('Port 5191 belongs to another service');
-			return value as import('../server/git-server.js').GitSession;
+				throw new Error(`Port ${PORT} belongs to another service`);
+			return value as GitSession;
 		})()
 	: undefined;
 const { session, stop } = existing
 	? { session: existing, stop: () => {} }
-	: await startGitServer();
+	: await startGitServer({
+			name: 'git-lab',
+			port: PORT,
+			root: process.env.GIT_LAB_DEMO_ROOT,
+			urlPerRoot: true,
+			seed: {
+				'README.md':
+					'# Git lab\n\nTwo independent working copies, one remote.\n',
+				'notes/color.txt': 'color=blue\n',
+			},
+		});
 console.log(
 	`Git lab: http://127.0.0.1:5190\nRemote: ${session.remoteUrl}\nDemo files: ${session.root}`,
 );
-const desktop = process.argv.includes('--desktop');
-const child = Bun.spawn(
-	desktop
-		? [process.execPath, 'x', 'tauri', 'dev']
-		: [process.execPath, 'x', 'vite', 'dev'],
-	{
-		cwd: new URL('..', import.meta.url).pathname,
-		env: {
-			...process.env,
-			GIT_LAB_REMOTE: session.remoteUrl,
-			GIT_LAB_ROOT: process.env.GIT_LAB_ROOT ?? session.root + '/desktop',
-		},
-		stdin: 'inherit',
-		stdout: 'inherit',
-		stderr: 'inherit',
-	},
-);
+const child = Bun.spawn([process.execPath, 'x', 'vite', 'dev'], {
+	cwd: new URL('..', import.meta.url).pathname,
+	stdin: 'inherit',
+	stdout: 'inherit',
+	stderr: 'inherit',
+});
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
 	process.on(signal, () => {
 		child.kill();

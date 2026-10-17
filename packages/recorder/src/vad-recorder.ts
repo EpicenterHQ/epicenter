@@ -5,12 +5,8 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import {
-	cleanupRecordingStream,
-	type DeviceStreamError,
-	getRecordingStream,
-} from './device-stream';
-import type { DeviceAcquisitionOutcome, DeviceIdentifier } from './devices';
+import { openMicrophone, release } from './microphone.js';
+import { RecorderError, type RecordingInput } from './recording.js';
 
 const VadRecorderError = defineErrors({
 	AlreadyActive: () => ({
@@ -55,11 +51,12 @@ function computeFrameRms(frame: Float32Array): number {
 
 export type StartActiveListeningOptions = {
 	/**
-	 * Recording device to listen on, or null/undefined for the system default.
-	 * The package reads no settings store; the caller resolves this (e.g. from
-	 * its own device config) and passes it in.
+	 * The microphone to listen on, or undefined for the system default. When
+	 * that exact microphone cannot be opened, listening is refused; no other
+	 * microphone is used in its place. The package reads no settings store; the
+	 * caller passes the input it chose.
 	 */
-	deviceId?: DeviceIdentifier | null;
+	input?: RecordingInput;
 	onSpeechStart: () => void;
 	onSpeechEnd: (blob: Blob) => void;
 	onVADMisfire: () => void;
@@ -72,15 +69,13 @@ export type StartActiveListeningOptions = {
 
 export type VadRecorder = {
 	/**
-	 * Start voice activity detection. Resolves to the device acquisition outcome
-	 * on success. The speech callbacks fire for the rest of the session; the
-	 * caller mirrors them into whatever reactive state it keeps.
+	 * Start voice activity detection. The speech callbacks fire for the rest of
+	 * the session; the caller mirrors them into whatever reactive state it
+	 * keeps.
 	 */
 	startActiveListening(
 		options: StartActiveListeningOptions,
-	): Promise<
-		Result<DeviceAcquisitionOutcome, VadRecorderError | DeviceStreamError>
-	>;
+	): Promise<Result<undefined, VadRecorderError | RecorderError>>;
 	/**
 	 * Stop voice activity detection and clean up the VAD and its stream.
 	 */
@@ -96,7 +91,7 @@ export type VadRecorder = {
  * needs reactive state wraps it in a thin runes layer.
  *
  * Usage:
- * - Start listening: `await vad.startActiveListening({ deviceId, onSpeechStart, onSpeechEnd, onVADMisfire, onLevel })`
+ * - Start listening: `await vad.startActiveListening({ input, onSpeechStart, onSpeechEnd, onVADMisfire, onLevel })`
  * - Stop listening: `await vad.stopActiveListening()`
  */
 export function createVadRecorder({
@@ -112,7 +107,7 @@ export function createVadRecorder({
 
 	return {
 		async startActiveListening({
-			deviceId = null,
+			input,
 			onSpeechStart,
 			onSpeechEnd,
 			onVADMisfire,
@@ -122,21 +117,24 @@ export function createVadRecorder({
 			_starting = true;
 
 			try {
-				// Get validated stream with device fallback
-				const { data: streamResult, error: streamError } =
-					await getRecordingStream({ selectedDeviceId: deviceId });
+				if (navigator.mediaDevices?.getUserMedia === undefined)
+					return RecorderError.Unavailable({
+						reason: 'this window has no microphone access',
+					});
+				const { data: stream, error: openError } = await openMicrophone(
+					navigator.mediaDevices,
+					input,
+					undefined,
+				);
+				if (openError !== null) return Err(openError);
 
-				if (streamError) return Err(streamError);
-
-				const { stream, deviceOutcome } = streamResult;
-
-				// Create VAD with the validated stream
+				// Create VAD with the opened stream
 				const { data: newVad, error: initializeVadError } = await tryAsync({
 					try: () =>
 						MicVAD.new({
-							// The recorder owns the stream lifecycle: it is acquired via
-							// getRecordingStream and released by stopActiveListening's
-							// cleanupRecordingStream below. MicVAD only borrows it, so
+							// The recorder owns the stream lifecycle: it is opened via
+							// openMicrophone and released by stopActiveListening's
+							// release below. MicVAD only borrows it, so
 							// pause is a no-op and resume hands back the same live stream.
 							// (Resume is never reached today: this starts once and
 							// destroys on stop, but keeping it live keeps the three stream
@@ -172,7 +170,7 @@ export function createVadRecorder({
 
 				if (initializeVadError) {
 					// Clean up stream if VAD initialization fails
-					cleanupRecordingStream(stream);
+					release(stream);
 					return Err(initializeVadError);
 				}
 
@@ -188,12 +186,12 @@ export function createVadRecorder({
 						try: async () => newVad.destroy(),
 						catch: () => Ok(undefined),
 					});
-					cleanupRecordingStream(stream);
+					release(stream);
 					return Err(startError);
 				}
 
 				_session = { vad: newVad, stream };
-				return Ok(deviceOutcome);
+				return Ok(undefined);
 			} finally {
 				_starting = false;
 			}
@@ -208,7 +206,7 @@ export function createVadRecorder({
 					try {
 						await vad.destroy();
 					} finally {
-						cleanupRecordingStream(stream);
+						release(stream);
 					}
 				},
 				catch: (error) => VadRecorderError.StopFailed({ cause: error }),

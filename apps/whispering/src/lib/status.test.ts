@@ -24,21 +24,16 @@ function snapshot(): GitSnapshot {
 			commit: { active: false },
 			push: { active: false },
 			fetch: { active: false },
-			pull: { active: false },
-			merge: { active: false },
 		},
 		lastCommit: undefined,
 		lastPush: undefined,
-		lastFetch: undefined,
-		lastPull: undefined,
-		lastMerge: undefined,
 		closed: false,
 	};
 }
 
 for (const state of [
-	{ saving: true, problems: 0, expected: 'Saving…' },
-	{ saving: false, problems: 1, expected: '1 file not saved' },
+	{ saving: true, unwrittenAnswers: 0, expected: 'Saving…' },
+	{ saving: false, unwrittenAnswers: 1, expected: '1 answer not written yet' },
 ]) {
 	test(`${state.expected} takes priority over a failed commit`, () => {
 		const git = snapshot();
@@ -46,13 +41,7 @@ for (const state of [
 			...git,
 			lastCommit: { status: 'failed' as const, error: 'branch locked', at: 1 },
 		};
-		const files = filesLine({
-			...state,
-			pendingCaptures: 0,
-			capturesSaving: false,
-			unsavedResults: 0,
-			unsavedTransformations: 0,
-		});
+		const files = filesLine(state);
 		expect(
 			summaryLine({
 				files,
@@ -71,11 +60,7 @@ test('a failed commit still needs attention after all files are saved', () => {
 	};
 	const files = filesLine({
 		saving: false,
-		problems: 0,
-		pendingCaptures: 0,
-		capturesSaving: false,
-		unsavedResults: 0,
-		unsavedTransformations: 0,
+		unwrittenAnswers: 0,
 	});
 	expect(
 		summaryLine({
@@ -84,6 +69,34 @@ test('a failed commit still needs attention after all files are saved', () => {
 			commit: commitLine(git),
 		}).label,
 	).toBe('Saved · commit failed');
+});
+
+test('changes since the last version are neutral detail: the summary says Saved', () => {
+	const git: GitSnapshot = {
+		...snapshot(),
+		files: {
+			state: 'observed',
+			value: {
+				head: 'abcdef123456',
+				changes: [{ path: 'recordings/a.md', kind: 'modify' }],
+			},
+			checkedAt: 1,
+			stale: false,
+			error: undefined,
+		},
+	};
+	const uncommitted = uncommittedLine(git);
+	expect(uncommitted).toMatchObject({
+		label: '1 change since the last version',
+		tone: 'neutral',
+	});
+	const files = filesLine({
+		saving: false,
+		unwrittenAnswers: 0,
+	});
+	expect(
+		summaryLine({ files, uncommitted, commit: commitLine(git) }).label,
+	).toBe('Saved');
 });
 
 test('an unobserved head does not claim empty history', () => {

@@ -1,16 +1,22 @@
 import {
-	createBrowserRedirectAuth,
+	createBrowserOAuth,
 	epicenterCloud,
 	selfHostedServer,
 } from '@epicenter/auth';
-import { APPS } from '@epicenter/constants/apps';
+import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 
-export const auth = createBrowserRedirectAuth({
-	appId: APPS.VOCAB.id,
-	server: SELF_HOST_ORIGIN
-		? selfHostedServer(SELF_HOST_ORIGIN)
-		: epicenterCloud(APP_URLS.API),
+const server = SELF_HOST_ORIGIN
+	? selfHostedServer(SELF_HOST_ORIGIN)
+	: epicenterCloud(APP_URLS.API);
+
+// Vocab's account calls are inference, served by the API audience, and the
+// profile read from userinfo, which answers the email only under `email`.
+export const auth = createBrowserOAuth({
+	server,
+	clientId: APPS.VOCAB.id,
+	resource: resolveOAuthAudiences(server.baseURL).api,
+	scope: 'openid profile email ai',
 	accountManagement: !SELF_HOST_ORIGIN,
 });
 

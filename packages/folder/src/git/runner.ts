@@ -1,16 +1,15 @@
 /**
  * One pass at a time, with three ways in.
  *
- * `attempt` is for work nobody is waiting on, such as a rescan after a
- * partly landed pull: it starts
- * a pass only when nothing is running or waiting, and otherwise does nothing.
+ * `attempt` is for work nobody is waiting on, such as a rescan after Sync
+ * wrote files: it starts a pass only when nothing is running or waiting, and
+ * otherwise does nothing.
  * The runner keeps no record that it was called, so a skipped attempt never
  * runs later.
  *
  * `request` is for a caller that awaits the result. It waits for the passes
  * ahead of it and then runs its own, so its pass reads inputs no older than
- * the request. Each waiting caller is one pass. A caller may leave before its
- * turn: its pass then never starts.
+ * the request. Each waiting caller is one pass.
  *
  * `follow` is for callers that only need a pass that starts after they asked.
  * Everyone who asks before that pass starts shares it; nobody joins a pass
@@ -21,23 +20,13 @@
  * without running.
  */
 
-/** A caller that may stop waiting, and the result it gets if it left before its turn. */
-export type Leaving<T> = {
-	readonly signal: AbortSignal;
-	readonly withdrawn: () => T;
-};
-
-export type PassRunner<TInput, T> = {
+export type PassRunner<T> = {
 	/** Starts a pass and returns its result, or `undefined` when one is running, waiting, or the runner is closed. */
-	attempt(input: TInput): Promise<T> | undefined;
-	/**
-	 * Runs a pass after those ahead of it. Resolves with the closed result once
-	 * closing started. With `leaving`, a signal already aborted when the turn
-	 * comes means the pass never starts; once started, the signal is ignored.
-	 */
-	request(input: TInput, leaving?: Leaving<T>): Promise<T>;
+	attempt(): Promise<T> | undefined;
+	/** Runs a pass after those ahead of it. Resolves with the closed result once closing started. */
+	request(): Promise<T>;
 	/** The result of the one pass that starts after this call and before any later `follow`. */
-	follow(input: TInput): Promise<T>;
+	follow(): Promise<T>;
 	readonly active: boolean;
 	/**
 	 * Refuse new passes, abort the active pass's signal, and wait for that
@@ -47,19 +36,19 @@ export type PassRunner<TInput, T> = {
 	close(): Promise<void>;
 };
 
-export function createPassRunner<TInput, T>({
+export function createPassRunner<T>({
 	run,
 	failed,
 	closed,
 	onChange,
 }: {
-	run: (input: TInput, signal: AbortSignal) => Promise<T>;
+	run: (signal: AbortSignal) => Promise<T>;
 	/** Converts an unexpected throw into a result; a pass never rejects. */
 	failed: (cause: unknown) => T;
 	/** The result for a request that closing reached before its turn. */
 	closed: () => T;
 	onChange?: () => void;
-}): PassRunner<TInput, T> {
+}): PassRunner<T> {
 	let controller: AbortController | undefined;
 	let waiting = 0;
 	let fenced = false;
@@ -68,11 +57,11 @@ export function createPassRunner<TInput, T>({
 	/** The shared pass that has not started yet, if `follow` made one. */
 	let follower: Promise<T> | undefined;
 
-	async function pass(input: TInput): Promise<T> {
+	async function pass(): Promise<T> {
 		controller = new AbortController();
 		onChange?.();
 		try {
-			return await run(input, controller.signal);
+			return await run(controller.signal);
 		} catch (cause) {
 			return failed(cause);
 		} finally {
@@ -81,42 +70,36 @@ export function createPassRunner<TInput, T>({
 		}
 	}
 
-	/** Queue one turn. `admit` decides, when the turn comes, whether it runs. */
-	function enqueue(input: TInput, admit: () => T | undefined): Promise<T> {
+	/** Queue one turn; `starting` hears when it begins to run. */
+	function enqueue(starting?: () => void): Promise<T> {
 		waiting++;
 		const result = tail.then(() => {
 			waiting--;
-			// Closing is the host's refusal and is reported before a caller's own.
 			if (fenced) return closed();
-			return admit() ?? pass(input);
+			starting?.();
+			return pass();
 		});
 		tail = result;
 		return result;
 	}
 
-	const always = () => undefined;
-
 	return {
 		get active() {
 			return controller !== undefined;
 		},
-		attempt(input) {
+		attempt() {
 			if (fenced || controller !== undefined || waiting > 0) return undefined;
-			return enqueue(input, always);
+			return enqueue();
 		},
-		request(input, leaving) {
+		request() {
 			if (fenced) return Promise.resolve(closed());
-			if (leaving === undefined) return enqueue(input, always);
-			return enqueue(input, () =>
-				leaving.signal.aborted ? leaving.withdrawn() : undefined,
-			);
+			return enqueue();
 		},
-		follow(input) {
+		follow() {
 			if (fenced) return Promise.resolve(closed());
-			follower ??= enqueue(input, () => {
+			follower ??= enqueue(() => {
 				// Starting now: whoever asks from here on needs the next pass.
 				follower = undefined;
-				return undefined;
 			});
 			return follower;
 		},

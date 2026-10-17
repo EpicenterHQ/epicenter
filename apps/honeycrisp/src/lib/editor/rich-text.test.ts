@@ -1,28 +1,36 @@
 /**
  * Rich Text Tests
  *
- * Drives the rich-text view's two rules the way the view does, over a real
- * row session on Honeycrisp's folder: each transaction goes through
- * `stateAfter` before it is shown, and the body is followed with
- * `stateShowing`. The state the harness keeps is what the view would display;
- * there is no other copy.
+ * Drives the rich-text view's two rules the way the view does, over the real
+ * notes state and its query cache on Honeycrisp's folder: each transaction
+ * goes through `stateAfter` before it is shown, and the body is followed
+ * with `stateShowing`. The state the harness keeps is what the view would
+ * display; the note's body draft holds an edit until its save lands, and
+ * the cache holds the note after.
  *
  * Key behaviors:
- * - Every displayed edit is in the draft, including spaces, Enter, and
- *   Shift-Enter; the whole note is saved, with its fields
+ * - Every displayed edit is in the note, including spaces, Enter, and
+ *   Shift-Enter, and saves the body alone: every field, and a key Honeycrisp
+ *   does not declare, stays as it was
  * - Moving the cursor or setting pending formatting writes nothing, and is
- *   shown even while the session takes no input
- * - An edit Markdown cannot express, or made while the session takes no
- *   input, is refused before it is displayed
- * - A lone surrogate a file cannot hold is saved as U+FFFD, and the screen
- *   shows what was saved
+ *   shown even while the note takes no edit
+ * - An edit Markdown cannot express, or made while the note takes no edit,
+ *   is refused before it is displayed
+ * - A lone surrogate becomes U+FFFD in the same transaction, as the file
+ *   stores it, so the screen shows what is saved
+ * - A body read from a CRLF file shows and saves with line feeds
  * - The same content keeps the state, its cursor, pending formatting, and
  *   undo history; different content replaces it; a body that is not rich
  *   text is never written over
- * - A transaction built before the body changed elsewhere is dropped
+ * - A transaction built before the body changed is dropped
+ * - A change another tab saved replaces a clean editor; a save landing
+ *   does not
+ * - A read that lands while an edit is held does not replace the typing,
+ *   and the save merges the change it brought
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, describe, expect, test } from 'bun:test';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { toggleMark } from 'prosemirror-commands';
 import {
 	closeHistory,
@@ -38,14 +46,15 @@ import {
 	type Transaction,
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
-import { expectOk } from 'wellcrafted/testing';
 import { noteText, openNotesFolder } from '../folder.test-support.js';
-import { withBody } from '../note-source.js';
+import { observe, quiet } from '../query.test-support.js';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 
-// The rich-text rules save through an edit session, a runes module: load
-// both after the compiler plugin.
-const { createRowSession } = await import('@epicenter/svelte/edit-session');
+const { createFolderContext } = await import('@epicenter/svelte/folder');
+
+// The notes state is a runes module: load it, and the rules, after the
+// compiler plugin.
+const { createNotes } = await import('../notes.svelte.ts');
 const { editingPlugins, marks, nodes, stateAfter, stateShowing } = await import(
 	'./rich-text.js'
 );
@@ -56,32 +65,47 @@ afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
 });
 
-/** A row session over a note holding `text`, in a fresh folder. */
-async function sessionOver(text: string) {
+const PATH = 'notes/a.md';
+
+/** The notes state over a folder holding one note with `text`, open as a note. */
+async function noteOver(text: string) {
 	const folder = await openNotesFolder();
-	cleanup.push(folder.close);
-	const path = 'notes/a.md';
-	await folder.write(path, text);
-	const stored = expectOk(await folder.folder.tables.notes.get('a'));
-	if (stored === undefined) throw new Error('The note was not written');
-	let locked = false;
-	const session = createRowSession(folder.folder.tables.notes, stored, {
-		locked: () => locked,
+	await folder.write(PATH, text);
+	const failures: WriteFailure[] = [];
+	const context = createFolderContext(folder.folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
-	cleanup.push(async () => {
-		session.release();
-		await session.settled();
-	});
-	const attempts = () => folder.writes().filter((at) => at === path).length;
+	const notes = createNotes(context);
+	cleanup.push(() => folder.close());
+	cleanup.push(() => context.close());
+	cleanup.push(() => folder.release({ all: true }));
+	cleanup.push(observe(notes));
+	await notes.load();
+	notes.open(PATH);
+	await quiet(notes);
+	const note = notes.noteBody(PATH);
+	const attempts = () => folder.writes().filter((at) => at === PATH).length;
 	const opened = attempts();
 	return {
 		folder,
-		session,
-		/** Write attempts at the note since its session opened. */
-		writes: () => attempts() - opened,
-		lock: (on = true) => {
-			locked = on;
+		notes,
+		note,
+		failures,
+		/** The note as shown now: with its body draft while one is held. */
+		draft: () => {
+			const row = note.row;
+			if (row === undefined) throw new Error('The note is not in the cache');
+			return row;
 		},
+		/** Send the body typed, as leaving the note does, and let every save and the reads after them land. */
+		settled: async () => {
+			await notes.saveBody(PATH);
+			await quiet(notes);
+		},
+		/** Write attempts at the note since it opened. */
+		writes: () => attempts() - opened,
+		/** Close the notes: from now on the note takes no edit. */
+		closeNotes: () => context.close(),
 	};
 }
 
@@ -90,9 +114,9 @@ async function open(
 	initialBody: string,
 	{ text = noteText({ body: initialBody }) } = {},
 ) {
-	const opened = await sessionOver(text);
-	const { session } = opened;
-	const body = () => session.draft.body;
+	const opened = await noteOver(text);
+	const { note, notes } = opened;
+	const body = () => opened.draft().body;
 	const initial = bodyCodec.decode(body());
 	if (!initial.supported) throw new Error('The note is not rich text');
 	/** Why the last edit was refused. */
@@ -104,7 +128,7 @@ async function open(
 	});
 	/** Deliver a transaction as the view does. Returns whether it was displayed. */
 	const dispatch = (transaction: Transaction) => {
-		const next = stateAfter(state, transaction, session, (reason) => {
+		const next = stateAfter(state, transaction, note, (reason) => {
 			refusal = reason;
 		});
 		if (next !== undefined) state = next;
@@ -148,14 +172,14 @@ async function open(
 			send?.(state.tr.setSelection(TextSelection.atEnd(state.doc)));
 			return true;
 		});
-	/** The view's effect after the body changed: show what the body holds now. */
+	/** The view's effect after the body changed: show the note's body now. */
 	const follow = () => {
 		const now = bodyCodec.decode(body());
 		if (now.supported) state = stateShowing(state, now.doc);
 	};
 	/** What the Source view does with typed text. */
-	const source = (text: string) => session.edit((row) => withBody(row, text));
-	/** What is on screen and what the draft holds are the same content. */
+	const source = (text: string) => notes.editBody(PATH, text);
+	/** What is on screen and the note's body are the same content. */
 	const expectNoteHoldsScreen = () =>
 		expect(equivalentNoteDocs(parseNoteBody(body()), state.doc)).toBe(true);
 	return {
@@ -205,19 +229,20 @@ describe('every displayed edit is in the note', () => {
 			type,
 			press,
 			body,
-			session,
+			draft,
+			settled,
 			end,
 			writes,
 			expectNoteHoldsScreen,
 			...view
 		} = await open('one\n');
 		end();
-		const before = JSON.parse(JSON.stringify(session.draft));
+		const before = JSON.parse(JSON.stringify(draft()));
 		press('Enter');
 		expect(view.shown().doc.childCount).toBe(2);
 		// An empty paragraph has no Markdown: the note, its time included, stays.
-		expect(JSON.parse(JSON.stringify(session.draft))).toEqual(before);
-		await session.settled();
+		expect(JSON.parse(JSON.stringify(draft()))).toEqual(before);
+		await settled();
 		expect(writes()).toBe(0);
 		expectNoteHoldsScreen();
 		type('two');
@@ -261,34 +286,47 @@ describe('every displayed edit is in the note', () => {
 		expect(view.shown()).toBe(state);
 	});
 
-	test('an edit saves the whole note once: the body, a new time, and every other field', async () => {
-		const { type, session, folder } = await open('one\n');
-		const before = JSON.parse(JSON.stringify(session.draft));
-		type('x');
-		const row = session.draft;
-		expect(row.body).toBe('xone\n');
-		expect(row.fields.updatedAt).not.toBe(before.fields.updatedAt);
-		expect({ ...row.fields, updatedAt: undefined }).toEqual({
-			...before.fields,
-			updatedAt: undefined,
+	test('an edit saves the body once, and every field stays as it was (ADR-0573)', async () => {
+		// An earlier Honeycrisp wrote `updatedAt`; it is now a key it does not declare.
+		const edited = '"updatedAt": "2026-10-01T00:00:00.000Z"';
+		const { type, draft, settled, failures, folder } = await open('one\n', {
+			text: noteText({ body: 'one\n', extra: `${edited}\n"owner": "sam"\n` }),
 		});
-		expect((await session.settled()).status).toBe('saved');
+		const before = JSON.parse(JSON.stringify(draft()));
+		type('x');
+		expect(draft().body).toBe('xone\n');
+		await settled();
+		expect(failures).toEqual([]);
+		const row = draft();
+		expect(row.body).toBe('xone\n');
+		expect(row.fields).toEqual(before.fields);
 		const saved = folder.text('notes/a.md') ?? '';
 		expect(saved).toContain('xone');
-		// A key Honeycrisp does not declare is kept.
-		expect(saved).toContain('owner');
+		expect(saved).toMatch(/^"?updatedAt"?: "2026-10-01T00:00:00\.000Z"$/m);
+		expect(saved).toMatch(/^"?owner"?: "?sam"?$/m);
 	});
 
-	test('CRLF line endings and blank lines at the start of the body are kept', async () => {
+	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body } = await open('', { text: crlf });
+		const { type, end, body, settled, failures, folder } = await open('', {
+			text: crlf,
+		});
+		expect(body()).toBe('\none\n\ntwo\n');
 		end();
 		type('!');
-		expect(body()).toBe('\r\none\r\n\r\ntwo!\r\n');
+		expect(body()).toBe('\none\n\ntwo!\n');
+		await settled();
+		expect(failures).toEqual([]);
+		const saved = folder.text(PATH) ?? '';
+		// The body after the closing `---` line has line feeds only.
+		const savedBody = saved.slice(
+			saved.indexOf('\n', saved.lastIndexOf('---')) + 1,
+		);
+		expect(savedBody).toBe('\none\n\ntwo!\n');
 	});
 
 	test('moving the cursor or setting pending formatting writes nothing', async () => {
-		const { end, run, body, writes, session, ...view } = await open('one\n');
+		const { end, run, body, writes, settled, ...view } = await open('one\n');
 		const before = body();
 		end();
 		expect(run(toggleMark(marks.em))).toBe(true);
@@ -296,16 +334,17 @@ describe('every displayed edit is in the note', () => {
 			marks.em,
 		]);
 		expect(body()).toBe(before);
-		await session.settled();
+		await settled();
 		expect(writes()).toBe(0);
 	});
 
-	test('moving the cursor is shown while the note takes no input, and writes nothing', async () => {
-		const { end, lock, session, writes, ...view } = await open('one\n');
-		lock();
+	test('moving the cursor is shown while the note takes no edit, and writes nothing', async () => {
+		const { end, closeNotes, settled, writes, ...view } = await open('one\n');
+		const closed = closeNotes();
 		expect(end()).toBe(true);
 		expect(view.shown().selection.head).toBe(4);
-		await session.settled();
+		await closed;
+		await settled();
 		expect(writes()).toBe(0);
 	});
 });
@@ -341,7 +380,8 @@ describe('an edit that cannot be written', () => {
 			dispatch,
 			run,
 			body,
-			session,
+			settled,
+			failures,
 			folder,
 			expectNoteHoldsScreen,
 			...view
@@ -349,12 +389,13 @@ describe('an edit that cannot be written', () => {
 		expect(dispatch(view.shown().tr.insertText('x', 1))).toBe(true);
 		// The next edit is its own undo step.
 		expect(dispatch(closeHistory(view.shown().tr))).toBe(true);
-		// Half of an emoji: Markdown can spell it, and a file cannot hold it.
+		// Half of an emoji: Markdown can spell it, and the file stores it as U+FFFD.
 		expect(dispatch(view.shown().tr.insertText('\uD800', 1))).toBe(true);
 		expect(body()).toBe('\uFFFDxBody.\n');
 		expect(view.shown().doc.textContent).toBe('\uFFFDxBody.');
 		expectNoteHoldsScreen();
-		expect((await session.settled()).status).toBe('saved');
+		await settled();
+		expect(failures).toEqual([]);
 		expect(folder.text('notes/a.md')).toContain('\uFFFDxBody.');
 		expect(undoDepth(view.shown())).toBe(2);
 		expect(run(undo)).toBe(true);
@@ -364,35 +405,28 @@ describe('an edit that cannot be written', () => {
 		expectNoteHoldsScreen();
 	});
 
-	test('one made while the session takes no input is not displayed, and editing goes on from the same history', async () => {
-		const { type, run, lock, body, end, ...view } = await open('one\n');
+	test('one made while the note takes no edit is not displayed', async () => {
+		const { type, closeNotes, body, end, ...view } = await open('one\n');
 		end();
 		type('!');
 		const state = view.shown();
-		const depth = undoDepth(state);
-		lock();
+		const closed = closeNotes();
 		expect(type('late')).toBe(false);
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');
-		lock(false);
-		expect(type('?')).toBe(true);
-		expect(body()).toBe('one!?\n');
-		expect(undoDepth(view.shown())).toBeGreaterThanOrEqual(depth);
-		while (undoDepth(view.shown()) > 0) run(undo);
-		expect(body()).toBe('one\n');
+		await closed;
 	});
 
-	test('Enter is not displayed while the session takes no input, and writes nothing', async () => {
-		const { press, end, lock, session, writes, ...view } = await open('one\n');
+	test('Enter is not displayed while the note takes no edit, and writes nothing', async () => {
+		const { press, end, closeNotes, settled, writes, ...view } =
+			await open('one\n');
 		end();
-		lock();
+		const closed = closeNotes();
 		const state = view.shown();
 		press('Enter');
 		expect(view.shown()).toBe(state);
-		lock(false);
-		press('Enter');
-		expect(view.shown().doc.childCount).toBe(2);
-		await session.settled();
+		await closed;
+		await settled();
 		expect(writes()).toBe(0);
 	});
 });
@@ -468,7 +502,7 @@ describe('undo history', () => {
 	});
 });
 
-describe('a body that changed elsewhere', () => {
+describe('a body that changed under the view', () => {
 	test('a transaction that arrives before the view followed is dropped, and the body is shown', async () => {
 		const { type, source, body, follow, ...view } = await open('one\n');
 		// Source took a body; the view has not followed it yet.
@@ -519,5 +553,83 @@ describe('a body that changed elsewhere', () => {
 		if (!rich.supported) expect(rich.reasons).toEqual(['It contains HTML.']);
 		expect(type('!')).toBe(false);
 		expect(body()).toBe('<b>x</b>\n');
+	});
+});
+
+describe('the editor follows the note', () => {
+	test('a save landing keeps the state, its cursor, and its undo history', async () => {
+		const { type, end, follow, settled, failures, folder, ...view } =
+			await open('one\n');
+		end();
+		type('!');
+		const state = view.shown();
+		await settled();
+		expect(failures).toEqual([]);
+		expect(folder.text(PATH)).toContain('one!\n');
+		follow();
+		expect(view.shown()).toBe(state);
+		expect(undoDepth(view.shown())).toBe(1);
+	});
+
+	test('a change another tab saved replaces a clean editor', async () => {
+		const { folder, follow, settled, body, ...view } = await open('one\n');
+		const tab = await folder.otherTab();
+		const theirs = await tab.tables.notes.get('a');
+		if (theirs.data == null) throw new Error('No note a');
+		await tab.tables.notes.write('a', theirs.data.row, {
+			...theirs.data.row,
+			body: 'theirs\n',
+		});
+		for (let tries = 0; body() !== 'theirs\n' && tries < 500; tries++)
+			await Bun.sleep(2);
+		await settled();
+		expect(body()).toBe('theirs\n');
+		follow();
+		expect(view.shown().doc.textContent).toBe('theirs');
+		expect(undoDepth(view.shown())).toBe(0);
+	});
+
+	test('typing in flight is not replaced by a read, and its save merges what the read brought', async () => {
+		const {
+			folder,
+			notes,
+			type,
+			end,
+			follow,
+			settled,
+			body,
+			failures,
+			...view
+		} = await open('one\n');
+		// Another program added a line; the report has not arrived yet.
+		folder.put(PATH, noteText({ body: 'one\n\ntheirs\n' }));
+		end();
+		folder.hold();
+		type('!');
+		const state = view.shown();
+		// The report arrives while the save is held, and the read lands.
+		await notes.queryClient.invalidateQueries(notes.queries.pathFilter([PATH]));
+		follow();
+		expect(view.shown()).toBe(state);
+		expect(body()).toBe('one!\n');
+		folder.release({ all: true });
+		await settled();
+		expect(failures).toEqual([]);
+		expect(folder.text(PATH)).toContain('one!\n\ntheirs\n');
+		// The merged body is new content: the view shows it.
+		expect(body()).toBe('one!\n\ntheirs\n');
+		follow();
+		expect(view.shown().doc.textContent).toBe('one!theirs');
+	});
+
+	test('a save that meets a change made elsewhere to the same line keeps the typing', async () => {
+		const { folder, type, end, settled, body, failures } = await open('one\n');
+		folder.put(PATH, noteText({ body: 'theirs\n' }));
+		end();
+		expect(type('!')).toBe(true);
+		await settled();
+		// Both changed the one line: the typing is the fresher intent.
+		expect(failures).toEqual([]);
+		expect(body()).toBe('one!\n');
 	});
 });

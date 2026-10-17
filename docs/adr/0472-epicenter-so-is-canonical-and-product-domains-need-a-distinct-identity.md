@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Relates:** [Product articulation](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) and [publisher identity](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md).
+- **Relates:** [Product articulation](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md).
 - **Unbuilt:** hosted personal addresses and custom-domain bindings; ADR-0473 records their intended address model.
 
 ## Context

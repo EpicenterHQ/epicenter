@@ -1,21 +1,5 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Epicenter Dev",
-	"identifier": "so.epicenter.dev",
-	"app": {
-		"security": {
-			"capabilities": [
-				"home-model-administration-development",
-				"mail-gmail-authorization-development",
-				"home-launch-application-development",
-				"trusted-app-windows-development",
-				"trusted-whispering-native-development",
-				"trusted-whispering-overlay-development",
-				"departure-development",
-				"todos-folder-development",
-				"capture-folder-development",
-				"installed-app-folder-development"
-			]
-		}
-	}
+	"identifier": "so.epicenter.dev"
 }

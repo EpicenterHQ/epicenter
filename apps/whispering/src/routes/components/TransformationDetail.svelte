@@ -1,9 +1,15 @@
+<!--
+	One transformation: its instructions, model, results, and a place to try
+	it. The fields come from the transformations listing in the cache, and
+	Source from the file's own text query. The title and model are held here
+	while typed and sent after a pause, as sets of the file as it is now
+	(ADR-0576); the instructions are the file's body, saved as the change from
+	the row it started from. Run sends what is typed first.
+-->
 <script lang="ts">
-	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
-	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Field from '@epicenter/ui/field';
 	import * as Popover from '@epicenter/ui/popover';
 	import * as Select from '@epicenter/ui/select';
@@ -17,34 +23,29 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
-	import { tick, untrack } from 'svelte';
-	import { TRANSFORMATIONS, whisperingDefinition } from '$lib/definition.js';
-	import type { Draft, Library, TextRun, TransformationEntry } from '$lib/library.svelte.js';
-	import { recipeEndpoint } from '$lib/recipe.js';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { onDestroy, tick } from 'svelte';
+	import { TRANSFORMATIONS, type TransformationFields, whisperingDefinition } from '$lib/definition.js';
+	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
 	import { committedState } from '$lib/status.js';
-	import { confirmDelete, copyText, formatTime, lf, openItem, recordingTitle } from './file-actions.js';
+	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
-	import SaveBar from '@epicenter/svelte/save-bar';
 	import SettingsForm from './SettingsForm.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	let {
 		library,
 		path,
-		draft,
 		entry,
 		applyTo = $bindable(),
 		applySource = $bindable(),
 		pastedText = $bindable(),
-		tryItFor = $bindable(),
 		onBack,
 		onOpenFile,
 	}: {
 		library: Library;
+		/** The transformation's file. The parent keys this view by it. */
 		path: string;
-		/** The open draft of the transformation's file: its fields, or its text. */
-		draft: Draft;
 		/** The listed row, or undefined when the file left the folder. */
 		entry: TransformationEntry | undefined;
 		/** The transcription this is tried on, by row path. Kept by the session across pages. */
@@ -53,26 +54,79 @@
 		applySource: 'transcript' | 'pasted';
 		/** The pasted text. Kept by the session, so it stays across pages and transformations. */
 		pastedText: string;
-		/** A transformation asked to show Try it, by row path. Kept by the session; this clears it when it is this one. */
-		tryItFor?: string | undefined;
 		/** Shown on narrow windows, where the list and the editor take turns. */
 		onBack?: () => void;
 		onOpenFile: (path: string) => void;
 	} = $props();
 
-	const row = $derived(draft.kind === 'row' && draft.table === TRANSFORMATIONS ? draft.session : undefined);
-	const source = $derived(draft.kind === 'text' ? draft.session : undefined);
+	const asText = $derived(library.showsText(path));
+	/** The transformation as shown, while its fields are what is edited: as typed, or as the cache holds it. */
+	const row = $derived(asText ? undefined : library.rowAt(TRANSFORMATIONS, path));
+	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
+	/** The file's text as typed while an edit is unsaved, else as read. */
+	const source = $derived(
+		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
+	);
 	/** The text on screen read as a recipe, or why it does not read. */
-	const parsed = $derived(source && parseRow(whisperingDefinition.tables.transformations, source.draft));
+	const parsed = $derived(
+		source === undefined ? undefined : parseRow(whisperingDefinition.tables.transformations, source),
+	);
 	const issues = $derived(parsed?.error ?? undefined);
-	/** The recipe as typed: the fields' draft, or the text when it reads. */
-	const recipe = $derived(row?.draft ?? parsed?.data ?? undefined);
-	const text = (key: 'title' | 'model' | 'endpoint') => recipe?.fields[key] ?? '';
+	// The parent keys this view by the file. While it replaces the view, the
+	// prop already reads the next file, so what is sent as the view goes away
+	// uses this one.
+	// svelte-ignore state_referenced_locally
+	const own = path;
+	const ownId = rowStemOf(TRANSFORMATIONS, own) ?? own;
+
+	/**
+	 * A field typed here and not yet saved: the transformation's field
+	 * drafts, each sent a second after the last keystroke, when the person
+	 * leaves it, and when the view goes away, as a set of the file as it is
+	 * now (ADR-0576).
+	 */
+	// svelte-ignore state_referenced_locally
+	const titleDraft = library.fieldOf(TRANSFORMATIONS, ownId, 'title');
+	// svelte-ignore state_referenced_locally
+	const modelDraft = library.fieldOf(TRANSFORMATIONS, ownId, 'model');
+	const typedTitle = $derived(titleDraft.typed);
+	const typedModel = $derived(modelDraft.typed);
+	/** Send everything typed here now: the fields, the instructions, and the text. */
+	function flush() {
+		void titleDraft.save();
+		void modelDraft.save();
+		void library.saveBody(own);
+		void library.saveText(own);
+	}
+	// The drafts outlive the view; send now.
+	onDestroy(flush);
+	/** Whether a field typed here did not save. */
+	const fieldFailed = $derived(
+		(titleDraft.error !== undefined && !titleDraft.saving) ||
+			(modelDraft.error !== undefined && !modelDraft.saving),
+	);
+	const fieldsPending = $derived(titleDraft.saving || modelDraft.saving);
+
+	/** The recipe as typed: its fields with what is typed here, or its text when it reads. */
+	const recipe = $derived.by(() => {
+		if (row === undefined) return parsed?.data ?? undefined;
+		const fields: TransformationFields = { ...row.fields };
+		if (typedTitle !== undefined) fields.title = typedTitle;
+		if (typedModel !== undefined) fields.model = typedModel;
+		return { fields, body: row.body };
+	});
+	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
+	const locked = $derived(library.locked(path));
+	const saving = $derived(library.isSaving(path));
+	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
+
+	/** Set fields of the transformation as its file is now, at once. */
+	const set = (fields: Partial<TransformationFields>) => library.setFields(TRANSFORMATIONS, id, fields);
+	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
 	const id = $derived(rowStemOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
 	const resolved = $derived(library.resolve(recipe));
 	const connection = $derived(library.connections?.text);
-	const constraint = $derived(recipe && recipeEndpoint(recipe.fields));
 	/** Saved results on transcripts and on pasted text, newest first. */
 	const outputs = $derived(
 		[
@@ -104,35 +158,17 @@
 		),
 	);
 	const chosen = $derived(transcripts.find((item) => item.result.path === applyTo));
-	const running = $derived(
-		library.transformationRuns.some((run) => run.fields.transformationId === id && run.state.kind === 'running'),
-	);
-	/** This recipe's run on pasted text that is not a saved result: running, failed, or waiting for Save. */
-	const textRun = $derived<TextRun | undefined>(library.textRuns.find((run) => run.fields.transformationId === id));
-	/** Authoring comes first, unless a result on pasted text is waiting here to be saved or retried. */
-	// Workflow selection within the fields view; the draft says whether Source shows.
-	let tab = $state<'instructions' | 'try'>(untrack(() => textRun) ? 'try' : 'instructions');
+	/** This recipe's runs under way, on a transcript and on pasted text. Each result shows below once its file is written. */
+	const running = $derived(library.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId !== undefined));
+	const runningOnText = $derived(library.recipeRuns.some((run) => run.transformationId === id && run.transcriptionId === undefined));
+	/** Authoring comes first. */
+	// Workflow selection within the fields view; whether the file shows as text says whether Source shows.
+	let tab = $state<'instructions' | 'try'>('instructions');
 	$effect(() => {
 		if (issues) tab = 'instructions';
 	});
 	let editor = $state<HTMLElement | null>(null);
 	let tabTriggers = $state<Record<'instructions' | 'try', HTMLElement | null>>({ instructions: null, try: null });
-	/** Where focus was when this editor first saw the request for Try it, while it waits to show it. */
-	let requestedFrom: Element | null | undefined;
-	// Open to save or discard asks for Try it, whether this editor was already
-	// showing or opens for it. Only that request moves the tab; a run changing
-	// state never does. An editor still opening has no tabs, so the request
-	// waits for them and is taken once.
-	$effect.pre(() => {
-		if (tryItFor !== path) return;
-		if (requestedFrom === undefined) requestedFrom = document.activeElement;
-		if (draft.kind === 'loading') return;
-		const from = requestedFrom;
-		requestedFrom = undefined;
-		tryItFor = undefined;
-		tab = 'try';
-		void focusTab('try', from);
-	});
 	/** What focus can move to when the control that had it goes away. */
 	let runButtons = $state<Record<'transcript' | 'pasted', HTMLElement | null>>({ transcript: null, pasted: null });
 	let goToInstructionsButton = $state<HTMLElement | null>(null);
@@ -143,8 +179,7 @@
 		// Running settles its saves first, so what has to be sound is the text as typed.
 		if (resolved.kind === 'blocked') return resolved.reason;
 		if (applySource === 'pasted') {
-			if (textRun?.state.kind === 'running') return 'Running on pasted text…';
-			if (textRun?.state.kind === 'unsaved') return 'Save or discard the result below before running this again.';
+			if (runningOnText) return 'Running on pasted text…';
 			if (pastedText.trim() === '') return 'Paste some text to run this on.';
 			return undefined;
 		}
@@ -156,37 +191,13 @@
 	const fix = $derived(entry !== undefined && resolved.kind === 'blocked' ? resolved.fix : undefined);
 
 	async function run() {
+		// What is typed is the recipe that runs; it is sent, and the run settles it.
+		flush();
 		const problem =
 			applySource === 'pasted'
 				? await library.transformText(path, pastedText)
 				: chosen && (await library.transform(chosen.result.path, path));
 		if (problem) toast.error('The transformation did not run', { description: problem });
-	}
-
-	async function save(run: TextRun) {
-		const from = document.activeElement;
-		await library.saveTextRun(run.id);
-		const after = library.textRuns.find((item) => item.id === run.id);
-		if (after?.state.kind === 'unsaved' && after.state.message)
-			toast.error('The result was not saved', { description: after.state.message });
-		if (after !== undefined) return;
-		await tick();
-		// Save leaves with the held result. Keep any focus the person moved elsewhere.
-		if (from && !from.isConnected && editor?.isConnected && tab === 'try' && document.activeElement === document.body)
-			tabTriggers.try?.focus();
-	}
-
-	function discard(run: TextRun) {
-		if (run.state.kind !== 'unsaved') {
-			library.discardTransformationRun(run.id);
-			return;
-		}
-		confirmationDialog.open({
-			title: 'Discard this result?',
-			description: 'The text held in this window is dropped. Running the transformation again calls the endpoint again.',
-			confirm: { text: 'Discard', variant: 'destructive' },
-			onConfirm: () => library.discardTransformationRun(run.id),
-		});
 	}
 
 	/**
@@ -254,14 +265,9 @@
 		{#if row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={
-					() => row?.draft.fields.title ?? '',
-					(value) =>
-						row?.edit((draft) => {
-							draft.fields.title = wellFormed(value);
-						})
-				}
-				disabled={row.locked}
+				bind:value={() => titleDraft.shown(row?.fields.title ?? ''), (value) => titleDraft.change(value)}
+				onblur={() => void titleDraft.save()}
+				disabled={locked}
 				placeholder="Title"
 				aria-label="Transformation title"
 				data-testid="transformation-title"
@@ -276,21 +282,26 @@
 		{/if}
 	</div>
 
-	{#if draft.kind === 'row' || draft.kind === 'text'}
-		<SaveBar
-			save={draft.session.state}
-			onRetry={() => draft.session.retry()}
-			onReloadTheirs={() => library.reloadTheirs(draft.session)}
-			gone={!library.canKeepMine(draft.session)}
-			onKeepMine={library.canKeepMine(draft.session) ? () => library.keepMine(draft.session) : undefined}
-		/>
-	{/if}
+	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
+		{saving || fieldsPending ? 'Saving…' : fieldFailed ? 'Not saved' : `Saved to ${path}`}
+		{#if fieldFailed}
+			<Button
+				variant="link"
+				size="xs"
+				class="h-auto p-0"
+				onclick={() => {
+					void titleDraft.save();
+					void modelDraft.save();
+				}}>Try again</Button
+			>
+		{/if}
+	</p>
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This text does not read as a transformation yet. Fix it in Source; it saves as you type.
+				This text does not read as a transformation yet. Fix it in Source; it saves when you pause.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each issues as issue, index (index)}
@@ -300,16 +311,16 @@
 		</div>
 	{/if}
 
-	{#if draft.kind === 'loading'}
-		<Loading class="flex-1" label="Opening the transformation…" />
-	{:else if draft.kind === 'failed'}
+	{#if asText && opened.isError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>This transformation’s file could not be opened: {draft.message}</p>
-			<Button size="sm" variant="outline" onclick={() => void openItem(library, path)}>Try again</Button>
+			<p>This transformation’s file could not be opened: {opened.error.message}</p>
+			<Button size="sm" variant="outline" onclick={() => void opened.refetch()}>Try again</Button>
 		</div>
+	{:else if loading}
+		<Loading class="flex-1" label="Opening the transformation…" />
 	{:else}
 	<Tabs.Root bind:value={
-		() => tab === 'try' ? 'try' : source ? 'source' : 'instructions',
+		() => tab === 'try' ? 'try' : source !== undefined ? 'source' : 'instructions',
 		(value) => {
 			if (value === 'try') {
 				tab = 'try';
@@ -324,45 +335,14 @@
 			<Tabs.Trigger bind:ref={tabTriggers.instructions} value="instructions" disabled={issues !== undefined} data-testid="tab-instructions">Instructions</Tabs.Trigger>
 			<Tabs.Trigger bind:ref={tabTriggers.try} value="try" data-testid="tab-try">
 				Try it
-				{#if running || textRun?.state.kind === 'running'}
+				{#if running || runningOnText}
 					<Spinner class="size-3" aria-label="Running" />
-				{:else if textRun?.state.kind === 'failed'}
-					<Badge variant="destructive">Failed</Badge>
-				{:else if textRun?.state.kind === 'unsaved'}
-					<Badge variant="secondary">Not saved</Badge>
 				{/if}
 			</Tabs.Trigger>
 			<Tabs.Trigger value="source">Source</Tabs.Trigger>
 		</Tabs.List>
 		<Tabs.Content value="instructions" class="min-h-0 flex-1 overflow-y-auto">
 			<div class="flex flex-col gap-4 py-1">
-				{#if constraint}
-					<Alert.Root variant="warning" data-testid="transformation-endpoint-constraint">
-						<Alert.Title>Runs only at {constraint}</Alert.Title>
-						<Alert.Description class="flex flex-col gap-2">
-							<p>
-								An earlier version saved this endpoint in the transformation. It runs only while the text connection is exactly
-								that endpoint; the request always goes to the connection.
-							</p>
-							{#if row}
-								<Button
-									size="xs"
-									variant="outline"
-									class="self-start"
-									disabled={row.locked}
-									onclick={() =>
-										row?.edit((draft) => {
-											draft.fields.endpoint = null;
-										})}
-									data-testid="remove-endpoint-constraint"
-								>
-									Remove the endpoint and use the text connection
-								</Button>
-							{/if}
-						</Alert.Description>
-					</Alert.Root>
-				{/if}
-
 				<Field.Field>
 					<Field.Label for="transformation-prompt">Instructions</Field.Label>
 					{#if row}
@@ -370,13 +350,11 @@
 							id="transformation-prompt"
 							class="min-h-36 resize-y font-sans"
 							bind:value={
-								() => lf(row?.draft.body ?? ''),
-								(value) =>
-									row?.edit((draft) => {
-										draft.body = withFileNewlines(wellFormed(value), draft.body);
-									})
+								() => row?.body ?? '',
+								(value) => library.editBody(TRANSFORMATIONS, ownId, value)
 							}
-							disabled={row.locked}
+							onblur={() => void library.saveBody(own)}
+							disabled={locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
@@ -404,14 +382,14 @@
 								<Input
 									id="transformation-model"
 									bind:value={
-										() => row?.draft.fields.model ?? '',
-										(value) =>
-											row?.edit((draft) => {
-												// An empty model uses the text connection's model.
-												draft.fields.model = value.trim() === '' ? null : wellFormed(value);
-											})
+										() => modelDraft.shown(row?.fields.model ?? null) ?? '',
+										(value) => {
+											// An empty model uses the text connection's model.
+											modelDraft.change(value.trim() === '' ? null : value);
+										}
 									}
-									disabled={row.locked}
+									onblur={() => void modelDraft.save()}
+									disabled={locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
 									spellcheck={false}
@@ -434,9 +412,9 @@
 							{/if}
 							<p>{library.workspace.transformNote}</p>
 							<p>
-								A result on a transcript is saved as a new file in <code class="font-mono">transformation_runs/</code>. A result on
-								pasted text is saved in <code class="font-mono">text_runs/</code> when you save it. The text it came from is never
-								changed.
+								A result on a transcript is saved as a new file in <code class="font-mono">transformation_runs/</code>, and a result on
+								pasted text in <code class="font-mono">text_runs/</code>. Each file is written when the run starts and gets its answer
+								when it arrives. The text it came from is never changed.
 							</p>
 						</div>
 					</Collapsible.Content>
@@ -491,18 +469,18 @@
 							<Textarea
 								class="min-h-28 resize-y font-sans"
 								bind:value={pastedText}
-								placeholder="Paste text to try this on. It stays here while you move between pages and transformations, and is not saved anywhere."
+								placeholder="Paste text to try this on. It stays here while you move between pages and transformations. Running saves it with its result."
 								aria-label="Text to transform"
 								data-testid="pasted-text"
 							/>
 							<div class="flex flex-wrap items-center gap-2">
 								<Button bind:ref={runButtons.pasted} disabled={blocked !== undefined} onclick={() => void run()} data-testid="run-pasted">
-									{#if textRun?.state.kind === 'running'}<Spinner class="size-3.5" />{:else}<PlayIcon />{/if}
+									{#if runningOnText}<Spinner class="size-3.5" />{:else}<PlayIcon />{/if}
 									Run on pasted text
 								</Button>
 								{#if !blocked}
 									<span class="text-xs text-muted-foreground">
-										Run saves your edits, then sends the instructions and this text. The answer waits here until you save it.
+										Run saves your edits, then sends the instructions and this text. The answer is saved as a new result below.
 									</span>
 								{/if}
 							</div>
@@ -548,49 +526,6 @@
 						</div>
 					{/if}
 
-					{#if textRun}
-						<div class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="text-run" data-run-state={textRun.state.kind}>
-							{#if textRun.state.kind === 'running'}
-								<p class="flex items-center gap-2 font-medium"><Spinner class="size-3.5" /> Running on pasted text…</p>
-							{:else if textRun.state.kind === 'failed'}
-								<p class="font-medium">No result was received.</p>
-								<p class="text-xs text-muted-foreground" role="alert" data-testid="text-run-error">{textRun.state.message}</p>
-								<div class="flex items-center gap-2">
-									<Button size="sm" disabled={library.isRetrying(textRun.id)} onclick={() => void library.retryTransformation(textRun.id)} data-testid="retry-text-run">
-										Try again
-									</Button>
-									<Button size="sm" variant="ghost" onclick={() => discard(textRun)}>Dismiss</Button>
-								</div>
-							{:else}
-								{@const result = textRun.state.text}
-								<p class="font-medium">The result arrived. It is not saved until you save it.</p>
-								{#if textRun.state.message}
-									<p class="text-xs text-destructive" role="alert" data-testid="text-run-save-error">{textRun.state.message}</p>
-								{/if}
-								<div class="grid gap-2 sm:grid-cols-2">
-									<div class="flex min-w-0 flex-col gap-1">
-										<span class="text-xs text-muted-foreground">Pasted text, as sent</span>
-										<p class="max-h-48 overflow-y-auto rounded border bg-background p-2 text-xs whitespace-pre-wrap">{textRun.fields.input}</p>
-									</div>
-									<div class="flex min-w-0 flex-col gap-1">
-										<span class="text-xs text-muted-foreground">Result · {textRun.fields.model} at {textRun.fields.endpoint}</span>
-										<p class="max-h-48 overflow-y-auto rounded border bg-background p-2 whitespace-pre-wrap" data-testid="text-run-result">{result}</p>
-									</div>
-								</div>
-								<p class="text-xs text-muted-foreground">
-									Save keeps it as a result, with the text that was sent. Nothing is sent again.
-								</p>
-								<div class="flex items-center gap-2">
-									<Button size="sm" disabled={library.isRetrying(textRun.id)} onclick={() => void save(textRun)} data-testid="save-text-run">
-										{#if library.isRetrying(textRun.id)}<Spinner class="size-3.5" />{/if}
-										Save
-									</Button>
-									<Button size="sm" variant="outline" onclick={() => void copyText(result, 'the result')}>Copy</Button>
-									<Button size="sm" variant="ghost-destructive" onclick={() => discard(textRun)} data-testid="discard-text-run">Discard</Button>
-								</div>
-							{/if}
-						</div>
-					{/if}
 				</div>
 
 				<div class="flex flex-col gap-2">
@@ -615,14 +550,15 @@
 			</div>
 		</Tabs.Content>
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
-			{#if source}
+			{#if source !== undefined}
 				<p class="text-xs text-muted-foreground">
-					The file’s exact text. It saves as typed, readable or not.
+					The file’s exact text. It saves when you pause, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(source?.draft ?? ''), (value) => source?.input(withFileNewlines(value, source.draft))}
-					disabled={source.locked}
+					bind:value={() => lf(source ?? ''), (value) => library.editText(path, withFileNewlines(value, source ?? ''))}
+					onblur={() => void library.saveText(path)}
+					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}
 					data-testid="transformation-source"

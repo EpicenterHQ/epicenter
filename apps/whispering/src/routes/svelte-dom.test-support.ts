@@ -158,6 +158,12 @@ export function type(element: Element | null | undefined, value: string) {
 	element.dispatchEvent(new window.Event('input', { bubbles: true }));
 }
 
+/** Move focus out of a field, as the person leaving it does. */
+export function leave(element: Element | null | undefined) {
+	if (!element) throw new Error('Expected an element to leave');
+	element.dispatchEvent(new window.FocusEvent('blur'));
+}
+
 /** Dispatch a click on a button found by its text. */
 export function click(root: ParentNode, text: string) {
 	const button = [...root.querySelectorAll('button')].find(

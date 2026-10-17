@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-version"
+description = "Enables the save_version command without any pre-configured scope."
+commands.allow = ["save_version"]
+
+[[permission]]
+identifier = "deny-save-version"
+description = "Denies the save_version command without any pre-configured scope."
+commands.deny = ["save_version"]

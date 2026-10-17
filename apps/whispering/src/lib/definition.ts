@@ -1,26 +1,25 @@
-import {
-	type CreateRowOf,
-	defineTable,
-	field,
-	type KvOf,
-} from '@epicenter/definition';
+import { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 import { defineFolder } from '@epicenter/folder';
+
+/** Where recordings' audio is written: one machine's files, never committed. */
+export const AUDIO = 'audio';
 
 /**
  * Whispering's folder: each recording is `recordings/<id>.md` with its
  * metadata in frontmatter and notes in the Markdown body. The row names its
- * audio in `audioPath`; the audio is an ordinary file the table does not own,
+ * audio in `audioPath`, a file under `audio/`; the audio is an ordinary file the table does not own,
  * so nothing is inferred from a file that happens to share the row's stem.
+ * The row is written when the recording starts and holds facts only: when it
+ * started, where its audio is, and, once it stops, how long it is. Whether a
+ * recording is running is never written (ADR-0542).
  * Each transcription result is its own row in `transcriptions/`, naming the
  * recording it was made from, with the transcript as its body.
  *
  * A recipe is a reusable title and instructions: `transformations/<id>.md`
  * with its title in frontmatter and the instructions as its body. Where its
  * requests go is the device's text connection, never the file. A recipe may
- * name a model to use instead of the connection's, and a recipe written by an
- * earlier build may name an endpoint, which is kept as a constraint: it runs
- * only while the text connection is that endpoint. `null` or empty in either
- * field means "use the connection's".
+ * name a model to use instead of the connection's; `null` or empty means "use
+ * the connection's".
  *
  * Applying a recipe to a transcript writes a new row in `transformation_runs/`
  * naming the recording, transcription, and recipe it came from. Applying one
@@ -29,38 +28,37 @@ import { defineFolder } from '@epicenter/folder';
  * as the body, so they still read correctly after anything they came from
  * changes or is deleted. The transcription row is never written.
  *
- * `kv.json` holds the transcription endpoint and model an earlier build
- * saved. This build reads them, to offer them when the transcription
- * connection is set up, and never writes them; no request goes to them.
+ * Audio stays on the machine that recorded it: `local` names `audio/`, so no
+ * commit carries it and Sync sends the rows alone (ADR-0577). Where the
+ * audio a row names is not in the folder, the app says so.
  *
  * The file stem is a row's identity. A recording's title is a field, so
  * renaming a recording never moves a file or breaks a result's `recordingId`.
  *
- * The page and Whispering's Bun host both load this module, so it names only
- * the inert vocabulary. It names no folder: each workspace opens
- * `WHISPERING_FOLDER_ID`. `defineFolder` checks and prepares the definition
- * here, where it is written, so the openers and `parseRow` read rows through
- * the same prepared fields without opening anything.
+ * This module names only the inert vocabulary. It names no folder: each
+ * workspace opens `WHISPERING_FOLDER_ID`. `defineFolder` checks and prepares
+ * the definition here, where it is written, so the openers and `parseRow` read
+ * rows through the same prepared fields without opening anything.
  */
 export const whisperingDefinition = defineFolder({
 	title: 'Whispering',
-	kv: {
-		/** Saved by an earlier build. Offered at setup; never written, never a destination. */
-		transcriptionBaseUrl: field.string(),
-		/** Saved by an earlier build, with the endpoint above. */
-		transcriptionModel: field.string(),
-	},
+	local: [`${AUDIO}/`],
 	tables: {
 		recordings: defineTable({
 			fields: {
 				title: field.string(),
+				/** When the recording started. */
 				recordedAt: field.instant(),
-				durationMs: field.number(),
+				/**
+				 * Written when the recording stops. A recording a quit or a crash cut
+				 * off has none; its audio is still in the folder up to the cut.
+				 */
+				durationMs: field.optional(field.number()),
 				/** Where the audio came from, so fixture audio is never mistaken for a microphone take. */
 				capture: field.select(['microphone', 'fixture']),
 				/**
 				 * The folder-relative path of the audio file, such as
-				 * `recordings/20260102-030405-k3f9.wav`. A row without it has no
+				 * `audio/20260102-030405-k3f9.wav`. A row without it has no
 				 * audio the app will play, transcribe, or name.
 				 */
 				audioPath: field.string(),
@@ -82,12 +80,6 @@ export const whisperingDefinition = defineFolder({
 				 * `gpt-4o-mini`. `null` or empty uses the connection's model.
 				 */
 				model: field.nullable(field.string()),
-				/**
-				 * Written by an earlier build, which sent requests here. Kept as a
-				 * constraint, never as a destination: the recipe runs only while the
-				 * text connection is exactly this base URL. `null` or empty is none.
-				 */
-				endpoint: field.nullable(field.string()),
 			},
 		}),
 		// A table name is one bare identifier, so the folder cannot be `transformation-runs`.
@@ -143,9 +135,6 @@ export type TransformationRunFields = CreateRowOf<
 export type TextRunFields = CreateRowOf<
 	typeof whisperingDefinition.tables.text_runs
 >;
-/** What an earlier build saved in `kv.json`. */
-export type LegacySettings = KvOf<typeof whisperingDefinition>;
-
 export const RECORDINGS = 'recordings';
 export const TRANSCRIPTIONS = 'transcriptions';
 export const TRANSFORMATIONS = 'transformations';
@@ -158,9 +147,13 @@ export const DEFAULT_TRANSCRIPTION_CONNECTION = {
 	model: 'whisper-1',
 } as const;
 
-/** Where a new capture's audio is saved. An existing row's audio is whatever its `audioPath` says. */
-export function recordingAudioPath(id: string, extension: string): string {
-	return `${RECORDINGS}/${id}.${extension}`;
+/**
+ * Where a new recording's audio is written, without its extension: the
+ * capture adds the one its bytes call for. An existing row's audio is
+ * whatever its `audioPath` says.
+ */
+export function recordingAudioStem(id: string): string {
+	return `${AUDIO}/${id}`;
 }
 
 /**

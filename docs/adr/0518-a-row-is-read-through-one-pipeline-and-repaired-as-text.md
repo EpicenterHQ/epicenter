@@ -3,7 +3,6 @@
 - **Status:** Accepted
 - **Date:** 2026-10-11
 - **Relates:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (editing sessions), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (the row text format), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (conditional replacement without retry)
-- **Unbuilt:** the same single pipeline for `kv.json`.
 
 ## Context
 

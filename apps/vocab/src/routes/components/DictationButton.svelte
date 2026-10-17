@@ -7,7 +7,7 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy } from 'svelte';
-	import type { InferenceCatalog } from '@epicenter/app-shell/inference-picker';
+	import type { InferenceCatalog } from '@epicenter/ai/picker';
 
 	let {
 		catalog,

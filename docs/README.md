@@ -7,8 +7,8 @@ This directory contains knowledge articles, guides, and reference materials for 
 - [Decisions (ADRs)](adr/README.md): the authoritative record of durable architecture decisions and why. Trust this over any spec.
 - [Context](CONTEXT.md): shared vocabulary for the platform's concepts.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
-- [Architecture](architecture.md): the repo's main server, app, package, and deployment boundaries.
-- [Trust model](trust-model.md): what the trusted relay reads, the two deployments, and where the anchor is heading.
+- [Architecture](architecture.md): data folders, the folder engine and its hosts, apps, and sync.
+- [Trust model](trust-model.md): who can read a folder's files, decided by the Git server it syncs with.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).
 
 ## Directory Structure

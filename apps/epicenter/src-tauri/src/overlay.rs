@@ -22,6 +22,8 @@ use tauri_nspanel::{tauri_panel, CollectionBehavior, PanelBuilder, PanelLevel, S
 // Must stay in sync with `RECORDING_OVERLAY_WINDOW_LABEL` and the pill's size in
 // Whispering's `recording-overlay/window-manager.tauri.ts`.
 pub const WINDOW_LABEL: &str = "recording-overlay";
+/// The overlay is Whispering's page, at any of its builds.
+const NAVIGATION_PREFIX: &str = "/apps/so.epicenter.whispering/";
 const OVERLAY_WIDTH: f64 = 224.0;
 const OVERLAY_HEIGHT: f64 = 40.0;
 
@@ -36,18 +38,13 @@ tauri_panel! {
 
 /// Create the recording overlay panel, hidden. The frontend repositions and
 /// shows it once recording starts, so the initial position here is unused.
-pub fn create_recording_overlay(
-    app: &AppHandle,
-    url: tauri::Url,
-    initialization_script: String,
-    port: u16,
-) -> tauri::Result<()> {
+pub fn create_recording_overlay(app: &AppHandle, url: tauri::Url) -> tauri::Result<()> {
     if app.get_webview_window(WINDOW_LABEL).is_some() {
         return Ok(());
     }
 
     let panel = PanelBuilder::<_, RecordingOverlayPanel>::new(app, WINDOW_LABEL)
-        .url(WebviewUrl::External(url))
+        .url(WebviewUrl::CustomProtocol(url))
         .title("Recording")
         .position(tauri::Position::Logical(tauri::LogicalPosition {
             x: 0.0,
@@ -76,8 +73,7 @@ pub fn create_recording_overlay(
             w.decorations(false)
                 .transparent(true)
                 .accept_first_mouse(true)
-                .initialization_script(initialization_script)
-                .on_navigation(move |url| crate::is_allowed_navigation(url, port))
+                .on_navigation(|url| crate::scheme::is_allowed_navigation(NAVIGATION_PREFIX, url))
                 .on_new_window(|_, _| NewWindowResponse::Deny)
         })
         .collection_behavior(

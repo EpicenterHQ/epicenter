@@ -9,7 +9,7 @@ metadata:
 # Epicenter auth
 
 Better Auth owns hosted sessions and social-provider login. Epicenter clients
-hold signed session bearers behind stable Accounts. Self-hosted instances issue named-user sessions after passkey sign-in.
+hold signed session bearers behind stable Accounts. A self-hosted server is `apps/api` on Bun with Postgres and issues the same sessions.
 
 Read `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
 before changing client API shape. The README owns the explanation; the contract
@@ -57,8 +57,6 @@ An application session keeps one person and one server for its entire lifetime.
 
 `AuthClient` selects `getState().account`; it exposes sign-in, sign-out, profile,
 and state. Application HTTP and sockets use the captured Account.
-`AuthIdentityState` is the serializable principal projection for desktop
-bootstrap, with no credential or transport functions.
 
 Preserve these guarantees:
 
@@ -90,7 +88,8 @@ Browser storage and preloaded native serialized storage adapt that port.
 Do not add old-format readers or suppress write failures.
 
 A cached principal can boot local data without network access. Before first
-resource use, `/api/session` must confirm that the credential belongs to it.
+resource use, the profile read (`/auth/oauth2/userinfo`) must confirm that
+the credential belongs to it.
 A rejection preserves local identity and publishes `reauth-required`.
 An unavailable server refuses traffic without deleting identity. A verified
 different principal retires and clears the old attachment.
@@ -166,15 +165,14 @@ implicit same-email linking separately; they have different policy gates.
 
 ## Resource validation and socket bounds
 
-Hosted resource routes use `requireBearerPrincipal` with
-`resolveRequestSessionPrincipal`. The resolver calls Better Auth with only
-the explicit bearer and live session lookup. No cookie fallback or JWT verifier
-remains. `/api/session` is the resource identity projection, not another session engine.
+Hosted resource routes take only an opaque OAuth access token for their
+audience and scope: `requireAccessToken` runs `authorizeAccountRequest`, and a
+namespace route runs `authorizeResourceRequest`. A Better Auth session never
+reaches a resource, and no JWT verifier remains. The profile is Better Auth's `/auth/oauth2/userinfo`; Epicenter
+serves no profile route of its own.
 
 Unknown, expired, or revoked credentials are 401. Database and infrastructure
-failures are retryable 503. The self-host deployment supplies its static-token
-resolver to the same resource guard and resolves valid tokens to
-`INSTANCE_PRINCIPAL_ID`.
+failures are retryable 503.
 
 Hosted sessions have a 30-day sliding expiry, updated after one day of use.
 Verify renewal through resource traffic, not only a direct helper call.

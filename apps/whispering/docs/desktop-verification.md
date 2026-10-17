@@ -1,5 +1,11 @@
 # Standalone desktop verification
 
+> **Historical record.** This file describes the desktop as it ran under the
+> shell's Rust folder owner, a design retired on 2026-10-15 by
+> [ADR-0531](../../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md).
+> The page now runs the folder engine over a directory the shell grants. Read
+> this file as what was checked then, not as current behavior.
+
 This file has four dated parts. The first records moving the desktop folder to
 the shell's Rust owner, which has TypeScript checks only and an uncompiled
 shell. The second records the adoption of the shared folder package, which has
@@ -60,8 +66,7 @@ What the TypeScript tests establish, and with what:
   provider requests for each, and bytes that survive the file changing during
   the request.
 - **The debug failures**, against a real repository: the row and audio
-  obstacles make the folder fail its own step, retry completes one recording,
-  an occupied path is left alone, and the branch lock is taken only after Git
+  obstacles make the folder fail its own step, an occupied path is left alone, and the branch lock is taken only after Git
   exists and never from another holder. The folder publishing in these tests
   is the Bun directory opener, standing in for the Rust owner.
 - **The desktop workspace**, against scripted shell replies: it attaches by ID
@@ -73,10 +78,10 @@ What the TypeScript tests establish, and with what:
   while opening waits and one asked after is answered `proceed`, each only on
   request; a failed opening by itself approves nothing; with the host gone the
   shell's event is answered with the quit address; and with a session open
-  that holds a pending recording, only the session's guard answers and it
-  does not approve.
+  that holds a transcription still waiting for its answer, only the session's
+  guard answers and it does not approve.
 - **Closing while the session is starting**, over the Bun directory opener
-  with the first `kv.json` read
+  with the first file listing read
   held open: a close asked then gets no answer, not even `asking`, and no
   guard is listening; when the start finishes the kept request reaches the
   guard, which answers; when the start fails nothing answers until the
@@ -84,7 +89,7 @@ What the TypeScript tests establish, and with what:
   nothing listening, lets the admitted read settle, and answers nothing. A
   guard disposed mid-request approves nothing.
 - **A stopped host**, over the Bun directory opener: with the host gone, a
-  draft and a pending recording are still saved through the folder, the held
+  draft and a held transcript are still saved through the folder, the held
   list empties, and quitting is still the explicit choice.
 - **A lost host reply**, against the real host with a counted local stand-in
   for the endpoint: the endpoint is called once, the reply is dropped, the
@@ -99,14 +104,15 @@ Not done, and needed before this can be called accepted on the desktop:
   invoke the owner at all: that Tauri's IPC is reachable under the page's
   content security policy, and that the owner's events arrive.
 - Record, play, transcribe, transform, quit, and reopen against a disposable
-  folder. Confirm a recording's audio saves in acceptable time: file bytes
-  cross Tauri's IPC as JSON number arrays.
-- Exercise both debug publication failures and **Try again** in the window,
-  confirming an obstructed row ends as `rowNotSaved` with certainty `failed`,
-  the audio saved, and the Rust owner's own message for the row.
+  folder. Confirm the microphone permission prompt, that `audio/<id>.wav`
+  grows while recording, and that quitting mid-recording leaves a WAV that
+  plays to the cut once the folder reopens and `recoverRecordings` runs.
+- Exercise both debug recording-write failures in the window, confirming an
+  obstructed row leaves the recording running with its audio saved and no
+  row, with the folder's own message for the row.
 - Edit a file from the terminal while a draft of it is open, and confirm the
   conflict; confirm a terminal edit refreshes a clean view.
-- Close and quit with drafts, pending audio, and a running request; stop the
+- Close and quit with drafts, a running recording, and a running request; stop the
   host process, confirm a draft still saves, and confirm the explicit quit.
 - Make the folder unopenable (hold its lock from another process) and confirm
   the window showing the refusal closes on Command-W and Command-Q, and that a

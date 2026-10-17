@@ -19,12 +19,12 @@
  */
 import { expect, test } from 'bun:test';
 import { frameRowText } from '@epicenter/folder';
+import { fromTextarea } from './document.js';
 import {
 	type CaptureBody,
 	type CaptureBodyReading,
 	captureBody,
 	composeBody,
-	fromTextarea,
 	normalizeThought,
 	type Refusal,
 } from './index.js';
@@ -54,7 +54,6 @@ function parseCapture(source: string): CaptureDocument {
 				refusal: result.error,
 				text: undefined,
 				thoughts: [],
-				newline: frame.newline,
 				hasSection: false,
 				hasOtherContent: false,
 			};
@@ -454,14 +453,15 @@ test('a heading typed inside a thought stays inside that thought', () => {
 	]);
 });
 
-test('thought normalization removes blank edges and preserves interior lines and text whitespace', () => {
+test('thought normalization removes blank edges and marker whitespace, and keeps code indentation and interior lines', () => {
 	expect(
 		normalizeThought(
 			'\r\n \t\r\n  first  \r\n \t\r\n  continuation  \r\n\t\r\n',
 		),
-	).toBe('  first  \n\n  continuation  ');
+	).toBe('first  \n\n  continuation  ');
 	expect(normalizeThought(' \t\r\n \n\t')).toBe('');
-	expect(normalizeThought('  only  ')).toBe('  only  ');
+	expect(normalizeThought('  only  ')).toBe('only  ');
+	expect(normalizeThought('    code()')).toBe('    code()');
 });
 
 // ============================================================================

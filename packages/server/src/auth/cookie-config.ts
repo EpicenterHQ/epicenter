@@ -5,9 +5,10 @@ import type { BetterAuthOptions } from 'better-auth';
  *
  * Use this from the auth server factory, not from client code. Localhost uses
  * host-only, non-secure Lax cookies so the Vite auth proxy can work during
- * development. Deployed API origins use host-only, secure Lax cookies for
- * hosted sign-in, account management, and session handoff. Application data
- * requests carry session bearers. Lax permits cookies on top-level GET
+ * development. Deployed API origins use host-only, secure Lax cookies for the
+ * authorization server's own pages: sign-in, consent, device approval, and
+ * account management. Every other request carries an OAuth access token
+ * (ADR-0549). Lax permits cookies on top-level GET
  * callbacks such as Google's; it does not cover cross-site POST callbacks.
  *
  * There is deliberately no cross-subdomain knob: a `Domain=` cookie shared

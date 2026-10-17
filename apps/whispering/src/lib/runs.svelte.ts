@@ -1,34 +1,39 @@
 /**
- * Requests to an endpoint and the result rows they write: transcriptions of a
- * recording, and recipe runs on a transcript or on pasted text.
+ * Requests to an endpoint and the result rows they fill: transcriptions of a
+ * recording, and recipe runs on a transcript or on pasted text (ADR-0542).
  *
- * A result's stem and every field it will hold are fixed before its row is
- * written, so every save of one answer lands in the same file. Each save is
- * one `createOnce`: create the row, and when the stem is taken, read what is
- * there; the same row means an earlier save landed (its reply was lost), and
- * anything else is another file, left as it is. Saving again never calls the
- * endpoint.
+ * A run writes its result row before its request goes out, with every field
+ * fixed and an empty body, and fills the body when the answer arrives. So the
+ * folder holds every run from its start. A row with no body and no request in
+ * this window is unfinished: that is derived here and never written. Running
+ * it again sends the same request from the row's own fields into the same
+ * row; deleting it discards it.
  *
- * A received answer whose row is not known to be in the folder stays in this
- * window, with its text, until it is saved or discarded. A save that ends
- * after its run was discarded, or replaced by a newer one, restores nothing
- * and removes nothing; a row it wrote stays.
+ * What lives only in this window is what is happening: a request under way,
+ * why one failed, and an answer whose write failed. Such an answer is written
+ * again while the page lives; a reload drops it and its row stays unfinished.
+ * A fill writes the answer as an insertion into the empty body the run
+ * started with (ADR-0576): the same answer filled elsewhere stands once, and
+ * a different one, or text a person typed there, stays beside it. A row that
+ * is gone was discarded, and is not written.
  */
 import {
 	type FileTable,
 	type Row,
 	rowPath,
 	rowStemOf,
-	type StoredRow,
 } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
 	audioPathIn,
+	RECORDINGS,
 	type RecordingFields,
+	TEXT_RUNS,
 	type TextRunFields,
 	TRANSCRIPTIONS,
+	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 	type TranscriptionFields,
 	type TransformationFields,
@@ -41,138 +46,76 @@ import type { Workspace } from './workspace/types.js';
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
-/** A received answer as its row's body: the text, ending in one newline of its own. */
+/**
+ * A received answer as its row's body: the text, ending in one newline of its
+ * own. An empty answer is a newline, so only a row nothing was written to has
+ * an empty body.
+ */
 const resultBody = (text: string) => (text.endsWith('\n') ? text : `${text}\n`);
-
-/** Deep equality of parsed values, ignoring the order of an object's keys. */
-function sameValue(a: unknown, b: unknown): boolean {
-	if (a === b) return true;
-	if (Array.isArray(a) || Array.isArray(b))
-		return (
-			Array.isArray(a) &&
-			Array.isArray(b) &&
-			a.length === b.length &&
-			a.every((item, index) => sameValue(item, b[index]))
-		);
-	if (
-		typeof a !== 'object' ||
-		typeof b !== 'object' ||
-		a === null ||
-		b === null
-	)
-		return false;
-	const left = a as Record<string, unknown>;
-	const right = b as Record<string, unknown>;
-	const keys = Object.keys(left);
-	return (
-		keys.length === Object.keys(right).length &&
-		keys.every(
-			(key) => Object.hasOwn(right, key) && sameValue(left[key], right[key]),
-		)
-	);
-}
-
-/**
- * Whether a saved row is `row`: the same body and the same fields, keys
- * another writer added included.
- */
-function sameRow<TFields>(saved: Row<TFields>, row: Row<TFields>): boolean {
-	return saved.body === row.body && sameValue(saved.fields, row.fields);
-}
-
-/**
- * Create `row` at `stem`, once. A stem already taken by this exact row is an
- * earlier save of it that landed; any other file there is left alone.
- */
-export async function createOnce<TFields>(
-	table: FileTable<TFields>,
-	stem: string,
-	row: Row<TFields>,
-	what: string,
-): Promise<Result<StoredRow<TFields>, string>> {
-	try {
-		const { data: created, error } = await table.create(row, { stem });
-		if (error === null) return Ok(created);
-		if (error.name !== 'Exists') return Err(describeError(error));
-		const { data: there, error: readError } = await table.get(stem);
-		if (readError === null && there !== undefined && sameRow(there.row, row))
-			return Ok(there);
-		if (readError !== null && readError.name !== 'InvalidRow')
-			return Err(readError.message);
-		return Err(
-			`${rowPath(table.name, stem)} already exists and is not this ${what}. Nothing was overwritten.`,
-		);
-	} catch (cause) {
-		// The folder host went away: the answer is kept, not lost with it.
-		return Err(describe(cause));
-	}
-}
 
 /** A sortable id from a time: `20260102-030405-k3f9`. */
 export type MakeId = (at: Date) => string;
 
-/** One transcription request for a recording, until its result row is saved. */
+/** A Transcribe of a recording under way, or why the last one sent nothing. */
 export type TranscriptionRun =
-	/** The request is out, or its answer is being written for the first time. */
 	| { readonly kind: 'running' }
-	| { readonly kind: 'failed'; readonly message: string }
-	/**
-	 * The endpoint answered, and the result row is not known to be in the
-	 * folder. `saving` is true while a save of it is under way.
-	 */
-	| {
-			readonly kind: 'unsaved';
-			/** The result row's stem. */
-			readonly id: string;
-			readonly row: Row<TranscriptionFields>;
-			/** The answer as received: what is shown and copied. */
-			readonly text: string;
-			readonly message: string;
-			readonly saving: boolean;
-	  };
+	| { readonly kind: 'failed'; readonly message: string };
 
-/** Where a recipe run stands, until its result row is saved. */
-export type RunState =
+/** What this window knows about a result row with no body. */
+export type LiveResult =
+	/** The request is out. */
 	| { readonly kind: 'running' }
-	/** Nothing was received. Trying again sends the same request. */
+	/** Nothing was received. Running it again sends the same request. */
 	| { readonly kind: 'failed'; readonly message: string }
 	/**
-	 * The endpoint answered and the text is held here. `message` says why a
-	 * save did not finish; undefined for a result on pasted text not yet saved.
+	 * The answer arrived and is being written. `message` says why the last
+	 * write failed; it is written again while this window is open.
 	 */
 	| {
-			readonly kind: 'unsaved';
+			readonly kind: 'writing';
+			readonly text: string;
 			readonly message: string | undefined;
-			readonly text: string;
 	  };
 
-/**
- * A recipe applied to a transcript. A received result is saved at once, into
- * `transformation_runs/`. `id` and `fields` are fixed before the request.
- */
-export type TransformationRun = {
-	readonly id: string;
-	readonly destination: 'transcript';
-	readonly fields: TransformationRunFields;
-	readonly state: RunState;
+/** What a result row shows: its answer, what is happening to it, or that it is unfinished. */
+export type ResultState =
+	| { readonly kind: 'answered' }
+	| LiveResult
+	| { readonly kind: 'unfinished' };
+
+/** A recipe run under way in this window, from its reads to its answer. */
+export type RecipeRun = {
+	readonly transformationId: string;
+	/** The transcript it runs on; undefined for pasted text. */
+	readonly transcriptionId: string | undefined;
 };
 
-/** A recipe applied to pasted text; its result waits for Save, into `text_runs/`. */
-export type TextRun = {
-	readonly id: string;
-	readonly destination: 'text';
-	readonly fields: TextRunFields;
-	readonly state: RunState;
+type ResultTable =
+	| typeof TRANSCRIPTIONS
+	| typeof TRANSFORMATION_RUNS
+	| typeof TEXT_RUNS;
+
+/** One result row: where it is, and the recording it belongs to, if any. */
+type Target = {
+	readonly table: ResultTable;
+	readonly stem: string;
+	readonly recording: string | undefined;
 };
 
-type Run = TransformationRun | TextRun;
+type Answer = Result<{ text: string }, { message: string }>;
 
-const withState = <TRun extends Run>(run: TRun, state: RunState): TRun => ({
-	...run,
-	state,
-});
-
+const ANSWERED: ResultState = { kind: 'answered' };
+const UNFINISHED: ResultState = { kind: 'unfinished' };
 const BEING_DELETED = 'This recording is being deleted.';
+const STILL_RECORDING =
+	'This recording is still recording. Stop it, then transcribe it.';
+const NO_AUDIO =
+	'This recording’s file names no audio, so there is nothing to transcribe. Add the audio file’s path in Source.';
+/** The first wait before an answer is written again, doubled each time up to the last. */
+const RETRY_FIRST_MS = 500;
+const RETRY_LAST_MS = 30_000;
+
+const pathOf = (target: Target) => rowPath(target.table, target.stem);
 
 export function createRuns({
 	workspace,
@@ -182,7 +125,7 @@ export function createRuns({
 	resolve,
 	settle,
 	deleting,
-	refresh,
+	capturing,
 	track,
 }: {
 	workspace: Workspace;
@@ -194,164 +137,181 @@ export function createRuns({
 		readonly error: string | undefined;
 	};
 	resolve: (recipe: Row<TransformationFields> | undefined) => ResolvedRecipe;
-	/** Wait for the saves of an open draft at `path`; why not, when its save failed. */
-	settle: (path: string) => Promise<string | undefined>;
+	/** Resolves once the edits being written have landed, so what is read is what was typed. */
+	settle: () => Promise<void>;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
-	refresh: () => Promise<void>;
+	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
+	capturing: ReadonlySet<string>;
 	/**
-	 * Count folder work as running until it settles, so leaving and closing
-	 * wait for it. Waiting on an endpoint is not counted: a request that does
-	 * not answer must not keep the app from asking to close.
+	 * Run folder work as a mutation, so closing waits for it and the folder is
+	 * read again after it. `scope` names the file whose queue it joins: a
+	 * recording's results are written in order, after its writes. `file`
+	 * names the file the work writes, whose turn it takes first, so it is
+	 * ordered with the person's edits of that file too. Waiting on an
+	 * endpoint is not tracked.
 	 */
-	track: <T>(work: () => Promise<T>) => Promise<T>;
+	track: <T>(
+		work: () => Promise<T>,
+		scope?: string,
+		file?: string,
+	) => Promise<T>;
 }) {
 	const { folder } = workspace;
-	/** Transcription runs, by recording ID. */
+	const tableOf = (name: ResultTable) =>
+		folder.tables[name] as unknown as FileTable<unknown>;
+	/** Transcribe presses, by recording ID: one under way, or why one sent nothing. */
 	const transcriptions = new SvelteMap<string, TranscriptionRun>();
-	/** Recipe runs, by result stem. */
-	const recipes = new SvelteMap<string, Run>();
-	/** Result rows being written now, by stem, each naming its recording (none for pasted text). */
+	/** Result rows with something happening in this window, by path. */
+	const live = new SvelteMap<
+		string,
+		{ readonly state: LiveResult; readonly recording: string | undefined }
+	>();
+	/** Result rows being written now, by path, each naming its recording (none for pasted text). */
 	const writing = new Map<string, string | undefined>();
-	/** Transcript and recipe pairs, and recipes on pasted text, whose reads are under way. */
-	const applying = new SvelteSet<string>();
-	const retrying = new SvelteSet<string>();
+	/** Recipe runs under way, by transcript and recipe pair, or pasted text and recipe. */
+	const applying = new SvelteMap<string, RecipeRun>();
+	/** Result rows whose run again is reading what it sends. */
+	const again = new SvelteSet<string>();
+	const retries = new Map<string, ReturnType<typeof setTimeout>>();
+	let stopped = false;
 
-	const transcriptRuns = () =>
-		[...recipes.values()].filter(
-			(run): run is TransformationRun => run.destination === 'transcript',
-		);
-	const textRuns = () =>
-		[...recipes.values()].filter(
-			(run): run is TextRun => run.destination === 'text',
-		);
-	const unsaved = {
-		transcripts: () =>
-			[...transcriptions.values()].filter((run) => run.kind === 'unsaved')
-				.length,
-		transformations: () =>
-			transcriptRuns().filter((run) => run.state.kind === 'unsaved').length,
-		text: () => textRuns().filter((run) => run.state.kind === 'unsaved').length,
-	};
+	const setLive = (target: Target, state: LiveResult) =>
+		live.set(pathOf(target), { state, recording: target.recording });
+	const scopeOf = (target: Target) =>
+		target.recording === undefined
+			? pathOf(target)
+			: rowPath(RECORDINGS, target.recording);
 
-	/** Save a received transcript. Applied only while `admitted` still stands. */
-	async function saveTranscript(
-		recording: string,
-		received: { id: string; row: Row<TranscriptionFields>; text: string },
-		admitted: TranscriptionRun,
-	) {
-		writing.set(received.id, recording);
-		const { error } = await createOnce(
-			folder.tables.transcriptions,
-			received.id,
-			received.row,
-			'transcript',
-		);
-		writing.delete(received.id);
-		const stands = transcriptions.get(recording) === admitted;
-		if (error !== null) {
-			if (stands)
-				transcriptions.set(recording, {
-					kind: 'unsaved',
-					...received,
-					message: error,
-					saving: false,
-				});
-			return;
+	/** Run `work` as the folder work of `target`, counted as a write of its row. */
+	async function writeOf<T>(
+		target: Target,
+		work: () => Promise<T>,
+	): Promise<T> {
+		const path = pathOf(target);
+		writing.set(path, target.recording);
+		try {
+			return await track(work, scopeOf(target), path);
+		} finally {
+			writing.delete(path);
 		}
-		if (stands) transcriptions.delete(recording);
-		await refresh();
-	}
-
-	/** Save a received recipe result. Applied only while `admitted` still stands. */
-	async function saveRun(run: Run, text: string, admitted: Run) {
-		const body = resultBody(text);
-		writing.set(
-			run.id,
-			run.destination === 'transcript' ? run.fields.recordingId : undefined,
-		);
-		const { error } =
-			run.destination === 'transcript'
-				? await createOnce(
-						folder.tables.transformation_runs,
-						run.id,
-						{ fields: run.fields, body },
-						'result',
-					)
-				: await createOnce(
-						folder.tables.text_runs,
-						run.id,
-						{ fields: run.fields, body },
-						'result',
-					);
-		writing.delete(run.id);
-		const stands = recipes.get(run.id) === admitted;
-		if (error !== null) {
-			if (stands)
-				recipes.set(
-					run.id,
-					withState(run, { kind: 'unsaved', message: error, text }),
-				);
-			return;
-		}
-		if (stands) recipes.delete(run.id);
-		await refresh();
 	}
 
 	/**
-	 * One request from a run's fixed fields. It always ends: failed, or
-	 * received. A transcript's result is saved at once; one on pasted text
-	 * waits for Save.
+	 * Write a run's row with an empty body, before its request goes out. The
+	 * row shows as running from the moment it is listed. A recording deleted
+	 * while this waited its turn gets no row. Answers why the row was not
+	 * written.
 	 */
-	async function sendRun(run: Run) {
-		const running = withState(run, { kind: 'running' });
-		recipes.set(run.id, running);
-		const failed = (message: string) => {
-			if (recipes.get(run.id) === running)
-				recipes.set(run.id, withState(run, { kind: 'failed', message }));
-		};
-		let answered: Awaited<ReturnType<Workspace['transform']>>;
-		try {
-			answered = await workspace.transform({
-				expectedBaseUrl: run.fields.endpoint,
-				model: run.fields.model,
-				prompt: run.fields.prompt,
-				input: run.fields.input,
-			});
-		} catch (cause) {
-			failed(
-				`The transformation request could not be made: ${describe(cause)}`,
-			);
-			return;
-		}
-		const { data: answer, error } = answered;
-		if (error !== null) {
-			failed(error.message);
-			return;
-		}
-		if (run.destination === 'transcript') {
-			await track(() => saveRun(run, answer.text, running));
-			return;
-		}
-		if (recipes.get(run.id) === running)
-			recipes.set(
-				run.id,
-				withState(run, {
-					kind: 'unsaved',
-					message: undefined,
-					text: answer.text,
-				}),
-			);
+	async function begin(target: Target, row: Row<unknown>) {
+		setLive(target, { kind: 'running' });
+		const problem = await writeOf(
+			target,
+			async (): Promise<string | undefined> => {
+				try {
+					if (target.recording !== undefined) {
+						const { data: recording, error } =
+							await folder.tables.recordings.get(target.recording);
+						// A recording file that needs repair is still there.
+						if (error === null && recording === undefined)
+							return 'The recording is no longer in the folder.';
+					}
+					const { error } = await tableOf(target.table).create(row, {
+						stem: target.stem,
+					});
+					return error === null ? undefined : describeError(error);
+				} catch (cause) {
+					// The folder host went away.
+					return describe(cause);
+				}
+			},
+		);
+		if (problem !== undefined) live.delete(pathOf(target));
+		return problem;
 	}
 
-	/** The saved transformation at `path`, read now, after its open draft settles. */
+	/**
+	 * Fill the row's body with the answer: the change from the row with the
+	 * empty body the run wrote to the row with the answer (ADR-0576), merged
+	 * by line with whatever changed since. A fill elsewhere with the same
+	 * text is written once, and one with different text stays beside this
+	 * one. Each attempt reads the row for its fields. A row deleted meanwhile
+	 * stays deleted: a write over it writes nothing, and their deletion
+	 * stands.
+	 */
+	async function fill(target: Target, body: string) {
+		const table = tableOf(target.table);
+		try {
+			const { data: stored, error } = await table.get(target.stem);
+			if (error !== null) return describeError(error);
+			if (stored === undefined) return undefined;
+			const { fields } = stored.row;
+			const { error: writeError } = await table.write(
+				target.stem,
+				{ fields, body: '' },
+				{ fields, body },
+			);
+			return writeError === null ? undefined : describeError(writeError);
+		} catch (cause) {
+			return describe(cause);
+		}
+	}
+
+	/**
+	 * Write a received answer into its row. A failed write is tried again
+	 * later, in the background, until it lands or this window closes.
+	 */
+	async function write(target: Target, text: string, attempt: number) {
+		const path = pathOf(target);
+		retries.delete(path);
+		const before = live.get(path)?.state;
+		setLive(target, {
+			kind: 'writing',
+			text,
+			message: before?.kind === 'writing' ? before.message : undefined,
+		});
+		const error = await writeOf(target, () => fill(target, resultBody(text)));
+		if (error === undefined) {
+			live.delete(path);
+			return;
+		}
+		setLive(target, { kind: 'writing', text, message: error });
+		if (stopped) return;
+		const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_LAST_MS);
+		retries.set(
+			path,
+			setTimeout(() => void write(target, text, attempt + 1), wait),
+		);
+	}
+
+	/**
+	 * Send the request for a row already in the folder, then write its answer.
+	 * Ends when the answer's first write ends.
+	 */
+	async function send(target: Target, request: () => Promise<Answer>) {
+		setLive(target, { kind: 'running' });
+		let answer: Answer;
+		try {
+			answer = await request();
+		} catch (cause) {
+			answer = Err({
+				message: `The request could not be made: ${describe(cause)}`,
+			});
+		}
+		if (answer.error !== null) {
+			setLive(target, { kind: 'failed', message: answer.error.message });
+			return;
+		}
+		await write(target, answer.data.text, 0);
+	}
+
+	/** The saved transformation at `path`, read now, after the edits being written land. */
 	async function recipeAt(
 		path: string,
 	): Promise<Result<{ stem: string; resolved: ResolvedRecipe }, string>> {
 		const stem = rowStemOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
-		const unsettled = await settle(path);
-		if (unsettled !== undefined) return Err(unsettled);
+		await settle();
 		const { data: stored, error } =
 			await folder.tables.transformations.get(stem);
 		if (error !== null && error.name !== 'InvalidRow')
@@ -363,8 +323,8 @@ export function createRuns({
 
 	/**
 	 * What a transformation is made from, read now: the transcript's saved text
-	 * and the recording it names. Its open draft settles first; one whose save
-	 * failed refuses, so what is sent is never text the folder does not have.
+	 * and the recording it names. The edits being written land first, so what
+	 * is sent is what the folder has.
 	 */
 	async function transcriptAt(
 		path: string,
@@ -377,8 +337,7 @@ export function createRuns({
 		const transcriptionId = rowStemOf(TRANSCRIPTIONS, path);
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
-		const unsettled = await settle(path);
-		if (unsettled !== undefined) return Err(unsettled);
+		await settle();
 		const { data: stored, error } =
 			await folder.tables.transcriptions.get(transcriptionId);
 		if (error?.name === 'InvalidRow')
@@ -405,163 +364,177 @@ export function createRuns({
 		return Ok({ transcriptionId, recordingId, input });
 	}
 
-	/** Why a run prepared for `endpoint` would not go out over the text connection now. */
-	function connectionMoved(endpoint: string): string | undefined {
-		const text = connections().info?.text;
-		if (text === undefined)
-			return `This run was prepared for ${endpoint}, and no text connection is set up now, so it was not sent again.`;
-		if (!sameBaseUrl(text.baseUrl, endpoint))
-			return `This run was prepared for ${endpoint}, and the text connection is now ${text.baseUrl}, so it was not sent again. Dismiss it and run the transformation again.`;
+	/** Why a row made with `endpoint` would not go out over the connection set up now. */
+	function connectionMoved(
+		operation: 'transcription' | 'text',
+		endpoint: string,
+	): string | undefined {
+		const connection = connections().info?.[operation];
+		if (connection === undefined)
+			return `This was run with ${endpoint}, and no ${operation} connection is set up now, so it was not sent again.`;
+		if (!sameBaseUrl(connection.baseUrl, endpoint))
+			return `This was run with ${endpoint}, and the ${operation} connection is now ${connection.baseUrl}, so it was not sent again. Delete it and run it anew.`;
 		return undefined;
 	}
 
 	/**
-	 * Finish a recipe run that did not end as a saved result: save a received
-	 * one, or send a failed one again from its fixed fields, only while the
-	 * text connection is still the one it was prepared for and, on a
-	 * transcript, while the folder still has what it was made from.
+	 * Run a recipe whose row `prepare` makes from what it reads now. `key`
+	 * names the pair, so the same pair does not run twice at once.
 	 */
-	async function retryRun(id: string) {
-		if (refused() !== undefined || retrying.has(id)) return;
-		retrying.add(id);
+	async function runRecipe(
+		key: string,
+		run: RecipeRun,
+		prepare: () => Promise<
+			| string
+			| {
+					readonly target: Target;
+					readonly fields: TransformationRunFields | TextRunFields;
+			  }
+		>,
+	): Promise<string | undefined> {
+		applying.set(key, run);
 		try {
-			const run = recipes.get(id);
-			if (run === undefined) return;
-			if (run.state.kind === 'unsaved') {
-				const { text } = run.state;
-				await track(() => saveRun(run, text, run));
-				return;
-			}
-			if (run.state.kind !== 'failed') return;
-			const stands = () => recipes.get(id) === run;
-			const refuse = (message: string) => {
-				if (stands())
-					recipes.set(id, withState(run, { kind: 'failed', message }));
-			};
-			const moved = connectionMoved(run.fields.endpoint);
-			if (moved !== undefined) return refuse(moved);
-			if (run.destination === 'transcript') {
-				const { data: source, error } = await track(() =>
-					transcriptAt(rowPath(TRANSCRIPTIONS, run.fields.transcriptionId)),
-				);
-				if (error !== null) return refuse(`${error} Dismiss this run.`);
-				if (
-					source.input !== run.fields.input ||
-					source.recordingId !== run.fields.recordingId
-				)
-					return refuse(
-						'The transcript changed after this run started, so the same request was not sent again. Dismiss this run and run the transformation again.',
-					);
-			}
-			// A discard, a deletion, or a close while the reads ran: nothing is sent.
-			if (!stands() || refused() !== undefined) return;
-			if (
-				run.destination === 'transcript' &&
-				deleting.has(run.fields.recordingId)
-			)
-				return refuse(BEING_DELETED);
-			await sendRun(run);
+			// The reads are folder work that closing waits for; the request is not.
+			const prepared = await track(prepare);
+			if (typeof prepared === 'string') return prepared;
+			const { target, fields } = prepared;
+			const problem = await begin(target, { fields, body: '' });
+			if (problem !== undefined)
+				return `Nothing was sent: the result’s file could not be written. ${problem}`;
+			await send(target, () =>
+				workspace.transform({
+					expectedBaseUrl: fields.endpoint,
+					model: fields.model,
+					prompt: fields.prompt,
+					input: fields.input,
+				}),
+			);
+			return undefined;
 		} finally {
-			retrying.delete(id);
+			applying.delete(key);
 		}
 	}
 
+	/**
+	 * What running a result row again sends, read from the row and the folder
+	 * now, or why it is not sent.
+	 */
+	async function againOf(
+		path: string,
+	): Promise<
+		Result<{ target: Target; request: () => Promise<Answer> }, string>
+	> {
+		const table = (
+			[TRANSCRIPTIONS, TRANSFORMATION_RUNS, TEXT_RUNS] as const
+		).find((name) => rowStemOf(name, path) !== undefined);
+		if (table === undefined) return Err(`${path} is not a result.`);
+		const stem = rowStemOf(table, path) as string;
+		const { data: stored, error } = await tableOf(table).get(stem);
+		if (error !== null) return Err(describeError(error));
+		if (stored === undefined) return Err(`${path} is no longer in the folder.`);
+		if (stored.row.body !== '')
+			return Err('This already has its answer, so nothing was sent.');
+		if (table === TRANSCRIPTIONS) {
+			const fields = stored.row.fields as TranscriptionFields;
+			const recording = fields.recordingId;
+			const moved = connectionMoved('transcription', fields.endpoint);
+			if (moved !== undefined) return Err(moved);
+			if (deleting.has(recording)) return Err(BEING_DELETED);
+			if (capturing.has(recording)) return Err(STILL_RECORDING);
+			const { data: entry, error: recordingError } =
+				await folder.tables.recordings.get(recording);
+			if (recordingError !== null) return Err(describeError(recordingError));
+			if (entry === undefined)
+				return Err('The recording is no longer in the folder.');
+			const audioPath = audioPathIn(entry.row.fields);
+			if (audioPath === undefined) return Err(NO_AUDIO);
+			return Ok({
+				target: { table, stem, recording },
+				request: () =>
+					workspace.transcribe({
+						audioPath,
+						expectedBaseUrl: fields.endpoint,
+						model: fields.model,
+					}),
+			});
+		}
+		const fields = stored.row.fields as TransformationRunFields | TextRunFields;
+		const moved = connectionMoved('text', fields.endpoint);
+		if (moved !== undefined) return Err(moved);
+		const recording = 'recordingId' in fields ? fields.recordingId : undefined;
+		if (recording !== undefined && deleting.has(recording))
+			return Err(BEING_DELETED);
+		return Ok({
+			target: { table, stem, recording },
+			request: () =>
+				workspace.transform({
+					expectedBaseUrl: fields.endpoint,
+					model: fields.model,
+					prompt: fields.prompt,
+					input: fields.input,
+				}),
+		});
+	}
+
 	return {
+		/** A Transcribe of this recording under way, or why the last one sent nothing. */
 		transcriptionRun(id: string) {
 			return transcriptions.get(id);
 		},
-		get transformationRuns(): TransformationRun[] {
-			return transcriptRuns();
+		/** Drop why a Transcribe sent nothing. */
+		dismissRun(id: string) {
+			if (transcriptions.get(id)?.kind === 'failed') transcriptions.delete(id);
 		},
-		get textRuns(): TextRun[] {
-			return textRuns();
+		/** What the result row at `path`, with `body`, shows now. */
+		resultState(path: string, body: string): ResultState {
+			if (body !== '') return ANSWERED;
+			return live.get(path)?.state ?? UNFINISHED;
 		},
-		/** Recordings waiting on a transcript whose file is not saved. */
-		get unsavedTranscripts(): string[] {
-			return [...transcriptions]
-				.filter(([, run]) => run.kind === 'unsaved')
-				.map(([id]) => id);
+		/** Recipe runs under way in this window. */
+		get recipeRuns(): RecipeRun[] {
+			return [...applying.values()];
 		},
-		get unsavedResults() {
-			return unsaved.transcripts();
-		},
-		get unsavedTransformations() {
-			return unsaved.transformations();
-		},
-		get unsavedTextResults() {
-			return unsaved.text();
-		},
-		isRetrying(id: string) {
-			return retrying.has(id);
-		},
-		/** What leaving now would lose, one plain line each. */
-		held(): string[] {
-			const lines: string[] = [];
-			const count = (n: number, one: string, many: string) => {
-				if (n > 0) lines.push(n === 1 ? one : many.replace('#', String(n)));
-			};
-			count(
-				unsaved.transcripts(),
-				'1 transcript arrived but its file is not saved.',
-				'# transcripts arrived but their files are not saved.',
-			);
-			if ([...transcriptions.values()].some((run) => run.kind === 'running'))
-				lines.push(
-					'A transcription is still running; its result would be lost.',
-				);
-			count(
-				unsaved.transformations(),
-				'1 transformation result arrived but its file is not saved.',
-				'# transformation results arrived but their files are not saved.',
-			);
-			count(
-				unsaved.text(),
-				'1 result on pasted text arrived and is not saved.',
-				'# results on pasted text arrived and are not saved.',
-			);
-			if (
-				applying.size > 0 ||
-				retrying.size > 0 ||
-				[...recipes.values()].some((run) => run.state.kind === 'running')
-			)
-				lines.push(
-					'A transformation is still running; its result would be lost.',
-				);
-			return lines;
+		/** Answers that arrived and whose file could not be written yet. */
+		get unwritten(): number {
+			return [...live.values()].filter(
+				({ state }) => state.kind === 'writing' && state.message !== undefined,
+			).length;
 		},
 		/**
-		 * Why a recording cannot be deleted now: a request for it still runs, an
-		 * answer for it is not saved, or a result row for it is being written.
-		 * Each would leave a result naming a recording that is gone.
+		 * Why a recording cannot be deleted now: a request for it is out, or a
+		 * row of it is being written. Either would leave a result naming a
+		 * recording that is gone.
 		 */
 		busy(id: string): string | undefined {
-			const transcript = transcriptions.get(id);
-			if (transcript?.kind === 'running')
-				return 'A transcription of this recording is still running. Wait for it to finish, then delete the recording.';
-			if (transcript?.kind === 'unsaved')
-				return 'A transcript of this recording arrived but its file is not saved. Save it again or discard it in the notice under the header, then delete the recording.';
-			const own = transcriptRuns().filter(
-				(run) => run.fields.recordingId === id,
-			);
-			if (own.some((run) => run.state.kind === 'running'))
-				return 'A transformation of this recording’s transcript is still running. Wait for it to finish, then delete the recording.';
-			if (own.some((run) => run.state.kind === 'unsaved'))
-				return 'A transformation result for this recording arrived but its file is not saved. Save it again or discard it in the notice under the header, then delete the recording.';
+			const transcribing =
+				'A transcription of this recording is still running. Wait for it to finish, then delete the recording.';
+			if (transcriptions.get(id)?.kind === 'running') return transcribing;
+			for (const [path, { state, recording }] of live)
+				if (recording === id && state.kind === 'running')
+					return rowStemOf(TRANSCRIPTIONS, path) !== undefined
+						? transcribing
+						: 'A transformation of this recording’s transcript is still running. Wait for it to finish, then delete the recording.';
 			if ([...writing.values()].includes(id))
 				return 'A result for this recording is still being written to the folder. Wait for it to finish, then delete the recording.';
 			return undefined;
 		},
-		/** Drop what failed for a deleted recording: it held nothing. */
+		/** Forget what failed for a deleted recording: its rows are gone. */
 		dropFailed(id: string) {
 			if (transcriptions.get(id)?.kind === 'failed') transcriptions.delete(id);
-			for (const run of transcriptRuns())
-				if (run.fields.recordingId === id && run.state.kind === 'failed')
-					recipes.delete(run.id);
+			for (const [path, { state, recording }] of live)
+				if (recording === id && state.kind === 'failed') live.delete(path);
+		},
+		/** Stop writing answers again: the window is closing. */
+		stop() {
+			stopped = true;
+			for (const timer of retries.values()) clearTimeout(timer);
+			retries.clear();
 		},
 
 		/**
-		 * Transcribe a recording: send the audio its row names over the
-		 * transcription connection, then save the answer as a new row.
+		 * Transcribe a recording: write a transcript row naming it, send the
+		 * audio its row names over the transcription connection, then write the
+		 * answer into that row.
 		 */
 		async transcribe(entry: {
 			readonly stem: string;
@@ -569,91 +542,60 @@ export function createRuns({
 		}) {
 			if (refused() !== undefined) return;
 			const id = entry.stem;
-			const current = transcriptions.get(id)?.kind;
-			// A received transcript is held until it is saved or discarded.
-			if (current === 'running' || current === 'unsaved') return;
-			if (deleting.has(id)) return;
-			const audioPath = audioPathIn(entry.row.fields);
-			if (audioPath === undefined) {
-				transcriptions.set(id, {
-					kind: 'failed',
-					message:
-						'This recording’s file names no audio, so there is nothing to transcribe. Add the audio file’s path in Source.',
-				});
+			if (transcriptions.get(id)?.kind === 'running' || deleting.has(id))
 				return;
-			}
+			const fail = (message: string) => {
+				transcriptions.set(id, { kind: 'failed', message });
+			};
+			if (capturing.has(id)) return fail(STILL_RECORDING);
+			const audioPath = audioPathIn(entry.row.fields);
+			if (audioPath === undefined) return fail(NO_AUDIO);
 			const { info, error: connectionsError } = connections();
 			const connection = info?.transcription;
-			if (connection === undefined) {
-				transcriptions.set(id, {
-					kind: 'failed',
-					message:
-						connectionsError === undefined
-							? 'No transcription connection is set up, so nothing was sent. Set one up in Settings, then transcribe.'
-							: `The transcription connection could not be read, so nothing was sent: ${connectionsError}`,
-				});
-				return;
-			}
+			if (connection === undefined)
+				return fail(
+					connectionsError === undefined
+						? 'No transcription connection is set up, so nothing was sent. Set one up in Settings, then transcribe.'
+						: `The transcription connection could not be read, so nothing was sent: ${connectionsError}`,
+				);
 			const running: TranscriptionRun = { kind: 'running' };
 			transcriptions.set(id, running);
-			let answered: Awaited<ReturnType<Workspace['transcribe']>>;
 			try {
-				answered = await workspace.transcribe({
-					audioPath,
-					expectedBaseUrl: connection.baseUrl,
-					model: connection.model,
+				const at = new Date();
+				const target: Target = {
+					table: TRANSCRIPTIONS,
+					stem: makeId(at),
+					recording: id,
+				};
+				const problem = await begin(target, {
+					fields: {
+						recordingId: id,
+						createdAt: at.toISOString(),
+						model: connection.model,
+						endpoint: connection.baseUrl,
+					} as TranscriptionFields,
+					body: '',
 				});
-			} catch (cause) {
-				transcriptions.set(id, {
-					kind: 'failed',
-					message: `The transcription request could not be made: ${describe(cause)}`,
-				});
-				return;
+				if (problem !== undefined)
+					return fail(
+						`Nothing was sent: the transcript’s file could not be written. ${problem}`,
+					);
+				await send(target, () =>
+					workspace.transcribe({
+						audioPath,
+						expectedBaseUrl: connection.baseUrl,
+						model: connection.model,
+					}),
+				);
+			} finally {
+				if (transcriptions.get(id) === running) transcriptions.delete(id);
 			}
-			const { data: answer, error } = answered;
-			if (error !== null) {
-				transcriptions.set(id, { kind: 'failed', message: error.message });
-				return;
-			}
-			const at = new Date();
-			await track(() =>
-				saveTranscript(
-					id,
-					{
-						id: makeId(at),
-						row: {
-							fields: {
-								recordingId: id,
-								createdAt: at.toISOString(),
-								model: connection.model,
-								endpoint: connection.baseUrl,
-							} as TranscriptionFields,
-							body: resultBody(answer.text),
-						},
-						text: answer.text,
-					},
-					running,
-				),
-			);
-		},
-		/** Save a held transcript again. The endpoint is not called. */
-		async retrySaveResult(id: string) {
-			if (refused() !== undefined) return;
-			const run = transcriptions.get(id);
-			if (run?.kind !== 'unsaved' || run.saving) return;
-			const admitted: TranscriptionRun = { ...run, saving: true };
-			transcriptions.set(id, admitted);
-			await track(() => saveTranscript(id, run, admitted));
-		},
-		/** Drop a transcription run that is not running. A write already begun may still land. */
-		dismissRun(id: string) {
-			if (transcriptions.get(id)?.kind !== 'running') transcriptions.delete(id);
 		},
 
 		/**
 		 * Apply a saved transformation to a saved transcript, each read from the
-		 * folder now. The answer becomes a new row; the transcript is never
-		 * written. Answers why nothing was sent.
+		 * folder now. Its result is a new row, written before the request goes
+		 * out; the transcript is never written. Answers why nothing was sent.
 		 */
 		async transform(
 			transcriptionPath: string,
@@ -661,50 +603,53 @@ export function createRuns({
 		): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			const pair = JSON.stringify([transcriptionPath, transformationPath]);
-			if (applying.has(pair))
+			const key = JSON.stringify([transcriptionPath, transformationPath]);
+			if (applying.has(key))
 				return 'This transformation is already running on this transcript. Run it again when it has finished.';
-			applying.add(pair);
-			try {
-				const { data: recipe, error } = await track(() =>
-					recipeAt(transformationPath),
-				);
-				if (error !== null) return error;
-				const { resolved } = recipe;
-				if (resolved.kind !== 'ready') return resolved.reason;
-				const { data: source, error: sourceError } = await track(() =>
-					transcriptAt(transcriptionPath),
-				);
-				if (sourceError !== null) return sourceError;
-				if (deleting.has(source.recordingId)) return BEING_DELETED;
-				const late = refused();
-				if (late !== undefined) return late;
-				const at = new Date();
-				await sendRun({
-					id: makeId(at),
-					destination: 'transcript',
-					fields: {
-						recordingId: source.recordingId,
-						transcriptionId: source.transcriptionId,
-						transformationId: recipe.stem,
-						transformationTitle: resolved.title,
-						createdAt: at.toISOString(),
-						model: resolved.model,
-						endpoint: resolved.endpoint,
-						prompt: resolved.prompt,
-						input: source.input,
-					} as TransformationRunFields,
-					state: { kind: 'running' },
-				});
-				return undefined;
-			} finally {
-				applying.delete(pair);
-			}
+			return runRecipe(
+				key,
+				{
+					transformationId:
+						rowStemOf(TRANSFORMATIONS, transformationPath) ??
+						transformationPath,
+					transcriptionId: rowStemOf(TRANSCRIPTIONS, transcriptionPath),
+				},
+				async () => {
+					const { data: recipe, error } = await recipeAt(transformationPath);
+					if (error !== null) return error;
+					const { resolved } = recipe;
+					if (resolved.kind !== 'ready') return resolved.reason;
+					const { data: source, error: sourceError } =
+						await transcriptAt(transcriptionPath);
+					if (sourceError !== null) return sourceError;
+					const late = refused();
+					if (late !== undefined) return late;
+					const at = new Date();
+					return {
+						target: {
+							table: TRANSFORMATION_RUNS,
+							stem: makeId(at),
+							recording: source.recordingId,
+						},
+						fields: {
+							recordingId: source.recordingId,
+							transcriptionId: source.transcriptionId,
+							transformationId: recipe.stem,
+							transformationTitle: resolved.title,
+							createdAt: at.toISOString(),
+							model: resolved.model,
+							endpoint: resolved.endpoint,
+							prompt: resolved.prompt,
+							input: source.input,
+						} as TransformationRunFields,
+					};
+				},
+			);
 		},
 		/**
-		 * Apply a saved recipe to pasted text, taken as it is now. The answer
-		 * is held until `saveTextRun` or a discard. One recipe holds one result
-		 * on pasted text at a time.
+		 * Apply a saved recipe to pasted text, taken as it is now. Its result
+		 * is a new row in `text_runs/`, written before the request goes out.
+		 * Answers why nothing was sent.
 		 */
 		async transformText(
 			transformationPath: string,
@@ -717,61 +662,61 @@ export function createRuns({
 			if (stem === undefined)
 				return `${transformationPath} is not a transformation.`;
 			const key = JSON.stringify(['text', transformationPath]);
-			const held = textRuns().find(
-				(run) =>
-					run.fields.transformationId === stem && run.state.kind !== 'failed',
-			);
-			if (applying.has(key) || held?.state.kind === 'running')
+			if (applying.has(key))
 				return 'This transformation is already running on pasted text. Run it again when it has finished.';
-			if (held !== undefined)
-				return 'A result of this transformation on pasted text is waiting. Save or discard it first, so it is not replaced.';
-			applying.add(key);
+			return runRecipe(
+				key,
+				{ transformationId: stem, transcriptionId: undefined },
+				async () => {
+					const { data: recipe, error } = await recipeAt(transformationPath);
+					if (error !== null) return error;
+					const { resolved } = recipe;
+					if (resolved.kind !== 'ready') return resolved.reason;
+					const late = refused();
+					if (late !== undefined) return late;
+					const at = new Date();
+					return {
+						target: {
+							table: TEXT_RUNS,
+							stem: makeId(at),
+							recording: undefined,
+						},
+						fields: {
+							transformationId: stem,
+							transformationTitle: resolved.title,
+							createdAt: at.toISOString(),
+							model: resolved.model,
+							endpoint: resolved.endpoint,
+							prompt: resolved.prompt,
+							input,
+						} as TextRunFields,
+					};
+				},
+			);
+		},
+		/**
+		 * Send the request of an unfinished result row again, from the row's own
+		 * fields, and write the answer into the same row. Sent only while the
+		 * connection is still the one the row names. Answers why nothing was
+		 * sent.
+		 */
+		async runAgain(path: string): Promise<string | undefined> {
+			const why = refused();
+			if (why !== undefined) return why;
+			const state = live.get(path)?.state;
+			if (again.has(path) || (state !== undefined && state.kind !== 'failed'))
+				return 'This is already running.';
+			again.add(path);
 			try {
-				const { data: recipe, error } = await track(() =>
-					recipeAt(transformationPath),
-				);
+				const { data: prepared, error } = await track(() => againOf(path));
 				if (error !== null) return error;
-				const { resolved } = recipe;
-				if (resolved.kind !== 'ready') return resolved.reason;
 				const late = refused();
 				if (late !== undefined) return late;
-				// A failed run held nothing; the new one takes its place.
-				for (const run of textRuns())
-					if (
-						run.fields.transformationId === stem &&
-						run.state.kind === 'failed'
-					)
-						recipes.delete(run.id);
-				const at = new Date();
-				await sendRun({
-					id: makeId(at),
-					destination: 'text',
-					fields: {
-						transformationId: stem,
-						transformationTitle: resolved.title,
-						createdAt: at.toISOString(),
-						model: resolved.model,
-						endpoint: resolved.endpoint,
-						prompt: resolved.prompt,
-						input,
-					} as TextRunFields,
-					state: { kind: 'running' },
-				});
+				await send(prepared.target, prepared.request);
 				return undefined;
 			} finally {
-				applying.delete(key);
+				again.delete(path);
 			}
-		},
-		/** Save a received result on pasted text under the id fixed when it began. */
-		async saveTextRun(id: string) {
-			const run = recipes.get(id);
-			if (run?.destination !== 'text' || run.state.kind !== 'unsaved') return;
-			await retryRun(id);
-		},
-		retryTransformation: retryRun,
-		/** Drop a recipe run that is not running. A write already begun may still land. */
-		discardTransformationRun(id: string) {
-			if (recipes.get(id)?.state.kind !== 'running') recipes.delete(id);
 		},
 	};
 }

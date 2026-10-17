@@ -4,16 +4,14 @@ mod model_cache;
 mod settings;
 
 pub use catalog::{
-    delete_model, download_model, list_models, ActiveModel, CatalogError, ModelInfo,
+    download_model, list_models, reveal_model, ActiveModel, CatalogError, ModelInfo,
 };
 pub use error::TranscriptionError;
 pub use model_cache::ModelCache;
 pub use settings::{LocalTranscriptionSettings, SettingsError, UnloadPolicy};
 
-use crate::audio::read_blob_samples;
-use crate::blobs::BlobDestination;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 // ── Wire types ────────────────────────────────────────────────────────
 
@@ -37,7 +35,7 @@ pub enum UnavailableReason {
 /// This route preserves ADR-0180's identity-free readiness response. It is advisory
 /// UI state, not a preflight gate: a caller uses it to warn before capture and to
 /// decide whether to offer a prompt or language field, never to decide whether
-/// `transcribe_recording` may be called. Transcription resolves the active model
+/// a transcription may be requested. Transcription resolves the active model
 /// independently at the point of use, so a stale read here can only produce a
 /// stale hint, never a wrong transcription.
 ///
@@ -195,42 +193,21 @@ pub fn get_local_transcription_readiness(
 
 // ── Applications: transcribe ──────────────────────────────────────────
 
-/// Canonical transcribe-by-id path. Resolves the canonical local blob, decodes
-/// it, then runs inference on the **active** model with the caller's advisory
-/// hints. The caller names audio and hints; it does not name a model.
-#[tauri::command]
-#[specta::specta]
-pub async fn transcribe_recording(
-    audio_blob_id: String,
-    hints: TranscriptionHints,
-    destination: BlobDestination,
-    app_handle: AppHandle,
-    model_cache: State<'_, ModelCache>,
-) -> Result<TranscriptionOutcome, TranscriptionError> {
-    let samples = crate::timing::measure("transcribe.read+decode", || {
-        read_blob_samples(&app_handle, &audio_blob_id, &destination)
-    })
-    .map_err(|e| TranscriptionError::AudioReadError {
-        message: e.to_string(),
-    })?;
-
-    let cache = model_cache.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || cache.transcribe(samples, hints))
-        .await
-        .map_err(join_err)?
-}
-
 /// Prewarm the active local model so a following transcribe finds it warm. The
 /// frontend fires this fire-and-forget at capture start (manual record or VAD
 /// listen) for a local route, overlapping the ~1 s model load with the user's
 /// speech instead of paying it after they stop.
 ///
 /// Idempotent and cheap: a no-op when the active model is already resident.
-/// Shares the one load path with `transcribe_recording` (`ModelCache::prewarm`
+/// Shares the one load path with active-model transcription (`ModelCache::prewarm`
 /// and `transcribe` both resolve through `ensure_loaded`), so the model warmed
 /// here is exactly the one transcribe will use, because there is only one. A
 /// failure here is non-fatal: transcribe will load normally and surface any real
 /// error then.
+///
+/// No page calls it yet, so only a `dictation` build registers it;
+/// `ModelCache::prewarm` stays with the load path it shares.
+#[cfg(feature = "dictation")]
 #[tauri::command]
 #[specta::specta]
 pub async fn prewarm_model(model_cache: State<'_, ModelCache>) -> Result<(), TranscriptionError> {
@@ -245,7 +222,10 @@ pub async fn prewarm_model(model_cache: State<'_, ModelCache>) -> Result<(), Tra
 /// panics or is cancelled.
 fn join_err(e: tauri::Error) -> TranscriptionError {
     TranscriptionError::TranscriptionError {
-        message: format!("Background transcription task failed: {}", e),
+        message: format!(
+            "Background transcription task failed: {}",
+            error::error_chain_message(&e)
+        ),
     }
 }
 

@@ -3,13 +3,12 @@
  * alongside the rest of the package; nothing runs at test time.
  *
  * What these prove: a field map takes any native TypeBox schema, annotated or
- * not, and the row and KV lenses read each one's exact `Static<>`. Helpers and
- * raw schemas sit side by side. A `field.optional` field is `name?:` in a row
- * and in the values that create one; every KV field is `name?:`, since an
- * unset key means the application's default. The reserved-name rule holds for
- * both, a primitive is not a schema, and a native `default` annotation is
- * admitted without making a field optional. `prepareData` returns the type it
- * was given.
+ * not, and the row lenses read each one's exact `Static<>`. Helpers and raw
+ * schemas sit side by side. A `field.optional` field is `name?:` in a row and
+ * in the values that create one, as every field of the `settings` table is.
+ * The reserved-name rule holds, a primitive is not a schema, and a native
+ * `default` annotation is admitted without making a field optional.
+ * `prepareDefinition` returns the type it was given.
  *
  * A refinement or codec declared as a field is refused by its type here, and
  * one nested inside another schema by preparation at run time (see
@@ -22,16 +21,14 @@ import { type Static, Type } from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
 import {
 	type CreateRowOf,
-	type DataDefinition,
+	type Definition,
 	defineTable,
 	type FieldMap,
 	field,
 	type InstantString,
 	type JsonValue,
 	jsonValue,
-	type KvOf,
-	prepareData,
-	type RowOf,
+	prepareDefinition,
 } from './index.js';
 
 type Equal<X, Y> =
@@ -73,12 +70,11 @@ const mixed = defineTable({
 	},
 });
 
-type Row = RowOf<typeof mixed>;
+type Row = CreateRowOf<typeof mixed>;
 
 export type _RowKeys = Expect<
 	Equal<
 		keyof Row,
-		| 'id'
 		| 'meta'
 		| 'size'
 		| 'anything'
@@ -108,29 +104,28 @@ export type _BrandedHelper = Expect<Equal<Row['owner'], NoteId>>;
 export type _NullableRaw = Expect<
 	Equal<Row['status'], 'draft' | 'published' | null>
 >;
-export type _CreateHasNoId = Expect<
-	Equal<keyof CreateRowOf<typeof mixed>, Exclude<keyof Row, 'id'>>
->;
 
-// KV takes the same schemas, and every setting may be unset.
-const definition = {
-	id: 'so.epicenter.raw',
-	kv: {
-		theme: Type.Enum(['light', 'dark']),
-		window: Type.Object({ width: Type.Integer(), height: Type.Integer() }),
-		name: field.string(),
+// The settings table takes the same schemas, each optional, so every setting
+// may be unset.
+const settings = defineTable({
+	fields: {
+		theme: field.optional(Type.Enum(['light', 'dark'])),
+		window: field.optional(
+			Type.Object({ width: Type.Integer(), height: Type.Integer() }),
+		),
+		name: field.optional(field.string()),
 	},
-	tables: { mixed },
-} satisfies DataDefinition;
-export type _KvRaw = Expect<
-	Equal<
-		KvOf<typeof definition>,
-		{
-			theme?: 'light' | 'dark';
-			window?: { width: number; height: number };
-			name?: string;
-		}
-	>
+});
+const definition = {
+	tables: { mixed, settings },
+} satisfies Definition;
+type Settings = {
+	theme?: 'light' | 'dark';
+	window?: { width: number; height: number };
+	name?: string;
+};
+export type _SettingsRaw = Expect<
+	Equal<CreateRowOf<typeof definition.tables.settings>, Settings>
 >;
 
 // field.optional makes a row field `name?:`, in a row and in its create values,
@@ -143,17 +138,6 @@ const optionalFields = defineTable({
 		raw: Type.Optional(Type.Integer()),
 	},
 });
-export type _OptionalRow = Expect<
-	Equal<
-		RowOf<typeof optionalFields>,
-		{ id: string } & {
-			title: string;
-			note?: string;
-			due?: InstantString | null;
-			raw?: number;
-		}
-	>
->;
 export type _OptionalCreate = Expect<
 	Equal<
 		CreateRowOf<typeof optionalFields>,
@@ -172,18 +156,8 @@ export const _withoutOptional: CreateRowOf<typeof optionalFields> = {
 export const _withoutRequired: CreateRowOf<typeof optionalFields> = {
 	note: 'n',
 };
-// A KV field declared optional reads the same as any other setting.
-const optionalKv = {
-	id: 'so.epicenter.optional',
-	kv: { note: field.optional(field.string()), width: Type.Integer() },
-	tables: {},
-} satisfies DataDefinition;
-export type _OptionalKv = Expect<
-	Equal<KvOf<typeof optionalKv>, { note?: string; width?: number }>
->;
-
 // Every schema above is a field, with or without a hint.
-export const _fields: FieldMap = { ...mixed.fields, ...definition.kv };
+export const _fields: FieldMap = { ...mixed.fields, ...settings.fields };
 
 // The rules that are about a declaration, not an editor, hold for raw schemas.
 defineTable({
@@ -220,12 +194,6 @@ defineTable({
 		done: true,
 	},
 });
-export const _primitiveKv = {
-	id: 'so.epicenter.primitive',
-	// @ts-expect-error a string is not a schema
-	kv: { theme: 'string' },
-	tables: {},
-} satisfies DataDefinition;
 // @ts-expect-error a string is not a schema
 export const _primitiveField: FieldMap = { title: 'string' };
 // @ts-expect-error a string is not a schema
@@ -246,7 +214,7 @@ const admitted = defineTable({
 		optional: field.nullable({ type: 'string' }),
 	},
 });
-type Admitted = RowOf<typeof admitted>;
+type Admitted = CreateRowOf<typeof admitted>;
 export type _DefaultStatic = Expect<Equal<Admitted['withDefault'], string>>;
 export type _SpreadDefaultStatic = Expect<
 	Equal<Admitted['spreadDefault'], string>
@@ -259,29 +227,25 @@ export const _stillRequired: Pick<
 	'withDefault'
 > = {};
 
-// A prepared definition has the declared type: the same literal keys and the
+// A prepared schema has the declared type: the same literal keys and the
 // same native schemas, so the lenses read it like the declaration.
-const prepared = prepareData(definition).data;
+const prepared = prepareDefinition(definition).data;
 if (prepared !== null) {
 	prepared satisfies typeof definition;
 	// A prepared native snapshot can be composed again without a cast.
-	field.json(prepared.kv.theme);
+	field.json(prepared.tables.settings.fields.name);
 	field.nullable(prepared.tables.mixed.fields.title);
-	// @ts-expect-error the prepared definition declares no such table
+	// @ts-expect-error the prepared schema declares no such table
 	prepared.tables.absent;
-	// @ts-expect-error a prepared table has fields and a body, and no name
+	// @ts-expect-error a prepared table has fields, and no name
 	prepared.tables.mixed.name;
 }
-export type _PreparedKv = Expect<
+export type _PreparedSettings = Expect<
 	Equal<
-		KvOf<NonNullable<typeof prepared>>,
-		{
-			theme?: 'light' | 'dark';
-			window?: { width: number; height: number };
-			name?: string;
-		}
+		CreateRowOf<NonNullable<typeof prepared>['tables']['settings']>,
+		Settings
 	>
 >;
 export type _PreparedRow = Expect<
-	Equal<RowOf<NonNullable<typeof prepared>['tables']['mixed']>, Row>
+	Equal<CreateRowOf<NonNullable<typeof prepared>['tables']['mixed']>, Row>
 >;

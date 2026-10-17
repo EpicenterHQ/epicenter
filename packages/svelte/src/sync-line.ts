@@ -1,14 +1,9 @@
 /**
- * Plain wording for a `folder.sync` result (ADR-0514), for a toast or a
+ * Plain wording for a `folder.sync` result (ADR-0576), for a toast or a
  * status line. A plain module, so a page's status helpers can import it
  * without loading Svelte runes.
  */
-import type {
-	PushOutcome,
-	SyncAttempt,
-	SyncError,
-	SyncOutcome,
-} from '@epicenter/folder';
+import type { PushOutcome, SyncError, SyncOutcome } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
 
 /** A sync result as a person reads it. */
@@ -19,33 +14,33 @@ export type SyncLine = {
 };
 
 /**
- * Plain wording for one run or Apply. `describePush` words the push of a
+ * Plain wording for one run. `describePush` words the push of a
  * merge that is not synced yet, for a page with its own push wording.
  */
 export function describeSync(
-	{ data: outcome, error }: Result<SyncOutcome | SyncAttempt, SyncError>,
+	{ data: outcome, error }: Result<SyncOutcome, SyncError>,
 	describePush: (push: PushOutcome) => string | undefined = (push) =>
 		push.status === 'failed' ? push.error : undefined,
 ): SyncLine {
 	if (error) {
 		switch (error.name) {
-			case 'InvalidChoices':
+			case 'Unrelated':
 				return {
-					label: 'Some choices need a fix',
+					label: 'The remote has its own history',
 					detail:
-						'Nothing was changed. Fix the marked results and apply again.',
+						'Nothing was changed. Combine them to keep both, or choose another remote.',
 					tone: 'warning',
 				};
-			case 'Stale':
+			case 'KeptChanging':
 				return {
-					label: 'Sync again to review',
-					detail: `${error.message}. Nothing was changed.`,
+					label: 'The remote kept changing',
+					detail: 'Nothing was changed here. Sync again in a moment.',
 					tone: 'warning',
 				};
-			case 'Unreviewable':
+			case 'Blocked':
 				return {
-					label: 'Sync stopped: changes conflict',
-					detail: `${error.message}. Nothing was changed. Resolve them with Git, then sync again.`,
+					label: 'Sync stopped',
+					detail: error.reason,
 					tone: 'error',
 				};
 			default:
@@ -53,12 +48,6 @@ export function describeSync(
 		}
 	}
 	switch (outcome.kind) {
-		case 'needsChoices':
-			return {
-				label: `${outcome.conflicts.length} ${outcome.conflicts.length === 1 ? 'change needs' : 'changes need'} your choice`,
-				detail: 'Nothing was changed yet.',
-				tone: 'warning',
-			};
 		case 'synced':
 			return {
 				label: 'Synced',

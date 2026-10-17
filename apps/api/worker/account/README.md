@@ -1,25 +1,29 @@
 # Hosted account deletion
 
-This directory owns the hosted deletion endpoint. It currently refuses deletion
-before destructive work: `DELETE /api/account` requires a fresh, live session
-bound by `x-epicenter-principal`, then returns `503` with
-`ACCOUNT_DELETION_UNAVAILABLE`. It accepts no job, tracks no progress, and never
-reports completion. The account page disables deletion. The former synchronous
+Account deletion is Better Auth's `POST /auth/delete-user`, enabled in
+`packages/server/src/auth/base-config.ts`. It currently refuses deletion before
+destructive work: the request needs this origin and a fresh, live session bound
+by `x-epicenter-principal` (`requireAccountSession`), then `beforeDelete`
+returns `503` with `ACCOUNT_DELETION_UNAVAILABLE`. It accepts no job, tracks no
+progress, and never reports completion. This file is the storage inventory a
+real deletion has to cover. The account page disables deletion. The former synchronous
 coordinator could remove login access while leaving hosted data behind. Automated
 deletion is deferred for the zero-user V1; see
 [the decision](../../../../docs/adr/0360-defer-automated-hosted-account-deletion.md).
 
 ## Storage inventory, inspected 2026-09-08
 
+The `StoreAuthority` and `GenerationsLedger` rows describe the Yjs store sync,
+removed by ADR-0534; migration `v6` deletes both namespaces and their objects.
+
 | Owner | Allocation path | Discovery and deletion gap |
 | --- | --- | --- |
 | `StoreAuthority`, opaque snapshots and log | `mountStoreSyncApp`: import POST allocates then seeds; socket upgrade addresses any valid data ID and positive generation | No account data-ID registry. Socket-only generations can have bytes without any ledger row. `deleteStore()` only calls `deleteAll()`; it has no tombstone, socket retirement, or delayed-body fence. |
 | `GenerationsLedger`, reservations and admitted generations | Collection GET/POST and bootstrap GET address a ledger by principal/data ID; construction creates its SQL table; `allocate()` inserts before import | `list()` filters out reservations. Failed imports remain discoverable only if the data ID is already known and all rows are read. No deletion method or account registry exists. |
 | Prior Durable Object layouts | Earlier Worker/name layouts documented in `apps/api/wrangler.jsonc` | Renaming strands objects. Configuration comments requiring a past reset are not evidence that it happened. |
-| S3/R2 blob bucket | `routes/authority-blobs.ts` admits authenticated owner publications and writes exact keys through S3 | Owner erasure has no coordinator. It must fence new publications, drain admitted writes, then enumerate and remove that owner's objects. The current exact-key adapter exposes no prefix sweep. |
-| Postgres `user`, `session`, `account`, `passkey` | Better Auth, social callbacks, passkey ceremonies, session handoff | User deletion cascades to the latter three through actual foreign keys. It does not cancel handlers that already resolved a session. |
-| Postgres `verification` | Better Auth OAuth state, passkey challenges, `sessionHandoff` | No user foreign key. Handoff values contain `principalId` and `sourceToken`; installed passkey registration values contain `userData.id`, name, and display name. OAuth linking state carries a link identity. Expiration is not proof of physical removal. Inventory needs explicit attribution at creation and grounded discovery for historical formats. |
-| Postgres `storage_observation` | `upsertStorageObservation`; historical registry and billing observation paths | Enumerable by principal, no cascade. Current store transport does not register allocations here. These rows cannot prove store completeness. |
+| S3/R2 blob bucket | None now: the owner-addressed blob routes are deleted (ADR-0577). Earlier Workers wrote exact keys through S3 | Objects written before the deletion stay until the bucket itself is emptied or deleted; no route can read, list, or remove them. |
+| Postgres `user`, `session`, `account`, `passkey` | Better Auth, social callbacks, passkey ceremonies | User deletion cascades to the latter three through actual foreign keys. It does not cancel handlers that already resolved a session. |
+| Postgres `verification` | Better Auth OAuth state, passkey challenges, grant-target choices, and handoff values from the deleted `sessionHandoff` until they expire | No user foreign key. Old handoff values contain `principalId` and `sourceToken`; installed passkey registration values contain `userData.id`, name, and display name. OAuth linking state carries a link identity. Expiration is not proof of physical removal. Inventory needs explicit attribution at creation and grounded discovery for historical formats. |
 | Autumn customer, subscription/balance/event data; Stripe customer | Billing service, including GET handlers through `getOrCreate`, credit reservations and after-response usage work | Customer deletion requests `deleteInStripe: true` and treats Autumn not-found as success. That does not prove Stripe deletion after an ambiguous partial result or erase every provider-retained business record. Pending work can recreate a customer. |
 | Device stores and replicas | Each application's client-owned store and persistence | Hosted deletion cannot erase offline device copies, exported files, or copies another person holds. |
 
@@ -69,7 +73,7 @@ to `api`. It is outside the proposed hosted-account reset scope.
 
 `wrangler r2 bucket info epicenter-blobs` reported zero objects and zero bytes.
 That is bucket reporting, not an S3 object-list or in-flight-upload proof. The
-live Worker has a secret `BLOBS_S3_BUCKET` override; inspecting secret names does
+live Worker had a secret `BLOBS_S3_BUCKET` override; inspecting secret names does
 not establish its value. Postgres rows, external billing records, other S3
 endpoints, and pending uploads were not inspected. No secret values were printed.
 The live API still binds the existing Hyperdrive configuration.

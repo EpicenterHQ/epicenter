@@ -1,12 +1,16 @@
-<!-- The header as the page mounts it: inside the tooltip provider the layout supplies. -->
+<!-- The header as TodosView mounts it: the folder's store and query client in context, and the page's Sync. -->
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
+	import { setTodos, type Todos } from '$lib/todos.svelte.js';
 	import AppHeader from '../AppHeader.svelte';
 
-	let { todos }: { todos: Todos } = $props();
+	let { todos, onconnect }: { todos: Todos; onconnect?: () => void } = $props();
+	// svelte-ignore state_referenced_locally
+	setTodos(todos);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(todos.queryClient);
+	const sync = createMutation(() => todos.sync.run.options);
 </script>
 
-<Tooltip.Provider>
-	<AppHeader {todos} filesOpen={false} terminalOpen={false} onToggleFiles={() => {}} onToggleTerminal={() => {}} />
-</Tooltip.Provider>
+<Tooltip.Provider><AppHeader {sync} {onconnect} /></Tooltip.Provider>

@@ -51,8 +51,7 @@ const developerPrinciples = [
 	{
 		icon: RocketIcon,
 		title: "Built on tomorrow's stack",
-		description:
-			'CRDTs, local-first architecture, and the bleeding edge of web tech.',
+		description: 'Markdown files, Git history, and local-first architecture.',
 	},
 ];
 
@@ -91,7 +90,7 @@ const ecosystem = [
 	{
 		name: 'grep & ripgrep',
 		icon: '🔍',
-		description: 'Search your entire workspace with blazing fast Unix tools',
+		description: 'Search your data folders with blazing fast Unix tools',
 	},
 	{
 		name: 'Git',
@@ -110,22 +109,11 @@ const ecosystem = [
 			'Supercharge your workflow with AI that understands your context',
 	},
 ];
-
-const quickstartCodeHtml = `<span class="text-violet-400">import</span> { defineTable, field, plainText } <span class="text-violet-400">from</span> <span class="text-emerald-400">'@epicenter/app/definition'</span>
-
-<span class="text-violet-400">const</span> posts = <span class="text-amber-300">defineTable</span>({
-  title: field.<span class="text-amber-300">string</span>(),
-  published: field.<span class="text-amber-300">boolean</span>(),
-  content: <span class="text-amber-300">plainText</span>(),
-})
-
-<span class="text-violet-400">const</span> row = posts.<span class="text-amber-300">get</span>(id)
-row?.content`;
 ---
 
 <BaseLayout
 	title="Epicenter: Local-First, Open-Source Apps"
-	description="One folder of plain text and SQLite. Every tool shares this memory. Open source, local-first, self-hostable."
+	description="Your data is a folder of Markdown and JSON files with Git history. Open source and local-first."
 >
 	<main class="bg-background">
 		<!-- Hero Section -->
@@ -148,8 +136,8 @@ row?.content`;
 					<p
 						class="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed mb-12"
 					>
-						One folder of plain text and SQLite on your machine. Every tool we
-						build shares this memory. It's open, tweakable, and yours.
+						Your data is a folder of Markdown and JSON files on your machine,
+						with Git history beside it. It's open, tweakable, and yours.
 					</p>
 
 					<!-- CTAs -->
@@ -184,7 +172,7 @@ row?.content`;
 						</div>
 						<div class="flex items-center gap-2 text-muted-foreground">
 							<CheckIcon class="w-4 h-4 text-success shrink-0" />
-							<span>Plain text & SQLite</span>
+							<span>Markdown & Git</span>
 						</div>
 					</div>
 				</div>
@@ -282,54 +270,6 @@ row?.content`;
 						Get early access
 						<ArrowRightIcon class="w-4 h-4" />
 					</Button>
-				</div>
-			</div>
-		</section>
-
-		<!-- Quick Start -->
-		<section class="py-24 md:py-32">
-			<div class="max-w-4xl mx-auto px-6">
-				<div class="text-center mb-16">
-					<Badge variant="secondary" class="mb-6 px-4 py-1 text-sm"
-						>Quick Start</Badge
-					>
-					<h2 class="text-3xl md:text-5xl font-bold text-foreground mb-6">
-						From zero to workspace in 30 seconds
-					</h2>
-				</div>
-
-				<div class="space-y-4">
-					<div
-						class="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden"
-					>
-						<div
-							class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800"
-						>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<span class="ml-2 text-xs text-zinc-500 font-mono">terminal</span>
-						</div>
-						<pre
-							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100"><span class="text-zinc-500">$</span> bun add @epicenter/app/store</code></pre>
-					</div>
-
-					<div
-						class="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden"
-					>
-						<div
-							class="flex items-center gap-2 px-4 py-3 border-b border-zinc-800"
-						>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<div class="w-3 h-3 rounded-full bg-zinc-700"></div>
-							<span class="ml-2 text-xs text-zinc-500 font-mono">app.ts</span>
-						</div>
-						<pre
-							class="p-6 overflow-x-auto"
-						><code class="text-sm font-mono text-zinc-100" set:html={quickstartCodeHtml} /></pre>
-					</div>
 				</div>
 			</div>
 		</section>
@@ -433,8 +373,8 @@ row?.content`;
 									One folder. All your data.
 								</h3>
 								<p class="text-muted-foreground leading-relaxed">
-									Everything lives in a single directory on your machine. Plain
-									text files and SQLite databases you actually own.
+									Everything lives in a folder on your machine: Markdown and
+									JSON files with Git history that you actually own.
 								</p>
 							</div>
 						</div>
@@ -477,8 +417,8 @@ row?.content`;
 									Works with tools you already use
 								</h3>
 								<p class="text-muted-foreground leading-relaxed">
-									Because everything is plain text and SQLite, your entire
-									workspace is compatible with the tools you already love.
+									Because everything is Markdown, JSON, and Git, your data is
+									compatible with the tools you already love.
 								</p>
 							</div>
 						</div>
@@ -498,8 +438,8 @@ row?.content`;
 						Infinite workflows, zero lock-in
 					</h2>
 					<p class="text-xl text-muted-foreground max-w-3xl mx-auto">
-						Your workspace plays nicely with the tools you already love. Edit in
-						VS Code, search with grep, version control with Git.
+						Your data plays nicely with the tools you already love. Edit in VS
+						Code, search with grep, version control with Git.
 					</p>
 				</div>
 
@@ -539,7 +479,7 @@ row?.content`;
 									Your favorite tool
 								</h3>
 								<p class="text-sm text-muted-foreground leading-relaxed">
-									Plain text and SQLite mean your tools work too. No proprietary
+									Markdown and JSON mean your tools work too. No proprietary
 									formats.
 								</p>
 							</div>
@@ -564,10 +504,9 @@ row?.content`;
 							How is this different from Obsidian?
 						</h3>
 						<p class="text-muted-foreground leading-relaxed">
-							Obsidian is a Markdown editor with sync. Epicenter is a
-							local-first storage substrate: multiple apps share the same
-							CRDT-backed data folder. Your notes, transcripts, and chat
-							histories all live together and sync conflict-free.
+							Obsidian is a Markdown editor with sync. Epicenter apps keep their
+							data in folders of Markdown and JSON files with Git history, and
+							any editor or Git tool can work on the same files.
 						</p>
 					</div>
 
@@ -576,11 +515,10 @@ row?.content`;
 							Is my data encrypted?
 						</h3>
 						<p class="text-muted-foreground leading-relaxed">
-							Epicenter Cloud doesn't encrypt your workspace data. The sync
-							server is a trusted relay that reads plaintext, which is what
-							makes server-side search and AI work. If you want a server that
-							can't read your data, self-host it: then the only machine holding
-							it is yours. You can also run entirely offline.
+							No. Whoever runs the Git server a folder syncs with can read its
+							files: Epicenter, if you sync with Epicenter. To keep that copy on
+							a machine you control, sync with a Git server you run. You can
+							also run entirely offline.
 						</p>
 					</div>
 
@@ -589,9 +527,9 @@ row?.content`;
 							Can I self-host?
 						</h3>
 						<p class="text-muted-foreground leading-relaxed">
-							Yes. The sync server is open source and runs on Cloudflare Workers
-							or any WebSocket-compatible host. You can also run entirely
-							offline; sync is optional.
+							Yes. In the desktop app a folder syncs with any Git server,
+							including one you run. You can also run entirely offline; sync is
+							optional.
 						</p>
 					</div>
 
@@ -600,8 +538,8 @@ row?.content`;
 							What happens if I stop using Epicenter?
 						</h3>
 						<p class="text-muted-foreground leading-relaxed">
-							Your data is plain text and SQLite files on your disk. Open them
-							with any text editor, query them with any SQLite tool. No export
+							Your data is Markdown and JSON files in a Git repository on your
+							disk. Open them with any text editor or Git tool. No export
 							needed; the files are the product.
 						</p>
 					</div>

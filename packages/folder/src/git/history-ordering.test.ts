@@ -9,25 +9,24 @@
  * - A checkpoint waiting for the Git lock pins its parent and captures files
  *   inside the lock, so it cannot commit an older capture over a newer
  *   incoming head
- * - An external branch move between that pin and publication is refused
- * - `close()` waits for explicit Git work already inside the protection and
- *   starts no network work
- * - A pull whose files landed but whose index or branch did not never leaves
- *   a fresh clean observation behind
- * - Explicit `commit()` never pushes; `commitAndPush()` does, once
+ * - An external branch move between that pin and publication is retried
+ *   onto, never overwritten
+ * - A Sync whose files landed but whose branch did not move never leaves a
+ *   fresh clean observation behind
+ * - Explicit `commit()` never pushes; Sync does, once
+ * - An index another program holds does not fail a Sync whose files and
+ *   branch landed
  * - An explicit request made during a pass waits and takes its own pass
  *
  * See also:
  * - `history.test.ts` for cancellation of outgoing work on close
- * - `history-attempt.test.ts` for automatic attempts and lock failures
  */
 import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
-import type { FileBoundary } from '../boundary.js';
+import type { LockingStorage } from '../boundary.js';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
-import { hashBytes } from '../capture.js';
-import { FileError } from '../errors.js';
-import type { GitBackend, PublishResult } from './backend.js';
+import { overwrite } from '../put.test-support.js';
+import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
 import { writeCommitObject, writeFilesTree } from './objects.js';
 
@@ -44,34 +43,26 @@ function gate() {
 
 async function setup(
 	overrides: (real: GitBackend) => Partial<GitBackend> = () => ({}),
-	options: {
-		boundary?: (base: FileBoundary) => FileBoundary;
-	} = {},
+	options: { boundary?: (base: LockingStorage) => LockingStorage } = {},
 ) {
 	const raw = await rawBrowserFolder({ id: 'ordering' });
 	const base = raw.boundary;
-	const real = await raw.backend();
+	const real = await raw.backend({
+		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+	});
 	let pushStarts = 0;
 	const backend: GitBackend = {
 		...real,
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
 		async push() {
 			pushStarts++;
+			return 'pushed';
 		},
 		...overrides(real),
 	};
 	const boundary = options.boundary?.(base) ?? base;
-	const history = createHistory({
-		backend,
-		boundary,
-		author,
-	});
+	const history = createHistory({ backend, boundary, author });
 	async function write(path: string, text: string) {
-		const bytes = encoder.encode(text);
-		const { error: applyError } = await base.apply([
-			{ kind: 'overwrite', path, bytes, sha256: await hashBytes(bytes) },
-		]);
-		expect(applyError).toBeNull();
+		await overwrite(base, path, text);
 	}
 	/** A commit another owner writes: `files` on top of `parent`. */
 	function commitOf(parent: string | undefined, files: Record<string, string>) {
@@ -129,14 +120,14 @@ test('a checkpoint waiting for the Git lock cannot revert files and a head that 
 	await history.close();
 });
 
-test('an external branch move after the parent is pinned is refused, not overwritten', async () => {
+test('an external branch move after the parent is pinned is retried onto it, not overwritten', async () => {
 	let arm = false;
 	let competitor: string | undefined;
 	const { real, history, write, commitOf } = await setup(() => ({}), {
 		boundary: (base) => ({
 			...base,
-			async capture() {
-				const captured = await base.capture();
+			async list() {
+				const captured = await base.list();
 				if (arm) {
 					arm = false;
 					const parent = await real.readBranch();
@@ -152,113 +143,55 @@ test('an external branch move after the parent is pinned is refused, not overwri
 	await write('b.txt', 'local');
 	arm = true;
 	const outcome = await history.commit();
-	expect(outcome.status).toBe('branchMoved');
-	expect(await real.readBranch()).toBe(competitor);
+	// The retry captured the folder again and committed it on the competitor.
+	expect(outcome).toMatchObject({ status: 'committed', parent: competitor });
+	if (outcome.status === 'committed')
+		expect(await real.readBranch()).toBe(outcome.oid);
 	await history.close();
 });
 
-test('close waits for a held diff and refuses one asked for after it starts', async () => {
-	const diffGate = gate();
-	const { history, write, pushes } = await setup((real) => ({
-		async diff(paths) {
-			await diffGate.opened;
-			return real.diff(paths);
+test('a Sync whose files landed but whose branch did not move invalidates the clean observation', async () => {
+	let incoming: string | undefined;
+	const { real, history, write, commitOf } = await setup((backend) => ({
+		fetch: async () => incoming,
+		// Files land, then the branch step finds another program moved it.
+		async casBranch(expected, next) {
+			if (next === incoming) return { ok: false, actual: 'f'.repeat(40) };
+			return backend.casBranch(expected, next);
 		},
 	}));
 	await write('a.txt', 'one');
-	const diffing = history.diff([]);
-	// Let it enter the Git protection: close refuses a request still outside it.
-	await Bun.sleep(5);
-	let closed = false;
-	const closing = history.close().then(() => {
-		closed = true;
-	});
-	await Bun.sleep(10);
-	expect(closed).toBe(false);
-	expect((await history.diff([])).error?.name).toBe('Closed');
-	diffGate.open();
-	expect((await diffing).error).toBeNull();
-	await closing;
-	expect(closed).toBe(true);
-	expect(pushes()).toBe(0);
+	await history.commit();
+	const head = await real.readBranch();
+	incoming = await commitOf(head, { 'a.txt': 'two' });
+	const { data: before, error: beforeError } = await history.status();
+	expect(beforeError).toBeNull();
+	expect(before?.changes).toEqual([]);
+
+	const { error: syncError } = await history.sync.run();
+	expect(syncError?.name).toBe('Blocked');
+	const files = history.snapshot.files;
+	const freshClean =
+		files.state === 'observed' &&
+		!files.stale &&
+		files.value.changes.length === 0;
+	expect(freshClean).toBe(false);
+	// The branch did not move; the landed bytes are uncommitted changes.
+	expect(await real.readBranch()).toBe(head);
+	const { data: after, error: afterError } = await history.status();
+	expect(afterError).toBeNull();
+	expect(after?.changes).toEqual([{ path: 'a.txt', kind: 'modify' }]);
+	// Sync's checkpoint found nothing to record before it published.
+	expect(history.snapshot.lastCommit?.status).toBe('unchanged');
+	await history.close();
 });
 
-for (const status of ['partial', 'indexFailed', 'branchMoved'] as const) {
-	test(`a pull that returns ${status} after files landed invalidates the clean observation`, async () => {
-		let incoming: string | undefined;
-		let landing!: FileBoundary;
-		const {
-			real,
-			base: boundary,
-			history,
-			write,
-			commitOf,
-		} = await setup((base) => ({
-			readRemoteTracking: async () => incoming,
-			// Files land, then the index or branch step fails.
-			async publishIncoming(plan): Promise<PublishResult> {
-				const { error: applyError } = await landing.apply(plan.changes);
-				expect(applyError).toBeNull();
-				const error = FileError.Io({
-					path: '.git/index',
-					operation: 'lock',
-					cause: 'held',
-				}).error;
-				if (status === 'partial')
-					return {
-						status,
-						applied: plan.changes.map((change) => ({
-							kind: 'write' as const,
-							path: change.kind === 'move' ? change.to : change.path,
-						})),
-						error,
-					};
-				if (status === 'indexFailed')
-					return { status, error: 'index.lock exists' };
-				return {
-					status,
-					actual: await base.readBranch(),
-					filesApplied: true,
-				};
-			},
-		}));
-		landing = boundary;
-		await write('a.txt', 'one');
-		await history.commit();
-		const head = await real.readBranch();
-		incoming = await commitOf(head, { 'a.txt': 'two' });
-		const { data: before, error: beforeError } = await history.status();
-		expect(beforeError).toBeNull();
-		expect(before?.changes).toEqual([]);
-
-		const { error: pullError } = await history.pullFastForward();
-		expect(pullError?.name).toBe(
-			status === 'partial'
-				? 'Partial'
-				: status === 'indexFailed'
-					? 'IndexFailed'
-					: 'BranchMoved',
-		);
-		const files = history.snapshot.files;
-		const freshClean =
-			files.state === 'observed' &&
-			!files.stale &&
-			files.value.changes.length === 0;
-		expect(freshClean).toBe(false);
-		// The branch did not move; the landed bytes are uncommitted changes.
-		expect(await real.readBranch()).toBe(head);
-		const { data: after, error: afterError } = await history.status();
-		expect(afterError).toBeNull();
-		expect(after?.changes).toEqual([{ path: 'a.txt', kind: 'modify' }]);
-		expect(history.snapshot.lastCommit?.status).toBe('committed');
-		await history.close();
-	});
-}
-
-test('explicit commit stays local; a commit requested during a held pass waits and takes its own; commitAndPush pushes once', async () => {
+test('explicit commit stays local; a commit requested during a held pass waits and takes its own; Sync pushes once', async () => {
 	const held = gate();
 	let holdNext = false;
 	const { history, write, pushes } = await setup((real) => ({
+		// An empty remote, so Sync's next step is a push.
+		fetch: async () => undefined,
 		// Hold a pass after it captured files, just before it publishes.
 		async casBranch(expected, next) {
 			if (holdNext) {
@@ -291,9 +224,7 @@ test('explicit commit stays local; a commit requested during a held pass waits a
 	expect(pushes()).toBe(0);
 
 	await write('a.txt', 'five');
-	const both = await history.commitAndPush();
-	expect(both.commit.status).toBe('committed');
-	expect(both.push.status).toBe('pushed');
+	expect(expectOk(await history.sync.run()).kind).toBe('synced');
 	expect(pushes()).toBe(1);
 	await history.close();
 });
@@ -354,10 +285,10 @@ test('a published fast-forward stays successful when its observation cannot be r
 	let incoming: string | undefined;
 	let failRead = false;
 	const { real, base, history, write, commitOf } = await setup((backend) => ({
-		readRemoteTracking: async () => incoming,
-		async publishIncoming(plan) {
-			const result = await backend.publishIncoming(plan);
-			if (result.status === 'published') failRead = true;
+		fetch: async () => incoming,
+		async casBranch(expected, next) {
+			const result = await backend.casBranch(expected, next);
+			if (result.ok && next === incoming) failRead = true;
 			return result;
 		},
 		async readBranch() {
@@ -371,26 +302,19 @@ test('a published fast-forward stays successful when its observation cannot be r
 		const parent = await real.readBranch();
 		incoming = await commitOf(parent, { 'saved.md': 'after' });
 		expectOk(await history.status());
-		const outcome = expectOk(await history.pullFastForward());
-		expect(outcome).toEqual({
-			status: 'fastForwarded',
-			from: parent,
-			to: incoming,
-			changedPaths: ['saved.md'],
+		expect(expectOk(await history.sync.run())).toEqual({
+			kind: 'synced',
+			head: incoming,
 		});
-		expect(await real.readBranch()).toBe(incoming);
 		expect(
 			new TextDecoder().decode(expectOk(await base.read('saved.md')).bytes),
 		).toBe('after');
-		expect(history.snapshot.files).toMatchObject({
-			state: 'observed',
-			stale: true,
-			error: 'post-pull observation unavailable',
-		});
-		expect(history.snapshot.lastPull?.result).toEqual({
-			data: outcome,
-			error: null,
-		});
+		// What follows the publish could not read the branch, so nothing
+		// claims the folder is clean.
+		const files = history.snapshot.files;
+		expect(files.state === 'observed' && !files.stale).toBe(false);
+		failRead = false;
+		expect(await real.readBranch()).toBe(incoming);
 	} finally {
 		await history.close();
 	}
@@ -418,6 +342,32 @@ test('a branch read failure before publication remains a failed checkpoint', asy
 		});
 		expect(await real.readBranch()).toBeUndefined();
 		expect(publications).toBe(0);
+	} finally {
+		await history.close();
+	}
+});
+
+test('an index another program holds does not fail a Sync whose files and branch landed', async () => {
+	let incoming: string | undefined;
+	const { real, base, history, write, commitOf } = await setup((backend) => ({
+		fetch: async () => incoming,
+		async reconcileIndex(commit) {
+			if (commit === incoming) throw new Error('index.lock exists');
+			return backend.reconcileIndex(commit);
+		},
+	}));
+	try {
+		await write('saved.md', 'before');
+		await history.commit();
+		incoming = await commitOf(await real.readBranch(), { 'saved.md': 'after' });
+		expect(expectOk(await history.sync.run())).toEqual({
+			kind: 'synced',
+			head: incoming,
+		});
+		expect(await real.readBranch()).toBe(incoming);
+		expect(
+			new TextDecoder().decode(expectOk(await base.read('saved.md')).bytes),
+		).toBe('after');
 	} finally {
 		await history.close();
 	}

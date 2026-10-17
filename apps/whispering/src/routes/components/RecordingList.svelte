@@ -24,7 +24,7 @@
 		type RecordingSort,
 		type RecordingSortKey,
 		type RecordingStatus,
-		removeCaptured,
+		deleteCaptured,
 		selectionIn,
 		shownRows,
 		STATUS_LABELS,
@@ -97,7 +97,7 @@
 
 	const statusTone: Record<RecordingStatus, string> = {
 		failed: 'text-destructive',
-		unsaved: 'text-destructive',
+		unfinished: 'text-warning',
 		transcribing: 'text-foreground',
 		untranscribed: 'text-muted-foreground',
 		transcribed: 'text-muted-foreground',
@@ -175,12 +175,12 @@
 			async onConfirm() {
 				view.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
 				try {
-					const { removed, problems } = await removeCaptured(library, captured.deletions);
+					const { deleted, problems } = await deleteCaptured(library, captured.deletions);
 					if (problems.length > 0)
-						toast.error(`${several(removed, 'recording', 'recordings')} deleted, ${problems.length} not`, {
+						toast.error(`${several(deleted, 'recording', 'recordings')} deleted, ${problems.length} not`, {
 							description: reasons(problems),
 						});
-					else toast.success(`${several(removed, 'recording', 'recordings')} deleted`);
+					else toast.success(`${several(deleted, 'recording', 'recordings')} deleted`);
 				} finally {
 					view.recordingBulk = undefined;
 				}
@@ -360,6 +360,7 @@
 											{row.title}
 										</button>
 										{#if row.entry.row.fields.capture === 'fixture'}<Badge variant="outline" class="shrink-0">Fixture</Badge>{/if}
+										{#if row.audio.kind === 'absent'}<Badge variant="outline" class="shrink-0" data-testid="row-audio-absent">Audio not on this device</Badge>{/if}
 									</span>
 									{#if excerpt !== undefined}
 										<span class="line-clamp-2 text-xs break-words text-muted-foreground @3xl:line-clamp-1" data-testid="row-excerpt">
@@ -399,7 +400,7 @@
 							Nothing has “{view.recordingQuery.trim()}” in its title, notes, or transcripts.
 						{:else}
 							Record from <Link href={resolve('/')}>Home</Link>, or add
-							<code class="font-mono">recordings/&lt;id&gt;.md</code> in the terminal.
+							<code class="font-mono">recordings/&lt;id&gt;.md</code> to the folder.
 						{/if}
 					</Empty.Description>
 				</Empty.Header>

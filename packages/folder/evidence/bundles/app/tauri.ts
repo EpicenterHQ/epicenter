@@ -2,9 +2,8 @@
 import { defineFolder, openFolder } from '@epicenter/folder/tauri';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {},
 });
 
 export const start = () =>
-	openFolder({ id: 'so.epicenter.bundlefixture', definition });
+	openFolder({ app: 'so.epicenter.bundlefixture', definition });

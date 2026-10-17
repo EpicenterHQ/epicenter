@@ -1,76 +1,67 @@
 # Git lab
 
-Git lab is a browser and standalone Tauri testbed for `@epicenter/folder`.
-Each working copy owns its files, index, and local history, and every save
-commits. Sync transfers changes between copies. Opening two views of one folder would miss that boundary.
+Git lab is a browser testbed for `@epicenter/folder`.
+Each working copy owns its files, index, and local history. Git transfers
+changes between copies. Opening two views of one folder would miss that boundary.
 
 Start from the repository root:
 
 ```sh
 bun dev:git
-bun dev:git:desktop
 ```
 
-The browser is at `http://127.0.0.1:5190/?copy=a`; open `?copy=b` in another
-tab. Desktop opens windows A and B. Both development commands start or reuse
-one loopback smart HTTP backend on port 5191. The command that starts that
-backend owns its lifetime. Keep it running while the other platform uses it.
+The lab is at `http://127.0.0.1:5190/?copy=a`; open `?copy=b` in another
+tab. It has no desktop shell. A desktop page's history runs in the `epicenter`
+CLI, which only the Epicenter shell starts
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+The development command starts or reuses one loopback smart HTTP backend on
+port 5191 (`packages/folder/src/git-demo-server.test-support.ts`). The command that starts that backend owns its lifetime.
 The printed temporary root contains the bare remote and seed checkout.
 `GIT_LAB_DEMO_ROOT` reopens a marked experiment. Fresh experiments have distinct
 remote URLs, so their browser working copies start separately.
 
 Select a file to edit raw text, including Markdown. Autosaves replace the
-captured file conditionally. An outside change cannot discard typed input:
-a failed save offers explicit replacement or discard. Terminal writes refresh
-the tree and clean editor. The terminal below the editor keeps its session,
-output, and typed command while hidden. Binary files stay visible with an
-explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
+captured file conditionally. Changes made outside the page arrive through
+`folder.onFilesChanged` from other tabs open on the same copy. Each one reads the file
+list and status again, and the open file when the change names it. The page
+also reads again after each of its own actions. An outside change cannot
+discard typed input: an edited buffer keeps the version it started from, and
+a save that finds the file changed merges with it by line, and the typed text
+wins the lines both changed, with no notice (ADR-0576).
+**New file** creates an empty file at a path and opens it. The Git panel below the editor keeps its
+output while hidden. Binary files stay visible with an explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
-**Sync** brings a working copy and the remote together: it commits anything
-not yet committed, fetches, merges, and pushes (`@epicenter/svelte/sync`). Edits
-to different lines combine on their own. When both copies changed the same
-lines, the review shows each version beside a result and replaces the
-editor and terminal until you press **Apply and sync** or **Cancel**;
-nothing is written before you choose, and Cancel forgets the review. A copy
-that has not yet fetched from or pushed to the remote adopts the remote's
-history on its first Sync. The desktop build's folder owner does not sync
-yet; there the terminal's Merge button stays.
+**Sync** brings a working copy and the remote together: it commits what
+the copy saved, fetches, merges, and pushes, and asks nothing. Edits to
+different lines combine on their own. Where both copies changed the same
+lines, the copy that syncs wins, and the merge commit's `Overrode:` lines
+name what lost, which the history still holds (ADR-0576). A copy with no
+history of its own adopts the remote's on its first Sync.
 
-Every save, from the editor or the terminal, commits on its own. There is no
-`git add` or `git commit`. The terminal runs `git status`, `git diff`,
-`git log`, `git fetch`, `git merge`, `git pull --ff-only`, and `git push`.
-Fetch updates remote knowledge without updating working files. Ahead and
-behind are relative to the last fetched head. `git merge` merges the last fetched
-head when it fast-forwards or merges cleanly; a conflict writes nothing and
-points to Sync. If publication stops partway, the page shows the pending
-update and offers explicit recovery.
+Nothing commits on its own. **Save version** records one by hand, and
+**Status** reads what changed since it. The changes list shows each path
+changed since the last version; ahead and behind are relative to the last
+fetched head. If Sync stops while it writes the copy's files, each file
+holds its old bytes or its new ones, and the next Sync records and merges
+them.
 
-Enter an HTTP(S) remote or leave the URL empty for local history. Browser
+Enter an HTTP(S) remote or leave the URL empty for local history. A copy
+with no origin connects to the remote once, when it opens, and keeps it as
+`remote.origin.url` in its Git configuration. Browser
 transport uses fetch and needs a same-origin endpoint or a server that permits
 Git requests through CORS. The development proxy only reaches the disposable
 loopback remote. There is no browser credential flow or general CORS proxy.
-GitHub support has not been demonstrated. Desktop uses installed Git with
-interactive credential prompts disabled; configured Git credential helpers
-can apply. The terminal is the folder's supported shell, not an unrestricted
-system shell. SSH remotes are not accepted by this app.
-
-The standalone bundle embeds the same page through the Tauri folder adapter.
-Rust chooses directories under app data (or `GIT_LAB_ROOT` during development)
-and creates them before registration. Its capability grants folder commands
-and the app's copy commands to windows A and B. CSP allows IPC; remote Git
-transport runs in Rust and needs no browser network grant.
+GitHub support has not been demonstrated. SSH remotes are not accepted by
+this app.
 
 ```sh
 bun run --cwd apps/git test
 bun run --cwd apps/git typecheck
 bun run --cwd apps/git build
-bun run --cwd apps/git build:desktop-ui
-bun run --cwd apps/git build:desktop
 ```
 
-The demonstrations below predate automatic history; the staging and terminal
-commits they mention are gone. Computer use has demonstrated native editor
-saves reaching terminal reads,
+Computer use, with the terminal and desktop shell this lab had then (both since
+deleted), demonstrated native editor saves reaching terminal reads,
 native staging and commits, native pushes reaching the loopback remote,
 browser fetch changing ahead/behind without receiving files, and pull refusing
 uncommitted changes. Browser interaction also demonstrated clean-editor refresh,

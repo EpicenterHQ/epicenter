@@ -4,43 +4,47 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
-	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
 	import type { Library, TranscriptionEntry } from '$lib/library.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
-	import { copyText, formatTime, lf, openItem } from './file-actions.js';
+	import { confirmDelete, copyText, formatTime, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import SaveBar from '@epicenter/svelte/save-bar';
+	import ResultStatus from './ResultStatus.svelte';
+	import { onDestroy } from 'svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
-	 * One saved transcript of the recording that is open, edited where it is
-	 * read, beside the player. Its text is the body of the transcript's own
-	 * file, in a draft opened beside the recording and left with it. Nothing
-	 * here selects the transcript's file, so the recording stays open.
+	 * One transcript of the recording that is open, edited where it is read,
+	 * beside the player. Its text is the body of the transcript's own file,
+	 * edited from the version it started at and saved a second after the last
+	 * keystroke, when the person leaves it, and when the card goes away.
+	 * A transcript whose answer has not reached its file says why instead, and
+	 * is not edited while its answer is on its way. Nothing here selects the
+	 * transcript's file, so the recording stays open.
 	 */
-	let { library, result }: { library: Library; result: TranscriptionEntry } = $props();
+	let {
+		library,
+		result,
+		audioAbsent = false,
+	}: { library: Library; result: TranscriptionEntry; audioAbsent?: boolean } = $props();
+	// The list keys each card by its file; what is typed is sent to that one.
+	// svelte-ignore state_referenced_locally
+	const own = result.path;
+	// The library's timer outlives the card; send what is typed now instead.
+	onDestroy(() => void library.saveBody(own));
 
-	// Open the file's draft once for this path, beside the recording.
-	$effect(() => {
-		const path = result.path;
-		untrack(() => void library.openTranscript(path));
-	});
-	const draft = $derived(library.draftAt(result.path));
-	const row = $derived(draft?.kind === 'row' && draft.table === TRANSCRIPTIONS ? draft.session : undefined);
-	/** The text now: the draft's, or the row as listed. */
-	const text = $derived(row?.draft.body ?? result.row.body);
+	/** Edited here unless the person opened its file as text in Files. */
+	const asText = $derived(library.showsText(result.path));
+	const row = $derived(asText ? undefined : library.rowAt(TRANSCRIPTIONS, result.path));
+	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
+	const text = $derived(row?.body ?? result.row.body);
+	const locked = $derived(library.locked(result.path));
+	const progress = $derived(library.resultState(result.path, text));
 
 	const outputs = $derived(library.outputsFor(result.stem));
-	const transforming = $derived(
-		library.transformationRuns.some(
-			(item) => item.fields.transcriptionId === result.stem && item.state.kind === 'running',
-		),
-	);
+	const transforming = $derived(library.recipeRuns.some((item) => item.transcriptionId === result.stem));
 	/**
 	 * Every transformation, with whether it can run now by the one decision
 	 * the run itself makes. One that cannot is shown with why, and fixed on its
@@ -56,47 +60,39 @@
 </script>
 
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
-	{#if row}
+	{#if progress.kind !== 'answered'}
+		<ResultStatus
+			{library}
+			path={result.path}
+			result={progress}
+			{audioAbsent}
+			onDelete={() => void confirmDelete(library, result.path)}
+		/>
+	{/if}
+	{#if progress.kind === 'running' || progress.kind === 'writing'}
+		<!-- The answer is on its way into this file. A file with text is not filled, so typing now would keep it out. -->
+	{:else if row}
 		<Textarea
 			class="min-h-32 resize-y font-sans"
 			bind:value={
-				() => lf(row?.draft.body ?? ''),
-				(value) =>
-					row?.edit((draft) => {
-						draft.body = withFileNewlines(wellFormed(value), draft.body);
-					})
+				() => row?.body ?? '',
+				(value) => library.editBody(TRANSCRIPTIONS, result.stem, value)
 			}
-			disabled={row.locked}
+			onblur={() => void library.saveBody(result.path)}
+			disabled={locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"
 		/>
-		<SaveBar
-			save={row.state}
-			hideWhenSaved
-			onRetry={() => row.retry()}
-			onReloadTheirs={() => library.reloadTheirs(row)}
-			gone={!library.canKeepMine(row)}
-			onKeepMine={library.canKeepMine(row) ? () => library.keepMine(row) : undefined}
-		/>
+		{#if library.isSaving(result.path)}
+			<p class="text-xs text-muted-foreground" role="status">Saving…</p>
+		{/if}
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
 	{/if}
-	{#if draft?.kind === 'text'}
-		<p class="text-xs text-destructive" role="alert">
-			This transcript’s file is being edited as text, so its text cannot be edited here. Open it from Files.
-		</p>
-		<SaveBar
-			save={draft.session.state}
-			hideWhenSaved
-			onRetry={() => draft.session.retry()}
-			onReloadTheirs={() => library.reloadTheirs(draft.session)}
-			gone={!library.canKeepMine(draft.session)}
-			onKeepMine={library.canKeepMine(draft.session) ? () => library.keepMine(draft.session) : undefined}
-		/>
-	{:else if draft?.kind === 'failed'}
-		<p class="text-xs text-destructive" role="alert">
-			This transcript’s file could not be opened: {draft.message}
+	{#if asText}
+		<p class="text-xs text-muted-foreground" role="status">
+			This transcript’s file is open as text in Files, so its text is edited there.
 		</p>
 	{/if}
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

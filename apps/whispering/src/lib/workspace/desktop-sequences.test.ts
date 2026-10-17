@@ -1,46 +1,70 @@
 /**
- * Save, repair, and delete sequences over the production desktop adapter.
+ * Save, repair, and delete sequences over the production desktop opener.
  *
- * The real library and its edit sessions run over `@epicenter/folder/tauri`,
- * with the shell's owner scripted in memory (`scripted-owner.test-support.ts`).
- * That is where a write can be held while the person types, refused before it
- * lands, or have its reply lost after it landed, and where a read can fail.
+ * The real library and its query cache run over `@epicenter/folder/tauri`,
+ * on the page's own folder engine, in a directory the shell grants
+ * (`granted-shell.test-support.ts` in the folder package). That is where a change can be held
+ * while the person types, fail before it lands, or lose its reply after it
+ * landed, and where a read can fail.
  *
  * Key behaviors:
- * - typing is saved as it is typed: one write at a time, and the latest
- *   input behind it, so input superseded while a write runs is never written
- * - a save that failed, or whose reply was lost, stays on screen and holds the
- *   close while unresolved; Save again writes the current draft
- * - another writer's change is a conflict, and Reload theirs takes it
- * - a deletion waits for the open draft's saves, and one whose reply was lost
- *   recreates nothing
+ * - typing is written as it is typed, one save at a time; what was typed
+ *   while one ran is saved next, so input superseded meanwhile is never
+ *   written
+ * - a save that failed or whose reply was lost is reported and keeps the
+ *   edit, and the next edit saves it
+ * - a save over another writer's change merges with it, and wins where both
+ *   changed, with no notice
+ * - a deletion runs after the edits are written, and one whose reply was
+ *   lost is reported and recreates nothing
  *
  * See also:
- * - `desktop.test.ts` for the workspace over scripted shell replies
+ * - `desktop.test.ts` for the workspace over the shell and the host
  * - `editing.test.ts` for editing over a browser folder
  */
-import '../svelte-modules.test-support.js';
-import { afterEach, expect, mock, test } from 'bun:test';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
+import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';
+import {
+	createGrantedShell,
+	type DataChange,
+	type GrantedShell,
+	grantedDirectory,
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
 import { whisperingDefinition } from '../definition.js';
-import { transformationSession } from '../drafts.test-support.js';
-import type { Library } from '../library.svelte.js';
+import { settle, transformationEditor } from '../edits.test-support.js';
+import type { WriteNotice } from '../library.svelte.js';
+import { createQueryClient } from '../query.test-support.js';
 import { deferred, openTestWorkspace } from '../workspace.test-support.js';
-import { createScriptedOwner } from './scripted-owner.test-support.js';
 import { WHISPERING_FOLDER_ID, type Workspace } from './types.js';
 
-let owner = createScriptedOwner();
+let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
-	invoke: (cmd: string, args?: Record<string, unknown>) =>
-		owner.invoke(cmd, args),
-}));
-mock.module('@tauri-apps/api/event', () => ({
-	listen: () => owner.listen(),
+	invoke: (
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) => shell.invoke(cmd, body, options),
 }));
 
 const { openFolder } = await import('@epicenter/folder/tauri');
 const { createLibrary } = await import('../library.svelte.ts');
+
+const gitConfig = {
+	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+};
+beforeAll(() => {
+	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+	process.env.GIT_CONFIG_NOSYSTEM = '1';
+});
+afterAll(() => {
+	for (const [key, value] of Object.entries(gitConfig))
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+});
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -48,16 +72,21 @@ afterEach(async () => {
 });
 
 const PATH = 'transformations/clean.md';
-const SEED = '---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n';
+const SEED = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n';
 
-/** The library over the desktop adapter, with the owner holding `files`. */
+/** The library over the desktop opener, in a granted directory holding `files`. */
 async function open(files: Record<string, string>, path = PATH) {
-	owner = createScriptedOwner();
-	for (const [path, text] of Object.entries(files)) owner.write(path, text);
+	const root = await grantedDirectory();
+	shell = createGrantedShell(root, {
+		app: WHISPERING_FOLDER_ID,
+		folder: WHISPERING_FOLDER_ID,
+	});
+	for (const [path, text] of Object.entries(files))
+		await shell.write(path, text);
 	const stubs = await openTestWorkspace();
 	const folder = expectOk(
 		await openFolder({
-			id: WHISPERING_FOLDER_ID,
+			app: WHISPERING_FOLDER_ID,
 			definition: whisperingDefinition,
 		}),
 	);
@@ -66,126 +95,137 @@ async function open(files: Record<string, string>, path = PATH) {
 		folder,
 		close: () => folder.close(),
 	};
-	const library = createLibrary(workspace);
+	const library = createLibrary(workspace, createQueryClient());
 	cleanups.push(async () => {
 		await library.close();
 		await stubs.workspace.close();
 		await stubs.remove();
+		await rm(root, { recursive: true, force: true });
 	});
 	await library.start();
 	await library.open(path);
-	return { library, session: transformationSession(library) };
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
+	return { library, notices, session: transformationEditor(library) };
 }
 
 /** Type a new body into the open transformation. */
-const type = (
-	session: ReturnType<typeof transformationSession>,
-	body: string,
-) =>
+const type = (session: ReturnType<typeof transformationEditor>, body: string) =>
 	session.edit((row) => {
 		row.body = body;
 	});
 
-/** The changes the owner applied to the data; opening publishes `epicenter.json` first. */
-const changes = () =>
-	owner.applied.filter(
-		(change) => !('path' in change) || change.path !== 'epicenter.json',
-	);
-const kinds = () => changes().map((change) => change.kind);
-
-/** The text of the `index`th change the owner applied. */
+/** The text of the `index`th data file the page wrote. */
 function written(index: number): string | undefined {
-	const change = changes()[index];
-	return change !== undefined && 'bytes' in change
-		? new TextDecoder().decode(Uint8Array.from(change.bytes))
-		: undefined;
+	const change = shell.changes[index];
+	return change?.kind === 'write' ? change.text : undefined;
 }
 
-/** Hold the owner's next change of `kind` until `release`; `reached` when it arrives. */
-function holdNextApply(kind: string) {
+/** Hold the next data change of `kind` until `release`; `reached` when it arrives. */
+function holdNext(kind: DataChange['kind']) {
 	const reached = deferred<void>();
 	const held = deferred<void>();
-	owner.control.beforeApply = async (change) => {
+	shell.control.beforeChange = async (change) => {
 		if (change.kind !== kind) return;
-		owner.control.beforeApply = undefined;
+		shell.control.beforeChange = undefined;
 		reached.resolve();
 		await held.promise;
 	};
 	return { reached: reached.promise, release: () => held.resolve() };
 }
 
-test('a save whose reply was lost and cannot be read back stays unknown, holds the close, and Save again writes the draft', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
-	owner.control.loseReplies = 1;
-	owner.control.failReads.add(PATH);
+test('a save whose reply was lost is reported and keeps the edit, which saves again over what landed', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
+	shell.control.loseReplies = 1;
+	// The engine reads the file to check it before it writes. Once the write
+	// is under way, the file cannot be read back either.
+	shell.control.beforeChange = async () => {
+		shell.control.beforeChange = undefined;
+		shell.control.failReads.add(PATH);
+	};
 
 	type(session, 'Tidy it.\n');
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Unconfirmed');
-	expect(owner.text(PATH)).toContain('Tidy it.');
-	expect(library.unsavedWork).toEqual([
-		`${PATH} has edits whose last save was not confirmed.`,
+	await settle(library);
+	expect(notices).toMatchObject([
+		{
+			kind: 'failed',
+			error: { name: 'Io', cause: { name: 'Unconfirmed' } },
+			retry: expect.any(Function),
+			discard: expect.any(Function),
+		},
 	]);
-	expect(await library.prepareToLeave()).toBe(false);
+	expect(await shell.text(PATH)).toContain('Tidy it.');
+	expect(library.unsaved).toBe(true);
 
-	owner.control.failReads.delete(PATH);
-	session.retry();
-	expect((await session.settled()).status).not.toBe('saving');
-	expect(owner.text(PATH)).toContain('Tidy it.');
+	shell.control.failReads.delete(PATH);
+	// The file reads again, so the fields show and take typing.
+	await settle(library);
+	type(session, 'Tidy it all.\n');
+	await settle(library);
+	// Whether the lost save landed was unknown, so the edit saves again from
+	// where it started, over what did land, and wins with no notice.
+	expect(notices).toHaveLength(1);
+	expect(library.unsaved).toBe(false);
+	expect(session.draft.body).toBe('Tidy it all.\n');
+	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
 });
 
 test('typing during a save is shown at once and saved after it; input superseded meanwhile is never written', async () => {
-	const { session } = await open({ [PATH]: SEED });
-	const first = holdNextApply('replace');
+	const { library, notices, session } = await open({ [PATH]: SEED });
+	const first = holdNext('write');
 
 	type(session, 'First.\n');
 	await first.reached;
-	expect(session.state.status).toBe('saving');
+	expect(library.isSaving(PATH)).toBe(true);
 	type(session, 'Second.\n');
 	type(session, 'Third.\n');
 	expect(session.draft.body).toBe('Third.\n');
 	first.release();
-	expect((await session.settled()).status).toBe('saved');
+	await settle(library);
 
-	expect(kinds()).toEqual(['replace', 'replace']);
+	expect(notices).toEqual([]);
+	expect(shell.kinds).toEqual(['write', 'write']);
 	expect(written(0)).toContain('First.\n');
 	expect(written(1)).toContain('Third.\n');
-	expect(owner.text(PATH)).toContain('Third.\n');
+	expect(await shell.text(PATH)).toContain('Third.\n');
 });
 
-test('a refused save keeps the draft on screen; Try again saves it', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
-	owner.control.refuseNext = 1;
+test('a refused save is reported and keeps the edit; the next edit saves it', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
+	shell.control.refuseNext = 1;
 
 	type(session, 'Mine.\n');
-	expect((await session.settled()).status).toBe('error');
+	await settle(library);
+	expect(notices).toMatchObject([
+		{
+			kind: 'failed',
+			retry: expect.any(Function),
+			discard: expect.any(Function),
+		},
+	]);
 	expect(session.draft.body).toBe('Mine.\n');
-	expect(owner.text(PATH)).toBe(SEED);
-	expect(library.saveProblems).toBe(1);
+	expect(await shell.text(PATH)).toBe(SEED);
 
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(owner.text(PATH)).toContain('Mine.\n');
+	type(session, 'Mine, again.\n');
+	await settle(library);
+	expect(notices).toHaveLength(1);
+	expect(await shell.text(PATH)).toContain('Mine, again.\n');
 });
 
-test('another writer’s change is a conflict, and Reload theirs takes it without writing', async () => {
-	const { library, session } = await open({ [PATH]: SEED });
-	const theirs = SEED.replace('Tidy.', 'Theirs.');
-	owner.write(PATH, theirs);
+test('another writer’s change merges with the typing: where both changed, the typing wins with no notice', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
+	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(changes()).toEqual([]);
-
-	expect(await library.reloadTheirs(session)).toBeUndefined();
-	expect(session.draft.body).toBe('Theirs.\n');
-	expect(changes()).toEqual([]);
+	await settle(library);
+	expect(notices).toEqual([]);
+	expect(await shell.text(PATH)).toContain('Mine.\n');
+	expect(await shell.text(PATH)).not.toContain('Theirs.');
 });
 
 test('a deletion waits for the save of the row, then removes what it saved', async () => {
 	const { library, session } = await open({ [PATH]: SEED });
-	const save = holdNextApply('replace');
+	const save = holdNext('write');
 	type(session, 'Saved first.\n');
 	await save.reached;
 
@@ -193,21 +233,20 @@ test('a deletion waits for the save of the row, then removes what it saved', asy
 	save.release();
 	const deletion = expectOk(await capturing);
 
-	expect(await library.remove(deletion)).toBeUndefined();
-	expect(kinds()).toEqual(['replace', 'remove']);
-	expect(owner.text(PATH)).toBeUndefined();
-	expect(session.locked).toBe(true);
+	expect(await library.delete(deletion)).toBeUndefined();
+	expect(shell.kinds).toEqual(['write', 'remove']);
+	expect(await shell.text(PATH)).toBeUndefined();
+	expect(library.selectedTransformation).toBeUndefined();
+	expect(library.locked(session.path)).toBe(false);
 });
 
-test('a deletion whose reply was lost says so and recreates nothing', async () => {
+test('a deletion whose reply was lost is confirmed by reading back, and recreates nothing', async () => {
 	const { library } = await open({ [PATH]: SEED });
 	const deletion = expectOk(await library.deletionFor(PATH));
-	owner.control.loseReplies = 1;
+	shell.control.loseReplies = 1;
 
-	expect(await library.remove(deletion)).toContain(
-		'may or may not have happened',
-	);
-	expect(owner.text(PATH)).toBeUndefined();
-	expect(kinds()).toEqual(['remove']);
-	expect(await library.prepareToLeave()).toBe(true);
+	// The file is gone, so the removal landed after all.
+	expect(await library.delete(deletion)).toBeUndefined();
+	expect(await shell.text(PATH)).toBeUndefined();
+	expect(shell.kinds).toEqual(['remove']);
 });

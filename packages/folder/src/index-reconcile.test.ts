@@ -14,19 +14,18 @@
  *   reports `indexWarning`; a later explicit commit-and-push repairs the index
  *
  * See also:
- * - `native.test.ts` for automatic commits and the browser/native exchange
+ * - `native.test.ts` for whole-folder commits and the browser/native exchange
  * - `source-scope.test.ts` for which files a checkpoint includes
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defineFolder, defineTable, field } from './contract.js';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -49,7 +48,7 @@ async function repository() {
 	await git(root, 'init', '--quiet', '--initial-branch=main');
 	await writeFile(join(root, 'a.md'), 'A\n');
 	await writeFile(join(root, 'kept.md'), 'kept\n');
-	await writeFile(join(root, 'epicenter.json'), formatDeclaration(definition));
+	await writeFile(join(root, 'epicenter.json'), formatDefinition(definition));
 	await git(root, 'add', '--all');
 	await git(root, 'commit', '--quiet', '-m', 'Start');
 	return root;
@@ -111,9 +110,7 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 		definition,
 		git: { author },
 	});
-	// Opening's own commit, answered first.
-	await folder.git.commit();
-	await writeFile(join(root, 'b.md'), 'new\n');
+	await folder.write('b.md', null, 'new\n');
 	await writeFile(join(root, '.git', 'index.lock'), '');
 	const locked = await folder.git.commit();
 	expect(locked.status).toBe('committed');
@@ -124,12 +121,11 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	await rm(join(root, '.git', 'index.lock'));
 	// The unrepaired index shows the committed file as a staged deletion.
 	expect(await git(root, 'status', '--porcelain')).toContain('D  b.md');
-	const repaired = await folder.git.commitAndPush();
-	expect(repaired.commit).toMatchObject({
+	const repaired = await folder.git.commit();
+	expect(repaired).toMatchObject({
 		status: 'unchanged',
 		indexWarning: undefined,
 	});
-	expect(repaired.push.status).toBe('noRemote');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await folder.close();
 });

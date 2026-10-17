@@ -1,10 +1,8 @@
 /**
  * Commit Subject Golden Vector Tests
  *
- * The Rust folder owner writes automatic commit subjects with its own port of
- * `commitSubject`. Both sides are pinned to one fixture: the Rust test in the
- * plugin's `core/src/messages.rs` reads it, and this test proves the fixture is exactly
- * what the TypeScript implementation produces today.
+ * `fixtures/commit-subjects.txt` pins the subjects `commitSubject` writes, so
+ * changing one is a reviewed change to that file.
  *
  * Key behaviors:
  * - The committed fixture equals the output of the current `commitSubject`

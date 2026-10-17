@@ -20,7 +20,7 @@ import type { Env } from '../types.js';
 import { corsMiddleware } from './cors.js';
 
 const TRUSTED_ORIGIN = 'https://notes.example.com';
-const PATH = '/api/session';
+const PATH = '/api/repos';
 
 function createCorsTestApp() {
 	const app = new Hono<Env>();

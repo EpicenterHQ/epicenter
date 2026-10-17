@@ -32,9 +32,13 @@
   at root-document maintenance. Automatic snapshot folding remains the
   authority's bounded log mechanism. Public generations and whole-document
   replacement are deferred.
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: `packages/app/evidence/data/validation.test.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/evidence/data/workerd/results.md`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/evidence/data/bench/never-compact.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/src/data/sync/transport.test.ts`.
 
 ## Context

@@ -1,34 +1,22 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "File-authoritative Markdown notes with a rich-text editor and a standalone desktop shell",
+	"description": "File-authoritative Markdown notes with a rich-text editor, installed in Epicenter or in a browser tab",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
-	"imports": {
-		"#platform/notes-host": {
-			"tauri": "./src/lib/platform/notes-host.tauri.ts",
-			"default": "./src/lib/platform/notes-host.browser.ts"
-		}
-	},
 	"scripts": {
-		"dev": "tauri dev",
+		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"build": "NODE_ENV=production vite build",
-		"build:desktop-ui": "HONEYCRISP_DESKTOP=1 bun run build",
-		"build:desktop": "tauri build",
+		"build:installed": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
-		"tauri": "tauri",
-		"test": "bun run --filter @epicenter/folder build:addon && bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
+		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
 		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte ./src/routes/components/NoteDetail.dom.test.ts",
-		"test:native": "bun run build:desktop-ui && cargo test --locked --manifest-path src-tauri/Cargo.toml && cargo build --locked --manifest-path src-tauri/Cargo.toml --example harness && bun test --isolate --conditions=browser ./native-tests",
-		"test:quit": "bun run build:desktop-ui && cargo run --locked --manifest-path src-tauri/Cargo.toml --example quit --",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"devDependencies": {
-		"@epicenter/app-shell": "workspace:*",
-		"@epicenter/auth": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/vite-config": "workspace:*",
 		"@lucide/svelte": "catalog:",
@@ -36,7 +24,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
-		"@tauri-apps/cli": "catalog:",
+		"@tanstack/query-core": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"@types/markdown-it": "^14.0.0",
@@ -50,13 +38,13 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/svelte": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"bits-ui": "catalog:",
-		"buffer": "^6.0.3",
 		"date-fns": "catalog:",
 		"markdown-it": "^14.0.0",
 		"prosemirror-commands": "^1.6.0",
@@ -69,6 +57,7 @@
 		"prosemirror-schema-list": "^1.4.0",
 		"prosemirror-state": "^1.4.0",
 		"prosemirror-view": "^1.41.0",
+		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"

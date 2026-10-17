@@ -4,8 +4,7 @@ use super::{DictationCapability, TapController};
 
 /// The current paste-at-cursor capability: whether a synthetic Cmd/Ctrl+V can
 /// land (on macOS, whether the Accessibility grant is live and the tap is
-/// healthy). The FE seeds from this on attach, then tracks
-/// `DictationCapabilityEvent` for changes; it never probes the OS itself. The
+/// healthy). A page reads it from this; it never probes the OS itself. The
 /// Rust supervisor owns the value and the tap's lifecycle, so there is no `start`
 /// command for the FE to call.
 #[tauri::command]

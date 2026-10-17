@@ -1,16 +1,10 @@
-/** App-owned file messages and the maximum size of editable text. */
+/** App-owned file messages. */
 import {
 	type FileError,
-	type FolderFiles,
-	type MoveError,
 	pathProblem,
-	type TableError,
+	type RowWriteError,
 } from '@epicenter/folder';
-import {
-	basename,
-	joinPath,
-	readTextFile as readFolderTextFile,
-} from '@epicenter/folder/file-browser';
+import { joinPath } from '@epicenter/folder/file-browser';
 
 export function nameProblem(
 	directory: string,
@@ -24,42 +18,33 @@ export function nameProblem(
 		: `This name is not usable: ${problem}.`;
 }
 
-/** Text larger than this opens as file details instead of in the editor. */
-export const EDITABLE_TEXT_LIMIT = 1024 * 1024;
-
-/** Read editable text using this app's size limit. */
-export function readTextFile(files: Pick<FolderFiles, 'read'>, path: string) {
-	return readFolderTextFile(files, path, EDITABLE_TEXT_LIMIT);
-}
-
 /**
  * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, a move that kept its source left both
- * files, and a lost reply leaves the outcome unknown.
+ * on. A refusal changed nothing, and a lost reply leaves the outcome unknown.
  */
 export function describeError(
 	error:
 		| FileError
-		| MoveError
-		| TableError
+		| RowWriteError
 		| { readonly name: string; readonly message: string },
 ): string {
-	const known = error as FileError | MoveError | TableError;
+	const known = error as FileError | RowWriteError;
 	switch (known.name) {
-		case 'Exists':
-			return `"${basename(known.path)}" already exists here.`;
-		case 'Conflict':
-			return known.actualSha256 === undefined
-				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Check it and try again.';
 		case 'DirectoryNotEmpty':
 			return 'The folder is not empty, so nothing was deleted.';
-		case 'SourceNotRemoved':
-			return `"${basename(known.to)}" was written, but "${basename(known.from)}" could not be removed, so both are in the folder now.`;
 		case 'Unconfirmed':
 			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${known.message}`;
+		case 'Io': {
+			// A row write reports a lost reply as `Io` with the storage failure as its cause.
+			const cause = known.cause as FileError | undefined;
+			return cause?.name === 'Unconfirmed'
+				? describeError(cause)
+				: known.message;
+		}
 		case 'InvalidValues':
 			return known.issues.map((issue) => issue.message).join(' ');
+		case 'Occupied':
+			return 'Another file already has this name, so nothing was changed.';
 		default:
 			return known.message;
 	}

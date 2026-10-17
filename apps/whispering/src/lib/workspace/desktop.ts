@@ -1,298 +1,209 @@
 /**
- * The desktop workspace: a real directory owned by the desktop shell, and the
- * Whispering host for everything else native.
+ * The desktop workspace: Whispering installed in Epicenter (ADR-0493,
+ * ADR-0552), over a real directory Epicenter's shell grants this window.
  *
- * The folder is the shell's. The shell registered one directory for this
- * window, and this attaches to it through `@epicenter/folder/tauri`, naming
- * only the folder's ID. Saves, history, and the hints that files
- * changed all come from that owner. The page supplies no path.
+ * The shell opens the window on one folder and answers the page which
+ * (`window_folder`): Whispering's own folder, `WHISPERING_FOLDER_ID`,
+ * `<folder root>/so.epicenter.whispering`, or another folder chosen with "Open
+ * in Whispering" (ADR-0560). The page's routes and reloads never change it.
+ * `openFolder` publishes `whisperingDefinition` only to Whispering's own
+ * folder, the one named after it, and reads any other through it (ADR-0538):
+ * its declaration is never written, and one that does not contain the
+ * definition is refused, named.
  *
- * The host that serves this page does the rest: the terminal is the person's
- * shell in that directory, transcription and text requests leave from the
- * host over the device's two connections, the microphone chosen on this
- * device is kept beside them, and the shell's close question arrives on the host's
- * event stream. The host holds no folder; what its terminal
- * writes reaches this page as the owner's hints, like any other program's.
+ * Either way the page names only the scope: the shell grants the window the
+ * directory and holds its lock, and the page's own folder engine reads it,
+ * saves to it through the shell, and records history with the `git` the shell
+ * runs. The page supplies no path.
  *
- * Both are required to open. A host that does not answer, an owner that
- * refuses, and the two naming different directories are each returned as that
- * refusal, and nothing else is opened in their place.
+ * Everything else native is Epicenter's, granted to every installed app's
+ * windows (`installed-app.json` in Epicenter's capabilities):
  *
- * Once open, the two fail apart. If the host stops, the folder is still the
- * shell's and still open: saves and commits keep working, and only
- * what the host did is unavailable. A reply the host never delivered says
- * nothing about whether it acted, so a lost transcription or transformation
- * reply is reported as unknown, never as "not sent", and nothing is sent again
- * on its own.
+ * - the recorder plugin, which owns the microphone: it lists the inputs,
+ *   reads one's level, and writes a recording into the granted folder as it
+ *   captures, and the page opens no microphone of its own (ADR-0543,
+ *   ADR-0571, `desktop-microphone.ts`);
+ * - the two connections, rows of Epicenter's own folder `so.epicenter`, whose
+ *   endpoints and keys stay in this computer's keychain; requests go through
+ *   the `epicenter` CLI, which adds the key (`desktop-connections.ts`);
+ * - transcription with Epicenter's active local model
+ *   (`local-transcription.ts`).
+ *
+ * The chosen microphone is kept in this origin's storage, which lasts:
+ * Epicenter serves every app from one fixed loopback origin.
+ *
+ * A refused folder is returned as that refusal, and nothing else is opened in
+ * its place. A request whose reply never arrived from Epicenter is reported as
+ * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsDefinition,
+} from '@epicenter/ai/connection-table';
 import { openFolder } from '@epicenter/folder/tauri';
+import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type BridgeConnection, createHttpBridge } from '../bridge/http.js';
+import { audioMimeTypeOf } from '../audio-format.js';
 import {
-	type CaptureDevice,
-	createFixtureDevice,
-	type MicrophonePreference,
-} from '../capture.js';
-import type { ConnectionDefaults, ConnectionsInfo } from '../connections.js';
-import { whisperingDefinition } from '../definition.js';
-import { createMicrophoneDevice } from '../microphone.js';
-import { TranscriptionError } from '../transcription.js';
-import { TransformationError } from '../transformation.js';
+	AUDIO,
+	DEFAULT_TRANSCRIPTION_CONNECTION,
+	whisperingDefinition,
+} from '../definition.js';
+import { commands } from '../tauri/bindings.gen.js';
 import {
-	CLOSE_BLOCKED_EVENT,
-	QUIT_PATH,
-	watchCloseRequests,
-} from './closing.js';
+	TranscriptionError,
+	type TranscriptionRequest,
+	transcribeOverConnection,
+} from '../transcription.js';
 import {
-	type InjectionState,
+	TransformationError,
+	transformOverConnection,
+} from '../transformation.js';
+import {
+	type ConnectionCommands,
+	type ConnectionsFolder,
+	createDesktopConnections,
+	type DesktopConnections,
+} from './desktop-connections.js';
+import { createDesktopMicrophone } from './desktop-microphone.js';
+import {
+	createLocalTranscription,
+	type LocalTranscriptionCommands,
+} from './local-transcription.js';
+import { localPreferences } from './microphone-preference.js';
+import {
+	type OpenWorkspace,
 	WHISPERING_FOLDER_ID,
 	type Workspace,
 	WorkspaceError,
 } from './types.js';
 
-/** What the host reports about itself. Mirrors `HostInfo` in `native/host.ts`. */
-type HostInfo = {
-	readonly root: string;
-	readonly shell: string;
-	readonly debug: boolean;
-	readonly fixture: { readonly name: string; readonly size: number } | null;
-	readonly fixtureRefused: boolean;
-	readonly defaults: ConnectionDefaults;
-};
+type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 
-/** What the host remembers for this device. Mirrors `DevicePreferences` in `native/host.ts`. */
-type DevicePreferences = {
-	readonly microphone: MicrophonePreference | null;
-};
-
-type ShellRun = {
-	readonly stdout: string;
-	readonly stderr: string;
-	readonly exitCode: number;
-	readonly cwd: string;
-};
-
-const describe = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
-
-export async function openDesktopWorkspace(
-	connection: BridgeConnection,
-): Promise<Result<Workspace, WorkspaceError>> {
-	const bridge = createHttpBridge(connection);
-	// The host first: without it there is no app to open a folder for, so the
-	// owner is not asked for anything.
-	let info: HostInfo;
-	try {
-		info = await bridge.app<HostInfo>('info');
-	} catch (cause) {
-		return WorkspaceError.HostUnreachable({ reason: describe(cause) });
-	}
-	const { data: folder, error: openError } = await openFolder({
-		id: WHISPERING_FOLDER_ID,
+export async function openDesktopWorkspace({
+	commands: native = commands,
+	connectionCommands = commands,
+	openConnectionsFolder = () =>
+		openFolder({
+			id: CONNECTIONS_FOLDER_ID,
+			definition: connectionsDefinition,
+		}),
+}: {
+	commands?: LocalTranscriptionCommands;
+	/** The AI connection commands; injected for tests. */
+	connectionCommands?: ConnectionCommands;
+	/** Open `so.epicenter` through its `connections` table; injected for tests. */
+	openConnectionsFolder?: () => Promise<
+		Result<ConnectionsFolder, { readonly message: string }>
+	>;
+} = {}): Promise<Result<Workspace, WorkspaceError>> {
+	const opened = await openFolder({
+		app: WHISPERING_FOLDER_ID,
 		definition: whisperingDefinition,
 	});
-	if (openError !== null)
-		return WorkspaceError.DesktopFolder({ refusal: openError });
-	// The shell gave one directory to both. Were they to differ, the terminal
-	// and transcription would use a directory the saves do not go to.
-	const root = folder.location.kind === 'directory' ? folder.location.root : '';
-	if (root !== info.root) {
-		await folder.close();
-		return WorkspaceError.FolderMismatch({ folder: root, host: info.root });
-	}
-	// The owner has opened the folder, so Git exists: a debug host may now take
-	// the branch lock its launch asked for. The host reports a refusal itself.
-	if (info.debug) await bridge.app('injection-launch').catch(() => {});
-
-	// The folder-relative directory the next command starts in.
-	let cwd = '';
-	const shown = (relative: string) => (relative === '' ? '/' : `/${relative}`);
-
-	const capture: CaptureDevice =
-		info.fixture === null
-			? createMicrophoneDevice()
-			: createFixtureDevice({
-					name: info.fixture.name,
-					load: () =>
-						bridge.app<{ name: string; bytes: Uint8Array }>('fixture'),
-				});
-
-	// The shell's close question, heard from here on for the workspace's
-	// lifetime: over the host's event stream, and as a page event when the
-	// host is gone. Nothing listens for either until the session has finished
-	// starting, so one that arrives first is kept, not dropped, and handed to
-	// the first listener.
-	const closeListeners = new Set<() => void>();
-	let closeAsked = false;
-	const stopWatching = watchCloseRequests(bridge, () => {
-		if (closeListeners.size === 0) closeAsked = true;
-		for (const listener of closeListeners) listener();
+	if (opened.error !== null)
+		return WorkspaceError.DesktopFolder({ refusal: opened.error });
+	const folder = opened.data;
+	const folderId = folder.id;
+	// Repair the recordings a quit or a crash cut off, before anything reads
+	// them. A failure keeps the folder open and is shown beside the recorder.
+	const { error: recoverError } = await recoverRecordings({
+		folder: { id: folderId, write: folder.write },
+		under: AUDIO,
 	});
-	const hostGoneListeners = new Set<() => void>();
-	let closeAskedWithoutHost = false;
-	const closeBlocked = () => {
-		if (hostGoneListeners.size === 0) closeAskedWithoutHost = true;
-		for (const listener of hostGoneListeners) listener();
-	};
-	window.addEventListener(CLOSE_BLOCKED_EVENT, closeBlocked);
+	const captureNotice =
+		recoverError === null
+			? undefined
+			: `Recordings a quit cut off could not be checked: ${recoverError.message}`;
+	const root = folder.location.kind === 'directory' ? folder.location.root : '';
+	const connections = createDesktopConnections({
+		commands: connectionCommands,
+		openConnections: openConnectionsFolder,
+	});
+
+	async function readBytes(path: string): Promise<Result<Uint8Array, string>> {
+		const { data: audio, error } = await folder.files.read(path);
+		if (error !== null) return Err(error.message);
+		return Ok(audio.bytes);
+	}
+
+	async function readAudio(
+		path: string,
+	): Promise<Result<TranscriptionRequest['audio'], string>> {
+		const { data: bytes, error } = await readBytes(path);
+		if (error !== null) return Err(error);
+		return Ok({
+			bytes,
+			filename: path.slice(path.lastIndexOf('/') + 1),
+			mimeType: audioMimeTypeOf(path) ?? 'application/octet-stream',
+		});
+	}
 
 	return Ok({
 		kind: 'native',
 		folder,
+		folderId,
 		location: root,
-		terminal: {
-			get cwd() {
-				return shown(cwd);
-			},
-			async exec(command) {
-				const run = await bridge.app<ShellRun>('terminal', { command, cwd });
-				cwd = run.cwd;
-				return run;
-			},
-		},
-		terminalNote: `${info.shell} in ${root}. Each command is a new shell that starts in the directory the last one ended in; there is no interactive terminal device, so full-screen programs do not run.`,
-		capture,
-		captureNotice: info.fixtureRefused
-			? 'WHISPERING_AUDIO_FIXTURE is set, but this build does not allow fixture audio. Recordings use the microphone.'
-			: info.fixture?.size === 0
-				? `The fixture file ${info.fixture.name} could not be read. Recordings will fail until it can.`
-				: undefined,
-		async reveal() {
-			try {
-				await bridge.app('reveal');
-				return undefined;
-			} catch (cause) {
-				return describe(cause);
-			}
-		},
-		// The bridge rejects when the host is unreachable, faults, or its reply is
-		// lost; a workspace answers with a Result either way. A rejection does
-		// not say the endpoint was not called, and the call is not made again.
-		async transcribe({ audioPath, expectedBaseUrl, model }) {
-			try {
-				return await bridge.app<Awaited<ReturnType<Workspace['transcribe']>>>(
-					'transcribe',
-					{ path: audioPath, expectedBaseUrl, model },
-				);
-			} catch (cause) {
-				return TranscriptionError.HostUnavailable({ reason: describe(cause) });
-			}
+		capture: createDesktopMicrophone(),
+		captureNotice,
+		async transcribe(request) {
+			let route: Route;
+			const answered = await transcribeOverConnection(
+				async () => {
+					route = await connections.route('transcription');
+					return route?.stored;
+				},
+				request,
+				() => readAudio(request.audioPath),
+				(url, init) => (route as NonNullable<Route>).send(url, init),
+			);
+			// The request went to the epicenter command, which may have sent it
+			// on: a reply that never came back says nothing about the endpoint.
+			const { error } = answered;
+			if (error?.name === 'Unreachable')
+				return TranscriptionError.HostUnavailable({ reason: error.reason });
+			return answered;
 		},
 		async transform(request) {
-			try {
-				return await bridge.app<Awaited<ReturnType<Workspace['transform']>>>(
-					'transform',
-					request,
-				);
-			} catch (cause) {
-				return TransformationError.HostUnavailable({ reason: describe(cause) });
-			}
+			let route: Route;
+			const answered = await transformOverConnection(
+				async () => {
+					route = await connections.route('text');
+					return route?.stored;
+				},
+				request,
+				(url, init) => (route as NonNullable<Route>).send(url, init),
+			);
+			const { error } = answered;
+			if (error?.name === 'Unreachable')
+				return TransformationError.HostUnavailable({ reason: error.reason });
+			return answered;
 		},
 		transformNote:
-			'Requests are sent by Whispering’s host, not by this window, over the text connection in Settings. Its key is never given to the window or written to the folder.',
-		closing: {
-			onRequest(listener) {
-				closeListeners.add(listener);
-				if (closeAsked) {
-					closeAsked = false;
-					listener();
-				}
-				return () => closeListeners.delete(listener);
-			},
-			// An answer that cannot be delivered rejects. The host may or may not
-			// have taken it; the guard decides what the person is shown.
-			async answer(decision) {
-				await bridge.app('close', { decision });
-			},
-			// With the host gone there is no bridge. The shell raises this event in
-			// the page, and watches for a navigation to the quit address, which it
-			// refuses to load and treats as the answer.
-			onRequestWithoutHost(listener) {
-				hostGoneListeners.add(listener);
-				if (closeAskedWithoutHost) {
-					closeAskedWithoutHost = false;
-					listener();
-				}
-				return () => hostGoneListeners.delete(listener);
-			},
-			quitWithoutHost() {
-				window.location.assign(`${connection.origin}${QUIT_PATH}`);
-			},
-		},
-		// The host holds the keys and answers with what is set, never a key.
+			'Requests are sent by Epicenter, not by this window, over the text connection in Settings. Its endpoint and key stay in this computer’s keychain and are never given to the window or written to a folder.',
+		localTranscription: createLocalTranscription({
+			commands: native,
+			readAudio: readBytes,
+		}),
 		connections: {
 			storedIn:
-				'this folder’s private .git directory; Git never commits it, but copying the whole directory carries it',
-			defaults: info.defaults,
-			read: () => bridge.app<ConnectionsInfo>('connections'),
-			async set(operation, change) {
-				try {
-					return Ok(
-						await bridge.app<ConnectionsInfo>('set-connection', {
-							operation,
-							...change,
-						}),
-					);
-				} catch (cause) {
-					return Err(describe(cause));
-				}
+				'Epicenter’s AI connections, which follow you wherever Epicenter’s folder syncs; the endpoint and key are kept in this computer’s keychain',
+			defaults: {
+				transcription: DEFAULT_TRANSCRIPTION_CONNECTION,
+				text: { baseUrl: DEFAULT_TRANSCRIPTION_CONNECTION.baseUrl, model: '' },
 			},
-			async adoptLegacyKey(targets) {
-				try {
-					return Ok(
-						await bridge.app<ConnectionsInfo>('adopt-legacy-key', { targets }),
-					);
-				} catch (cause) {
-					return Err(describe(cause));
-				}
-			},
+			read: connections.read,
+			set: connections.set,
 		},
-		// The page is served from a new port on every launch, so its own storage
-		// does not last. The host keeps the choice in the device file instead.
-		preferences: {
-			microphone: async () =>
-				(await bridge.app<DevicePreferences>('preferences')).microphone ??
-				undefined,
-			async setMicrophone(microphone) {
-				try {
-					await bridge.app('set-preferences', {
-						microphone: microphone ?? null,
-					});
-					return undefined;
-				} catch (cause) {
-					return describe(cause);
-				}
-			},
-		},
-		debugControls: info.debug,
-		injection: info.debug
-			? {
-					state: () => bridge.app<InjectionState>('injection'),
-					arm: (change) => bridge.app<InjectionState>('inject', change),
-					// The host only places and removes the obstacle. A host that cannot
-					// be asked places none, and the write is made all the same.
-					async aroundRecordingWrite(write, run) {
-						const placed = await bridge
-							.app<{ obstacle: string | null }>('obstruct', write)
-							.catch(() => undefined);
-						try {
-							return await run();
-						} finally {
-							if (placed?.obstacle != null)
-								await bridge
-									.app('unobstruct', { obstacle: placed.obstacle })
-									.catch(() => {});
-						}
-					},
-				}
-			: undefined,
-		// Stop hearing the host, then detach from the owner. Detaching commits
-		// nothing: saves the owner admitted still land, and it keeps the folder.
-		async close() {
-			window.removeEventListener(CLOSE_BLOCKED_EVENT, closeBlocked);
-			await stopWatching();
-			await folder.close();
+		preferences: localPreferences,
+		// Closing the folders waits for the saves already under way and commits
+		// nothing.
+		close: async () => {
+			await Promise.all([folder.close(), connections.close()]);
 		},
 	});
 }
+
+/** The `#platform/workspace` leaf of the build Epicenter serves. */
+export const openWorkspace: OpenWorkspace = () => openDesktopWorkspace();

@@ -1,44 +1,53 @@
 /**
  * Entry card tests.
- * The real `EntryCard` is mounted in jsdom over the real words list on
- * Vocab's real browser folder over an in-memory OPFS stand-in that can fail a
- * write or be changed the way another program would. Typing, focusing, and
- * pressing buttons are DOM events. This shows what a delivered event does;
- * jsdom has no layout, focus, selection, or IME, so it says nothing about
- * whether a person can deliver it.
+ * The real `EntryCard` is mounted in jsdom over the real Vocab owner and its
+ * query cache, on Vocab's real browser folder over an in-memory OPFS
+ * stand-in that can fail a write. Each card is given its word from the
+ * cached listing, as the words list gives it. Typing and pressing buttons
+ * are DOM events. This shows what a delivered event does; jsdom has no
+ * layout, focus, selection, or IME, so it says nothing about whether a
+ * person can deliver it.
  *
  * Key behaviors:
- * - The note is read-only until focusing it opens the word; each keystroke
- *   then saves
- * - A change made elsewhere asks Reload theirs or Keep mine; a word deleted
- *   elsewhere asks Discard or Keep mine
- * - A stage pressed on a word that is not open saves it as listed
+ * - The note is editable at once and written a second after the last
+ *   keystroke, or at once when the learner leaves it or the card goes away
+ * - The typed note survives the list being read again before it is sent
+ * - A stage press is written at once, and does not undo a note typed
+ *   meanwhile
+ * - A save that fails keeps the note on screen and is reported, and Try
+ *   again writes it
  * - Delete asks first; Cancel changes nothing, and confirming deletes it
- * - Opening another word after a failed save asks to discard it
  *
  * The confirmation is the shared dialog's state, answered as its buttons
  * would; the dialog's own markup is not mounted here.
  */
-import './svelte-dom.test-support.js';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
-import type { Entry } from '../../lib/data.js';
 import {
-	createBrowser,
-	entriesOf,
-	fileText,
-} from '../../lib/folder.test-support.js';
-import { click, type } from './svelte-dom.test-support.js';
+	blur,
+	click,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { readEntry, readRows, type vocabFolder } from '../../lib/data.js';
+import type { EntryListing } from '../../lib/entries.svelte.js';
+import { createBrowser, fileText } from '../../lib/folder.test-support.js';
+import { cached, observe, quiet } from '../../lib/query.test-support.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { createEntriesState } = await import('../../lib/entries.svelte.js');
+const { createVocab } = await import('../../lib/vocab.svelte.js');
 const { confirmationDialog } = await import(
 	'@epicenter/ui/confirmation-dialog'
 );
 const { cardProps } = await import('./card-props.test-support.svelte.js');
-const { default: EntryCard } = await import('./EntryCard.svelte');
+const { default: EntryCardHost } = await import(
+	'./fixtures/EntryCardHost.svelte'
+);
 
-/** Let the folder answer and the cards catch up. */
+/** Let the folder answer and the card catch up. */
 async function until(done: () => boolean, what: string) {
 	for (let attempt = 0; attempt < 200; attempt++) {
 		flushSync();
@@ -48,202 +57,178 @@ async function until(done: () => boolean, what: string) {
 	throw new Error(`Timed out waiting for ${what}`);
 }
 
-/** One card per word, mounted in order. */
-async function setup(texts: string[]) {
+/** One card for `text`, given its word from the cache whenever the cache changes. */
+async function setup(text: string) {
 	const browser = createBrowser();
 	const folder = await browser.open();
-	const entries = createEntriesState(entriesOf(folder));
-	for (const text of texts) expectOk(await entries.add(text));
-	const byText = (text: string): Entry => {
-		const entry = entries.entries.find((candidate) => candidate.text === text);
-		if (entry === undefined) throw new Error(`${text} is not listed`);
-		return entry;
-	};
+	const failures: WriteFailure[] = [];
+	const opened = createFolderContext<typeof vocabFolder>(folder, {
+		writeFailed: (failure) => failures.push(failure),
+	});
+	const vocab = createVocab(opened);
+	const stop = observe(vocab);
+	await quiet(vocab);
+	expectOk(await vocab.entries.add(text));
+	await quiet(vocab);
+	const props = cardProps(vocab.entries, cached(vocab, text));
+	// The words list passes each card its word as the cache now holds it.
+	const unsubscribe = vocab.queryClient.getQueryCache().subscribe(() => {
+		const listed = vocab.queryClient.getQueryData<EntryListing>(
+			vocab.queries.entries.list.queryKey(),
+		);
+		const entry =
+			listed &&
+			readRows('entries', listed, readEntry).rows.find(
+				(candidate) => candidate.text === text,
+			);
+		if (entry !== undefined) props.entry = entry;
+	});
 	const target = document.createElement('div');
 	document.body.append(target);
-	const cards = texts.map((text) => {
-		const element = document.createElement('div');
-		target.append(element);
-		return mount(EntryCard, {
-			target: element,
-			props: cardProps(entries, byText(text)),
-		});
+	const card = mount(EntryCardHost, {
+		target,
+		props: { client: vocab.queryClient, card: props },
 	});
 	flushSync();
-	const { faults } = browser.opfs;
-	const path = (text: string) => byText(text).stored.path;
-	const field = (text: string) =>
+	const path = cached(vocab, text).stored.path;
+	const note = () =>
 		target.querySelector<HTMLTextAreaElement>(
 			`textarea[aria-label="Your note for ${text}"]`,
 		) ?? undefined;
 	return {
 		folder,
-		entries,
+		vocab,
 		target,
-		byText,
+		failures,
 		path,
-		field,
-		file: (text: string) => fileText(folder, path(text)),
-		/** Focus the note, as a click or a tab into it would, and wait for the word to open. */
-		async focus(text: string) {
-			field(text)?.dispatchEvent(new window.FocusEvent('focus'));
-			await until(() => field(text)?.readOnly === false, `${text} to open`);
-		},
-		/** The next write of `text`'s file fails. */
-		failWrite(text: string) {
-			const failing = path(text);
-			faults.write = (key) => {
-				if (!key.endsWith(failing)) return undefined;
-				faults.write = undefined;
+		note,
+		/** Take the card away, as the list does when the word leaves it. */
+		unmount: () => void unmount(card),
+		file: () => fileText(folder, path),
+		/** The next write of the word's file fails. */
+		failWrite() {
+			browser.opfs.faults.write = (key) => {
+				if (!key.endsWith(path)) return undefined;
+				browser.opfs.faults.write = undefined;
 				return 'fail';
 			};
 		},
 		async [Symbol.asyncDispose]() {
 			confirmationDialog.close();
-			for (const card of cards) void unmount(card);
+			void unmount(card);
+			unsubscribe();
+			stop();
 			target.remove();
-			await entries.close();
+			await opened.close();
 			await browser[Symbol.asyncDispose]();
 		},
 	};
 }
 
-const theirs = (stage: string) =>
-	`---\ntext: lucid\nnote: theirs\nstage: ${stage}\ncreatedAt: 2026-10-03T00:00:00.000Z\n---\n`;
-
-test('the note is read-only until focusing it opens the word, and each keystroke then saves', async () => {
-	await using context = await setup(['lucid']);
-	const note = context.field('lucid');
-	expect(note?.readOnly).toBe(true);
-	await context.focus('lucid');
+test('the note is editable at once, and written a second after the last keystroke', async () => {
+	await using context = await setup('lucid');
+	const note = context.note();
+	expect(note?.readOnly).toBe(false);
+	type(note, 'c');
 	type(note, 'clear');
-	await until(() => context.entries.unsaved === false, 'the save');
-	expect(await context.file('lucid')).toContain('note: clear');
+	await quiet(context.vocab);
+	expect(await context.file()).not.toContain('note: clear');
+	await Bun.sleep(1100);
+	await quiet(context.vocab);
+	expect(await context.file()).toContain('note: clear');
+	expect(context.failures).toEqual([]);
 });
 
-test('a change made elsewhere asks Reload theirs or Keep mine', async () => {
-	await using context = await setup(['lucid']);
-	const { target } = context;
-	const note = context.field('lucid');
-	await context.focus('lucid');
-	expectOk(
-		await context.folder.files.overwrite(
-			context.path('lucid'),
-			theirs('usable'),
-		),
-	);
-	type(note, 'mine');
-	await until(
-		() => target.textContent?.includes('This changed elsewhere') ?? false,
-		'the conflict',
-	);
+test('leaving the note writes it at once, and so does the card going away', async () => {
+	await using context = await setup('lucid');
+	type(context.note(), 'left');
+	blur(context.note());
+	await quiet(context.vocab);
+	expect(await context.file()).toContain('note: left');
 
-	click(target, 'Reload theirs');
-	await until(() => note?.value === 'theirs', 'their note');
-	expect(await context.file('lucid')).toBe(theirs('usable'));
-
-	expectOk(
-		await context.folder.files.overwrite(context.path('lucid'), theirs('new')),
-	);
-	type(note, 'mine again');
-	await until(
-		() => target.textContent?.includes('This changed elsewhere') ?? false,
-		'the second conflict',
-	);
-	click(target, 'Keep mine');
-	await until(
-		() => !(target.textContent?.includes('This changed elsewhere') ?? true),
-		'the prompt to close',
-	);
-	await until(() => context.entries.unsaved === false, 'the save');
-	expect(await context.file('lucid')).toContain('note: mine again');
+	type(context.note(), 'gone');
+	flushSync();
+	context.unmount();
+	await quiet(context.vocab);
+	expect(await context.file()).toContain('note: gone');
 });
 
-test('a word deleted elsewhere asks Discard or Keep mine; Keep mine creates it again', async () => {
-	await using context = await setup(['lucid']);
-	const { folder, target } = context;
-	const path = context.path('lucid');
-	await context.focus('lucid');
-	expectOk(await folder.files.remove(expectOk(await folder.files.read(path))));
-	type(context.field('lucid'), 'still mine');
-	await until(
-		() => target.textContent?.includes('This was deleted elsewhere') ?? false,
-		'the conflict',
+test('the typed note survives the list being read again before it is sent', async () => {
+	await using context = await setup('lucid');
+	type(context.note(), 'mine');
+	await context.vocab.queryClient.invalidateQueries(
+		context.vocab.queries.pathFilter([context.path]),
 	);
-	click(target, 'Keep mine');
+	await quiet(context.vocab);
+	flushSync();
+	expect(context.note()?.value).toBe('mine');
+	blur(context.note());
+	await quiet(context.vocab);
+	expect(await context.file()).toContain('note: mine');
+});
+
+test('a stage press is written at once, and does not undo a note typed meanwhile', async () => {
+	await using context = await setup('lucid');
+	type(context.note(), 'clear');
+	click(context.target, 'Understand');
+	await quiet(context.vocab);
+	flushSync();
+	expect(await context.file()).toContain('stage: understood');
+	const pressed = [...context.target.querySelectorAll('button')].find(
+		(button) => button.getAttribute('aria-pressed') === 'true',
+	);
+	expect(pressed?.textContent?.trim()).toBe('Understand');
+	expect(context.note()?.value).toBe('clear');
+
+	blur(context.note());
+	await quiet(context.vocab);
+	const file = await context.file();
+	expect(file).toContain('note: clear');
+	expect(file).toContain('stage: understood');
+});
+
+test('a save that fails keeps the note on screen and is reported, and Try again writes it', async () => {
+	await using context = await setup('lucid');
+	context.failWrite();
+	type(context.note(), 'kept');
+	blur(context.note());
+	await quiet(context.vocab);
+	flushSync();
+	expect(context.note()?.value).toBe('kept');
+	expect(context.failures.map((failure) => failure.path)).toEqual([
+		context.path,
+	]);
+	expect(await context.file()).not.toContain('kept');
+
+	// TanStack hands the card its mutation's failure on a later turn.
 	await until(
 		() =>
-			context.entries.unsaved === false &&
-			context.entries.opened?.kind === 'word',
-		'the recreate',
+			[...context.target.querySelectorAll('button')].some(
+				(button) => button.textContent?.trim() === 'Try again',
+			),
+		'Try again',
 	);
+	click(context.target, 'Try again');
+	await quiet(context.vocab);
 	await until(
-		() => !(target.textContent?.includes('deleted elsewhere') ?? true),
-		'the prompt to close',
+		() => context.note()?.value === 'kept',
+		'the saved note in the list',
 	);
-	expect(await fileText(folder, path)).toContain('note: still mine');
-
-	expectOk(await folder.files.remove(expectOk(await folder.files.read(path))));
-	type(context.field('lucid'), 'gone');
-	await until(
-		() => target.textContent?.includes('This was deleted elsewhere') ?? false,
-		'the second conflict',
-	);
-	click(target, 'Discard');
-	await until(() => context.entries.opened === undefined, 'the word to close');
-	expect(await fileText(folder, path)).toBeUndefined();
-});
-
-test('a stage pressed on a word that is not open saves it as listed', async () => {
-	await using context = await setup(['lucid']);
-	click(context.target, 'Understand');
-	await until(
-		() => context.byText('lucid').stage === 'understood',
-		'the stage to save',
-	);
-	expect(await context.file('lucid')).toContain('stage: understood');
-	expect(context.entries.opened).toBeUndefined();
+	expect(await context.file()).toContain('note: kept');
 });
 
 test('Delete asks first; Cancel changes nothing, and confirming deletes the word', async () => {
-	await using context = await setup(['lucid']);
-	const { entries, target } = context;
-	const before = await context.file('lucid');
-	click(target, 'Delete');
+	await using context = await setup('lucid');
+	const before = await context.file();
+	click(context.target, 'Delete');
 	expect(confirmationDialog.isOpen).toBe(true);
 	expect(confirmationDialog.options?.title).toContain('lucid');
 	confirmationDialog.cancel();
 	await Bun.sleep(10);
-	expect(await context.file('lucid')).toBe(before);
+	expect(await context.file()).toBe(before);
 
-	const path = context.path('lucid');
-	click(target, 'Delete');
+	click(context.target, 'Delete');
 	await confirmationDialog.confirm();
-	expect(entries.entries).toEqual([]);
-	expect(await fileText(context.folder, path)).toBeUndefined();
-});
-
-test('opening another word after a failed save asks to discard it', async () => {
-	await using context = await setup(['lucid', 'candid']);
-	const { entries } = context;
-	await context.focus('lucid');
-	context.failWrite('lucid');
-	type(context.field('lucid'), 'lost');
-	await until(
-		() =>
-			entries.opened?.kind === 'word' &&
-			entries.opened.session.state.status === 'error',
-		'the save to fail',
-	);
-
-	context.field('candid')?.dispatchEvent(new window.FocusEvent('focus'));
-	await until(() => confirmationDialog.isOpen, 'the question');
-	expect(confirmationDialog.options?.title).toBe('Discard unsaved changes?');
-	expect(entries.opened?.id).toBe(context.byText('lucid').id);
-	await confirmationDialog.confirm();
-	await until(
-		() => context.field('candid')?.readOnly === false,
-		'candid to open',
-	);
-	expect(await context.file('lucid')).not.toContain('lost');
+	await quiet(context.vocab);
+	expect(await context.file()).toBeUndefined();
 });

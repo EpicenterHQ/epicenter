@@ -1,29 +1,16 @@
 "$schema" = "schemas/schema.json"
 
 # Granting this to a window lets it call the plugin. It does not choose a
-# folder: a window reaches only the scopes the shell registered for its label.
+# folder: a window reaches only the scope the shell registered for its label.
 [default]
-description = "Attach to the folders the shell registered for this window, then read, publish, and record history through them."
+description = "Ask which app this window runs and the folder the shell handed it, ask for the folder the shell registered for this window, then read and change its files through the shell."
 permissions = [
-  "allow-attach",
-  "allow-detach",
-  "allow-list",
-  "allow-children",
-  "allow-read",
-  "allow-read-many",
-  "allow-apply",
-  "allow-mkdir",
-  "allow-rmdir",
-  "allow-status",
-  "allow-commit",
-  "allow-open-request",
-  "allow-withdraw-request",
-  "allow-push",
-  "allow-fetch",
-  "allow-pull-fast-forward",
-  "allow-merge-incoming",
-  "allow-recover-incoming",
-  "allow-paths",
-  "allow-diff",
-  "allow-log",
+  "allow-window-folder",
+  "allow-grant-directory",
+  "allow-list-folder",
+  "allow-read-folder-children",
+  "allow-read-folder-file",
+  "allow-put-folder-file",
+  "allow-make-folder-directory",
+  "allow-remove-folder-directory",
 ]

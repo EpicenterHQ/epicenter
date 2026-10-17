@@ -1,22 +1,22 @@
 /**
- * Prepare developer declarations for reading.
+ * Prepare developer definitions for reading.
  *
- * A field is a native TypeBox schema, and a prepared definition has the shape
- * it was declared in: `kv` and each table's `fields` are records of native
- * schemas. Preparation adds what a declaration cannot say by itself: usable
+ * A field is a native TypeBox schema, and a prepared definition has the
+ * structure it was written in: each table's `fields` is a record of native
+ * schemas. Preparation adds what a definition cannot say by itself: usable
  * names, an owned frozen snapshot of each schema, and TypeBox's compiled
  * validator for that snapshot, held privately beside it.
  *
  * A prepared field is plain JSON: the schema a file holds, frozen, so a
- * declaration in code and the same declaration read from a file validate
+ * definition in code and the same definition read from a file validate
  * alike. Preparation refuses what JSON cannot hold, including native
  * callbacks.
  *
  * The one read is {@link check}. It asks whether a value is JSON before the
  * schema's validator sees it, and never changes the value it is given. A
  * `default` annotation is inert: nothing fills a missing value. Absence is an
- * issue only for a required field; `field.optional` and every KV field may be
- * absent.
+ * issue only for a required field; a `field.optional` field may be absent.
+ * The `settings` table declares only `field.optional` fields.
  */
 
 import { type TSchema, Type } from 'typebox';
@@ -25,22 +25,18 @@ import { Format } from 'typebox/format';
 import { Resolve } from 'typebox/schema';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result, trySync } from 'wellcrafted/result';
-import { DATA_ADDRESS_CEILINGS, isDataId, isTableName } from './addresses.js';
-import {
-	type ConformanceIssue,
-	type DataDefinition,
-	type DataSchema,
-	type FieldMap,
-	KV_ROOT,
-	RESERVED_TABLE_NAMES,
-	type TableBody,
-	type TableDeclaration,
+import type {
+	ConformanceIssue,
+	Definition,
+	FieldMap,
+	TableDeclaration,
 } from './declaration.js';
 import { isJsonSafe, type JsonObject, type JsonValue } from './json.js';
+import { isTableName } from './table-name.js';
 
-export const DataDefinitionParseError = defineErrors({
+export const DefinitionError = defineErrors({
 	Malformed: ({ reason }: { reason: string }) => ({
-		message: `This data definition is not well formed: ${reason}`,
+		message: `This definition is not well formed: ${reason}`,
 		reason,
 	}),
 	UnrecognizedField: ({
@@ -58,206 +54,181 @@ export const DataDefinitionParseError = defineErrors({
 		reason,
 	}),
 });
-export type DataDefinitionParseError = InferErrors<
-	typeof DataDefinitionParseError
->;
+export type DefinitionError = InferErrors<typeof DefinitionError>;
 
 export type Conformance = {
 	conforming: JsonObject;
 	issues: ConformanceIssue[];
 };
 
-/** One memo per shape, so a definition and a schema never answer for each other. */
-type Memo = WeakMap<object, Result<DataSchema, DataDefinitionParseError>>;
-const preparedDefinitions: Memo = new WeakMap();
-const preparedSchemas: Memo = new WeakMap();
+const preparedDefinitions = new WeakMap<
+	object,
+	Result<Definition, DefinitionError>
+>();
 
 /**
  * Check one definition and return the copy every read uses (ADR-0266).
  *
- * The result has the declared shape and the declared type: `id`, an optional
- * `title`, `kv`, and `tables`, each table holding `fields` and its optional
- * `body`. It is owned here. Every field is the declared schema's frozen JSON
- * (see `plainSchema`). `kv`, `tables`, and each `fields` are frozen
- * records without a prototype, so a name like `constructor` reads as its own
- * entry or as nothing. A body conversion is carried by reference and never
- * read.
+ * The result has the given structure and type: an optional
+ * `title` and `local`, and `tables`, each table holding `fields` and, when it
+ * is closed, `additionalProperties`. It is owned here. Every field is the
+ * declared schema's frozen JSON (see `plainSchema`). `tables` and each
+ * `fields` are frozen records without a prototype, so a name like
+ * `constructor` reads as its own entry or as nothing.
+ *
+ * A definition holds `title`, `local`, and `tables` and nothing else: any
+ * other own key, such as an `id` naming a dataset, is malformed.
  *
  * Names come from the record keys and are stored nowhere else. No field or
  * table name can be an integer, so a record keeps its declaration order.
  *
- * Memoised on object identity, for the declaration handed in and for the
- * definition handed back, so preparing a prepared definition returns it. The
- * memo is what makes eager validation free: `defineStore` prepares at the
- * authoring call so a malformed definition fails there, not at first open,
- * and an opener given that result does no work twice.
- *
- * Identity keying means a declaration MUTATED IN PLACE reads back its old
- * preparation. That is the intent: the prepared definition is a snapshot.
+ * Memoised on object identity, for the definition handed in and for the one
+ * handed back, so preparing a prepared definition returns it. Identity
+ * keying means a definition MUTATED IN PLACE reads back its old preparation.
+ * That is the intent: the prepared definition is a snapshot.
  */
-export function prepareData<TDefinition extends DataDefinition>(
+export function prepareDefinition<TDefinition extends Definition>(
 	value: TDefinition,
-): Result<TDefinition, DataDefinitionParseError> {
-	// The snapshot has the declared shape, so it has the declared type.
-	return memoised(preparedDefinitions, value, prepareDefinition) as Result<
-		TDefinition,
-		DataDefinitionParseError
-	>;
+): Result<TDefinition, DefinitionError> {
+	return memoised(value) as Result<TDefinition, DefinitionError>;
 }
 
-/**
- * Check one schema, a declaration that names no dataset, and return the copy
- * every read uses.
- *
- * Everything {@link prepareData} says holds, except the identity: the result
- * is an optional `title`, `kv`, and `tables`, and a declaration with an own
- * `id` is malformed. A storage that selects its dataset when it opens takes
- * the ID there, so an ID here would name nothing. The memo is its own: a
- * prepared definition is not a prepared schema, and the reverse.
- */
-export function prepareSchema<
-	TSchema extends DataSchema & { readonly id?: never },
->(value: TSchema): Result<TSchema, DataDefinitionParseError> {
-	return memoised(preparedSchemas, value, prepareIdentityFree) as Result<
-		TSchema,
-		DataDefinitionParseError
-	>;
-}
-
-function memoised(
-	memo: Memo,
-	value: unknown,
-	prepare: (value: unknown) => Result<DataSchema, DataDefinitionParseError>,
-): Result<DataSchema, DataDefinitionParseError> {
-	// A declaration that arrived untyped may not be an object, and only an
+function memoised(value: unknown): Result<Definition, DefinitionError> {
+	// A definition that arrived untyped may not be an object, and only an
 	// object can be a memo key.
-	if (typeof value !== 'object' || value === null) return prepare(value);
-	const found = memo.get(value);
+	if (typeof value !== 'object' || value === null) return prepareRoot(value);
+	const found = preparedDefinitions.get(value);
 	if (found !== undefined) return found;
-	const result = prepare(value);
-	memo.set(value, result);
-	if (result.error === null) memo.set(result.data, result);
+	const result = prepareRoot(value);
+	preparedDefinitions.set(value, result);
+	if (result.error === null) preparedDefinitions.set(result.data, result);
 	return result;
 }
 
-function prepareDefinition(
-	value: unknown,
-): Result<DataDefinition, DataDefinitionParseError> {
+function prepareRoot(value: unknown): Result<Definition, DefinitionError> {
 	if (!isPlainObject(value))
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: 'it is not a plain object',
 		});
-	const { id } = value as Partial<DataDefinition>;
-	if (typeof id !== 'string' || !isDataId(id, DATA_ADDRESS_CEILINGS)) {
-		return DataDefinitionParseError.Malformed({
-			reason: 'it declares an invalid id',
-		});
-	}
-	const schema = prepareShape(value);
-	if (schema.error !== null) return schema;
-	return Ok(Object.freeze({ id, ...schema.data }));
-}
-
-function prepareIdentityFree(
-	value: unknown,
-): Result<DataSchema, DataDefinitionParseError> {
-	if (!isPlainObject(value))
-		return DataDefinitionParseError.Malformed({
-			reason: 'it is not a plain object',
-		});
-	if (Object.hasOwn(value, 'id'))
-		return DataDefinitionParseError.Malformed({
-			reason: 'it declares an id, and a schema names no dataset',
+	const unknown = Object.keys(value).filter(
+		(key) => key !== 'title' && key !== 'local' && key !== 'tables',
+	);
+	if (unknown.length > 0)
+		return DefinitionError.Malformed({
+			reason: `it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a schema declares title, local, and tables`,
 		});
 	return prepareShape(value);
 }
 
-/** The prepared title, kv, and tables of a plain-object declaration. */
+/** The prepared title, local patterns, and tables of a plain-object definition. */
 function prepareShape(
 	value: Record<string, unknown>,
-): Result<DataSchema, DataDefinitionParseError> {
-	const { title, kv, tables } = value as Partial<DataSchema>;
+): Result<Definition, DefinitionError> {
+	const { title, tables, local } = value as Partial<Definition>;
 	if (
 		title !== undefined &&
 		(typeof title !== 'string' || title.trim() === '')
 	) {
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: 'its title must say something or be absent',
 		});
 	}
-	if (!isPlainObject(kv))
-		return DataDefinitionParseError.Malformed({
-			reason: 'it declares no kv section',
-		});
+	const localProblem = local === undefined ? undefined : localProblemOf(local);
+	if (localProblem !== undefined)
+		return DefinitionError.Malformed({ reason: localProblem });
 	if (!isPlainObject(tables))
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: 'it declares no tables',
 		});
 
-	// Every KV field is optional: an unset key means the application's default.
-	const preparedKv = prepareFields(KV_ROOT, kv, { allOptional: true });
-	if (preparedKv.error !== null) return preparedKv;
 	const preparedTables: Record<string, TableDeclaration> = Object.create(null);
 	const foldedNames = new Set<string>();
 	for (const [tableName, declaration] of Object.entries(tables)) {
-		if (
-			!isTableName(tableName, DATA_ADDRESS_CEILINGS) ||
-			RESERVED_TABLE_NAMES.includes(tableName)
-		) {
-			return DataDefinitionParseError.Malformed({
+		if (!isTableName(tableName)) {
+			return DefinitionError.Malformed({
 				reason: `table name '${tableName}' is not usable`,
 			});
 		}
 		const folded = tableName.toLowerCase();
 		if (foldedNames.has(folded)) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `table names collide case-insensitively: '${tableName}'`,
 			});
 		}
 		foldedNames.add(folded);
 		if (!isPlainObject(declaration)) {
-			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' must declare fields and an optional body codec`,
+			return DefinitionError.Malformed({
+				reason: `table '${tableName}' must declare fields`,
 			});
 		}
 		const table = declaration as TableDeclaration;
-		if (Object.keys(table).some((key) => key !== 'fields' && key !== 'body')) {
-			return DataDefinitionParseError.Malformed({
+		if (
+			Object.keys(table).some(
+				(key) => key !== 'fields' && key !== 'additionalProperties',
+			)
+		) {
+			return DefinitionError.Malformed({
 				reason: `table '${tableName}' declares an unknown option`,
 			});
 		}
-		if (table.body !== undefined && !isBodyCodec(table.body)) {
-			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' declares an invalid body codec`,
-			});
+		if (Object.hasOwn(table, 'additionalProperties')) {
+			if (table.additionalProperties !== false)
+				return DefinitionError.Malformed({
+					reason: `table '${tableName}' declares additionalProperties; the only value is false, which closes the table`,
+				});
 		}
-		const fields = prepareFields(tableName, table.fields, {
-			allOptional: false,
-		});
+		const fields = prepareFields(tableName, table.fields);
 		if (fields.error !== null) return fields;
 		// One declared table reused under two names is prepared once per name.
 		preparedTables[tableName] = Object.freeze({
 			fields: fields.data,
-			...(table.body === undefined ? {} : { body: table.body }),
+			...(table.additionalProperties === false
+				? { additionalProperties: false as const }
+				: {}),
 		});
 	}
 	return Ok(
 		Object.freeze({
 			...(title === undefined ? {} : { title }),
-			kv: preparedKv.data,
+			// Sorted and once each, so a declaration's bytes do not depend on
+			// the order its patterns were written in.
+			...(local === undefined
+				? {}
+				: { local: Object.freeze([...new Set(local)].sort()) }),
 			// `defineTable`'s mark is a type and nothing at run time.
-			tables: Object.freeze(preparedTables) as DataSchema['tables'],
+			tables: Object.freeze(preparedTables) as Definition['tables'],
 		}),
 	);
+}
+
+/**
+ * Why `local` cannot be written as `.gitignore` lines, or `undefined`. A
+ * negation is refused because a storage appends a missing pattern after a
+ * person's own lines, so what it would re-include is not the schema's to
+ * decide.
+ */
+function localProblemOf(local: unknown): string | undefined {
+	if (!Array.isArray(local))
+		return 'its local must be a list of .gitignore patterns';
+	for (const pattern of local) {
+		if (typeof pattern !== 'string' || pattern === '')
+			return 'each local pattern must be a nonempty string';
+		if (/[\r\n]/.test(pattern))
+			return `the local pattern '${pattern}' must be one line`;
+		if (pattern.trim() !== pattern)
+			return `the local pattern '${pattern}' has surrounding whitespace`;
+		if (pattern.startsWith('#') || pattern.startsWith('!'))
+			return `the local pattern '${pattern}' must ignore files; it cannot be a comment or a negation`;
+	}
+	return undefined;
 }
 
 function prepareFields(
 	tableName: string,
 	declaration: unknown,
-	{ allOptional }: { allOptional: boolean },
-): Result<FieldMap, DataDefinitionParseError> {
+): Result<FieldMap, DefinitionError> {
 	if (!isPlainObject(declaration))
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: `table '${tableName}' does not declare a flat field map`,
 		});
 	const fields: Record<string, TSchema & object> = Object.create(null);
@@ -266,12 +237,12 @@ function prepareFields(
 			fieldName.toLowerCase() === 'id' ||
 			!/^[A-Za-z!][A-Za-z0-9_!]*$/.test(fieldName)
 		) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `field name '${tableName}.${fieldName}' is not usable`,
 			});
 		}
 		const unrecognized = (reason: string) =>
-			DataDefinitionParseError.UnrecognizedField({
+			DefinitionError.UnrecognizedField({
 				table: tableName,
 				field: fieldName,
 				reason,
@@ -282,10 +253,7 @@ function prepareFields(
 		if (problem !== undefined) return unrecognized(problem);
 		const field = trySync({
 			try: () => {
-				const schema = plainSchema(
-					declared,
-					allOptional || Type.IsOptional(declared),
-				);
+				const schema = plainSchema(declared, Type.IsOptional(declared));
 				validators.set(schema, Compile(schema));
 				return schema;
 			},
@@ -312,7 +280,7 @@ function validatorOf(schema: TSchema & object): ReturnType<typeof Compile> {
 	const validator = validators.get(schema);
 	if (validator === undefined)
 		throw new Error(
-			'This schema was not prepared. Read fields from the definition that prepareData, prepareSchema, defineStore, or defineFolder returned.',
+			'This schema was not prepared. Read fields from the schema that prepareDefinition or defineFolder returned.',
 		);
 	return validator;
 }
@@ -327,14 +295,12 @@ export function isOptional(schema: TSchema & object): boolean {
  *
  * - `read`: a stored payload. A key the fields do not declare is ignored.
  * - `input`: a whole row being written. An undeclared key is an issue.
- * - `patch`: some fields being written. An undeclared key is an issue and an
- *   absent field is not.
  *
- * In every mode an absent required field is an issue, except `patch`, and an
- * absent optional field is not. A top-level key holding `undefined` is
- * absent; inside a value, `undefined` is not JSON and is an issue.
+ * In both modes an absent required field is an issue and an absent optional
+ * field is not. A top-level key holding `undefined` is absent; inside a
+ * value, `undefined` is not JSON and is an issue.
  */
-export type CheckMode = 'read' | 'input' | 'patch';
+export type CheckMode = 'read' | 'input';
 
 /**
  * Check values against prepared fields, one field at a time, so a field that
@@ -359,7 +325,7 @@ export function check(
 			? values[fieldName]
 			: undefined;
 		if (value === undefined) {
-			if (mode !== 'patch' && !isOptional(schema))
+			if (!isOptional(schema))
 				issues.push({ field: fieldName, message: `${fieldName} is missing` });
 			continue;
 		}
@@ -629,14 +595,6 @@ function plainSchema(declared: object, optional: boolean): TSchema & object {
 		pending.push(...Object.values(value));
 	}
 	return plain;
-}
-
-/** Check both conversion verbs at the runtime definition boundary. */
-function isBodyCodec(value: unknown): value is TableBody {
-	const codec = value as Partial<TableBody> | undefined;
-	return (
-		typeof codec?.encode === 'function' && typeof codec.decode === 'function'
-	);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

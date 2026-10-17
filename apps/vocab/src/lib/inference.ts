@@ -1,6 +1,6 @@
-import { openEpicenterInference } from '@epicenter/app/ai';
-import { openLocalConnectionCatalog } from '@epicenter/app/ai-connections';
-import type { InferenceSources } from '@epicenter/app-shell/inference-target';
+import { openEpicenterInference } from '@epicenter/ai';
+import { openLocalConnectionCatalog } from '@epicenter/ai/connections';
+import type { InferenceSources } from '@epicenter/ai/target';
 import type { Account } from '@epicenter/auth';
 import { extractErrorMessage } from 'wellcrafted/error';
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/agent';
-	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
+	import { InferencePicker } from '@epicenter/ai/picker';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -12,11 +12,11 @@
 	import type { AgentMessage } from '@epicenter/agent';
 	import { auth } from '$lib/auth.svelte.js';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
-	import type { Admissions } from '@epicenter/svelte/admissions';
 	import type { VocabFolder } from '$lib/data.js';
-	import type { EntriesState } from '$lib/entries.svelte.js';
-	import type { InferenceCatalog } from '@epicenter/app-shell/inference-picker';
-	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import type { MessageWrite } from '$lib/chat/messages.js';
+	import type { Entries } from '$lib/entries.svelte.js';
+	import type { InferenceCatalog } from '@epicenter/ai/picker';
+	import type { InferenceSelections } from '@epicenter/ai/selections';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
 
@@ -27,7 +27,7 @@
 	let {
 		chatId,
 		folder,
-		admit,
+		write,
 		catalog,
 		selections,
 		entries,
@@ -38,10 +38,11 @@
 	}: {
 		chatId: string;
 		folder: Pick<VocabFolder, 'tables' | 'files'>;
-		admit: Admissions['admit'];
+		/** Saves each message as a mutation scoped to this chat. */
+		write: MessageWrite;
 		catalog: InferenceCatalog;
 		selections: InferenceSelections;
-		entries: EntriesState;
+		entries: Entries;
 		focus: readonly { text: string }[];
 		visible: boolean;
 		startOpening?: boolean;
@@ -51,15 +52,7 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ folder, admit, chatId, focus, catalog, selections });
-
-	/**
-	 * Whether leaving this chat would drop a message the folder has not
-	 * confirmed. The shell asks before it switches chats.
-	 */
-	export function hasUnsaved() {
-		return chat.unsaved.length > 0;
-	}
+	const chat = createVocabChat({ folder, write, chatId, focus, catalog, selections });
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -75,8 +68,6 @@
 	const lastMessage = $derived(chat.messages.at(-1));
 	const unsavedIds = $derived(new Set(chat.unsaved.map((unsaved) => unsaved.id)));
 </script>
-
-<svelte:window onbeforeunload={(event) => { if (hasUnsaved()) event.preventDefault(); }} />
 
 <PhraseCapture root={list} {entries} resetKey={`${chat.messages.length}:${chat.isGenerating}`} />
 
@@ -153,9 +144,9 @@
 				{#if chat.isSaving}
 					Saving again...
 				{:else if chat.unsaved[0]?.role === 'user'}
-					Your message is not saved, so the tutor has not been asked. It can be lost if Vocab closes.
+					Your message is not saved, so the tutor has not been asked. Copy it or save again before you leave this chat.
 				{:else}
-					The tutor's answer is not saved. It can be lost if Vocab closes.
+					The tutor's answer is not saved. Copy it or save again before you leave this chat.
 				{/if}
 			</span>
 			<div class="flex gap-1">

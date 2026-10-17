@@ -1,4 +1,5 @@
 import type { BetterAuthOptions } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { SESSION_POLICY } from './session-policy.js';
 
 export const AUTH_BASE_PATH = '/auth';
@@ -40,6 +41,23 @@ export const BASE_AUTH_CONFIG = {
 			// createAuth's requireAccountSession hook binds linking to the expected
 			// principal and requires a session younger than ten minutes.
 			allowDifferentEmails: true,
+		},
+	},
+	user: {
+		// Account deletion is Better Auth's `/delete-user`, behind the same
+		// session checks as every other account change (requireAccountSession).
+		// It refuses before any destructive work: complete removal of hosted
+		// data cannot yet be guaranteed (ADR-0360,
+		// apps/api/worker/account/README.md).
+		deleteUser: {
+			enabled: true,
+			beforeDelete: async () => {
+				throw new APIError('SERVICE_UNAVAILABLE', {
+					code: 'ACCOUNT_DELETION_UNAVAILABLE',
+					message:
+						'Account deletion is unavailable because complete removal of hosted data cannot yet be guaranteed. No deletion has started.',
+				});
+			},
 		},
 	},
 } satisfies BetterAuthOptions;
