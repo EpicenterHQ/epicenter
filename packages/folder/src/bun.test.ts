@@ -11,17 +11,23 @@
  *   its put stale against what that process saved, reads again, and merges
  * - Two processes appending to one file through the one write keep every
  *   line once
+ * - A save lock not taken in time is `NothingChanged`, so the put it guarded
+ *   is `Io`, never `Unconfirmed`, and leaves no staged file or new directory
  *
  * See also:
  * - `registry_tests.rs` in `tauri-plugin-epicenter-folder`, where a shell
  *   save waits for a Bun process holding the same lock
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { openDataFolder } from './bun.js';
+import { holdingFileLock, openDataFolder } from './bun.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
+import { NothingChanged } from './errors.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
+import { hashBytes } from './hash.js';
 
 const author = { name: 'Saver', email: 'saver@localhost' };
 
@@ -180,3 +186,75 @@ test('two processes appending to one file through the one write keep every line 
 		});
 	}
 }, 60_000);
+
+test('a save lock not taken in time changes nothing, so the put it guarded is Io', async () => {
+	const root = await scratch('bun-lock-refused-');
+	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
+	try {
+		const held = Promise.withResolvers<void>();
+		const holding = holdingFileLock(
+			lock,
+			{ waitMs: 0, held: 'first' },
+			() => held.promise,
+		);
+		// The second holder in this process would wait its turn; another
+		// process's connection is refused at once.
+		const refused = Bun.spawn(
+			[
+				'bun',
+				'-e',
+				`
+				const { holdingFileLock } = await import(${JSON.stringify(join(import.meta.dir, 'bun.ts'))});
+				const { NothingChanged } = await import(${JSON.stringify(join(import.meta.dir, 'errors.ts'))});
+				await holdingFileLock(process.argv.at(-1), { waitMs: 0, held: 'busy' }, async () => {}).then(
+					() => console.log('taken'),
+					(cause) => console.log(cause instanceof NothingChanged ? 'NothingChanged: ' + cause.message : 'other'),
+				);
+				`,
+				'--',
+				lock,
+			],
+			{ stdout: 'pipe', stderr: 'inherit' },
+		);
+		expect((await new Response(refused.stdout).text()).trim()).toBe(
+			'NothingChanged: busy',
+		);
+		held.resolve();
+		await holding;
+
+		// A put whose guarded rename was refused that way reports `Io`.
+		const storage = createDirectoryStorage({
+			root,
+			primitives: {
+				...nodeDirectoryPrimitives,
+				rename: async () => {
+					throw new NothingChanged('the save lock was held');
+				},
+			},
+		});
+		const put = await storage.put(
+			'new/deep/a.md',
+			new TextEncoder().encode('x'),
+			null,
+		);
+		expect(put.error).toMatchObject({ name: 'Io', operation: 'write' });
+		await writeFile(join(root, 'old.md'), 'old');
+		const removal = await createDirectoryStorage({
+			root,
+			primitives: {
+				...nodeDirectoryPrimitives,
+				remove: async () => {
+					throw new NothingChanged('the save lock was held');
+				},
+			},
+		}).put('old.md', null, await hashBytes(new TextEncoder().encode('old')));
+		expect(removal.error).toMatchObject({ name: 'Io', operation: 'remove' });
+		expect(await readFile(join(root, 'old.md'), 'utf8')).toBe('old');
+		// Nothing of the refused put is left: no staged file, no directory.
+		expect(await readdir(join(root, '.git/epicenter/scratch'))).toEqual([]);
+		expect(await readdir(root)).not.toContain('new');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+		await rm(lock, { force: true });
+	}
+});

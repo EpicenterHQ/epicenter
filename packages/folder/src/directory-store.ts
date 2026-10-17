@@ -9,8 +9,13 @@
  * the host checks under the directory's save lock: another program sees the
  * old file or the new one, never part of either, and never an empty file
  * first. A removal carries its expectation too. A host that refuses one
- * changed nothing, and the change is `stale`; any other failure of a rename
- * or a removal may have landed, and is `Unconfirmed`.
+ * changed nothing, and the change is `stale`; one that could not take the
+ * save lock (`NothingChanged`) changed nothing either, and is `Io`; any other
+ * failure of a rename or a removal may have landed, and is `Unconfirmed`. A
+ * put that does not land removes its staged file and the parent directories
+ * it made, unless another writer put something in one. A parent another
+ * writer prunes between this put's making it and its rename still fails the
+ * rename here: the save lock covers only the check and the rename.
  *
  * Paths are literal. A symbolic link is never followed: a path through one
  * is unusable. On a case-insensitive disk `plan.md` can reach `Plan.md`;
@@ -37,7 +42,7 @@ import type {
 	EntryKind,
 	Expectation,
 } from './directory-primitives.js';
-import { FileError, UnexpectedTarget } from './errors.js';
+import { FileError, NothingChanged, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 
 /** What a literal folder path names on disk. */
@@ -186,28 +191,52 @@ export function createDirectoryStorage({
 					await files.remove(absolute(path), { expected });
 				} catch (cause) {
 					if (cause instanceof UnexpectedTarget) return Ok('stale');
+					if (cause instanceof NothingChanged)
+						return FileError.Io({ path, operation: 'remove', cause });
 					return FileError.Unconfirmed({ path, operation: 'remove', cause });
 				}
 				return Ok('landed');
 			}
 			if (found.kind === 'underFile')
 				return FileError.NotADirectory({ path: found.ancestor });
-			const parent = path.split('/').slice(0, -1).join('/');
 			const scratch = `${root}/${SCRATCH_DIRECTORY}/${scratchName()}`;
+			/** The parent directories this put made, shallowest first. */
+			const made: string[] = [];
+			/** Remove what this put left: its staged file and the directories it made. */
+			async function abandon() {
+				await files.remove(scratch).catch(() => {});
+				for (const directory of made.toReversed()) {
+					// One another writer put something in stays, with those above it.
+					const removed = await files.remove(directory).then(
+						() => true,
+						() => false,
+					);
+					if (!removed) return;
+				}
+			}
 			try {
-				if (found.kind === 'absent' && parent !== '')
-					await files.mkdir(absolute(parent));
+				if (found.kind === 'absent') {
+					let at = root;
+					for (const name of path.split('/').slice(0, -1)) {
+						at = `${at}/${name}`;
+						if ((await files.lstat(at)) !== undefined) continue;
+						await files.mkdir(at);
+						made.push(at);
+					}
+				}
 				await files.mkdir(`${root}/${SCRATCH_DIRECTORY}`);
 				await files.writeFile(scratch, bytes, { createNew: true });
 			} catch (cause) {
-				await files.remove(scratch).catch(() => {});
+				await abandon();
 				return FileError.Io({ path, operation: 'write', cause });
 			}
 			try {
 				await files.rename(scratch, absolute(path), expected);
 			} catch (cause) {
-				await files.remove(scratch).catch(() => {});
+				await abandon();
 				if (cause instanceof UnexpectedTarget) return Ok('stale');
+				if (cause instanceof NothingChanged)
+					return FileError.Io({ path, operation: 'write', cause });
 				return FileError.Unconfirmed({ path, operation: 'write', cause });
 			}
 			return Ok('landed');

@@ -281,6 +281,18 @@ export class UnconfirmedWrite extends Error {
 }
 
 /**
+ * Internal: a host refused a change before making any of it, such as a save
+ * lock it could not take in time. File storage reports it as `Io`, never
+ * `Unconfirmed`. Its message is the refusal's.
+ */
+export class NothingChanged extends Error {
+	constructor(cause: unknown) {
+		super(describe(cause), { cause });
+		this.name = 'NothingChanged';
+	}
+}
+
+/**
  * Internal: the Bun directory host checked what a publishing rename or a
  * removal expected at its path, found something else, and changed nothing. `found`
  * says what: a file with other bytes (`actualSha256`, or `undefined` when no
