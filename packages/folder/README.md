@@ -660,8 +660,7 @@ linked table directory is that table's `InvalidPath`, never followed.
 top-level `$schema` (which only helps an editor offer completion), `title`,
 `local`, and `tables`, each table `{ type: 'object', properties, required? }`
 with every `required` name declared. A table without `required` has only
-optional fields. Any other top-level key, a `kv` section an earlier build
-wrote included, a visible `~` key on a
+optional fields. Any other top-level key, a `kv` included, a visible `~` key on a
 field, or a field preparation refuses, such as one with an unknown `format`
 or a `$ref` that names nothing in the field, is `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.

@@ -9,8 +9,8 @@
  * Key behaviors:
  * - Opening writes nothing; setup's first write publishes discovery JSON, so
  *   a folder that needs no setup is left exactly as it was
- * - Existing notes and ordinary files, an earlier build's `kv.json` among
- *   them, are preserved, and setup writes no `kv.json`
+ * - Existing notes and ordinary files, such as a `kv.json`, are preserved,
+ *   and setup writes no `kv.json`
  * - A missing layout is created; setup records no commit (ADR-0529)
  * - A table directory another writer made after the look is kept, and a
  *   refusal is reported without retrying
@@ -88,7 +88,7 @@ const NOTE =
 	'---\r\ntitle:   "Spaced"  # keep\r\nextra: [1, 2]\r\n---\r\n\r\n* a\r\n';
 const KV = '{"kept":true}';
 
-/** A folder someone already has: a note, an earlier build's `kv.json`, and both table directories. */
+/** A folder someone already has: a note, an ordinary `kv.json`, and both table directories. */
 async function existing() {
 	const { root, git } = await directory();
 	for (const table of TABLES) await mkdir(join(root, table));
