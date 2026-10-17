@@ -142,14 +142,14 @@ async function history(
 const DETAILS: Record<string, string> = {
 	check: `Prints one line per file that does not conform, compiler style, then a
 summary. Exits 0 when every file conforms, 1 when one does not, and 2 when
-the folder or its declaration cannot be used or a file cannot be read.
+the folder or its definition cannot be used or a file cannot be read.
 Never writes a file or runs the folder's code.`,
 	query: `Without a statement, describes each table's columns and what they hold.
 With one, runs that single read-only statement (SELECT, WITH, VALUES, or
 EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
 "excluded" with --json); check says why. Exits 0 when it answers and 2 when
-the folder, the declaration, or the statement cannot be used.`,
+the folder, the definition, or the statement cannot be used.`,
 	'app install': `Clones the repository into Apps/<app-id>/, the id read from the
 epicenter.app.json in --folder (the root by default), then builds it with
 bun run build:installed. A commit nobody approved on this machine is not

@@ -25,7 +25,7 @@
  * list, or a wrapped schema after the call changes nothing here.
  *
  * Helpers return native schema objects. Copies retain the input's property
- * descriptors. `prepareSchema` takes ownership by returning a frozen
+ * descriptors. `prepareDefinition` takes ownership by returning a frozen
  * snapshot. Editing a helper's schema natively before then is the author's
  * edit to make, and the editor follows the edited schema.
  *

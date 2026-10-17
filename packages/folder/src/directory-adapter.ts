@@ -12,7 +12,7 @@
  */
 import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import type { FolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import { type ChangeDetector, openAtRoot } from './open-at-root.js';
@@ -28,7 +28,7 @@ import type { Opening } from './opening.js';
 export type DirectoryHistory = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
 }) => Promise<
-	(definition?: FolderDefinition, appLocal?: readonly string[]) => FolderHistory
+	(definition?: Definition, appLocal?: readonly string[]) => FolderHistory
 >;
 
 /**
@@ -58,9 +58,7 @@ export type DirectoryHistory = (wiring: {
  * `detector` is the host's one detector of changes made outside the handle
  * (ADR-0548): the shell's watcher on the desktop, none in Bun.
  */
-export async function openDirectoryFolder<
-	TDefinition extends FolderDefinition,
->({
+export async function openDirectoryFolder<TDefinition extends Definition>({
 	opening,
 	rootPath,
 	storage,
@@ -77,7 +75,7 @@ export async function openDirectoryFolder<
 	readonly history: DirectoryHistory;
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
-}): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+}): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>> {
 	return openAtRoot<TDefinition>(opening, {
 		detector,
 		location: { kind: 'directory', root: rootPath },

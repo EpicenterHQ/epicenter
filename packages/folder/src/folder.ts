@@ -15,10 +15,10 @@
  * file helpers; storage applications already started return their actual
  * outcome. Closing makes no last commit.
  */
-import { type CreateRowOf, requiredOutsideShape } from '@epicenter/definition';
+import { type CreateRowOf, requiredOutside } from '@epicenter/definition';
 import type { Result } from 'wellcrafted/result';
 import { type FolderStorage, mayHaveChanged } from './boundary.js';
-import type { FolderDefinition, PreparedFolderTable } from './definition.js';
+import type { Definition, PreparedFolderTable } from './definition.js';
 import { FileError, type WriteError } from './errors.js';
 import { createFiles, type FolderFiles } from './files.js';
 import type { SyncError } from './git/errors.js';
@@ -105,7 +105,7 @@ export type FolderSync = {
 };
 
 /** Borrowed data access; the object that opened the folder owns its lifetime. */
-export type FolderAccess<TDefinition extends FolderDefinition> = {
+export type FolderAccess<TDefinition extends Definition> = {
 	readonly tables: {
 		readonly [K in keyof TDefinition['tables']]: FileTable<
 			CreateRowOf<TDefinition['tables'][K]>
@@ -163,14 +163,14 @@ export type FolderLocation =
 	| { readonly kind: 'directory'; readonly root: string };
 
 /**
- * An opened folder. `TDefinition` types `tables`; `TDeclared` types
- * `definition`, the declaration the handle reads and writes with. That is
- * the app's definition only in the app's own folder, so an opener types it
- * as any definition.
+ * An opened folder. `TDefinition` types `tables`; `TFolderDefinition`
+ * types `definition`, the folder's definition the handle reads and writes
+ * with. That is the app's definition only in the app's own folder, so an
+ * opener types it as any definition.
  */
 export type Folder<
-	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = FolderDefinition,
+	TDefinition extends Definition,
+	TFolderDefinition extends Definition = Definition,
 > = FolderAccess<TDefinition> & {
 	readonly git: FolderGit;
 	/**
@@ -185,8 +185,8 @@ export type Folder<
 	 * definition. It is decided when the folder opens, not by what lands. An
 	 * own handle publishes its definition to `epicenter.json` just before its
 	 * first write, best effort: a publication that fails is logged, and the
-	 * write still lands, so `own` does not say the declaration is on disk.
-	 * Every other handle reads with the folder's own declaration and never
+	 * write still lands, so `own` does not say the definition is on disk.
+	 * Every other handle reads with the folder's own definition and never
 	 * writes it. False for a folder opened without an `app`.
 	 */
 	readonly own: boolean;
@@ -194,10 +194,10 @@ export type Folder<
 	 * The prepared definition this handle reads with: the app's own, in its
 	 * own folder, or the folder's own `epicenter.json` as it was read when
 	 * the folder opened (no tables when there was none). Every row is
-	 * checked against it, and Sync merges rows by it. A declaration changed
+	 * checked against it, and Sync merges rows by it. A definition changed
 	 * after opening is read by the next open.
 	 */
-	readonly definition: TDeclared;
+	readonly definition: TFolderDefinition;
 	readonly location: FolderLocation;
 	readonly sync: FolderSync;
 	/**
@@ -298,7 +298,7 @@ function handleStorage(
 	}: {
 		signal: AbortSignal;
 		history: Pick<FolderHistory, 'noteEdit'>;
-		published: FolderDefinition | undefined;
+		published: Definition | undefined;
 	},
 ): FolderStorage {
 	const closed = () => Promise.resolve(FileError.Closed());
@@ -352,9 +352,9 @@ function createFolderGit(history: FolderHistory): FolderGit {
 
 /**
  * Assemble the handle over acquired storage. `prepared` is the prepared
- * definition: the app's own in its own folder, or the declaration read from
+ * definition: the app's own in its own folder, or the definition read from
  * any other. It is the snapshot every table reads through, never the
- * declaration the opener was handed. No argument carries `TDefinition`, so
+ * definition the opener was handed. No argument carries `TDefinition`, so
  * the opener names it.
  *
  * With `through`, the definition a folder that is not the app's own is read
@@ -364,8 +364,8 @@ function createFolderGit(history: FolderHistory): FolderGit {
  * fields the definition does not name.
  */
 export function assembleFolder<
-	TDefinition extends FolderDefinition,
-	TDeclared extends FolderDefinition = TDefinition,
+	TDefinition extends Definition,
+	TFolderDefinition extends Definition = TDefinition,
 >({
 	id,
 	own,
@@ -384,9 +384,9 @@ export function assembleFolder<
 	 * handle, whose definition is that file, never writes it.
 	 */
 	own: boolean;
-	prepared: FolderDefinition;
+	prepared: Definition;
 	/** The definition the caller reads through, contained by `prepared` (ADR-0538). */
-	through?: FolderDefinition;
+	through?: Definition;
 	/** The host's storage, which the history shares. */
 	storage: FolderStorage;
 	history: FolderHistory;
@@ -394,7 +394,7 @@ export function assembleFolder<
 	hints: FileHints;
 	/** Releases this attachment after owned Git work settles. */
 	release: () => Promise<void>;
-}): Folder<TDefinition, TDeclared> {
+}): Folder<TDefinition, TFolderDefinition> {
 	const controller = new AbortController();
 	let closing: Promise<void> | undefined;
 
@@ -413,9 +413,7 @@ export function assembleFolder<
 			{ storage },
 			name,
 			table,
-			shape === undefined
-				? []
-				: Object.freeze(requiredOutsideShape(table, shape)),
+			shape === undefined ? [] : Object.freeze(requiredOutside(table, shape)),
 		);
 	}
 	const files = createFiles({ storage });
@@ -424,7 +422,7 @@ export function assembleFolder<
 	return Object.freeze({
 		id,
 		own,
-		definition: prepared as TDeclared,
+		definition: prepared as TFolderDefinition,
 		tables: Object.freeze(tables) as Folder<TDefinition>['tables'],
 		files,
 		git,
@@ -451,5 +449,5 @@ export function assembleFolder<
 			})().then(completion.resolve, completion.reject);
 			return closing;
 		},
-	} satisfies Folder<TDefinition, TDeclared>);
+	} satisfies Folder<TDefinition, TFolderDefinition>);
 }

@@ -4,13 +4,13 @@
  */
 import { basename } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { type FolderDefinition, openFolder } from './bun.js';
+import { type Definition, openFolder } from './bun.js';
 import type { FolderGitOptions } from './folder.js';
 
 export { openFolder };
 
 export async function openNativeFolder<
-	const TDefinition extends FolderDefinition,
+	const TDefinition extends Definition,
 >(options: {
 	readonly root: string;
 	readonly definition: TDefinition;

@@ -20,7 +20,7 @@ import {
 	defineFolder,
 	defineTable,
 	field,
-	parseDeclaration,
+	parseDefinition,
 } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -107,7 +107,7 @@ test('numbers, tags, and JSON parse their text', () => {
 test('a plain JSON Schema declaration gets editors by type', () => {
 	// The demo's books: a hand-written declaration with no x-field hints.
 	const declared = expectOk(
-		parseDeclaration(
+		parseDefinition(
 			JSON.stringify({
 				tables: {
 					books: {

@@ -1,15 +1,15 @@
 # @epicenter/definition
 
-The declaration vocabulary every Epicenter storage reads: the field helpers,
-table declarations, the table name grammar, the preparation that
-checks a declaration and owns its schemas, and the one read over a prepared
-schema.
+The definition vocabulary every Epicenter storage reads: the field helpers,
+table definitions, the table name grammar, the preparation that checks a
+definition and owns its field schemas, and the one read over a prepared
+definition.
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its only
 dependencies are `typebox` and `wellcrafted`.
 
 ```ts
-import { check, defineTable, field, prepareSchema } from '@epicenter/definition';
+import { check, defineTable, field, prepareDefinition } from '@epicenter/definition';
 import { Type } from 'typebox';
 
 const todos = defineTable({
@@ -25,22 +25,22 @@ const settings = defineTable({
   fields: { theme: field.optional(field.select(['light', 'dark'])) },
 });
 
-const { data: schema } = prepareSchema({ tables: { todos, settings } });
+const { data: definition } = prepareDefinition({ tables: { todos, settings } });
 
-check(schema.tables.todos.fields, stored, 'read');                // { conforming, issues }
-check(schema.tables.settings.fields, { theme: 'dark' }, 'input'); // no issues
+check(definition.tables.todos.fields, stored, 'read');                // { conforming, issues }
+check(definition.tables.settings.fields, { theme: 'dark' }, 'input'); // no issues
 ```
 
-## One shape, declared and prepared
+## One type, written and prepared
 
-A schema is a `DataSchema`: `{ title?, local?, tables }`. It names no dataset;
+A definition is a `Definition`: `{ title?, local?, tables }`. It names no dataset;
 the storage that opens it does. Each table is `{ fields }`, where `fields` is
 a record of native schemas by field name, plus `additionalProperties: false`
 when the table is closed. Settings, when an app keeps them, are a table too,
-`settings` (`SETTINGS_TABLE`). `prepareSchema` returns that same shape with the same
-literal type, so `CreateRowOf` and every field's `Static<>` read a
-prepared schema exactly as they read the declaration. A top-level key the
-shape does not name, such as an `id` or a `kv`, is malformed. There is no second,
+`settings` (`SETTINGS_TABLE`). `prepareDefinition` returns that same structure with the
+same literal type, so `CreateRowOf` and every field's `Static<>` read a
+prepared definition exactly as they read the one written. A top-level key the
+type does not name, such as an `id` or a `kv`, is malformed. There is no second,
 compiled representation: no field wrapper, no table object with methods, no
 `Map`, and no name stored anywhere but the record key.
 
@@ -60,13 +60,13 @@ What preparation adds is ownership and a validator:
 - TypeBox's compiled validator for each field is held privately beside it.
   `check` looks it up by the field's identity.
 
-`prepareSchema` is memoized on the declaration object and on the schema it
-returns, so preparing a prepared schema returns it. A declaration with an `id`
-is malformed. `defineFolder` returns the prepared schema, and the folders
-opened from it read through that snapshot.
+`prepareDefinition` is memoized on the definition object and on the one it
+returns, so preparing a prepared definition returns it. A definition with an
+`id` is malformed. `defineFolder` returns the prepared definition, and the
+folders opened from it read through that snapshot.
 
 The one read is `check(fields, values, mode)`; see
-[Checking values](#checking-values). A schema that was never prepared has no
+[Checking values](#checking-values). A field that was never prepared has no
 validator. Handing one to `check` throws: it is a programmer error, not a
 value that failed. Nothing is compiled lazily, and the answer is never a
 silent `false`.
@@ -75,21 +75,21 @@ silent `false`.
 
 | Package | What it adds |
 | --- | --- |
-| `@epicenter/folder` | `defineFolder`, which prepares a `DataSchema`. A folder's row body is the file's Markdown text. The opener names the folder. |
+| `@epicenter/folder` | `defineFolder`, which prepares a `Definition`. A folder's row body is the file's Markdown text. The opener names the folder. |
 
 It gets the `defineTable` brand, the `CreateRowOf` lens, and `check` over the prepared fields. It does not copy a validator.
 
 ## Why this name
 
-The package holds the things a `DataSchema` is made of and the function that
+The package holds the things a `Definition` is made of and the function that
 prepares one. Its import closure is those modules and nothing else:
 
 ```text
 src/field/        the field.* helpers, the editor hint, and fieldEditorOf (./field)
-src/declaration   FieldMap, TableDeclaration, DataSchema, row lenses
+src/declaration   FieldMap, TableDeclaration, Definition, row lenses
 src/define        defineTable and the declared-table brand
-src/prepare       prepareSchema, check, isOptional
-src/shape         shapeProblems, schemaContainment, requiredOutsideShape
+src/prepare       prepareDefinition, check, isOptional
+src/shape         mismatches, containment, requiredOutside
 src/table-name    the table name grammar
 src/json          JsonValue and its guards
 ```
@@ -278,7 +278,7 @@ a wrapped schema after the call changes nothing, and nothing the caller passed
 in is frozen. An author who edits a schema before preparation owns that edit,
 and the editor follows the schema.
 
-`prepareSchema` takes ownership. Every field of every preparation gets its own
+`prepareDefinition` takes ownership. Every field of every preparation gets its own
 frozen copy and validator, so one declared schema used in two declarations, or
 under two names, is prepared twice: edit it between two `defineFolder` calls
 and the first folder keeps the checks it was defined with while the second
@@ -334,51 +334,53 @@ so a path through a key containing `/` or `~` is reported against the whole
 field. Messages and the number of issues are for people, not for code to match
 on.
 
-## Whether a declaration contains a shape
+## Whether one definition contains another
 
-An app that opens a folder it did not declare reads it through a shape: the
-tables and fields it knows (ADR-0538). `shapeProblems(declared, shape)` lists
-every way a declaration does not contain one, empty when it does:
+An app that opens a folder it did not define reads it through its own
+definition: the tables and fields it knows (ADR-0538). `mismatches(declared,
+shape)` lists every way the folder's definition (`declared`) does not contain
+the reader's (`shape`), empty when it does:
 
 ```ts
-shapeProblems(folder.definition, board);
+mismatches(folder.definition, board);
 // [{ kind: 'missingField', table: 'todos', field: 'due', message }, ...]
 ```
 
-| Problem | When |
+| Mismatch | When |
 | --- | --- |
-| `missingTable` | the shape reads a table the declaration lacks |
-| `missingField` | the shape reads a field the declaration lacks |
-| `incompatibleField` | the declaration admits a value there the shape refuses, or lets a row leave out a field the shape requires |
-| `incompatibleTable` | the shape closes a table (`additionalProperties: false`) the declaration leaves open or declares more fields in |
+| `missingTable` | the reader reads a table the folder's definition lacks |
+| `missingField` | the reader reads a field the folder's definition lacks |
+| `incompatibleField` | the folder admits a value there the reader refuses, or lets a row leave out a field the reader requires |
+| `incompatibleTable` | the reader closes a table (`additionalProperties: false`) the folder leaves open or defines more fields in |
 
-`schemaContainment(shape, declared)` answers for one field: `undefined` when
-every value `declared` admits is one `shape` accepts, or why not. Containment
-of JSON Schemas is not decidable in general, so it asks a fixed set of
-questions and refuses what they cannot decide, naming the keyword:
+`containment(shape, declared)` answers for one field: `undefined` when
+every value the folder's field admits is one the reader's field accepts, or
+why not. Containment of JSON Schemas is not decidable in general, so it asks a
+fixed set of questions and refuses what they cannot decide, naming the
+keyword. Its reasons call the reader's field "the shape":
 
-- A shape that constrains nothing accepts everything. Two schemas whose
+- A reader field that constrains nothing accepts everything. Two schemas whose
   keywords match, annotations and `x-field` aside, contain each other.
-- A declared `enum` or `const` is contained when the shape's validator
-  accepts each listed value, so a shape select contains a select of some of
-  its options, and a shape `string` contains any select.
-- A declared `anyOf` or `oneOf` is contained when each member is, so a shape
-  `field.nullable(x)` contains both `x` and `x | null`. A shape `anyOf`
+- A folder `enum` or `const` is contained when the reader field's validator
+  accepts each listed value, so a reader select contains a select of some of
+  its options, and a reader `string` contains any select.
+- A folder `anyOf` or `oneOf` is contained when each member is, so a reader
+  `field.nullable(x)` contains both `x` and `x | null`. A reader `anyOf`
   contains what one member contains.
-- Otherwise both name one `type`, the same, or `integer` under a shape
-  `number`. The shape's string length, `pattern`, and `format`, numeric
+- Otherwise both name one `type`, the same, or `integer` under a reader
+  `number`. The reader's string length, `pattern`, and `format`, numeric
   bounds and `multipleOf`, array `items`, bounds, and `uniqueItems`, and
   object `properties`, `required`, and `additionalProperties` must each be
-  implied by the declaration's own. `field.datetime()` contains
+  implied by the folder's own. `field.datetime()` contains
   `field.instant()`, not the reverse.
 
-A keyword the declaration adds beyond these only narrows it, so it is
-ignored. A shape keyword outside them, or a shape `oneOf`, `not`,
-conditional, or `$ref`, is refused.
+A keyword the folder adds beyond these only narrows it, so it is ignored. A
+reader keyword outside them, or a reader `oneOf`, `not`, conditional, or
+`$ref`, is refused.
 
-`requiredOutsideShape(declaredTable, shapeTable)` lists the fields the
-declaration requires that the shape does not declare: a row added through the
-shape could not supply them.
+`requiredOutside(declaredTable, shapeTable)` lists the fields the folder's
+table requires that the reader's table does not define: a row added through
+the reader's table could not supply them.
 
 ## Commands
 

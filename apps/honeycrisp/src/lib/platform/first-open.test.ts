@@ -29,7 +29,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { formatDeclaration, openFolder } from '@epicenter/folder/bun';
+import { formatDefinition, openFolder } from '@epicenter/folder/bun';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
 import { HONEYCRISP_FOLDER_ID, type NotesFolder } from './types.js';
@@ -166,7 +166,7 @@ describe('an existing folder', () => {
 		expect((await stat(join(root, 'folders'))).isDirectory()).toBe(true);
 		// Making the directory was the first write, so it published the definition.
 		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
-			formatDeclaration(honeycrispDefinition),
+			formatDefinition(honeycrispDefinition),
 		);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(KV);
 		expect(
@@ -194,7 +194,7 @@ describe('a new folder', () => {
 			(await readdir(root)).filter((name) => name !== '.git').sort(),
 		).toEqual(['epicenter.json', ...TABLES].sort());
 		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
-			formatDeclaration(honeycrispDefinition),
+			formatDefinition(honeycrispDefinition),
 		);
 		// Setting up again writes nothing, so even epicenter.json is untouched.
 		const files = await fingerprint(root);

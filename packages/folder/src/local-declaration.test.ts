@@ -7,8 +7,8 @@
  * paths it names out of every commit with no `.gitignore` to help.
  *
  * Key behaviors:
- * - `formatDeclaration` writes `local`, and `parseDeclaration` and
- *   `readDeclaration` read it back; a declaration without it stays valid
+ * - `formatDefinition` writes `local`, and `parseDefinition` and
+ *   `readDefinition` read it back; a declaration without it stays valid
  * - A declared pattern that cannot be a `.gitignore` line is refused on read
  * - `local` is sorted and kept once each, so the declaration's bytes do not
  *   depend on the order it was written in
@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { runHistory } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
-import { formatDeclaration, parseDeclaration } from './declaration.js';
+import { formatDefinition, parseDefinition } from './declaration.js';
 import { prepareFolderDefinition } from './definition.js';
 import {
 	GIT_ENV,
@@ -54,24 +54,23 @@ afterEach(async () => {
 });
 
 test('local is written into epicenter.json and read back', () => {
-	const text = formatDeclaration(definition);
+	const text = formatDefinition(definition);
 	expect(JSON.parse(text).local).toEqual(['audio/']);
-	expect(expectOk(parseDeclaration(text)).local).toEqual(['audio/']);
+	expect(expectOk(parseDefinition(text)).local).toEqual(['audio/']);
 	// Its bytes change with `local`, so publishing writes the new list.
-	expect(formatDeclaration(defineFolder({ tables }))).not.toBe(text);
+	expect(formatDefinition(defineFolder({ tables }))).not.toBe(text);
 	expect(
-		expectOk(parseDeclaration(formatDeclaration(defineFolder({ tables }))))
-			.local,
+		expectOk(parseDefinition(formatDefinition(defineFolder({ tables })))).local,
 	).toBeUndefined();
 });
 
 test('a declared local that is not .gitignore lines is refused when read', () => {
-	const declared = JSON.parse(formatDeclaration(definition));
+	const declared = JSON.parse(formatDefinition(definition));
 	const text = (local: unknown) => JSON.stringify({ ...declared, local });
 	for (const local of ['audio/', [3]])
-		expect(parseDeclaration(text(local)).error?.reason).toContain("'local'");
+		expect(parseDefinition(text(local)).error?.reason).toContain("'local'");
 	for (const local of [['!audio/x.wav'], ['# audio'], [' audio/']]) {
-		const parsed = expectOk(parseDeclaration(text(local)));
+		const parsed = expectOk(parseDefinition(text(local)));
 		expect(prepareFolderDefinition(parsed).error?.reason).toContain(
 			'local pattern',
 		);
@@ -88,9 +87,9 @@ test('local formats to the same bytes whatever its order or repeats', () => {
 		local: ['audio/', 'drafts/', 'audio/'],
 	});
 	expect(ordered.local).toEqual(['audio/', 'drafts/']);
-	expect(formatDeclaration(repeated)).toBe(formatDeclaration(ordered));
+	expect(formatDefinition(repeated)).toBe(formatDefinition(ordered));
 	// Read back from the file, it is the same list.
-	const read = expectOk(parseDeclaration(formatDeclaration(repeated)));
+	const read = expectOk(parseDefinition(formatDefinition(repeated)));
 	expect(expectOk(prepareFolderDefinition(read)).local).toEqual([
 		'audio/',
 		'drafts/',
@@ -122,7 +121,7 @@ async function desktopFolder() {
 
 test("the CLI's Sync reads local from epicenter.json and pushes no audio without a .gitignore", async () => {
 	const folder = await desktopFolder();
-	await folder.write('epicenter.json', formatDeclaration(definition));
+	await folder.write('epicenter.json', formatDefinition(definition));
 	await folder.write('recordings/x.md', '---\ntitle: X\n---\n');
 	await folder.write('audio/x.wav', 'RIFF');
 	await folder.sync();
@@ -139,14 +138,14 @@ test("the CLI's Sync untracks audio committed before epicenter.json declared it 
 	const folder = await desktopFolder();
 	await folder.write(
 		'epicenter.json',
-		formatDeclaration(defineFolder({ tables })),
+		formatDefinition(defineFolder({ tables })),
 	);
 	await folder.write('recordings/x.md', '---\ntitle: X\n---\n');
 	await folder.write('audio/x.wav', 'RIFF');
 	await folder.sync();
 	expect(await folder.remoteTree()).toContain('audio/x.wav');
 
-	await folder.write('epicenter.json', formatDeclaration(definition));
+	await folder.write('epicenter.json', formatDefinition(definition));
 	await folder.sync();
 	expect(await folder.remoteTree()).toEqual([
 		'epicenter.json',
@@ -162,7 +161,7 @@ test('the CLI refuses to save or sync when epicenter.json cannot be used, and pu
 	const folder = await desktopFolder();
 	await folder.write(
 		'epicenter.json',
-		formatDeclaration(defineFolder({ tables })),
+		formatDefinition(defineFolder({ tables })),
 	);
 	await folder.write('recordings/x.md', '---\ntitle: X\n---\n');
 	await folder.write('audio/x.wav', 'RIFF');
@@ -170,7 +169,7 @@ test('the CLI refuses to save or sync when epicenter.json cannot be used, and pu
 	const pushed = await git(folder.directory, 'rev-parse', 'origin/main');
 
 	// A local list prepare refuses: a negation re-includes instead of keeping.
-	const declared = JSON.parse(formatDeclaration(definition));
+	const declared = JSON.parse(formatDefinition(definition));
 	await folder.write(
 		'epicenter.json',
 		JSON.stringify({ ...declared, local: ['!audio/'] }),

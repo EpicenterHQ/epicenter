@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineFolder, defineTable, field } from './contract.js';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { gitMergeKind, mergeForGit } from './merge-driver.js';
 import { fileKindOf } from './merge-file.js';
 
@@ -107,7 +107,7 @@ test('a path takes its kind from the nearest declaration above it', async () => 
 		await mkdir(join(top, 'vault'), { recursive: true });
 		await writeFile(
 			join(top, 'vault', 'epicenter.json'),
-			formatDeclaration(definition),
+			formatDefinition(definition),
 		);
 		expect(await gitMergeKind(top, 'vault/posts/x.md')).toMatchObject({
 			kind: { kind: 'row' },

@@ -6,11 +6,7 @@
  * OPFS. Both answer the same folder handle, so the UI lists, edits, and
  * hears change hints the same way in either build.
  */
-import type {
-	Folder,
-	FolderDefinition,
-	OpenFolderError,
-} from '@epicenter/folder';
+import type { Definition, Folder, OpenFolderError } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
 import manifest from '../../../epicenter.app.json';
 import type { todosDefinition } from '../definition.js';
@@ -23,7 +19,7 @@ import type { todosDefinition } from '../definition.js';
  * per app id today, so any other folder would be connected to Todos's
  * repository.
  */
-export type TodosFolder = Folder<typeof todosDefinition, FolderDefinition>;
+export type TodosFolder = Folder<typeof todosDefinition, Definition>;
 
 /**
  * Todos's own folder, named by its app id in `epicenter.app.json`. The

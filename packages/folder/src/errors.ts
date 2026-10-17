@@ -12,7 +12,7 @@
  * carries the exact text, the hash of the bytes read, and every issue, so the
  * row can be repaired as text and saved guarded by those bytes.
  */
-import type { ShapeProblem } from '@epicenter/definition';
+import type { Mismatch } from '@epicenter/definition';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Issue, Issues } from './row-text.js';
 
@@ -203,21 +203,25 @@ export const RowWriteError = { ...WriteError, ...RowValuesError };
  * for a refusal, and none opens another storage instead.
  */
 export const OpenFolderError = defineErrors({
-	/** The definition declares something a file folder cannot keep. */
-	InvalidDefinition: ({ reason }: { reason: string }) => ({
-		message: `This definition cannot be opened as a folder: ${reason}`,
-		reason,
-	}),
 	/**
-	 * The folder's own `epicenter.json`, which a folder that is not the
-	 * opening app's own is read with, is not
-	 * a readable file, is not UTF-8 JSON, is not the declaration grammar, or
-	 * declares a field a folder cannot keep. Nothing was opened.
+	 * A definition declares something a file folder cannot keep. Without
+	 * `path`, it is the definition the opener was handed. With `path`
+	 * (`epicenter.json`), it is the folder's own, which a folder that is not
+	 * the opening app's own is read with: the file is not readable, is not
+	 * UTF-8 JSON, is not the definition grammar, or declares a field a folder
+	 * cannot keep. Nothing was opened.
 	 */
-	InvalidDeclaration: ({ reason }: { reason: string }) => ({
-		message: `The folder's epicenter.json cannot be used: ${reason}`,
-		reason,
-	}),
+	InvalidDefinition: ({ reason, path }: { reason: string; path?: string }) =>
+		path === undefined
+			? {
+					message: `This definition cannot be opened as a folder: ${reason}`,
+					reason,
+				}
+			: {
+					message: `The folder's ${path} cannot be used: ${reason}`,
+					reason,
+					path,
+				},
 	/**
 	 * The folder's own `epicenter.json` does not contain the definition it
 	 * was read through (ADR-0538): a table or field the definition reads is
@@ -226,14 +230,14 @@ export const OpenFolderError = defineErrors({
 	 * opened it, the app by its definition's `title`, and lists every
 	 * problem. Nothing was opened.
 	 */
-	ShapeMismatch: ({
+	DefinitionMismatch: ({
 		app,
 		folder,
 		problems,
 	}: {
 		app: string | undefined;
 		folder: string;
-		problems: readonly ShapeProblem[];
+		problems: readonly Mismatch[];
 	}) => {
 		const listed = problems.map((problem) => problem.message).join('; ');
 		return {

@@ -156,7 +156,7 @@ function valuesOf(schema: object): string {
 	return 'any JSON';
 }
 
-/** The declaration as SQL sees it: each table's columns and what each holds. */
+/** The definition as SQL sees it: each table's columns and what each holds. */
 export function describeTables(tables: readonly ProjectedTable[]) {
 	return tables.map((table) => ({
 		name: table.name,

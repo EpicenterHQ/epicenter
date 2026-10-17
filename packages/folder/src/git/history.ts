@@ -32,7 +32,7 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage, LockingStorage } from '../boundary.js';
-import type { FolderDefinition } from '../definition.js';
+import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import type { FolderHistory } from '../folder.js';
 import { fileKindOf, localPatterns, sameContent } from '../merge-file.js';
@@ -40,7 +40,7 @@ import { callObserver } from '../observer.js';
 import {
 	ancestors,
 	collisionKey,
-	DECLARATION_PATH,
+	DEFINITION_PATH,
 	isPortablePath,
 	pathProblem,
 } from '../paths.js';
@@ -163,11 +163,11 @@ export function createHistory({
 	boundary: LockingStorage;
 	author: Author;
 	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
-	definition?: FolderDefinition;
+	definition?: Definition;
 	/**
 	 * The `local` patterns of an app reading a folder that is not its own:
 	 * untracked files they match are never committed, and the folder's
-	 * declaration is not changed (`sourceFiles`).
+	 * definition is not changed (`sourceFiles`).
 	 */
 	appLocal?: readonly string[];
 	/** Paths a Sync wrote or removed, whether or not it completed. */
@@ -316,20 +316,20 @@ export function createHistory({
 	 * Files kept on this machine now: what the definition keeps and what
 	 * `epicenter.json` lists, which a Sync can extend with another device's
 	 * patterns (ADR-0577). No commit carries one, whether or not `.gitignore`
-	 * names it. A declaration that cannot be read is the reason, since a
+	 * names it. A definition that cannot be read is the reason, since a
 	 * commit made without it could carry those files.
 	 */
 	async function localNow(): Promise<Result<IsLocal, string>> {
 		const own = definition?.local ?? [];
-		const { data: read, error } = await boundary.read(DECLARATION_PATH);
+		const { data: read, error } = await boundary.read(DEFINITION_PATH);
 		if (error !== null)
 			return error.name === 'NotFound'
 				? Ok(localMatcher(own))
-				: Err(`${DECLARATION_PATH} cannot be read: ${error.message}`);
+				: Err(`${DEFINITION_PATH} cannot be read: ${error.message}`);
 		const declared = localPatterns(read.bytes);
 		if (declared === undefined)
 			return Err(
-				`${DECLARATION_PATH} does not list its local patterns as strings; fix the file before recording`,
+				`${DEFINITION_PATH} does not list its local patterns as strings; fix the file before recording`,
 			);
 		return Ok(localMatcher([...own, ...declared]));
 	}
@@ -404,7 +404,7 @@ export function createHistory({
 				const captured = await capture();
 				const head = await backend.readBranch();
 				const committed = await headFiles(head);
-				// Status shows what a commit would record; with a declaration
+				// Status shows what a commit would record; with a definition
 				// that cannot be read, by what the definition keeps.
 				const isLocal =
 					(await localNow()).data ?? localMatcher(definition?.local);

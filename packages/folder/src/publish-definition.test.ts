@@ -9,7 +9,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { defineFolder } from './definition.js';
 import { FileError } from './errors.js';
 import { hashBytes } from './hash.js';
@@ -67,7 +67,7 @@ test('a missing declaration is created, and the attempt waits for the file outco
 	});
 	while (writes.length === 0) await Bun.sleep(1);
 	expect(writes).toEqual([
-		{ text: formatDeclaration(definition), ifMatch: null },
+		{ text: formatDefinition(definition), ifMatch: null },
 	]);
 	expect(returned).toBe(false);
 	done.resolve();
@@ -77,7 +77,7 @@ test('a missing declaration is created, and the attempt waits for the file outco
 
 test('a file already holding the declaration bytes is not rewritten', async () => {
 	const { storage, writes } = recording([
-		holding(formatDeclaration(definition)),
+		holding(formatDefinition(definition)),
 	]);
 	await publishDefinition(definition, storage);
 	expect(writes).toEqual([]);
@@ -88,14 +88,14 @@ for (const [name, there] of [
 	['different bytes', '{"title":"Another app"}\n'],
 	[
 		'the same JSON without its trailing newline',
-		formatDeclaration(definition).trimEnd(),
+		formatDefinition(definition).trimEnd(),
 	],
 ] as const)
 	test(`${name} are put over once, guarded by what was read, the definition winning`, async () => {
 		const { storage, writes } = recording([holding(there)]);
 		await publishDefinition(definition, storage);
 		expect(writes).toEqual([
-			{ text: formatDeclaration(definition), ifMatch: await shaOf(there) },
+			{ text: formatDefinition(definition), ifMatch: await shaOf(there) },
 		]);
 		// Logged as any write that replaced another writer's file is; no failure.
 		expect(events.map(({ level, source }) => ({ level, source }))).toEqual([
@@ -110,16 +110,16 @@ test('a local pattern the file lists, from another device, is kept', async () =>
 		tables: {},
 		local: ['audio/', 'drafts/'],
 	});
-	const { storage, writes } = recording([holding(formatDeclaration(theirs))]);
+	const { storage, writes } = recording([holding(formatDefinition(theirs))]);
 	await publishDefinition(own, storage);
 	expect(writes).toEqual([
 		{
-			text: formatDeclaration(both),
-			ifMatch: await shaOf(formatDeclaration(theirs)),
+			text: formatDefinition(both),
+			ifMatch: await shaOf(formatDefinition(theirs)),
 		},
 	]);
 	// A file already listing them all, and this definition's, is left alone.
-	const again = recording([holding(formatDeclaration(both))]);
+	const again = recording([holding(formatDefinition(both))]);
 	await publishDefinition(own, again.storage);
 	expect(again.writes).toEqual([]);
 });

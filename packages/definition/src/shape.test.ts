@@ -7,23 +7,19 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { type TSchema, Type } from 'typebox';
-import type { DataSchema, FieldMap } from './declaration.js';
+import type { Definition, FieldMap } from './declaration.js';
 import { defineTable } from './define.js';
 import { field } from './field/index.js';
-import { prepareSchema } from './prepare.js';
-import {
-	requiredOutsideShape,
-	schemaContainment,
-	shapeProblems,
-} from './shape.js';
+import { prepareDefinition } from './prepare.js';
+import { containment, mismatches, requiredOutside } from './shape.js';
 
 /** Whether the shape field accepts every value the declared field admits. */
 function fits(shape: TSchema & object, declared: TSchema & object): boolean {
-	return schemaContainment(shape, declared) === undefined;
+	return containment(shape, declared) === undefined;
 }
 
-function prepared(schema: DataSchema): DataSchema {
-	const { data, error } = prepareSchema(schema);
+function prepared(schema: Definition): Definition {
+	const { data, error } = prepareDefinition(schema);
 	if (error !== null) throw new Error(error.message);
 	return data;
 }
@@ -31,7 +27,7 @@ function prepared(schema: DataSchema): DataSchema {
 function schemaOf(
 	tables: Record<string, FieldMap>,
 	closed: readonly string[] = [],
-): DataSchema {
+): Definition {
 	return prepared({
 		tables: Object.fromEntries(
 			Object.entries(tables).map(([name, fields]) => [
@@ -66,10 +62,10 @@ describe('field schemas', () => {
 		const shape = field.select(['todo', 'done', 'later']);
 		expect(fits(shape, field.select(['todo', 'done']))).toBe(true);
 		expect(fits(shape, field.select(['todo', 'done', 'later']))).toBe(true);
-		expect(schemaContainment(shape, field.select(['todo', 'blocked']))).toBe(
+		expect(containment(shape, field.select(['todo', 'blocked']))).toBe(
 			'the folder admits "blocked", which the shape refuses',
 		);
-		expect(schemaContainment(shape, field.string())).toBe(
+		expect(containment(shape, field.string())).toBe(
 			"the folder's values are not limited to the shape's options",
 		);
 	});
@@ -77,7 +73,7 @@ describe('field schemas', () => {
 	test('a number accepts an integer, and an integer refuses a number', () => {
 		expect(fits(field.number(), field.integer())).toBe(true);
 		expect(fits(field.number(), field.number())).toBe(true);
-		expect(schemaContainment(field.integer(), field.number())).toBe(
+		expect(containment(field.integer(), field.number())).toBe(
 			"the folder's value is a number, not an integer",
 		);
 		expect(fits(field.integer(), field.integer())).toBe(true);
@@ -109,10 +105,8 @@ describe('field schemas', () => {
 	test('date, datetime, and instant follow their formats and the instant pattern', () => {
 		expect(fits(field.date(), field.date())).toBe(true);
 		expect(fits(field.datetime(), field.instant())).toBe(true);
-		expect(schemaContainment(field.instant(), field.datetime())).toMatch(
-			/pattern/,
-		);
-		expect(schemaContainment(field.date(), field.string())).toBe(
+		expect(containment(field.instant(), field.datetime())).toMatch(/pattern/);
+		expect(containment(field.date(), field.string())).toBe(
 			"the shape requires format 'date', and the folder's format is absent",
 		);
 		expect(fits(field.date(), field.datetime())).toBe(false);
@@ -153,7 +147,7 @@ describe('field schemas', () => {
 		expect(fits(nullable, nullable)).toBe(true);
 		expect(fits(nullable, field.nullable(field.select(['a'])))).toBe(true);
 		expect(fits(nullable, Type.Null())).toBe(true);
-		expect(schemaContainment(field.string(), nullable)).toBe(
+		expect(containment(field.string(), nullable)).toBe(
 			"the folder's value is a null, not a string",
 		);
 	});
@@ -183,20 +177,17 @@ describe('field schemas', () => {
 	test('a shape that constrains nothing accepts everything, and a folder that constrains nothing fits only it', () => {
 		expect(fits(Type.Any(), field.string())).toBe(true);
 		expect(fits(field.json(Type.Any()), Type.Object({}))).toBe(true);
-		expect(schemaContainment(field.string(), Type.Any())).toBe(
+		expect(containment(field.string(), Type.Any())).toBe(
 			'the folder admits any value',
 		);
 	});
 
 	test('a pair it cannot decide is refused with the reason', () => {
 		expect(
-			schemaContainment(
-				Type.Unsafe({ not: { type: 'string' } }),
-				Type.Number(),
-			),
+			containment(Type.Unsafe({ not: { type: 'string' } }), Type.Number()),
 		).toMatch(/cannot decide/);
 		expect(
-			schemaContainment(
+			containment(
 				Type.String({ contentMediaType: 'text/plain' }),
 				Type.String(),
 			),
@@ -212,7 +203,7 @@ describe('field schemas', () => {
 		});
 		expect(fits(named, named)).toBe(true);
 		expect(
-			schemaContainment(Type.Array(named), Type.Array(named, { maxItems: 3 })),
+			containment(Type.Array(named), Type.Array(named, { maxItems: 3 })),
 		).toMatch(/cannot decide/);
 	});
 
@@ -246,18 +237,18 @@ describe('shapes of whole schemas', () => {
 			todos: { title: field.string(), status: field.string() },
 			settings: { theme: field.optional(field.string()) },
 		});
-		expect(shapeProblems(declared, shape)).toEqual([]);
+		expect(mismatches(declared, shape)).toEqual([]);
 	});
 
 	test('an optional shape field fits a required one, and a required one needs one', () => {
 		expect(
-			shapeProblems(
+			mismatches(
 				declared,
 				schemaOf({ todos: { priority: field.optional(field.number()) } }),
 			),
 		).toEqual([]);
 		expect(
-			shapeProblems(declared, schemaOf({ todos: { note: field.string() } })),
+			mismatches(declared, schemaOf({ todos: { note: field.string() } })),
 		).toEqual([
 			{
 				kind: 'incompatibleField',
@@ -271,7 +262,7 @@ describe('shapes of whole schemas', () => {
 	});
 
 	test('every problem is listed: a missing table, a missing field, and an incompatible field', () => {
-		const problems = shapeProblems(
+		const problems = mismatches(
 			declared,
 			schemaOf({
 				todos: { title: field.number(), due: field.date() },
@@ -302,7 +293,7 @@ describe('shapes of whole schemas', () => {
 			['pages'],
 		);
 		expect(
-			shapeProblems(closed, schemaOf({ pages: { title: field.string() } })),
+			mismatches(closed, schemaOf({ pages: { title: field.string() } })),
 		).toEqual([]);
 	});
 
@@ -314,19 +305,19 @@ describe('shapes of whole schemas', () => {
 			['pages'],
 		);
 		const same = schemaOf({ pages: { title: field.string() } }, ['pages']);
-		expect(shapeProblems(open, shape)).toMatchObject([
+		expect(mismatches(open, shape)).toMatchObject([
 			{ kind: 'incompatibleTable', table: 'pages' },
 		]);
-		expect(shapeProblems(wider, shape)).toMatchObject([
+		expect(mismatches(wider, shape)).toMatchObject([
 			{ kind: 'incompatibleTable', table: 'pages' },
 		]);
-		expect(shapeProblems(same, shape)).toEqual([]);
+		expect(mismatches(same, shape)).toEqual([]);
 	});
 
 	test('the fields a shape cannot supply when it adds a row', () => {
 		const shape = schemaOf({ todos: { title: field.string() } });
 		expect(
-			requiredOutsideShape(declared.tables.todos!, shape.tables.todos!),
+			requiredOutside(declared.tables.todos!, shape.tables.todos!),
 		).toEqual(['status', 'priority']);
 		const full = schemaOf({
 			todos: {
@@ -335,8 +326,8 @@ describe('shapes of whole schemas', () => {
 				priority: field.number(),
 			},
 		});
-		expect(
-			requiredOutsideShape(declared.tables.todos!, full.tables.todos!),
-		).toEqual([]);
+		expect(requiredOutside(declared.tables.todos!, full.tables.todos!)).toEqual(
+			[],
+		);
 	});
 });

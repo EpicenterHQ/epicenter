@@ -536,7 +536,7 @@ test('a data folder without epicenter.json opens with no tables, and files work'
 	await folder.close();
 });
 
-test('a data folder whose epicenter.json cannot be used is InvalidDeclaration and opens nothing', async () => {
+test('a data folder whose epicenter.json cannot be used is InvalidDefinition and opens nothing', async () => {
 	const root = await scratch('tauri-data-folder-invalid-');
 	await nodeFs.writeFile(
 		join(root, 'epicenter.json'),
@@ -544,7 +544,7 @@ test('a data folder whose epicenter.json cannot be used is InvalidDeclaration an
 	);
 	grantRoot(root);
 	const refused = expectErr(await openFolder({ id: 'so.epicenter.vault' }));
-	expect(refused.name).toBe('InvalidDeclaration');
+	expect(refused.name).toBe('InvalidDefinition');
 	expect(refused.message).toContain("requires 'title'");
 	expect(shell.calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
@@ -622,7 +622,7 @@ test('a data folder read through a definition reads its fields, keeps the rest, 
 		await openFolder({ id: 'so.epicenter.vault', definition: mismatch }),
 	);
 	expect(refused).toMatchObject({
-		name: 'ShapeMismatch',
+		name: 'DefinitionMismatch',
 		problems: [{ kind: 'incompatibleField', table: 'todos', field: 'done' }],
 	});
 });

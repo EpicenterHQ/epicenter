@@ -64,7 +64,7 @@ import {
 } from '@tanstack/query-core';
 import { Err, isErr, Ok, type Result, unwrap } from 'wellcrafted/result';
 import type { FileListing, FileRead } from './boundary.js';
-import type { FolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import type {
 	FileError,
 	RowReadError,
@@ -277,12 +277,13 @@ export type FolderOptionsOf<TTables> = Omit<
 };
 
 /** The options of a folder opened with `TDefinition`. */
-export type FolderOptions<TDefinition extends FolderDefinition> =
-	FolderOptionsOf<FolderAccess<TDefinition>['tables']>;
+export type FolderOptions<TDefinition extends Definition> = FolderOptionsOf<
+	FolderAccess<TDefinition>['tables']
+>;
 
 /** What `folderOptions` reads of a folder: its tables typed by inference. */
 type OptionsSource<TTables> = Pick<
-	Folder<FolderDefinition>,
+	Folder<Definition>,
 	'location' | 'files' | 'write' | 'move' | 'git' | 'sync' | 'onFilesChanged'
 > & {
 	readonly tables: TTables;
@@ -358,7 +359,7 @@ function inTurn<T>(
 }
 
 /** The key prefix for one opened folder: where its files are. */
-function folderKey(folder: Pick<Folder<FolderDefinition>, 'location'>) {
+function folderKey(folder: Pick<Folder<Definition>, 'location'>) {
 	const { location } = folder;
 	return [
 		'folder',

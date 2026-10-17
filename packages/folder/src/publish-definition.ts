@@ -1,12 +1,12 @@
 /**
  * Discovery publication through the ordinary file boundary (ADR-0517): the
- * folder's declaration, at `epicenter.json`, as JSON a tool can read without
+ * folder's definition, at `epicenter.json`, as JSON a tool can read without
  * running anything. A handle publishes it just before its first write, so a
  * folder nobody writes to is never touched, and a folder written to says
- * which definition last wrote it. A file that already holds the declaration's
+ * which definition last wrote it. A file that already holds the definition's
  * bytes is left as it is.
  *
- * With the declaration, the handle makes the root `.gitignore` name every
+ * With the definition, the handle makes the root `.gitignore` name every
  * `local` pattern `epicenter.json` then lists, its definition's and any a
  * Sync brought from another device, so files that stay on the machine that
  * wrote them never enter a commit, plain `git add -A` included. It only adds
@@ -18,10 +18,10 @@
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { FolderStorage } from './boundary.js';
-import { formatDeclaration } from './declaration.js';
-import type { FolderDefinition } from './definition.js';
+import { formatDefinition } from './declaration.js';
+import type { Definition } from './definition.js';
 import { localPatterns } from './merge-file.js';
-import { DECLARATION_PATH } from './paths.js';
+import { DEFINITION_PATH } from './paths.js';
 import { WRITE_ATTEMPTS, writeFile } from './write.js';
 
 const log = createLogger('folder/definition');
@@ -31,8 +31,8 @@ type Publisher = Pick<FolderStorage, 'read' | 'put'>;
 const GITIGNORE_PATH = '.gitignore';
 const PublicationError = defineErrors({
 	DefinitionPublicationUnconfirmed: ({ cause }: { cause: unknown }) => ({
-		message: `Publication of ${DECLARATION_PATH} did not confirm a complete save.`,
-		path: DECLARATION_PATH,
+		message: `Publication of ${DEFINITION_PATH} did not confirm a complete save.`,
+		path: DEFINITION_PATH,
 		cause,
 	}),
 	LocalPatternsUnconfirmed: ({ cause }: { cause: unknown }) => ({
@@ -55,7 +55,7 @@ const PublicationError = defineErrors({
  * `.gitignore`, or the definition's own when the publication failed.
  */
 export async function publishDefinition(
-	prepared: FolderDefinition,
+	prepared: Definition,
 	storage: Publisher,
 ): Promise<readonly string[]> {
 	const own = prepared.local ?? [];
@@ -63,10 +63,10 @@ export async function publishDefinition(
 	try {
 		const { data: written, error } = await writeFile(
 			storage,
-			{ kind: 'declaration' },
-			DECLARATION_PATH,
+			{ kind: 'definition' },
+			DEFINITION_PATH,
 			null,
-			formatDeclaration(prepared),
+			formatDefinition(prepared),
 			{ joining: true },
 		);
 		if (error === null)

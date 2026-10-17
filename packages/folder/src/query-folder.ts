@@ -17,7 +17,7 @@ import {
 } from './projection.js';
 
 export const QueryFolderError = defineErrors({
-	/** The declaration cannot be projected, or the statement may not run. */
+	/** The definition cannot be projected, or the statement may not run. */
 	Refused: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 });
 export type QueryFolderError = InferErrors<typeof QueryFolderError>;

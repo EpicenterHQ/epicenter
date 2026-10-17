@@ -6,12 +6,12 @@
 
 import {
 	checkFolder,
-	DECLARATION_PATH,
-	DECLARATION_SOURCE_PATH,
+	DEFINITION_PATH,
+	DEFINITION_SOURCE_PATH,
 	describeTables,
 	type Finding,
-	generateDeclaration,
-	hasDeclarationSource,
+	generateDefinition,
+	hasDefinitionSource,
 	queryFolder,
 } from '@epicenter/folder/bun';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
@@ -34,8 +34,8 @@ async function checked(dir: string, json: boolean) {
 	const { data, error } = await checkFolder(dir);
 	if (error === null) return data;
 	fail(
-		error.name === 'NotDataFolder' && hasDeclarationSource(dir)
-			? `${error.message}; run \`epicenter generate ${dir}\` to write it from ${DECLARATION_SOURCE_PATH}`
+		error.name === 'NotDataFolder' && hasDefinitionSource(dir)
+			? `${error.message}; run \`epicenter generate ${dir}\` to write it from ${DEFINITION_SOURCE_PATH}`
 			: error.message,
 		json,
 	);
@@ -57,13 +57,13 @@ export async function check(dir: string, json: boolean) {
 			invalid,
 			unreadable,
 			exitCode,
-			...(hasSource ? { source: DECLARATION_SOURCE_PATH } : {}),
+			...(hasSource ? { source: DEFINITION_SOURCE_PATH } : {}),
 		});
 		return exitCode;
 	}
 	if (hasSource)
 		writeErr(
-			`${DECLARATION_PATH} is generated from ${DECLARATION_SOURCE_PATH}; edit the .ts and run \`epicenter generate ${dir}\`, not the .json.`,
+			`${DEFINITION_PATH} is generated from ${DEFINITION_SOURCE_PATH}; edit the .ts and run \`epicenter generate ${dir}\`, not the .json.`,
 		);
 	writeOut(
 		[
@@ -131,17 +131,17 @@ export async function query(
 }
 
 export async function generate(dir: string, json: boolean) {
-	const { data, error } = await generateDeclaration(dir);
+	const { data, error } = await generateDefinition(dir);
 	if (error !== null) return fail(error.message, json);
 	if (json)
 		writeJson({
 			written: data.written,
-			path: DECLARATION_PATH,
-			source: DECLARATION_SOURCE_PATH,
+			path: DEFINITION_PATH,
+			source: DEFINITION_SOURCE_PATH,
 		});
 	else
 		writeOut(
-			`${data.written ? 'wrote' : 'unchanged'} ${DECLARATION_PATH} from ${DECLARATION_SOURCE_PATH}`,
+			`${data.written ? 'wrote' : 'unchanged'} ${DEFINITION_PATH} from ${DEFINITION_SOURCE_PATH}`,
 		);
 	return EXIT.ok;
 }

@@ -8,7 +8,7 @@
  * Every type here is a LOOKUP. None asks whether its argument is a
  * declaration, because the parameter says so, and none can answer `never` for
  * "I could not tell". A schema that arrived as JSON never comes through
- * here: it reaches `prepareSchema` from a trusted TypeScript module and is
+ * here: it reaches `prepareDefinition` from a trusted TypeScript module and is
  * checked in `prepare.ts`.
  */
 
@@ -82,13 +82,13 @@ export type DeclaredTable = TableDeclaration & DeclaredMark;
  * How stored data reads, naming no dataset: the optional title and the
  * tables. Settings are a table too, `settings` (`SETTINGS_TABLE`).
  *
- * A declaration and the prepared schema `prepareSchema` returns for it have
- * this one shape. The prepared one is an owned, frozen snapshot whose fields
- * `check` reads; a field of a declaration that was never prepared is refused
- * by it. A storage selects its dataset when it opens, so `prepareSchema`
- * refuses an `id`.
+ * A definition and the prepared definition `prepareDefinition` returns for
+ * it have this one type. The prepared one is an owned, frozen snapshot whose
+ * fields `check` reads; a field of a definition that was never prepared is
+ * refused by it. A storage selects its dataset when it opens, so
+ * `prepareDefinition` refuses an `id`. `epicenter.json` holds one.
  */
-export type DataSchema = {
+export type Definition = {
 	readonly title?: string;
 	/**
 	 * Files that stay on the machine that wrote them, as `.gitignore` patterns

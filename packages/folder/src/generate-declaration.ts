@@ -12,18 +12,15 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import {
-	DECLARATION_SOURCE_PATH,
-	hasDeclarationSource,
-} from './check-folder.js';
-import { formatDeclaration } from './declaration.js';
+import { DEFINITION_SOURCE_PATH, hasDefinitionSource } from './check-folder.js';
+import { formatDefinition } from './declaration.js';
 import { defineFolder } from './definition.js';
-import { DECLARATION_PATH } from './paths.js';
+import { DEFINITION_PATH } from './paths.js';
 
-export const GenerateDeclarationError = defineErrors({
+export const GenerateDefinitionError = defineErrors({
 	/** The folder has no `epicenter.ts`. */
 	NoSource: ({ dir }: { dir: string }) => ({
-		message: `'${dir}' has no ${DECLARATION_SOURCE_PATH} to generate from`,
+		message: `'${dir}' has no ${DEFINITION_SOURCE_PATH} to generate from`,
 		dir,
 	}),
 	/** `epicenter.ts` threw while it ran. */
@@ -32,14 +29,14 @@ export const GenerateDeclarationError = defineErrors({
 		source,
 		cause,
 	}),
-	/** The default export is not a declaration a folder can keep. */
-	InvalidDeclaration: ({ reason }: { reason: string }) => ({
+	/** The default export is not a definition a folder can keep. */
+	InvalidDefinition: ({ reason }: { reason: string }) => ({
 		message: reason,
 		reason,
 	}),
 });
-export type GenerateDeclarationError = InferErrors<
-	typeof GenerateDeclarationError
+export type GenerateDefinitionError = InferErrors<
+	typeof GenerateDefinitionError
 >;
 
 /**
@@ -49,7 +46,7 @@ export type GenerateDeclarationError = InferErrors<
  * Bun ignores a runtime redirect of a bare specifier, so each name is listed.
  * Loading them here also puts them in a compiled binary.
  */
-const DECLARATION_IMPORTS: Record<string, () => Promise<object>> = {
+const DEFINITION_IMPORTS: Record<string, () => Promise<object>> = {
 	'@epicenter/folder': () => import('./index.js'),
 	'@epicenter/folder/bun': () => import('./bun.js'),
 	'@epicenter/definition': () => import('@epicenter/definition'),
@@ -62,14 +59,14 @@ const DECLARATION_IMPORTS: Record<string, () => Promise<object>> = {
 	'typebox/value': () => import('typebox/value'),
 };
 
-async function resolveDeclarationImports() {
+async function resolveDefinitionImports() {
 	const modules = await Promise.all(
-		Object.entries(DECLARATION_IMPORTS).map(
+		Object.entries(DEFINITION_IMPORTS).map(
 			async ([specifier, load]) => [specifier, await load()] as const,
 		),
 	);
 	Bun.plugin({
-		name: 'epicenter-declaration-imports',
+		name: 'epicenter-definition-imports',
 		setup(build) {
 			for (const [specifier, exports] of modules)
 				build.module(specifier, () => ({
@@ -83,38 +80,38 @@ async function resolveDeclarationImports() {
 /**
  * Run `<dir>/epicenter.ts` and write the `epicenter.json` its default export
  * declares. `written` is false when the file already held exactly that text.
- * Nothing is written when the declaration cannot be kept.
+ * Nothing is written when the definition cannot be kept.
  */
-export async function generateDeclaration(
+export async function generateDefinition(
 	dir: string,
-): Promise<Result<{ written: boolean }, GenerateDeclarationError>> {
-	if (!hasDeclarationSource(dir))
-		return GenerateDeclarationError.NoSource({ dir });
-	const source = resolve(dir, DECLARATION_SOURCE_PATH);
-	await resolveDeclarationImports();
+): Promise<Result<{ written: boolean }, GenerateDefinitionError>> {
+	if (!hasDefinitionSource(dir))
+		return GenerateDefinitionError.NoSource({ dir });
+	const source = resolve(dir, DEFINITION_SOURCE_PATH);
+	await resolveDefinitionImports();
 	let declared: unknown;
 	try {
 		declared = (await import(pathToFileURL(source).href)).default;
 	} catch (cause) {
-		return GenerateDeclarationError.SourceFailed({ source, cause });
+		return GenerateDefinitionError.SourceFailed({ source, cause });
 	}
 	if (typeof declared !== 'object' || declared === null)
-		return GenerateDeclarationError.InvalidDeclaration({
-			reason: `${DECLARATION_SOURCE_PATH} must \`export default defineFolder({ tables })\``,
+		return GenerateDefinitionError.InvalidDefinition({
+			reason: `${DEFINITION_SOURCE_PATH} must \`export default defineFolder({ tables })\``,
 		});
 	// defineFolder refuses what a folder cannot keep, and returns a prepared
 	// definition as it is.
 	let text: string;
 	try {
-		text = formatDeclaration(
+		text = formatDefinition(
 			defineFolder(declared as Parameters<typeof defineFolder>[0]),
 		);
 	} catch (cause) {
-		return GenerateDeclarationError.InvalidDeclaration({
+		return GenerateDefinitionError.InvalidDefinition({
 			reason: cause instanceof Error ? cause.message : String(cause),
 		});
 	}
-	const target = resolve(dir, DECLARATION_PATH);
+	const target = resolve(dir, DEFINITION_PATH);
 	const current = await readFile(target, 'utf8').catch(() => undefined);
 	if (current === text) return Ok({ written: false });
 	await writeFile(target, text);

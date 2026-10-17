@@ -1,17 +1,17 @@
 /**
- * `@epicenter/definition`: inert data-definition vocabulary, its preparation,
- * and the reads over a prepared schema.
+ * `@epicenter/definition`: inert definition vocabulary, its preparation, and
+ * the reads over a prepared definition.
  *
- * A storage imports this to read a declaration; it acquires nothing and knows
+ * A storage imports this to read a definition; it acquires nothing and knows
  * no storage. `@epicenter/folder` is the one storage.
  */
 
 export {
 	type ConformanceIssue,
 	type CreateRowOf,
-	type DataSchema,
 	type DeclaredMark,
 	type DeclaredTable,
+	type Definition,
 	type FieldMap,
 	field,
 	SETTINGS_TABLE,
@@ -39,13 +39,13 @@ export {
 	type CheckMode,
 	type Conformance,
 	check,
-	DataDefinitionParseError,
+	DefinitionError,
 	isOptional,
-	prepareSchema,
+	prepareDefinition,
 } from './prepare.js';
 export {
-	requiredOutsideShape,
-	type ShapeProblem,
-	schemaContainment,
-	shapeProblems,
+	containment,
+	type Mismatch,
+	mismatches,
+	requiredOutside,
 } from './shape.js';

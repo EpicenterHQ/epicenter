@@ -7,11 +7,9 @@
  * so the UI reads, writes, and shows where the notes are the same way in
  * either build.
  */
-import type { Folder, FolderDefinition } from '@epicenter/folder';
+import type { Definition, Folder } from '@epicenter/folder';
 import manifest from '../../../epicenter.app.json';
 import type { honeycrispDefinition } from '../data.js';
-
-type Definition = typeof honeycrispDefinition;
 
 /**
  * Honeycrisp's own folder, named by its app id in `epicenter.app.json`. The
@@ -29,7 +27,7 @@ export const HONEYCRISP_FOLDER_ID = manifest.id;
  * folder's declaration for any other folder Epicenter hands it, read through
  * Honeycrisp's definition.
  */
-export type NotesFolder = Folder<Definition, FolderDefinition>;
+export type NotesFolder = Folder<typeof honeycrispDefinition, Definition>;
 
 /**
  * Opens the build's notes folder. A folder that cannot be opened throws; a

@@ -15,10 +15,10 @@ import type { ProjectedTable } from './projection.js';
 import { type ReadFolderError, readFolder } from './read-folder.js';
 
 /**
- * The authored TypeScript declaration `generateDeclaration` reads
+ * The authored TypeScript definition `generateDefinition` reads
  * (ADR-0527). `checkFolder` only asks whether it exists; it never runs it.
  */
-export const DECLARATION_SOURCE_PATH = 'epicenter.ts';
+export const DEFINITION_SOURCE_PATH = 'epicenter.ts';
 
 /** One finding, located as precisely as the source allows. */
 export type Finding = {
@@ -67,14 +67,14 @@ function isFile(path: string) {
 	return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
 }
 
-/** Whether `dir` holds an `epicenter.ts` to generate its declaration from. */
-export function hasDeclarationSource(dir: string) {
-	return isFile(resolve(dir, DECLARATION_SOURCE_PATH));
+/** Whether `dir` holds an `epicenter.ts` to generate its definition from. */
+export function hasDefinitionSource(dir: string) {
+	return isFile(resolve(dir, DEFINITION_SOURCE_PATH));
 }
 
 /**
  * Read the data folder at `dir` and sort what it reports. A folder or
- * declaration that cannot be used is the error; a file that does not conform
+ * definition that cannot be used is the error; a file that does not conform
  * or cannot be read is a finding beside the others.
  */
 export async function checkFolder(
@@ -131,7 +131,7 @@ export async function checkFolder(
 		rows: tables.reduce((sum, table) => sum + table.rows.length, 0),
 		invalid,
 		unreadable,
-		hasSource: hasDeclarationSource(dir),
+		hasSource: hasDefinitionSource(dir),
 	});
 }
 

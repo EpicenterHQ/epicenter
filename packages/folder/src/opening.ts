@@ -3,10 +3,7 @@
  * folder engine, so an adapter decides before it loads the engine.
  */
 import { Ok, type Result } from 'wellcrafted/result';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import { type Definition, prepareFolderDefinition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 
 /**
@@ -17,8 +14,8 @@ import { OpenFolderError } from './errors.js';
  * `own` is the opening app's own folder, read with the app's prepared
  * `definition`, which the handle publishes before its first write. Any other
  * folder is read with its own `epicenter.json`, which the handle never
- * writes, and through `definition` when one was given: the declaration must
- * contain it (ADR-0538).
+ * writes, and through `definition` when one was given: the folder's
+ * definition must contain it (ADR-0538).
  */
 export type Opening = {
 	/** The folder's id: the host's name for it, never a path. */
@@ -26,8 +23,8 @@ export type Opening = {
 	/** The app that opened it, if an app did; a refusal names it. */
 	readonly app?: string;
 } & (
-	| { readonly own: true; readonly definition: FolderDefinition }
-	| { readonly own: false; readonly definition?: FolderDefinition }
+	| { readonly own: true; readonly definition: Definition }
+	| { readonly own: false; readonly definition?: Definition }
 );
 
 /**
@@ -38,7 +35,7 @@ export type Opening = {
 export function opening(
 	id: string,
 	app: string | undefined,
-	definition: FolderDefinition | undefined,
+	definition: Definition | undefined,
 ): Result<Opening, OpenFolderError> {
 	if (definition === undefined) return Ok({ id, app, own: false });
 	const { data: prepared, error } = prepareFolderDefinition(definition);
