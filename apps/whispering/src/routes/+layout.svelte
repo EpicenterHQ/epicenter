@@ -4,7 +4,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onDestroy } from 'svelte';
@@ -23,12 +23,6 @@
 	// The folder's queries are read again only when its change reports or the
 	// session's own writes say so.
 	const queryClient = new QueryClient();
-	// A scoped mutation waiting its turn pauses while TanStack thinks the page
-	// is unfocused; a recording's steps must run in a hidden window too.
-	focusManager.setEventListener((setFocused) => {
-		setFocused(true);
-		return undefined;
-	});
 	const { opening, release } = mountSession(queryClient);
 
 	onDestroy(release);

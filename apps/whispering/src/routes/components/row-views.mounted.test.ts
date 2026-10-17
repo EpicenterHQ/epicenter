@@ -81,13 +81,13 @@ async function open(
 async function show(library: Library, path: string) {
 	expect(await library.open(path)).toBeUndefined();
 	flushSync();
-	await quiet(library.queryClient);
+	await quiet(library);
 	flushSync();
 }
 
 /** Let writes and the views settle. */
 async function settle(library: Library) {
-	await quiet(library.queryClient);
+	await quiet(library);
 	flushSync();
 }
 

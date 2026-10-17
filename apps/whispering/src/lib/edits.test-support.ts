@@ -109,7 +109,7 @@ export async function openText(library: Library, path: string) {
  * report that files changed does, and let that read land.
  */
 export async function settle(library: Library) {
-	await quiet(library.queryClient);
+	await quiet(library);
 	await library.readAgain();
-	await quiet(library.queryClient);
+	await quiet(library);
 }

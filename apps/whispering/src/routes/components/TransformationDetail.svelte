@@ -23,8 +23,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick } from 'svelte';
 	import { TRANSFORMATIONS, type TransformationFields, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
@@ -81,60 +80,32 @@
 	const ownId = rowStemOf(TRANSFORMATIONS, own) ?? own;
 
 	/**
-	 * A field typed here and not yet saved, sent a second after the last
-	 * keystroke, when the person leaves it, and when the view goes away, as a
-	 * set of the file as it is now (ADR-0576). `undefined` shows the file.
+	 * A field typed here and not yet saved: the transformation's field
+	 * drafts, each sent a second after the last keystroke, when the person
+	 * leaves it, and when the view goes away, as a set of the file as it is
+	 * now (ADR-0576).
 	 */
-	const setTitle = createMutation(() => library.fieldSet(TRANSFORMATIONS));
-	const setModel = createMutation(() => library.fieldSet(TRANSFORMATIONS));
-	let typedTitle = $state<string>();
-	let typedModel = $state<string | null>();
-	function sendTitle() {
-		if (typedTitle === undefined || !library.canEdit(own)) return;
-		const sent = typedTitle;
-		setTitle.mutate(
-			{ stem: ownId, fields: { title: sent } },
-			{
-				onSuccess: () => {
-					if (typedTitle === sent) typedTitle = undefined;
-				},
-			},
-		);
-	}
-	function sendModel() {
-		if (typedModel === undefined || !library.canEdit(own)) return;
-		const sent = typedModel;
-		setModel.mutate(
-			{ stem: ownId, fields: { model: sent } },
-			{
-				onSuccess: () => {
-					if (typedModel === sent) typedModel = undefined;
-				},
-			},
-		);
-	}
-	const sendTitleLater = useDebounce(sendTitle, 1000);
-	const sendModelLater = useDebounce(sendModel, 1000);
+	// svelte-ignore state_referenced_locally
+	const titleDraft = library.fieldOf(TRANSFORMATIONS, ownId, 'title');
+	// svelte-ignore state_referenced_locally
+	const modelDraft = library.fieldOf(TRANSFORMATIONS, ownId, 'model');
+	const typedTitle = $derived(titleDraft.typed);
+	const typedModel = $derived(modelDraft.typed);
 	/** Send everything typed here now: the fields, the instructions, and the text. */
 	function flush() {
-		void sendTitleLater.runScheduledNow();
-		void sendModelLater.runScheduledNow();
+		void titleDraft.save();
+		void modelDraft.save();
 		void library.saveBody(own);
 		void library.saveText(own);
 	}
-	// runed's timers, and the library's, outlive the view; send now instead.
+	// The drafts outlive the view; send now.
 	onDestroy(flush);
 	/** Whether a field typed here did not save. */
 	const fieldFailed = $derived(
-		(typedTitle !== undefined && setTitle.isError && !setTitle.isPending) ||
-			(typedModel !== undefined && setModel.isError && !setModel.isPending),
+		(titleDraft.error !== undefined && !titleDraft.saving) ||
+			(modelDraft.error !== undefined && !modelDraft.saving),
 	);
-	const fieldsPending = $derived(
-		setTitle.isPending ||
-			setModel.isPending ||
-			(sendTitleLater.pending && typedTitle !== undefined) ||
-			(sendModelLater.pending && typedModel !== undefined),
-	);
+	const fieldsPending = $derived(titleDraft.saving || modelDraft.saving);
 
 	/** The recipe as typed: its fields with what is typed here, or its text when it reads. */
 	const recipe = $derived.by(() => {
@@ -294,14 +265,8 @@
 		{#if row}
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={
-					() => typedTitle ?? row?.fields.title ?? '',
-					(value) => {
-						typedTitle = value;
-						void sendTitleLater();
-					}
-				}
-				onblur={() => void sendTitleLater.runScheduledNow()}
+				bind:value={() => titleDraft.shown(row?.fields.title ?? ''), (value) => titleDraft.change(value)}
+				onblur={() => void titleDraft.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Transformation title"
@@ -325,8 +290,8 @@
 				size="xs"
 				class="h-auto p-0"
 				onclick={() => {
-					sendTitle();
-					sendModel();
+					void titleDraft.save();
+					void modelDraft.save();
 				}}>Try again</Button
 			>
 		{/if}
@@ -417,14 +382,13 @@
 								<Input
 									id="transformation-model"
 									bind:value={
-										() => (typedModel === undefined ? (row?.fields.model ?? '') : (typedModel ?? '')),
+										() => modelDraft.shown(row?.fields.model ?? null) ?? '',
 										(value) => {
 											// An empty model uses the text connection's model.
-											typedModel = value.trim() === '' ? null : value;
-											void sendModelLater();
+											modelDraft.change(value.trim() === '' ? null : value);
 										}
 									}
-									onblur={() => void sendModelLater.runScheduledNow()}
+									onblur={() => void modelDraft.save()}
 									disabled={locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"

@@ -506,28 +506,31 @@ text too; its fields open again once the text reads.
   queries a report names (`pathFilter`); TanStack's focus refetch is off and
   nothing goes stale on its own. The page's own saves are not reported to it:
   a save puts its row in the cache, and Git status is read again after it.
-- **A field edit** (a title, a model, removing an endpoint) is the table's
-  `set` mutation: it sets the field on the file as it is now and keeps
-  every field another writer changed (ADR-0576). A view holds a field typed
-  in its own state and sends it a second after the last keystroke, when the
-  person leaves it, and when the view goes away; Run sends it first.
+- **Every write and draft** goes through the folder's edit layer
+  (`createEdits` from `@epicenter/svelte/edits`), which the library builds
+  over its folder and query client.
+- **A field edit** (a title, a model, removing an endpoint) is a set of the
+  table's row: it sets the field on the file as it is now and keeps every
+  field another writer changed (ADR-0576). A field typed is the row's field
+  draft (`library.fieldOf`), sent a second after the last keystroke, when
+  the person leaves it, and when the view goes away; Run sends it first.
 - **A body edit** (a recording's notes, a transcript, a transformation's
-  instructions) holds the row it started from, outside the cache: a body
-  editor per row file (`createBodyEditor` from `@epicenter/folder/svelte`),
-  held by the library so it outlives the view it was typed in, and saved a
-  second after the last change or when the view leaves it. A read never
-  touches what is typed; the detail shows it. Its save is the table's
-  `write` mutation, the change from the row it started from, one at a time
+  instructions) holds the row it started from, outside the cache: the row's
+  body draft, held by the edit layer so it outlives the view it was typed
+  in, and saved a second after the last change or when the view leaves it.
+  A read never touches what is typed; the detail shows it. Its save is the
+  table's `write`, the change from the row it started from, one at a time
   per file; text typed while one runs is sent next, from what the last one
   sent. A save over a row deleted since writes nothing (ADR-0576). A file changed since is merged by line in the engine: where both
   changed the same lines the typing wins, with no notice (ADR-0575).
 - **Writes to one file** run one at a time, in the order made, whichever
-  control made them.
+  control made them, a recording's lifecycle steps and results included
+  (`inTurn`).
 - **Text** edited as a whole file holds the text it started from in a text
-  editor (`createTextEditor`), saved the same way with the folder's `write`
-  mutation and merged by line with whatever changed since (ADR-0576). A
-  failed write, or a file deleted elsewhere, drops the typed text; the shell
-  shows a toast that can copy it, and the file is read again.
+  draft, saved the same way with the folder's write and merged by line with
+  whatever changed since (ADR-0576). A failed write keeps the typed text on
+  screen; a file deleted elsewhere drops it, and the shell shows a toast
+  that can copy it.
 - **A failed body save** keeps what is typed, or the field typed in its view;
   it is saved again with the next change, and a body before anything that reads
   files (a run, a rename, a deletion, Save version, closing). A recording or

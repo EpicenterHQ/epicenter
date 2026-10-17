@@ -175,7 +175,7 @@ async function reportChanged(library: Library, path: string) {
 	await library.queryClient.invalidateQueries(
 		folderOptions(library.folder).pathFilter([path]),
 	);
-	await quiet(library.queryClient);
+	await quiet(library);
 }
 
 /** Commits on the branch now. */
@@ -200,7 +200,7 @@ test('an update is saved; the listing takes the saved row', async () => {
 		row.fields.title = 'Morning notes';
 	});
 	expect(library.isSaving(editor.path)).toBe(true);
-	await quiet(library.queryClient);
+	await quiet(library);
 
 	expect(notices).toEqual([]);
 	const written = await text(library, editor.path);
@@ -230,7 +230,7 @@ test('notes typed while a save runs are saved next, from the version it wrote', 
 	expect(editor.draft.body).toBe('Morning notes\n');
 
 	release();
-	await quiet(library.queryClient);
+	await quiet(library);
 	expect(notices).toEqual([]);
 	// The held save, then one save of the newest notes.
 	expect(counter.mdWrites - before).toBe(1);
@@ -239,7 +239,7 @@ test('notes typed while a save runs are saved next, from the version it wrote', 
 	editor.edit((row) => {
 		row.body = 'Morning notes, two\n';
 	});
-	await quiet(library.queryClient);
+	await quiet(library);
 	expect(notices).toEqual([]);
 	expect(await text(library, editor.path)).toEndWith(
 		'---\nMorning notes, two\n',
@@ -255,7 +255,7 @@ test('a read never touches notes typed, and their save merges with the change it
 	editor.edit((row) => {
 		row.body = 'Mine.\n';
 	});
-	await quiet(library.queryClient);
+	await quiet(library);
 	expect(notices).toMatchObject([{ kind: 'failed', lost: undefined }]);
 	expect(library.unsaved).toBe(true);
 
@@ -274,7 +274,7 @@ test('a read never touches notes typed, and their save merges with the change it
 	editor.edit((row) => {
 		row.body = 'Mine, again.\n';
 	});
-	await quiet(library.queryClient);
+	await quiet(library);
 	const written = await text(library, editor.path);
 	expect(written).toContain('title: Theirs');
 	expect(written).toEndWith('---\nMine, again.\n');
@@ -295,7 +295,7 @@ test('an update over a change made elsewhere sets its field and keeps theirs', a
 	editor.edit((row) => {
 		row.fields.title = 'Mine';
 	});
-	await quiet(library.queryClient);
+	await quiet(library);
 	const written = await text(library, editor.path);
 	expect(written).toContain('title: Mine');
 	expect(written).toEndWith('---\nTheir notes.\n');
@@ -312,7 +312,7 @@ test('the folder refuses a value it cannot hold, and the file stays as it was', 
 	editor.edit((row) => {
 		(row.fields as { durationMs: unknown }).durationMs = 'long';
 	});
-	await quiet(library.queryClient);
+	await quiet(library);
 	expect(notices).toMatchObject([
 		{ kind: 'failed', error: { name: 'InvalidValues' } },
 	]);
