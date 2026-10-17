@@ -194,14 +194,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		hidden: true,
 	},
 	{
-		path: ['declare-epicenter-folder'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
-		summary: "publish so.epicenter's declaration, as the app does at launch",
-		hidden: true,
-	},
-	{
 		path: ['install-command'],
 		args: '',
 		minArgs: 0,

@@ -575,47 +575,6 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
     });
 }
 
-/// Whether this launch's `epicenter declare-epicenter-folder` has finished,
-/// one way or the other. An installed app may read `so.epicenter` through a
-/// definition its declaration must contain (ADR-0538), so no installed app
-/// opens before it, whichever window opened first.
-#[derive(Clone)]
-pub struct EpicenterFolderDeclared(tokio::sync::watch::Receiver<bool>);
-
-impl EpicenterFolderDeclared {
-    /// Resolves once the launch's declaration has finished.
-    pub async fn finished(&self) {
-        let mut receiver = self.0.clone();
-        let _ = receiver.wait_for(|done| *done).await;
-    }
-}
-
-/// The second launch call, in the background: publish `so.epicenter`'s
-/// declaration through the CLI (`packages/cli/src/epicenter-folder.ts`),
-/// with this shell's `paths`, in every build. A failure is logged; apps
-/// that read the folder then refuse it as `ShapeMismatch`, which they say.
-pub(crate) fn spawn_epicenter_folder_declaration(paths: &DesktopPaths) -> EpicenterFolderDeclared {
-    let (sender, receiver) = tokio::sync::watch::channel(false);
-    let invocation = bundled_program().and_then(|program| {
-        crate::deployment_origin().map(|origin| Invocation::new(program, &origin, paths))
-    });
-    tauri::async_runtime::spawn(async move {
-        let result = match invocation {
-            Ok(invocation) => invocation
-                .answer::<Value>(&["declare-epicenter-folder", "--json"], None)
-                .await
-                .map(|_| ())
-                .map_err(|error| format!("{error:?}")),
-            Err(message) => Err(message),
-        };
-        if let Err(message) = result {
-            log::warn!("Epicenter's own folder was not declared: {message}");
-        }
-        let _ = sender.send(true);
-    });
-    EpicenterFolderDeclared(receiver)
-}
-
 // ---------------------------------------------------------------------------
 // AI connections (ADR-0557, ADR-0587): this machine's connections, each an
 // entry of `connections.json` in app data with its endpoint and key in the
@@ -1253,25 +1212,6 @@ mod tests {
         let refused = refresh_command_link(&env("1")).await.unwrap_err();
         assert!(refused.starts_with("exit 1: "), "{refused}");
         assert!(refused.contains("translocated"), "{refused}");
-    }
-
-    /// A deep link opens a built-in window without the Folders window, so the
-    /// launch, not a window, publishes `so.epicenter`'s declaration: with no
-    /// window at all, the launch call runs the CLI (from source, as a
-    /// development build does) and writes it under the shell's folder root.
-    #[tokio::test]
-    async fn the_launch_declares_epicenters_folder_with_no_window_open() {
-        let dir = scratch("declare");
-        let paths = paths_in(&dir);
-        let declared = spawn_epicenter_folder_declaration(&paths);
-        tokio::time::timeout(Duration::from_secs(60), declared.finished())
-            .await
-            .expect("the declaration finished");
-        let declaration =
-            fs::read_to_string(paths.folder_dir.join("so.epicenter").join("epicenter.json"))
-                .expect("so.epicenter/epicenter.json was written");
-        assert!(declaration.contains("\"connections\""), "{declaration}");
-        let _ = fs::remove_dir_all(dir);
     }
 
     /// A child that prints a megabyte and a 300 KB line before it reads any

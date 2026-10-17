@@ -443,7 +443,6 @@
       "dependencies": {
         "@epicenter/auth": "workspace:*",
         "@epicenter/client": "workspace:*",
-        "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",

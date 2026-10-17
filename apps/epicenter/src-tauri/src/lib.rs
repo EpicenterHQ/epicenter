@@ -352,8 +352,6 @@ pub fn run() {
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
-            data_folders::register_epicenter_folder(app.folders(), &desktop_paths.folder_dir)
-                .map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
                 Ok(watch) => {
                     app.manage(watch);
@@ -363,9 +361,6 @@ pub fn run() {
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
-            // An installed app may read `so.epicenter` through a definition,
-            // so its declaration is published before any app opens.
-            app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
             // Every window's page comes from the scheme, which reads these.
             app.manage(scheme::Roots {
                 pages: scheme::pages_dir(app.handle())?,
@@ -658,8 +653,8 @@ pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
 
 /// Open installed app `id`, served at `/apps/<id>/`, in its own window on
 /// `folder`, a registered scope, or reveal the one already open on it. The
-/// window is permitted into the folder and into `so.epicenter`, and handed
-/// the folder (`data_folders::admit_installed_window`): the app's
+/// window is permitted into the folder, and no other, and handed it
+/// (`data_folders::admit_installed_window`): the app's
 /// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
 /// and opens it through the app's definition unless it is the app's own
 /// (ADR-0538, ADR-0583). The URL names no folder, so the page's navigation
