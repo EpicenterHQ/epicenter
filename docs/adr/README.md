@@ -793,7 +793,7 @@ When you add an ADR, add its row here.
 | [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Accepted (amends 0559) |
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Accepted (amends 0535 and 0562; amended by 0586) |
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Accepted (amends 0539 and 0552; amended by 0587; amended by 0586; amended by 0589; amended by 0597; amended by 0605) |
-| [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Accepted (amends 0555, 0561, and 0564; amended by 0587) |
+| [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Accepted (amends 0555, 0561, and 0564; amended by 0587 and 0607) |
 | [0571](0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md) | On desktop, Rust owns the microphone and the page never opens one | Proposed (amends 0561) |
 | [0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
 | [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
@@ -807,12 +807,12 @@ When you add an ADR, add its row here.
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Accepted (amends 0531 and 0533; amended by 0586; amended by 0589) |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
 | [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585; amended by 0586; amended by 0589) |
-| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584) |
-| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597 and 0605) |
-| [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Accepted (amends 0539, 0557, 0564, 0569, and 0570) |
+| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0607) |
+| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597, 0605, and 0607) |
+| [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Accepted (amends 0539, 0557, 0564, 0569, and 0570; amended by 0607) |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Accepted (amends 0540 and 0561; amended by 0589, 0597, and 0605) |
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Accepted (supersedes 0540; amends 0204, 0246, 0552, 0560, 0569, 0581, 0584, and 0588; amended by 0597, 0598, 0600, 0602, 0605, and 0606) |
-| [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted (principle 6 amended by 0605) |
+| [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted (principle 6 amended by 0605; principle 7 amended by 0607) |
 | [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576) |
 | [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | The hosted Git service stores data repositories and offers no rename or move | Accepted (amends 0546 and 0547; amended by 0594) |
@@ -826,3 +826,5 @@ When you add an ADR, add its row here.
 | [0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) | `<FolderApp>` names its app by the last segment of its address | Accepted (amends 0589) |
 | [0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) | An app is an ordinary single-page app in a forkable Git repository | Accepted (supersedes 0597 and 0600; amends 0540, 0560, 0561, 0569, 0586, 0588, 0589, 0590, and 0598) |
 | [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | A third-party browser app signs in by a client metadata document on its own origin | Accepted (amends 0578 and 0589) |
+| [0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) | An app opens any data folder by its id, on every host | Accepted (amends 0570, 0585, 0586, 0587, and 0590) |
+| [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted |

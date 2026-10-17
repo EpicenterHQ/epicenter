@@ -74,9 +74,20 @@ build time. A SvelteKit app uses adapter-static writing `dist/` with
 ```
 
 **Every host serves an app by one rule: the file at the path if it exists,
-otherwise `index.html`.** Every app is a static site that any static host
-serves at the root of an origin (Cloudflare, GitHub Pages, others). Epicenter
-offers no app hosting (ADR-0593, ADR-0594); an author deploys their own.
+otherwise `index.html`.** Epicenter offers no app hosting (ADR-0593,
+ADR-0594); an author deploys their own.
+
+**Each app is served at the root of an origin of its own.** A host that
+gives each app its own origin root meets the contract, and a host that
+serves an app under a subpath does not:
+
+```txt
+https://board.pages.dev/          Cloudflare Pages, one project per app   meets it
+https://board.alice.dev/          a custom domain                         meets it
+https://alice.github.io/board/    a GitHub Pages project site             does not: a subpath, and every project
+                                                                          of alice shares one origin and so one
+                                                                          OPFS root
+```
 
 **The desktop is one more static host, with native powers.** It serves each
 installed app at the root of its own host on the one scheme:
@@ -121,7 +132,7 @@ author's source.**
   from no remote-tracking ref, and names those commits.
 
 **Installing an app trusts its author fully, with the person's account and
-machine, not only the folder a window is handed.** The build runs the
+machine and every folder in it.** The build runs the
 author's scripts as the person, and an agent resolving a merge runs the
 author's code to check its work. There is no per-commit approval: the bytes
 that run need not be bytes the person approved commit by commit, and pulling
@@ -136,7 +147,8 @@ what failed.
 **Principle 6 of [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md)
 reads:** An app is an ordinary single-page app in a Git repository at an
 address, whose `bun run build` writes a static site to `dist/` that any static
-host serves, built once for every host (ADR-0605, ADR-0598). On the desktop an
+host serves at the root of an origin of its own, built once for every host
+(ADR-0605, ADR-0598). On the desktop an
 installed app is the person's own clone of that source, with the author as
 `upstream`, built on the machine and served at the root of its own origin
 (ADR-0605).
@@ -176,7 +188,8 @@ Deleted:
 - A desktop window and a browser tab run builds of the same source; a
   person's own commits reach a tab only if that person deploys their fork.
 - A static host that answers a missing path with a 404 page needs the app's
-  `index.html` copied there: GitHub Pages serves `404.html`. No host was
+  `index.html` copied there: GitHub Pages under a custom domain serves
+  `404.html`. No host was
   probed.
 - A third-party author ships source that builds with Epicenter's Bun alone,
   against published packages, with a frozen `bun.lock`.
@@ -205,3 +218,7 @@ Deleted:
   guards nothing the install did not already trust.
 - **A scheme per app.** One scheme with a host per app gave each app its own
   storage on macOS without registering anything after startup.
+- **Serve an app under a subpath of a shared origin (a GitHub Pages project
+  site).** Every app on that origin shares one storage and one OPFS root,
+  and the app must be built for its prefix, which a fork moved to another
+  address would rebuild.
