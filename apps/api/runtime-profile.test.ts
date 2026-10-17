@@ -349,7 +349,13 @@ test('both runtime compositions fail closed on protected operations during a dat
 						headers: { authorization: `Bearer ${token}`, cookie },
 					}),
 				);
-				expect(response.status).toBeGreaterThanOrEqual(500);
+				// The Worker opens its connection per request, before any route
+				// runs, so every protected operation is Hono's bare 500. On Bun the
+				// resources check the token and answer 503, while Better Auth's
+				// session route answers its own 500.
+				expect(response.status).toBe(
+					runtime === 'worker' || row.surface === 'mountAuthRoutes' ? 500 : 503,
+				);
 				// On Bun the pool is already open, so the authorization server's
 				// instance makes one more attempt: the provider seeding its
 				// resources as it initializes. The Worker fails at connect.
