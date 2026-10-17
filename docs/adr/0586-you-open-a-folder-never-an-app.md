@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-17
-- **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at the desktop address `~/Epicenter/so.epicenter.todos/`: a folder's directory name is the person's. [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at "named by Epicenter's id as every app's folder is named by its id", the tree's `so.epicenter.todos/` and `Apps/<app-id>/`, and "`Apps/` is beside it, and the folder listing skips it": installed apps live in app data. [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "clones it into `~/Epicenter/Apps/<app-id>/`" and the manifest: the clone is in app data and the installer reads `template/epicenter.json`. [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "`so.epicenter.todos` stays itself" and "clones each into `~/Epicenter/<name>`, where its app looks for it": no app looks; the clone's `epicenter.json` names its app. [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at the `~/Epicenter/Apps/<app-id>/` tree and an installed app opened without a folder being handed `<folder_dir>/<app-id>`: every window is handed a folder. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at `epicenter.app.json`, `parseManifest`, "Each app imports its id from its own `epicenter.app.json`", and the Folders window offering every app on every folder: the manifest folds into the template, and the Folders window lists folders. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at `~/Epicenter/Apps/`: the clones are in `<data_dir>/apps/`. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `openFolder({ app, definition })` and `WindowFolder.app`: the opener takes no `app`, and `window_folder` answers the folder alone. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "Each is named by a scope: an application's folder by the application's own ... and any other by `data:<directory name>`": a folder's id is its directory name, admitted by one rule. [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "two scopes on one root": one name reaches a root, and the mutex stays per canonical root. [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "permits its window into `so.epicenter`": a clause of `admit`. [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) at each command's `scope` argument: it is a folder name.
-- **Relates:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`app` in `epicenter.json`, templates, the folder listing); [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md), which is Proposed and changes in place when this is accepted: `<FolderApp definition>` takes no manifest and no app id.
+- **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at the desktop address `~/Epicenter/so.epicenter.todos/`: a folder's directory name is the person's. [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the tree's `so.epicenter.todos/` and `Apps/<app-id>/`, and "`Apps/` is beside it, and the folder listing skips it": installed apps live in app data. [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "clones it into `~/Epicenter/Apps/<app-id>/`" and the manifest: the clone is in app data and the installer reads `template/epicenter.json`. [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "`so.epicenter.todos` stays itself" and "clones each into `~/Epicenter/<name>`, where its app looks for it": no app looks; the clone's `epicenter.json` names its app. [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at the `~/Epicenter/Apps/<app-id>/` tree and an installed app opened without a folder being handed `<folder_dir>/<app-id>`: every window is handed a folder. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at `epicenter.app.json`, `parseManifest`, "Each app imports its id from its own `epicenter.app.json`", and "The Folders window offers every installed app that can run on every data folder": the manifest folds into the template, a folder opens only in the app its `epicenter.json` names, and `installedOpeners` with "Open in" and "Open with…" goes. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at `~/Epicenter/Apps/`: the clones are in `<data_dir>/apps/`. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `openFolder({ app, definition })` and `WindowFolder.app`: the opener takes no `app`, and `window_folder` answers the folder alone. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "Each is named by a scope: an application's folder by the application's own ... and any other by `data:<directory name>`": a folder's id is its directory name, admitted by one rule. [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "two scopes on one root": one name reaches a root, and the mutex stays per canonical root. [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) at each command's `scope` argument: it is a folder name.
+- **Relates:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`app` in `epicenter.json`, templates, the folder listing); [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) (Epicenter keeps no folder, so `admit` names none); [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md), which is Proposed and changes in place when this is accepted: `<FolderApp definition>` takes no manifest and no app id.
 - **Unbuilt:** all of it.
 
 ## Context
@@ -37,12 +37,17 @@ directory in the Epicenter folder as a folder, which would list `Apps/`.
 
 ## Decision
 
-**The Folders window lists folders, not apps.** Each folder shows the title
-and icon of the installed app its `epicenter.json` names in `app`; opening
-it opens that app's window handed that folder. A folder with no
-`epicenter.json`, or no `app`, opens in the Folders window's generic editor.
-A folder whose `app` is not installed on this machine, as after a clone,
-shows the app id it needs and opens in the generic editor meanwhile.
+**A folder opens only in the app its `epicenter.json` names.** A folder
+with no `epicenter.json`, or one that names no `app`, opens in the Folders
+app's generic editor, which is the default app, not an exception. The
+Folders window lists folders, not apps: each shows the title and icon of
+the installed app it names, and opening it opens that app's window handed
+that folder. A folder whose `app` is not installed on this machine, as after
+a clone, shows the app id it needs and opens in the generic editor
+meanwhile. "Open in" and "Open with…" go: `installedOpeners` and
+`apps/epicenter/src/folders/openers.ts` with its test, the menu in
+`apps/epicenter/src/folders/App.svelte`, and the Apps list's opening of an
+app with no folder.
 
 **On the desktop every app window is handed a folder and never looks for
 one.** `openFolder({ definition })` opens the folder `window_folder`
@@ -59,15 +64,14 @@ answers. Deleted:
 **The shell admits a window to a folder by one rule, `admit(label,
 name)`, in place of the per-window scope registry.** A folder's id is its
 directory name, such as `Todos`; the `data:` prefix goes. Every storage and
-history command keeps its `scope` argument as that name, since an app
-window and the Folders window each reach more than one folder.
+history command keeps its `scope` argument as that name, since the Folders
+window reaches every folder.
 
 ```txt
 admit(label, name):
   name is one path segment, not a dot entry, naming a real directory directly in the Epicenter folder
   label "folders"            any such folder
-  label "home" (Settings)    so.epicenter only
-  label "app:..."            its handed folder, or so.epicenter
+  label "app:..."            its handed folder
   otherwise                  refused
 ```
 
@@ -145,19 +149,6 @@ and `appsDir` becomes `join(dataDir, 'apps')` in `app-paths.ts`.
 **A repository's name is its folder's name.** Connect proposes the directory
 name (ADR-0546), so `~/Epicenter/Todos/` proposes
 `git.epicenter.so/<namespace>/todos.git`, and no app id appears in the URL.
-
-**Epicenter's own folder keeps its fixed directory name,
-`~/Epicenter/so.epicenter/`.** It is the one folder found by a fixed name,
-because the built-in Settings page and every installed app window read its
-`connections` table (ADR-0557, ADR-0570) without a person picking it.
-Nothing renames it or searches for it by `app`. When it is missing at
-launch, the CLI makes it from Epicenter's own template, never overwriting a
-file; no grant creates it empty, as `FolderConfig::new` does today
-(`register_epicenter_folder`, `data_folders.rs:76`).
-
-**Open question:** whether the Folders window keeps "Open with" for any
-installed app beside opening a folder in the app it names. `window_folder`
-hands any folder to any window, so keeping it costs one menu.
 
 ## Consequences
 

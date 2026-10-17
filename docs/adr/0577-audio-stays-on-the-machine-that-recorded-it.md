@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at "`recordings/<name>.wav`": a recording's audio is written to `audio/<name>.wav`, and its row stays `recordings/<name>.md`. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "Epicenter's hosted blob storage is the LFS server for hosted folders" and the deletions "With the LFS wave": the hosted blob routes, `@epicenter/blobs`, and `s3-blob-store.ts` are deleted now, and the LFS store is chosen when LFS is built. LFS stays the later path for audio.
-- **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the `local` key, the engine's rule table, `publishLocalPatterns`, and the consequences about `local` merging: Whispering's template ships `.gitignore` with `audio/`, and before Whispering records into a folder it checks that `audio/` is ignored and untracked, asking the person when it is not; a `!` exception and audio committed before the line are no longer overridden by the engine.
+- **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the `local` key, the engine's rule table, `publishLocalPatterns`, and the consequences about `local` merging: Whispering's template ships `.gitignore` with `audio/`, and that line is the folder's policy on every device; a `!` exception and audio committed before the line are no longer overridden by the engine.
 - **Unbuilt:** LFS (ADR-0544).
 
 ## Context
