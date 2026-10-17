@@ -75,6 +75,7 @@ export {
 	hasDefinitionSource,
 } from './check-folder.js';
 export * from './contract.js';
+export { nodeDirectoryPrimitives } from './directory-node.js';
 export {
 	GenerateDefinitionError,
 	generateDefinition,
@@ -88,6 +89,10 @@ export {
 	locateGit,
 	runGit,
 } from './git/native-host.js';
+export {
+	NEUTRAL_ATTRIBUTES,
+	neutralizeAttributes,
+} from './git/neutral-attributes.js';
 export {
 	encodeHistory,
 	type GitMissingReply,

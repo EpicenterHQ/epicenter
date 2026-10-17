@@ -15,7 +15,6 @@
 
 import * as git from 'isomorphic-git';
 import type { OpfsFolder, OpfsLocks } from '../opfs-store.js';
-import { isAttributesPath, normalizingAttribute } from './attributes.js';
 import {
 	type CasResult,
 	type GitBackend,
@@ -29,7 +28,7 @@ import {
 	type HttpFetch,
 } from './http.js';
 import { orphanStagesProblem, parseIndex } from './index-file.js';
-import { logCommits, type ObjectAccess, readBlob } from './objects.js';
+import { logCommits, type ObjectAccess } from './objects.js';
 import { createOpfsGitStore, GITDIR, WORKDIR } from './opfs-git.js';
 import { gitignoreMatcher } from './scope.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
@@ -247,17 +246,6 @@ export async function createStoredGitBackend({
 			// Browser files are plain bytes with no modes, links, or filters.
 			// Stages are what is left of a merge an earlier version left in place.
 			return orphanStagesProblem([...(await unmergedStages()).keys()]);
-		},
-		async incomingAttribute(_commit, files) {
-			// There is no Git program here. The tree's own attribute files are
-			// read and evaluated as Git would evaluate them.
-			const attributeFiles = new Map<string, Uint8Array>();
-			await withObjects(async (access) => {
-				for (const [path, file] of files)
-					if (isAttributesPath(path))
-						attributeFiles.set(path, await readBlob(access, file.oid));
-			});
-			return normalizingAttribute(attributeFiles, files.keys());
 		},
 		async reconcileIndex(commit) {
 			await ensureCreated();

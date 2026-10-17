@@ -9,6 +9,11 @@
  * - Two processes running save-version and sync at once take turns under the
  *   folder's history lock and leave one linear history the remote holds
  * - A save-version waits while another process holds the history lock
+ * - `epicenter clone` checks out each blob's bytes whatever the commit's
+ *   attributes or the person's Git configuration say, so an immediate
+ *   save-version records nothing
+ * - `epicenter clone` of an empty remote, or of one with a submodule under a
+ *   global `submodule.recurse`, succeeds as a plain clone does
  * - Without a usable `git`, every history command exits 2 with `GitMissing`
  * - A sync runs only the `git` `locateGit` finds, never one from `PATH`
  *
@@ -300,6 +305,158 @@ test('a save-version waits while another process holds the history lock', async 
 	expect(
 		existsSync(join(dirname(folder), '.folder.epicenter-history-lock')),
 	).toBe(true);
+});
+
+test("epicenter clone checks out each blob's bytes, so a save-version right after it records nothing", async () => {
+	const project = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-clone-')),
+	);
+	temporary.push(project);
+	const bare = join(project, 'remote.git');
+	await git(
+		project,
+		'init',
+		'--quiet',
+		'--bare',
+		'--initial-branch=main',
+		bare,
+	);
+	const upstream = join(project, 'upstream');
+	await git(project, 'init', '--quiet', '--initial-branch=main', upstream);
+	await git(upstream, 'config', 'remote.origin.url', bare);
+	const files: Record<string, string> = {
+		'lines.txt': 'one\ntwo\n',
+		'stamp.id': '$Id$\n',
+		'wide.u16': 'plain text\n',
+		'plain.md': 'no attributes\n',
+		'filtered.f': 'lowercase\n',
+	};
+	for (const [path, content] of Object.entries(files))
+		await write(upstream, path, content);
+	await git(upstream, 'add', '--all');
+	await git(upstream, 'commit', '--quiet', '-m', 'Files');
+	// Committed after the files, so each blob keeps the bytes above.
+	const attributes =
+		'*.txt text eol=crlf\n*.id ident\n*.u16 working-tree-encoding=UTF-16\n';
+	await write(upstream, '.gitattributes', attributes);
+	await git(upstream, 'add', '.gitattributes');
+	await git(upstream, 'commit', '--quiet', '-m', 'Attributes');
+	await git(upstream, 'push', '--quiet', 'origin', 'main');
+
+	// The person's Git converts line endings and has a smudge driver that
+	// changes bytes.
+	const config = join(project, 'gitconfig');
+	await writeFile(
+		config,
+		'[core]\n\tautocrlf = true\n[filter "upper"]\n\tsmudge = tr a-z A-Z\n\tclean = cat\n',
+	);
+	const env = {
+		GIT_CONFIG_GLOBAL: config,
+		EPICENTER_TEST_SECRETS: '{}',
+		EPICENTER_DATA_DIR: join(project, '.data'),
+		EPICENTER_API_URL: 'http://127.0.0.1:9',
+	};
+	/** Clone the remote, and expect every file on disk to be its blob. */
+	async function cloned(name: string) {
+		const dir = join(project, name);
+		const ran = await epicenter(['clone', `file://${bare}`, dir, '--json'], {
+			env,
+		});
+		expect([ran.exitCode, ran.stderr]).toEqual([0, '']);
+		const paths = (await git(dir, 'ls-files')).split('\n');
+		for (const path of paths)
+			expect([
+				path,
+				await git(dir, 'hash-object', '--no-filters', '--', path),
+			]).toEqual([path, await git(dir, 'rev-parse', `HEAD:${path}`)]);
+		return dir;
+	}
+
+	const dir = await cloned('clone');
+	expect(await readFile(join(dir, 'stamp.id'), 'utf8')).toBe('$Id$\n');
+	const head = await git(dir, 'rev-parse', 'HEAD');
+	const saved = await reply('saveVersion', ['save-version', dir], { env });
+	expect(saved.reply.result.status).toBe('unchanged');
+	expect(await git(dir, 'rev-parse', 'HEAD')).toBe(head);
+
+	// A filter line: the smudge driver never runs, and Save version is
+	// refused, committing nothing.
+	await write(upstream, '.gitattributes', `${attributes}*.f filter=upper\n`);
+	await git(upstream, 'add', '.gitattributes');
+	await git(upstream, 'commit', '--quiet', '-m', 'Filter');
+	await git(upstream, 'push', '--quiet', 'origin', 'main');
+	const filtered = await cloned('filtered');
+	expect(await readFile(join(filtered, 'filtered.f'), 'utf8')).toBe(
+		'lowercase\n',
+	);
+	const filteredHead = await git(filtered, 'rev-parse', 'HEAD');
+	const refused = await reply('saveVersion', ['save-version', filtered], {
+		env,
+	});
+	expect(refused.reply.result.status).toBe('blocked');
+	expect(JSON.stringify(refused.reply.result)).toContain(
+		'.gitattributes line 4 (*.f filter=upper) names a Git filter',
+	);
+	expect(await git(filtered, 'rev-parse', 'HEAD')).toBe(filteredHead);
+});
+
+test('epicenter clone of an empty remote, or of a submodule under a global submodule.recurse, succeeds as git clone does', async () => {
+	const project = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-clone-edges-')),
+	);
+	temporary.push(project);
+	const config = join(project, 'gitconfig');
+	await writeFile(config, '[submodule]\n\trecurse = true\n\tactive = .\n');
+	const env = {
+		GIT_CONFIG_GLOBAL: config,
+		EPICENTER_TEST_SECRETS: '{}',
+		EPICENTER_DATA_DIR: join(project, '.data'),
+		EPICENTER_API_URL: 'http://127.0.0.1:9',
+	};
+	const clone = (bare: string, dir: string) =>
+		epicenter(['clone', `file://${bare}`, dir, '--json'], { env });
+
+	// An empty remote has no commit to check out.
+	const empty = join(project, 'empty.git');
+	await git(
+		project,
+		'init',
+		'--quiet',
+		'--bare',
+		'--initial-branch=main',
+		empty,
+	);
+	const emptyClone = join(project, 'empty');
+	expect((await clone(empty, emptyClone)).exitCode).toBe(0);
+	expect(await git(emptyClone, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
+	expect(
+		await readFile(join(emptyClone, '.git/info/attributes'), 'utf8'),
+	).toEndWith('-export-subst\n');
+
+	// A submodule `clone` never recurses into, whatever the configuration.
+	const upstream = join(project, 'upstream');
+	await git(project, 'init', '--quiet', '--initial-branch=main', upstream);
+	await write(upstream, 'a.md', 'a\n');
+	await write(
+		upstream,
+		'.gitmodules',
+		'[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n',
+	);
+	await git(upstream, 'add', 'a.md', '.gitmodules');
+	await git(
+		upstream,
+		'update-index',
+		'--add',
+		'--cacheinfo',
+		`160000,${'1'.repeat(40)},sub`,
+	);
+	await git(upstream, 'commit', '--quiet', '-m', 'Submodule');
+	const bare = join(project, 'remote.git');
+	await git(project, 'clone', '--quiet', '--bare', upstream, bare);
+	const withSubmodule = join(project, 'with-submodule');
+	const ran = await clone(bare, withSubmodule);
+	expect([ran.exitCode, ran.stderr]).toEqual([0, '']);
+	expect(await readFile(join(withSubmodule, 'a.md'), 'utf8')).toBe('a\n');
 });
 
 test('without a usable git, every history command exits 2 with GitMissing', async () => {

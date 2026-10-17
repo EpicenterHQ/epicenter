@@ -23,11 +23,11 @@
  * (ADR-0559, `tauri-history.ts`).
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
-import { byCodePoint, NORMALIZING } from './attributes.js';
 import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
+import { neutralizeAttributes } from './neutral-attributes.js';
 import type { CommitSummary, ObjectAccess } from './objects.js';
 import { primitiveFs } from './primitive-fs.js';
 import { gitignoreMatcher } from './scope.js';
@@ -141,7 +141,10 @@ export async function createNativeGitBackend({
 	const { run, files } = host;
 	const gitdir = `${root}/.git`;
 	// Objects are stored by `git hash-object -w`, which names and checks
-	// each one; nothing writes an object file by hand.
+	// each one; nothing writes an object file by hand. Hashing from standard
+	// input with no `--path` applies no attribute and no line-ending
+	// conversion, which is what commits each file with the bytes it has on
+	// disk, whatever the repository's or the person's attributes say.
 	const access: ObjectAccess = {
 		fs: primitiveFs(files, {
 			gitdir,
@@ -190,13 +193,17 @@ export async function createNativeGitBackend({
 		return present;
 	}
 	/**
-	 * Create the repository if there is none; see `initialized`. Answers why
-	 * it may not be created here, having run nothing.
+	 * Create the repository if there is none, with attributes that change no
+	 * bytes (`neutralizeAttributes`); see `initialized`. Answers why it may
+	 * not be created here, having run nothing.
 	 */
 	async function createRepository(): Promise<string | undefined> {
 		if (await exists()) return undefined;
 		const problem = await initProblem?.();
 		if (problem !== undefined) return problem;
+		// First, since `git init` keeps it: a repository is never there
+		// without it, even when this process stops between the two.
+		await neutralizeAttributes(files, gitdir);
 		await init();
 		present = true;
 		await initialized?.();
@@ -331,25 +338,6 @@ export async function createNativeGitBackend({
 				head: await resolve(branchRef),
 				ignored: (paths) => backend.ignoredPaths(paths, new Map()),
 			});
-		},
-		async incomingAttribute(commit, files) {
-			if (files.size === 0) return undefined;
-			// Git's own attribute matching, against the commit's tree alone. A
-			// Git too old for `--source` fails here, before anything is written.
-			const result = await run(
-				['check-attr', `--source=${commit}`, '--stdin', '-z', ...NORMALIZING],
-				{ input: `${[...files.keys()].sort(byCodePoint).join('\0')}\0` },
-			);
-			const records = text(result.stdout).split('\0');
-			for (let index = 0; index + 2 < records.length; index += 3) {
-				const [path, attribute, value] = records.slice(index, index + 3);
-				if (value !== 'unspecified' && value !== 'unset')
-					return {
-						path: path!,
-						attribute: value === 'set' ? attribute! : `${attribute}=${value}`,
-					};
-			}
-			return undefined;
 		},
 		async reconcileIndex(commit) {
 			if (!(await exists())) return;

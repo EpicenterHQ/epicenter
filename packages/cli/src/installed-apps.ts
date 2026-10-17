@@ -35,7 +35,10 @@
  * permissions. Git still runs through `@epicenter/folder`'s runner (no hooks,
  * no fsmonitor, no prompt, discovery stopped at the repository, and no
  * inherited variable pointing Git elsewhere), with the `ext` and `fd`
- * transports refused. Trust covers code, never data.
+ * transports refused. Each clone's `info/attributes` unsets every attribute
+ * that changes bytes before anything is checked out (`neutralizeAttributes`),
+ * so the clone and each build's checkout hold the commit's blobs exactly.
+ * Trust covers code, never data.
  *
  * This module writes the clones, `approvals.json`, and the builds. They are
  * the only record of what is installed (ADR-0569): `epicenter app list`
@@ -62,7 +65,12 @@ import {
 } from 'node:fs/promises';
 import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
 import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
-import { createGitRunner, holdingFileLock } from '@epicenter/folder/bun';
+import {
+	createGitRunner,
+	holdingFileLock,
+	neutralizeAttributes,
+	nodeDirectoryPrimitives,
+} from '@epicenter/folder/bun';
 import type { AppPaths } from './app-paths.ts';
 
 /** The file that makes the folder holding it an app. */
@@ -721,12 +729,14 @@ export async function listInstalled(paths: AppPaths): Promise<InstalledApp[]> {
 
 /**
  * Clone `source` into a dot directory of `Apps/`, which no listing reads, and
- * run `work` on the clone. The clone is removed unless `work` moved it.
+ * run `work` on the clone. The clone is removed unless `work` moved it. Its
+ * attributes change no bytes (`neutralizeAttributes`) before anything is
+ * checked out, and only `checkout` checks its commit out.
  */
 async function withStagedClone<T>(
 	paths: AppPaths,
 	source: string,
-	cloneArgs: readonly string[],
+	{ cloneArgs, checkout }: { cloneArgs: readonly string[]; checkout: boolean },
 	work: (clone: string) => Promise<T>,
 ): Promise<T> {
 	const problem = sourceProblem(source);
@@ -738,6 +748,7 @@ async function withStagedClone<T>(
 	try {
 		await git(paths.appsDir, [
 			'clone',
+			'--no-checkout',
 			'--no-recurse-submodules',
 			'--template=',
 			...cloneArgs,
@@ -745,6 +756,14 @@ async function withStagedClone<T>(
 			source,
 			staging,
 		]);
+		await neutralizeAttributes(nodeDirectoryPrimitives, join(staging, '.git'));
+		// An empty repository has no commit to check out.
+		if (
+			checkout &&
+			(await gitSucceeds(staging, ['rev-parse', '--verify', '-q', 'HEAD']))
+		)
+			// Like the clone, which no `submodule.recurse` reaches.
+			await git(staging, ['checkout', '--quiet', '--no-recurse-submodules']);
 		return await work(staging);
 	} finally {
 		// A rename moved it into place; otherwise nothing of it is kept.
@@ -766,7 +785,7 @@ export async function listRepository(
 		withStagedClone(
 			paths,
 			source.trim(),
-			['--no-checkout', '--depth=1', '--filter=blob:none'],
+			{ cloneArgs: ['--depth=1', '--filter=blob:none'], checkout: false },
 			async (clone) => {
 				const tracked = await git(clone, [
 					'ls-tree',
@@ -834,32 +853,37 @@ export async function install(
 	const normalized = normalizeFolder(folder);
 	return exclusively(paths, async () => {
 		options.onProgress?.(`Cloning ${from}…`);
-		const id = await withStagedClone(paths, from, [], async (staging) => {
-			let manifest: Manifest;
-			try {
-				manifest = await readManifest(await appDir(staging, normalized));
-			} catch (cause) {
-				const problem = (cause as Error).message;
-				throw new Error(
-					normalized === '' || !problem.startsWith(MANIFEST)
-						? problem
-						: `${normalized}/${problem}`,
-				);
-			}
-			if (normalized !== '')
-				await git(staging, ['config', '--local', FOLDER_KEY, normalized]);
-			const destination = join(paths.appsDir, manifest.id);
-			if ((await kindOf(destination)) !== undefined)
-				throw new Error(
-					`An app with the id ${manifest.id} is already installed in Apps/${manifest.id}.`,
-				);
-			await rename(staging, destination).catch((cause) => {
-				throw new Error(
-					`The app could not be moved into place: ${String(cause)}`,
-				);
-			});
-			return manifest.id;
-		});
+		const id = await withStagedClone(
+			paths,
+			from,
+			{ cloneArgs: [], checkout: true },
+			async (staging) => {
+				let manifest: Manifest;
+				try {
+					manifest = await readManifest(await appDir(staging, normalized));
+				} catch (cause) {
+					const problem = (cause as Error).message;
+					throw new Error(
+						normalized === '' || !problem.startsWith(MANIFEST)
+							? problem
+							: `${normalized}/${problem}`,
+					);
+				}
+				if (normalized !== '')
+					await git(staging, ['config', '--local', FOLDER_KEY, normalized]);
+				const destination = join(paths.appsDir, manifest.id);
+				if ((await kindOf(destination)) !== undefined)
+					throw new Error(
+						`An app with the id ${manifest.id} is already installed in Apps/${manifest.id}.`,
+					);
+				await rename(staging, destination).catch((cause) => {
+					throw new Error(
+						`The app could not be moved into place: ${String(cause)}`,
+					);
+				});
+				return manifest.id;
+			},
+		);
 		return settle(paths, id, options);
 	});
 }
@@ -890,6 +914,9 @@ export async function update(
 	return exclusively(paths, async () => {
 		const source = await installedSource(paths, id);
 		if (options.commit === undefined) {
+			// The fast-forward or rebase below checks files out in the clone,
+			// which may predate its attributes file.
+			await neutralizeAttributes(nodeDirectoryPrimitives, join(source, '.git'));
 			await requireClean(source);
 			options.onProgress?.('Fetching updates…');
 			await git(source, ['fetch', '--no-recurse-submodules', 'origin']);
@@ -1154,8 +1181,13 @@ async function checkoutOptions(source: string) {
 	return options;
 }
 
-/** Check `commit` out detached at `checkout`, a worktree of the clone at `source`. */
+/**
+ * Check `commit` out detached at `checkout`, a worktree of the clone at
+ * `source`. The worktree reads the clone's `info/attributes`, written first
+ * so a clone installed before it existed gets it too.
+ */
 async function checkOut(source: string, checkout: string, commit: string) {
+	await neutralizeAttributes(nodeDirectoryPrimitives, join(source, '.git'));
 	await mkdir(dirname(checkout), { recursive: true });
 	// `--force --force` takes over a path a build that did not finish left
 	// registered, even one still locked while it was being added, without

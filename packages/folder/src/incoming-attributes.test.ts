@@ -1,16 +1,19 @@
 /**
- * Incoming Attribute Refusal Tests
+ * Incoming Attribute Tests
  *
- * Sync writes each incoming blob's bytes as they are stored. A commit that
- * declares a Git filter or a byte conversion means something else by those
- * bytes, so Sync refuses it before a file, the index, or the branch changes. These run the same cases against a browser folder and a
- * directory folder, which is what the desktop app opens.
+ * Sync writes each incoming blob's bytes as they are stored. A commit whose
+ * attribute files name a Git filter means something else by those bytes
+ * (under `filter=lfs` a blob is a pointer), so Sync refuses it before a file,
+ * the index, or the branch changes (ADR-0592). Line-ending attributes change
+ * nothing Sync writes, so a commit declaring them syncs. These run the same
+ * cases against a browser folder and a directory folder, which is what the
+ * desktop app opens.
  *
  * Key behaviors:
- * - An LFS filter at the root or in a nested attribute file is refused, with
- *   the audio in the folder still the audio
- * - A commit that only adds an attribute, over files it does not change, is
- *   refused
+ * - An LFS filter at the root or in a nested attribute file is refused,
+ *   naming the attribute file, with the audio in the folder still the audio
+ * - A commit that declares `text` and `eol` syncs, and each file keeps the
+ *   bytes the commit stores
  * - Attributes of the files currently in the folder do not mask the incoming
  *   commit's
  * - Nothing is published on refusal: working bytes, index, and HEAD are equal
@@ -19,7 +22,7 @@
  *   fast-forwards exactly. This is refusal of filters, not LFS support
  *
  * See also:
- * - `git/attributes.test.ts` for the browser evaluation against real Git
+ * - `git/attributes.test.ts` for which attribute lines name a filter
  */
 import {
 	afterAll,
@@ -215,9 +218,7 @@ async function incoming(kind: 'browser' | 'directory') {
 			if (refused.name !== 'Unrepresentable') return;
 			expect(refused.paths).toEqual([path]);
 			expect(refused.reason).toContain(reasonHolds);
-			expect(refused.reason).toContain(
-				'this folder does not apply attribute filters or conversion',
-			);
+			expect(refused.reason).toContain('names a Git filter');
 			expect(await untouched()).toEqual(before);
 			expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(head);
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
@@ -242,7 +243,7 @@ describe.each([
 		);
 		await writeFile(join(rooted.upstream, 'rec/take.wav'), LFS_POINTER);
 		await rooted.publish('track audio with lfs');
-		await rooted.refusedUntouched('rec/nested/deep.wav', 'filter=lfs');
+		await rooted.refusedUntouched('.gitattributes', 'filter=lfs');
 		expect(
 			expectErr(await rooted.folder.files.read('.gitattributes')).name,
 		).toBe('NotFound');
@@ -255,18 +256,26 @@ describe.each([
 		);
 		await writeFile(join(nested.upstream, 'rec/nested/deep.wav'), LFS_POINTER);
 		await nested.publish('track one nested file with lfs');
-		await nested.refusedUntouched('rec/nested/deep.wav', 'filter=lfs');
+		await nested.refusedUntouched('rec/nested/.gitattributes', 'filter=lfs');
 	});
 
-	test('an incoming normalizing attribute is refused even when it only selects unchanged files', async () => {
-		// Line-ending conversion declared for a file the commit does not touch.
+	test('an incoming commit that declares line endings syncs, and each file keeps the bytes the commit stores', async () => {
 		const converting = await incoming(kind);
 		await writeFile(
 			join(converting.upstream, '.gitattributes'),
-			'*.md text eol=crlf\n',
+			'* text=auto\n*.md text eol=crlf\n',
 		);
-		await converting.publish('normalize markdown line endings');
-		await converting.refusedUntouched('notes.md', 'text');
+		const head = await converting.publish('normalize markdown line endings');
+
+		expect(expectOk(await converting.folder.sync.run())).toEqual({
+			kind: 'synced',
+			head,
+		});
+		expect(await converting.text('notes.md')).toBe('line one\nline two\n');
+		expect(await converting.text('.gitattributes')).toBe(
+			'* text=auto\n*.md text eol=crlf\n',
+		);
+		expect(expectOk(await converting.folder.git.status()).changes).toEqual([]);
 	});
 
 	test("the folder's own attribute file does not mask the incoming commit's", async () => {

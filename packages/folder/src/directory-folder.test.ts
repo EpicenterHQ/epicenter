@@ -8,7 +8,14 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { SCRATCH_DIRECTORY } from './boundary.js';
@@ -23,6 +30,7 @@ import {
 } from './directory-store.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
+import { NEUTRAL_ATTRIBUTES } from './git/neutral-attributes.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -284,6 +292,146 @@ describe('a folder over an ordinary directory', () => {
 		expect(await git(root, 'ls-files', '--stage', 'run.sh')).toStartWith(
 			'100755',
 		);
+		await folder.close();
+	});
+
+	test.each([
+		'global',
+		'repository',
+	] as const)("with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk, and the person's checkout writes it back the same", async (where) => {
+		const project = await scratch('directory-folder-autocrlf-');
+		const bare = await createBareRemote(project);
+		const root = join(project, 'desktop');
+		await mkdir(root);
+		// Git for Windows writes this when it installs.
+		const global = process.env.GIT_CONFIG_GLOBAL;
+		if (where === 'global') {
+			const config = join(project, 'gitconfig');
+			await writeFile(config, '[core]\n\tautocrlf = true\n');
+			process.env.GIT_CONFIG_GLOBAL = config;
+		}
+		/** The person's own `git`, with their configuration. */
+		const theirs = async (...args: string[]) => {
+			const child = Bun.spawn(['git', ...args], {
+				cwd: root,
+				env: { ...GIT_ENV, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL },
+				stderr: 'pipe',
+			});
+			expect([
+				await child.exited,
+				await new Response(child.stderr).text(),
+			]).toEqual([0, '']);
+		};
+		try {
+			const ran: (readonly string[])[] = [];
+			const folder = expectOk(
+				await open(root, { beforeGit: async (args) => void ran.push(args) }),
+			);
+			const created = await addTodo(folder, 'Line feeds');
+			// The folder's first commit creates its repository.
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
+				`${NEUTRAL_ATTRIBUTES}\n`,
+			);
+			if (where === 'repository')
+				await git(root, 'config', 'core.autocrlf', 'true');
+			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\n');
+			// An attribute the person's checkout would apply, but for the
+			// repository's own `info/attributes`.
+			await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
+			/** Whether `path`'s blob in `commit` is its bytes on disk. */
+			const stored = async (commit: string, path: string) =>
+				(await git(root, 'rev-parse', `${commit}:${path}`)) ===
+				(await git(root, 'hash-object', '--no-filters', path));
+
+			expect(
+				(await folder.git.commit({ message: 'Keep line endings' })).status,
+			).toBe('committed');
+			for (const path of [created.path, 'windows.txt'])
+				expect([path, await stored('HEAD', path)]).toEqual([path, true]);
+
+			// A native checkout with no conversion of its own sends a file back.
+			const native = join(project, 'native');
+			expect(expectOk(await folder.sync.connect(bare)).kind).toBe('synced');
+			await git(project, 'clone', '--quiet', bare, native);
+			await writeFile(join(native, 'incoming.txt'), 'a\nb\n');
+			await git(native, 'add', 'incoming.txt');
+			await git(native, 'commit', '--quiet', '-m', 'Incoming');
+			await git(native, 'push', '--quiet', 'origin', 'main');
+			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\nthree\r\n');
+
+			expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+			expect(await readFile(join(root, 'incoming.txt'), 'utf8')).toBe('a\nb\n');
+			expect(await git(bare, 'rev-parse', 'main')).toBe(
+				await git(root, 'rev-parse', 'main'),
+			);
+			const tracked = [created.path, 'windows.txt', 'incoming.txt'];
+			for (const path of tracked)
+				expect([path, await stored('main', path)]).toEqual([path, true]);
+			// No command needs Git 2.40's `check-attr --source`.
+			expect(ran.filter((args) => args.includes('check-attr'))).toEqual([]);
+			await folder.close();
+
+			// The person checks the files out again with their own Git.
+			for (const path of tracked) await rm(join(root, path));
+			await theirs('checkout', '--', ...tracked);
+			for (const path of tracked)
+				expect([path, await stored('main', path)]).toEqual([path, true]);
+		} finally {
+			if (global === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+			else process.env.GIT_CONFIG_GLOBAL = global;
+		}
+	});
+
+	test('an attribute file that names a filter and governs a recorded file, ignored or not, refuses the commit; line-ending attributes commit the bytes on disk', async () => {
+		const { root, start } = await nativeRepository('directory-folder-filter-');
+		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
+		const folder = expectOk(await open(root));
+		const created = await addTodo(folder, 'Plain bytes');
+		const committed = await folder.git.commit();
+		expect(committed).toMatchObject({ status: 'committed', parent: start });
+		expect(await git(root, 'rev-parse', `HEAD:${created.path}`)).toBe(
+			await git(root, 'hash-object', '--no-filters', created.path),
+		);
+		const head = await git(root, 'rev-parse', 'HEAD');
+
+		await writeFile(
+			join(root, '.gitattributes'),
+			'*.md text eol=crlf\n*.wav filter=lfs\n',
+		);
+		await addTodo(folder, 'Beside a filter');
+		const refused = await folder.git.commit();
+		expect(refused.status).toBe('blocked');
+		expect(JSON.stringify(refused)).toContain(
+			'.gitattributes line 2 (*.wav filter=lfs) names a Git filter',
+		);
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+
+		// An ignored attribute file over nothing recorded governs nothing a
+		// commit carries.
+		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
+		await writeFile(join(root, '.gitignore'), 'local/\nnode_modules/\n');
+		await mkdir(join(root, 'node_modules/pkg'), { recursive: true });
+		await writeFile(
+			join(root, 'node_modules/pkg/.gitattributes'),
+			'* filter=lfs\n',
+		);
+		await writeFile(join(root, 'node_modules/pkg/index.js'), 'x\n');
+		const unaffected = await folder.git.commit();
+		expect(unaffected.status).toBe('committed');
+		const next = await git(root, 'rev-parse', 'HEAD');
+
+		// One in an ignored directory that holds a recorded file refuses.
+		await mkdir(join(root, 'local'));
+		await writeFile(join(root, 'local/kept.md'), 'kept\n');
+		await git(root, 'add', '--force', 'local/kept.md');
+		await writeFile(join(root, 'local/.gitattributes'), '* filter=lfs\n');
+		const ignored = await folder.git.commit();
+		expect(ignored.status).toBe('blocked');
+		expect(JSON.stringify(ignored)).toContain(
+			'local/.gitattributes line 1 (* filter=lfs) names a Git filter',
+		);
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(next);
 		await folder.close();
 	});
 

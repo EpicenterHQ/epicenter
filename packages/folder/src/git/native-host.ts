@@ -328,12 +328,27 @@ function killGroup(group: number) {
  * configures; the `ext` and `fd` transports refused, since each runs an
  * arbitrary command; and no color in output this process reads. A `-c`
  * reaches every `git` the command starts in turn, such as a submodule's.
+ *
+ * `core.autocrlf=false` and `core.eol=lf` cover line endings that come from
+ * configuration alone: a person's `core.autocrlf` (Git for Windows sets
+ * `true` when it installs), and the `native` default of `core.eol`, which is
+ * CRLF on Windows for a file `text` selects. They matter for a checkout in a
+ * repository without `NEUTRAL_ATTRIBUTES`, such as an app clone installed
+ * before it was written. They do not stop attributes: `text` with `eol`,
+ * `ident`, `working-tree-encoding`, and filters, from a committed
+ * `.gitattributes` or `core.attributesFile`, still apply wherever
+ * `NEUTRAL_ATTRIBUTES` is missing (`neutral-attributes.ts`). Epicenter's commits never
+ * convert either way (`native-backend.ts`).
  */
 const SAFETY = (hooksPath: string) => [
 	'-c',
 	`core.hooksPath=${hooksPath}`,
 	'-c',
 	'core.fsmonitor=false',
+	'-c',
+	'core.autocrlf=false',
+	'-c',
+	'core.eol=lf',
 	'-c',
 	'protocol.ext.allow=never',
 	'-c',

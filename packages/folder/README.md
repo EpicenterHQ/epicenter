@@ -1427,7 +1427,7 @@ Sync stops, and says why, only where it must not decide:
 | `SyncError` | When | What was written |
 | --- | --- | --- |
 | `Blocked` | a merge or a rebase another Git program began (`.git/MERGE_HEAD`), a detached head, a file of this folder's own where the remote needs the path (a file it never committed, ignored or new, where the remote adds one; files where the remote needs a file), or a branch another program moved while Sync wrote | nothing sent, for a file in the way; for a moved branch, the files written are changes to it |
-| `Unrepresentable` | the remote (`whose: 'remote'`) or the tree this folder would send (`whose: 'folder'`) holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or a commit whose attributes declare a filter or a byte conversion | nothing |
+| `Unrepresentable` | the remote (`whose: 'remote'`) or the tree this folder would send (`whose: 'folder'`) holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or an attribute file that names a Git filter | nothing |
 | `Unrelated` | the histories share no commit | nothing |
 | `KeptChanging` | the remote moved before every push | nothing |
 | `Publish` | a file could not be written | what landed, whole; the next Sync finishes |
@@ -1439,22 +1439,42 @@ delete wins, and the edit stays in history as a parent, named by a trailer.
 `synced` means the push confirmed the head and no save landed after the
 checkpoint; `saved` carries the push's own outcome and `changedSince`.
 
-An incoming commit whose own `.gitattributes` declare a filter or a byte
-conversion (`filter`, `text`, `eol`, `crlf`, `ident`,
-`working-tree-encoding`) for any file in its tree is refused as
-`Unrepresentable` before anything changes, including attributes in nested
-files and ones the folder's current files would mask. This is refusal, not
-Git LFS support: pointer-shaped text with no declared filter is ordinary
-bytes. A directory folder asks `git check-attr --source`; the browser
-evaluates the commit's attribute files the same way. Browser fetch uses
-isomorphic-git 1.38.5, which fails when a non-default remote branch exists
-but the server advertises no resolvable `HEAD`; that failure changes
-nothing.
+A tree with a `.gitattributes` line that assigns `filter` (set, or with a
+value such as `filter=lfs`), in any directory, is refused as
+`Unrepresentable` before anything changes, whether or not the line's
+pattern selects a file (`declaredFilter`, `src/git/attributes.ts`). Under a
+filter a blob means something other than its bytes, and every file here is
+written as its bytes. This is refusal, not Git LFS support: pointer-shaped
+text with no declared filter is ordinary bytes. Line-ending and encoding
+attributes (`text`, `eol`, `crlf`, `working-tree-encoding`) and `ident` are
+not refused. A commit hashes each file's bytes with no path, and Sync writes
+each blob's bytes, so neither applies them. Browser fetch uses isomorphic-git 1.38.5,
+which fails when a non-default remote branch exists but the server
+advertises no resolvable `HEAD`; that failure changes nothing.
 
 A whole-folder commit on disk records every file as plain `100644` bytes,
 so it is refused in a repository it would misrepresent: symbolic links,
-executables, submodules, nested `.git` data, `core.autocrlf`, or a
-normalizing attribute on a source file. Reads and file saves still work.
+executables, submodules, nested `.git` data, or a `.gitattributes` that
+names a filter and governs a recorded file: recorded itself, or, ignored,
+in a directory that holds a recorded path. Reads and file saves still work.
+
+Git's own checkout does apply attributes: a smudge filter, `text` and
+`eol`, `ident`, and `working-tree-encoding`. A file checked out that way
+differs from its blob, and the next Save version would commit the
+difference. So every repository Epicenter creates or clones gets
+`$GIT_DIR/info/attributes` ending with the line
+`* -filter -text -eol -ident -working-tree-encoding -export-ignore -export-subst`
+before anything is checked out, below any lines a person wrote there, since
+a later line wins (`neutralizeAttributes`,
+`src/git/neutral-attributes.ts`): the folder's first commit or connect,
+`epicenter clone`, and an installed app's clone, update, and build
+worktree. Git
+reads that file before any `.gitattributes` and `core.attributesFile`, so
+every checkout there, a person's included, writes each blob's bytes. Every
+`git` Epicenter runs also sets `core.autocrlf=false` and `core.eol=lf`,
+which cover line endings from configuration alone, such as the
+`core.autocrlf=true` Git for Windows installs, in a repository without that
+file.
 
 ## Declaring a folder
 

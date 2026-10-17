@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine's rule table, `publishLocalPatterns`, and the consequences about `local` merging: audio stays on the machine while the folder's `.gitignore` ignores it, and whoever edits that line decides for every device. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at "Paths the opened definition declares local never enter a commit": `.gitignore` decides what a commit leaves out. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`.
-- **Unbuilt:** all of it: plain Git ignore semantics on both backends with no `local`, Whispering's template `.gitignore`, and the deletions below.
+- **Built:** the refusals in the decision and no others. Sync and a native checkpoint refuse no line-ending or encoding attribute (`core.autocrlf`, `text`, `eol`, `ident`, `working-tree-encoding`) and find a filter by reading `.gitattributes` lines (`declaredFilter`, `packages/folder/src/git/attributes.ts`), with no `git check-attr --source`. Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out (`neutralizeAttributes`, `packages/folder/src/git/neutral-attributes.ts`), and every `git` Epicenter runs sets `core.autocrlf=false` and `core.eol=lf` (`packages/folder/src/git/native-host.ts`).
+- **Unbuilt:** plain Git ignore semantics on both backends with no `local`, Whispering's template `.gitignore`, and the deletions below.
 
 ## Context
 

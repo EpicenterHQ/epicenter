@@ -3,16 +3,18 @@
  *
  * Automatic commits and fast-forwards write every source file as plain
  * `100644` bytes through the folder's file boundary. They do not run Git's
- * attribute filters, line-ending conversion, or LFS, and they cannot record
- * symbolic links, submodules, or executable bits. Rather than rewrite history
- * for such a repository, the checkpoint is refused with the first reason
- * found, as it is for unmerged index stages no `MERGE_HEAD` explains. Reads,
- * raw file access, and explicit native Git (`git add`, `git commit`) are
+ * attribute filters or LFS, and they cannot record symbolic links,
+ * submodules, or executable bits. Rather than rewrite history for such a
+ * repository, the checkpoint is refused with the first reason found, as it is
+ * for unmerged index stages no `MERGE_HEAD` explains. Line-ending and
+ * encoding attributes are not a reason: a commit hashes each file's bytes
+ * with no path, so no attribute applies (`native-backend.ts`). Reads, raw
+ * file access, and explicit native Git (`git add`, `git commit`) are
  * unaffected.
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { pathProblem } from '../paths.js';
-import { NORMALIZING } from './attributes.js';
+import { declaredFilter, isAttributesPath } from './attributes.js';
 import { orphanStagesProblem } from './index-file.js';
 import type { GitRun } from './native-backend.js';
 
@@ -74,13 +76,6 @@ export async function nativeCheckpointProblem({
 			return `${path} is tracked as ${MODES[mode] ?? `mode ${mode}`}; ${plainOnly}`;
 	}
 
-	const autocrlf = await run(['config', '--get', 'core.autocrlf'], {
-		allowFailure: true,
-	});
-	const conversion = text(autocrlf.stdout).trim().toLowerCase();
-	if (conversion === 'true' || conversion === 'input')
-		return `core.autocrlf is ${conversion}; commits do not convert line endings`;
-
 	// Working files Git would record differently, and nested Git data.
 	const special: { path: string; reason: string }[] = [];
 	const regular: string[] = [];
@@ -117,22 +112,23 @@ export async function nativeCheckpointProblem({
 	if (blocking !== undefined)
 		return `${blocking.path} is ${blocking.reason}; ${plainOnly}`;
 
-	// Attributes that would normalize or filter the bytes of any source file.
-	const source = [
-		...new Set([...tracked, ...regular.filter((path) => !excluded.has(path))]),
-	];
-	if (source.length === 0) return undefined;
-	const attributes = records(
-		(
-			await run(['check-attr', '--stdin', '-z', ...NORMALIZING], {
-				input: `${source.join('\0')}\0`,
-			})
-		).stdout,
+	// An attribute file that names a filter and governs a recorded file:
+	// recorded itself, or, ignored, in a directory holding a recorded path.
+	// Git applies `D/.gitattributes` to paths under `D/` alone, so one in an
+	// ignored directory that holds nothing recorded, such as
+	// `node_modules/`, governs nothing a commit carries.
+	const recorded = regular.filter(
+		(path) => tracked.has(path) || !excluded.has(path),
 	);
-	for (let index = 0; index + 2 < attributes.length; index += 3) {
-		const [path, attribute, value] = attributes.slice(index, index + 3);
-		if (value !== undefined && value !== 'unspecified' && value !== 'unset')
-			return `${path} has the Git attribute ${attribute}${value === 'set' ? '' : `=${value}`}; commits do not apply attribute filters or conversion`;
-	}
+	const governs = (path: string) => {
+		const directory = path.slice(0, path.lastIndexOf('/') + 1);
+		return recorded.some((file) => file.startsWith(directory));
+	};
+	const attributeFiles: (readonly [string, Uint8Array])[] = [];
+	for (const path of regular.filter(isAttributesPath).filter(governs))
+		attributeFiles.push([path, await files.readFile(`${root}/${path}`)]);
+	const filter = declaredFilter(attributeFiles);
+	if (filter !== undefined)
+		return `${filter.path} line ${filter.line} (${filter.text}) names a Git filter; ${plainOnly}`;
 	return undefined;
 }

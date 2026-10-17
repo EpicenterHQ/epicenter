@@ -9,8 +9,7 @@
  * Backend methods throw on failure; the coordinator turns failures into
  * reported outcomes.
  */
-import type { DeclaredAttribute } from './attributes.js';
-import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
+import type { CommitSummary, ObjectAccess } from './objects.js';
 
 /**
  * How a remote names its refusal to move a branch that moved after it
@@ -89,23 +88,12 @@ export type GitBackend = {
 	 * outside it finishes or abandons. Or the repository is one such a commit
 	 * cannot represent faithfully: every file is written as plain `100644`
 	 * bytes with no attribute filters, so symbolic links, executables,
-	 * submodules, nested Git data, and normalizing attributes are refused
-	 * rather than silently rewritten. Unmerged index stages another Git
+	 * submodules, nested Git data, and an attribute file that names a filter
+	 * are refused rather than silently rewritten. Unmerged index stages another Git
 	 * program left are refused too: a checkpoint would reset them and record
 	 * conflict markers as ordinary content.
 	 */
 	blocked(): Promise<string | undefined>;
-	/**
-	 * The first of `files` that `commit`'s own attribute files give a filter
-	 * or a byte conversion, or `undefined` when every one is plain bytes.
-	 * `files` is the commit's whole tree, so an attribute that selects a file
-	 * the commit did not change is found too. Only the pinned commit decides:
-	 * attributes of the files currently in the folder are not consulted.
-	 */
-	incomingAttribute(
-		commit: string,
-		files: ReadonlyMap<string, TreeFile>,
-	): Promise<DeclaredAttribute | undefined>;
 	/**
 	 * Make every index entry match `commit`'s tree, including staged-only
 	 * additions and deletions. Working files are not touched.
