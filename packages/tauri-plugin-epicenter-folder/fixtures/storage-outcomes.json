@@ -43,24 +43,57 @@
 			"name": "a put onto a case-variant name is InvalidPath and changes nothing",
 			"requires": "caseInsensitive",
 			"tree": { "files": { "Todos/A.md": "theirs" } },
-			"call": { "method": "put", "path": "Todos/a.md", "bytes": "mine", "ifMatch": null },
-			"expect": { "error": { "name": "InvalidPath", "path": "Todos/a.md", "reason": "another entry occupies this name" } },
+			"call": {
+				"method": "put",
+				"path": "Todos/a.md",
+				"bytes": "mine",
+				"ifMatch": null
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "Todos/a.md",
+					"reason": "another entry occupies this name"
+				}
+			},
 			"after": { "files": { "Todos/A.md": "theirs" } }
 		},
 		{
 			"name": "a put through a case-variant parent is InvalidPath and changes nothing",
 			"requires": "caseInsensitive",
 			"tree": { "files": { "Todos/A.md": "theirs" } },
-			"call": { "method": "put", "path": "todos/b.md", "bytes": "mine", "ifMatch": null },
-			"expect": { "error": { "name": "InvalidPath", "path": "todos/b.md", "reason": "another entry occupies this name" } },
+			"call": {
+				"method": "put",
+				"path": "todos/b.md",
+				"bytes": "mine",
+				"ifMatch": null
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "todos/b.md",
+					"reason": "another entry occupies this name"
+				}
+			},
 			"after": { "absent": ["Todos/b.md"] }
 		},
 		{
 			"name": "a removal of a case-variant name is InvalidPath and changes nothing",
 			"requires": "caseInsensitive",
 			"tree": { "files": { "Todos/A.md": "theirs" } },
-			"call": { "method": "put", "path": "Todos/a.md", "bytes": null, "ifMatch": "theirs" },
-			"expect": { "error": { "name": "InvalidPath", "path": "Todos/a.md", "reason": "another entry occupies this name" } },
+			"call": {
+				"method": "put",
+				"path": "Todos/a.md",
+				"bytes": null,
+				"ifMatch": "theirs"
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "Todos/a.md",
+					"reason": "another entry occupies this name"
+				}
+			},
 			"after": { "files": { "Todos/A.md": "theirs" } }
 		},
 		{
@@ -68,36 +101,76 @@
 			"requires": "caseInsensitive",
 			"tree": { "directories": ["Todos"] },
 			"call": { "method": "mkdir", "path": "todos" },
-			"expect": { "error": { "name": "InvalidPath", "path": "todos", "reason": "another entry occupies this name" } }
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "todos",
+					"reason": "another entry occupies this name"
+				}
+			}
 		},
 		{
 			"name": "a read through a link is InvalidPath",
 			"requires": "links",
 			"tree": { "links": { "todos": "../outside" } },
 			"call": { "method": "read", "path": "todos/secret.md" },
-			"expect": { "error": { "name": "InvalidPath", "path": "todos/secret.md", "reason": "the path passes through a symbolic link" } }
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "todos/secret.md",
+					"reason": "the path passes through a symbolic link"
+				}
+			}
 		},
 		{
 			"name": "a read of a link is InvalidPath",
 			"requires": "links",
 			"tree": { "links": { "a.md": "../outside/secret.md" } },
 			"call": { "method": "read", "path": "a.md" },
-			"expect": { "error": { "name": "InvalidPath", "path": "a.md", "reason": "the path passes through a symbolic link" } }
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "a.md",
+					"reason": "the path passes through a symbolic link"
+				}
+			}
 		},
 		{
 			"name": "a put through a link is InvalidPath and writes nothing there",
 			"requires": "links",
 			"tree": { "links": { "todos": "../outside" } },
-			"call": { "method": "put", "path": "todos/new.md", "bytes": "mine", "ifMatch": null },
-			"expect": { "error": { "name": "InvalidPath", "path": "todos/new.md", "reason": "the path passes through a symbolic link" } },
+			"call": {
+				"method": "put",
+				"path": "todos/new.md",
+				"bytes": "mine",
+				"ifMatch": null
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "todos/new.md",
+					"reason": "the path passes through a symbolic link"
+				}
+			},
 			"after": { "absent": ["../outside/new.md"] }
 		},
 		{
 			"name": "a removal of a link is InvalidPath and keeps what it names",
 			"requires": "links",
 			"tree": { "links": { "a.md": "../outside/secret.md" } },
-			"call": { "method": "put", "path": "a.md", "bytes": null, "ifMatch": "secret" },
-			"expect": { "error": { "name": "InvalidPath", "path": "a.md", "reason": "the path passes through a symbolic link" } },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"ifMatch": "secret"
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "a.md",
+					"reason": "the path passes through a symbolic link"
+				}
+			},
 			"after": { "files": { "../outside/secret.md": "secret" } }
 		},
 		{
@@ -105,93 +178,170 @@
 			"requires": "links",
 			"tree": { "links": { "todos": "../outside" } },
 			"call": { "method": "children", "path": "todos" },
-			"expect": { "error": { "name": "InvalidPath", "path": "todos", "reason": "the path passes through a symbolic link" } }
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": "todos",
+					"reason": "the path passes through a symbolic link"
+				}
+			}
 		},
 		{
 			"name": "a put onto a directory is NotAFile",
 			"tree": { "directories": ["todos"] },
-			"call": { "method": "put", "path": "todos", "bytes": "x", "ifMatch": null },
+			"call": {
+				"method": "put",
+				"path": "todos",
+				"bytes": "x",
+				"ifMatch": null
+			},
 			"expect": { "error": { "name": "NotAFile", "path": "todos" } }
 		},
 		{
 			"name": "a put below a file is NotADirectory, naming the file",
 			"tree": { "files": { "a.md": "a" } },
-			"call": { "method": "put", "path": "a.md/b/c.md", "bytes": "x", "ifMatch": null },
+			"call": {
+				"method": "put",
+				"path": "a.md/b/c.md",
+				"bytes": "x",
+				"ifMatch": null
+			},
 			"expect": { "error": { "name": "NotADirectory", "path": "a.md" } },
 			"after": { "files": { "a.md": "a" } }
 		},
 		{
 			"name": "a put into Git's private state is InvalidPath",
 			"tree": {},
-			"call": { "method": "put", "path": ".git/config", "bytes": "x", "ifMatch": null },
-			"expect": { "error": { "name": "InvalidPath", "path": ".git/config", "reason": "the path is inside private Git state" } },
+			"call": {
+				"method": "put",
+				"path": ".git/config",
+				"bytes": "x",
+				"ifMatch": null
+			},
+			"expect": {
+				"error": {
+					"name": "InvalidPath",
+					"path": ".git/config",
+					"reason": "the path is inside private Git state"
+				}
+			},
 			"after": { "absent": [".git/config"] }
 		},
 		{
 			"name": "a new file lands with its missing parents",
 			"tree": {},
-			"call": { "method": "put", "path": "new/deep/a.md", "bytes": "mine", "ifMatch": null },
+			"call": {
+				"method": "put",
+				"path": "new/deep/a.md",
+				"bytes": "mine",
+				"ifMatch": null
+			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "new/deep/a.md": "mine" } }
 		},
 		{
 			"name": "a put expecting the bytes there lands",
 			"tree": { "files": { "a.md": "old" } },
-			"call": { "method": "put", "path": "a.md", "bytes": "new", "ifMatch": "old" },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": "new",
+				"ifMatch": "old"
+			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "a.md": "new" } }
 		},
 		{
 			"name": "a put expecting other bytes is stale and changes nothing",
 			"tree": { "files": { "a.md": "old" } },
-			"call": { "method": "put", "path": "a.md", "bytes": "new", "ifMatch": "other" },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": "new",
+				"ifMatch": "other"
+			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
 		},
 		{
 			"name": "a create where a file is is stale and changes nothing",
 			"tree": { "files": { "a.md": "old" } },
-			"call": { "method": "put", "path": "a.md", "bytes": "new", "ifMatch": null },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": "new",
+				"ifMatch": null
+			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
 		},
 		{
 			"name": "a stale put leaves no new directory",
 			"tree": {},
-			"call": { "method": "put", "path": "new/deep/a.md", "bytes": "new", "ifMatch": "old" },
+			"call": {
+				"method": "put",
+				"path": "new/deep/a.md",
+				"bytes": "new",
+				"ifMatch": "old"
+			},
 			"expect": { "value": "stale" },
 			"after": { "absent": ["new"] }
 		},
 		{
 			"name": "a removal of nothing that expects nothing has landed",
 			"tree": {},
-			"call": { "method": "put", "path": "a.md", "bytes": null, "ifMatch": null },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"ifMatch": null
+			},
 			"expect": { "value": "landed" }
 		},
 		{
 			"name": "a removal of nothing that expects a file is stale",
 			"tree": {},
-			"call": { "method": "put", "path": "a.md", "bytes": null, "ifMatch": "old" },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"ifMatch": "old"
+			},
 			"expect": { "value": "stale" }
 		},
 		{
 			"name": "a removal expecting the bytes there lands",
 			"tree": { "files": { "a.md": "old" } },
-			"call": { "method": "put", "path": "a.md", "bytes": null, "ifMatch": "old" },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"ifMatch": "old"
+			},
 			"expect": { "value": "landed" },
 			"after": { "absent": ["a.md"] }
 		},
 		{
 			"name": "a removal expecting other bytes is stale and keeps the file",
 			"tree": { "files": { "a.md": "old" } },
-			"call": { "method": "put", "path": "a.md", "bytes": null, "ifMatch": "other" },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"ifMatch": "other"
+			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
 		},
 		{
 			"name": "a removal expecting nothing where a file is is stale",
 			"tree": { "files": { "a.md": "old" } },
-			"call": { "method": "put", "path": "a.md", "bytes": null, "ifMatch": null },
+			"call": {
+				"method": "put",
+				"path": "a.md",
+				"bytes": null,
+				"ifMatch": null
+			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
 		},
@@ -241,7 +391,10 @@
 		},
 		{
 			"name": "the root's children leave out .git",
-			"tree": { "files": { ".git/HEAD": "ref", "a.md": "a" }, "directories": ["todos"] },
+			"tree": {
+				"files": { ".git/HEAD": "ref", "a.md": "a" },
+				"directories": ["todos"]
+			},
 			"call": { "method": "children", "path": "" },
 			"expect": { "value": { "files": ["a.md"], "directories": ["todos"] } }
 		},
@@ -259,9 +412,17 @@
 		},
 		{
 			"name": "a listing leaves out .git and sizes each file",
-			"tree": { "files": { ".git/HEAD": "ref", "todos/a.md": "first" }, "directories": ["empty"] },
+			"tree": {
+				"files": { ".git/HEAD": "ref", "todos/a.md": "first" },
+				"directories": ["empty"]
+			},
 			"call": { "method": "list" },
-			"expect": { "value": { "files": [{ "path": "todos/a.md", "size": 5 }], "directories": ["empty", "todos"] } }
+			"expect": {
+				"value": {
+					"files": [{ "path": "todos/a.md", "size": 5 }],
+					"directories": ["empty", "todos"]
+				}
+			}
 		}
 	]
 }
