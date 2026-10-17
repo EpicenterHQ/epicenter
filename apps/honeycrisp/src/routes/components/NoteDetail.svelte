@@ -1,10 +1,11 @@
 <!--
 	One open note. The view reads the note listing narrowed to this note, so it
-	never disagrees with the list. Its folder and pin are sent at once, and its
-	title a second after the last keystroke, when the person leaves it, and
-	when the view goes away: each a set of the file as it is now
-	(ADR-0576). Its rich text and Source type the note's body draft, which the
-	store saves after a pause and this view sends when it goes away. The rich-text view
+	never disagrees with the list. Its folder and pin are sent at once; its
+	title is the folder's field draft, sent a second after the last
+	keystroke, when the person leaves it, and when the view goes away: each a
+	set of the file as it is now (ADR-0576). Its rich text and Source type the
+	note's body draft, which the edit layer saves after a pause and this view
+	sends when it goes away. The rich-text view
 	stays mounted while the note is open, a rename included, so its undo
 	history survives saves; it starts over only when the note's text changes
 	under it.
@@ -20,8 +21,7 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { useDebounce } from 'runed';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { foldersOf, type NoteListing, type Notes } from '$lib/notes.svelte.js';
@@ -70,38 +70,21 @@
 		own = path;
 	});
 
-	const setNote = createMutation(() => notes.setNote);
-	/** The title typed and not yet saved; `undefined` shows the file. */
-	let title = $state<string>();
-	function sendTitle() {
-		if (title === undefined) return;
-		const why = notes.refusalAt(own);
-		const at = noteIdOf(own);
-		if (why !== undefined || at === undefined) return refusal(why);
-		const sent = title;
-		setNote.mutate(
-			{ stem: at, fields: { title: sent } },
-			{
-				onSuccess: () => {
-					if (title === sent) title = undefined;
-				},
-			},
-		);
-	}
-	const sendTitleLater = useDebounce(sendTitle, 1000);
-	// runed's timer outlives the view, and so does the store's for the body;
-	// send both now instead.
+	/** The title typed and not yet saved: the note's field draft. It follows a rename. */
+	const titleOf = (at: string) => notes.edits.field('notes', noteIdOf(at) ?? '', 'title');
+	const title = $derived(titleOf(path));
+	// The drafts outlive the view; send what is typed now.
 	onDestroy(() => {
-		void sendTitleLater.runScheduledNow();
+		void titleOf(own).save();
 		void notes.saveBody(own);
 	});
 
 	/** Whether typing here did not save: the title, or the body. */
 	const unsaved = $derived(
-		notes.isUnsaved(path) || (title !== undefined && setNote.isError && !setNote.isPending),
+		notes.isUnsaved(path) || (title.error !== undefined && !title.saving),
 	);
 	function saveAgain() {
-		sendTitle();
+		void title.save();
 		notes.saveAgain(path);
 	}
 
@@ -126,14 +109,8 @@
 		<div class="flex items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="flex-1 text-base font-medium"
-				bind:value={
-					() => title ?? row.fields.title,
-					(typed) => {
-						title = typed;
-						void sendTitleLater();
-					}
-				}
-				onblur={() => void sendTitleLater.runScheduledNow()}
+				bind:value={() => title.shown(row.fields.title), (typed) => title.change(typed)}
+				onblur={() => void title.save()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -199,7 +176,7 @@
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			<span role="status" data-testid="write-status">
-				{notes.isWriting(path) || setNote.isPending || (sendTitleLater.pending && title !== undefined)
+				{notes.isWriting(path)
 					? 'Saving…'
 					: unsaved
 						? 'Not saved to'

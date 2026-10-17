@@ -242,7 +242,7 @@ test('a body saved over a delete not yet reported writes nothing, and the text i
 	expect(failures).toMatchObject([
 		{
 			path: A,
-			error: { name: 'NotStarted' },
+			error: { name: 'NotFound' },
 			unsaved: 'Mine.\n',
 		},
 	]);
@@ -266,7 +266,7 @@ test('a body typed and not yet saved when a delete is reported is dropped and of
 	expect(failures).toMatchObject([
 		{
 			path: A,
-			error: { name: 'NotStarted' },
+			error: { name: 'NotFound' },
 			unsaved: 'Mine.\n',
 		},
 	]);
@@ -294,7 +294,7 @@ test('Save again on a body whose note was deleted since starts no save, and the 
 	expect(failures[0]?.retry?.()).toBe(false);
 	expect(failures.at(-1)).toMatchObject({
 		path: A,
-		error: { name: 'NotStarted' },
+		error: { name: 'NotFound' },
 		unsaved: 'Mine.\n',
 	});
 	expect(disk.text(A)).toBeUndefined();

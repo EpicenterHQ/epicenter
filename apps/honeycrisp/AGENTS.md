@@ -34,18 +34,18 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   folder name being typed.
 - A field edit sets fields of the file as it is now (ADR-0576): title,
   folder, pin, list actions, and folder names set their fields through the
-  folder's `set` options and keep every field another writer changed. The
-  open note holds a title typed in its own `$state` until it is sent.
-- A note's body, from rich text or Source, is opened with a body editor
-  (`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0576), one per
-  note in the store. It takes the cached row at the first change, keeps the
-  body outside the cache, and sends the change from that row a second after
-  the last change, or at once when the view leaves it; `table.write` merges
+  folder's edit layer (`edits.set`, `edits.field`) and keep every field
+  another writer changed. A title typed is the note's field draft until it
+  is sent.
+- A note's body, from rich text or Source, is the note's body draft in the
+  folder's edit layer (`edits.body`, `@epicenter/svelte/edits`, ADR-0576).
+  It takes the cached row at the first change, keeps the body outside the
+  cache, and sends the change from that row a second after the last
+  change, or at once when the view leaves it; `table.write` merges
   it by line with a file changed elsewhere since. A read never replaces a draft. A failed save keeps
-  the draft and reports it through `onWriteFailed`. While a file is open as
-  text, its text is a text editor of its own (`createTextEditor`), written
-  as the change from the text it started from, and row edits of it are
-  refused.
+  the draft and reports it through `writeFailed`. While a file is open as
+  text, its text is a text draft of its own (`edits.text`), written as the
+  change from the text it started from, and row edits of it are refused.
 - A save moves no timestamp (ADR-0573). Do not add a last-edited field or
   write `updatedAt`; the list orders and groups notes by `createdAt`.
 - Row editors pass the text typed as it is (ADR-0572): the folder reads a
@@ -56,10 +56,11 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   refetches. The tests in `notes.test.ts` that hold a save while a read
   lands, and that save while another tab changed the file, guard the
   drafts; keep them.
-- Every action is a mutation (create, rename, delete, delete folder, Save
-  version), so `<FolderApp>`'s close can wait for the mutation
-  cache to be idle before it releases the folder. Do not add a manual `refresh()` after an action; its mutation
-  invalidates what it changed.
+- Every action is a mutation or a lock of the edit layer (create and Save
+  version are mutations; rename, delete, and delete folder run in
+  `edits.exclusive`), so `<FolderApp>`'s close can wait for them before it
+  releases the folder. Do not add a manual `refresh()` after an action; its
+  write puts or invalidates what it changed.
 - Commits happen only on **Save version** (`folder.git.commit()`, ADR-0529).
   Nothing commits on its own, and setup records no commit.
 - A note whose text does not read as one is listed for repair and opens as
@@ -112,8 +113,8 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   exit hold, or a quit dialog. A save cut off by a quit leaves the old file
   or the new one, because each save renames into place.
 - `<FolderApp>` releases the folder when the page itself goes away. Its
-  close first runs the notes' `beforeClose` step, which sets `notes.fenced`
-  for good and sends what is typed: edits are refused, notes actions
+  close first fences the edit layer, which sets `notes.fenced` for good and
+  sends what is typed: edits are refused, notes actions
   refuse to run, and `NotesView` is `inert`. A new way to
   change a file must check it, and a control in a menu, popover, or dialog
   must also be `disabled`, because those render outside the inert root.
@@ -149,8 +150,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   A native need is a host function Epicenter grants every installed app
   (ADR-0555, ADR-0570); do
   not add a Tauri shell back to this app. `<FolderApp>` opens and releases
-  the folder; the notes fence input and send what is typed first
-  (`beforeClose`). A future reveal, ADR-0555's
+  the folder; the edit layer fences input and sends what is typed first. A future reveal, ADR-0555's
   `reveal_folder`, arrives as `folder.reveal`; `FileBrowser` would add a
   **Reveal folder** button back then.
 - Do not describe the native conditional save as atomic. It compares, then
