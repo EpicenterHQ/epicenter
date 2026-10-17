@@ -755,19 +755,19 @@ When you add an ADR, add its row here.
 | [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
 | [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted |
 | [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Accepted (every desktop folder uses it and the Rust owner is deleted; desktop and Windows runs unbuilt) |
-| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Accepted (desktop installed apps still use owner paths and pairings) |
+| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Accepted (desktop installed apps still use owner paths and pairings; amended by 0585) |
 | [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Accepted |
 | [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Accepted (superseding the store records, retired Durable Object data) |
-| [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Accepted (amends 0508, 0531, and 0533; amended by 0568) |
+| [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Accepted (amends 0508, 0531, and 0533; amended by 0568 and 0585) |
 | [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
 | [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Accepted (amends 0209) |
-| [0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) | An app opens any folder whose declaration contains its shape | Accepted |
+| [0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) | An app opens any folder whose declaration contains its shape | Superseded by 0585 |
 | [0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) | Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose | Accepted |
 | [0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) | An app is installed by building its source, and approving a commit trusts it fully | Accepted |
 | [0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) | A desktop folder needs no Web Locks, and a commit that loses a race retries | Accepted |
 | [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Accepted |
 | [0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) | A recording streams into its folder from the moment it starts | Accepted |
-| [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Accepted (hosted LFS storage amended by 0577) |
+| [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Accepted (hosted LFS storage amended by 0577; audio ignore amended by 0585) |
 | [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Accepted (supersedes 0474, amends 0471) |
 | [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted |
 | [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Accepted |
@@ -783,7 +783,7 @@ When you add an ADR, add its row here.
 | [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Accepted (amends 0552 and 0539; endpoint storage, kind name, and app admission amended by 0564) |
 | [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549; amended by 0565; command list amended by 0566) |
 | [0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) | All desktop Git runs in the epicenter CLI, over system git | Accepted (amends 0531, 0533, 0540, 0546, and 0549; amended by 0567) |
-| [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Accepted (amends 0540, 0538, 0552, and 0539) |
+| [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Accepted (amends 0540, 0538, 0552, and 0539; amended by 0585) |
 | [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Accepted (amends 0118 and 0540; amended by 0570 and 0571) |
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Accepted (amends 0541; amended by 0568) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
@@ -799,11 +799,13 @@ When you add an ADR, add its row here.
 | [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
 | [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
 | [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |
-| [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Accepted (supersedes 0554; amends 0548 and 0551) |
-| [0577](0577-audio-stays-on-the-machine-that-recorded-it.md) | Audio stays on the machine that recorded it | Accepted (amends 0543 and 0544; withdraws 0438) |
+| [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Accepted (supersedes 0554; amends 0548 and 0551; amended by 0585) |
+| [0577](0577-audio-stays-on-the-machine-that-recorded-it.md) | Audio stays on the machine that recorded it | Accepted (amends 0543 and 0544; withdraws 0438; amended by 0585) |
 | [0578](0578-epicenter-hosts-no-mcp-server.md) | Epicenter hosts no MCP server | Accepted (supersedes 0550; amends 0549 and 0565) |
 | [0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md) | Epicenter never deletes a model from the shared Hugging Face cache | Accepted (amends 0180 and 0539) |
 | [0580](0580-a-local-model-is-pinned-by-commit-and-content-hash-under-a-frozen-id.md) | A local model is pinned by commit and content hash under a frozen id | Accepted |
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Accepted (amends 0531 and 0533) |
-| [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Accepted (amends 0533, 0535, 0538, 0548, and 0560) |
-| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted |
+| [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
+| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585) |
+| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0544, 0560, 0576, 0577, and 0584) |
+| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Proposed |

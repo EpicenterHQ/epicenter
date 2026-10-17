@@ -7,6 +7,7 @@
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "`opens`, `build`, and `output` in `epicenter.app.json` are relative to that folder": the manifest is `id` and `title`, and the build is `bun run build:installed` in the folder, writing `dist/`.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the `apps` row's "the shape it opens": no shape leaves the app.
 - **Amended by:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) at "open a handed folder with `openDataFolder({ id, lens })`": an app's `openFolder({ app, definition })` opens the folder the shell handed its window, through its definition unless it is the app's own.
+- **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed with its own definition, and rows that do not fit read as invalid rows.
 - **Unbuilt:** marking an app and folder pair that refused once, so "Open in" stops offering a pair that will refuse again.
 
 ## Context

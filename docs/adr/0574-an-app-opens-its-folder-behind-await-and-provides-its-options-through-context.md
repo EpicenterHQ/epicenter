@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Relates:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (one read path, one channel of change), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (`folderOptions`, writes keep the cache in step), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (one opener)
-- **Unbuilt:** Whispering mounts `<FolderApp>`; it still opens its folder inside its own `Workspace` (`#platform/workspace`). The app stores (`createTodos`, `createNotes`, `createCaptures`, `createVocab`) still wrap the context's `queries` for their views, rather than each component building its queries from `getFolder()`.
+- **Unbuilt:** Whispering mounts `<FolderApp>`; it still opens its folder inside its own `Workspace` (`#platform/workspace`). The app stores (`createTodos`, `createNotes`, `createCaptures`, `createVocab`) still wrap the context's `queries` for their views, rather than each component building its queries from `getFolder()`. `FolderContext` still carries `isOwn`, which goes with ownership ([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)).
 
 ## Context
 
@@ -74,7 +74,6 @@ it with `<FolderProvider>`:
 // @epicenter/svelte/folder
 type FolderContext<TDefinition> = {
 	folder: Folder<TDefinition, Definition>;
-	isOwn: boolean; // folder.own
 	queries: FolderOptions<TDefinition>;
 	queryClient: QueryClient;
 	writeFailed: (failure: WriteFailure) => void;

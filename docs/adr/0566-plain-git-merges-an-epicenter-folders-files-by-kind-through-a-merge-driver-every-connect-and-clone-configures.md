@@ -100,10 +100,13 @@ root named `--help`, `-h`, or `--version` as that option. It would print
 help and exit 0, and Git would take our version as a clean merge, dropping
 theirs. After `--`, every token is a positional.
 
-**The driver merges with `mergeFile`.** It finds the file's kind from the
-nearest `epicenter.json` above `%P` in the working tree, so a data folder
-inside a larger repository works too, and reads an empty `%O` as no base,
-so two rows added under one name merge field by field.
+**The driver merges with `merge`, which needs no definition
+([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)).**
+It merges every path of the repository it is configured in: a `.md` file
+whose versions all have readable frontmatter by field and body line, other
+text by line. It reads no `epicenter.json`, so a data folder inside a larger
+repository works too, and it reads an empty `%O` as no base, so two rows
+added under one name merge field by field.
 
 - A clean merge is written over `%A`, a row in its canonical form, and the
   driver exits 0.
@@ -113,13 +116,9 @@ so two rows added under one name merge field by field.
   key's lines for a setting, the body lines for a body. The driver exits 1.
   Git records the conflict and keeps stages 1, 2, and 3, from which
   Epicenter's Sync re-derives the units for review.
-- When each side reads as a row but their merge does not, the whole file is
-  one marked conflict, so an invalid row is never written as a clean merge.
-
 **Anything else falls back to `git merge-file`**, the result Git gives with
-no driver: a path in no data folder, a declaration that does not read, a
-version that is not text (a binary file stays ours, as a conflict), and any
-failure of the driver's own. The driver's exits are 0 and 1 only, and it
+no driver: a version that is not text (a binary file stays ours, as a
+conflict), and any failure of the driver's own. The driver's exits are 0 and 1 only, and it
 never reaches the network.
 
 **Connecting configures the driver; nobody opts in.** The CLI writes the
