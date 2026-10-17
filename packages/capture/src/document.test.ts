@@ -24,10 +24,10 @@ import {
 	type CaptureBodyReading,
 	captureBody,
 	composeBody,
-	fromTextarea,
 	normalizeThought,
 	type Refusal,
 } from './index.js';
+import { fromTextarea } from './document.js';
 
 type Edit =
 	| { ok: true; source: string }
@@ -54,7 +54,6 @@ function parseCapture(source: string): CaptureDocument {
 				refusal: result.error,
 				text: undefined,
 				thoughts: [],
-				newline: frame.newline,
 				hasSection: false,
 				hasOtherContent: false,
 			};

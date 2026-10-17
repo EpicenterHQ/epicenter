@@ -505,7 +505,6 @@ export type CaptureBody = {
 
 /** Information a view needs in addition to the complete structured value. */
 export type CaptureBodyReading = CaptureBody & {
-	newline: Newline;
 	hasSection: boolean;
 	hasOtherContent: boolean;
 };
@@ -518,7 +517,6 @@ export const captureBody = {
 		return Ok({
 			text: document.text as string,
 			thoughts: document.thoughts,
-			newline: document.newline,
 			hasSection: document.hasSection,
 			hasOtherContent: document.hasOtherContent,
 		});
