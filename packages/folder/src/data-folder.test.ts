@@ -143,7 +143,7 @@ test('an epicenter.json that cannot be used is InvalidDeclaration, and opening c
 		join(root, 'epicenter.json'),
 		'{"tables":{},"kv":{"theme":{"type":"string"}}}',
 	);
-	const kv = expectErr(await openDataFolder({ root, git: { author } }));
+	const kv = expectErr(await openFolder({ root, git: { author } }));
 	expect(kv.name).toBe('InvalidDeclaration');
 	expect(kv.message).toContain("'kv'");
 	expect(existsSync(join(root, '.git'))).toBe(false);
