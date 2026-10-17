@@ -29,30 +29,32 @@ pub mod audio;
 pub mod transcription;
 use transcription::{
     download_model, get_active_model, get_local_transcription_readiness, get_unload_policy,
-    list_inference_models, list_models, prewarm_model, reveal_model, set_active_model,
-    set_unload_policy, transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
+    list_inference_models, list_models, reveal_model, set_active_model, set_unload_policy,
+    transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
 };
 
 pub mod download;
 use download::{cancel_download, DownloadManager};
 
-mod delivery;
-use delivery::{simulate_enter_keystroke, write_text};
-
-pub mod media;
-use media::{pause_playback, resume_playback};
-
 pub mod timing;
 
 mod shell;
 
-#[cfg(desktop)]
+// Native dictation, which no page reaches yet: compiled, registered, and
+// started only with the `dictation` feature (Cargo.toml).
+#[cfg(feature = "dictation")]
+mod delivery;
+
+#[cfg(feature = "dictation")]
+pub mod media;
+
+#[cfg(all(desktop, feature = "dictation"))]
 pub mod keyboard;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "dictation"))]
 pub mod overlay;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "dictation"))]
 pub mod clipboard;
 
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
@@ -115,16 +117,13 @@ impl PendingHomeSection {
     }
 }
 
-/// The typed command and event contract every Epicenter window and Whispering
-/// share.
-fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![
-            write_text,
-            simulate_enter_keystroke,
+/// The shell's commands, with any `extra` appended. `collect_commands!` takes
+/// no `#[cfg]` on an entry, so a feature adds its commands through this.
+macro_rules! shell_commands {
+    ($($extra:tt)*) => {
+        tauri_specta::collect_commands![
             transcribe_audio_bytes,
             list_inference_models,
-            prewarm_model,
             get_active_model,
             set_active_model,
             get_local_transcription_readiness,
@@ -156,8 +155,31 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             download_model,
             reveal_model::<tauri::Wry>,
             cancel_download,
-            pause_playback,
-            resume_playback,
+            $($extra)*
+        ]
+    };
+}
+
+/// The typed command and event contract every Epicenter window and Whispering
+/// share.
+#[cfg(not(feature = "dictation"))]
+fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(shell_commands![])
+        .events(tauri_specta::collect_events![HomeSectionPending])
+        .error_handling(tauri_specta::ErrorHandlingMode::DataError)
+}
+
+/// The shell's contract plus the native dictation commands and their event.
+#[cfg(feature = "dictation")]
+fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(shell_commands![
+            delivery::write_text,
+            delivery::simulate_enter_keystroke,
+            transcription::prewarm_model,
+            media::pause_playback,
+            media::resume_playback,
             keyboard::commands::set_auto_paste_enabled,
             keyboard::commands::get_dictation_capability,
         ])
@@ -217,15 +239,22 @@ mod export_bindings {
         ]
     }
 
+    /// The committed bindings are the default build's page API. A `dictation`
+    /// build's commands are not part of it, so that build exports into a
+    /// temporary directory, which only checks that its types export.
     #[test]
     fn export_types() {
+        #[cfg(feature = "dictation")]
+        let scratch = tempfile::tempdir().unwrap();
         let whole = WHOLE_API
             .iter()
             .map(|target| (*target, make_specta_builder()));
         for (target, builder) in whole.chain(subsets()) {
+            #[cfg(feature = "dictation")]
+            let target = scratch.path().join(target.replace(['/', '.'], "_"));
             builder
-                .export(specta_typescript::Typescript::default(), target)
-                .unwrap_or_else(|error| panic!("failed to export bindings to {target}: {error}"));
+                .export(specta_typescript::Typescript::default(), &target)
+                .unwrap_or_else(|error| panic!("failed to export bindings to {target:?}: {error}"));
         }
     }
 }
@@ -318,16 +347,19 @@ pub fn run() {
                 .build(),
         )
         .plugin(log_plugin)
-        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(PendingHomeSection::default())
         .manage(data_folders::DataFolderScopes::default())
         .manage(cli::CliChildren::default())
         .manage(DownloadManager::default());
 
-    #[cfg(target_os = "macos")]
+    // Only native dictation uses these plugins; no capability grants them.
+    #[cfg(feature = "dictation")]
+    let builder = builder
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    #[cfg(all(target_os = "macos", feature = "dictation"))]
     let builder = builder.plugin(tauri_nspanel::init());
 
     scheme::register(builder)
@@ -385,7 +417,7 @@ pub fn run() {
             cache.start_idle_watcher();
             app.manage(cache);
 
-            #[cfg(desktop)]
+            #[cfg(all(desktop, feature = "dictation"))]
             app.manage(keyboard::TapController::new());
 
             shell::create_tray(app.handle())?;
@@ -895,7 +927,7 @@ mod tests {
         for built_in in BuiltInApp::ALL {
             assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "dictation"))]
         assert!(!selects(&capability, overlay::WINDOW_LABEL));
         assert_eq!(
             capability["permissions"],
@@ -1113,20 +1145,27 @@ mod tests {
     }
 
     /// The generated bindings are a committed artifact, so they can go stale
-    /// against the command list without anything failing to compile.
+    /// against the command list without anything failing to compile. They
+    /// carry the page API and none of the dictation commands no page reaches.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),
         ] {
+            // Either quote style: specta emits double quotes and the repo
+            // formatter rewrites them to single, so both are "fresh".
+            let names = |command: &str| {
+                bindings.contains(&format!("'{command}'"))
+                    || bindings.contains(&format!("\"{command}\""))
+            };
             for command in crate::command_names::COMMANDS {
-                // Either quote style: specta emits double quotes and the repo
-                // formatter rewrites them to single, so both are "fresh".
+                assert!(names(command), "regenerate bindings: {command} is missing");
+            }
+            for command in crate::command_names::DICTATION_COMMANDS {
                 assert!(
-                    bindings.contains(&format!("'{command}'"))
-                        || bindings.contains(&format!("\"{command}\"")),
-                    "regenerate bindings: {command} is missing"
+                    !names(command),
+                    "regenerate bindings without the dictation feature: {command} is present"
                 );
             }
         }

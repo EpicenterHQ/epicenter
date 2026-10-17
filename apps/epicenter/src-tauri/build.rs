@@ -16,9 +16,19 @@ fn main() {
     bake_transcribe_rpath();
     stage_transcribe_runtime();
 
-    let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
+    let manifest = tauri_build::AppManifest::new().commands(registered_commands());
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Epicenter's Tauri manifest");
+}
+
+/// The commands this build registers, which are the ones the Tauri manifest
+/// declares: the dictation commands join the page API's only with the
+/// `dictation` feature.
+fn registered_commands() -> &'static [&'static str] {
+    if env::var_os("CARGO_FEATURE_DICTATION").is_none() {
+        return COMMANDS;
+    }
+    Box::leak([COMMANDS, DICTATION_COMMANDS].concat().into_boxed_slice())
 }
 
 /// Bake the rpaths the shared `libtranscribe` needs on Linux. Windows resolves

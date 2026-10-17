@@ -6,36 +6,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**
-	 *  Delivers text to the cursor, falling back to the clipboard when it cannot.
-	 * 
-	 *  With `keep_on_clipboard`, the transcript is the intended final clipboard
-	 *  state. Otherwise this command borrows the clipboard, pastes, then restores
-	 *  the exact previous macOS pasteboard or the previous text on other platforms.
-	 */
-	writeText: (text: string, keepOnClipboard: boolean) => typedError<WriteTextOutcome, string>(__TAURI_INVOKE("write_text", { text, keepOnClipboard })),
-	/**  Simulates pressing the Enter/Return key. */
-	simulateEnterKeystroke: () => typedError<null, string>(__TAURI_INVOKE("simulate_enter_keystroke")),
-	/**
 	 *  Decode uploaded bytes in memory and run the exact requested catalog model.
 	 *  The blocking job owns its input until inference finishes, including after caller abort.
 	 */
 	transcribeAudioBytes: (modelId: string, bytes: number[], hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_audio_bytes", { modelId, bytes, hints })),
 	/**  Installed native models available to explicit file inference. No cache paths escape. */
 	listInferenceModels: () => __TAURI_INVOKE<InferenceModel[]>("list_inference_models"),
-	/**
-	 *  Prewarm the active local model so a following transcribe finds it warm. The
-	 *  frontend fires this fire-and-forget at capture start (manual record or VAD
-	 *  listen) for a local route, overlapping the ~1 s model load with the user's
-	 *  speech instead of paying it after they stop.
-	 * 
-	 *  Idempotent and cheap: a no-op when the active model is already resident.
-	 *  Shares the one load path with active-model transcription (`ModelCache::prewarm`
-	 *  and `transcribe` both resolve through `ensure_loaded`), so the model warmed
-	 *  here is exactly the one transcribe will use, because there is only one. A
-	 *  failure here is non-fatal: transcribe will load normally and surface any real
-	 *  error then.
-	 */
-	prewarmModel: () => typedError<null, TranscriptionError>(__TAURI_INVOKE("prewarm_model")),
 	/**
 	 *  The active local model's identity and whether it can run right now, or
 	 *  `None` when nobody has chosen one.
@@ -259,42 +235,10 @@ export const commands = {
 	 *  nothing is downloading under that id, so it is always safe to call.
 	 */
 	cancelDownload: (downloadId: string) => __TAURI_INVOKE<void>("cancel_download", { downloadId }),
-	/**
-	 *  Pause every system media session currently playing. Returns one opaque token
-	 *  per session paused, to hand back to `resume_playback`. Pausing is gated to
-	 *  never *start* playback: only sessions observed playing are touched, and the
-	 *  dedicated pause command (never a play/pause toggle) is sent.
-	 */
-	pausePlayback: () => __TAURI_INVOKE<string[]>("pause_playback"),
-	/**
-	 *  Resume the sessions named by `sessions`, which must be tokens returned by a
-	 *  prior `pause_playback`. A session that vanished, was already resumed by the
-	 *  user, or can't be resumed is silently skipped. Safety rule: we only ever send
-	 *  *play* to a session we personally paused.
-	 */
-	resumePlayback: (sessions: string[]) => __TAURI_INVOKE<void>("resume_playback", { sessions }),
-	/**
-	 *  Tell the keyboard supervisor whether auto-paste-at-cursor is enabled. Paste
-	 *  writes a synthetic Cmd/Ctrl+V through the macOS Accessibility grant the tap
-	 *  watches, so the supervisor holds the tap whenever paste is on to track that
-	 *  grant (and surface the notice when it is missing or stale). It is the only
-	 *  reason to hold the tap (ADR-0117). The FE pushes this on startup and whenever
-	 *  the output settings change. A no-op off macOS, where paste needs no grant.
-	 */
-	setAutoPasteEnabled: (enabled: boolean) => __TAURI_INVOKE<void>("set_auto_paste_enabled", { enabled }),
-	/**
-	 *  The current paste-at-cursor capability: whether a synthetic Cmd/Ctrl+V can
-	 *  land (on macOS, whether the Accessibility grant is live and the tap is
-	 *  healthy). A page reads it from this; it never probes the OS itself. The
-	 *  Rust supervisor owns the value and the tap's lifecycle, so there is no `start`
-	 *  command for the FE to call.
-	 */
-	getDictationCapability: () => __TAURI_INVOKE<DictationCapability>("get_dictation_capability"),
 };
 
 /** Events */
 export const events = {
-	dictationCapabilityEvent: makeEvent<DictationCapabilityEvent, DictationCapabilityEvent>("dictation-capability-event"),
 	homeSectionPending: makeEvent<HomeSectionPending, HomeSectionPending>("home-section-pending"),
 };
 
@@ -467,56 +411,6 @@ export type DataFolder = {
 	 *  shell could read. The page parses it; the shell does not judge it.
 	 */
 	declaration: string | null,
-};
-
-/**
- *  The single source of truth for whether Epicenter can paste a transcript at
- *  the cursor: a synthetic Cmd/Ctrl+V that, on macOS, needs the Accessibility
- *  grant. macOS is the only platform that gates it, and the only process that
- *  can authoritatively know is the one holding the tap (this one), so Rust owns
- *  this value and the frontend is a pure view over it (ADR-0117).
- * 
- *  It folds two facts the frontend used to infer separately: the macOS trust
- *  probe (`AXIsProcessTrusted`) and the tap's liveness. Crucially `Broken` is
- *  distinguishable from `Active` only here, because `AXIsProcessTrusted` reports
- *  a stale post-update grant as trusted: the tap dying under a held grant is the
- *  only signal that tells them apart.
- */
-export type DictationCapability = 
-/**
- *  The supervisor has not determined the value yet. Rust resolves this
- *  synchronously at startup, so it exists only as the frontend's pre-seed
- *  initial value before the first probe lands.
- */
-"unknown" | 
-/**
- *  Auto-paste-at-cursor is off, so nothing needs the grant: the tap is
- *  deliberately not running and no Accessibility is touched. Global shortcuts
- *  are plugin chords and work regardless.
- */
-"inactive" | 
-/**
- *  macOS Accessibility is not granted, so paste at cursor falls back to the
- *  clipboard. Turning Epicenter on in System Settings unlocks the paste.
- */
-"untrusted" | 
-/**  The tap is running and the app is trusted: paste at cursor can land. */
-"active" | 
-/**
- *  macOS reports the app trusted, but the tap keeps dying under the held
- *  grant: a stale post-update signature. Removing and re-adding Epicenter
- *  in Accessibility is the fix, which `Untrusted`'s "just toggle on" is not.
- */
-"broken";
-
-/**
- *  A dictation capability change, for the generated
- *  `events.dictationCapabilityEvent`. Nothing emits it yet: ADR-0555 sends it
- *  to every window of an app that called `get_dictation_capability`, and until
- *  then a page reads the capability with that command.
- */
-export type DictationCapabilityEvent = {
-	capability: DictationCapability,
 };
 
 /**
@@ -704,13 +598,6 @@ export type UnavailableReason =
  *  timed variants are enforced by the background idle watcher.
  */
 export type UnloadPolicy = "never" | "immediately" | "after_5_minutes" | "after_30_minutes";
-
-/**  Where `write_text` left the transcript. */
-export type WriteTextOutcome = 
-/**  The synthetic paste landed at the cursor. */
-"pasted" | 
-/**  Delivery could not paste, so the transcript remains on the clipboard. */
-"leftOnClipboard";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {
