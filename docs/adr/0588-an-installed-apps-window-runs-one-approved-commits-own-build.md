@@ -4,6 +4,7 @@
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "A commit made on this machine ... runs without asking" and at building in the clone, and [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at the installed app's URL, which becomes `epicenter-app://localhost/apps/<app-id>/<commit>/` and is resolved from that commit, not from `builds/<app-id>/current`.
 - **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at building the approved commit on the machine, `builds/<app-id>/`, and `epicenter-app://localhost/apps/<app-id>/<commit>/`: the build moves to a publish step, and the paths and URL take the app's encoded address; a window still runs one approved commit's bytes.
+- **Amended by:** [ADR-0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) at `approvals.json`, `builds/<app-id>/current`, the worktree checkout with filter drivers emptied, `<commit>.built`, "a finished build is never replaced", and the rejected `git archive`: the approved commit is the bare clone's detached `HEAD`, a build directory is a `git archive` of it checked at every open, and per-commit directories, URLs, and window pinning stand.
 - **Unbuilt:** removing a build no window runs; every earlier commit's directory stays in `builds/<app-id>/`.
 
 ## Context

@@ -534,17 +534,21 @@ because its page is served on the scheme: `folders.json`, `home.json`, and
 
 Whispering's page has no recording overlay and registers no global shortcuts,
 so neither is created or granted.
-The shell's overlay panel (`src-tauri/src/overlay.rs`) and the dictation
-commands (keyboard delivery, the paste capability, and playback pause) are
-compiled but granted to no window; ADR-0555 wires them for push-to-talk.
+Native dictation, which no page reaches, compiles only with the `dictation`
+Cargo feature, off by default: paste at the cursor and the keyboard supervisor
+that watches its Accessibility grant, pausing other apps' media,
+`prewarm_model`, the macOS overlay panel (`src-tauri/src/overlay.rs`), and the
+clipboard-manager plugin paste uses. The global-shortcut plugin is ADR-0555's
+plugin awaiting a grant; nothing uses it, so it is parked with the feature. A
+default build neither registers nor starts any of it and its generated
+bindings name none of it, because the page API only grows after the first
+release; it joins that API when a native API decision grants it (ADR-0555).
 There is no shell command for permissions: the recorder plugin asks for
-microphone access itself, the keyboard supervisor watches the Accessibility
-grant, and a page opens System Settings through the opener. Autostart is not
-registered; enabling it once on first run (ADR-0328) is unbuilt. Global shortcuts come from the global-shortcut
-plugin, not a shell command. The shell registers the
-clipboard-manager, global-shortcut, and opener plugins and grants a page only
-the opener's System Settings URLs; the notification plugin is a dependency but stays
-unregistered until a capability grants it (ADR-0555).
+microphone access itself, and a page opens System Settings through the opener.
+Autostart is not registered; enabling it once on first run (ADR-0328) is
+unbuilt. Of the official plugins ADR-0555 lists, a default build registers the
+opener and grants a page only its System Settings URLs; the notification
+plugin is a dependency but stays unregistered until a capability grants it.
 
 ## Quitting Epicenter
 
@@ -584,6 +588,9 @@ bun test apps/epicenter/scripts apps/epicenter/src
 
 # Native command, scheme, capability, and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
+
+# The same tests with the parked native dictation code compiled in
+cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml --features dictation
 ```
 
 The root `bun typecheck` runs each workspace's checks. Installed apps, such as

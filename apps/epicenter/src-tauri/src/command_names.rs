@@ -8,12 +8,10 @@
 //
 // `build.rs` pulls this in with `include!`, so it cannot drift from the crate.
 
+/// The commands every build registers: the page API.
 pub const COMMANDS: &[&str] = &[
-    "write_text",
-    "simulate_enter_keystroke",
     "transcribe_audio_bytes",
     "list_inference_models",
-    "prewarm_model",
     "get_active_model",
     "get_local_transcription_readiness",
     "open_home",
@@ -45,6 +43,15 @@ pub const COMMANDS: &[&str] = &[
     "download_model",
     "reveal_model",
     "cancel_download",
+];
+
+/// The native dictation commands, registered only by a build with the
+/// `dictation` feature. No capability grants them and no generated page
+/// binding carries them (ADR-0555).
+pub const DICTATION_COMMANDS: &[&str] = &[
+    "write_text",
+    "simulate_enter_keystroke",
+    "prewarm_model",
     "pause_playback",
     "resume_playback",
     "set_auto_paste_enabled",

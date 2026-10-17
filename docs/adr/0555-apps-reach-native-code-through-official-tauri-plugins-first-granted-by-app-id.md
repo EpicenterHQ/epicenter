@@ -4,6 +4,7 @@
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "Whispering's recorder and global shortcuts, and Honeycrisp's terminal and 'reveal folder', are host functions": shortcuts come from the global-shortcut plugin, reveal is a folder action every window offers, and the terminal is refused.
 - **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "granted by app id" and "Each app is granted in one file, `installed-<app>.json`": every installed app's window is granted by one file, `installed-app.json`, whose `windows` is `app:*`.
+- **Amended by:** [ADR-0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md) at the registered clipboard-manager and global-shortcut plugins, their grants, and the custom Rust kept for paste, media, the panel, and the dictation capability: none of it is compiled, registered, or in the page API by default, until a native API decision exposes it.
 - **Relates:** [ADR-0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md) (plugin chords only, the tap watches the paste grant), [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) (a hidden app window keeps running, and its 30-minute test), [ADR-0328](0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md) (Epicenter adds itself to login items once), [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (an approved app is trusted fully), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (one capability file per app).
 - **Built:** the deletions of `is_autostart_enabled`, `set_autostart_enabled`, and `open_accessibility_settings`; the opener's `allow-open-url` for `x-apple.systempreferences:` in `installed-app.json`, which Whispering calls through `@tauri-apps/plugin-opener` (ADR-0571).
 - **Unbuilt:** the other plugin JS packages and grants, registering the notification plugin, `open_panel`, `reveal_folder` and `open_folder_in_terminal`, the rest of the deletions below, and autostart: the plugin is not registered, so nothing enables it once on first run (ADR-0328).
@@ -58,9 +59,11 @@ ADR-0540 it is wiring, not a sandbox.
 | core window and webview | `@tauri-apps/api` 2.12 | `core:window:allow-hide`, `allow-show`, `allow-set-focus`, `allow-destroy` |
 | autostart 2.5.1 | none | granted to no window; Rust calls it |
 
-Clipboard-manager, global-shortcut, opener, and autostart are registered
-(`apps/epicenter/src-tauri/src/lib.rs:522-527`); registering notification is
-part of this decision. Each JS package is published on npm as 2.x.
+Of these, a default build registers only the opener. Clipboard-manager and
+global-shortcut build and register only with the shell's `dictation` Cargo
+feature, parked with native dictation until a grant uses them (ADR-0596).
+Autostart is not registered (see Unbuilt above), and registering notification
+is part of this decision. Each JS package is published on npm as 2.x.
 
 **Custom Rust stays for six things:**
 

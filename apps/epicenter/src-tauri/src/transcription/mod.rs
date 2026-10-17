@@ -204,6 +204,10 @@ pub fn get_local_transcription_readiness(
 /// here is exactly the one transcribe will use, because there is only one. A
 /// failure here is non-fatal: transcribe will load normally and surface any real
 /// error then.
+///
+/// No page calls it yet, so only a `dictation` build registers it;
+/// `ModelCache::prewarm` stays with the load path it shares.
+#[cfg(feature = "dictation")]
 #[tauri::command]
 #[specta::specta]
 pub async fn prewarm_model(model_cache: State<'_, ModelCache>) -> Result<(), TranscriptionError> {

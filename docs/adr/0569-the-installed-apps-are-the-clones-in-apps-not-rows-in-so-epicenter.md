@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "The CLI owns `so.epicenter`'s declaration and publishes it at every launch": there is no `so.epicenter` and no declaration.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `~/Epicenter/Apps/`: the clones are in `<data_dir>/apps/`.
 - **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "the clones in `~/Epicenter/Apps/`": the installed apps are clones of built repositories in `<data_dir>/apps/<encoded address>/`.
+- **Amended by:** [ADR-0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) at "the approvals in `approvals.json`": the bare clones alone record what is installed and approved.
 
 ## Context
 
