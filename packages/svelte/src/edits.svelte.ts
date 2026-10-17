@@ -102,6 +102,10 @@ export const UNSAVED =
 const notVersioned = (paths: readonly string[]) =>
 	`Your edits of ${paths.slice(0, 3).join(', ')}${paths.length > 3 ? ' and others' : ''} did not save, so no version was recorded. Save them again, or copy your text and discard the edits, then try again.`;
 
+/** Why typing held at a path could not be sent at all. */
+const STRANDED =
+	'The file no longer reads as it did when this was typed, so the edit could not be sent. Copy your text and discard the edit, or repair the file elsewhere.';
+
 /** Why text still held at a path was let go once the app renamed or deleted the file. */
 const MOVED =
 	'The file was renamed or deleted before this edit saved, so it is in no file.';
@@ -202,13 +206,32 @@ class Held {
 	editor!: TextEditor;
 	readonly later: ReturnType<typeof later>;
 	readonly #unlisted: () => boolean;
-	constructor(save: () => unknown, unlisted: () => boolean) {
+	readonly #absent: () => boolean;
+	constructor(
+		save: () => unknown,
+		unlisted: () => boolean,
+		absent: () => boolean,
+	) {
 		this.later = later(save);
 		this.#unlisted = unlisted;
+		this.#absent = absent;
 	}
 	/** Whether its file is gone: a save found it deleted, or the listing lacks its row. */
 	gone() {
 		return this.foundGone || this.#unlisted();
+	}
+	/**
+	 * Whether what is typed cannot even be sent: its file is still there,
+	 * but the cache holds no document to send it against, as when a row
+	 * stopped reading as one, or a file's text is no longer read.
+	 */
+	stranded() {
+		return (
+			this.editor.typed !== undefined &&
+			!this.editor.saving &&
+			!this.gone() &&
+			this.#absent()
+		);
 	}
 }
 
@@ -365,10 +388,11 @@ export function createEdits<TTables>({
 		return unsaved;
 	}
 
-	/** Let go of the field held at `key`, if it is `held`; answers what it held typed. */
+	/** Let go of the field held at `key`, if it is `held`; answers the text it held typed. */
 	function letGoField(key: string, held: HeldField) {
 		if (fields.get(key) !== held) return undefined;
-		const unsaved = held.typed;
+		const unsaved =
+			held.typed === undefined ? undefined : typedText(held.typed);
 		held.later.cancel();
 		held.typed = undefined;
 		fields.delete(key);
@@ -405,6 +429,7 @@ export function createEdits<TTables>({
 		map: SvelteMap<string, Held>,
 		path: string,
 		unlisted: () => boolean,
+		absent: () => boolean,
 		open: (
 			write: <T>(
 				sent: string,
@@ -413,7 +438,7 @@ export function createEdits<TTables>({
 			) => Promise<T>,
 		) => TextEditor,
 	): Held {
-		const held = new Held(() => saveHeld(map, path), unlisted);
+		const held = new Held(() => saveHeld(map, path), unlisted, absent);
 		held.editor = open(async (sent, send, isGone) => {
 			const result = await send().catch(
 				(cause: unknown): { data: null; error: DescribedError } => ({
@@ -437,7 +462,7 @@ export function createEdits<TTables>({
 						void saveHeld(map, path);
 						return true;
 					},
-					discard: () => void letGo(map, path, held),
+					discard: () => letGo(map, path, held),
 				});
 				throw result.error;
 			}
@@ -529,16 +554,21 @@ export function createEdits<TTables>({
 			() => stored()?.row.body,
 			() => textTypedAt(path),
 			() =>
-				hold(bodies, path, unlisted, (write) =>
-					createBodyEditor<Fields>({
-						row: stored,
-						write: (change) =>
-							write(
-								change.to.body,
-								() => tableWrites(table).write(stem, change.from, change.to),
-								(written) => written === null,
-							),
-					}),
+				hold(
+					bodies,
+					path,
+					unlisted,
+					() => stored() === undefined,
+					(write) =>
+						createBodyEditor<Fields>({
+							row: stored,
+							write: (change) =>
+								write(
+									change.to.body,
+									() => tableWrites(table).write(stem, change.from, change.to),
+									(written) => written === null,
+								),
+						}),
 				),
 		);
 	}
@@ -561,18 +591,23 @@ export function createEdits<TTables>({
 			() => shownText(path),
 			() => rowTypedAt(path),
 			() =>
-				hold(texts, path, unlisted, (write) =>
-					createTextEditor({
-						current: () => shownText(path),
-						write: async (change) => {
-							const written = await write(
-								change.to,
-								() => writes.write(path, change.from, change.to),
-								({ file }) => file === null,
-							);
-							return written.file === null ? 'gone' : 'landed';
-						},
-					}),
+				hold(
+					texts,
+					path,
+					unlisted,
+					() => shownText(path) === undefined,
+					(write) =>
+						createTextEditor({
+							current: () => shownText(path),
+							write: async (change) => {
+								const written = await write(
+									change.to,
+									() => writes.write(path, change.from, change.to),
+									({ file }) => file === null,
+								);
+								return written.file === null ? 'gone' : 'landed';
+							},
+						}),
 				),
 		);
 	}
@@ -635,7 +670,7 @@ export function createEdits<TTables>({
 					void saveField(key);
 					return true;
 				},
-				discard: () => void letGoField(key, held),
+				discard: () => letGoField(key, held),
 			});
 			return;
 		}
@@ -754,12 +789,29 @@ export function createEdits<TTables>({
 			tried.set(draft, draft.revision);
 			return send();
 		};
+		/**
+		 * Send the draft `map` holds at `key`. Typing its editor could not
+		 * even send is told once per settle, with the text and Discard, so
+		 * what it blocks always has a way out.
+		 */
+		const sendDraft = async (map: SvelteMap<string, Held>, key: string) => {
+			const draft = map.get(key);
+			await saveHeld(map, key);
+			if (draft === undefined || map.get(key) !== draft || !draft.stranded())
+				return;
+			writeFailed({
+				path: key,
+				error: ActionError.NotStarted({ reason: STRANDED }).error,
+				unsaved: draft.editor.typed ?? '',
+				discard: () => letGo(map, key, draft),
+			});
+		};
 		return Promise.all([
 			...held.bodies.map(([key, draft]) =>
-				once(draft, () => saveHeld(bodies, key)),
+				once(draft, () => sendDraft(bodies, key)),
 			),
 			...held.texts.map(([key, draft]) =>
-				once(draft, () => saveHeld(texts, key)),
+				once(draft, () => sendDraft(texts, key)),
 			),
 			...held.fields.map(([key, draft]) => once(draft, () => saveField(key))),
 		]);

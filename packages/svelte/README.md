@@ -68,7 +68,8 @@ definition, and everything below it reads the opened folder through
   It offers "Save again" when `retry` is set; `retry` answers whether a save
   started, and when none did the toast comes back with only the text to
   copy. It offers "Discard your edit" when `discard` is set, which lets go
-  of the edit on screen and keeps the toast up with the text to copy.
+  of the edit on screen and keeps the toast up with the text it let go,
+  newer typing included, to copy.
   `@epicenter/svelte/write-failure-toast` exports it as `toastWriteFailure`
   for an app, such as Whispering, that opens its folder itself. A failed
   field set reports the field the person typed, such as a
@@ -123,7 +124,10 @@ await edits.saveVersion();
   draft outlives its view, and a read never replaces it.
 - A save that fails keeps what is typed and reports it to `writeFailed`
   with the text, a `retry` that starts a save while the draft is still
-  held and the folder is not closing, and a `discard` that lets it go.
+  held and the folder is not closing, and a `discard` that lets it go and
+  answers the text it let go. Typing a settle cannot even send, such as a
+  body whose row stopped reading, is told once per settle with its text and
+  `discard`, so no refusal it causes lacks a way out.
 - A path's unsaved typing blocks anything that would move past it on that
   path. While typing whose save failed is held at a path, `exclusive` on
   it answers `ActionError.NotStarted` with `UNSAVED`, `saveVersion()`

@@ -54,12 +54,14 @@ export type WriteFailure = {
 	 */
 	readonly retry?: () => boolean;
 	/**
-	 * Let go of the edit still on screen: the file keeps what it holds, and
-	 * the notice keeps the text to copy. Set with `retry`, so a save that
-	 * keeps failing never traps the person in an edit that blocks a rename,
-	 * a delete, or Save version.
+	 * Let go of the edit still on screen, answering the text it let go: what
+	 * is typed now, which can be newer than `unsaved`, or `undefined` when
+	 * the edit was already gone. The file keeps what it holds, and the
+	 * notice keeps that text to copy. Set while an edit is held, so a save
+	 * that keeps failing, or typing that cannot be sent, never traps the
+	 * person in an edit that blocks a rename, a delete, or Save version.
 	 */
-	readonly discard?: () => void;
+	readonly discard?: () => string | undefined;
 };
 
 const UNCONFIRMED =

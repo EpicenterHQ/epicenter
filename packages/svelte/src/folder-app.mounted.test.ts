@@ -250,8 +250,8 @@ test('Save again that starts no save keeps the text offered', async () => {
 	expect(document.body.textContent).not.toContain('Save again');
 });
 
-test('Discard lets go of the edit and keeps the text offered, without Save again', async () => {
-	clipboard('takes');
+test('Discard lets go of the edit and keeps the text it let go offered, without Save again', async () => {
+	const copied = clipboard('takes');
 	const { opened } = mountApp(createTestStorage());
 	const context = await opened;
 	cleanup.push(() => context.close());
@@ -262,8 +262,10 @@ test('Discard lets go of the edit and keeps the text offered, without Save again
 		error: deleted,
 		unsaved: 'Typed body',
 		retry: () => true,
+		// Typing went on after this toast: the discard lets go of that too.
 		discard: () => {
 			discarded++;
+			return 'Typed body, and more since';
 		},
 	});
 	await until(() => toastFor('notes/e.md'), 'the toast');
@@ -274,6 +276,9 @@ test('Discard lets go of the edit and keeps the text offered, without Save again
 	expect(document.body.textContent).toContain('Copy your text');
 	expect(document.body.textContent).not.toContain('Save again');
 	expect(document.body.textContent).not.toContain('Discard your edit');
+	click(document.body, 'Copy your text');
+	await gone('notes/e.md');
+	expect(copied).toEqual(['Typed body, and more since']);
 });
 
 test('Save again that starts a save closes the toast', async () => {

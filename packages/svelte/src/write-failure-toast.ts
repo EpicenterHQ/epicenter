@@ -70,14 +70,19 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 	const saveAgain = () => {
 		if (!retry?.()) show({ path, error, unsaved }, copyRefused);
 	};
-	/** Let go of the edit; the toast stays with only the text to copy. */
+	/**
+	 * Let go of the edit; the toast stays with only the text to copy: the
+	 * text the discard let go, which holds any typing newer than this
+	 * toast, or this toast's own when the edit was already gone.
+	 */
 	const discarded =
 		discard === undefined
 			? undefined
 			: () => {
-					discard();
+					const dropped = discard() ?? unsaved;
 					toast.dismiss(shown);
-					if (copyable) show({ path, error, unsaved }, copyRefused);
+					if (dropped !== '')
+						show({ path, error, unsaved: dropped }, copyRefused);
 				};
 
 	shown = toast.error(title, {

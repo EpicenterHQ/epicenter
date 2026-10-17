@@ -27,7 +27,10 @@
  * - Typing whose save failed blocks what would move past it: a delete or
  *   rename of its path, Save version, and typing the path another way; the
  *   failure offers Save again and Discard, and discarding unblocks
- * - A settle tries a failed save once, and answers what still did not save
+ * - A settle tries a failed save once, and answers what still did not save;
+ *   typing it cannot even send is told with Discard
+ * - Discard lets go of what is typed now, newer typing included, and
+ *   answers it, so no typing is dropped without being offered
  * - A rename or delete that succeeded lets go of what was held at the path,
  *   so no Save again reaches a file later made there
  * - A file's text typed into a file deleted elsewhere is let go and offered
@@ -606,6 +609,101 @@ test('a field save whose write throws ends saving and is reported; close still c
 	});
 	await context.close();
 	folder.tables.notes.set = set;
+});
+
+test('Discard from an older notice lets go of typing made since and answers it, for a body, a field, and a save still running', async () => {
+	const { folder, edits, failures } = await setup();
+	const write = folder.tables.notes.write;
+	let gate: PromiseWithResolvers<void> | undefined;
+	folder.tables.notes.write = (async () => {
+		await gate?.promise;
+		return { data: null, error: { name: 'Io', message: 'disk full' } };
+	}) as unknown as typeof write;
+	const body = edits.body('notes', 'a');
+	body.change('One.\nA\n');
+	await body.save();
+	const older = failures.at(-1);
+	expect(older?.unsaved).toBe('One.\nA\n');
+	body.change('One.\nA\nB typed after\n');
+	expect(older?.discard?.()).toBe('One.\nA\nB typed after\n');
+	expect(body.typed).toBe(undefined);
+
+	// A newer save runs when the older notice's Discard is clicked: the
+	// discard answers its text, and its failure afterwards tells nothing.
+	body.change('One.\nC\n');
+	await body.save();
+	const second = failures.at(-1);
+	body.change('One.\nC\nD\n');
+	gate = Promise.withResolvers<void>();
+	const running = body.save();
+	await until(() => body.saving, 'the newer save to run');
+	const told = failures.length;
+	expect(second?.discard?.()).toBe('One.\nC\nD\n');
+	gate.resolve();
+	await running;
+	expect(failures).toHaveLength(told);
+	expect(edits.unsaved()).toBe(false);
+	folder.tables.notes.write = write;
+
+	const set = folder.tables.notes.set;
+	folder.tables.notes.set = (async () => ({
+		data: null,
+		error: { name: 'Io', message: 'disk full' },
+	})) as unknown as typeof set;
+	const title = edits.field('notes', 'a', 'title');
+	title.change('Old');
+	await title.save();
+	const fieldNotice = failures.at(-1);
+	title.change('Old plus newer');
+	expect(fieldNotice?.discard?.()).toBe('Old plus newer');
+	expect(title.typed).toBe(undefined);
+	folder.tables.notes.set = set;
+});
+
+test('typing a settle cannot even send, as a body whose row stopped reading, is told with Discard, and discarding frees the file', async () => {
+	const { folder, context, edits, failures } = await setup();
+	const write = folder.tables.notes.write;
+	folder.tables.notes.write = (async () => ({
+		data: null,
+		error: { name: 'Io', message: 'disk full' },
+	})) as unknown as typeof write;
+	const body = edits.body('notes', 'a');
+	body.change('Mine.\n');
+	await body.save();
+	folder.tables.notes.write = write;
+	// Another program leaves the file unreadable as a row.
+	expectOk(
+		await folder.write(
+			'notes/a.md',
+			'---\ntitle: A\npinned: false\n---\nOne.\n',
+			'---\ntitle: A\npinned: maybe\n---\nOne.\n',
+		),
+	);
+	await context.queryClient.refetchQueries({
+		queryKey: context.queries.notes.list.queryKey(),
+	});
+	const before = failures.length;
+
+	expect((await edits.saveVersion()).error?.name).toBe('NotStarted');
+	expect(failures).toHaveLength(before + 1);
+	const told = failures.at(-1);
+	expect(told).toMatchObject({ path: 'notes/a.md', unsaved: 'Mine.\n' });
+	expect(told?.discard?.()).toBe('Mine.\n');
+
+	const opened = await context.queryClient.fetchQuery({
+		...context.queries.files.text.queryOptions('notes/a.md'),
+		staleTime: 0,
+	});
+	const text = edits.text('notes/a.md');
+	expect(
+		text.change((opened as { text: string }).text.replace('maybe', 'false')),
+	).toBe(true);
+	await text.save();
+	expect(expectOk(await edits.saveVersion()).status).toBe('committed');
+	expect(await stored(folder, 'a')).toEqual({
+		fields: { title: 'A', pinned: false },
+		body: 'One.\n',
+	});
 });
 
 test('Save version starts once every draft and write landed, and commits what they wrote', async () => {

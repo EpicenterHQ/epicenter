@@ -472,6 +472,37 @@ test('Source edits a valid row as its exact text, after the fields it was typed 
 	expect(recordingEditor(library).draft.body).toBe('Typed as text.\n');
 });
 
+test('notes that did not save, in a recording another program then broke, are told with Discard; discarding lets the repair and Save version through', async () => {
+	const { library, notices, failWrites } = await open();
+	const editor = await record(library);
+	const { path } = editor;
+	const audioPath = editor.draft.fields.audioPath;
+	failWrites(path);
+	editor.edit((row) => {
+		row.body = 'Mine.\n';
+	});
+	await settle(library);
+	failWrites();
+	const broken = `---\ntitle: Broken\naudioPath: ${audioPath}\n---\n`;
+	await writeElsewhere(library, path, broken);
+	await settle(library);
+	expect(library.showsText(path)).toBe(true);
+	const before = notices.length;
+
+	expect((await library.saveVersion()).status).toBe('blocked');
+	expect(notices).toHaveLength(before + 1);
+	const told = notices.at(-1);
+	expect(told).toMatchObject({ path, unsaved: 'Mine.\n' });
+	expect(told?.discard?.()).toBe('Mine.\n');
+	expect(library.isUnsaved(path)).toBe(false);
+
+	const source = await openText(library, path);
+	source.input(recordingText('Repaired', audioPath));
+	await settle(library);
+	expect(await text(library, path)).toBe(recordingText('Repaired', audioPath));
+	expect((await library.saveVersion()).status).toBe('committed');
+});
+
 test('switching between the fields and Source refuses while the edit being left did not save, either way', async () => {
 	const { library, notices, failWrites } = await open();
 	const editor = await record(library);
