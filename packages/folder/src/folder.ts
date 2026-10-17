@@ -181,10 +181,13 @@ export type Folder<
 	readonly id: string;
 	/**
 	 * Whether this is the opening app's own folder, the one named after the
-	 * `app` it was opened for. Only an own folder's handle publishes its
-	 * definition to `epicenter.json`; every other handle reads with the
-	 * folder's own declaration and never writes it. False for a folder
-	 * opened without an `app`.
+	 * `app` it was opened for: whether this handle may publish its
+	 * definition. It is decided when the folder opens, not by what lands. An
+	 * own handle publishes its definition to `epicenter.json` just before its
+	 * first write, best effort: a publication that fails is logged, and the
+	 * write still lands, so `own` does not say the declaration is on disk.
+	 * Every other handle reads with the folder's own declaration and never
+	 * writes it. False for a folder opened without an `app`.
 	 */
 	readonly own: boolean;
 	/**

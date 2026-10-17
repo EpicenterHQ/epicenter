@@ -199,11 +199,11 @@ Capture window (WebView)
 Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 ```
 
-The page names the folder by its scope and nothing else. The shell hands the
-window that scope as `?folder=` in its URL (`open_installed_app`): Capture's
-own, `so.epicenter.capture` (`CAPTURE_FOLDER_ID` in
-`src/lib/platform/types.ts`), or the scope the Folders window listed for
-another folder. A window handed none opens Capture's own. The shell registers
+The page names the folder by its scope and nothing else. The shell opens the
+window on one folder and answers the page which (`window_folder`,
+`open_installed_app`): Capture's own, `so.epicenter.capture`
+(`CAPTURE_FOLDER_ID` in `src/lib/platform/types.ts`), or the scope the
+Folders window listed for another folder. The shell registers
 Capture's own scope with its directory and a fallback author as an installed
 app's own folder, and permits the Capture window into the folder it hands it
 (ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and

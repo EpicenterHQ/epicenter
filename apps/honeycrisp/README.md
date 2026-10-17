@@ -268,9 +268,9 @@ Page (dist, served by Epicenter) runs @epicenter/folder's own engine over the
 
 The page chooses where its folder lives at build time through
 `#platform/folder`. The Epicenter host leaf
-(`folder.epicenter-host.ts`) opens the folder Epicenter handed the window
-as `?folder=<scope>`, or Honeycrisp's own, `so.epicenter.honeycrisp`, when
-none was handed, with `openFolder({ app, definition })` from
+(`folder.epicenter-host.ts`) opens the folder Epicenter handed the window,
+Honeycrisp's own, `so.epicenter.honeycrisp`, or the one a person chose "Open
+in" on, with `openFolder({ app, definition })` from
 `@epicenter/folder/tauri`. In its own folder that publishes Honeycrisp's
 declaration; any other is read through Honeycrisp's definition and never
 written over (ADR-0538, ADR-0583); `folder.own` says which. The

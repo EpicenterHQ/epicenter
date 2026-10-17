@@ -128,8 +128,8 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 - The page reaches its folder only through `#platform/folder`. Do not
   detect the platform at runtime, and do not import a Node or Bun module
   under `src/`.
-- The installed build's folder is the one Epicenter hands the window as
-  `?folder=`, or Honeycrisp's own when none is handed. The page opens it with
+- The installed build's folder is the one Epicenter hands the window, which
+  the shell answers the page (`window_folder`). The page opens it with
   `openFolder({ app, definition })` from `@epicenter/folder/tauri`, which
   publishes only to Honeycrisp's own folder and reads any other through
   Honeycrisp's definition; `folder.own` says which. Never publish Honeycrisp's

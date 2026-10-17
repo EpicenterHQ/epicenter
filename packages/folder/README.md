@@ -68,9 +68,11 @@ Different tools can use different definitions to interpret the same files.
 Compatible field meanings still matter when those tools write to the same
 dataset.
 
-Opening writes nothing. A handle publishes root `epicenter.json`, with
-`formatDeclaration(definition)`, just before its first write, through every
-opener (ADR-0508). Each
+Opening writes nothing. One handle publishes root `epicenter.json`: an app's,
+in the folder named after the app
+([the one rule](#which-folder-opens-and-the-one-rule)). It writes
+`formatDeclaration(definition)` just before its first write (ADR-0508). Every
+other handle reads the file as the folder's schema and never writes it. Each
 table is one JSON Schema object, `{ type: 'object', properties, required }`,
 whose properties are the table's fields as the prepared definition holds them:
 
@@ -98,8 +100,9 @@ whose properties are the table's fields as the prepared definition holds them:
 `required` is the one optionality marker in the file, and `field.optional` is
 the one in code. The file contains no dataset identity, runtime resources, or
 TypeBox `~` keys. The JSON uses two-space indentation, declared order, and a
-trailing newline. Opening uses the application declaration; it never reads
-this file as configuration.
+trailing newline. An app opening its own folder uses its code definition and
+does not read this file as configuration; any other opener reads the folder
+with this file, through its definition if it has one.
 
 Publication replaces manual descriptions and descriptions from another app
 version. It migrates no saved rows. A prepared definition is
@@ -220,10 +223,16 @@ openFolder({
 
 openFolder({
   id,          // any folder by its ID, such as 'data:Groceries'. Never a path.
-  definition,  // optional: the definition to read it through
+  definition,  // the definition to read it through
   credentials,
   browser,
 }): Promise<Result<Folder<typeof definition, FolderDefinition>, OpenFolderError>>
+
+openFolder({
+  id,          // any folder, read with its own epicenter.json
+  credentials,
+  browser,
+}): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
 ```
 
 `credentials` is asked right before each push and fetch with the exact URL
@@ -258,10 +267,20 @@ other opener reads through its definition (ADR-0583).
 
 An app opens with `{ app, definition }`. In a browser it opens its own folder,
 the one named `app`. In the desktop app it opens the folder the shell handed
-its window (`?folder=`, which "Open in" sets), or its own when the window was
-handed none. `folder.own` says whether the folder opened is the app's own, and
-`folder.id` names it: on the desktop the scope the shell granted, such as
-`so.epicenter.todos` or `data:Groceries`.
+its window: the shell opens each app window on one folder, its own from the
+Apps list or the one a person chose "Open in" on, and answers the page which
+(`window_folder` in `tauri-plugin-epicenter-folder`). The page's URL, routes,
+and reloads never change it. A page that names an `app` its window does not
+run, or opens `{ app }` in a window that runs no app, is refused
+`AppMismatch`. Epicenter's Settings window runs Epicenter itself, on
+`so.epicenter`.
+
+`folder.id` names the folder: on the desktop the scope the shell granted, such
+as `so.epicenter.todos` or `data:Groceries`. `folder.own` says whether the
+handle may publish its definition: true exactly for the app's own folder. It
+is decided when the folder opens. Publication itself is best effort just
+before the first write, logged when it fails, so `own` does not promise that
+`epicenter.json` is on disk.
 
 A tool that has no schema of its own, such as the Folders window, the CLI, or
 a script over a vault, opens with `{ id }` and reads the folder's own
@@ -304,9 +323,10 @@ const board = defineFolder({
   },
 });
 
-// On the desktop, the folder the shell handed this window, or Board's own.
+// On the desktop, the folder the shell handed this window.
 const { data: folder, error } = await openFolder({ app: 'so.epicenter.board', definition: board });
-if (error?.name === 'ShapeMismatch') return show(error.message); // "Board cannot open the folder 'Groceries': ..."
+// ShapeMismatch: "Board cannot open the folder 'Groceries': ...", with `error.problems`.
+if (error !== null) return show(error.message);
 await folder.tables.todos.set('milk', { status: 'done' }); // fields the definition does not name stay on the row
 ```
 
@@ -327,13 +347,14 @@ no tables.
 
 | | Through a definition |
 | --- | --- |
-| A folder that does not contain the definition | `ShapeMismatch`, its message naming the app by the definition's `title` and the folder by its directory's name, with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
+| A folder that does not contain the definition | `ShapeMismatch`, its message naming the folder by its directory's name, and the app by the definition's `title` when an app opened it, with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
 | `tables` | the definition's tables alone, typed by it; the folder's other tables are not on the handle |
 | A row read | every field the file holds, the ones the definition does not name included, so a write of the row read keeps them |
 | A write | checked against the folder's own declaration, every field of it, a merged row included: the definition cannot write a value the folder refuses |
 | `create` | `canCreate` is false, and `create` is `InvalidValues` naming the fields, when the folder requires a field the definition does not declare; rows can still be edited |
 | `definition` | the folder's own prepared declaration |
 | `epicenter.json` | never written |
+| The definition's `local` | an untracked file it matches is never committed, so what the app keeps on this machine never enters the folder's history; a file the folder already tracks stays tracked. Nothing is added to the folder's `epicenter.json` or `.gitignore`. |
 
 Fields the definition does not name are kept only on the row it read. A row
 built from scratch and passed to `write` or `create` drops them, and the
@@ -342,7 +363,8 @@ folder refuses it when one of them is required.
 ### The folder, opened lazily, and its remote
 
 Opening a browser folder writes nothing. The folder's first write creates its
-directory, and publishes `epicenter.json` just before it; each table's
+directory, and an app's handle publishes `epicenter.json` just before it, in
+the app's own folder; each table's
 directory appears with its first row. Its repository comes with its first
 commit or remote, as on every host (see
 [Repository creation](#repository-creation)). Reads never write: a folder
@@ -618,10 +640,15 @@ const vault = await openFolder({
 
 The Bun opener follows the same rule by path: a directory is named by its
 directory's name (`folder.id`), so `{ root, app, definition }` publishes
-only in a directory named after `app`, as the CLI decides which folder is an
-app's own (`isApplicationFolder`). Any other directory is read through the
-definition, and `{ root }` reads the directory's own `epicenter.json`
-([above](#which-folder-opens-and-the-one-rule)). A script that edits a data
+only in a directory named after `app`. Any other directory is read through
+the definition, and `{ root }` reads the directory's own `epicenter.json`
+([above](#which-folder-opens-and-the-one-rule)). The name is the whole test:
+a script that opens `/any/repo/sub/so.epicenter.todos` as `so.epicenter.todos`
+publishes there and may give it a repository of its own. The `epicenter`
+CLI's history commands are stricter about the second: `isApplicationFolder`
+in `packages/cli` also requires the directory to sit directly under the
+Epicenter folder root and its app to be installed, which a directory opener
+is not told. A script that edits a data
 folder opens it with `{ root }`; passing `parseDeclaration` of the file as an
 app's definition is safe only for a declaration `epicenter generate` wrote,
 since an app publishes its own formatting on the first write. Opening

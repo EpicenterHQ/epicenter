@@ -467,13 +467,16 @@ The scheme serves an installed app's current build, the commit
 `builds/<app-id>/current` names, at `epicenter-app://localhost/apps/<app-id>/`.
 `open_installed_app` opens it in its own window, after the CLI builds the
 listed commit when it is not the current build, labelled
-`app:<id with _ for .>`, plus `:<folder scope in hex>` when it is opened on a
-folder. Opened on a folder, the window is permitted into that folder's scope
-and the page gets `?folder=<scope>`, which the app's
-`openFolder({ app, definition })` opens through its definition (ADR-0583).
-Opened with no folder, the app is handed its
-own folder, [`<app-id>`](#an-apps-own-folder). Every app's window is also
-permitted into `so.epicenter`, whose `connections` table its AI commands name.
+`app:<id with _ for .>:<folder scope in hex>`. Opened from the Apps list, the
+app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open
+in", the folder it was opened on. The window is permitted into that folder's
+scope and into `so.epicenter`, whose `connections` table its AI commands
+name, and the folder plugin records which app the window runs and which
+folder it was handed. The page asks for it (`window_folder`), so its URL
+names no folder and its routes and reloads cannot change it, and the app's
+`openFolder({ app, definition })` opens it, through its definition unless it
+is the app's own (ADR-0583). Settings is handed `so.epicenter` as Epicenter's
+own; the Folders window runs no app and opens folders by ID.
 
 ### Native commands for an installed app
 

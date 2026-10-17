@@ -32,14 +32,26 @@ in a browser, a directory named `so.epicenter.todos` in Bun. "Reads through
 its definition" is what ADR-0538 calls a lens: the folder's declaration must
 contain the definition (`shapeProblems`), the handle has only the
 definition's tables, every write is checked against the folder's own
-declaration, and `epicenter.json` is never written.
+declaration, `epicenter.json` is never written, and an untracked file the
+definition's `local` patterns match is never committed, while a file the
+folder already tracks stays tracked (`appLocal` in `git/history.ts`, the
+desktop shell's `--app-local` to the `epicenter` CLI).
+
+**On the desktop the shell decides which folder a window opens, never the
+page's URL.** The folder plugin records, for each window label, the app the
+window runs and the folder it was handed (`Folders::hand`), and answers the
+page `window_folder`. The shell hands each installed app's window its folder
+as it permits it (`admit_installed_window`), and hands Settings
+`so.epicenter` as Epicenter's own; the Folders window runs no app. A page
+whose `app` differs from its window's is refused `AppMismatch` before any
+grant.
 
 **Each entry exports one opener, `openFolder`, and the definition stays
 identity-free.** `defineFolder` still refuses an `id`.
 
 | Call | Which folder | Publishes |
 | --- | --- | --- |
-| `openFolder({ app, definition })`, desktop | the scope in `?folder=`, else `app` | only when that scope is `app` |
+| `openFolder({ app, definition })`, desktop | the scope `window_folder` answers, when the window runs `app` | only when that scope is `app` |
 | `openFolder({ app, definition })`, browser | the OPFS directory `app` | yes |
 | `openFolder({ id })` | `id`, with its own `epicenter.json` | never |
 | `openFolder({ id, definition })` | `id`, through `definition` | never |
@@ -48,30 +60,36 @@ identity-free.** `defineFolder` still refuses an `id`.
 
 **The handle says which folder it is.** `folder.id` is the scope the shell
 granted, the OPFS directory's name, or the Bun directory's name. `folder.own`
-is `true` exactly when the handle publishes its definition. Todos offers
+is `true` exactly when the handle may publish its definition, decided at
+open; publication itself is best effort before the first write. Todos offers
 Connect only when `folder.own`; Honeycrisp sets up a missing layout only then.
 
 **A folder that does not contain the definition is `ShapeMismatch`, named.**
-Its message names the app by the definition's `title` and the folder by its
-directory's name: "Todos cannot open the folder 'Recipes': The folder declares
-no 'todos' table."
+Its message names the folder by its directory's name, and an app opener by
+its definition's `title`: "Todos cannot open the folder 'Recipes': The folder
+declares no 'todos' table." Any other reader's says "The folder 'Recipes' does
+not declare what this definition reads: ...".
 
-**In Bun a directory is named by its directory's name.** That is how the CLI
-decides an application's own folder (`isApplicationFolder` in
-`packages/cli/src/history-commands.ts`), less its check that the directory
-sits under the Epicenter folder root, which the folder package does not know.
-An own directory may get a repository inside another repository's working
-tree; any other may not (ADR-0517).
+**In Bun a directory is named by its directory's name, and the name is the
+whole test.** The CLI's `isApplicationFolder`
+(`packages/cli/src/history-commands.ts`) is stricter: it also requires the
+directory to sit directly under the Epicenter folder root and its app to be
+installed, which a directory opener is not told. An own directory may get a
+repository inside another repository's working tree; any other may not
+(ADR-0517).
 
 ## Consequences
 
 - The root `openFolder` opens the folder a person chose "Open in" on, with no
   app code beyond `{ app, definition }`. A first-party app and one written from
-  the README take the same path.
+  the README take the same path. A page that navigated or reloaded opens the
+  same folder, and a page cannot open Epicenter's folder as Epicenter.
+- Installed apps rebuild against the new shell commands (ADR-0581): the
+  shell no longer puts the folder in the window's URL.
 - `openDataFolder` (four exports), `openHandedFolder`, `HandedFolder`,
   `OpenDataFolder`, `OpenDataFolderOptions`, `DataFolderOptions`, and the
-  `lens` option are deleted. `OpenFolderOptions` is the union of the `app` and
-  `id` forms.
+  `lens` option are deleted. `OpenFolder` is two overloads: a form with a
+  definition, typed by it, and `{ id }` alone, which takes no definition type.
 - The app opener's handle types `definition` as `FolderDefinition`, since it is
   the app's definition only in the app's own folder; `Folder<T>` defaults its
   second parameter to `FolderDefinition`.
@@ -81,10 +99,14 @@ tree; any other may not (ADR-0517).
   declare its tables.
 - A Bun script or test that opens a temporary directory as an app's own names
   the directory after the app. `apps/todos/scripts/native.ts` reads any
-  checkout not named `so.epicenter.todos` through `todosDefinition`.
+  checkout not named `so.epicenter.todos` through `todosDefinition`, and says
+  so when it refuses an empty one.
 
 ## Considered alternatives
 
+- **The handed folder in the window's URL (`?folder=`).** In-app navigation
+  drops it, and a page can name any folder its window is permitted into,
+  `so.epicenter` included.
 - **An `own` option on the opener.** It lets a caller publish into any folder,
   which is the bug this record removes.
 - **Keeping `openDataFolder` beside a handed-folder `openFolder`.** Two openers

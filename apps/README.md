@@ -51,11 +51,12 @@ const { data: folder, error } = await openFolder({
 published only by the app the folder is named after
 ([ADR-0583](../docs/adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md)).
 In a browser the app opens its own folder. In the desktop app it opens the
-folder the shell handed its window, or its own when handed none; any folder
-but its own is read through the definition and never written over, and one
-that does not declare the definition's tables is refused, named.
-`folder.own` says which, for a feature that belongs to the app's own folder
-only, such as Todos' Connect.
+folder the shell handed its window, which the shell answers the page, never
+its URL; any folder but its own is read through the definition and never
+written over, one that does not declare the definition's tables is refused,
+named, and what the definition keeps `local` never enters that folder's
+history. `folder.own` says whether the handle may publish, for a feature that
+belongs to the app's own folder only, such as Todos' Connect.
 
 A browser folder is the directory its ID names, and opening it writes nothing;
 the first write creates it. Its remote is its own Git configuration, set by

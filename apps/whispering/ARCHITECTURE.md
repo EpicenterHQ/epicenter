@@ -130,16 +130,19 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 | Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 
-The desktop workspace opens the folder the window is handed as
-`?folder=<scope>`, or Whispering's own when it is handed none, with
-`openFolder({ app, definition })` from `@epicenter/folder/tauri`. Whispering's
+The desktop workspace opens the folder the window is handed, which the shell
+answers the page (`window_folder`), with `openFolder({ app, definition })`
+from `@epicenter/folder/tauri`. Moving between Whispering's routes or
+reloading keeps that folder. Whispering's
 own folder asks the shell for the scope `so.epicenter.whispering`
 (`grant_directory`), the folder Epicenter hands an installed app opened from
 its Apps list, and publishes `whisperingDefinition` there. Any other handed
 folder is read through `whisperingDefinition`, which never writes its
 `epicenter.json` and refuses one that lacks Whispering's tables with
 "Whispering cannot open the folder '<name>': …". Recordings are written under
-the scope opened (`Workspace.folderId`). The shell's refusal (an unknown scope, a window the
+the scope opened (`Workspace.folderId`); in a folder that is not
+Whispering's own, `audio/`, which Whispering's definition keeps `local`, is
+never committed to that folder's history. The shell's refusal (an unknown scope, a window the
 scope does not list, a folder another process holds, a missing permission) is
 `DesktopFolder`, with the shell's own reason, as is a granted folder the
 engine cannot open.
