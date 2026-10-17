@@ -1,7 +1,8 @@
 # 0540. An app is installed by building its source, and approving a commit trusts it fully
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at building the app's source on the person's machine; approving a commit still trusts it fully, as ADR-0589 restates.
 - **Amended by:** [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at the manifest block, the committed `opens` shape and its reason, and the defaults of `build` and `output`: the manifest is `id` and `title`, the build is always `bun run build:installed` writing `dist/`, and no shape leaves the app.
 - **Amended by:** [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at where apps are served, `epicenter-app://localhost/apps/<app-id>/`, and at its consequence that one origin shares Web Locks and `BroadcastChannel`: the desktop uses neither.
 - **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "`run_git` allowlist with hooks disabled": the same rules live in the `epicenter` CLI's Git runner.

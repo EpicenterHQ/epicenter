@@ -4,6 +4,8 @@
 - **Date:** 2026-10-15
 - **Amended by:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at the command names `epicenter login` and `epicenter git-credential`, which are `epicenter auth login` and `epicenter auth git-credential`.
 - **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "The desktop shell registers the same helper for its runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
+- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "`so.epicenter.todos` stays itself" and "clones each into `~/Epicenter/<name>`, where its app looks for it": no app looks for a folder, and a clone takes a free name.
+- **Amended by:** [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at `repository_alias`, renaming or moving a repository with an alias, and the consequence that moving or renaming keeps every clone working: there is no rename, move, or alias.
 - **Unbuilt:** the Folders window's Connect and "Clone from Epicenter", deleting a repository, LFS ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)), the `git.epicenter.so` route to the Worker, and the Artifacts store's integration checks against the deployed binding. Built: the routes, push-to-create, `GET /api/repos`, the Artifacts and disk stores, rename and move with aliases (server functions, no UI), `GitHost.delete` on both stores, used only to remove the storage a losing concurrent first push made, `epicenter sync --to`, `clone`, and `repos`, and Todos' Connect with its Git token and `POST /api/git/connect` deleted.
 
 ## Context

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Relates:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (one read path, one channel of change), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (`folderOptions`, writes keep the cache in step), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (one opener)
-- **Unbuilt:** Whispering mounts `<FolderApp>`; it still opens its folder inside its own `Workspace` (`#platform/workspace`). The app stores (`createTodos`, `createNotes`, `createCaptures`, `createVocab`) still wrap the context's `queries` for their views, rather than each component building its queries from `getFolder()`.
+- **Unbuilt:** Whispering mounts `<FolderApp>`; it still opens its folder inside its own `Workspace` (`#platform/workspace`). The app stores (`createTodos`, `createNotes`, `createCaptures`, `createVocab`) still wrap the context's `queries` for their views, rather than each component building its queries from `getFolder()`. `FolderContext` still carries `isOwn`, which goes with ownership ([ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)). `<FolderApp>` still takes `app={manifest}` and passes `manifest.id` to `openFolder`.
 
 ## Context
 
@@ -32,8 +32,9 @@ the app's own in a browser, so the leaves had nothing left to choose.
 ## Decision
 
 **The root page mounts `<FolderApp>` from `@epicenter/svelte` with the app's
-manifest and definition.** It starts opening when it mounts, with
-`openFolder({ app: manifest.id, definition })` from `@epicenter/folder`, and
+definition.** It starts opening when it mounts, with
+`openFolder({ definition })` from `@epicenter/folder`, which opens the
+folder the shell handed the window ([ADR-0586](0586-you-open-a-folder-never-an-app.md)), and
 waits with `{#await}`. Loading is one `Loading` screen; a folder that cannot
 open is one `Empty` screen, worded per `OpenFolderError`
 (`describeOpenRefusal`), with "Try again" only for a refusal that may pass.
@@ -41,7 +42,7 @@ Nothing opens on import, and nothing else opens in a refused folder's place.
 
 ```svelte
 <!-- +page.svelte -->
-<FolderApp app={manifest} definition={reading}><ReadingView /></FolderApp>
+<FolderApp definition={reading}><ReadingView /></FolderApp>
 ```
 
 **`<FolderApp>` owns the page's cache and the folder's lifetime.** It builds
@@ -74,7 +75,6 @@ it with `<FolderProvider>`:
 // @epicenter/svelte/folder
 type FolderContext<TDefinition> = {
 	folder: Folder<TDefinition, Definition>;
-	isOwn: boolean; // folder.own
 	queries: FolderOptions<TDefinition>;
 	queryClient: QueryClient;
 	writeFailed: (failure: WriteFailure) => void;
