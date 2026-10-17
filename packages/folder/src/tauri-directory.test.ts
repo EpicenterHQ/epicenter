@@ -9,6 +9,8 @@
  *   through the shell's history commands: the `epicenter` CLI over `git`,
  *   which `answerShellHistory` runs in this process with the CLI's author
  * - Every refused or failed grant is an `OpenFolderError` and opens nothing
+ * - Each storage method is one call to the shell: a read is one
+ *   `read_folder_file`, and a put of bytes or a removal one `put_folder_file`
  * - A delete whose reply is lost is done if the path is gone, and `Io`
  *   with an `Unconfirmed` cause if it is still there
  * - A write the shell finds overtaken where it publishes reads again and
@@ -145,11 +147,9 @@ test('a granted folder opens over its real directory', async () => {
 		[...commands()]
 			.filter(
 				(cmd) =>
-					![
-						'read_folder_directory',
-						'stat_folder_path',
-						'read_folder_file',
-					].includes(cmd),
+					!['list_folder', 'read_folder_children', 'read_folder_file'].includes(
+						cmd,
+					),
 			)
 			.sort(),
 	).toEqual(['grant_directory']);
@@ -176,6 +176,97 @@ test('a granted folder opens over its real directory', async () => {
 	await git(root, 'fsck', '--strict');
 	await folder.close();
 });
+
+test('each storage method is one call to the shell', async () => {
+	const root = await scratch('tauri-directory-calls-');
+	grantRoot(root);
+	const { tauriHostFiles } = await import('./tauri-files.js');
+	const { hostStorage } = await import('./boundary.js');
+	const storage = hostStorage(tauriHostFiles('so.epicenter.todos'));
+	const sha256 = (text: string) =>
+		createHash('sha256').update(text).digest('hex');
+	/** The commands `work` sent, in order. */
+	async function sent(work: () => Promise<unknown>) {
+		shell.calls.length = 0;
+		await work();
+		return shell.calls.map(({ cmd }) => cmd);
+	}
+
+	expect(
+		await sent(async () =>
+			expect(
+				expectOk(await storage.put('notes/deep/a.md', bytes('a\n'), null)),
+			).toBe('landed'),
+		),
+	).toEqual(['put_folder_file']);
+	expect(
+		await sent(async () => {
+			const read = expectOk(await storage.read('notes/deep/a.md'));
+			expect(new TextDecoder().decode(read.bytes)).toBe('a\n');
+			expect(read.sha256).toBe(sha256('a\n'));
+		}),
+	).toEqual(['read_folder_file']);
+	expect(
+		await sent(async () =>
+			expect(
+				expectOk(await storage.put('notes/deep/a.md', bytes('b\n'), null)),
+			).toBe('stale'),
+		),
+	).toEqual(['put_folder_file']);
+	expect(
+		await sent(async () =>
+			expect(
+				expectOk(
+					await storage.put('notes/deep/a.md', bytes('b\n'), sha256('a\n')),
+				),
+			).toBe('landed'),
+		),
+	).toEqual(['put_folder_file']);
+	expect(
+		await sent(async () =>
+			expect(
+				expectOk(await storage.put('notes/deep/a.md', null, sha256('b\n'))),
+			).toBe('landed'),
+		),
+	).toEqual(['put_folder_file']);
+	expect(await sent(async () => expectOk(await storage.list()))).toEqual([
+		'list_folder',
+	]);
+	expect(
+		await sent(async () =>
+			expect(expectOk(await storage.children('notes'))).toEqual({
+				files: [],
+				directories: ['deep'],
+			}),
+		),
+	).toEqual(['read_folder_children']);
+	expect(
+		await sent(async () => expectOk(await storage.mkdir('notes/other'))),
+	).toEqual(['make_folder_directory']);
+	expect(
+		await sent(async () => expectOk(await storage.rmdir('notes/other'))),
+	).toEqual(['remove_folder_directory']);
+	// The shell's refusals are the page's errors, named as the shell names
+	// them.
+	expect(expectErr(await storage.read('notes/deep'))).toMatchObject({
+		name: 'NotAFile',
+		path: 'notes/deep',
+	});
+	expect(expectErr(await storage.rmdir('notes'))).toMatchObject({
+		name: 'DirectoryNotEmpty',
+		path: 'notes',
+	});
+	expect(
+		expectErr(await storage.put('notes/deep', bytes('x'), null)),
+	).toMatchObject({ name: 'NotAFile', path: 'notes/deep' });
+	expect(expectErr(await storage.children('missing'))).toMatchObject({
+		name: 'NotFound',
+		path: 'missing',
+	});
+});
+
+/** The UTF-8 bytes of `text`. */
+const bytes = (text: string) => new TextEncoder().encode(text);
 
 test("the shell's change event reaches this folder's listeners: its own scope only, null as everything", async () => {
 	const { folder } = await granted();
@@ -317,17 +408,19 @@ test('a row write another window overtakes where it publishes merges with what i
 	// published before the first save, is created where none is.
 	expect(
 		shell.calls
-			.filter(({ cmd }) => cmd === 'rename_folder_path')
-			.map(({ args }) => args.expected),
+			.filter(
+				({ cmd, args }) => cmd === 'put_folder_file' && args.remove === 'false',
+			)
+			.map(({ args }) => args['if-match'] ?? null),
 	).toEqual([
-		'absent',
-		'absent',
-		{ sha256: created.sha256 },
-		{ sha256: sha256(theirs) },
-		'absent',
-		'absent',
-		{ sha256: sha256('base\n') },
-		{ sha256: sha256('theirs once more\n') },
+		null,
+		null,
+		created.sha256,
+		sha256(theirs),
+		null,
+		null,
+		sha256('base\n'),
+		sha256('theirs once more\n'),
 	]);
 	await folder.close();
 });
@@ -335,14 +428,16 @@ test('a row write another window overtakes where it publishes merges with what i
 /** Hand-formatted, as no publication would write it. */
 const DECLARED = `{"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
 
-/** Every path the page asked the shell to write, rename onto, or remove. */
+/** Every path the page asked the shell to change. */
 const changedPaths = () =>
 	shell.calls.flatMap(({ cmd, args }) =>
-		cmd === 'write_folder_file' || cmd === 'remove_folder_path'
+		[
+			'put_folder_file',
+			'make_folder_directory',
+			'remove_folder_directory',
+		].includes(cmd)
 			? [args.path as string]
-			: cmd === 'rename_folder_path'
-				? [args.to as string]
-				: [],
+			: [],
 	);
 
 test('a data folder reads with its own epicenter.json, never writes it, and its first commit creates the repository', async () => {

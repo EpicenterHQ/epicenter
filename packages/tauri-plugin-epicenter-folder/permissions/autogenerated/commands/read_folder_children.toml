@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-read-folder-children"
+description = "Enables the read_folder_children command without any pre-configured scope."
+commands.allow = ["read_folder_children"]
+
+[[permission]]
+identifier = "deny-read-folder-children"
+description = "Denies the read_folder_children command without any pre-configured scope."
+commands.deny = ["read_folder_children"]

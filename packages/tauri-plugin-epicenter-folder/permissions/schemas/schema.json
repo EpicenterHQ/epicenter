@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the grant_directory command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-folder",
+          "markdownDescription": "Enables the list_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-folder",
+          "markdownDescription": "Denies the list_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the make_folder_directory command without any pre-configured scope.",
           "type": "string",
           "const": "allow-make-folder-directory",
@@ -319,16 +331,28 @@
           "markdownDescription": "Denies the make_folder_directory command without any pre-configured scope."
         },
         {
-          "description": "Enables the read_folder_directory command without any pre-configured scope.",
+          "description": "Enables the put_folder_file command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-read-folder-directory",
-          "markdownDescription": "Enables the read_folder_directory command without any pre-configured scope."
+          "const": "allow-put-folder-file",
+          "markdownDescription": "Enables the put_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Denies the read_folder_directory command without any pre-configured scope.",
+          "description": "Denies the put_folder_file command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-read-folder-directory",
-          "markdownDescription": "Denies the read_folder_directory command without any pre-configured scope."
+          "const": "deny-put-folder-file",
+          "markdownDescription": "Denies the put_folder_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the read_folder_children command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-read-folder-children",
+          "markdownDescription": "Enables the read_folder_children command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the read_folder_children command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-read-folder-children",
+          "markdownDescription": "Denies the read_folder_children command without any pre-configured scope."
         },
         {
           "description": "Enables the read_folder_file command without any pre-configured scope.",
@@ -343,58 +367,22 @@
           "markdownDescription": "Denies the read_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Enables the remove_folder_path command without any pre-configured scope.",
+          "description": "Enables the remove_folder_directory command without any pre-configured scope.",
           "type": "string",
-          "const": "allow-remove-folder-path",
-          "markdownDescription": "Enables the remove_folder_path command without any pre-configured scope."
+          "const": "allow-remove-folder-directory",
+          "markdownDescription": "Enables the remove_folder_directory command without any pre-configured scope."
         },
         {
-          "description": "Denies the remove_folder_path command without any pre-configured scope.",
+          "description": "Denies the remove_folder_directory command without any pre-configured scope.",
           "type": "string",
-          "const": "deny-remove-folder-path",
-          "markdownDescription": "Denies the remove_folder_path command without any pre-configured scope."
+          "const": "deny-remove-folder-directory",
+          "markdownDescription": "Denies the remove_folder_directory command without any pre-configured scope."
         },
         {
-          "description": "Enables the rename_folder_path command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-rename-folder-path",
-          "markdownDescription": "Enables the rename_folder_path command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the rename_folder_path command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-rename-folder-path",
-          "markdownDescription": "Denies the rename_folder_path command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the stat_folder_path command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-stat-folder-path",
-          "markdownDescription": "Enables the stat_folder_path command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the stat_folder_path command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-stat-folder-path",
-          "markdownDescription": "Denies the stat_folder_path command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the write_folder_file command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-write-folder-file",
-          "markdownDescription": "Enables the write_folder_file command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the write_folder_file command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-write-folder-file",
-          "markdownDescription": "Denies the write_folder_file command without any pre-configured scope."
-        },
-        {
-          "description": "Ask for the folder the shell registered for this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-read-folder-directory`\n- `allow-stat-folder-path`\n- `allow-read-folder-file`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`",
+          "description": "Ask for the folder the shell registered for this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Ask for the folder the shell registered for this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-read-folder-directory`\n- `allow-stat-folder-path`\n- `allow-read-folder-file`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`"
+          "markdownDescription": "Ask for the folder the shell registered for this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`"
         }
       ]
     }

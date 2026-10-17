@@ -9,43 +9,27 @@ export const commands = {
 	 *  The window reads and changes it through this plugin's commands alone;
 	 *  nothing else on disk becomes reachable. From the first grant the folder
 	 *  is watched, and the scope's windows hear `epicenter-folder://changed`.
+	 *  Every grant also removes the staged files a stopped save left an hour or
+	 *  more ago (`storage::sweep_scratch`).
 	 */
 	grantDirectory: (scope: string) => typedError<Granted, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
-	/**  List a directory in a granted folder (`page_reads::read_dir`). */
-	readFolderDirectory: (scope: string, path: string) => typedError<DirectoryEntry[], string>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_directory", { scope, path })),
 	/**
-	 *  Describe a path in a granted folder without following a final link, or
-	 *  `null` when nothing is there (`page_reads::lstat`).
+	 *  Every entry below a granted folder's root, `.git` aside, none of them
+	 *  followed (`storage::list`).
 	 */
-	statFolderPath: (scope: string, path: string) => typedError<{
-	kind: EntryKind,
+	listFolder: (scope: string) => typedError<FileListing, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { scope })),
 	/**
-	 *  The size in bytes. Typed for the page as a plain `number`, which
-	 *  holds every size below 2^53 exactly; specta refuses a `u64` as such.
+	 *  The immediate children of a directory in a granted folder, the root for
+	 *  `""` (`storage::children`).
 	 */
-	size: number,
-	/**  The Unix mode, file type bits included, or `None` off Unix. */
-	mode: number | null,
-} | null, string>(__TAURI_INVOKE("plugin:epicenter-folder|stat_folder_path", { scope, path })),
+	readFolderChildren: (scope: string, directory: string) => typedError<Children, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_children", { scope, directory })),
 	/**
-	 *  Rename within a granted folder, if `to` holds what `expected` says
-	 *  (`page_files::rename`). The check and the rename hold the root's
-	 *  publishing lock, which every window's changes on that root share, and its
-	 *  save lock, which a Bun process's saves take too (`PageWork::publishing`),
-	 *  so a save is never overtaken between them by another save through the
-	 *  shell or the Bun host. A refusal names what is there, `Conflict`,
-	 *  `Exists`, or `NotFound`, and changes nothing; so does a save lock another
-	 *  process holds too long, as `Failed`.
+	 *  Make a directory and its missing ancestors in a granted folder
+	 *  (`storage::mkdir`).
 	 */
-	renameFolderPath: (scope: string, from: string, to: string, expected: Expectation) => typedError<null, ChangeError>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to, expected })),
-	/**
-	 *  Remove within a granted folder, if the path holds what `expected` says
-	 *  (`page_files::remove`), under the same publishing and save locks as a
-	 *  rename.
-	 */
-	removeFolderPath: (scope: string, path: string, recursive: boolean, expected: Expectation) => typedError<null, ChangeError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_path", { scope, path, recursive, expected })),
-	/**  Make a directory in a granted folder (`page_files::mkdir`). */
-	makeFolderDirectory: (scope: string, path: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
+	makeFolderDirectory: (scope: string, path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
+	/**  Remove an empty directory in a granted folder (`storage::rmdir`). */
+	removeFolderDirectory: (scope: string, path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { scope, path })),
 };
 
 /* Constants */
@@ -53,47 +37,23 @@ export const FOLDER_CHANGED_EVENT = "epicenter-folder://changed" as const;
 
 /* Types */
 /**
- *  Why a rename or a removal changed nothing. The first three are the path
- *  failing the page's `Expectation`; the page reports each as its own
- *  refusal rather than as a failure whose outcome is unknown.
+ *  A directory's immediate children by name: real subdirectories in
+ *  `directories`, every other entry in `files`.
  */
-export type ChangeError =
-/**
- *  The file there does not hash to the expected SHA-256. The hash it
- *  does have is given, or none when no file is there.
- */
-{ name: "Conflict"; actualSha256: string | null } |
-/**  Something is there where nothing was expected. */
-{ name: "Exists" } |
-/**  No file is there where one was expected. */
-{ name: "NotFound" } |
-/**  The change was refused or failed for another reason. */
-{ name: "Failed"; message: string };
-
-/**  One name in a directory and what it is. */
-export type DirectoryEntry = {
-	name: string,
-	kind: EntryKind,
+export type Children = {
+	files: string[],
+	directories: string[],
 };
 
-/**  What one entry is, without following a link. */
-export type EntryKind = "file" | "directory" | "link" |
-/**  Anything else, such as a socket or a device. */
-"other";
-
-/**  What a page expects at a path when its rename or removal lands. */
-export type Expectation =
-/**  Nothing is there: a new file, or a move's destination. */
-"absent" |
-/**  A regular file is there, whatever its bytes. */
-"present" |
 /**
- *  A regular file is there whose bytes hash to this SHA-256, in lowercase
- *  hexadecimal.
+ *  Every entry below a folder's root, `.git` aside: `FileListing` in
+ *  `boundary.ts`. Anything that is not a directory is a file here, a link
+ *  or a special entry included, none of them followed.
  */
-{ sha256: string } |
-/**  Whatever is there, or nothing: the page has already decided. */
-"any";
+export type FileListing = {
+	files: ListedFile[],
+	directories: string[],
+};
 
 /**  What may have changed in a granted folder. */
 export type FolderChanged = {
@@ -132,17 +92,50 @@ export type Granted = {
 	root: string,
 };
 
-/**  What a path is, without following a final link. */
-export type PathInfo = {
-	kind: EntryKind,
+/**  One file in a listing. */
+export type ListedFile = {
+	path: string,
 	/**
 	 *  The size in bytes. Typed for the page as a plain `number`, which
 	 *  holds every size below 2^53 exactly; specta refuses a `u64` as such.
 	 */
 	size: number,
-	/**  The Unix mode, file type bits included, or `None` off Unix. */
-	mode: number | null,
 };
+
+/**
+ *  What a `put` did: changed the file, or found the path holding something
+ *  other than what the page expected and changed nothing.
+ */
+export type PutOutcome = "landed" | "stale";
+
+/**
+ *  Why a storage call answered no. The names and fields are the page's
+ *  `FileError` (`packages/folder/src/errors.ts`), less the ones only the page
+ *  can know: whether a reply was lost (`Unconfirmed`) and whether the folder
+ *  is closed.
+ */
+export type StorageError =
+/**
+ *  The path is not one a folder admits, passes through a link, or names
+ *  an entry stored under another spelling.
+ */
+{ name: "InvalidPath"; path: string; reason: string } |
+/**  No file, or no directory, is at the path. */
+{ name: "NotFound"; path: string } |
+/**  A directory is at the path, where a file was asked for. */
+{ name: "NotAFile"; path: string } |
+/**
+ *  A file is at the path (or at an ancestor of it), where a directory
+ *  was asked for.
+ */
+{ name: "NotADirectory"; path: string } |
+/**  The directory to remove holds something. */
+{ name: "DirectoryNotEmpty"; path: string } |
+/**
+ *  The operation failed, and changed nothing. A save lock another
+ *  process held too long is one.
+ */
+{ name: "Io"; path: string; operation: string; message: string };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

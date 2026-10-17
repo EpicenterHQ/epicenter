@@ -412,13 +412,12 @@ test('saves and history go through the shell', async () => {
 	const { error: readError } = await workspace.folder.files.read('missing.md');
 	expect(readError?.name).toBe('NotFound');
 
-	// The recording's bytes reach the shell as a raw body, staged and then
-	// renamed into place, and land exactly.
-	const staged = sent('write_folder_file').map((call) => call.args.bytes);
-	expect(staged).toContainEqual(audio);
-	expect(sent('rename_folder_path').map((call) => call.args.to)).toContainEqual(
-		join(root, 'audio', 'a.wav'),
+	// The recording's bytes reach the shell as a raw body, in the one call
+	// that puts them at their path, and land exactly.
+	const put = sent('put_folder_file').find(
+		(call) => call.args.path === 'audio/a.wav',
 	);
+	expect(put?.args.bytes).toEqual(audio);
 	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
 		audio,
 	);

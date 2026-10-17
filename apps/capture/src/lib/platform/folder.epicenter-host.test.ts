@@ -333,7 +333,7 @@ test('Save version commits and rewrites no file', async () => {
 		new Set(
 			shell.calls
 				.map((call) => call.cmd)
-				.filter((cmd) => !cmd.startsWith('read_') && !cmd.startsWith('stat_')),
+				.filter((cmd) => !cmd.startsWith('read_') && !cmd.startsWith('list_')),
 		),
 	).toEqual(new Set(['save_version']));
 	expect(await text(path)).toBe(saved);

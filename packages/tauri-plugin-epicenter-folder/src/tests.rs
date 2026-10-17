@@ -10,17 +10,17 @@
 //! - A scope is granted only to the windows registered or permitted for it,
 //!   each the same root, and a page never supplies a root.
 //! - Two windows of one scope racing to save one file over the same version
-//!   publish one at a time: exactly one lands, and the other is `Conflict`.
-//! - Reads reach the granted root and everything beneath it, `.git`
-//!   included, and nothing else: never another window's root, never through
-//!   a link on the way. A final link is described, not followed.
+//!   publish one at a time: exactly one lands, and the other is `stale`.
+//! - Storage reaches the data paths of the granted root and nothing else:
+//!   never `.git`, never another window's root, never through a link.
 //! - A grant adds nothing to the app's access control, so an app that
 //!   already scopes another permission grants and reads as any other does.
 //! - Changes land only after a grant, only under the root, and never in
-//!   Git's private state.
-//! - A staged write takes its bytes as a raw body and its arguments as
+//!   Git's private state. A grant sweeps staged files a stopped save left.
+//! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
-//!   fallback, is accepted too. A file read returns its bytes raw.
+//!   fallback, is accepted too. A file read returns its bytes raw. A
+//!   refusal is a `StorageError` naming the page's `FileError`.
 //! - `granted_root` names a granted scope's root to its windows alone, for
 //!   the `epicenter` CLI the shell runs.
 //! - From its first grant a folder is watched: every window permitted into
@@ -76,9 +76,9 @@ fn the_committed_typescript_bindings_match_the_registered_commands() {
         committed == fresh,
         "packages/folder/src/native/bindings.gen.ts is stale; run `FOLDER_WRITE_BINDINGS=1 cargo test --offline bindings` in packages/tauri-plugin-epicenter-folder"
     );
-    // `write_folder_file` takes a raw body and `read_folder_file` returns
+    // `put_folder_file` takes a raw body and `read_folder_file` returns
     // one, which specta cannot type; the page invokes them by name.
-    const RAW: [&str; 2] = ["write_folder_file", "read_folder_file"];
+    const RAW: [&str; 2] = ["put_folder_file", "read_folder_file"];
     for command in RAW {
         assert!(!fresh.contains(command), "{command}");
     }
@@ -203,7 +203,7 @@ fn response(
     )
 }
 
-/// `read_folder_file` as `directory-tauri.ts` asks for it: the bytes, which
+/// `read_folder_file` as `tauri-files.ts` asks for it: the bytes, which
 /// arrive raw, or the refusal.
 fn read_file(
     window: &WebviewWindow<MockRuntime>,
@@ -221,43 +221,31 @@ fn read_file(
     }
 }
 
-fn read_dir(
-    window: &WebviewWindow<MockRuntime>,
-    scope: &str,
-    path: &str,
-) -> Result<Value, Value> {
+fn children(window: &WebviewWindow<MockRuntime>, scope: &str, directory: &str) -> Result<Value, Value> {
     invoke(
         window,
-        "read_folder_directory",
-        json!({ "scope": scope, "path": path }),
+        "read_folder_children",
+        json!({ "scope": scope, "directory": directory }),
     )
 }
 
-fn lstat(window: &WebviewWindow<MockRuntime>, scope: &str, path: &str) -> Result<Value, Value> {
-    invoke(
-        window,
-        "stat_folder_path",
-        json!({ "scope": scope, "path": path }),
-    )
-}
-
-/// `write_folder_file` as `directory-tauri.ts` sends it: the bytes as the
-/// raw body, the rest in percent-encoded headers.
-fn write_file(
+/// `put_folder_file` as `tauri-files.ts` sends it: the bytes as the raw
+/// body, the rest in percent-encoded headers. `None` removes the file.
+fn put(
     window: &WebviewWindow<MockRuntime>,
     path: &str,
-    bytes: &[u8],
-    create_new: bool,
+    bytes: Option<&[u8]>,
+    if_match: Option<&str>,
 ) -> Result<Value, Value> {
     request(
         window,
-        "write_folder_file",
-        InvokeBody::Raw(bytes.to_vec()),
-        write_headers(path, create_new),
+        "put_folder_file",
+        InvokeBody::Raw(bytes.unwrap_or_default().to_vec()),
+        put_headers(path, bytes.is_none(), if_match),
     )
 }
 
-fn write_headers(path: &str, create_new: bool) -> HeaderMap {
+fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
     let encoded = |value: &str| {
         HeaderValue::from_str(
             &percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC)
@@ -268,7 +256,10 @@ fn write_headers(path: &str, create_new: bool) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("scope", encoded("notes"));
     headers.insert("path", encoded(path));
-    headers.insert("create-new", encoded(&create_new.to_string()));
+    headers.insert("remove", encoded(&remove.to_string()));
+    if let Some(if_match) = if_match {
+        headers.insert("if-match", encoded(if_match));
+    }
     headers
 }
 
@@ -283,53 +274,22 @@ fn grant(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
     invoke(window, "grant_directory", json!({ "scope": "notes" }))
 }
 
-/// A path inside the root, as the page's engine names it to the plugin.
-fn inside(fixture: &Fixture, relative: &str) -> String {
-    fixture.root.join(relative).to_str().unwrap().to_string()
-}
-
-/// Write a file as the engine overwrites one: its bytes to a new staged
-/// file, which is then renamed over the path, whatever is there.
+/// Write a file over whatever is there, as a page that just read it does.
 fn write(
     fixture: &Fixture,
     window: &WebviewWindow<MockRuntime>,
     relative: &str,
     content: &str,
 ) -> Result<Value, Value> {
-    publish(fixture, window, relative, content, json!("any"))
-}
-
-/// Write a file as `write` does, landing only if the path holds what
-/// `expected` says.
-fn publish(
-    fixture: &Fixture,
-    window: &WebviewWindow<MockRuntime>,
-    relative: &str,
-    content: &str,
-    expected: Value,
-) -> Result<Value, Value> {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let scratch = inside(fixture, ".git/epicenter/scratch");
-    let staged = format!(
-        "{scratch}/staged-{}",
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    );
-    invoke(
+    let there = std::fs::read(fixture.root.join(relative)).ok();
+    let landed = put(
         window,
-        "make_folder_directory",
-        json!({ "scope": "notes", "path": scratch }),
+        relative,
+        Some(content.as_bytes()),
+        there.as_deref().map(sha256).as_deref(),
     )?;
-    write_file(window, &staged, content.as_bytes(), true)?;
-    invoke(
-        window,
-        "rename_folder_path",
-        json!({
-            "scope": "notes",
-            "from": staged,
-            "to": inside(fixture, relative),
-            "expected": expected,
-        }),
-    )
+    assert_eq!(landed, "landed");
+    Ok(landed)
 }
 
 /// Run the real `git` in the root `window` was granted for `notes`, as a
@@ -366,7 +326,9 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
         json!({ "name": "UnknownScope", "scope": "elsewhere" })
     );
     // Nothing reaches the folder before a grant, from any window.
-    assert!(text(&write(&fixture, &main, "a.md", "a").unwrap_err()).contains("not been granted"));
+    let early = write(&fixture, &main, "a.md", "a").unwrap_err();
+    assert_eq!(early["name"], "Io", "{early}");
+    assert!(text(&early["message"]).contains("not been granted"), "{early}");
     assert!(!fixture.root.exists());
 
     let granted = grant(&main).unwrap();
@@ -385,9 +347,9 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
     assert_eq!(grant(&side).unwrap(), granted);
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     write(&fixture, &main, "a.md", "main's\n").unwrap();
-    assert_eq!(read_file(&side, "notes", &inside(&fixture, "a.md")).unwrap(), b"main's\n");
+    assert_eq!(read_file(&side, "notes", "a.md").unwrap(), b"main's\n");
     write(&fixture, &side, "b.md", "side's\n").unwrap();
-    assert_eq!(read_file(&main, "notes", &inside(&fixture, "b.md")).unwrap(), b"side's\n");
+    assert_eq!(read_file(&main, "notes", "b.md").unwrap(), b"side's\n");
     assert!(text(&grant(&other).unwrap_err()).contains("WindowNotPermitted"));
 }
 
@@ -429,10 +391,9 @@ fn a_data_folder_is_never_created_or_given_a_nested_repository() {
     app.folders().shutdown();
 }
 
-/// Two windows of one scope stage a save of the same file over the version
-/// both read, then publish at once. The shell checks and renames under the
-/// root's mutex, so exactly one save lands and the other is `Conflict`
-/// naming what is there, whichever wins.
+/// Two windows of one scope save the same file over the version both read,
+/// at once. The shell checks and renames under the root's mutex, so exactly
+/// one save lands and the other is `stale`, whichever wins.
 #[test]
 fn two_windows_saving_one_file_over_the_same_version_publish_once() {
     const ROUNDS: usize = 8;
@@ -443,55 +404,51 @@ fn two_windows_saving_one_file_over_the_same_version_publish_once() {
     grant(&main).unwrap();
     grant(&side).unwrap();
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    let scratch = inside(&fixture, ".git/epicenter/scratch");
-    invoke(
-        &main,
-        "make_folder_directory",
-        json!({ "scope": "notes", "path": scratch }),
-    )
-    .unwrap();
-    let target = inside(&fixture, "a.md");
     write(&fixture, &main, "a.md", "round 0\n").unwrap();
     for round in 1..=ROUNDS {
-        let expected = json!({ "sha256": sha256(format!("round {}\n", round - 1).as_bytes()) });
+        let expected = sha256(format!("round {}\n", round - 1).as_bytes());
         let start = std::sync::Arc::new(std::sync::Barrier::new(2));
         let saves: Vec<_> = [&main, &side]
             .into_iter()
             .map(|editor| {
-                let content = format!("round {round}\n");
-                let content = format!("{content}{}\n", editor.label());
-                let staged = format!("{scratch}/{}-{round}", editor.label());
-                write_file(editor, &staged, content.as_bytes(), true).unwrap();
-                let (editor, start) = (editor.clone(), std::sync::Arc::clone(&start));
-                let args = json!({
-                    "scope": "notes",
-                    "from": staged,
-                    "to": target,
-                    "expected": expected,
-                });
+                let content = format!("round {round}\n{}\n", editor.label());
+                let (editor, start, expected) =
+                    (editor.clone(), std::sync::Arc::clone(&start), expected.clone());
                 std::thread::spawn(move || {
                     start.wait();
-                    (content, invoke(&editor, "rename_folder_path", args))
+                    let outcome = put(&editor, "a.md", Some(content.as_bytes()), Some(&expected));
+                    (content, outcome)
                 })
             })
             .collect();
         let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
-        let landed: Vec<_> = outcomes.iter().filter(|(_, outcome)| outcome.is_ok()).collect();
+        let landed: Vec<_> = outcomes
+            .iter()
+            .filter(|(_, outcome)| *outcome == Ok(json!("landed")))
+            .collect();
         assert_eq!(landed.len(), 1, "round {round}: {outcomes:?}");
         let won = &landed[0].0;
         assert_eq!(&std::fs::read_to_string(fixture.root.join("a.md")).unwrap(), won);
-        let (_, refused) = outcomes
-            .iter()
-            .find(|(_, outcome)| outcome.is_err())
-            .unwrap();
-        assert_eq!(
-            refused.clone().unwrap_err(),
-            json!({ "name": "Conflict", "actualSha256": sha256(won.as_bytes()) })
+        assert!(
+            outcomes.iter().any(|(_, outcome)| *outcome == Ok(json!("stale"))),
+            "round {round}: {outcomes:?}"
         );
         // The next round expects what landed, as an editor that read again
-        // after its `Conflict` would.
+        // after its `stale` would.
         write(&fixture, &main, "a.md", &format!("round {round}\n")).unwrap();
     }
+    assert_eq!(staged(&fixture), Vec::<String>::new());
+}
+
+/// The staged files left in the folder.
+fn staged(fixture: &Fixture) -> Vec<String> {
+    std::fs::read_dir(fixture.root.join(".git/epicenter/scratch"))
+        .map(|entries| {
+            entries
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[test]
@@ -499,53 +456,43 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     let fixture = fixture("changes");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
-    // The engine initializes the repository first; its staged writes need
-    // `.git`, which no change command makes.
-    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
 
     invoke(
         &main,
         "make_folder_directory",
-        json!({ "scope": "notes", "path": inside(&fixture, "notes") }),
+        json!({ "scope": "notes", "path": "notes/sub" }),
     )
     .unwrap();
-    write(&fixture, &main, "notes/a.md", "first\n").unwrap();
-    invoke(
-        &main,
-        "rename_folder_path",
-        json!({
-            "scope": "notes",
-            "from": inside(&fixture, "notes/a.md"),
-            "to": inside(&fixture, "notes/b.md"),
-            "expected": "absent",
-        }),
-    )
-    .unwrap();
-    assert!(!fixture.root.join("notes/a.md").exists());
+    assert!(fixture.root.join("notes/sub").is_dir());
     assert_eq!(
-        std::fs::read_to_string(fixture.root.join("notes/b.md")).unwrap(),
+        invoke(&main, "remove_folder_directory", json!({ "scope": "notes", "path": "notes" }))
+            .unwrap_err(),
+        json!({ "name": "DirectoryNotEmpty", "path": "notes" })
+    );
+    put(&main, "notes/a.md", Some(b"first\n"), None).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("notes/a.md")).unwrap(),
         "first\n"
     );
-    for path in ["notes/b.md", "notes"] {
-        invoke(
-            &main,
-            "remove_folder_path",
-            json!({
-                "scope": "notes",
-                "path": inside(&fixture, path),
-                "recursive": false,
-                "expected": "any",
-            }),
-        )
-        .unwrap();
+    assert_eq!(
+        put(&main, "notes/a.md", None, Some(&sha256(b"first\n"))).unwrap(),
+        "landed"
+    );
+    for path in ["notes/sub", "notes"] {
+        invoke(&main, "remove_folder_directory", json!({ "scope": "notes", "path": path }))
+            .unwrap();
     }
     assert!(!fixture.root.join("notes").exists());
+    assert_eq!(staged(&fixture), Vec::<String>::new());
 
     // Git's private state and anything outside the root are refused.
-    assert!(write(&fixture, &main, ".git/config", "[core]\n").is_err());
-    let outside = fixture.root.parent().unwrap().join("outside.md");
-    assert!(write_file(&main, outside.to_str().unwrap(), b"x", false).is_err());
-    assert!(!outside.exists());
+    for refused in [".git/config", "../outside.md", "/outside.md", "notes//a.md"] {
+        let answer = put(&main, refused, Some(b"x"), None).unwrap_err();
+        assert_eq!(answer["name"], "InvalidPath", "{refused}: {answer}");
+        assert_eq!(answer["path"], refused, "{answer}");
+    }
+    assert!(!fixture.root.join(".git/config").exists());
+    assert!(!fixture.root.parent().unwrap().join("outside.md").exists());
 }
 
 /// The lowercase hexadecimal SHA-256 the page computes.
@@ -555,188 +502,153 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn a_save_lands_only_on_what_the_page_expected_and_says_what_it_found() {
+fn a_save_lands_only_on_what_the_page_expected() {
     let fixture = fixture("expected");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    publish(&fixture, &main, "a.md", "first\n", json!("absent")).unwrap();
-
-    assert_eq!(
-        publish(&fixture, &main, "a.md", "again\n", json!("absent")).unwrap_err(),
-        json!({ "name": "Exists" })
-    );
-    assert_eq!(
-        publish(&fixture, &main, "b.md", "b\n", json!("present")).unwrap_err(),
-        json!({ "name": "NotFound" })
-    );
-    let stale = json!({ "sha256": sha256(b"stale\n") });
-    assert_eq!(
-        publish(&fixture, &main, "a.md", "mine\n", stale.clone()).unwrap_err(),
-        json!({ "name": "Conflict", "actualSha256": sha256(b"first\n") })
-    );
-    assert_eq!(
-        invoke(
-            &main,
-            "remove_folder_path",
-            json!({
-                "scope": "notes",
-                "path": inside(&fixture, "a.md"),
-                "recursive": false,
-                "expected": stale,
-            }),
-        )
-        .unwrap_err(),
-        json!({ "name": "Conflict", "actualSha256": sha256(b"first\n") })
-    );
+    assert_eq!(put(&main, "a.md", Some(b"first\n"), None).unwrap(), "landed");
+    assert_eq!(put(&main, "a.md", Some(b"again\n"), None).unwrap(), "stale");
+    let stale = sha256(b"stale\n");
+    assert_eq!(put(&main, "b.md", Some(b"b\n"), Some(&stale)).unwrap(), "stale");
+    assert_eq!(put(&main, "a.md", Some(b"mine\n"), Some(&stale)).unwrap(), "stale");
+    assert_eq!(put(&main, "a.md", None, Some(&stale)).unwrap(), "stale");
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
         "first\n"
     );
-    publish(
-        &fixture,
-        &main,
-        "a.md",
-        "second\n",
-        json!({ "sha256": sha256(b"first\n") }),
-    )
-    .unwrap();
+    assert!(!fixture.root.join("b.md").exists());
+    assert_eq!(
+        put(&main, "a.md", Some(b"second\n"), Some(&sha256(b"first\n"))).unwrap(),
+        "landed"
+    );
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
         "second\n"
     );
-    // Any other refusal names itself.
-    let refused = publish(&fixture, &main, ".git/config", "[core]\n", json!("any")).unwrap_err();
-    assert_eq!(refused["name"], "Failed", "{refused}");
+    // A directory where the file would be is refused by name.
+    std::fs::create_dir(fixture.root.join("todos")).unwrap();
+    assert_eq!(
+        put(&main, "todos", Some(b"x"), None).unwrap_err(),
+        json!({ "name": "NotAFile", "path": "todos" })
+    );
+    assert_eq!(
+        put(&main, "a.md/b.md", Some(b"x"), None).unwrap_err(),
+        json!({ "name": "NotADirectory", "path": "a.md" })
+    );
+    assert_eq!(staged(&fixture), Vec::<String>::new());
 }
 
 #[test]
-fn a_staged_write_takes_its_bytes_raw_and_its_path_percent_encoded() {
+fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
     let fixture = fixture("raw-write");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    let scratch = inside(&fixture, ".git/epicenter/scratch");
-    invoke(
-        &main,
-        "make_folder_directory",
-        json!({ "scope": "notes", "path": scratch }),
-    )
-    .unwrap();
 
     // Every byte value arrives as it is, and the path decodes whole: the
-    // headers encode every `/` and `.` in it.
+    // headers encode every `/`, `.`, and space in it.
     let bytes: Vec<u8> = (0..=255).collect();
-    let staged = format!("{scratch}/raw");
-    write_file(&main, &staged, &bytes, true).unwrap();
-    invoke(
-        &main,
-        "rename_folder_path",
-        json!({
-            "scope": "notes",
-            "from": staged,
-            "to": inside(&fixture, "all.bin"),
-            "expected": "absent",
-        }),
-    )
-    .unwrap();
-    assert_eq!(std::fs::read(fixture.root.join("all.bin")).unwrap(), bytes);
+    assert_eq!(put(&main, "notes/all of it.bin", Some(&bytes), None).unwrap(), "landed");
+    assert_eq!(std::fs::read(fixture.root.join("notes/all of it.bin")).unwrap(), bytes);
 
     // The bytes as a JSON array, Tauri's postMessage fallback, also land.
-    let fallback = format!("{scratch}/fallback");
     request(
         &main,
-        "write_folder_file",
+        "put_folder_file",
         InvokeBody::Json(json!([0, 120, 255])),
-        write_headers(&fallback, true),
+        put_headers("fallback.bin", false, None),
     )
     .unwrap();
-    assert_eq!(std::fs::read(&fallback).unwrap(), vec![0, 120, 255]);
+    assert_eq!(std::fs::read(fixture.root.join("fallback.bin")).unwrap(), vec![0, 120, 255]);
 
     // Any other JSON body, or a header missing, is refused.
-    let refused = format!("{scratch}/refused");
     let json = request(
         &main,
-        "write_folder_file",
+        "put_folder_file",
         InvokeBody::Json(json!({ "bytes": [1] })),
-        write_headers(&refused, true),
+        put_headers("refused.bin", false, None),
     )
     .unwrap_err();
-    assert!(text(&json).contains("raw body"), "{json}");
-    let mut headers = write_headers(&refused, true);
-    headers.remove("create-new");
-    let missing = request(
-        &main,
-        "write_folder_file",
-        InvokeBody::Raw(b"x".to_vec()),
-        headers,
-    )
-    .unwrap_err();
-    assert!(text(&missing).contains("create-new"), "{missing}");
-    assert!(!std::path::Path::new(&refused).exists());
+    assert!(text(&json["message"]).contains("raw body"), "{json}");
+    for header in ["remove", "scope", "path"] {
+        let mut headers = put_headers("refused.bin", false, None);
+        headers.remove(header);
+        let missing = request(&main, "put_folder_file", InvokeBody::Raw(b"x".to_vec()), headers)
+            .unwrap_err();
+        assert!(text(&missing["message"]).contains(header), "{missing}");
+    }
+    assert!(!fixture.root.join("refused.bin").exists());
+    assert_eq!(staged(&fixture), Vec::<String>::new());
 }
 
 #[test]
-fn reads_reach_the_granted_root_and_nothing_else() {
+fn storage_reaches_the_data_paths_of_the_granted_root_and_nothing_else() {
     let fixture = fixture("reads");
     let main = window(&fixture.app, "main");
-    let root = fixture.root.to_str().unwrap().to_string();
     // Nothing is read before a grant.
-    assert!(text(&read_dir(&main, "notes", &root).unwrap_err()).contains("not been granted"));
+    let early = invoke(&main, "list_folder", json!({ "scope": "notes" })).unwrap_err();
+    assert!(text(&early["message"]).contains("not been granted"), "{early}");
     grant(&main).unwrap();
     git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
-    invoke(
-        &main,
-        "make_folder_directory",
-        json!({ "scope": "notes", "path": inside(&fixture, "todos") }),
-    )
-    .unwrap();
     write(&fixture, &main, "todos/a.md", "first\n").unwrap();
+    std::fs::create_dir(fixture.root.join("empty")).unwrap();
 
-    let mut names: Vec<(String, String)> = read_dir(&main, "notes", &root)
+    let mut listed = invoke(&main, "list_folder", json!({ "scope": "notes" })).unwrap();
+    listed["directories"]
+        .as_array_mut()
         .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|entry| (text(&entry["name"]), text(&entry["kind"])))
-        .collect();
-    names.sort();
+        .sort_by_key(text);
     assert_eq!(
-        names,
-        [
-            (".git".to_string(), "directory".to_string()),
-            ("todos".to_string(), "directory".to_string()),
-        ]
+        listed,
+        json!({ "files": [{ "path": "todos/a.md", "size": 6 }], "directories": ["empty", "todos"] })
+    );
+    let mut top = children(&main, "notes", "").unwrap();
+    top["directories"]
+        .as_array_mut()
+        .unwrap()
+        .sort_by_key(text);
+    assert_eq!(top, json!({ "files": [], "directories": ["empty", "todos"] }));
+    assert_eq!(
+        children(&main, "notes", "todos").unwrap(),
+        json!({ "files": ["a.md"], "directories": [] })
+    );
+    assert_eq!(
+        children(&main, "notes", "todos/a.md").unwrap_err(),
+        json!({ "name": "NotADirectory", "path": "todos/a.md" })
     );
     // Every byte value arrives as it is, raw.
     let bytes: Vec<u8> = (0..=255).collect();
     std::fs::write(fixture.root.join("todos/all.bin"), &bytes).unwrap();
-    assert_eq!(read_file(&main, "notes", &inside(&fixture, "todos/all.bin")).unwrap(), bytes);
-    // Git's own files are read too.
+    assert_eq!(read_file(&main, "notes", "todos/all.bin").unwrap(), bytes);
     assert_eq!(
-        read_file(&main, "notes", &inside(&fixture, ".git/HEAD")).unwrap(),
-        b"ref: refs/heads/main\n"
+        read_file(&main, "notes", "todos/b.md").unwrap_err(),
+        json!({ "name": "NotFound", "path": "todos/b.md" })
     );
-    let info = lstat(&main, "notes", &inside(&fixture, "todos/a.md")).unwrap();
-    assert_eq!(info["kind"], "file");
-    assert_eq!(info["size"], 6.0);
-    assert_eq!(lstat(&main, "notes", &inside(&fixture, "todos/b.md")).unwrap(), Value::Null);
-    assert!(read_file(&main, "notes", &inside(&fixture, "todos/b.md")).is_err());
+    assert_eq!(
+        read_file(&main, "notes", "todos").unwrap_err(),
+        json!({ "name": "NotAFile", "path": "todos" })
+    );
 
-    // Outside the root is refused, a sibling whose name extends it included.
+    // Git's own files, anything outside the root, and a sibling whose name
+    // extends it are refused.
     let outside = fixture.root.parent().unwrap().join("outside.md");
     std::fs::write(&outside, b"theirs").unwrap();
-    let sibling = format!("{root}2/a.md");
-    for path in [outside.to_str().unwrap(), &sibling, &format!("{root}/todos/../../outside.md")] {
-        assert!(read_file(&main, "notes", path).is_err(), "{path}");
-        assert!(lstat(&main, "notes", path).is_err(), "{path}");
-        assert!(read_dir(&main, "notes", path).is_err(), "{path}");
+    let root = fixture.root.to_str().unwrap().to_string();
+    for path in [
+        ".git/HEAD".to_string(),
+        "../outside.md".to_string(),
+        outside.to_str().unwrap().to_string(),
+        format!("{root}2/a.md"),
+        "todos/../../outside.md".to_string(),
+    ] {
+        assert_eq!(read_file(&main, "notes", &path).unwrap_err()["name"], "InvalidPath", "{path}");
+        assert_eq!(children(&main, "notes", &path).unwrap_err()["name"], "InvalidPath", "{path}");
     }
 }
 
 #[cfg(unix)]
 #[test]
-fn a_read_through_a_link_is_refused_and_a_final_link_is_described() {
+fn a_path_through_a_link_or_naming_one_is_refused() {
     let fixture = fixture("read-links");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
@@ -746,20 +658,24 @@ fn a_read_through_a_link_is_refused_and_a_final_link_is_described() {
     std::os::unix::fs::symlink(&elsewhere, fixture.root.join("todos")).unwrap();
     std::os::unix::fs::symlink(elsewhere.join("secret.md"), fixture.root.join("a.md")).unwrap();
 
-    let through = inside(&fixture, "todos/secret.md");
-    assert!(text(&read_file(&main, "notes", &through).unwrap_err()).contains("link"));
-    assert!(text(&lstat(&main, "notes", &through).unwrap_err()).contains("link"));
-    assert!(read_dir(&main, "notes", &inside(&fixture, "todos")).is_err());
-    assert!(read_file(&main, "notes", &inside(&fixture, "a.md")).is_err());
-    for link in ["todos", "a.md"] {
-        assert_eq!(lstat(&main, "notes", &inside(&fixture, link)).unwrap()["kind"], "link");
+    let link = |path: &str| {
+        json!({
+            "name": "InvalidPath",
+            "path": path,
+            "reason": "the path passes through a symbolic link",
+        })
+    };
+    for path in ["todos/secret.md", "a.md"] {
+        assert_eq!(read_file(&main, "notes", path).unwrap_err(), link(path));
+        assert_eq!(put(&main, path, Some(b"mine"), None).unwrap_err(), link(path));
     }
-    let listed = read_dir(&main, "notes", fixture.root.to_str().unwrap()).unwrap();
-    assert!(listed
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|entry| entry["kind"] == "link"), "{listed}");
+    assert_eq!(children(&main, "notes", "todos").unwrap_err(), link("todos"));
+    // A link is listed as a file, never followed.
+    let listed = children(&main, "notes", "").unwrap();
+    let mut files: Vec<String> = listed["files"].as_array().unwrap().iter().map(text).collect();
+    files.sort();
+    assert_eq!(files, ["a.md", "todos"]);
+    assert_eq!(std::fs::read(elsewhere.join("secret.md")).unwrap(), b"theirs");
 }
 
 #[test]
@@ -782,17 +698,44 @@ fn two_windows_each_read_only_their_own_folder() {
     std::fs::write(fixture.root.join("mine.md"), b"main's").unwrap();
     std::fs::write(other_root.join("mine.md"), b"other's").unwrap();
 
-    assert_eq!(read_file(&main, "notes", &inside(&fixture, "mine.md")).unwrap(), b"main's");
-    let others = other_root.join("mine.md");
-    let others = others.to_str().unwrap();
-    assert_eq!(read_file(&other, "other-notes", others).unwrap(), b"other's");
-    // Neither reaches the other's root, by its own scope or by the other's.
-    assert!(read_file(&main, "notes", others).is_err());
-    assert!(text(&read_file(&main, "other-notes", others).unwrap_err())
+    assert_eq!(read_file(&main, "notes", "mine.md").unwrap(), b"main's");
+    assert_eq!(read_file(&other, "other-notes", "mine.md").unwrap(), b"other's");
+    // Neither reaches the other's root by the other's scope.
+    assert!(text(&read_file(&main, "other-notes", "mine.md").unwrap_err())
         .contains("WindowNotPermitted"));
-    assert!(read_file(&other, "other-notes", &inside(&fixture, "mine.md")).is_err());
-    assert!(text(&lstat(&other, "notes", &inside(&fixture, "mine.md")).unwrap_err())
-        .contains("WindowNotPermitted"));
+    assert!(text(&children(&other, "notes", "").unwrap_err()).contains("WindowNotPermitted"));
+}
+
+/// A save that stopped before its rename leaves its staged file. A grant
+/// removes the ones an hour old, and none younger, which another process's
+/// save may still be about to rename.
+#[test]
+fn a_grant_sweeps_staged_files_a_stopped_save_left() {
+    let fixture = fixture("sweep");
+    let scratch = fixture.root.join(".git/epicenter/scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let name = |made: u64| {
+        let mut digits = Vec::new();
+        let mut value = made;
+        while value > 0 {
+            digits.push(b"0123456789abcdefghijklmnopqrstuvwxyz"[(value % 36) as usize]);
+            value /= 36;
+        }
+        digits.reverse();
+        format!("{}-0123456789abcdef0123456789abcdef-0", String::from_utf8(digits).unwrap())
+    };
+    let old = name(now - 2 * 60 * 60 * 1000);
+    let young = name(now - 60 * 1000);
+    for staged in [&old, &young] {
+        std::fs::write(scratch.join(staged), b"x").unwrap();
+    }
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    assert_eq!(staged(&fixture), [young]);
 }
 
 /// Before Tauri 2.12 a capability added at run time numbered its scopes from
@@ -836,8 +779,8 @@ fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
     std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
-    assert_eq!(read_file(&main, "notes", &inside(&fixture, "a.md")).unwrap(), b"read");
-    assert_eq!(lstat(&main, "notes", &inside(&fixture, "a.md")).unwrap()["kind"], "file");
+    assert_eq!(read_file(&main, "notes", "a.md").unwrap(), b"read");
+    assert_eq!(children(&main, "notes", "").unwrap()["files"], json!(["a.md"]));
 }
 
 #[test]
@@ -845,7 +788,6 @@ fn after_shutdown_a_late_change_is_refused() {
     let fixture = fixture("shutdown");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     write(&fixture, &main, "kv.json", "{}\n").unwrap();
     fixture.app.folders().shutdown();
     assert!(text(&write(&fixture, &main, "kv.json", "late\n").unwrap_err())

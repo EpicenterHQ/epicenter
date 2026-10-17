@@ -14,10 +14,10 @@
 //! - Shutdown refuses new work and waits for none already running.
 //! - Saves racing on one root with the same expected hash, from two windows,
 //!   two scopes, or two shells, publish one at a time: exactly one lands,
-//!   and the others are `Conflict`, even when each pauses between its check
+//!   and the others are `Stale`, even when each pauses between its check
 //!   and its rename.
 //! - A shell save waits while a Bun process holds the folder's save lock,
-//!   then checks against what that process saved: `Conflict`, and the other
+//!   then checks against what that process saved: `Stale`, and the other
 //!   save is kept.
 
 use std::io::{BufRead, BufReader, Write};
@@ -26,8 +26,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::page_files::{self, ChangeError, Expectation};
 use crate::registry::{FolderConfig, GrantError, Registry, ScopeConfig};
+use crate::storage::{self, PutOutcome};
 use crate::testing::TempDir;
 
 fn scope(name: &str, root: &Path, window: &str) -> ScopeConfig {
@@ -285,10 +285,8 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
     shell.grant("data:notes", "folders").unwrap();
     let other_shell = Arc::new(registry(&root, "main"));
     other_shell.grant("notes", "main").unwrap();
-    std::fs::create_dir_all(root.join(".git/epicenter/scratch")).unwrap();
-    let target = root.join("a.md");
-    std::fs::write(&target, b"old").unwrap();
-    let expected = Expectation::Sha256(hex_sha256(b"old"));
+    std::fs::write(root.join("a.md"), b"old").unwrap();
+    let expected = hex_sha256(b"old");
     let start = Arc::new(std::sync::Barrier::new(SAVES));
     let saves: Vec<_> = (0..SAVES)
         .map(|save| {
@@ -299,37 +297,33 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
                 _ => (Arc::clone(&other_shell), "notes", "main"),
             };
             let start = Arc::clone(&start);
-            let (target, expected) = (target.clone(), expected.clone());
-            let staged = root.join(format!(".git/epicenter/scratch/save-{save}"));
-            let root = root.clone();
+            let expected = expected.clone();
             std::thread::spawn(move || {
-                page_files::PAUSE_AFTER_CHECK.with(|pause| pause.set(Duration::from_millis(50)));
+                storage::PAUSE_AFTER_CHECK.with(|pause| pause.set(Duration::from_millis(50)));
                 let bytes = format!("save {save}");
-                page_files::write_file(&root, &staged, bytes.as_bytes(), true).unwrap();
                 let (root, work) = registry.admit_page_work(scope, window).unwrap();
                 start.wait();
-                let _held = work.publishing().unwrap();
-                let landed = page_files::rename(&root, &staged, &target, &expected);
-                if landed.is_err() {
-                    page_files::remove(&root, &staged, false, &Expectation::Any).unwrap();
-                }
+                let landed = storage::put(&root, "a.md", Some(bytes.as_bytes()), Some(&expected), || {
+                    work.publishing()
+                });
                 (bytes, landed)
             })
         })
         .collect();
     let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
-    let winners: Vec<_> = outcomes.iter().filter(|(_, landed)| landed.is_ok()).collect();
+    let winners: Vec<_> = outcomes
+        .iter()
+        .filter(|(_, landed)| *landed == Ok(PutOutcome::Landed))
+        .collect();
     assert_eq!(winners.len(), 1, "{outcomes:?}");
-    let won = winners[0].0.as_bytes();
-    assert_eq!(std::fs::read(&target).unwrap(), won);
-    for (_, landed) in outcomes.iter().filter(|(_, landed)| landed.is_err()) {
-        assert_eq!(
-            landed,
-            &Err(ChangeError::Conflict {
-                actual_sha256: Some(hex_sha256(won))
-            })
-        );
-    }
+    assert_eq!(std::fs::read(root.join("a.md")).unwrap(), winners[0].0.as_bytes());
+    assert!(
+        outcomes
+            .iter()
+            .filter(|(_, landed)| *landed != Ok(PutOutcome::Landed))
+            .all(|(_, landed)| *landed == Ok(PutOutcome::Stale)),
+        "{outcomes:?}"
+    );
     assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
         .unwrap()
         .next()
@@ -374,19 +368,16 @@ fn bun_saver(root: &Path, target: &Path, theirs: &str) -> Child {
 
 /// A save from another process holds the folder's save lock across its own
 /// check and rename. A shell save that read the same version waits for it,
-/// then checks against what that save left, so it is `Conflict` and the
-/// other process's save is kept, not overwritten.
+/// then checks against what that save left, so it is `Stale` and the other
+/// process's save is kept, not overwritten.
 #[test]
-fn a_shell_save_waits_for_another_process_save_and_then_conflicts() {
+fn a_shell_save_waits_for_another_process_save_and_then_is_stale() {
     let temp = TempDir::new("save-lock-process");
     let root = temp.folder("notes");
     let registry = Arc::new(registry(&root, "main"));
     registry.grant("notes", "main").unwrap();
-    std::fs::create_dir_all(root.join(".git/epicenter/scratch")).unwrap();
     let target = root.join("a.md");
     std::fs::write(&target, b"old").unwrap();
-    let staged = root.join(".git/epicenter/scratch/ours");
-    page_files::write_file(&root, &staged, b"ours", true).unwrap();
 
     let mut other = bun_saver(&root, &target, "theirs");
     let mut said = BufReader::new(other.stdout.take().unwrap());
@@ -396,16 +387,11 @@ fn a_shell_save_waits_for_another_process_save_and_then_conflicts() {
 
     let ours = {
         let registry = Arc::clone(&registry);
-        let (target, staged) = (target.clone(), staged.clone());
         std::thread::spawn(move || {
             let (root, work) = registry.admit_page_work("notes", "main").unwrap();
-            let _held = work.publishing()?;
-            page_files::rename(
-                &root,
-                &staged,
-                &target,
-                &Expectation::Sha256(hex_sha256(b"old")),
-            )
+            storage::put(&root, "a.md", Some(b"ours"), Some(&hex_sha256(b"old")), || {
+                work.publishing()
+            })
         })
     };
     std::thread::sleep(Duration::from_millis(200));
@@ -418,12 +404,11 @@ fn a_shell_save_waits_for_another_process_save_and_then_conflicts() {
     assert_eq!(line.trim(), "released");
     other.wait().unwrap();
 
-    assert_eq!(
-        ours.join().unwrap(),
-        Err(ChangeError::Conflict {
-            actual_sha256: Some(hex_sha256(b"theirs"))
-        })
-    );
+    assert_eq!(ours.join().unwrap(), Ok(PutOutcome::Stale));
     assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
+    assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
+        .unwrap()
+        .next()
+        .is_none());
     registry.shutdown();
 }

@@ -1,8 +1,10 @@
 /**
  * A folder in an ordinary directory a trusted host has given this code: the
  * desktop page's granted directory, or a directory a Bun process names.
- * Files go through the directory's storage over its host's primitives
- * (`directory-store.ts`); history is whatever the host supplies:
+ * Files go through the storage the host supplies: the shell's storage
+ * commands on the desktop (`tauri-files.ts`), and the directory's storage
+ * over `node:fs` in Bun (`directory-store.ts`); history is whatever the host
+ * supplies:
  * the system `git` run in this process (`git/native-history.ts`, Bun), or
  * the `epicenter` CLI the shell runs for a page (`tauri-history.ts`,
  * ADR-0559). Nothing of the browser folder's OPFS directory or private Git
@@ -44,12 +46,12 @@ export type DirectoryHistory = (wiring: {
  * definition as its `schema`, the handle publishes it to `epicenter.json`
  * before its first write. With `'declared'`, the handle reads with the
  * folder's own `epicenter.json` and never writes it.
- * Files are read and written through the directory's storage
- * (`directory-store.ts`). History is real Git on every host, so it honors Git's lock files,
+ * Files are read and written through the host's storage. History is real
+ * Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the
  * repository; `history` decides which process runs it.
  *
- * A save is checked where it lands: the desktop shell checks each rename
+ * A save is checked where it lands: the desktop shell checks each put
  * against what the page expects, and in Bun the check runs just before the
  * rename, under the save lock. Across processes, the shell and the Bun host each hold the folder's save lock
  * across one check and rename (ADR-0562), so saves wait only for each other
@@ -78,12 +80,13 @@ export async function openDirectoryFolder<
 	readonly lens?: FolderDefinition;
 	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
-	/** The host's file system, with absolute paths. */
-	readonly files: DirectoryPrimitives;
 	/**
-	 * The directory's storage over `files`, which the host also gives the
-	 * history it runs in this process.
+	 * The host's file system, with absolute paths, where this process sweeps
+	 * the staged files a stopped save left. A host that sweeps them itself
+	 * (the desktop shell, at each grant) leaves it out.
 	 */
+	readonly files?: DirectoryPrimitives;
+	/** The directory's storage, which the host also gives the history it runs in this process. */
 	readonly storage: FolderStorage;
 	/** The folder's history. */
 	readonly history: DirectoryHistory;
@@ -96,7 +99,10 @@ export async function openDirectoryFolder<
 	// removed. What cannot be removed stays; it is inert.
 	const scratch = `${rootPath}/${SCRATCH_DIRECTORY}`;
 	try {
-		if ((await files.lstat(scratch))?.kind === 'directory') {
+		if (
+			files !== undefined &&
+			(await files.lstat(scratch))?.kind === 'directory'
+		) {
 			const now = Date.now();
 			for (const entry of await files.readDir(scratch))
 				if (entry.kind === 'file' && isStaleScratch(entry.name, now))

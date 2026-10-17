@@ -432,23 +432,20 @@ mod tests {
 
     /// Grant `scope` to `window`, then list the root's entry names through it.
     fn granted_names(window: &WebviewWindow<MockRuntime>, scope: &str) -> Vec<String> {
-        let granted = invoke(window, "grant_directory", json!({ "scope": scope }))
+        invoke(window, "grant_directory", json!({ "scope": scope }))
             .unwrap_or_else(|error| panic!("{} was not granted {scope}: {error}", window.label()));
-        let root = granted["root"].as_str().unwrap();
-        let entries = invoke(
+        let children = invoke(
             window,
-            "read_folder_directory",
-            json!({ "scope": scope, "path": root }),
+            "read_folder_children",
+            json!({ "scope": scope, "directory": "" }),
         )
         .unwrap();
-        let mut names: Vec<String> = entries
-            .as_array()
-            .unwrap()
+        let mut names: Vec<String> = ["files", "directories"]
             .iter()
-            .map(|entry| {
-                entry["name"]
-                    .as_str()
-                    .unwrap_or_else(|| panic!("{entry}"))
+            .flat_map(|kind| children[*kind].as_array().unwrap().clone())
+            .map(|name| {
+                name.as_str()
+                    .unwrap_or_else(|| panic!("{name}"))
                     .to_string()
             })
             .collect();
