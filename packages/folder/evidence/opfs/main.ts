@@ -507,18 +507,15 @@ async function filesAndLayout(id: string) {
 	);
 
 	await check(
-		'an opened Blob keeps its bytes after the path is replaced',
+		'the bytes a read returns stay after the path is replaced',
 		async () => {
 			const folder = await open(id);
 			ok(await folder.write('take.bin', null, large));
-			const blob = ok(await folder.files.open('take.bin'));
+			const read = ok(await folder.files.read('take.bin'));
 			const { directory, name } = await rawParent(id, 'take.bin');
 			const snapshot = await (await directory.getFileHandle(name)).getFile();
 			ok(await folder.write('take.bin', large, 'replaced'));
-			assert(
-				sameBytes(new Uint8Array(await blob.arrayBuffer()), large),
-				'the Blob changed',
-			);
+			assert(sameBytes(read.bytes, large), 'the bytes read changed');
 			let rawOutcome: string;
 			try {
 				const bytes = new Uint8Array(await snapshot.arrayBuffer());
@@ -533,7 +530,7 @@ async function filesAndLayout(id: string) {
 				'note',
 				rawOutcome,
 			);
-			return 'the Blob kept 4 MiB';
+			return 'the bytes read kept 4 MiB';
 		},
 	);
 
@@ -570,7 +567,7 @@ async function twoContexts(id: string) {
 					const winners = Number(mineError === null) + Number(theirs.ok);
 					const loser = mineError?.name ?? theirs.error;
 					assert(
-						winners === 1 && loser === 'InvalidPath',
+						winners === 1 && loser === 'Occupied',
 						`round ${round}: ${winners} winners, ${loser}`,
 					);
 				}

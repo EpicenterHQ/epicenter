@@ -9,7 +9,7 @@
  * directory the shell owns.
  *
  * Opening writes nothing. The folder's first write creates its directory,
- * and its first commit, staging, or remote creates its repository, as on
+ * and its first commit or remote creates its repository, as on
  * every host; reads never write. A folder nobody wrote to lists no files
  * and has no history. Its remote is `remote.origin.url` in its Git configuration, which
  * `folder.sync.connect` sets. IndexedDB is never required, read, or written.
@@ -139,7 +139,7 @@ export const openFolder: OpenFolder = async ({ definition, ...options }) => {
  * handle never writes; a folder without one has no tables.
  * Opening writes nothing, as `openFolder`'s does: a folder nobody wrote to
  * lists no files, its first write creates its directory, and its first
- * commit, staging, or remote creates its repository.
+ * commit or remote creates its repository.
  * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
  * that does not contain the `lens` is `ShapeMismatch`.
  */

@@ -118,10 +118,5 @@ type FieldsOut<TFields extends FieldMap> = Static<
 	TObject<{ -readonly [K in keyof TFields]: TFields[K] }>
 >;
 
-/** A value snapshot. A storage with live bodies reaches them through its own handle. */
-export type RowOf<T extends TableDeclaration> = { id: string } & FieldsOut<
-	T['fields']
->;
-
-/** Values supplied when creating a row. */
+/** What one table's fields read as, and what a row supplies when it is written. */
 export type CreateRowOf<T extends TableDeclaration> = FieldsOut<T['fields']>;

@@ -18,7 +18,7 @@
  *   pipeline as `get`
  * - `create` writes canonical text that reads back as the same row, captures
  *   the row before anything is awaited, and refuses an invalid row before
- *   storage; a create at an occupied stem is `InvalidPath` and changes
+ *   storage; a create at an occupied stem is `Occupied` and changes
  *   nothing, unless the file holds the same text: a retried create is done
  * - `write` merges the change from one row to another into the row as it is
  *   now, written canonically; another writer landing first starts it again,
@@ -26,7 +26,8 @@
  * - `set` changes the fields it names of the row as it is now, and makes no
  *   row; a write over a row deleted since writes nothing; `delete` removes
  *   whatever is there; `rename` moves the file, row or not, to a vacant
- *   stem, never fusing two rows and carrying a write that lands meanwhile (see `save.test.ts` for each over a real directory)
+ *   stem, never fusing two rows and carrying a write that lands meanwhile; another writer changing the new stem during the carry stops it as
+ *   `InvalidPath`, not `Occupied` (see `save.test.ts` for each over a real directory)
  * - Every literal single-segment stem is an address, the empty one included;
  *   only the exact lowercase `.md` extension is a row
  *
@@ -322,7 +323,7 @@ test('a create at an occupied stem is refused and changes nothing, the same crea
 				{ stem: 'a' },
 			),
 		),
-	).toMatchObject({ name: 'InvalidPath', path: 'todos/a.md' });
+	).toMatchObject({ name: 'Occupied', path: 'todos/a.md' });
 	expect(await s.stored('todos/a.md')).toBe(created.text);
 	// A retried create finds its own bytes there: done, and nothing written.
 	s.resetCounts();
@@ -529,7 +530,7 @@ test('rename moves the row file to a vacant stem, a file that is not a row as it
 	expect(await s.stored('todos/m.md')).toBeUndefined();
 });
 
-test('two renames onto one stem never fuse two rows: one moves, the other is InvalidPath', async () => {
+test('two renames onto one stem never fuse two rows: one moves, the other is Occupied', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/b.md', NEWER);
@@ -540,7 +541,7 @@ test('two renames onto one stem never fuse two rows: one moves, the other is Inv
 	const outcomes = [first, second].map((result) =>
 		result.error === null ? 'moved' : result.error.name,
 	);
-	expect(outcomes.sort()).toEqual(['InvalidPath', 'moved']);
+	expect(outcomes.sort()).toEqual(['Occupied', 'moved']);
 	const moved = first.error === null ? VALID : NEWER;
 	const stayed = first.error === null ? 'todos/b.md' : 'todos/a.md';
 	expect(await s.stored('todos/c.md')).toBe(moved);
@@ -565,27 +566,49 @@ test('a write that lands at the old stem during a rename is carried to the new o
 	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
 
-test('a write at the new stem during a rename stops it there: the row stays at its old stem', async () => {
+test('a write at the new stem during a rename stops it there, and the answer says both stems may hold the row', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const OTHER = VALID.replace('External', 'Other');
 	let raced = false;
 	// Once the bytes reached the new stem, one writer lands at the old stem
-	// and another at the new one.
+	// and another edits the copy at the new one.
 	s.beforeApply(async () => {
 		if (raced || (await s.stored('todos/b.md')) === undefined) return;
 		raced = true;
 		await s.put('todos/a.md', NEWER);
 		await s.put('todos/b.md', OTHER);
 	});
-	expect(expectErr(await s.table.rename('a', 'b'))).toMatchObject({
-		name: 'InvalidPath',
-		path: 'todos/b.md',
-	});
+	const stopped = expectErr(await s.table.rename('a', 'b'));
+	// Not `Occupied`: the new stem held nothing before the move, and the
+	// move left a copy there that another writer edited.
+	expect(stopped).toMatchObject({ name: 'InvalidPath', path: 'todos/b.md' });
+	expect(stopped.message).toContain('the file stays at its old path');
 	s.beforeApply(undefined);
 	expect(raced).toBe(true);
 	expect(await s.stored('todos/a.md')).toBe(NEWER);
 	expect(await s.stored('todos/b.md')).toBe(OTHER);
+});
+
+test('a delete at the new stem during a rename stops it there, and the answer does not say a file is there', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	let raced = false;
+	// Once the bytes reached the new stem, one writer lands at the old stem
+	// and another deletes the copy at the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+		await overwrite(s.base, 'todos/b.md', null);
+	});
+	const stopped = expectErr(await s.table.rename('a', 'b'));
+	expect(stopped).toMatchObject({ name: 'InvalidPath', path: 'todos/b.md' });
+	expect(stopped.message).toContain('holds what that writer left, if anything');
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	expect(await s.stored('todos/b.md')).toBeUndefined();
 });
 
 test('a delete of the old stem during a rename stands: the row is at neither stem', async () => {
@@ -605,12 +628,12 @@ test('a delete of the old stem during a rename stands: the row is at neither ste
 	expect(await s.stored('todos/b.md')).toBeUndefined();
 });
 
-test('rename from a stem with no file, or onto an occupied one, is InvalidPath and changes nothing', async () => {
+test('rename from a stem with no file is InvalidPath, onto an occupied one Occupied, and changes nothing', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/b.md', NEWER);
 	expect(expectErr(await s.table.rename('gone', 'c')).name).toBe('InvalidPath');
-	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
+	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('Occupied');
 	expect(await s.stored('todos/a.md')).toBe(VALID);
 	expect(await s.stored('todos/b.md')).toBe(NEWER);
 	expect(mustRow(await s.table.rename('a', 'a')).path).toBe('todos/a.md');

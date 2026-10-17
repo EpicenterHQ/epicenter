@@ -10,8 +10,8 @@
  *   and preparing it again returns it
  * - A key other than `title`, `tables`, and `local` is refused, not
  *   dropped
- * - A definition names no folder: an `id` is refused at the declaration and
- *   at the opener, and the opener's ID selects the dataset
+ * - A definition names no folder: an `id` is refused as any other key is, at
+ *   the declaration and at the opener, and the opener's ID selects the dataset
  * - One prepared definition opens two folders that stay apart, and another
  *   definition reading one of them keeps the fields it does not declare
  * - A table name that every object inherits (`constructor`, `toString`) is an
@@ -159,7 +159,7 @@ test('a definition names no folder: an id is refused where it is written and whe
 	const declared = { tables: {} };
 	expect(() =>
 		defineFolder({ ...declared, id: 'so.epicenter.named' } as never),
-	).toThrow('Pass the folder ID to openFolder');
+	).toThrow("also declares 'id'");
 	expect(
 		expectErr(
 			prepareFolderDefinition({
@@ -167,7 +167,7 @@ test('a definition names no folder: an id is refused where it is written and whe
 				id: 'so.epicenter.named',
 			} as never),
 		).reason,
-	).toContain('declares an id');
+	).toContain("declares 'id'");
 
 	const storage = createTestStorage();
 	const refused = expectErr(

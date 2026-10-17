@@ -22,7 +22,7 @@ import {
 	fieldEditorOf,
 	isOptional,
 } from '@epicenter/definition';
-import type { PreparedFolderTable, WriteError } from '@epicenter/folder';
+import type { PreparedFolderTable, RowWriteError } from '@epicenter/folder';
 
 /** One declared field as a grid column. */
 export type FieldColumn = {
@@ -145,10 +145,10 @@ export function fieldSet(
 
 /**
  * Why a write wrote nothing, for a person. A write mutation rejects with
- * the folder's `WriteError`; anything else that threw is said as its message.
+ * the folder's `RowWriteError`; anything else that threw is said as its message.
  */
 export function failureText(error: unknown): string {
-	if (!isWriteError(error))
+	if (!isRowWriteError(error))
 		return `Not saved: ${error instanceof Error ? error.message : String(error)}`;
 	switch (error.name) {
 		case 'InvalidValues':
@@ -160,7 +160,7 @@ export function failureText(error: unknown): string {
 	}
 }
 
-function isWriteError(error: unknown): error is WriteError {
+function isRowWriteError(error: unknown): error is RowWriteError {
 	return (
 		typeof error === 'object' &&
 		error !== null &&

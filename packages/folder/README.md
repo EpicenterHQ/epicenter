@@ -29,8 +29,10 @@ if (setError !== null) show(setError.message);         // invalid values, or kep
 await folder.close();                                  // closed either way
 ```
 
-Settings are rows too: a table named `settings`, one row per concern, such as
-`settings/display.md` (ADR-0576). Every field it declares is `field.optional`,
+An app that keeps settings keeps them as rows too: a table named `settings`,
+one row per concern, such as `settings/display.md` (ADR-0576). This is the
+convention for when an app has settings; no first-party app declares the
+table yet. Every field it declares is `field.optional`,
 so a setting may always be unset and the app's own default applies;
 `defineFolder` refuses a required one, and a published declaration that has
 one still opens. Reading and writing it is reading and writing any table, so
@@ -146,8 +148,9 @@ The engine decides this itself, on both backends, whatever `.gitignore` says.
 A path `local` matches is never history source (`git/scope.ts`): status does
 not offer it, a whole-folder commit leaves it out, and a file committed before
 the rule is removed from the next commit's tree and from the index, as
-`git rm --cached` would, its bytes kept on disk. Staging by hand never stages
-one either. A person's `!` exception in `.gitignore` does not override it.
+`git rm --cached` would, its bytes kept on disk. A path staged by hand with
+plain `git add -f` is left out of the next commit Epicenter makes too. A
+person's `!` exception in `.gitignore` does not override it.
 
 With the declaration, before the same first write, the handle also makes the
 root `.gitignore` name each pattern `epicenter.json` then lists, its
@@ -201,6 +204,7 @@ folder ID.
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 | `@epicenter/folder/query` | Nothing: TanStack Query option factories over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
 | `@epicenter/folder/svelte` | Nothing: `createTextEditor`, one document's text opened over the folder's write, and `createBodyEditor`, its row case, each read reactively with its save loop ([Editing text](#editing-text)). Loads Svelte's runes only. | A Svelte editor of a note body or a file's text. |
+| `@epicenter/folder/file-browser` | Nothing: path helpers, visible tree rows, newline preservation, and `readTextFile` over a folder's files ([File-browser helpers](#file-browser-helpers)). | A file tree or a file view. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -263,7 +267,7 @@ openDataFolder({
 | `epicenter.json` | published before the first write, if its bytes differ | never written |
 | No `epicenter.json` | published on the first write | no tables; files, history, and Sync work |
 | An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens |
-| Repository on disk | created when the folder opens | created by the first commit (Save version, or Sync's checkpoint), staging, or `sync.connect`; until then status is an empty history with every file uncommitted |
+| Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same |
 | Tables | typed by the definition | keyed by any name, rows checked at run time; with a `lens`, the lens's tables, typed by it ([below](#opening-another-apps-folder-through-a-lens)) |
 
 Both return the same handle, and `folder.definition` is the prepared
@@ -322,15 +326,15 @@ problem with the reason, and the app widens its lens. A folder without
 | `epicenter.json` | never written |
 
 Fields the lens does not name are kept only on the row the lens read. A row
-built from scratch and passed to `save` drops them, and the folder refuses
-it when one of them is required.
+built from scratch and passed to `write` or `create` drops them, and the
+folder refuses it when one of them is required.
 
 ### The folder, opened lazily, and its remote
 
 Opening a browser folder writes nothing. The folder's first write creates its
 directory, and publishes `epicenter.json` just before it; each table's
 directory appears with its first row. Its repository comes with its first
-commit, staging, or remote, as on every host (see
+commit or remote, as on every host (see
 [Repository creation](#repository-creation)). Reads never write: a folder
 nobody wrote to lists nothing, has no history, and a commit of it writes
 nothing. An ID that cannot name one directory (empty, `.` or `..`,
@@ -385,8 +389,8 @@ each directory, empty ones included, is one stored directory, and `.git` in it
 is the folder's private Git state: no path can name it and no listing shows
 it. There is no inventory beside the files: a file's identity is the SHA-256
 of the bytes read from it, so a same-size rewrite in the same millisecond is
-still a change. `open(path)` returns a Blob of the bytes read, which keeps
-them after the path is replaced.
+still a change. `files.read(path)` returns the bytes read, detached, so they
+stay after the path is replaced.
 
 Opening requires `navigator.storage.getDirectory`, writable file streams, file
 moves, and Web Locks; without one it returns `NoFileSystem` and never falls
@@ -416,7 +420,7 @@ Writes are ordered by the lock alone, not by when their methods were called.
 A write that hashes or waits longer can land after one asked for later, from
 the same page or another. Every put is guarded by the bytes its write read,
 so none lands over bytes its write did not merge: a stale put reads again
-and merges, a create onto a file that landed meanwhile is `InvalidPath`, and
+and merges, a create onto a file that landed meanwhile is `Occupied`, and
 a delete reads again and still wins.
 
 ### A directory the desktop shell grants
@@ -656,7 +660,7 @@ linked table directory is that table's `InvalidPath`, never followed.
 top-level `$schema` (which only helps an editor offer completion), `title`,
 `local`, and `tables`, each table `{ type: 'object', properties, required? }`
 with every `required` name declared. A table without `required` has only
-optional fields. Any other key, a visible `~` key on a
+optional fields. Any other top-level key, a `kv` included, a visible `~` key on a
 field, or a field preparation refuses, such as one with an unknown `format`
 or a `$ref` that names nothing in the field, is `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.
@@ -713,14 +717,14 @@ its default export declares (ADR-0527).
 
 ```ts
 const { error: createError } = await folder.write('audio/take.webm', null, bytes);
-if (createError !== null) return show(createError.message);         // InvalidPath if a file is there
+if (createError !== null) return show(createError.message);         // Occupied if a file is there
 const { data: file, error: readError } = await folder.files.read('notes/a.md');
 if (readError !== null) return show(readError.message);             // file is { bytes, sha256 }
 const { data: written, error: writeError } = await folder.write('notes/a.md', file.bytes, 'new text');
 if (writeError !== null) return show(writeError.message);           // kept changing, say
 if (written.file === null) return show('It was deleted elsewhere'); // the edit wrote nothing
 const { error: moveError } = await folder.move('notes/a.md', 'notes/b.md');
-if (moveError !== null) return show(moveError.message);             // InvalidPath if b.md is there
+if (moveError !== null) return show(moveError.message);             // Occupied if b.md is there
 const { error: deleteError } = await folder.write('notes/b.md', null, null);
 if (deleteError !== null) return show(deleteError.message);         // the deleter wins
 ```
@@ -740,16 +744,20 @@ SHA-256 that names them.
   write, the next write from the same `from` merges with their change. Read
   the file to observe what is there now.
 - A create, a write from `null`, is placed only where no file is: a file
-  already there is `InvalidPath`, unless it holds the same bytes, which is
+  already there is `Occupied`, unless it holds the same bytes, which is
   that create landed before.
 - A delete, a write to `null`, removes whatever the file holds now: the
   deleter wins, and an edit of a file deleted since writes nothing and
   answers `file: null`.
 - A move puts the bytes at `next` only where nothing is, so two moves onto
   one path never fuse two files, then removes `path` only while it holds
-  them, carrying a write that lands there meanwhile. No file at `path`, or
-  one at `next`, is `InvalidPath`. A removal that failed leaves both paths
-  holding the file, to repair. The answer is the file as it stands at `next`.
+  them, carrying a write that lands there meanwhile. No file at `path` is
+  `InvalidPath`, and one at `next` is `Occupied`; nothing changes. Another
+  writer changing or deleting `next` while a write is carried there stops
+  the move as `InvalidPath` naming `next`: the file stays at `path`, and
+  `next` holds what that writer left. `KeptChanging`, or a removal that
+  failed, leaves both paths holding the file, to repair. The answer is the
+  file as it stands at `next`.
 
 Internally every write and move is `put(path, bytes | null, ifMatch)` on the
 storage port: a create puts where `ifMatch` is `null`, so only where no file
@@ -781,8 +789,8 @@ invalid sequence; a read of that spelling is `InvalidPath`, because no folder
 path names the file. On macOS and Linux, a read opens the path without
 following a link or waiting on a pipe, and checks again what it opened, so a file replaced by
 either after it was inspected is refused rather than followed or left
-waiting. Commits capture regular files only. `open(path)` returns a stable
-`Blob` for consumption, without holding a file descriptor. `mkdir(path)` creates missing
+waiting. Commits capture regular files only. `files.read(path)` returns the
+bytes, detached, without holding a file descriptor. `mkdir(path)` creates missing
 parents; `rmdir(path)` removes an empty directory. These directory operations
 do not request history through the file publisher.
 
@@ -950,10 +958,19 @@ await todos.write('milk', opened.row, { ...opened.row, body: 'New notes\n' }); /
 Each resolves with what the write left at the stem: the row; the file as an
 `InvalidRow` or `InvalidUtf8` value, when the write merged into a file that
 does not read as a row and left it to repair; or `null` when no file is
-there. `isStoredRow(written)` tells the first apart. Every failure is one `WriteError`:
-`InvalidValues` for a row that cannot be written (nothing is written),
-`KeptChanging` when the file changed on every attempt, `Io`, `Closed`, or
-`InvalidPath`.
+there. `isStoredRow(written)` tells the first apart. `write`, `set`, and
+`create` fail as one `RowWriteError`: `InvalidValues` for a row that cannot
+be written (nothing is written), or any `WriteError`. `delete` and `rename`
+fail as one `WriteError`.
+
+| Error | When |
+| --- | --- |
+| `InvalidValues` | a row that cannot be written; table writes only |
+| `InvalidPath` | a path no file can be at, a directory included; a move from no file, or one whose copy another writer changed; on a case-insensitive disk, a name another spelling holds |
+| `Occupied` | a file already under exactly this spelling where a create or a move puts one; nothing was written |
+| `KeptChanging` | the file changed on every attempt; a move then leaves the file at both paths |
+| `Io` | storage failed, or its reply was lost and could not be confirmed |
+| `Closed` | the folder is closed |
 
 - `set(stem, fields)` reads the row, puts `fields` over its fields, and
   writes that with the row it read as `from`. A field set to `undefined` is
@@ -964,7 +981,7 @@ there. `isStoredRow(written)` tells the first apart. Every failure is one `Write
   fields to set, and is `InvalidValues`.
 - `create(row, { stem? })` writes at `stem`, or a generated one, from no
   file, placed only where none is: a file already at the stem is
-  `InvalidPath`, unless it holds this row's exact text, which is the same
+  `Occupied`, unless it holds this row's exact text, which is the same
   create landed before. A lens that
   cannot supply a field the folder requires is `InvalidValues`, and
   `canCreate` says so beforehand.
@@ -972,9 +989,10 @@ there. `isStoredRow(written)` tells the first apart. Every failure is one `Write
 - `rename(stem, next)` moves the file, row or not, as it is. Its bytes land
   at `next` only where nothing is, so two renames onto one stem never fuse
   two rows, and `stem` goes only while it holds what moved: a write that
-  lands there meanwhile is carried to `next` first. No file at `stem`, or a
-  file at `next`, is `InvalidPath`. A rename that placed `next` but could
-  not remove `stem` leaves both.
+  lands there meanwhile is carried to `next` first. No file at `stem` is
+  `InvalidPath`, and a file at `next` is `Occupied`; another writer
+  changing `next` during that carry is `InvalidPath`. A rename that placed
+  `next` but could not remove `stem` leaves both.
 - A delete beats an edit it never saw. A write over a row deleted since its
   `from` writes nothing and resolves `null`; only `create`, from no file,
   brings a row into existence. So an autosave, a retried fill, or a stale
@@ -1058,7 +1076,7 @@ file; `to` is the new content, or `null` to delete the file.
 
 ```ts
 const { data: written, error } = await folder.write('notes/a.md', opened.text, edited);
-if (error !== null) return show(error.message); // KeptChanging, InvalidValues, Io, Closed, InvalidPath
+if (error !== null) return show(error.message); // InvalidPath, Occupied, KeptChanging, Io, Closed
 written.file;       // what the path holds now: { bytes, sha256 }, or null
 written.overridden; // each unit this write won over another writer's change
 ```
@@ -1159,7 +1177,8 @@ const stopChanges = folder$.invalidateOnChange(queryClient);
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
 | each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `delete(stem)`; a rename is `table.rename` |
-| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
+| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | none |
+| the folder (`folder$`) | `query({ paths, key, queryFn })` | `write({ path, from, to })` (`folder.write`: a create from `null`, an edit, or a delete to `null`), `move({ path, next })` (`folder.move`) |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
 
 `folder$.query({ paths, key, queryFn })` is a query of the page's own over
@@ -1402,8 +1421,8 @@ renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
 A definition is `{ title?, local?, tables }` and nothing else. `defineFolder`
-throws on any other key, an `id` included; an opener given an untyped definition with one returns
-`InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
+throws on any other key, an `id` or a `kv` included, and an opener given an
+untyped definition with one returns `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
 
 `defineFolder` returns the prepared definition. It has the shape and type of

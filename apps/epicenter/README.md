@@ -214,7 +214,8 @@ leaves everything it opened running.
 
 Settings is the window labelled `home`. It signs the app in and out and alone
 administers the local transcription model (ADR-0180). An app that needs
-a local model opens it with `open_home` and a section. The tray (Show Folders,
+a local model opens it with `open_home('transcription')`, and Settings scrolls
+to the model (`src/ui/home-section.ts`). The tray (Show Folders,
 Show Settings) and deep links remain shortcuts into the same windows; installed
 apps have no deep link:
 

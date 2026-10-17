@@ -29,15 +29,14 @@ export {
 export {
 	FileError,
 	OpenFolderError,
-	type RowReadError,
-	TableError,
+	RowReadError,
+	RowWriteError,
 	WriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
 export type {
 	FilesChanged,
 	Folder,
-	FolderAccess,
 	FolderGit,
 	FolderGitOptions,
 	FolderLocation,
@@ -60,12 +59,11 @@ export type {
 	GitCredentials,
 	HttpFetch,
 } from './git/http.js';
-export type { SettledRegion } from './git/merge-lines.js';
 export type { PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type { SyncOptions, SyncOutcome } from './git/sync.js';
 export { hashBytes } from './hash.js';
-export { frameRowText, type RowTextFrame } from './markdown.js';
+export { frameRowText } from './markdown.js';
 export type { FileContent, Overridden } from './merge-file.js';
 export {
 	DECLARATION_PATH,
@@ -74,7 +72,6 @@ export {
 	rowStemOf,
 } from './paths.js';
 export { describeTables } from './projection.js';
-export type { AnyRow } from './row-merge.js';
 export {
 	formatRow,
 	type Issue,
@@ -91,7 +88,7 @@ export {
 	type UnreadableRow,
 	type WrittenRow,
 } from './table.js';
-export { WRITE_ATTEMPTS, type Written } from './write.js';
+export type { Written } from './write.js';
 
 /**
  * Settings for a folder kept in this browser's own storage. They apply to a

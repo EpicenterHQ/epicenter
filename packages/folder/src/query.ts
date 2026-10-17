@@ -65,7 +65,12 @@ import {
 import { Err, isErr, Ok, type Result, unwrap } from 'wellcrafted/result';
 import type { FileListing, FileRead } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
-import type { FileError, RowReadError, WriteError } from './errors.js';
+import type {
+	FileError,
+	RowReadError,
+	RowWriteError,
+	WriteError,
+} from './errors.js';
 import { type OpenedFile, openedFile, readTextFile } from './file-browser.js';
 import type { FilesChanged, Folder, FolderAccess } from './folder.js';
 import type { SyncError } from './git/errors.js';
@@ -147,18 +152,18 @@ export type TableOptions<TFields> = {
 	readonly write: MutationFactory<
 		WriteRowVariables<TFields>,
 		WrittenRow<TFields>,
-		WriteError
+		RowWriteError
 	>;
 	/** Set fields of the row as it is now. */
 	readonly set: MutationFactory<
 		SetRowVariables<TFields>,
 		WrittenRow<TFields>,
-		WriteError
+		RowWriteError
 	>;
 	readonly create: MutationFactory<
 		{ readonly row: Row<TFields>; readonly stem?: string },
 		WrittenRow<TFields>,
-		WriteError
+		RowWriteError
 	>;
 	/** Delete the row at the stem it is sent. */
 	readonly delete: MutationFactory<string, undefined, WriteError>;

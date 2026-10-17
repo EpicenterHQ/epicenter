@@ -63,6 +63,10 @@ two-context save race is now two writes from one version that both land,
 the later merged over the earlier. Not yet run in a browser; the counts
 above are from the run before this change.
 
+2026-10-17: a create onto a file is `Occupied`, and the page's create race
+expects it; the file checks read with `files.read`, since `files.open` is
+gone. Not yet run in a browser.
+
 ### Chrome 142 behavior the replacement relies on
 
 The coordinator's probes in Chrome 142 on macOS observed what the stream

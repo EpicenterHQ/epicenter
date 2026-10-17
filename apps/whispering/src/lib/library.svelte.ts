@@ -7,7 +7,7 @@
  * opened as text. The library
  * observes the listings and Git status for as long as it is open, so every
  * page shows them. They are read when the
- * page opens and after the app's own actions and terminal commands; changes
+ * page opens and after the app's own actions; changes
  * made anywhere else arrive on `folder.onFilesChanged`, which makes exactly
  * the queries they name stale. Rows that read are listed to edit; the rest
  * are named, with why, for repair as text.
@@ -31,8 +31,8 @@
  *
  * Every other action is a mutation: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
- * write in order), create, rename, delete, Save version, settings, and
- * terminal commands. Closing stops new work, then waits for the edits and
+ * write in order), create, rename, delete, Save version, and settings.
+ * Closing stops new work, then waits for the edits and
  * until nothing is mutating. Saves never commit (ADR-0529); a version is
  * recorded only by Save version.
  *
@@ -51,6 +51,7 @@ import type {
 	FileTable,
 	Row,
 	RowReadError,
+	RowWriteError,
 	StoredRow,
 	TableListing,
 	WriteError,
@@ -132,13 +133,7 @@ import {
 } from './recipe.js';
 import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
-import { createTerminalSession } from './terminal.svelte.js';
-import type {
-	TerminalResult,
-	Workspace,
-	WorkspaceTerminal,
-} from './workspace/index.js';
-import type { RecordingWriteHook } from './workspace/types.js';
+import type { Workspace } from './workspace/index.js';
 
 export type Library = ReturnType<typeof createLibrary>;
 
@@ -208,7 +203,7 @@ export type WriteNotice = {
 	readonly kind: 'failed';
 	readonly path: string;
 	/** Why: the write's error, or `NotFound` for a file deleted elsewhere. */
-	readonly error: WriteError | Extract<FileError, { name: 'NotFound' }>;
+	readonly error: RowWriteError | Extract<FileError, { name: 'NotFound' }>;
 	readonly lost: string | undefined;
 };
 
@@ -530,7 +525,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const setOf = <T extends RowTable>(table: T) =>
 		({
 			...optionsOf(table).set.mutationOptions(),
-			onError: (error: WriteError, { stem }: { stem: string }) =>
+			onError: (error: RowWriteError, { stem }: { stem: string }) =>
 				notify({
 					kind: 'failed',
 					path: rowPath(table, stem),
@@ -600,7 +595,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		if (held !== undefined) return held;
 		const write = optionsOf(table).write.mutationOptions() as MutationOptions<
 			WrittenRow<Fields>,
-			WriteError,
+			RowWriteError,
 			WriteRowVariables<Fields>
 		>;
 		const draft = createBodyEditor<Fields>({
@@ -609,7 +604,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			// editor says it is gone, and `saveBody` offers what was typed.
 			write: (change) =>
 				runMutation(queryClient, write, { stem, ...change }).catch(
-					(error: WriteError) => {
+					(error: RowWriteError) => {
 						// Kept for the next save.
 						notify({ kind: 'failed', path, error, lost: undefined });
 						throw error;
@@ -802,7 +797,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		return ran.data as T;
 	}
 
-	// --- connections, microphone, terminal ---------------------------------------
+	// --- connections, microphone -------------------------------------------------
 
 	/** What the device has set up, never a key; undefined until read or when the read failed. */
 	let connections = $state.raw<ConnectionsInfo | undefined>();
@@ -868,39 +863,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		track,
 	});
 
-	/** A terminal command may write anything, so it is a mutation, and everything is read again after it. */
-	const runCommand = defineMutation({
-		mutationKey: keys.action('terminal'),
-		mutationFn: async ({
-			shell,
-			command,
-			options,
-		}: {
-			shell: WorkspaceTerminal;
-			command: string;
-			options?: { signal?: AbortSignal };
-		}) => Ok(await shell.exec(command, options)),
-	});
-	const shell = workspace.terminal;
-	const terminal =
-		shell === undefined
-			? undefined
-			: createTerminalSession(
-					{
-						get cwd() {
-							return shell.cwd;
-						},
-						async exec(command, options) {
-							const why = refused();
-							if (why !== undefined) throw new Error(why);
-							// A command that throws is shown in the terminal's output.
-							const ran = await runCommand({ shell, command, options });
-							if (ran.error !== null) throw ran.error;
-							return ran.data as TerminalResult;
-						},
-					},
-					() => invalidate(),
-				);
 	const input = createMicrophoneInput({
 		capture: workspace.capture,
 		preferences: workspace.preferences,
@@ -923,10 +885,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		write: folder.write,
 	});
 
-	/** One write of a recording, through a debug shell's armed failure when there is one. */
-	const recordingWrite: RecordingWriteHook = (write, run) =>
-		workspace.injection?.aroundRecordingWrite(write, run) ?? run();
-
 	/**
 	 * Finish the recording being captured: its audio file is finalized and its
 	 * length written to its row, which was written when it started. A row
@@ -943,10 +901,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// the desktop it was written as it was captured, and stop finishes it.
 		// Started here, not when the mutation runs, so the microphone is let go
 		// at once.
-		const stopping = recordingWrite(
-			{ step: 'audio', stem: id, path: capture.audioPath },
-			() => capture.stop(),
-		);
+		const stopping = capture.stop();
 		const { data: stopped, error: stopError } = await track(() => stopping);
 		if (stopError === null)
 			finishedOver.set(
@@ -1027,7 +982,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		workspace,
 		folder,
 		queryClient,
-		terminal,
 		/** The microphone the next recording uses, and the test of it. */
 		input,
 		/** Whether a listing is being read now; the lists show the last read until it ends. */
@@ -1514,19 +1468,17 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			// follows when it stops.
 			const created = await track(
 				() =>
-					recordingWrite({ step: 'row', stem: id }, () =>
-						tableOf(RECORDINGS).create(
-							{
-								fields: {
-									title: defaultTitle(at),
-									recordedAt: InstantString.fromDate(at),
-									capture: workspace.capture.source,
-									audioPath: capture.audioPath,
-								},
-								body: '',
+					tableOf(RECORDINGS).create(
+						{
+							fields: {
+								title: defaultTitle(at),
+								recordedAt: InstantString.fromDate(at),
+								capture: workspace.capture.source,
+								audioPath: capture.audioPath,
 							},
-							{ stem: id },
-						),
+							body: '',
+						},
+						{ stem: id },
 					),
 				rowPath(RECORDINGS, id),
 			);

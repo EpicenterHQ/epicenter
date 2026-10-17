@@ -35,9 +35,9 @@ import type { FolderStorage } from './boundary.js';
 import type { PreparedFolderTable } from './definition.js';
 import {
 	FileError,
-	type RowReadError,
-	TableError,
-	WriteError,
+	RowReadError,
+	RowWriteError,
+	type WriteError,
 } from './errors.js';
 import type { FileContent } from './merge-file.js';
 import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
@@ -113,7 +113,7 @@ export type FileTable<TFields> = {
 		stem: string,
 		from: Row<TFields> | null,
 		to: Row<TFields> | null,
-	): Promise<Result<WrittenRow<TFields>, WriteError>>;
+	): Promise<Result<WrittenRow<TFields>, RowWriteError>>;
 	/**
 	 * Set fields of the row at `stem` as it is now: every field it does not
 	 * name keeps its value, and a field set to `undefined` is removed. A row
@@ -123,24 +123,24 @@ export type FileTable<TFields> = {
 	set(
 		stem: string,
 		fields: Partial<TFields>,
-	): Promise<Result<WrittenRow<TFields>, WriteError>>;
+	): Promise<Result<WrittenRow<TFields>, RowWriteError>>;
 	/**
 	 * Add `row` at `stem`, or a generated stem. A file already at `stem` is
-	 * `InvalidPath`, unless it holds this row's exact text, which is this
+	 * `Occupied`, unless it holds this row's exact text, which is this
 	 * create landed before. A row that cannot be written is `InvalidValues`.
 	 */
 	create(
 		row: Row<TFields>,
 		options?: { readonly stem?: string },
-	): Promise<Result<WrittenRow<TFields>, WriteError>>;
+	): Promise<Result<WrittenRow<TFields>, RowWriteError>>;
 	/** Delete the row at `stem`, whatever it holds now. */
 	delete(stem: string): Promise<Result<undefined, WriteError>>;
 	/**
 	 * Move the row file at `stem` to `next`, as it is: its bytes land at
 	 * `next` only where nothing is, then `stem` is removed only while it
 	 * holds them. A write that lands at `stem` meanwhile is carried to `next`
-	 * first. No file at `stem`, or one already at `next`, is `InvalidPath`;
-	 * either stem changing on every attempt is `KeptChanging`, and both stems
+	 * first. No file at `stem` is `InvalidPath`, and one already at `next`
+	 * `Occupied`; either stem changing on every attempt is `KeptChanging`, and both stems
 	 * then hold the row, as they do when the removal fails.
 	 */
 	rename(
@@ -195,10 +195,10 @@ export function createTable<TFields>(
 	): Result<StoredRow<TFields>, RowReadError> {
 		const { sha256 } = read;
 		const text = decode(read.bytes);
-		if (text === undefined) return TableError.InvalidUtf8({ path, sha256 });
+		if (text === undefined) return RowReadError.InvalidUtf8({ path, sha256 });
 		const { data: row, error: issues } = parseRow(table, text);
 		if (issues !== null)
-			return TableError.InvalidRow({ path, sha256, text, issues });
+			return RowReadError.InvalidRow({ path, sha256, text, issues });
 		return Ok(Object.freeze({ path, sha256, text, row: row as Row<TFields> }));
 	}
 
@@ -214,12 +214,12 @@ export function createTable<TFields>(
 	}
 
 	/** The canonical text of a valid row, or why it cannot be written. */
-	function textOf(row: Row<TFields>): Result<string, WriteError> {
+	function textOf(row: Row<TFields>): Result<string, RowWriteError> {
 		const { data: written, error: issues } = writeRow(
 			table,
 			row as Parameters<typeof writeRow>[1],
 		);
-		if (issues !== null) return WriteError.InvalidValues({ issues });
+		if (issues !== null) return RowWriteError.InvalidValues({ issues });
 		return Ok(written.text);
 	}
 
@@ -291,9 +291,9 @@ export function createTable<TFields>(
 			const { data: current, error: readError } = await fileTable.get(stem);
 			if (readError !== null)
 				return readError.name === 'InvalidRow'
-					? WriteError.InvalidValues({ issues: readError.issues })
+					? RowWriteError.InvalidValues({ issues: readError.issues })
 					: readError.name === 'InvalidUtf8'
-						? WriteError.InvalidValues({
+						? RowWriteError.InvalidValues({
 								issues: [{ message: readError.message }],
 							})
 						: Err(writeFailure(rowPath(name, stem), readError));
@@ -313,7 +313,7 @@ export function createTable<TFields>(
 		},
 		async create(row, options) {
 			if (unsupplied.length > 0)
-				return WriteError.InvalidValues({
+				return RowWriteError.InvalidValues({
 					issues: unsupplied.map((field) => ({
 						message: `The folder requires '${name}.${field}' in every row, which this lens does not declare, so it cannot add rows`,
 						field,

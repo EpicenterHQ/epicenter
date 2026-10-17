@@ -2,17 +2,13 @@
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
-	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import StatusPopover, { toastStatus } from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import BugIcon from '@lucide/svelte/icons/bug';
-	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
-	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
 	import { page } from '$app/state';
 	import type { Library } from '$lib/library.svelte.js';
 	import RecorderClock from './RecorderClock.svelte';
@@ -25,20 +21,15 @@
 		summaryLine,
 		uncommittedLine,
 	} from '$lib/status.js';
-	import type { InjectionState } from '$lib/workspace/index.js';
 
 	let {
 		library,
 		filesOpen,
-		terminalOpen,
 		onToggleFiles,
-		onToggleTerminal,
 	}: {
 		library: Library;
 		filesOpen: boolean;
-		terminalOpen: boolean;
 		onToggleFiles: () => void;
-		onToggleTerminal: () => void;
 	} = $props();
 
 	const files = $derived(filesLine(library));
@@ -49,7 +40,7 @@
 	const head = $derived(headLine(library.git));
 	const summary = $derived(summaryLine({ files, uncommitted, commit }));
 
-	/** Record a version of the saved files: the only thing that commits besides the terminal. */
+	/** Record a version of the saved files: the only thing in Whispering that commits. */
 	let committing = $state(false);
 	async function saveVersion() {
 		committing = true;
@@ -57,26 +48,6 @@
 			toastStatus(commitOutcomeLine(await library.saveVersion()));
 		} finally {
 			committing = false;
-		}
-	}
-
-	async function reveal() {
-		const problem = await library.workspace.reveal?.();
-		if (problem) toast.error('Could not open the folder', { description: problem });
-	}
-
-	// Debug controls: injected failures on the desktop.
-	let injection = $state<InjectionState | undefined>();
-	async function loadInjection() {
-		injection = await library.workspace.injection?.state().catch(() => undefined);
-	}
-	async function arm(change: Partial<InjectionState>) {
-		try {
-			injection = await library.workspace.injection?.arm(change);
-		} catch (cause) {
-			toast.error('Could not change the failure', {
-				description: cause instanceof Error ? cause.message : String(cause),
-			});
 		}
 	}
 </script>
@@ -126,44 +97,6 @@
 	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
-		{#if library.workspace.debugControls}
-			<Popover.Root onOpenChange={(open) => open && void loadInjection()}>
-				<Popover.Trigger>
-					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="icon-sm" tooltip="Debug controls" aria-label="Debug controls" data-testid="debug-controls">
-							<BugIcon />
-						</Button>
-					{/snippet}
-				</Popover.Trigger>
-				<Popover.Content align="end" class="w-96 max-w-[calc(100vw-1rem)] text-sm">
-					<p class="mb-2 font-medium">Debug controls</p>
-					<p class="mb-3 text-xs text-muted-foreground">Only in a debug build. A release build has none of these.</p>
-					<div class="flex flex-col gap-2">
-						{#if library.workspace.injection}
-							<Button size="sm" variant="outline" onclick={() => void arm({ rowWrites: (injection?.rowWrites ?? 0) + 1 })} data-testid="inject-row">
-								Fail the next recording file write, at start · armed {injection?.rowWrites ?? 0}
-							</Button>
-							<Button size="sm" variant="outline" onclick={() => void arm({ audioWrites: (injection?.audioWrites ?? 0) + 1 })} data-testid="inject-audio">
-								Fail the next fixture audio write, at stop · armed {injection?.audioWrites ?? 0}
-							</Button>
-							<Button
-								size="sm"
-								variant={injection?.commitsBlocked ? 'secondary' : 'outline'}
-								aria-pressed={injection?.commitsBlocked ?? false}
-								onclick={() => void arm({ commitsBlocked: !(injection?.commitsBlocked ?? false) })}
-								data-testid="inject-commit"
-							>
-								{injection?.commitsBlocked ? 'Branch is locked: unlock so commits work' : 'Lock the branch so commits fail'}
-							</Button>
-							<Button size="sm" variant="ghost" onclick={() => void arm({ rowWrites: 0, audioWrites: 0, commitsBlocked: false })}>
-								Clear all
-							</Button>
-						{/if}
-					</div>
-				</Popover.Content>
-			</Popover.Root>
-		{/if}
-
 		<Popover.Root>
 			<Popover.Trigger>
 				{#snippet child({ props })}
@@ -181,12 +114,6 @@
 			</Popover.Content>
 		</Popover.Root>
 
-		{#if library.workspace.reveal}
-			<Button variant="ghost" size="sm" tooltip={library.workspace.location} onclick={reveal} data-testid="reveal-folder">
-				<FolderOpenIcon />
-				<span class="max-md:sr-only">Reveal folder</span>
-			</Button>
-		{/if}
 		<Button
 			variant={filesOpen ? 'secondary' : 'ghost'}
 			size="sm"
@@ -198,19 +125,5 @@
 			<FolderTreeIcon />
 			<span class="max-md:sr-only">Files</span>
 		</Button>
-		{#if library.terminal}
-			<Button
-				variant={terminalOpen ? 'secondary' : 'ghost'}
-				size="sm"
-				tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
-				aria-pressed={terminalOpen}
-				data-terminal-toggle
-				onclick={onToggleTerminal}
-				data-testid="toggle-terminal"
-			>
-				<SquareTerminalIcon />
-				<span class="max-md:sr-only">Terminal</span>
-			</Button>
-		{/if}
 	</div>
 </header>

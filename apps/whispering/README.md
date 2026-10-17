@@ -476,8 +476,8 @@ the table shows the row once it is saved.
   exactly (a lone surrogate) is saved with U+FFFD in its place.
 - Notes, transcripts, and instructions are saved with LF line endings. A file
   written with CRLF becomes LF the next time Whispering saves it.
-- The lists are read when the page opens, after this window's own actions and
-  terminal commands, and when the folder reports that files changed.
+- The lists are read when the page opens, after this window's own actions,
+  and when the folder reports that files changed.
 
 A recording, transcript, or transformation file whose text does not read as a
 row is listed under "Needs repair" with why, and opens as its text with its

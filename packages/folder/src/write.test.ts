@@ -14,7 +14,7 @@
  *   was is no change, so the other writer's spelling stands
  * - A delete and an edit are the whole file: the delete beats an edit it
  *   never saw, and only a write from no file creates one
- * - A write from no file onto a file already there is `InvalidPath` and
+ * - A write from no file onto a file already there is `Occupied` and
  *   changes nothing, unless the file holds the same bytes: a retried create
  *   is done
  * - A version that does not read as a row merges as text
@@ -26,9 +26,9 @@
  * - A delete needs no base; a closed folder is `Closed`; a path no file
  *   can be at is `InvalidPath`
  * - `folder.move` puts a file's bytes at a vacant path as they are and
- *   removes them from their own; no file at the source, or one at the
- *   destination, is `InvalidPath` (its races are in `table.test.ts`, through
- *   `rename`)
+ *   removes them from their own; no file at the source is `InvalidPath`,
+ *   and one at the destination `Occupied` (its races are in `table.test.ts`,
+ *   through `rename`)
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -37,16 +37,10 @@ import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { openFolder } from './bun.js';
-import {
-	defineFolder,
-	defineTable,
-	field,
-	hashBytes,
-	WRITE_ATTEMPTS,
-} from './contract.js';
+import { defineFolder, defineTable, field, hashBytes } from './contract.js';
 import { prepareFolderDefinition } from './definition.js';
 import { fileKindOf, merge } from './merge-file.js';
-import { writeFile as writeFolderFile } from './write.js';
+import { WRITE_ATTEMPTS, writeFile as writeFolderFile } from './write.js';
 
 const definition = defineFolder({
 	tables: {
@@ -335,7 +329,7 @@ test('a create makes the file and its directory; a second create is refused, and
 	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
 	expect(
 		expectErr(await folder.write('notes/a.md', null, note('Run', 'yours\n'))),
-	).toMatchObject({ name: 'InvalidPath', path: 'notes/a.md' });
+	).toMatchObject({ name: 'Occupied', path: 'notes/a.md' });
 	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
 	// A retried create finds its own bytes there.
 	const again = expectOk(
@@ -449,7 +443,7 @@ test('a move puts the file at a vacant path as it is and removes it from its own
 	await folder.close();
 });
 
-test('a move from no file, or onto a file, is InvalidPath and changes nothing', async () => {
+test('a move from no file is InvalidPath, onto a file Occupied, and changes nothing', async () => {
 	const { root, folder, onDisk } = await directory();
 	await writeFile(join(root, 'a.txt'), 'a\n');
 	await writeFile(join(root, 'b.txt'), 'b\n');
@@ -458,7 +452,7 @@ test('a move from no file, or onto a file, is InvalidPath and changes nothing', 
 		path: 'gone.txt',
 	});
 	expect(expectErr(await folder.move('a.txt', 'b.txt'))).toMatchObject({
-		name: 'InvalidPath',
+		name: 'Occupied',
 		path: 'b.txt',
 	});
 	expect(await onDisk('a.txt')).toBe('a\n');

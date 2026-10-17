@@ -20,7 +20,7 @@
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, FolderStorage } from './boundary.js';
-import { FileError, TableError, WriteError } from './errors.js';
+import { FileError, WriteError } from './errors.js';
 import { hashBytes } from './hash.js';
 import {
 	type FileContent,
@@ -41,6 +41,10 @@ const log = createLogger('folder/save');
  * waiting.
  */
 export const WRITE_ATTEMPTS = 3;
+
+/** Why a move stopped after its copy landed and another writer changed it. */
+const CARRY_STOPPED =
+	'another writer changed this path after the move copied the file here, so the move stopped: the file stays at its old path, and this path holds what that writer left, if anything';
 
 /** A write or a move that landed, or found nothing to change. */
 export type Written = {
@@ -114,7 +118,7 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * nothing. An edit, from a version that existed, of a file deleted since
  * writes nothing and answers `file: null`: a delete beats an edit it never
  * saw, and only a write from no file creates one. A create, from `null`,
- * places a file only where none is: a file already there is `InvalidPath`,
+ * places a file only where none is: a file already there is `Occupied`,
  * unless it holds the same bytes, which is that create landed before. Both
  * are owned before anything is awaited. With `joining`, a create onto a
  * file merges with it as an addition on both sides instead: what Sync does
@@ -156,10 +160,7 @@ export async function writeFile(
 				return Ok(
 					Object.freeze({ path, file: fileOf(current), overridden: [] }),
 				);
-			return WriteError.InvalidPath({
-				path,
-				reason: 'a file is already at this path',
-			});
+			return WriteError.Occupied({ path });
 		}
 		const merged =
 			ours === null
@@ -200,7 +201,7 @@ export async function writeFile(
 			}),
 		);
 	}
-	return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
+	return WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
 }
 
 /**
@@ -213,9 +214,12 @@ export async function writeFile(
  * `next` goes too, unless something wrote there since, and the move is
  * `InvalidPath`.
  *
- * No file at `path`, or one already at `next`, is `InvalidPath`, and nothing
- * changes; so is another writer changing `next` after the bytes landed
- * there, which leaves the file at `path` and `next` as that writer left it.
+ * No file at `path` is `InvalidPath`, and one already at `next` is
+ * `Occupied`; nothing changes. Another writer changing or deleting `next`
+ * after the bytes landed there, while a write was being carried, is
+ * `InvalidPath` naming `next`: the file stays at `path`, and `next` holds
+ * what that writer left, possibly an edited copy, so both paths may hold
+ * the file.
  * `path` changing on every attempt is `KeptChanging`; both paths then hold
  * the file, as they do when the removal fails, which a person can see and
  * repair (ADR-0503). A move onto its own path answers the file as it is.
@@ -243,11 +247,7 @@ export async function movePath(
 		moved.sha256,
 	);
 	if (placed.error !== null) return Err(writeFailure(next, placed.error));
-	if (placed.data === 'stale')
-		return WriteError.InvalidPath({
-			path: next,
-			reason: 'a file is already at this path',
-		});
+	if (placed.data === 'stale') return WriteError.Occupied({ path: next });
 	for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 		const removed = await confirmedPut(storage, path, null, moved.sha256, null);
 		if (removed.error !== null) return Err(writeFailure(path, removed.error));
@@ -278,13 +278,14 @@ export async function movePath(
 			now.data.sha256,
 		);
 		if (carried.error !== null) return Err(writeFailure(next, carried.error));
-		// Another writer changed `next` since the bytes landed there: the
-		// file stays at `path`, and `next` is that writer's.
+		// Another writer changed or deleted `next` since the bytes landed
+		// there: the file stays at `path`, and `next` is that writer's. This
+		// is not `Occupied`: the copy this move put there may have been
+		// edited, so both paths can hold the file, or `next` may hold none.
 		if (carried.data === 'stale')
 			return WriteError.InvalidPath({
 				path: next,
-				reason:
-					'another writer changed this path while the file moved here, so the file stays where it was',
+				reason: CARRY_STOPPED,
 			});
 		moved = now.data;
 	}

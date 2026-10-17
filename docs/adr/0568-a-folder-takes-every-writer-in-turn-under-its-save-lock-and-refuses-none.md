@@ -35,7 +35,8 @@ again and answered `Busy` until Epicenter restarted
 refuses a second shell or a second scope.**
 
 ```txt
-.<name>.epicenter-save-lock   SaveLock   the only lock file beside a folder
+.<name>.epicenter-save-lock      SaveLock      every write of the folder's files
+.<name>.epicenter-history-lock   history lock  Sync and Save version (ADR-0559)
 ```
 
 - `RootLock`, `lock_path`, `verify_lock_path`, `LockError`, and
@@ -55,8 +56,9 @@ refuses a second shell or a second scope.**
   under a data scope.
 - A development build and a release build may open one folder at once; each
   save waits for the other's, at most `SAVE_LOCK_WAIT`.
-- Each folder has one lock file beside it. A `.<name>.epicenter-lock` an
-  earlier version left is inert.
+- Each folder has two lock files beside it, the save lock and the history
+  lock; neither refuses a second shell or scope. A `.<name>.epicenter-lock`
+  an earlier version left is inert.
 - Commits still take Git's lock files and `casBranch`, and Sync and Save
   version still take the folder's history lock (ADR-0559).
 

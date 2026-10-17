@@ -35,6 +35,7 @@ import {
 	parseRow,
 	type Row,
 	type RowReadError,
+	type RowWriteError,
 	type StoredRow,
 	type TableListing,
 	type WriteError,
@@ -232,11 +233,6 @@ expectTypeOf<
 >().toEqualTypeOf<string>();
 // @ts-expect-error A folder is opened by its ID.
 void root.openFolder({ definition });
-void root.openFolder({
-	id: 'test.folder',
-	// @ts-expect-error A definition that names its data is not a folder definition.
-	definition: { id: 'test.folder', tables: {} },
-});
 
 // One data-folder opener signature at the automatic entry and at both
 // explicit entries: an existing folder by ID, with its own schema.
@@ -384,6 +380,11 @@ async function typedValues(folder: Opened, instant: InstantString) {
 	);
 	if (writeFileError !== null) {
 		expectTypeOf(writeFileError).toEqualTypeOf<WriteError>();
+		expectTypeOf(writeFileError.name).toEqualTypeOf<
+			'InvalidPath' | 'Occupied' | 'KeptChanging' | 'Io' | 'Closed'
+		>();
+		// @ts-expect-error Only a table checks values; a file write takes any content.
+		writeFileError.name === 'InvalidValues';
 		return;
 	}
 	expectTypeOf(saved).toEqualTypeOf<Written>();
@@ -463,8 +464,8 @@ async function typedValues(folder: Opened, instant: InstantString) {
 		body: '',
 	});
 	if (createError !== null) {
-		expectTypeOf(createError).toEqualTypeOf<WriteError>();
-		// @ts-expect-error A create at an occupied stem merges; nothing refuses it.
+		expectTypeOf(createError).toEqualTypeOf<RowWriteError>();
+		// @ts-expect-error An occupied stem is `Occupied`; nothing else names it.
 		createError.name === 'Exists';
 		if (createError.name === 'InvalidValues')
 			expectTypeOf(createError.issues).toEqualTypeOf<readonly Issue[]>();
@@ -490,8 +491,8 @@ async function typedValues(folder: Opened, instant: InstantString) {
 		if (writeError === null)
 			expectTypeOf(written).toEqualTypeOf<WrittenRow<Fields>>();
 		else {
-			expectTypeOf(writeError).toEqualTypeOf<WriteError>();
-			// @ts-expect-error A write fails in five ways, and this is none.
+			expectTypeOf(writeError).toEqualTypeOf<RowWriteError>();
+			// @ts-expect-error A row write fails in seven ways, and this is none.
 			writeError.name === 'Conflict';
 		}
 		// @ts-expect-error A table writes a row; complete text is the folder's write.

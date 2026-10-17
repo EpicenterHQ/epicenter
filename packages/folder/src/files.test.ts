@@ -10,10 +10,11 @@
  * Key behaviors:
  * - A write from no file is placed only where none is: identical bytes
  *   already there are that create landed before, other bytes are
- *   `InvalidPath`; strings are written exactly
+ *   `Occupied`; strings are written exactly
  * - A write to no file deletes whatever is there, and an edit of a file
  *   deleted since writes nothing
- * - A move carries the bytes to a vacant path and refuses an occupied one
+ * - A move carries the bytes to a vacant path and refuses an occupied one,
+ *   `Occupied`
  * - Several changes are several calls: one that landed stays when a later
  *   one is refused
  * - Read bytes are detached from storage
@@ -158,9 +159,11 @@ describe.each(Object.keys(openers))('%s folder files', (kind) => {
 		expect(expectOk(await folder.write('a.txt', null, 'same'))).toEqual(
 			created,
 		);
-		expect(expectErr(await folder.write('a.txt', null, 'other'))).toMatchObject(
-			{ name: 'InvalidPath', path: 'a.txt' },
-		);
+		expect(expectErr(await folder.write('a.txt', null, 'other'))).toEqual({
+			name: 'Occupied',
+			message: "A file is already at 'a.txt'",
+			path: 'a.txt',
+		});
 		expect(await text(folder, 'a.txt')).toBe('same');
 
 		expectOk(await folder.write('a.txt', 'same', 'replaced'));
@@ -200,7 +203,7 @@ describe.each(Object.keys(openers))('%s folder files', (kind) => {
 
 		expect(
 			expectErr(await folder.move('a/from.txt', 'b/taken.txt')),
-		).toMatchObject({ name: 'InvalidPath', path: 'b/taken.txt' });
+		).toMatchObject({ name: 'Occupied', path: 'b/taken.txt' });
 		expect(await text(folder, 'a/from.txt')).toBe('carried');
 
 		const moved = expectOk(await folder.move('a/from.txt', 'b/to.txt'));

@@ -73,10 +73,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   later on the desktop: the shell writes it as it captures. Only `cancel`
   deletes a recording. Never use `overwrite` for a recording's row or audio,
   and never serialize a row by hand.
-- **Fixture audio and failure injection are debug-only.** Fixture audio is a
-  development browser build's, and failure injection is a test's; the UI says
-  so while either is active. An injected recording-write failure obstructs
-  the real save so the folder fails it; it never answers for the folder.
+- **Fixture audio is debug-only, and failure injection is test-only.** Fixture
+  audio is a development browser build's, and the UI says so while it is
+  active. No build offers failure injection; a test that fails a recording
+  write obstructs the real save so the folder fails it.
 - **A transformation never writes its transcript.** A result has its own file
   with a stem fixed before the request is sent. Saving a received result again
   must not call the endpoint or create a second file. A result on pasted text

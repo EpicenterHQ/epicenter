@@ -73,7 +73,7 @@ type PreparedFolderDefinition<TDefinition extends FolderDefinition> = {
  * a handle also adds each pattern the root `.gitignore` lacks, so plain `git`
  * agrees (`publish-definition.ts`).
  */
-export type FolderDefinition = DataSchema & { readonly id?: never };
+export type FolderDefinition = DataSchema;
 
 /**
  * Prepare a definition for file storage, or say why a folder cannot keep it.
@@ -82,7 +82,8 @@ export type FolderDefinition = DataSchema & { readonly id?: never };
  * frozen schema snapshots a folder reads values through. Preparation is
  * memoized on the declaration and on its result, so an opener handed what
  * `defineFolder` returned gets it back and does no work twice. A definition
- * with an `id`, which only an untyped caller can hand in, is refused.
+ * with a key besides `title`, `local`, and `tables`, which only an untyped
+ * caller can hand in, is refused.
  */
 export function prepareFolderDefinition<TDefinition extends FolderDefinition>(
 	definition: TDefinition,
@@ -221,7 +222,8 @@ type TableUnder<TName, TTable> = TTable extends FolderTable
  * vocabulary every Epicenter storage declares with.
  *
  * The definition is checked here, where it is written: a malformed schema
- * or an `id` throws at the declaration, not at the first open. What comes back has the declared shape and type, and is the prepared
+ * or a key besides `title`, `local`, and `tables`, such as an `id`, throws at
+ * the declaration, not at the first open. What comes back has the declared shape and type, and is the prepared
  * definition: an owned, frozen snapshot of each schema. Its tables are typed
  * {@link PreparedFolderTable}, so `parseRow` and `formatRow` take them.
  */
@@ -244,12 +246,9 @@ export function defineFolder<const TDefinition extends DataSchema>(
 		'title' | 'tables'
 	> &
 		Pick<FolderDefinition, 'local'>;
-	if (Object.hasOwn(schema, 'id'))
-		throw new Error(
-			'A folder definition names no folder. Pass the folder ID to openFolder instead.',
-		);
-	// The types refuse other keys; an untyped caller, such as a generated
-	// epicenter.ts, is refused here rather than having a misspelling dropped.
+	// The types refuse other keys, an `id` included: a definition names no
+	// folder. An untyped caller, such as a generated epicenter.ts, is refused
+	// here rather than having a misspelling dropped.
 	const unknown = Object.keys(schema).filter(
 		(key) => key !== 'title' && key !== 'tables' && key !== 'local',
 	);

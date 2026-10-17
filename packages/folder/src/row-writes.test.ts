@@ -30,7 +30,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openDataFolder } from './bun.js';
-import type { AnyRow, FileTable, StoredRow } from './contract.js';
+import type { FileTable, StoredRow } from './contract.js';
+import type { AnyRow } from './row-merge.js';
 
 type AnyTable = FileTable<Record<string, unknown>>;
 type StoredAnyRow = StoredRow<Record<string, unknown>>;

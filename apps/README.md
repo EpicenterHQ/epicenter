@@ -18,8 +18,9 @@ Cloudflare Workers or, self-hosted, on Bun with Postgres), the public `landing` 
 
 ## Declare the folder, then open it
 
-`defineFolder` declares tables; settings are rows of a `settings` table whose
-fields are all optional. The declaration is inert: importing it opens
+`defineFolder` declares tables. An app that keeps settings keeps them as rows
+of a `settings` table whose fields are all optional; no app here declares one
+yet. The declaration is inert: importing it opens
 nothing. A folder ID names the dataset, conventionally the app's
 reverse-domain ID.
 
@@ -57,6 +58,13 @@ remote on the desktop
 ([ADR-0521](../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
 
 ## Provide the folder, then read it through context
+
+This section is proposed, not built: no app has `FolderProvider` or
+`getFolder()` yet
+([ADR-0574](../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md),
+Proposed). Today every app opens its folder in its root page behind
+`{#await}`, as below, then builds its own store object around
+`folderOptions(folder)`, such as Todos' `createTodos`.
 
 The root page starts opening the folder when it mounts and waits with
 `{#await}`; loading and a refusal are screens. Once it is open,

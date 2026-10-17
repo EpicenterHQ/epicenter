@@ -15,6 +15,7 @@ import {
 	field,
 	type Row,
 	type RowReadError,
+	type RowWriteError,
 	type StoredRow,
 	type TableListing,
 	type WriteError,
@@ -70,7 +71,7 @@ expectTypeOf<Variables<Write>>().toEqualTypeOf<{
 	readonly to: Row<Todo> | null;
 }>();
 expectTypeOf<MutationData<Write>>().toEqualTypeOf<WrittenRow<Todo>>();
-expectTypeOf<MutationError<Write>>().toEqualTypeOf<WriteError>();
+expectTypeOf<MutationError<Write>>().toEqualTypeOf<RowWriteError>();
 // A delete sends the stem it deletes.
 type Delete = ReturnType<typeof folder$.todos.delete.mutationOptions>;
 expectTypeOf<Variables<Delete>>().toEqualTypeOf<string>();
@@ -116,7 +117,7 @@ expectTypeOf<{ stem: 'milk'; fields: { done: 'yes' } }>().not.toExtend<
 	Variables<SetRow>
 >();
 expectTypeOf<MutationData<SetRow>>().toEqualTypeOf<WrittenRow<Todo>>();
-expectTypeOf<MutationError<SetRow>>().toEqualTypeOf<WriteError>();
+expectTypeOf<MutationError<SetRow>>().toEqualTypeOf<RowWriteError>();
 
 // The definition is inferred from the folder.
 const plain = defineFolder({

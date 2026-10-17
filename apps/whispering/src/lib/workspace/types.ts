@@ -5,7 +5,7 @@
  * grants it, and its connections and local transcription through Epicenter;
  * a browser tab keeps a logical folder in OPFS. Everything above this type
  * is the same code for both. Capabilities a storage cannot offer are
- * `undefined` here, not emulated: a browser folder has no directory to reveal.
+ * `undefined` here, not emulated: a browser has no local model.
  */
 import type {
 	Folder,
@@ -74,51 +74,6 @@ export const WorkspaceError = defineErrors({
 });
 export type WorkspaceError = InferErrors<typeof WorkspaceError>;
 
-/** Repeatable failures a debug build can arm. No workspace arms them today; tests do. */
-export type InjectionState = {
-	readonly rowWrites: number;
-	readonly audioWrites: number;
-	readonly commitsBlocked: boolean;
-};
-
-/**
- * One write of a recording into the folder: its row, written when it starts,
- * or its audio file, written when it stops in a browser or from a fixture.
- */
-export type RecordingWrite =
-	| { readonly step: 'audio'; readonly stem: string; readonly path: string }
-	| { readonly step: 'row'; readonly stem: string };
-
-/**
- * Runs one write of a recording. Failure injection puts an armed failure in
- * that write's way and removes it afterward; the write is always the
- * folder's own and so is its answer. In Epicenter the microphone's audio is
- * written as it is captured, so its file is already there when stop runs and
- * an armed audio failure is left unspent.
- */
-export type RecordingWriteHook = <T>(
-	write: RecordingWrite,
-	run: () => Promise<T>,
-) => Promise<T>;
-
-export type TerminalResult = {
-	readonly stdout: string;
-	readonly stderr: string;
-	readonly exitCode: number;
-};
-
-/** A shell whose working directory starts in the folder. */
-export type WorkspaceTerminal = {
-	/** The working directory the next command starts in, as shown in the prompt. */
-	readonly cwd: string;
-	/** One line under the terminal's title saying what kind of terminal this is. */
-	readonly note: string;
-	exec(
-		command: string,
-		options?: { signal?: AbortSignal },
-	): Promise<TerminalResult>;
-};
-
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
@@ -129,17 +84,10 @@ export type Workspace = {
 	readonly folderId: string;
 	/** Where the files are: an absolute directory, or a description of browser storage. */
 	readonly location: string;
-	/**
-	 * The person's own shell in the folder. Absent: neither Epicenter nor a
-	 * browser offers one to Whispering.
-	 */
-	readonly terminal: WorkspaceTerminal | undefined;
 	/** What this session records from. Fixed when the workspace opens. */
 	readonly capture: CaptureDevice;
 	/** Something the person should know about capture, such as a refused fixture. */
 	readonly captureNotice: string | undefined;
-	/** Show the folder in the system file manager; a problem is returned as text. Absent where nothing can. */
-	readonly reveal: (() => Promise<string | undefined>) | undefined;
 	/**
 	 * Send the audio a row names over the transcription connection, only while
 	 * that connection is still the base URL the request was prepared for.
@@ -192,16 +140,6 @@ export type Workspace = {
 			microphone: MicrophonePreference | undefined,
 		): Promise<string | undefined>;
 	};
-	/** Whether debug controls are offered. */
-	readonly debugControls: boolean;
-	/** Failure injection: only tests provide it. */
-	readonly injection:
-		| {
-				state(): Promise<InjectionState>;
-				arm(change: Partial<InjectionState>): Promise<InjectionState>;
-				readonly aroundRecordingWrite: RecordingWriteHook;
-		  }
-		| undefined;
 	close(): Promise<void>;
 };
 

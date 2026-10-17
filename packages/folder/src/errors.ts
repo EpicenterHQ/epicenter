@@ -2,8 +2,9 @@
  * Operation failures for file folders.
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. Every write and move fails as one `WriteError` (ADR-0576);
- * a refusal before publication wrote nothing. Each operation publishes one
+ * a person is told. Every write and move fails as one `WriteError`, and a
+ * table write as one `RowWriteError` (ADR-0576); a refusal before
+ * publication wrote nothing. Each operation publishes one
  * file change at a time; a move that landed its destination but could not
  * remove its source leaves both, to repair.
  *
@@ -70,21 +71,8 @@ export const FileError = defineErrors({
 });
 export type FileError = InferErrors<typeof FileError>;
 
-/**
- * Failures of reading a row as text and of preparing a structured write.
- * None of them published anything. An address a folder does not admit, and
- * an occupied destination, are `FileError.InvalidPath`:
- * a table has no naming or collision rule of its own (ADR-0457).
- */
-export const TableError = defineErrors({
-	/**
-	 * Supplied values are undeclared, do not conform to their fields, are
-	 * absent from a complete row, or cannot be copied or written to the file.
-	 */
-	InvalidValues: ({ issues }: { issues: readonly Issue[] }) => ({
-		message: `Supplied values do not conform: ${issues.map((issue) => issue.message).join('; ')}`,
-		issues,
-	}),
+/** Why a row file's text, read whole, is not a row. Nothing was written. */
+const RowTextError = defineErrors({
 	/**
 	 * The file was read as text, but it is not a valid row: its frontmatter
 	 * has no canonical form, or a declared field does not conform or is
@@ -123,9 +111,36 @@ export const TableError = defineErrors({
 		path,
 		sha256,
 	}),
+});
+
+/**
+ * Why a read row file is not a row: storage could not read it, its bytes are
+ * not UTF-8, or its text is not a valid row.
+ */
+export type RowReadError = FileError | InferErrors<typeof RowTextError>;
+
+/** The constructors of `RowReadError`. */
+export const RowReadError = { ...FileError, ...RowTextError };
+
+/** Why a write or a move stopped for what other writers left. */
+const WriteRefusal = defineErrors({
+	/**
+	 * A create, or a move's destination, found a file already at `path`,
+	 * under exactly this spelling, before writing anything; nothing was
+	 * written. A folder never writes over a file a writer did not read; the
+	 * path itself is usable. On a case-insensitive disk, a name held under
+	 * another spelling is `InvalidPath` instead, since no read of `path`
+	 * finds it.
+	 */
+	Occupied: ({ path }: { path: string }) => ({
+		message: `A file is already at '${path}'`,
+		path,
+	}),
 	/**
 	 * A write found the file changed by another writer, merged with it, and
-	 * found it changed again, `attempts` times. Nothing of this write landed.
+	 * found it changed again, `attempts` times; nothing of the write landed.
+	 * A move whose source kept changing stops with its copy at the
+	 * destination, so both paths hold the file, to repair (ADR-0503).
 	 */
 	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
 		message: `'${path}' kept changing while it was saved; gave up after ${attempts} attempts`,
@@ -133,42 +148,55 @@ export const TableError = defineErrors({
 		attempts,
 	}),
 });
-export type TableError = InferErrors<typeof TableError>;
-
-type TableErrorOf<TName extends TableError['name']> = Extract<
-	TableError,
-	{ name: TName }
->;
 
 /**
- * Why a read row file is not a row: storage could not read it, its bytes are
- * not UTF-8, or its text is not a valid row.
- */
-export type RowReadError =
-	| FileError
-	| TableErrorOf<'InvalidUtf8' | 'InvalidRow'>;
-
-/**
- * Every way the one write fails (ADR-0576), nothing written: a value that
- * cannot be stored (`InvalidValues`), a file another writer kept changing
- * past `WRITE_ATTEMPTS` (`KeptChanging`), storage that failed or whose reply
- * was lost and could not be confirmed (`Io`, with the storage failure as its
- * cause), a closed folder (`Closed`), or a path no file can be written at
- * (`InvalidPath`, a directory included). A file that does not read as its
- * kind is never a refusal: it merges as text, for repair (ADR-0503).
+ * Every way `folder.write` and `folder.move` fail (ADR-0576): a path no file
+ * can be written at (`InvalidPath`, a directory included), a file already
+ * where a create or a move puts one (`Occupied`), a file another writer kept
+ * changing past `WRITE_ATTEMPTS` (`KeptChanging`), storage that failed or
+ * whose reply was lost and could not be confirmed (`Io`, with the storage
+ * failure as its cause), or a closed folder (`Closed`). A failed write
+ * wrote nothing. A move can stop after its copy landed, leaving the file at
+ * both paths, or with its destination changed by another writer; its error
+ * says which (`KeptChanging`, `InvalidPath`), and the person repairs it
+ * (ADR-0503). A file that does not read as its kind is never a refusal: it
+ * merges as text, for repair (ADR-0503).
  */
 export type WriteError =
 	| Extract<FileError, { name: 'Io' | 'Closed' | 'InvalidPath' }>
-	| TableErrorOf<'KeptChanging' | 'InvalidValues'>;
+	| InferErrors<typeof WriteRefusal>;
 
 /** The constructors of `WriteError`. */
 export const WriteError = {
-	InvalidValues: TableError.InvalidValues,
-	KeptChanging: TableError.KeptChanging,
 	Io: FileError.Io,
 	Closed: FileError.Closed,
 	InvalidPath: FileError.InvalidPath,
+	...WriteRefusal,
 };
+
+/** Why a table refused a row before writing it. */
+const RowValuesError = defineErrors({
+	/**
+	 * Supplied values are undeclared, do not conform to their fields, are
+	 * absent from a complete row, or cannot be copied or written to the file.
+	 */
+	InvalidValues: ({ issues }: { issues: readonly Issue[] }) => ({
+		message: `Supplied values do not conform: ${issues.map((issue) => issue.message).join('; ')}`,
+		issues,
+	}),
+});
+
+/**
+ * Every way a table write fails: each way the one write fails, or a row the
+ * table cannot write (`InvalidValues`), refused before the write. A table has
+ * no naming or collision rule of its own (ADR-0457): a stem the folder does
+ * not admit is `InvalidPath`, and one a file holds under exactly that
+ * spelling `Occupied`.
+ */
+export type RowWriteError = WriteError | InferErrors<typeof RowValuesError>;
+
+/** The constructors of `RowWriteError`. */
+export const RowWriteError = { ...WriteError, ...RowValuesError };
 
 /**
  * Why a folder could not be opened. Every opener returns these; none throws

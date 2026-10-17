@@ -76,10 +76,10 @@ const preparedSchemas = new WeakMap<
  * is closed, `additionalProperties`. It is owned here. Every field is the
  * declared schema's frozen JSON (see `plainSchema`). `tables` and each
  * `fields` are frozen records without a prototype, so a name like
- * `constructor` reads as its own entry or as nothing. A top-level key the
- * shape does not name is not read.
+ * `constructor` reads as its own entry or as nothing.
  *
- * A schema names no dataset: a declaration with an own `id` is malformed.
+ * A declaration holds `title`, `local`, and `tables` and nothing else: any
+ * other own key, such as an `id` naming a dataset, is malformed.
  *
  * Names come from the record keys and are stored nowhere else. No field or
  * table name can be an integer, so a record keeps its declaration order.
@@ -89,9 +89,9 @@ const preparedSchemas = new WeakMap<
  * keying means a declaration MUTATED IN PLACE reads back its old preparation.
  * That is the intent: the prepared schema is a snapshot.
  */
-export function prepareSchema<
-	TSchema extends DataSchema & { readonly id?: never },
->(value: TSchema): Result<TSchema, DataDefinitionParseError> {
+export function prepareSchema<TSchema extends DataSchema>(
+	value: TSchema,
+): Result<TSchema, DataDefinitionParseError> {
 	return memoised(value) as Result<TSchema, DataDefinitionParseError>;
 }
 
@@ -116,9 +116,12 @@ function prepareRoot(
 		return DataDefinitionParseError.Malformed({
 			reason: 'it is not a plain object',
 		});
-	if (Object.hasOwn(value, 'id'))
+	const unknown = Object.keys(value).filter(
+		(key) => key !== 'title' && key !== 'local' && key !== 'tables',
+	);
+	if (unknown.length > 0)
 		return DataDefinitionParseError.Malformed({
-			reason: 'it declares an id, and a schema names no dataset',
+			reason: `it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a schema declares title, local, and tables`,
 		});
 	return prepareShape(value);
 }
@@ -298,14 +301,12 @@ export function isOptional(schema: TSchema & object): boolean {
  *
  * - `read`: a stored payload. A key the fields do not declare is ignored.
  * - `input`: a whole row being written. An undeclared key is an issue.
- * - `patch`: some fields being written. An undeclared key is an issue and an
- *   absent field is not.
  *
- * In every mode an absent required field is an issue, except `patch`, and an
- * absent optional field is not. A top-level key holding `undefined` is
- * absent; inside a value, `undefined` is not JSON and is an issue.
+ * In both modes an absent required field is an issue and an absent optional
+ * field is not. A top-level key holding `undefined` is absent; inside a
+ * value, `undefined` is not JSON and is an issue.
  */
-export type CheckMode = 'read' | 'input' | 'patch';
+export type CheckMode = 'read' | 'input';
 
 /**
  * Check values against prepared fields, one field at a time, so a field that
@@ -330,7 +331,7 @@ export function check(
 			? values[fieldName]
 			: undefined;
 		if (value === undefined) {
-			if (mode !== 'patch' && !isOptional(schema))
+			if (!isOptional(schema))
 				issues.push({ field: fieldName, message: `${fieldName} is missing` });
 			continue;
 		}

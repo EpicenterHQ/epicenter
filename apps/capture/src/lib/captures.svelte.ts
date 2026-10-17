@@ -45,10 +45,10 @@ import {
 	FileError,
 	isStoredRow,
 	type RowReadError,
+	type RowWriteError,
 	rowPath,
 	rowStemOf,
 	type StoredRow,
-	type TableError,
 	type TableListing,
 	type WriteError,
 	type WrittenRow,
@@ -111,7 +111,7 @@ export type Deletion = {
  */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError;
+	readonly error: RowWriteError | FileError;
 	/** The text that was on screen and is not in the file. */
 	readonly text: string;
 };
@@ -140,7 +140,7 @@ export const capturesKeys = defineKeys({
  * on. A lost reply leaves the outcome unknown.
  */
 export function describeError(
-	error: FileError | TableError | CapturesError,
+	error: FileError | RowWriteError | CapturesError,
 ): string {
 	switch (error.name) {
 		case 'NotStarted':
@@ -151,6 +151,8 @@ export function describeError(
 			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
 		case 'InvalidValues':
 			return error.issues.map((issue) => issue.message).join(' ');
+		case 'Occupied':
+			return 'Another file already has this name, so nothing was changed.';
 		default:
 			return error.message;
 	}
@@ -327,7 +329,7 @@ export function createCaptures(
 				runMutation(queryClient, folder$.captures.write.mutationOptions(), {
 					stem,
 					...change,
-				}).catch((error: WriteError) => {
+				}).catch((error: RowWriteError) => {
 					onWriteFailed({ path, error, text: form.body ?? change.to.body });
 					throw error;
 				}),
@@ -541,7 +543,7 @@ export function createCaptures(
 			mutationFn: async (
 				text: string,
 			): Promise<
-				Result<WrittenRow<CaptureFields>, WriteError | CapturesError>
+				Result<WrittenRow<CaptureFields>, RowWriteError | CapturesError>
 			> => {
 				const why = refused();
 				if (why !== undefined) return CapturesError.NotStarted({ reason: why });

@@ -142,10 +142,8 @@ export async function openDesktopWorkspace({
 		folder,
 		folderId,
 		location: root,
-		terminal: undefined,
 		capture: createDesktopMicrophone(),
 		captureNotice,
-		reveal: undefined,
 		async transcribe(request) {
 			let route: Route;
 			const answered = await transcribeOverConnection(
@@ -196,8 +194,6 @@ export async function openDesktopWorkspace({
 			set: connections.set,
 		},
 		preferences: localPreferences,
-		debugControls: false,
-		injection: undefined,
 		// Closing the folders waits for the saves already under way and commits
 		// nothing.
 		close: async () => {

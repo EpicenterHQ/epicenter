@@ -157,7 +157,7 @@ describe('browser folder tables', () => {
 					{ stem: 'Plan' },
 				),
 			).name,
-		).toBe('InvalidPath');
+		).toBe('Occupied');
 		expect(expectOk(await folder.tables.todos.get('Plan'))?.row.fields).toEqual(
 			{ title: 'P', done: false },
 		);

@@ -2,7 +2,7 @@
 import {
 	type FileError,
 	pathProblem,
-	type TableError,
+	type RowWriteError,
 } from '@epicenter/folder';
 import { joinPath } from '@epicenter/folder/file-browser';
 
@@ -25,10 +25,10 @@ export function nameProblem(
 export function describeError(
 	error:
 		| FileError
-		| TableError
+		| RowWriteError
 		| { readonly name: string; readonly message: string },
 ): string {
-	const known = error as FileError | TableError;
+	const known = error as FileError | RowWriteError;
 	switch (known.name) {
 		case 'DirectoryNotEmpty':
 			return 'The folder is not empty, so nothing was deleted.';
@@ -43,6 +43,8 @@ export function describeError(
 		}
 		case 'InvalidValues':
 			return known.issues.map((issue) => issue.message).join(' ');
+		case 'Occupied':
+			return 'Another file already has this name, so nothing was changed.';
 		default:
 			return known.message;
 	}

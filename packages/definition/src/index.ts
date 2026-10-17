@@ -14,7 +14,6 @@ export {
 	type DeclaredTable,
 	type FieldMap,
 	field,
-	type RowOf,
 	SETTINGS_TABLE,
 	type TableDeclaration,
 } from './declaration.js';

@@ -3,16 +3,16 @@
  *
  * `prepareSchema` checks a declaration and returns an owned schema of the
  * same shape, without knowing which storage will use it. `check` reads values
- * through its fields, as a read, a whole-row input, or a patch.
+ * through its fields, as a read or a whole-row input.
  *
  * Key behaviors:
  * - A table goes through `defineTable`, which leaves its fields exact
  * - A prepared schema has the declared shape: records of native schemas,
- *   named by their keys, frozen and without a prototype. A top-level key it
- *   does not name is not read
+ *   named by their keys, frozen and without a prototype
  * - Preparation is memoized on the declaration and on the schema it
  *   returned
- * - A schema names no dataset, so a declaration with an ID is malformed
+ * - A declaration with a top-level key besides title, local, and tables is
+ *   malformed, an `id` included: a schema names no dataset
  * - A validator belongs to a prepared snapshot, never to the author's schema:
  *   a schema reused in two declarations is prepared twice, and a schema that
  *   was never prepared is refused with an error
@@ -33,9 +33,9 @@
  *   nothing
  * - Whether a field admits `null` is asked of its check when a reader needs it
  * - `check` checks every declared field on its own. `read` ignores an
- *   undeclared key; `input` and `patch` report one. An absent required field is
- *   missing except in a `patch`, an absent optional field never is, and a key
- *   holding `undefined` is absent
+ *   undeclared key; `input` reports one. An absent required field is missing,
+ *   an absent optional field never is, and a key holding `undefined` is
+ *   absent
  * - `field.optional` makes a field absentable; `field.nullable` over an
  *   optional schema throws
  * - A `settings` table prepares like any other: a published declaration that
@@ -89,7 +89,7 @@ function fieldOf(fields: FieldMap, name: string) {
 const accepts = (schema: (TSchema & object) | undefined, value: unknown) =>
 	schema !== undefined &&
 	value !== undefined &&
-	check({ value: schema }, { value }, 'patch').issues.length === 0;
+	check({ value: schema }, { value }, 'input').issues.length === 0;
 
 /** Whether one prepared field of a bucket admits a present value. */
 const admits = (fields: FieldMap, name: string, value: unknown) =>
@@ -97,7 +97,7 @@ const admits = (fields: FieldMap, name: string, value: unknown) =>
 
 /** One prepared field's own diagnostics, as a write of that field reports them. */
 const issuesOf = (fields: FieldMap, name: string, value: unknown) =>
-	check({ [name]: fieldOf(fields, name) }, { [name]: value }, 'patch').issues;
+	check({ [name]: fieldOf(fields, name) }, { [name]: value }, 'input').issues;
 
 /**
  * What a reader shows for a prepared field: the editor read from its
@@ -148,13 +148,9 @@ test('a table is prepared as its fields', () => {
 	expect(admits(queries, 'limit', '3')).toBe(false);
 });
 
-test('a prepared schema has the declared shape and nothing else', () => {
+test('a prepared schema has the declared shape', () => {
 	const prepared = expectOk(
-		prepareSchema({
-			...declaration,
-			title: 'Shared',
-			extra: true,
-		} as never),
+		prepareSchema({ ...declaration, title: 'Shared' }),
 	) as DataSchema;
 	expect(Object.keys(prepared)).toEqual(['title', 'tables']);
 	expect(prepared.title).toBe('Shared');
@@ -185,13 +181,15 @@ test('preparation is memoized on the declaration and on the schema it returned',
 	expectErr(prepareSchema(malformed));
 });
 
-test('a schema names no dataset, so a declaration with an id is malformed', () => {
-	// @ts-expect-error A schema names no dataset.
+test('a top-level key besides title, local, and tables is malformed, an id included', () => {
 	const named = prepareSchema({ ...declaration, id: 'so.epicenter.shared' });
-	expect(expectErr(named).message).toContain('declares an id');
+	expect(expectErr(named).message).toContain("declares 'id'");
 	expect(
 		expectErr(prepareSchema({ ...declaration, id: undefined } as never)).name,
 	).toBe('Malformed');
+	expect(
+		expectErr(prepareSchema({ ...declaration, kv: {} } as never)).message,
+	).toContain("declares 'kv'");
 });
 
 test('a declaration that is not an object is malformed', () => {
@@ -753,11 +751,10 @@ test('nested errors keep their own messages and paths', () => {
 		expect(issues.issues.filter((issue) => issue.field === name)).toEqual(
 			expected,
 		);
-		expect(
-			check(fields, { [name]: value }, 'patch').issues.map(
-				(issue) => issue.path,
-			),
-		).toEqual(['/by/name', '/tags/1']);
+		expect(issuesOf(fields, name, value).map((issue) => issue.path)).toEqual([
+			'/by/name',
+			'/tags/1',
+		]);
 	}
 });
 
@@ -1076,12 +1073,6 @@ test('every field holds a value to JSON, whatever its schema admits', () => {
 			expect(check(fields, { [name]: value } as never, 'read')).toMatchObject({
 				conforming: {},
 			});
-			expect(check(fields, { [name]: value }, 'patch').issues).toEqual([
-				{
-					field: name,
-					message: `${name} does not conform: must be a JSON value`,
-				},
-			]);
 		}
 	}
 	for (const name of ['any', 'unknown', 'open', 'wrapped', 'optional'])
@@ -1125,7 +1116,7 @@ test('a cyclic value stops at the JSON check and never reaches a recursive schem
 				message: `${name} does not conform: must be a JSON value`,
 			},
 		]);
-		expect(check(fields, { [name]: loop }, 'patch').issues).toEqual([
+		expect(issuesOf(fields, name, loop)).toEqual([
 			{
 				field: name,
 				message: `${name} does not conform: must be a JSON value`,
@@ -1221,7 +1212,6 @@ test('a value the check refuses is an issue and not conforming when TypeBox repo
 			conforming: { kept: 'still here' },
 			issues: undiagnosed,
 		});
-		expect(check(fields, { count: 'x' }, 'patch').issues).toEqual(undiagnosed);
 		expect(check(fields, { count: 1, kept: 'k' }, 'read').issues).toEqual([]);
 	} finally {
 		Settings.Set({ maxErrors });
@@ -1532,7 +1522,7 @@ test('a schema that was never prepared is refused with an error, not validated a
 		refusal,
 	);
 	expect(
-		() => check({ title: raw }, { title: 'text' }, 'patch').issues,
+		() => check({ title: raw }, { title: 'text' }, 'input').issues,
 	).toThrow(refusal);
 	// Preparing it elsewhere prepares a copy: the author's object is still raw.
 	const prepared = rowFields({ title: raw });
@@ -1682,9 +1672,8 @@ test('a nested pointer is reported only where it names a location in the value',
 });
 
 test('supplied values are refused when undeclared or nonconforming, and a complete row when a field is absent', () => {
-	expect(check(checked, { title: 'Milk' }, 'patch').issues).toEqual([]);
 	expect(
-		check(checked, { title: 3, other: 1 }, 'patch').issues.map(
+		check(checked, { ...conforming, title: 3, other: 1 }, 'input').issues.map(
 			(issue) => issue.field,
 		),
 	).toEqual(['title', 'other']);
@@ -1701,12 +1690,12 @@ test('supplied values are refused when undeclared or nonconforming, and a comple
 });
 
 // ============================================================================
-// Absence: required, optional, and the three check modes
+// Absence: required, optional, and the two check modes
 // ============================================================================
 
-const MODES = ['read', 'input', 'patch'] as const;
+const MODES = ['read', 'input'] as const;
 
-test('the three modes differ only in undeclared keys and absent required fields', () => {
+test('the two modes differ only in undeclared keys', () => {
 	const fields = rowFields({
 		title: field.string(),
 		note: field.optional(field.string()),
@@ -1722,17 +1711,15 @@ test('the three modes differ only in undeclared keys and absent required fields'
 	expect(verdict({ title: 't', other: 1 })).toEqual({
 		read: [],
 		input: [undeclared],
-		patch: [undeclared],
 	});
 	expect(check(fields, { title: 't', other: 1 }, 'read').conforming).toEqual({
 		title: 't',
 	});
-	// An absent required field: an issue except in a patch.
-	expect(verdict({})).toEqual({ read: [missing], input: [missing], patch: [] });
+	// An absent required field: an issue in both.
+	expect(verdict({})).toEqual({ read: [missing], input: [missing] });
 	expect(verdict({ other: 1 })).toEqual({
 		read: [missing],
 		input: [missing, undeclared],
-		patch: [undeclared],
 	});
 	// A present value is checked the same way in every mode.
 	for (const mode of MODES)
@@ -1757,10 +1744,6 @@ test('a key holding undefined is absent in every mode, declared or not', () => {
 	expect(check(fields, values, 'input')).toEqual({
 		conforming: {},
 		issues: [{ field: 'title', message: 'title is missing' }],
-	});
-	expect(check(fields, values, 'patch')).toEqual({
-		conforming: {},
-		issues: [],
 	});
 	// The same as leaving the keys out, in every mode.
 	for (const mode of MODES)
