@@ -402,7 +402,7 @@ test('set over a file that is not a row, or with a value its field does not admi
 const STYLED =
 	'---\r\ntitle: "Kept"   # a comment\r\ndone: false\r\ntags: []\r\npriority: high\r\n---\r\nOne\r\nTwo\r\n';
 
-test('a body write keeps the frontmatter and the line endings the file was written with', async () => {
+test('a body write rewrites the frontmatter in the standard form and the body with line feeds', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', STYLED);
 	const stored = await s.row('a');
@@ -412,7 +412,9 @@ test('a body write keeps the frontmatter and the line endings the file was writt
 			body: 'One\nTwo\nThree\n',
 		}),
 	);
-	expect(await s.stored('todos/a.md')).toBe(`${STYLED}Three\r\n`);
+	expect(await s.stored('todos/a.md')).toBe(
+		'---\ntitle: Kept\ndone: false\ntags: []\npriority: high\n---\nOne\nTwo\nThree\n',
+	);
 	expect(written.row.body).toBe('One\nTwo\nThree\n');
 });
 
