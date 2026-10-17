@@ -32,10 +32,11 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage, LockingStorage } from '../boundary.js';
+import { localPatterns } from '../declaration.js';
 import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import type { FolderHistory } from '../folder.js';
-import { localPatterns, sameContent } from '../merge-file.js';
+import { sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
 	ancestors,
@@ -162,7 +163,7 @@ export function createHistory({
 	backend: GitBackend;
 	boundary: LockingStorage;
 	author: Author;
-	/** The prepared definition whose `local` patterns no commit carries. */
+	/** The prepared definition whose `local` patterns no commit carries; nothing else reads it, so it leaves with `local`. */
 	definition?: Definition;
 	/**
 	 * The `local` patterns of an app reading a folder that is not its own:

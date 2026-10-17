@@ -14,6 +14,8 @@
  *   the `.gitignore` in place, not without it, not past a person's `!`
  *   exception, and one committed before the rule is untracked, its bytes
  *   kept on disk and out of the pushed tree
+ * - A pattern another device's declaration brings in by Sync reaches
+ *   `.gitignore` with the next publication
  */
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -25,7 +27,12 @@ import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import { defineFolder, defineTable, field } from './contract.js';
+import {
+	defineFolder,
+	defineTable,
+	field,
+	formatDefinition,
+} from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
 import {
@@ -344,6 +351,38 @@ for (const [name, fixture] of [
 			expect(await after.read('audio/run.wav')).toBe('RIFF');
 		} finally {
 			await after.folder.close();
+		}
+	});
+
+	test(`${name}: a pattern Sync brings in reaches .gitignore on the next publication`, async () => {
+		const at = await fixture();
+		const first = await at.open();
+		try {
+			await recordTake(first.folder, 'walk');
+			await at.sync(first.folder);
+		} finally {
+			await first.folder.close();
+		}
+		// Another device's declaration keeps drafts local too; nothing it
+		// pushes adds the pattern to `.gitignore`.
+		await at.push({
+			'epicenter.json': formatDefinition(
+				defineFolder({ tables, local: ['audio/', 'drafts/'] }),
+			),
+		});
+		const second = await at.open();
+		try {
+			await at.sync(second.folder);
+			expect(await second.read('.gitignore')).toBe('audio/\n');
+			// The first write publishes again: `epicenter.json` keeps both
+			// patterns, and `.gitignore` names both.
+			await recordTake(second.folder, 'run');
+			expect(
+				JSON.parse((await second.read('epicenter.json')) ?? '{}').local,
+			).toEqual(['audio/', 'drafts/']);
+			expect(await second.read('.gitignore')).toBe('audio/\ndrafts/\n');
+		} finally {
+			await second.folder.close();
 		}
 	});
 

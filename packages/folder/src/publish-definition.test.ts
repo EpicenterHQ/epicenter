@@ -1,15 +1,17 @@
 /**
- * Publication attempt contract: the one write, as a create joining the file
- * there. An awaited put where no file is when the file is missing; a put
- * guarded by the bytes read, the definition winning each key both hold,
- * when it holds other values, and its own spelling where the values agree;
- * no write when it holds the declaration's bytes; another read when another writer got there first, up to the
- * write's attempts; and failure diagnostics retaining uncertain outcomes.
+ * Publication attempt contract: the one write, from the file as it was
+ * read to the formatted definition. An awaited put where no file is when the
+ * file is missing; a put guarded by the bytes read, the definition replacing
+ * the file whole, when it holds other bytes; `local` the union of the
+ * file's patterns and the definition's; no write when it holds the
+ * declaration's bytes; another read when another writer got there first, up
+ * to the write's attempts; and failure diagnostics retaining uncertain
+ * outcomes.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { formatDefinition } from './declaration.js';
-import { defineFolder } from './definition.js';
+import { defineFolder, defineTable, field } from './contract.js';
 import { FileError } from './errors.js';
 import { hashBytes } from './hash.js';
 import { events } from './publication-log.test-support.js';
@@ -93,23 +95,51 @@ test('the same JSON spelled otherwise is put over once, guarded by what was read
 	expect(events).toEqual([]);
 });
 
-test('other values are put over once, guarded by what was read: the definition wins each key both hold', async () => {
+test('the definition replaces the file it read whole, keys only the file held included', async () => {
 	const titled = defineFolder({ title: 'Mine', tables: {} });
-	const there = '{"title":"Another app","note":"kept"}\n';
+	const there = '{"title":"Another app","note":"x"}\n';
 	const { storage, writes } = recording([holding(there)]);
 	await publishDefinition(titled, storage);
-	// A key only the file holds is an addition the definition never saw.
-	const merged = { ...JSON.parse(formatDefinition(titled)), note: 'kept' };
+	expect(writes).toEqual([
+		{ text: formatDefinition(titled), ifMatch: await shaOf(there) },
+	]);
+	expect(events).toEqual([]);
+});
+
+test('a newer definition that drops a table and a field and reopens a table is the whole file', async () => {
+	const v1 = defineFolder({
+		tables: {
+			todos: defineTable({
+				fields: { title: field.string(), gone: field.string() },
+				additionalProperties: false,
+			}),
+			old: defineTable({ fields: { x: field.string() } }),
+		},
+	});
+	const v2 = defineFolder({
+		tables: { todos: defineTable({ fields: { title: field.string() } }) },
+	});
+	const { storage, writes } = recording([holding(formatDefinition(v1))]);
+	await publishDefinition(v2, storage);
+	expect(writes.map((write) => write.text)).toEqual([formatDefinition(v2)]);
+});
+
+test("the published local is the sorted union of the file's patterns and the definition's", async () => {
+	const own = defineFolder({ tables: {}, local: ['audio/'] });
+	const theirs = defineFolder({ tables: {}, local: ['drafts/'] });
+	const both = defineFolder({ tables: {}, local: ['audio/', 'drafts/'] });
+	const { storage, writes } = recording([holding(formatDefinition(theirs))]);
+	expect(await publishDefinition(own, storage)).toEqual(['audio/', 'drafts/']);
 	expect(writes).toEqual([
 		{
-			text: `${JSON.stringify(merged, null, 2)}\n`,
-			ifMatch: await shaOf(there),
+			text: formatDefinition(both),
+			ifMatch: await shaOf(formatDefinition(theirs)),
 		},
 	]);
-	// Logged as any write that replaced another writer's change is; no failure.
-	expect(events.map(({ level, source }) => ({ level, source }))).toEqual([
-		{ level: 'info', source: 'folder/save' },
-	]);
+	// A file already listing them all, and this definition's, is left alone.
+	const again = recording([holding(formatDefinition(both))]);
+	await publishDefinition(own, again.storage);
+	expect(again.writes).toEqual([]);
 });
 
 test('another writer getting there first is read again, as many times as a write tries', async () => {
@@ -118,8 +148,10 @@ test('another writer getting there first is read again, as many times as a write
 		Ok('stale'),
 	);
 	await publishDefinition(definition, storage);
+	// The file read as missing turns up before the create's put, so the
+	// publication reads it again and replaces it, losing each race.
 	expect(writes.map((write) => write.ifMatch)).toEqual([
-		null,
+		await shaOf(theirs),
 		await shaOf(theirs),
 		await shaOf(theirs),
 	]);

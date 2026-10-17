@@ -18,11 +18,10 @@
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { FolderStorage } from './boundary.js';
-import { formatDefinition } from './declaration.js';
+import { formatDefinition, localPatterns } from './declaration.js';
 import type { Definition } from './definition.js';
-import { localPatterns } from './merge-file.js';
 import { DEFINITION_PATH } from './paths.js';
-import { WRITE_ATTEMPTS, writeFile } from './write.js';
+import { WRITE_ATTEMPTS, writeFailure, writeFile } from './write.js';
 
 const log = createLogger('folder/definition');
 /** What a publication reads and writes: the storage port's read and put, not a handle's writes. */
@@ -43,12 +42,16 @@ const PublicationError = defineErrors({
 });
 
 /**
- * Await one publication of `prepared` at `epicenter.json`: a create that
- * joins whatever file is there, so `merge` decides it as it decides every
- * write of the file (ADR-0576). This definition wins each key both hold
- * differently, `local` among them, and a key only the file holds stays; a
- * file already holding the result is left as it is. A failure is logged and never refuses the write it
- * precedes.
+ * Await one publication of `prepared` at `epicenter.json`: the one write
+ * from the file as it was read to the formatted definition, so the
+ * definition replaces what it read whole, keys only the file held included.
+ * The one exception is `local`, the sorted union of the file's patterns and
+ * the definition's, so a pattern a Sync brought from another device is kept
+ * (ADR-0577) until templates replace `local`. A file already holding the
+ * result is left as it is. Another writer changing the file after the read
+ * merges with it as any overtaken write does, and a file created after a
+ * read that found none is read again. A failure is logged and never refuses
+ * the write it precedes.
  *
  * Answers the `local` patterns the file lists once published, for
  * `.gitignore`, or the definition's own when the publication failed.
@@ -58,18 +61,32 @@ export async function publishDefinition(
 	storage: Publisher,
 ): Promise<readonly string[]> {
 	const own = prepared.local ?? [];
-	let failure: unknown;
+	let failure: unknown = 'another writer kept creating the file';
 	try {
-		const { data: written, error } = await writeFile(
-			storage,
-			DEFINITION_PATH,
-			null,
-			formatDefinition(prepared),
-			{ joining: true },
-		);
-		if (error === null)
+		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+			const read = await storage.read(DEFINITION_PATH);
+			if (read.error !== null && read.error.name !== 'NotFound') {
+				failure = writeFailure(DEFINITION_PATH, read.error);
+				break;
+			}
+			const current = read.error === null ? read.data.bytes : null;
+			const listed = localPatterns(current) ?? [];
+			const published = listed.every((pattern) => own.includes(pattern))
+				? prepared
+				: { ...prepared, local: [...new Set([...own, ...listed])].sort() };
+			const { data: written, error } = await writeFile(
+				storage,
+				DEFINITION_PATH,
+				current,
+				formatDefinition(published),
+			);
+			if (error?.name === 'Occupied') continue;
+			if (error !== null) {
+				failure = error;
+				break;
+			}
 			return (written.file && localPatterns(written.file.bytes)) ?? own;
-		failure = error;
+		}
 	} catch (cause) {
 		// A thrown write can also have landed. Retain the cause without claiming
 		// the destination is missing, unchanged, or successfully published.
@@ -104,7 +121,7 @@ export async function publishLocalPatterns(
 		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 			const read = await storage.read(GITIGNORE_PATH);
 			if (read.error !== null && read.error.name !== 'NotFound') {
-				failure = read.error;
+				failure = writeFailure(DEFINITION_PATH, read.error);
 				break;
 			}
 			const current = read.error === null ? read.data.bytes : null;

@@ -148,26 +148,6 @@ export function wholeFile(
 		: { content: theirs, overridden: [{ kind: 'file', lost: 'ours' }] };
 }
 
-/** The patterns `epicenter.json`'s `local` lists, or `undefined` when it does not read as a definition. */
-export function localPatterns(
-	content: FileContent | null,
-): string[] | undefined {
-	const text = content === null ? undefined : textOf(content);
-	if (text === undefined || text === null) return undefined;
-	try {
-		const value: unknown = JSON.parse(text);
-		if (typeof value !== 'object' || value === null || Array.isArray(value))
-			return undefined;
-		const local = (value as { local?: unknown }).local;
-		if (local === undefined) return [];
-		if (!Array.isArray(local) || local.some((item) => typeof item !== 'string'))
-			return undefined;
-		return local as string[];
-	} catch {
-		return undefined;
-	}
-}
-
 /**
  * The side whose change stands on a unit both changed differently: the
  * writer acting, `ours`, everywhere but Sync's publish of a merged tree

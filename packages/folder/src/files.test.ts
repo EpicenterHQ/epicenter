@@ -377,10 +377,12 @@ describe('a write reads the file it merges into, and never reads back what it wr
 		expectOk(await folder.tables.todos.rename('r', 's'));
 		expectOk(await folder.tables.todos.delete('s'));
 		// Each write reads the file it merges into, and the declaration is read
-		// before the first put (ADR-0508); a move reads the bytes it carries;
-		// nothing reads back what it wrote.
+		// before the first put (ADR-0508), once for the publication to replace
+		// and once by its write; a move reads the bytes it carries; nothing
+		// reads back what it wrote.
 		expect(reads).toEqual([
 			'a.md',
+			'epicenter.json',
 			'epicenter.json',
 			'a.md',
 			'a.md',
