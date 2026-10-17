@@ -9,8 +9,8 @@
  *   prepared declaration
  * - The handle never writes `epicenter.json`: a hand-formatted declaration
  *   stays byte for byte through creates, writes, and commits
- * - A declaration an earlier build wrote, with the `kv` section settings once
- *   had, is `InvalidDeclaration` naming `kv`, as any unknown key is
+ * - A declaration with a `kv` section is `InvalidDeclaration` naming `kv`,
+ *   as any unknown key is
  * - A folder without `epicenter.json` opens with no tables; files and
  *   history work
  * - An `epicenter.json` that cannot be used is `InvalidDeclaration`, and a

@@ -38,7 +38,7 @@ The phrase becomes one entry with an empty note and the New stage. "Saved to you
 
 ### Chat history
 
-Below 768px, Words and Chat sit in a bottom navigation bar; desktop keeps them in the header. A selected practice action sits above the bar without covering words. Chat returns to the selected conversation without opening History. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers separate history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft, and never asks first. Focus text stays visible if its saved entry is deleted; its stage control then disappears. Earlier message-only chats remain readable, with their first learner question as the title.
+Below 768px, Words and Chat sit in a bottom navigation bar; desktop keeps them in the header. A selected practice action sits above the bar without covering words. Chat returns to the selected conversation without opening History. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers separate history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft, and never asks first. Focus text stays visible if its saved entry is deleted; its stage control then disappears.
 
 ### Choosing a model
 
@@ -61,7 +61,7 @@ A new word's file is named by the SHA-256 of its exact UTF-8 text. An add create
 
 A chat's ID is the `chat` field of its messages and the first part of their file names, so a chat reads only its own message files and the chat list reads none of them. The chat list is read again when the folder reports a change to `chats/`; an open chat reads its messages when it opens and before each tutor request. A focus item holds the original text and its entry's ID.
 
-A file Vocab cannot read as a row, because its text does not parse or a field does not conform, is listed by path with the reason and left as it is. It is never dropped from view silently. A word file can be repaired as text in Words; a chat or message file is only named.
+A file Vocab reads that it cannot read as a row, because its text does not parse or a field does not conform, is listed by path with the reason and left as it is. Vocab reads `words/`, `chats/`, and the message files named for an open chat; any other file is left alone and not listed. It is never dropped from view silently. A word file can be repaired as text in Words; a chat or message file is only named.
 
 The app runs the UI-free `@epicenter/agent` loop over one chat's message files. An unsent draft and a partial response are not saved. The selected chat owns the only live loop.
 

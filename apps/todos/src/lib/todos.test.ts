@@ -61,7 +61,7 @@ afterEach(async () => {
 /**
  * The store over a fresh folder, with its screens observing. `holdNextWrite`
  * holds the next published `.md` write until released, and `mdWrites`
- * counts every published `.md` write.
+ * counts every published `.md` write, a new file's included.
  */
 async function open() {
 	const storage = createTestStorage({ BroadcastChannel });

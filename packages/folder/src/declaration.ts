@@ -40,8 +40,8 @@
  * `local` keeps nothing local.
  *
  * A top-level `$schema` lets an editor offer completion and is not
- * interpreted. Anything else is refused, a `kv` section an earlier build
- * wrote included, so a misspelled key never reads as an empty declaration.
+ * interpreted. Anything else is refused, so a misspelled key never reads as
+ * an empty declaration.
  */
 
 import { type FieldMap, field, isOptional } from '@epicenter/definition';
