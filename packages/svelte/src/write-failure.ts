@@ -55,24 +55,6 @@ export type WriteFailure = {
 	readonly retry?: () => boolean;
 };
 
-/**
- * The text fields of a set that failed, as a person reads them back: one
- * `name: value` line for each string field sent, so a typed title or note
- * is offered to copy. Other fields, such as a checkbox, are not text the
- * person typed; `''` when no field was text.
- */
-export function unsavedFields(
-	fields: Readonly<Record<string, unknown>>,
-): string {
-	return Object.entries(fields)
-		.filter(
-			(entry): entry is [string, string] =>
-				typeof entry[1] === 'string' && entry[1] !== '',
-		)
-		.map(([name, value]) => `${name}: ${value}`)
-		.join('\n');
-}
-
 const UNCONFIRMED =
 	'The change was sent, but nothing confirmed it, so it may or may not have happened.';
 

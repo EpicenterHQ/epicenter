@@ -47,7 +47,6 @@ import {
 } from '@epicenter/folder/svelte';
 import {
 	ActionError,
-	unsavedFields,
 	type WriteFailure,
 } from '@epicenter/svelte/write-failure';
 import type { QueryClient } from '@tanstack/svelte-query';
@@ -167,7 +166,7 @@ export function createEntries(
 			writeFailed({
 				path: pathOf(stem),
 				error,
-				unsaved: unsavedFields(fields),
+				unsaved: fields.note ?? '',
 			}),
 	} satisfies ReturnType<typeof queries.entries.set.mutationOptions>;
 	const setKey = setEntry.mutationKey ?? [];

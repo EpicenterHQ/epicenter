@@ -204,6 +204,8 @@ test('a copy the clipboard refuses keeps the toast up, with the text to select',
 		unsaved: 'Only here',
 	});
 	await until(() => toastFor('notes/b.md'), 'the toast');
+	// A second click while the first copy runs starts none.
+	click(document.body, 'Copy your text');
 	click(document.body, 'Copy your text');
 	await until(
 		() => document.querySelector('[data-testid="unsaved-text"]') !== null,
@@ -214,6 +216,9 @@ test('a copy the clipboard refuses keeps the toast up, with the text to select',
 		'[data-testid="unsaved-text"]',
 	);
 	expect(box?.value).toBe('Only here');
+	expect(
+		document.querySelectorAll('[data-testid="unsaved-text"]'),
+	).toHaveLength(1);
 	expect(document.body.textContent).toContain('Copying did not work');
 	// Copying again stays possible.
 	expect(document.body.textContent).toContain('Copy your text');

@@ -389,7 +389,7 @@ test('an update that fails is reported and writes nothing; the next one writes',
 	await quiet(vocab);
 	expect(failures.map((failure) => failure.path)).toEqual([path]);
 	// The typed note is offered to copy.
-	expect(failures[0]?.unsaved).toBe('note: kept');
+	expect(failures[0]?.unsaved).toBe('kept');
 	expect(await context.text(path)).toBe(saved);
 	expect(cached(vocab, 'lucid').note).toBe('');
 
@@ -398,6 +398,16 @@ test('an update that fails is reported and writes nothing; the next one writes',
 	expect(failures).toHaveLength(1);
 	expect(await context.text(path)).toContain('note: kept');
 	expect(cached(vocab, 'lucid').note).toBe('kept');
+});
+
+test('a stage change that fails offers no text: none was typed', async () => {
+	const context = await setup();
+	const { vocab, entries, failures } = context;
+	const entry = await context.add('lucid');
+	context.failNextWrite(entry.stored.path);
+	entries.setStage(entry.id, 'usable');
+	await quiet(vocab);
+	expect(failures).toMatchObject([{ path: entry.stored.path, unsaved: '' }]);
 });
 
 test('the folder refuses a value it cannot hold, and the file is left as it was', async () => {

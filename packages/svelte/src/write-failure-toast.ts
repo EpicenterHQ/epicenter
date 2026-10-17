@@ -47,12 +47,16 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 			: `${describeWriteError(error)} Your edit is still on screen.`;
 	const copyable = unsaved !== '';
 	let shown: string | number = '';
+	/** Set while this toast's copy runs, so a second click starts none. */
+	let copying = false;
 
 	const copy = {
 		label: 'Copy your text',
 		onClick: (event: MouseEvent) => {
 			// Closed only once the clipboard took the text.
 			event.preventDefault();
+			if (copying) return;
+			copying = true;
 			void copied(unsaved).then((took) => {
 				toast.dismiss(shown);
 				if (!took) show(failure, true);

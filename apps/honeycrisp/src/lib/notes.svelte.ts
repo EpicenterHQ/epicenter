@@ -74,7 +74,6 @@ import {
 	ActionError,
 	type DescribedError,
 	describeWriteError,
-	unsavedFields,
 } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
@@ -306,7 +305,12 @@ export function createNotes(opened: NotesFolder) {
 	 * One table's rows: the listing in the cache, and the set of a row's
 	 * fields as its file is now (ADR-0576).
 	 */
-	function rowTable<TFields>(name: TableName, options: TableOptions<TFields>) {
+	function rowTable<TFields>(
+		name: TableName,
+		options: TableOptions<TFields>,
+		/** The text the person typed among a set's fields, offered when the set fails. */
+		typedIn: (fields: Partial<TFields>) => string,
+	) {
 		const listing = () =>
 			queryClient.getQueryData<TableListing<TFields>>(options.list.queryKey());
 
@@ -318,13 +322,14 @@ export function createNotes(opened: NotesFolder) {
 
 		const setRow = {
 			...options.set.mutationOptions(),
-			// What was typed stays on screen, to be sent again.
-			// A typed title or folder name is offered to copy as well.
+			// What was typed stays on screen, to be sent again. A typed title
+			// or folder name is offered to copy as well; a pin, a move, or a
+			// trash carries no text the person typed.
 			onError: (error, { stem, fields }) =>
 				writeFailed({
 					path: rowPath(name, stem),
 					error,
-					unsaved: unsavedFields(fields),
+					unsaved: typedIn(fields),
 				}),
 		} satisfies ReturnType<TableOptions<TFields>['set']['mutationOptions']>;
 
@@ -362,8 +367,16 @@ export function createNotes(opened: NotesFolder) {
 		};
 	}
 
-	const noteRows = rowTable<NoteFields>('notes', queries.notes);
-	const folderRows = rowTable<FolderFields>('folders', queries.folders);
+	const noteRows = rowTable<NoteFields>(
+		'notes',
+		queries.notes,
+		(fields) => fields.title ?? '',
+	);
+	const folderRows = rowTable<FolderFields>(
+		'folders',
+		queries.folders,
+		(fields) => fields.name ?? '',
+	);
 
 	/** The row table `path` is in, and its stem, if it is a row file. */
 	function rowAt(path: string) {
@@ -422,11 +435,18 @@ export function createNotes(opened: NotesFolder) {
 				unsaved: to?.body ?? '',
 				// Starts a save only while the body is still held and the folder
 				// is not closing; otherwise the toast keeps the text to copy.
+				// Through `saveBodyOf`, so a note deleted since lets the body go
+				// and offers it once.
 				retry: () => {
 					const held = bodies.get(stem);
-					if (refused() !== undefined || held?.typed() === undefined)
+					if (
+						refused() !== undefined ||
+						held === undefined ||
+						held.typed() === undefined ||
+						held.draft.gone
+					)
 						return false;
-					void held.draft.save();
+					void saveBodyOf(stem);
 					return true;
 				},
 			}),

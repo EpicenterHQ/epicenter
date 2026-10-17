@@ -68,8 +68,8 @@ definition, and everything below it reads the opened folder through
   dismisses it; a refused copy shows the text in a box to select by hand.
   It offers "Save again" when `retry` is set; `retry` answers whether a save
   started, and when none did the toast comes back with only the text to
-  copy. A failed field set reports the text fields it sent
-  (`unsavedFields`).
+  copy. A failed field set reports the field the person typed, such as a
+  title, and no text for a click, a move, or a delete.
 - `beforeClose` steps all start when close is called.
 - Closing when the page goes away: the app's `beforeClose` steps run first
   (fence input, send typed text), then every write and action lands, the

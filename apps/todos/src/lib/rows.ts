@@ -22,7 +22,7 @@
  *   as text (`notesGone`).
  */
 import type { WriteError } from '@epicenter/folder';
-import { ActionError, unsavedFields } from '@epicenter/svelte/write-failure';
+import { ActionError } from '@epicenter/svelte/write-failure';
 import { defineKeys } from 'wellcrafted/query';
 import type { Result } from 'wellcrafted/result';
 import {
@@ -83,7 +83,7 @@ export function createRows({
 				writeFailed({
 					path: todoPath(stem),
 					error,
-					unsaved: unsavedFields(fields),
+					unsaved: fields.title ?? '',
 				}),
 		} satisfies ReturnType<typeof queries.todos.set.mutationOptions>,
 		/**

@@ -279,6 +279,26 @@ test('a body typed and not yet saved when a delete is reported is dropped and of
 	expect(disk.text(A)).toBeUndefined();
 });
 
+test('Save again on a body whose note was deleted since starts no save, and the text is offered', async () => {
+	const { notes, disk, failures } = await open();
+	disk.failNextWrite();
+	typeBody(notes, A, 'Mine.\n');
+	await quiet(notes);
+	expect(failures).toMatchObject([{ path: A, unsaved: 'Mine.\n' }]);
+	disk.drop(A);
+	await notes.queryClient.invalidateQueries(notes.queries.pathFilter([A]));
+	await quiet(notes);
+	// The body is let go and offered once; the first toast's Save again has
+	// nothing left to save.
+	expect(failures[0]?.retry?.()).toBe(false);
+	expect(failures.at(-1)).toMatchObject({
+		path: A,
+		error: { name: 'NotStarted' },
+		unsaved: 'Mine.\n',
+	});
+	expect(disk.text(A)).toBeUndefined();
+});
+
 test('a note deleted elsewhere leaves the list once reported, and takes no edit', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
@@ -337,9 +357,26 @@ test('a set that fails is reported and writes nothing', async () => {
 	disk.failNextWrite();
 	notes.patchNote(A, { title: 'First' });
 	await quiet(notes);
-	expect(failures).toMatchObject([{ path: A, unsaved: 'title: First' }]);
+	expect(failures).toMatchObject([{ path: A, unsaved: 'First' }]);
 	expect(disk.text(A)).toBe(before);
 	expect(cached(notes, 'a').row.fields.title).toBe('Alpha');
+});
+
+test('a move, a pin, or a trash that fails offers no text: none was typed', async () => {
+	const { notes, disk, failures } = await open();
+	for (const fields of [
+		{ folderId: 'elsewhere' },
+		{ pinned: true },
+		{ deletedAt: null },
+	]) {
+		disk.failNextWrite();
+		notes.patchNote(A, fields);
+		await quiet(notes);
+	}
+	disk.failNextWrite();
+	notes.trashNote(B);
+	await quiet(notes);
+	expect(failures.map((failure) => failure.unsaved)).toEqual(['', '', '', '']);
 });
 
 test('a value a file cannot hold is refused by the folder, and the file is unchanged', async () => {

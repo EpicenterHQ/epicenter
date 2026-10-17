@@ -64,7 +64,8 @@ it with `<FolderProvider>`:
   shows the text to select by hand. "Save again" appears when the edit is
   still on screen; `retry` answers whether a save started, and when none did
   the toast comes back with only the text. A failed field set offers the
-  text fields it sent (`unsavedFields`);
+  field the person typed, such as a title, and no text for a click, a move,
+  or a delete;
 - closing when the page goes away: the app's `beforeClose` steps all start
   when close is called (fence input, send what is typed), then every write
   and action lands, the change wiring stops, and the folder is released.
