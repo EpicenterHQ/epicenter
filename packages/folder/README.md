@@ -112,12 +112,12 @@ folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
 Publication writes `epicenter.json` once per handle, before that handle's
-first save, with the one write, as a create that joins the file there: a
-missing file is created, and a present one takes the definition whole but
-for `local`, which keeps every pattern the file lists, as `merge` decides
-every write of `epicenter.json` (ADR-0576). A file that already holds the
-result is not written, and another writer getting there first starts the
-write again, as it does any write. It never commits or pushes, so the published
+first save, with the one write from the file as it was read to the
+formatted definition: a missing file is created, and a present one is
+replaced whole, keys only the file held included, but for `local`, which
+lists every pattern the file or the definition lists. A file that already
+holds the result is not written, and another writer getting there first
+starts the write again, as it does any write. It never commits or pushes, so the published
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
 
@@ -166,14 +166,13 @@ already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 
-Two devices that publish differing `local` lists keep both: merging
-`epicenter.json` unions `local` (ADR-0576), and no publication drops a
-pattern. One limit remains: an older app version's `epicenter.json`, one
-without `local`, taken whole by a Sync, drops other devices' patterns from the
-file. Each device still excludes its own definition's patterns, and lists them
-again on its next write. `.gitignore` merges by line and keeps the patterns
-meanwhile, so plain Git still ignores an untracked file there; `.gitignore`
-does nothing for a file already committed.
+No publication drops a pattern: it unions `local` until the folder's
+`.gitignore` replaces it (ADR-0592). Sync merges `epicenter.json` by key, where `local` is one unit, so two
+devices that changed it differently since their last Sync keep this
+device's list; each device still excludes its own definition's patterns,
+and lists them again on its next publication. `.gitignore` merges by line and keeps the patterns meanwhile, so
+plain Git still ignores an untracked file there; `.gitignore` does nothing
+for a file already committed.
 A pattern must be one line that ignores something: `defineFolder` refuses an
 empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.
@@ -298,9 +297,8 @@ definition instead, as an app reads Epicenter's own folder.
 | Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same | the same |
 
 Every handle has `folder.definition`, the prepared definition it reads with,
-so a view can render a folder it did not define. History and Sync use it
-too: Sync merges a folder's rows by the folder's own definition. The
-definition is read once, when the folder opens; a definition that changes
+so a view can render a folder it did not define. History uses its `local`
+patterns; Sync merges files without it (ADR-0591). The definition is read once, when the folder opens; a definition that changes
 afterward, such as one a Sync brought, is read by the next open.
 
 On the desktop, `id` names a folder the shell registered, until the shell
@@ -749,7 +747,7 @@ its default export declares (ADR-0527).
 | `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. |
 | `sync` | `run()` records saved files, fetches, merges both heads into one commit this device wins, and pushes; `connect(url)` sets the remote first. It asks nothing. See [Sync](#sync). |
 | `id`, `own` | Which folder this is: its ID (the scope the desktop shell granted, the browser directory's name, or in Bun the directory's name), and whether it is the opening app's own, the only folder where the handle publishes its definition. |
-| `definition` | The prepared definition the handle reads with: the app's own in its own folder, or the folder's own `epicenter.json` as it was read when the folder opened. Its tables are `tables`, settings among them, and Sync merges rows by it. |
+| `definition` | The prepared definition the handle reads with: the app's own in its own folder, or the folder's own `epicenter.json` as it was read when the folder opened. Its tables are `tables`, settings among them. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own writes. Returns the function that stops listening. See [Changes](#changes). |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
@@ -1123,17 +1121,22 @@ written.overridden; // each unit this write won over another writer's change
 ```
 
 1. It reads the file as it is now; no file is `null`.
-2. It merges `from`, `to`, and that file with `merge(kind, { base, ours, theirs })`,
+2. It merges `from`, `to`, and that file with `merge(path, { base, ours, theirs })`,
    `to` as `ours`. A result equal to the file is done, with nothing put.
 3. It puts the result with `storage.put(path, bytes, ifMatch)`, guarded by the
    hash it read, or by no file. Another writer landing in between makes the
    put `'stale'`, and the write starts again from step 1, at most
    `WRITE_ATTEMPTS` times, then `KeptChanging`. A lost reply is read back once.
 
+The merge reads no definition (ADR-0591): a file merges by its content and
+its extension, at any path.
+
 | File | Unit |
 | --- | --- |
-| a row, `<table>/<stem>.md` | one frontmatter key; one region of body lines |
-| other UTF-8 text | one region of lines |
+| `.md` whose present versions all have frontmatter that reads | one frontmatter key; one region of body lines |
+| `.json` whose present versions all parse as JSON objects, a byte-order mark aside | one key; a key whose value is an object on both sides is its own keys |
+| other `.json` JSON, such as an array | the whole file |
+| other UTF-8 text, `.json` that does not parse or holds a number a rewrite would change included | one region of lines |
 | binary, or a side absent | the whole file |
 
 - Units only one side changed all survive. On a unit both changed, the
@@ -1144,12 +1147,26 @@ written.overridden; // each unit this write won over another writer's change
   writer's. Identical ones are one, and an insertion that holds the other at
   its start or end stands alone. Lines compare without their line feeds,
   and a result ends with a line feed as the version its last line came from.
-- A row is written in the standard form, so a hand-written row loses its
-  comments and quoting on its first write from an app. A row the writer left
-  as `from` had it is no change, and the file keeps its spelling.
-- A version that does not read as its kind merges as text, and any `to` is
-  written: a raw edit of a row can leave a row to repair (ADR-0503). A typed
-  table view refuses a row it cannot write before it writes (`InvalidValues`).
+- Merged frontmatter is a side's own bytes, comments and quoting included,
+  while the merged fields are that side's, joined by line with the other
+  side's presentation edits where they do not compete; a dropped
+  presentation edit of the file's is named as `lines`. The body takes the
+  frontmatter's line endings. Only fields that are neither side's are
+  written in the standard form, keys in the writer's order, then keys only
+  the file added. A merged JSON file is likewise a side's bytes when its
+  value is that side's, and otherwise `JSON.stringify` with a two-space
+  indent, in the same key order, after a byte-order mark when either side
+  has one. An array is one unit, so two additions to one array compete
+  instead of joining into invalid JSON. JSON that does not parse, or holds a
+  number a rewrite would change (`12345678901234567890`, `1.0`, `1e3`),
+  merges by line, so no edit and no number is lost; two insertions at one
+  place compete there, so the merge never writes one key twice.
+- Nothing is checked against a schema: every merged value is one side's,
+  and a field is checked alone, so a field merge of two valid rows is valid.
+- A Markdown version whose frontmatter does not read merges as text, and
+  any `to` is written: a raw
+  edit of a row can leave a row to repair (ADR-0503). A typed table view
+  refuses a row it cannot write before it writes (`InvalidValues`).
 - A delete needs no base: `to` of `null` removes whatever is there. A delete
   beats an edit it never saw: an edit of a file deleted since its `from`
   writes nothing and answers `file: null`, and only a write from `null`
@@ -1362,9 +1379,10 @@ acting:
 
 | Path | Merged by | Where both changed one unit |
 | --- | --- | --- |
-| `<table>/<stem>.md` of a declared table | field and body lines | this device's field or lines |
-| any other UTF-8 text, or a version that does not read as its kind | line | this device's lines |
-| `epicenter.json` | whole file, with `local` listing every pattern either side lists | this device's file |
+| `.md` with frontmatter that reads, at any path | field and body lines | this device's field or lines |
+| `.json` that parses as an object, `epicenter.json` included | key, nested objects by key | this device's key |
+| any other UTF-8 text, Markdown whose frontmatter does not read, or `.json` that does not parse or holds an inexact number | line | this device's lines |
+| JSON that is not an object | whole file | this device's file |
 | a binary file, a link, an executable, or a submodule | whole file | this device's |
 
 A side that changed nothing leaves the other's bytes exactly as they are. A
@@ -1559,8 +1577,8 @@ createTable({ storage }, name, definition.tables[name])
 ```
 
 `folder.write` and every table helper call `writeFile` (`write.ts`) with the
-file's kind, which merges through `merge` (`merge-file.ts`), the merge Sync
-and the merge driver use too; `folder.move` and `table.rename` call
+file's path, which merges through `merge` (`merge-file.ts`), the merge Sync
+uses too; `folder.move` and `table.rename` call
 `movePath`.
 
 The same wrapper fences the storage with the handle's close signal and

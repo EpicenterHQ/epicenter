@@ -51,15 +51,6 @@ const HANDLERS: Record<string, Run> = {
 		),
 	repos: async ({ json, grant }) =>
 		(await import('./repository-commands.ts')).repos(json, grant),
-	'merge-driver': async ({ positionals, json }) => {
-		const driver = await import('./merge-driver.ts');
-		// Git's `%O %A %B %P`, or the folder to configure.
-		const [first, ours, theirs, path] = positionals as [string, ...string[]];
-		if (path !== undefined)
-			return driver.mergeDriver(first, ours as string, theirs as string, path);
-		if (ours === undefined) return driver.configureCommand(first, json);
-		return fail('Usage: epicenter merge-driver <dir>', json);
-	},
 	'app list': async ({ options, json }) =>
 		(await import('./app-commands.ts')).appList(options, json),
 	'app install': async ({ positionals: [source], options, json }) =>
@@ -191,8 +182,8 @@ the desktop app reads. Exits 0, or 2 when the folder cannot be used or git
 is not installed ({"error": "GitMissing"} with --json).`,
 	clone: `Clones <namespace>/<name> from this deployment's Git origin, or any
 other URL as given with your own Git credentials, into <dir>, by default
-~/Epicenter/<name>, then makes the clone merge by file kind. Run epicenter
-repos to list the names. Exits 2 when it cannot clone.`,
+~/Epicenter/<name>. Run epicenter repos to list the names. Exits 2 when it
+cannot clone.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.
 With --json, {"namespaces": [{"id", "title", "personal", "role",
@@ -206,16 +197,6 @@ the first sync creates it, and the folder's remote becomes
 What both sides changed merges into one commit, and this folder's version
 of each field or lines both changed wins; the commit's Overrode: lines name
 what the remote lost, which its history still holds. A sync asks nothing.`,
-	'merge-driver': `Makes git merge, git pull, and any Git client merge the folder's files
-by kind, with the merge Epicenter's saves and Sync use: rows by field,
-other text by line. It writes "* merge=epicenter" to the repository's
-.git/info/attributes and the driver, this binary by its path,
-to its .git/config; nothing is committed. Git then runs epicenter
-merge-driver -- <base> <ours> <theirs> <path> for each file both sides
-changed. Units both sides changed differently get Git's conflict markers,
-and git merge stops for a person as usual. A file in no data folder, or
-that is not text, merges as Git merges it. Exits 0, or 2 when <dir> is not
-the root of its own repository.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.

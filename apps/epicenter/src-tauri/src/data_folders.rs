@@ -32,10 +32,8 @@
 //! The shell watches the root (`watch_data_folders`) and tells the Folders
 //! window when the listing may have changed, so it lists again.
 //!
-//! The reply carries scope IDs, titles, and each folder's declaration text,
-//! never paths. The page still learns a folder's root from the plugin's
-//! grant, as every folder page does today, and reads the declaration to offer
-//! the apps whose shape it contains (ADR-0538) without opening every folder.
+//! The reply carries scope IDs and titles, never paths. The page learns a
+//! folder's root from the plugin's grant, as every folder page does.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -119,9 +117,6 @@ pub struct DataFolder {
     pub id: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
-    /// The text of `epicenter.json`, or `None` when it is not UTF-8 text the
-    /// shell could read. The page parses it; the shell does not judge it.
-    pub declaration: Option<String>,
 }
 
 /// The scopes this run registered under the root, by directory name: a data
@@ -220,8 +215,8 @@ fn list_in(
         if !fs::symlink_metadata(&declaration).is_ok_and(|stats| stats.is_file()) {
             continue;
         }
-        let declaration = fs::read_to_string(&declaration).ok();
-        let title = declaration
+        let title = fs::read_to_string(&declaration)
+            .ok()
             .as_deref()
             .and_then(declared_title)
             .unwrap_or_else(|| name.clone());
@@ -231,7 +226,6 @@ fn list_in(
             listed.push(DataFolder {
                 id: EPICENTER_FOLDER.to_string(),
                 title,
-                declaration,
             });
             continue;
         }
@@ -267,11 +261,7 @@ fn list_in(
                 id
             }
         };
-        listed.push(DataFolder {
-            id,
-            title,
-            declaration,
-        });
+        listed.push(DataFolder { id, title });
     }
     listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.id.clone()));
     Ok(listed)
@@ -557,7 +547,6 @@ mod tests {
             [DataFolder {
                 id: "data:vault".into(),
                 title: "vault".into(),
-                declaration: Some("{}".into()),
             }]
         );
     }
@@ -610,7 +599,6 @@ mod tests {
             [DataFolder {
                 id: "so.epicenter.todos".into(),
                 title: "Todos".into(),
-                declaration: Some(r#"{ "title": "Todos" }"#.into()),
             }]
         );
         // Listing again, and opening the app without a folder, keep the scope.
@@ -629,7 +617,6 @@ mod tests {
             [DataFolder {
                 id: EPICENTER_FOLDER.into(),
                 title: "Epicenter".into(),
-                declaration: Some(r#"{ "title": "Epicenter" }"#.into()),
             }]
         );
         for label in ["folders", "home"] {
@@ -840,29 +827,6 @@ mod tests {
         let id = fixture.list().remove(0).id;
         assert_eq!(granted_names(&folders, &id), ["epicenter.json"]);
         assert!(invoke(&todos, "grant_directory", json!({ "scope": id })).is_err());
-    }
-
-    #[test]
-    fn the_reply_carries_the_declaration_text_the_page_matches_against() {
-        let fixture = fixture("declaration");
-        let declared = r#"{ "tables": { "todos": { "type": "object" } } }"#;
-        data_folder(&fixture, "list", declared);
-        let unreadable = fixture.folder_dir.join("binary");
-        fs::create_dir_all(&unreadable).unwrap();
-        fs::write(unreadable.join(DECLARATION), [0xff, 0xfe, 0x00]).unwrap();
-
-        let declarations: Vec<(String, Option<String>)> = fixture
-            .list()
-            .into_iter()
-            .map(|folder| (folder.title, folder.declaration))
-            .collect();
-        assert_eq!(
-            declarations,
-            [
-                ("binary".into(), None),
-                ("list".into(), Some(declared.into())),
-            ]
-        );
     }
 
     #[test]

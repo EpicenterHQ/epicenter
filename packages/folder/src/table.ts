@@ -41,6 +41,7 @@ import {
 } from './errors.js';
 import type { FileContent } from './merge-file.js';
 import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
+import { sameValue } from './row-merge.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
 import { movePath, writeFailure, writeFile } from './write.js';
 
@@ -174,8 +175,6 @@ export function createTable<TFields>(
 	table: PreparedFolderTable,
 	unsupplied: readonly string[] = [],
 ): FileTable<TFields> {
-	const kind = { kind: 'row', table } as const;
-
 	/** The row path a literal stem addresses, or why it is not one filename segment here. */
 	function rowAddress(
 		stem: string,
@@ -224,13 +223,37 @@ export function createTable<TFields>(
 		return Ok(written.text);
 	}
 
+	/**
+	 * What `write`'s change starts from: the file as it is now when it holds
+	 * the row `from` names, in whatever spelling, so the file's own spelling
+	 * is the base and not an edit the merge would keep (ADR-0572: a row
+	 * written from an app is in standard form); otherwise `from` as written.
+	 */
+	async function baseOf(path: string, from: string): Promise<FileContent> {
+		const { data: read, error } = await storage.read(path);
+		if (error !== null) return from;
+		let text: string;
+		try {
+			text = utf8.decode(read.bytes);
+		} catch {
+			return from;
+		}
+		const [now, was] = [parseRow(table, text), parseRow(table, from)];
+		return now.error === null &&
+			was.error === null &&
+			now.data.body === was.data.body &&
+			sameValue(now.data.fields, was.data.fields)
+			? read.bytes
+			: from;
+	}
+
 	/** The one write of the file at `path`, and the row it left there. */
 	async function written(
 		path: string,
 		from: FileContent | null,
 		to: FileContent | null,
 	): Promise<Result<WrittenRow<TFields>, WriteError>> {
-		const { data, error } = await writeFile(storage, kind, path, from, to);
+		const { data, error } = await writeFile(storage, path, from, to);
 		if (error !== null) return Err(error);
 		if (data.file === null) return Ok(null);
 		return Ok(readBack(path, data.file));
@@ -286,7 +309,14 @@ export function createTable<TFields>(
 			if (base.error !== null) return Err(base.error);
 			const next = to === null ? Ok(null) : textOf(to);
 			if (next.error !== null) return Err(next.error);
-			return written(path, base.data, next.data);
+			// A write that changes nothing leaves the file as it is.
+			return written(
+				path,
+				base.data === null || base.data === next.data
+					? base.data
+					: await baseOf(path, base.data),
+				next.data,
+			);
 		},
 		async set(stem, fields) {
 			const { data: current, error: readError } = await fileTable.get(stem);
@@ -325,7 +355,7 @@ export function createTable<TFields>(
 		async delete(stem) {
 			const { data: path, error: addressError } = rowAddress(stem);
 			if (addressError !== null) return Err(addressError);
-			const { error } = await writeFile(storage, kind, path, null, null);
+			const { error } = await writeFile(storage, path, null, null);
 			return error === null ? Ok(undefined) : Err(error);
 		},
 		async rename(stem, next) {

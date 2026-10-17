@@ -4,7 +4,8 @@
  * Both functions take a table of a prepared folder definition, the one
  * `defineFolder` returns, so they work before `openFolder` and with no
  * storage at all. A table's `get`, `list`, `create`, and `replace` run
- * exactly these; nothing else in the package parses or writes row text.
+ * exactly these. The one other reader is `merge`, which reads and writes
+ * frontmatter through the same codec with no table (`merge-file.ts`).
  *
  *     const definition = defineFolder({ tables: { todos } });
  *     const { data: row, error: issues } = parseRow(definition.tables.todos, text);
@@ -180,7 +181,7 @@ export function wellFormed(text: string): string {
 }
 
 /** Text with each `\r\n` and lone `\r` as `\n`. */
-function lineFeeds(text: string): string {
+export function lineFeeds(text: string): string {
 	return text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text;
 }
 

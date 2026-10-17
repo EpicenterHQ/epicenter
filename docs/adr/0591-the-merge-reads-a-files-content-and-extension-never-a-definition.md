@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", the whole-file merge of `epicenter.json` with its union of `local`, "Sync, the one write, and the merge driver take the same rule", "Plain Git keeps its conflicts", and the rejected alternative "No merge driver": a `.md` file with readable frontmatter merges by field wherever it is, every `.json` file merges key by key, and the plain-Git merge driver is deleted. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition": history and Sync read no definition.
-- **Unbuilt:** all of it: `merge` without a definition; frontmatter kept as a side wrote it, which tests must prove before it ships (the fallback is restoring row classification); ours' key order; the `.json` merge by key; and the deletions below.
+- **Unbuilt:** deleting `localPatterns`, which stays in `packages/folder/src/declaration.ts` while publication and history still read `local`, until ADR-0592 removes it.
 
 ## Context
 
@@ -29,6 +29,7 @@ orders keys base, then ours, then theirs (`:106-110`).
 Sync takes its classifier from the opened handle (`kindOf`,
 `packages/folder/src/git/history.ts:687`). A plain-Git merge driver walks
 up from the path to the nearest `epicenter.json` and prepares it
+<!-- doc-path-check: ignore-next-line -->
 (`gitMergeKind`, `packages/folder/src/merge-driver.ts:52-76`), and the CLI
 configures it after a connecting sync and after `epicenter clone`.
 
@@ -48,8 +49,11 @@ configures it after a connecting sync and after `epicenter clone`.
   alike.
 - A `.json` file merges object by object, key by key. A nested object
   recurses; an array or a scalar is one unit per key; a key both sides
-  changed differently goes to the writer acting. A version that does not
-  parse merges whole.
+  changed differently goes to the writer acting. A byte-order mark is read
+  past and kept. A version that does not parse, or holds a number a rewrite
+  would change (an integer past 2^53, `1.0`, `1e3`), merges by line, two
+  insertions at one place competing so no key is written twice; JSON that
+  is not an object merges whole.
 - A merged Markdown file keeps its frontmatter as a side wrote it. When the
   merged fields equal ours' fields or theirs', that side's frontmatter bytes
   stand as they are, comments and quoting included. Only when the merged
@@ -63,6 +67,7 @@ configures it after a connecting sync and after `epicenter clone`.
 
 **The plain-Git merge driver is deleted.** Plain Git run on a folder shows
 Git's ordinary conflicts; Epicenter's merge by unit runs in Sync. Deleted:
+<!-- doc-path-check: ignore-next-line -->
 `packages/folder/src/merge-driver.ts` and `packages/cli/src/merge-driver.ts`
 with their tests, the `epicenter merge-driver` command, and the
 configuration written after a connecting sync

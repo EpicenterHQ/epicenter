@@ -8,10 +8,10 @@
  * ```
  *
  * The app runs `install-command --json` at every launch, so moving the app
- * breaks nothing past its next launch. Every Git configuration Epicenter
- * writes (the credential helper and `merge.epicenter.driver`) names the link
- * by its absolute path (`AppPaths.commandLink`), because a Git client started from the
- * Finder gets launchd's `PATH`. A terminal reaches it on `PATH` once a person
+ * breaks nothing past its next launch. The one Git configuration Epicenter
+ * writes, the credential helper, names the link by its absolute path
+ * (`AppPaths.commandLink`), because a Git client started from the Finder gets
+ * launchd's `PATH`. A terminal reaches it on `PATH` once a person
  * adds `~/.local/bin` there.
  *
  * The command only ever makes or replaces a symbolic link. A regular file at
