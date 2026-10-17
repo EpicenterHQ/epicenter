@@ -43,8 +43,8 @@
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
-import '../../lib/svelte-dom.test-support.js';
-import { afterEach, expect, test } from 'bun:test';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { afterEach, expect, mock, test } from 'bun:test';
 import { type Folder, parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { createFolderContext } from '@epicenter/svelte/folder';
@@ -55,22 +55,24 @@ import {
 	createTestStorage,
 	opfsOf,
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
-import { todosDefinition } from '../../lib/definition.js';
-import { quiet } from '../../lib/query.test-support.js';
 import {
 	blur,
 	click,
 	setWide,
 	type,
-} from '../../lib/svelte-dom.test-support.js';
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { todosDefinition } from '../../lib/definition.js';
+import { quiet } from '../../lib/query.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
-const { page } = await import('../../lib/app-state.test-support.svelte.ts');
-const { goto, leave, resetUrl } = await import(
-	'../../lib/app-navigation.test-support.ts'
-);
+const state = await import('../../lib/app-state.test-support.svelte.ts');
+const navigation = await import('../../lib/app-navigation.test-support.ts');
+mock.module('$app/state', () => state);
+mock.module('$app/navigation', () => navigation);
+const { page } = state;
+const { goto, leave, resetUrl } = navigation;
 const { default: TodosViewHost } = await import(
 	'./fixtures/TodosViewHost.svelte'
 );
