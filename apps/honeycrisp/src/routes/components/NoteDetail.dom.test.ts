@@ -19,11 +19,15 @@
  * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
  */
-import '../../lib/dom.test-support.ts';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
-import { click, leave, type } from '../../lib/dom.test-support.ts';
+import {
+	blur,
+	click,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import {
 	noteText,
 	openNotesFolder,
@@ -126,7 +130,7 @@ test('typing a title saves it, and switching tabs or typing keeps the one rich-t
 	flushSync();
 	expect(richOf(target)).toBe(rich);
 	type(titleOf(target), 'Retitled');
-	leave(titleOf(target));
+	blur(titleOf(target));
 	await tick();
 	await settle();
 	expect(text(PATH)).toContain('title: Retitled');
@@ -181,7 +185,7 @@ test('a title saved over a change made elsewhere keeps their body and wins the t
 	const { target, put, text, failures, settle } = await view();
 	put(PATH, noteText({ title: 'Theirs', body: 'Their body.\n' }));
 	type(titleOf(target), 'Mine');
-	leave(titleOf(target));
+	blur(titleOf(target));
 	await tick();
 	await settle();
 	expect(failures).toEqual([]);

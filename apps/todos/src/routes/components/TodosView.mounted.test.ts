@@ -16,8 +16,8 @@
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
-import '../../lib/svelte-dom.test-support.js';
-import { afterAll, afterEach, expect, test } from 'bun:test';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { afterAll, afterEach, expect, mock, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
@@ -34,14 +34,22 @@ import {
 	prepareGitSession,
 } from '../../../../../packages/folder/src/git-demo-server.test-support.js';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
+import { click } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { requestConnect } from '../../lib/connect-request.js';
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet, rowEditor } from '../../lib/query.test-support.js';
-import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
+mock.module(
+	'$app/state',
+	() => import('../../lib/app-state.test-support.svelte.ts'),
+);
+mock.module(
+	'$app/navigation',
+	() => import('../../lib/app-navigation.test-support.ts'),
+);
 const { default: TodosViewHost } = await import(
 	'./fixtures/TodosViewHost.svelte'
 );
