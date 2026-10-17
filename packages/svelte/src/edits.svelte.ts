@@ -12,19 +12,27 @@
  *   goes away. A draft outlives the view it was typed in, and a read never
  *   replaces it.
  * - **Failure.** A save that fails keeps what is typed on screen, and the
- *   person is told, with the text to copy and "Save again" (`writeFailed`).
+ *   person is told, with the text to copy, "Save again", and a way to
+ *   discard the edit (`writeFailed`).
+ * - **Unsaved typing blocks what would move past it.** Text typed at a path
+ *   whose save failed holds that path: a rename or delete of it, Save
+ *   version, and typing it in another way (its exact text against its body
+ *   or fields) are refused until it saves or the person discards it. Sync
+ *   goes ahead, since it does not claim the edit saved; closing goes ahead
+ *   once the failure was reported.
  * - **A delete beats an edit that never saw it.** A draft whose file was
  *   deleted, as a save found or a listing without its row says, is let go
  *   and its text offered once. A field set on a deleted row offers what was
  *   typed; a click offers nothing, since nothing was typed.
  * - **Order.** Every write goes through `writes` (`folderWrites`), so writes
  *   to one file run one at a time, in the order made, whoever made them.
- * - **Locks.** `exclusive(path, work)` runs a rename or a delete once every
- *   draft and write of the path landed, and refuses edits of the path
- *   meanwhile.
- * - **Settle, then commit.** `settled()` sends every draft and waits for
- *   every write, again until nothing is left; `saveVersion` and `sync`
- *   start after it.
+ * - **Locks.** `exclusive(paths, work)` runs a rename or a delete once every
+ *   draft and write of its paths landed, refuses edits of them meanwhile,
+ *   and lets go of what is held at them once it succeeded.
+ * - **Settle, then commit.** `settled()` sends every draft once and waits
+ *   for every write, again until nothing is left, and answers the paths
+ *   whose typing still did not save; `saveVersion` and `sync` start after
+ *   it.
  * - **The close fence.** `close()` refuses new input from the moment it is
  *   called, then waits for every draft, write, lock, and app action.
  *
@@ -69,7 +77,7 @@ import {
 } from '@epicenter/folder/svelte';
 import type { QueryClient } from '@tanstack/query-core';
 import { createSubscriber, SvelteMap } from 'svelte/reactivity';
-import { Ok, type Result } from 'wellcrafted/result';
+import { type Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	ActionError,
 	type DescribedError,
@@ -85,6 +93,18 @@ export const CLOSING = 'The folder is closing, so nothing was changed.';
 /** Why an edit of a file waits while it is renamed or deleted. */
 export const BUSY =
 	'This file is being renamed or deleted. Try again when it finishes.';
+
+/** Why a rename, a delete, or a switch of how a file is edited waits on typing that did not save. */
+export const UNSAVED =
+	'An edit of this file did not save. Save it again, or copy your text and discard the edit, then try again.';
+
+/** Why Save version recorded nothing while typing at `paths` did not save. */
+const notVersioned = (paths: readonly string[]) =>
+	`Your edits of ${paths.slice(0, 3).join(', ')}${paths.length > 3 ? ' and others' : ''} did not save, so no version was recorded. Save them again, or copy your text and discard the edits, then try again.`;
+
+/** Why text still held at a path was let go once the app renamed or deleted the file. */
+const MOVED =
+	'The file was renamed or deleted before this edit saved, so it is in no file.';
 
 /** A row's fields, by table name. */
 type FieldsOf<TTables, K extends keyof TTables> = TTables[K] extends {
@@ -177,6 +197,8 @@ class Held {
 	error = $state.raw<DescribedError | undefined>();
 	/** A save found the file deleted. */
 	foundGone = false;
+	/** Counts each change, so a settle tries each typed text once. */
+	revision = 0;
 	editor!: TextEditor;
 	readonly later: ReturnType<typeof later>;
 	readonly #unlisted: () => boolean;
@@ -193,12 +215,18 @@ class Held {
 /** A field held by its row and name. */
 class HeldField {
 	typed = $state.raw<unknown>();
+	/**
+	 * Counts each change. A save names the revision it sent, so one that
+	 * lands clears only the typing it sent, never a value typed after it,
+	 * even one equal to it (A, then B, then A again).
+	 */
+	revision = 0;
 	/** How many of its saves run or wait. */
 	saving = $state(0);
 	error = $state.raw<DescribedError | undefined>();
-	/** The save of the last value sent, while it runs. */
+	/** The save of the last revision sent, while it runs. */
 	sending:
-		| { readonly value: unknown; readonly done: Promise<void> }
+		| { readonly revision: number; readonly done: Promise<void> }
 		| undefined;
 	readonly table: string;
 	readonly stem: string;
@@ -302,6 +330,16 @@ export function createEdits<TTables>({
 		return undefined;
 	};
 
+	/** Whether the row at `path` holds typing: its body or a field. */
+	const rowTypedAt = (path: string) =>
+		bodies.get(path)?.editor.typed !== undefined ||
+		[...fields.values()].some(
+			(held) => held.path === path && held.typed !== undefined,
+		);
+	/** Whether the file at `path` holds typing as its exact text. */
+	const textTypedAt = (path: string) =>
+		texts.get(path)?.editor.typed !== undefined;
+
 	/** The listing of `table`, read reactively. */
 	function listing(table: string) {
 		trackQueries();
@@ -317,6 +355,26 @@ export function createEdits<TTables>({
 		return opened?.kind === 'text' ? opened.text : undefined;
 	}
 
+	/** Let go of the draft `map` holds at `path`, if it is `held`; answers what it held typed. */
+	function letGo(map: SvelteMap<string, Held>, path: string, held: Held) {
+		if (map.get(path) !== held) return undefined;
+		const unsaved = held.editor.typed;
+		held.later.cancel();
+		held.editor.discard();
+		map.delete(path);
+		return unsaved;
+	}
+
+	/** Let go of the field held at `key`, if it is `held`; answers what it held typed. */
+	function letGoField(key: string, held: HeldField) {
+		if (fields.get(key) !== held) return undefined;
+		const unsaved = held.typed;
+		held.later.cancel();
+		held.typed = undefined;
+		fields.delete(key);
+		return unsaved;
+	}
+
 	/**
 	 * After a save of `held` ended, or a listing landed: a draft with nothing
 	 * typed is let go, and one whose file is gone is let go with its text
@@ -324,11 +382,8 @@ export function createEdits<TTables>({
 	 */
 	function review(map: SvelteMap<string, Held>, path: string, held: Held) {
 		if (map.get(path) !== held || held.editor.saving) return;
-		const unsaved = held.editor.typed;
-		if (unsaved !== undefined && !held.gone()) return;
-		held.later.cancel();
-		held.editor.discard();
-		map.delete(path);
+		if (held.editor.typed !== undefined && !held.gone()) return;
+		const unsaved = letGo(map, path, held);
 		if (unsaved !== undefined)
 			writeFailed({ path, error: FileError.NotFound({ path }).error, unsaved });
 	}
@@ -360,8 +415,15 @@ export function createEdits<TTables>({
 	): Held {
 		const held = new Held(() => saveHeld(map, path), unlisted);
 		held.editor = open(async (sent, send, isGone) => {
-			const result = await send();
+			const result = await send().catch(
+				(cause: unknown): { data: null; error: DescribedError } => ({
+					data: null,
+					error: FileError.Io({ path, operation: 'save', cause }).error,
+				}),
+			);
 			if (result.error !== null) {
+				// Discarded while it ran: nothing is left to tell.
+				if (map.get(path) !== held) throw result.error;
 				held.error = result.error;
 				writeFailed({
 					path,
@@ -375,6 +437,7 @@ export function createEdits<TTables>({
 						void saveHeld(map, path);
 						return true;
 					},
+					discard: () => void letGo(map, path, held),
 				});
 				throw result.error;
 			}
@@ -386,11 +449,17 @@ export function createEdits<TTables>({
 		return held;
 	}
 
-	/** The draft a view types through: the one `map` holds at `path`, made at its first change. */
+	/**
+	 * The draft a view types through: the one `map` holds at `path`, made at
+	 * its first change. `otherTyped` says whether the path holds typing in
+	 * its other way of being edited, which refuses this one: a path has one
+	 * editing authority at a time.
+	 */
 	function draftAt(
 		map: SvelteMap<string, Held>,
 		path: string,
 		shown: () => string | undefined,
+		otherTyped: () => boolean,
 		open: () => Held,
 	): Draft {
 		return {
@@ -418,13 +487,14 @@ export function createEdits<TTables>({
 				return held?.editor.typed === undefined ? undefined : held.error;
 			},
 			change(text) {
-				if (locked(path)) return false;
+				if (locked(path) || otherTyped()) return false;
 				let held = map.get(path);
 				if (held === undefined) {
 					if (shown() === undefined) return false;
 					held = open();
 				}
 				held.editor.change(text);
+				held.revision += 1;
 				if (held.editor.typed === undefined) {
 					review(map, path, held);
 					return false;
@@ -457,6 +527,7 @@ export function createEdits<TTables>({
 			bodies,
 			path,
 			() => stored()?.row.body,
+			() => textTypedAt(path),
 			() =>
 				hold(bodies, path, unlisted, (write) =>
 					createBodyEditor<Fields>({
@@ -474,62 +545,85 @@ export function createEdits<TTables>({
 
 	/** One file's exact text, held by its path until it is in the file. */
 	function text(path: string): Draft {
+		// Gone as its own read says: the file was read again and is not there.
+		const unlisted = () => {
+			const state = queryClient.getQueryState(
+				queries.files.text.queryKey(path),
+			);
+			return (
+				state?.status === 'error' &&
+				(state.error as { name?: string } | null)?.name === 'NotFound'
+			);
+		};
 		return draftAt(
 			texts,
 			path,
 			() => shownText(path),
+			() => rowTypedAt(path),
 			() =>
-				hold(
-					texts,
-					path,
-					() => false,
-					(write) =>
-						createTextEditor({
-							current: () => shownText(path),
-							write: async (change) => {
-								const written = await write(
-									change.to,
-									() => writes.write(path, change.from, change.to),
-									({ file }) => file === null,
-								);
-								return written.file === null ? 'gone' : 'landed';
-							},
-						}),
+				hold(texts, path, unlisted, (write) =>
+					createTextEditor({
+						current: () => shownText(path),
+						write: async (change) => {
+							const written = await write(
+								change.to,
+								() => writes.write(path, change.from, change.to),
+								({ file }) => file === null,
+							);
+							return written.file === null ? 'gone' : 'landed';
+						},
+					}),
 				),
 		);
 	}
 
 	/**
 	 * Save the field held at `key`: what is typed now, set on the row as it
-	 * is. While a save of the same value runs, it answers that save.
+	 * is. While a save of the same revision runs, it answers that save.
 	 */
 	function saveField(key: string): Promise<void> {
 		const held = fields.get(key);
 		if (held === undefined) return Promise.resolve();
 		held.later.cancel();
 		if (held.typed === undefined) return Promise.resolve();
-		if (held.sending !== undefined && held.sending.value === held.typed)
+		if (held.sending !== undefined && held.sending.revision === held.revision)
 			return held.sending.done;
-		const sent = held.typed;
-		const done = sendField(key, held, sent);
-		held.sending = { value: sent, done };
+		const revision = held.revision;
+		const done = sendField(key, held, held.typed, revision);
+		held.sending = { revision, done };
 		void done.then(() => {
 			if (held.sending?.done === done) held.sending = undefined;
 		});
 		return done;
 	}
 
-	/** Set `sent` as the field held at `key`, as the row is now. */
-	async function sendField(key: string, held: HeldField, sent: unknown) {
+	/** Set `sent`, typed as `revision`, as the field held at `key`, as the row is now. */
+	async function sendField(
+		key: string,
+		held: HeldField,
+		sent: unknown,
+		revision: number,
+	) {
 		const { table, stem, name, path } = held;
 		held.saving += 1;
-		const { data, error } = await tableWrites(table).set(stem, {
-			[name]: sent,
-		});
-		held.saving -= 1;
+		let written: Awaited<ReturnType<TableWrites<Fields>['set']>>;
+		try {
+			written = await tableWrites(table).set(stem, { [name]: sent });
+		} catch (cause) {
+			// The folder host went away: a failed save like any other.
+			written = {
+				data: null,
+				error: FileError.Io({ path, operation: 'save', cause }).error,
+			} as typeof written;
+		} finally {
+			held.saving -= 1;
+		}
+		const { data, error } = written;
+		// Discarded while it ran: nothing is left to tell.
+		if (fields.get(key) !== held) return;
 		if (error !== null) {
 			// Typing went on: the next save sends that.
-			if (held.typed !== sent) return;
+			if (held.revision !== revision) return;
 			held.error = error;
 			writeFailed({
 				path,
@@ -541,10 +635,11 @@ export function createEdits<TTables>({
 					void saveField(key);
 					return true;
 				},
+				discard: () => void letGoField(key, held),
 			});
 			return;
 		}
-		if (held.typed === sent) {
+		if (held.revision === revision) {
 			held.typed = undefined;
 			held.error = undefined;
 			// A delete beats an edit it never saw: what was typed is offered.
@@ -555,12 +650,7 @@ export function createEdits<TTables>({
 					unsaved: typedText(sent),
 				});
 		}
-		if (
-			held.typed === undefined &&
-			held.saving === 0 &&
-			fields.get(key) === held
-		)
-			fields.delete(key);
+		if (held.typed === undefined && held.saving === 0) fields.delete(key);
 	}
 
 	/** Hold a field of the row at `stem` of `table`. */
@@ -597,9 +687,10 @@ export function createEdits<TTables>({
 				return held?.typed === undefined ? undefined : held.error;
 			},
 			change(value) {
-				if (locked(path)) return false;
+				if (locked(path) || textTypedAt(path)) return false;
 				const held = fields.get(key) ?? holdField(table, stem, name);
 				held.typed = value;
+				held.revision += 1;
 				held.later.schedule();
 				return true;
 			},
@@ -632,56 +723,120 @@ export function createEdits<TTables>({
 		);
 	}
 
-	/** Whether text typed at `path`, or anywhere, is not in its file. */
-	function holdsTyped(path?: string) {
+	/** The paths holding text typed and not in its file, at `path` or everywhere. */
+	function typedPaths(path?: string): string[] {
 		const held = heldAt(path);
-		return (
-			[...held.bodies, ...held.texts].some(
-				([, held]) => held.editor.typed !== undefined,
-			) || held.fields.some(([, held]) => held.typed !== undefined)
-		);
+		return [
+			...new Set([
+				...[...held.bodies, ...held.texts]
+					.filter(([, held]) => held.editor.typed !== undefined)
+					.map(([key]) => key),
+				...held.fields
+					.filter(([, held]) => held.typed !== undefined)
+					.map(([, held]) => held.path),
+			]),
+		];
 	}
 
-	/** Send once what is held at `path`, or everywhere. */
-	function sendHeld(path?: string) {
+	/**
+	 * Send what is held at `path`, or everywhere, that this settle has not
+	 * tried at its revision yet, and wait for any save of the rest that
+	 * runs. `tried` records each draft's revision once it was sent, so a
+	 * save that fails is tried once per settle, not again on every pass.
+	 */
+	function sendHeld(path: string | undefined, tried: Map<object, number>) {
 		const held = heldAt(path);
+		const once = (draft: Held | HeldField, send: () => Promise<void>) => {
+			if (tried.get(draft) === draft.revision) {
+				if (draft instanceof HeldField) return draft.sending?.done;
+				return draft.editor.saving ? draft.editor.save() : undefined;
+			}
+			tried.set(draft, draft.revision);
+			return send();
+		};
 		return Promise.all([
-			...held.bodies.map(([key]) => saveHeld(bodies, key)),
-			...held.texts.map(([key]) => saveHeld(texts, key)),
-			...held.fields.map(([key]) => saveField(key)),
+			...held.bodies.map(([key, draft]) =>
+				once(draft, () => saveHeld(bodies, key)),
+			),
+			...held.texts.map(([key, draft]) =>
+				once(draft, () => saveHeld(texts, key)),
+			),
+			...held.fields.map(([key, draft]) => once(draft, () => saveField(key))),
 		]);
 	}
 
 	/**
 	 * Resolves once what is typed at `path`, or everywhere, is sent, and
 	 * every write to it running now and every one that leads to landed or
-	 * failed, again until nothing is left. Text whose save failed stays
-	 * typed, and is tried once more.
+	 * failed, again until nothing is left. Each draft is tried once per
+	 * settle, and again only when typing changed it meanwhile. Answers the
+	 * paths whose typing still is not in its file: their saves failed, and
+	 * the person was told, with Save again.
 	 */
-	async function settled(path?: string): Promise<void> {
+	async function settled(path?: string): Promise<readonly string[]> {
 		await afterTeardown(() => {});
+		const tried = new Map<object, number>();
 		for (;;) {
-			await sendHeld(path);
+			await sendHeld(path, tried);
 			await writes.idle(path);
-			if (!draftsSaving(path) && writes.pending(path) === 0) return;
+			if (!draftsSaving(path) && writes.pending(path) === 0) break;
 		}
+		return typedPaths(path);
 	}
 
 	/**
-	 * Run `work`, a rename or a delete of `path`, once every draft and write
-	 * of `path` landed. Edits of `path` are refused from the call until it
-	 * settles, and closing waits for it.
+	 * Let go of every draft and field still held at `path` once the app
+	 * renamed or deleted its file, so no draft and no Save again stays aimed
+	 * at an address that now names nothing, or another file. Text still
+	 * typed there is offered once; the refusal in `exclusive` leaves none.
 	 */
-	function exclusive<T>(path: string, work: () => Promise<T>): Promise<T> {
-		locks.set(path, (locks.get(path) ?? 0) + 1);
-		const running = (async () => {
+	function release(path: string) {
+		const offer = (unsaved: unknown) => {
+			if (unsaved === undefined || typedText(unsaved) === '') return;
+			writeFailed({
+				path,
+				error: ActionError.NotStarted({ reason: MOVED }).error,
+				unsaved: typedText(unsaved),
+			});
+		};
+		for (const map of [bodies, texts]) {
+			const held = map.get(path);
+			if (held !== undefined) offer(letGo(map, path, held));
+		}
+		for (const [key, held] of [...fields])
+			if (held.path === path) offer(letGoField(key, held));
+	}
+
+	/**
+	 * Run `work`, a rename or a delete of `paths` (a rename names its source
+	 * and its destination), once every draft and write of each landed.
+	 * Edits of them are refused from the call until it settles, and closing
+	 * waits for it. Typing at them whose save failed refuses the work, with
+	 * `UNSAVED`, rather than move or delete past it. Once `work` succeeded,
+	 * every draft and field still held at them is let go.
+	 */
+	function exclusive<R extends Result<unknown, unknown>>(
+		paths: string | readonly string[],
+		work: () => Promise<R>,
+	): Promise<R | Err<ActionError>> {
+		const all = typeof paths === 'string' ? [paths] : [...new Set(paths)];
+		for (const path of all) locks.set(path, (locks.get(path) ?? 0) + 1);
+		const running = (async (): Promise<R | Err<ActionError>> => {
 			try {
-				await settled(path);
-				return await work();
+				const unsaved = (
+					await Promise.all(all.map((path) => settled(path)))
+				).flat();
+				if (unsaved.length > 0)
+					return ActionError.NotStarted({ reason: UNSAVED });
+				const result = await work();
+				if (result.error === null) for (const path of all) release(path);
+				return result;
 			} finally {
-				const left = (locks.get(path) ?? 1) - 1;
-				if (left === 0) locks.delete(path);
-				else locks.set(path, left);
+				for (const path of all) {
+					const left = (locks.get(path) ?? 1) - 1;
+					if (left === 0) locks.delete(path);
+					else locks.set(path, left);
+				}
 			}
 		})();
 		exclusives.add(running);
@@ -690,12 +845,16 @@ export function createEdits<TTables>({
 		return running;
 	}
 
-	// A body typed into a row deleted elsewhere is let go, and its text
-	// offered, as soon as a listing without the row lands, whether or not a
-	// save is due.
+	// Text typed into a file deleted elsewhere is let go, and offered, as
+	// soon as a read without it lands, whether or not a save is due: a
+	// listing without a row lets its body go, and a read of a file's text
+	// that finds no file lets that text go.
 	const stopWatching = queryClient.getQueryCache().subscribe((event) => {
-		if (event.type !== 'updated' || event.action.type !== 'success') return;
+		if (event.type !== 'updated') return;
+		if (event.action.type !== 'success' && event.action.type !== 'error')
+			return;
 		for (const [path, held] of [...bodies]) review(bodies, path, held);
+		for (const [path, held] of [...texts]) review(texts, path, held);
 	});
 
 	/** Whether nothing is held saving, no write waits, no lock runs, and no action runs. */
@@ -730,9 +889,17 @@ export function createEdits<TTables>({
 			if (why !== undefined) return why;
 			void tableWrites(table)
 				.set(stem, set as Fields)
-				.then(({ error }) => {
-					if (error !== null) writeFailed({ path, error, unsaved });
-				});
+				.then(
+					({ error }) => {
+						if (error !== null) writeFailed({ path, error, unsaved });
+					},
+					(cause: unknown) =>
+						writeFailed({
+							path,
+							error: FileError.Io({ path, operation: 'save', cause }).error,
+							unsaved,
+						}),
+				);
 			return undefined;
 		},
 		/** Whether a write of `path`, or of any file, runs or waits, or typing there waits to be sent; read reactively. */
@@ -764,7 +931,7 @@ export function createEdits<TTables>({
 				writes.pending() > 0 ||
 				locks.size > 0 ||
 				queryClient.isMutating() > 0 ||
-				holdsTyped()
+				typedPaths().length > 0
 			);
 		},
 		/** Whether edits of `path` are refused now: closing, or a rename or delete of it runs; read reactively. */
@@ -779,20 +946,27 @@ export function createEdits<TTables>({
 		exclusive,
 		/**
 		 * Record a version: commit the saved files (ADR-0529), once every
-		 * draft and write landed. Every outcome is the commit's answer; the
-		 * app decides what a person is told.
+		 * draft and write landed. Typing whose save failed refuses it, so a
+		 * version never stands for what is on screen while the file holds
+		 * less. Every other outcome is the commit's answer; the app decides
+		 * what a person is told.
 		 */
 		async saveVersion(): Promise<Result<CommitOutcome, ActionError>> {
 			if (fenced) return ActionError.NotStarted({ reason: CLOSING });
-			await settled();
+			const unsaved = await settled();
+			if (unsaved.length > 0)
+				return ActionError.NotStarted({ reason: notVersioned(unsaved) });
 			const outcome = await folder.git.commit();
 			void queryClient.invalidateQueries(queries.pathFilter(['.git']));
 			return Ok(outcome);
 		},
 		/**
 		 * Sync, once every draft and write landed; given `url`, connect to it
-		 * first (`folder.sync.connect`). The files Sync wrote arrive on the
-		 * folder's change channel; every query is read again besides.
+		 * first (`folder.sync.connect`). Typing whose save failed does not
+		 * stop it: Sync carries what the files hold and claims nothing about
+		 * the edit still on screen, which stays held with Save again. The
+		 * files Sync wrote arrive on the folder's change channel; every query
+		 * is read again besides.
 		 */
 		async sync({
 			url,
@@ -816,8 +990,10 @@ export function createEdits<TTables>({
 		/**
 		 * Fence, then wait until every draft is sent and every write, rename,
 		 * delete, and app action has settled, again until nothing is left.
-		 * It releases nothing: whoever opened the folder closes it after.
-		 * Every call answers the same completion.
+		 * Typing whose save failed does not hold it open: its failure was
+		 * reported, with the text to copy. It releases nothing: whoever
+		 * opened the folder closes it after. Every call answers the same
+		 * completion.
 		 */
 		close(): Promise<void> {
 			fenced = true;

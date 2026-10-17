@@ -53,6 +53,13 @@ export type WriteFailure = {
 	 * do. When none starts, the toast stays up with the text to copy.
 	 */
 	readonly retry?: () => boolean;
+	/**
+	 * Let go of the edit still on screen: the file keeps what it holds, and
+	 * the notice keeps the text to copy. Set with `retry`, so a save that
+	 * keeps failing never traps the person in an edit that blocks a rename,
+	 * a delete, or Save version.
+	 */
+	readonly discard?: () => void;
 };
 
 const UNCONFIRMED =

@@ -60,14 +60,18 @@ definition, and everything below it reads the opened folder through
   (`retry: false`). `invalidateOnChange` is wired once, before anything
   reads.
 - One edit layer (`edits`), described below.
-- One write-failure toast. An app reports `{ path, error, unsaved, retry? }`
-  to `getFolder().writeFailed`; the toast says `Could not save <path>` and
+- One write-failure toast. An app reports
+  `{ path, error, unsaved, retry?, discard? }` to `getFolder().writeFailed`; the toast says `Could not save <path>` and
   words the error with `describeWriteError`. It offers the unsaved text with
   "Copy your text" and stays up until the clipboard took it or the person
   dismisses it; a refused copy shows the text in a box to select by hand.
   It offers "Save again" when `retry` is set; `retry` answers whether a save
   started, and when none did the toast comes back with only the text to
-  copy. A failed field set reports the field the person typed, such as a
+  copy. It offers "Discard your edit" when `discard` is set, which lets go
+  of the edit on screen and keeps the toast up with the text to copy.
+  `@epicenter/svelte/write-failure-toast` exports it as `toastWriteFailure`
+  for an app, such as Whispering, that opens its folder itself. A failed
+  field set reports the field the person typed, such as a
   title, and no text for a click, a move, or a delete.
 - Closing when the page goes away: the edit layer fences input from the
   moment close is called, sends what is typed, waits for every write,
@@ -118,18 +122,32 @@ await edits.saveVersion();
   calls when the person leaves the control and when the view goes away. A
   draft outlives its view, and a read never replaces it.
 - A save that fails keeps what is typed and reports it to `writeFailed`
-  with the text and a `retry` that starts a save while the draft is still
-  held and the folder is not closing.
+  with the text, a `retry` that starts a save while the draft is still
+  held and the folder is not closing, and a `discard` that lets it go.
+- A path's unsaved typing blocks anything that would move past it on that
+  path. While typing whose save failed is held at a path, `exclusive` on
+  it answers `ActionError.NotStarted` with `UNSAVED`, `saveVersion()`
+  answers `NotStarted` naming the paths, and typing the path another way
+  is refused: a file's exact text against its body or fields, either way.
+  Sync goes ahead, since it carries what the files hold and claims nothing
+  about the edit on screen; `close()` goes ahead once the failure was
+  reported. Save again or Discard in the failure's notice is the way out.
 - A delete beats an edit that never saw it. A draft whose file was deleted,
   as a save found or a listing without its row says, is let go and its text
   offered once (`NotFound`). A field set on a deleted row offers what was
   typed; `set`, a click, offers nothing.
-- `exclusive(path, work)` runs a rename or delete once the path's drafts
-  and writes landed; `locked(path)` and `refusal(path)` answer while it
-  runs, and while the folder closes.
+- `exclusive(paths, work)` runs a rename or delete, whose `work` answers a
+  Result, once the drafts and writes of its paths landed; a rename names
+  its source and its destination. `locked(path)` and `refusal(path)`
+  answer while it runs, and while the folder closes. Once `work`
+  succeeded, every draft and field still held at its paths is let go, so
+  no Save again reaches an address that was moved or deleted.
 - `settled(path?)` sends what is typed and waits for every write, again
-  until nothing is left. `saveVersion()` and `sync({ url? })` start after
-  it.
+  until nothing is left. Each draft is tried once per settle, and again
+  only when typing changed it meanwhile; it answers the paths whose typing
+  still did not save. `saveVersion()` and `sync({ url? })` start after it.
+- A field save names the revision it sent, so one that lands clears only
+  that typing, never a value typed after it, even one equal to it.
 - `writing(path?)`, `unsaved(path?)`, `busy`, and `fenced` are read
   reactively.
 - `close()` fences new input when it is called, then waits for every draft,

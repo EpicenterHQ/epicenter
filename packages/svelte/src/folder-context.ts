@@ -113,7 +113,11 @@ export function createFolderContext<TDefinition extends Definition>(
 		writeFailed,
 		close() {
 			closing ??= (async () => {
-				await edits.close();
+				// A close that throws still releases the folder; what it held
+				// unsaved was reported when its save failed.
+				await edits.close().catch((cause: unknown) => {
+					console.error('The folder closed before its edits settled.', cause);
+				});
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: queries.key });
 				await folder.close();

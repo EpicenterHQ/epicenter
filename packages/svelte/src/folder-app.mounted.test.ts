@@ -10,7 +10,7 @@
  * - A folder that cannot open is the refusal screen, worded for the
  *   refusal, and nothing renders the children
  * - A failed save is one toast that offers the unsaved text to copy, and
- *   stays up
+ *   stays up; an edit still on screen also offers Save again and Discard
  * - Unmounting closes the folder: a write after it is refused `Closed`
  *
  * Run with `bun run test`.
@@ -248,6 +248,32 @@ test('Save again that starts no save keeps the text offered', async () => {
 	expect(document.body.textContent).toContain('Copy your text');
 	// Nothing to save again any more: only the text is offered.
 	expect(document.body.textContent).not.toContain('Save again');
+});
+
+test('Discard lets go of the edit and keeps the text offered, without Save again', async () => {
+	clipboard('takes');
+	const { opened } = mountApp(createTestStorage());
+	const context = await opened;
+	cleanup.push(() => context.close());
+	let discarded = 0;
+
+	context.writeFailed({
+		path: 'notes/e.md',
+		error: deleted,
+		unsaved: 'Typed body',
+		retry: () => true,
+		discard: () => {
+			discarded++;
+		},
+	});
+	await until(() => toastFor('notes/e.md'), 'the toast');
+	expect(document.body.textContent).toContain('Save again');
+	click(document.body, 'Discard your edit');
+	expect(discarded).toBe(1);
+	expect(await stillUp('notes/e.md')).toBe(true);
+	expect(document.body.textContent).toContain('Copy your text');
+	expect(document.body.textContent).not.toContain('Save again');
+	expect(document.body.textContent).not.toContain('Discard your edit');
 });
 
 test('Save again that starts a save closes the toast', async () => {

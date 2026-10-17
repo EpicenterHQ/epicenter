@@ -22,7 +22,8 @@
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
 		"./sync-line": "./src/sync-line.ts",
-		"./write-failure": "./src/write-failure.ts"
+		"./write-failure": "./src/write-failure.ts",
+		"./write-failure-toast": "./src/write-failure-toast.ts"
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",

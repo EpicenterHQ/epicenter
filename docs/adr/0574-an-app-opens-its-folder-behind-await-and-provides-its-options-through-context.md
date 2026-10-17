@@ -70,16 +70,22 @@ it with `<FolderProvider>`:
   by path until each is in the file: saved a second after the last change
   and when the view leaves it, kept on screen when a save fails, and let go
   with its text offered when the file was deleted elsewhere. `exclusive`
-  runs a rename or delete once the file's drafts landed; `settled` waits for
-  every draft and write, again until none is left, before Save version and
-  Sync;
+  runs a rename or delete once the drafts of its paths (a rename's source
+  and destination) landed, and lets go of what was held there once it
+  succeeded; `settled` tries every draft once and waits for every write,
+  again until none is left, before Save version and Sync, and answers the
+  paths whose typing did not save. A path's unsaved typing blocks anything
+  that would move past it on that path: a rename or delete of it, Save
+  version, and typing the path another way are refused until it saves or
+  the person discards it. Sync goes ahead, since it claims nothing about
+  the edit on screen;
 - `writeFailed`, one toast for a failed save: `Could not save <path>`, the
   error worded by `describeWriteError`, and "Copy your text" for the unsaved
   text. The toast is the only place that text exists, so it stays up until
   the clipboard took the text or the person dismisses it, and a refused copy
   shows the text to select by hand. "Save again" appears when the edit is
-  still on screen; `retry` answers whether a save started, and when none did
-  the toast comes back with only the text. A failed field set offers the
+  still on screen, with "Discard your edit"; `retry` answers whether a save
+  started, and when none did the toast comes back with only the text. A failed field set offers the
   field the person typed, such as a title, and no text for a click, a move,
   or a delete;
 - closing when the page goes away: the edit layer fences input when close

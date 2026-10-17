@@ -20,8 +20,20 @@
  * - A typed field saves and clears once in the file; a failed one keeps the
  *   value, reported with it; one set on a deleted row offers the text, and
  *   a click on a deleted row reports nothing
+ * - A field save that lands clears only the typing it sent, never a value
+ *   typed after it that equals it (A, then B, then A)
  * - A rename or delete runs once the path's drafts landed and refuses edits
- *   meanwhile
+ *   meanwhile, at a rename's source and destination both
+ * - Typing whose save failed blocks what would move past it: a delete or
+ *   rename of its path, Save version, and typing the path another way; the
+ *   failure offers Save again and Discard, and discarding unblocks
+ * - A settle tries a failed save once, and answers what still did not save
+ * - A rename or delete that succeeded lets go of what was held at the path,
+ *   so no Save again reaches a file later made there
+ * - A file's text typed into a file deleted elsewhere is let go and offered
+ *   once, as soon as a read without the file lands
+ * - A field save whose write throws ends saving and is reported; close
+ *   still completes
  * - Save version starts once every draft and write landed, and commits what
  *   they wrote
  * - Close fences input at once and waits for every draft, write, and app
@@ -43,7 +55,7 @@ import type { WriteFailure } from './write-failure.js';
 
 const { flushSync } = await import('svelte');
 const { createFolderContext } = await import('./folder-context.js');
-const { CLOSING } = await import('./edits.svelte.js');
+const { CLOSING, UNSAVED } = await import('./edits.svelte.js');
 
 const definition = defineFolder({
 	tables: {
@@ -337,6 +349,263 @@ test("a delete runs once the path's drafts landed, and refuses edits meanwhile",
 	expect(sawBody).toBe('Last words.\n');
 	expect(edits.locked('notes/a.md')).toBe(false);
 	expect(await stored(folder, 'a')).toBe(undefined);
+});
+
+test('a field save that lands clears only the typing it sent, not the same value typed again after it (A, then B, then A)', async () => {
+	const { folder, edits } = await setup();
+	const set = folder.tables.notes.set;
+	const gate = Promise.withResolvers<void>();
+	const began = Promise.withResolvers<void>();
+	let calls = 0;
+	folder.tables.notes.set = (async (...args: Parameters<typeof set>) => {
+		if (++calls === 1) {
+			began.resolve();
+			await gate.promise;
+		}
+		return set(...args);
+	}) as typeof set;
+	const title = edits.field('notes', 'a', 'title');
+
+	title.change('First');
+	const first = title.save();
+	await began.promise;
+	title.change('Intermediate');
+	const second = title.save();
+	await until(
+		() => edits.writes.pending('notes/a.md') === 2,
+		'the second save to wait its turn',
+	);
+	title.change('First');
+	gate.resolve();
+	await first;
+	await second;
+	// The first save sent "First" before "Intermediate"; what was typed last
+	// is still to send.
+	expect(title.typed).toBe('First');
+	await edits.settled();
+	expect((await stored(folder, 'a'))?.fields.title).toBe('First');
+	expect(title.typed).toBe(undefined);
+});
+
+test('a rename locks its source and its destination, and lets go of what was held at both once it moved', async () => {
+	const { folder, context, edits } = await setup();
+	expectOk(await folder.write('note.txt', null, 'one\n'));
+	await context.queryClient.fetchQuery(
+		context.queries.files.text.queryOptions('note.txt'),
+	);
+	const source = edits.text('note.txt');
+	source.change('two\n');
+	let lockedDuringMove = false;
+	let destinationTook = true;
+	const moved = await edits.exclusive(['note.txt', 'moved.txt'], async () => {
+		lockedDuringMove = edits.locked('note.txt') && edits.locked('moved.txt');
+		destinationTook = edits.text('moved.txt').change('typed meanwhile\n');
+		return edits.writes.move('note.txt', 'moved.txt');
+	});
+	expectOk(moved);
+	expect(lockedDuringMove).toBe(true);
+	expect(destinationTook).toBe(false);
+	expect((await folder.files.read('moved.txt')).error).toBe(null);
+	expect(edits.locked('moved.txt')).toBe(false);
+	expect(edits.busy).toBe(false);
+	expect(source.typed).toBe(undefined);
+});
+
+test('a delete refuses while typing at its path did not save; Discard lets the delete run, and no Save again reaches a file later made there', async () => {
+	const { folder, context, edits, failures } = await setup({
+		refusable: true,
+	});
+	await context.queryClient.fetchQuery(
+		context.queries.files.text.queryOptions('notes/a.md'),
+	);
+	const text = edits.text('notes/a.md');
+	refusing.write = true;
+	const mine = '---\ntitle: A\npinned: false\n---\nOne.\nMINE\n';
+	expect(text.change(mine)).toBe(true);
+	await text.save();
+	expect(text.failed).toBe(true);
+
+	const refused = await edits.exclusive('notes/a.md', () =>
+		edits.writes.tables.notes.delete('a'),
+	);
+	expect(refused.error).toMatchObject({ name: 'NotStarted', reason: UNSAVED });
+	expect(await stored(folder, 'a')).toEqual({
+		fields: { title: 'A', pinned: false },
+		body: 'One.\n',
+	});
+	expect(text.typed).toBe(mine);
+	// The settle tried the save once more, and the person is told again,
+	// with the text, Save again, and Discard.
+	const told = failures.at(-1);
+	expect(told).toMatchObject({ path: 'notes/a.md', unsaved: mine });
+	expect(told?.retry).toBeFunction();
+	expect(told?.discard).toBeFunction();
+
+	told?.discard?.();
+	expect(text.typed).toBe(undefined);
+	expect(edits.unsaved()).toBe(false);
+	expectOk(
+		await edits.exclusive('notes/a.md', () =>
+			edits.writes.tables.notes.delete('a'),
+		),
+	);
+	context.queryClient.removeQueries({
+		queryKey: context.queries.files.text.queryKey('notes/a.md'),
+		exact: true,
+	});
+	expect(edits.unsaved()).toBe(false);
+	expect(edits.busy).toBe(false);
+
+	// A new file at the path shows its own text, and the old notice saves
+	// nothing into it.
+	refusing.write = false;
+	expectOk(
+		await folder.tables.notes.create(
+			{ fields: { title: 'B', pinned: false }, body: 'Brand new.\n' },
+			{ stem: 'a' },
+		),
+	);
+	await context.queryClient.fetchQuery(
+		context.queries.files.text.queryOptions('notes/a.md'),
+	);
+	expect(text.text).toContain('Brand new.');
+	expect(told?.retry?.()).toBe(false);
+	await edits.settled();
+	expect((await stored(folder, 'a'))?.body).toBe('Brand new.\n');
+});
+
+test('a settle tries a failed save once, and answers the paths still unsaved', async () => {
+	const { folder, edits, failures } = await setup();
+	const write = folder.tables.notes.write;
+	folder.tables.notes.write = (async () => ({
+		data: null,
+		error: { name: 'Io', message: 'disk full' },
+	})) as unknown as typeof write;
+	edits.body('notes', 'a').change('Typed.\n');
+	await edits.body('notes', 'a').save();
+	expect(failures).toHaveLength(1);
+
+	expect(await edits.settled()).toEqual(['notes/a.md']);
+	expect(failures).toHaveLength(2);
+	expect(await edits.settled('notes/b.md')).toEqual([]);
+
+	folder.tables.notes.write = write;
+	expect(await edits.settled()).toEqual([]);
+	expect((await stored(folder, 'a'))?.body).toBe('Typed.\n');
+});
+
+test('Save version refuses while typing did not save, and commits once it is discarded', async () => {
+	const { folder, edits, failures } = await setup();
+	expectOk(await edits.saveVersion());
+	const write = folder.tables.notes.write;
+	folder.tables.notes.write = (async () => ({
+		data: null,
+		error: { name: 'Io', message: 'disk full' },
+	})) as unknown as typeof write;
+	const body = edits.body('notes', 'a');
+	body.change('Must be in the version.\n');
+	edits.field('notes', 'a', 'title').change('Committed');
+
+	const refused = await edits.saveVersion();
+	expect(refused.error?.name).toBe('NotStarted');
+	expect(refused.error?.message).toContain('notes/a.md');
+	expect(body.typed).toBe('Must be in the version.\n');
+	// The field saved; only the body is held.
+	expect((await stored(folder, 'a'))?.fields.title).toBe('Committed');
+	expect(expectOk(await folder.git.status()).changes).not.toEqual([]);
+
+	failures.at(-1)?.discard?.();
+	expect(expectOk(await edits.saveVersion()).status).toBe('committed');
+	expect((await stored(folder, 'a'))?.body).toBe('One.\n');
+	folder.tables.notes.write = write;
+});
+
+test('a path is typed one way at a time: a body or field that did not save refuses its exact text, and the reverse', async () => {
+	const { folder, context, edits, failures } = await setup({
+		refusable: true,
+	});
+	await context.queryClient.fetchQuery(
+		context.queries.files.text.queryOptions('notes/a.md'),
+	);
+	const write = folder.tables.notes.write;
+	folder.tables.notes.write = (async () => ({
+		data: null,
+		error: { name: 'Io', message: 'disk full' },
+	})) as unknown as typeof write;
+	const body = edits.body('notes', 'a');
+	body.change('Older body.\n');
+	await body.save();
+	const text = edits.text('notes/a.md');
+	expect(text.change('---\ntitle: A\npinned: false\n---\nNewer.\n')).toBe(
+		false,
+	);
+	failures.at(-1)?.discard?.();
+	folder.tables.notes.write = write;
+
+	refusing.write = true;
+	expect(text.change('---\ntitle: A\npinned: false\n---\nNewer.\n')).toBe(true);
+	await text.save();
+	expect(text.failed).toBe(true);
+	expect(body.change('Older again.\n')).toBe(false);
+	expect(edits.field('notes', 'a', 'title').change('Other')).toBe(false);
+	refusing.write = false;
+	await edits.settled();
+	expect((await stored(folder, 'a'))?.body).toBe('Newer.\n');
+});
+
+test("a file's text typed into a file deleted elsewhere is let go and offered once, as soon as a read without it lands", async () => {
+	const { folder, context, edits, failures } = await setup({
+		refusable: true,
+	});
+	expectOk(await folder.write('note.txt', null, 'one\n'));
+	const options = context.queries.files.text.queryOptions('note.txt');
+	const stop = new QueryObserver(context.queryClient, options).subscribe(
+		() => {},
+	);
+	cleanup.push(stop);
+	await context.queryClient.fetchQuery(options);
+	const text = edits.text('note.txt');
+	refusing.write = true;
+	text.change('two\n');
+	await text.save();
+	expect(edits.unsaved()).toBe(true);
+	const before = failures.length;
+
+	refusing.write = false;
+	expectOk(await folder.write('note.txt', 'one\n', null));
+	await context.queryClient.invalidateQueries({
+		queryKey: context.queries.files.text.queryKey('note.txt'),
+	});
+	await until(() => failures.length > before, 'the offer');
+	expect(failures.slice(before)).toHaveLength(1);
+	expect(failures.at(-1)).toMatchObject({
+		path: 'note.txt',
+		unsaved: 'two\n',
+		error: { name: 'NotFound' },
+	});
+	expect(text.typed).toBe(undefined);
+	expect(edits.unsaved()).toBe(false);
+	expect(edits.busy).toBe(false);
+});
+
+test('a field save whose write throws ends saving and is reported; close still completes', async () => {
+	const { folder, context, edits, failures } = await setup();
+	const set = folder.tables.notes.set;
+	folder.tables.notes.set = (async () => {
+		throw new Error('host went away');
+	}) as unknown as typeof set;
+	const title = edits.field('notes', 'a', 'title');
+	title.change('Typed');
+	await title.save();
+	expect(title.saving).toBe(false);
+	expect(title.typed).toBe('Typed');
+	expect(failures.at(-1)).toMatchObject({
+		path: 'notes/a.md',
+		unsaved: 'Typed',
+		error: { name: 'Io' },
+	});
+	await context.close();
+	folder.tables.notes.set = set;
 });
 
 test('Save version starts once every draft and write landed, and commits what they wrote', async () => {
