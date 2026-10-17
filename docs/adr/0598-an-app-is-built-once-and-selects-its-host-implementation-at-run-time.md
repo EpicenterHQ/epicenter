@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) (the build selects every implementation); the package it governed, `@epicenter/app`, no longer exists.
-- **Amends:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at "Keep consumer app conditions that select their own authentication and UI seams" and "This selector does not make a broker-authenticated app build standalone": an app's own seams select at run time too, and one build runs on every host; failing closed on the wrong host stands. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "The publisher runs the desktop build (`EPICENTER_HOST=1`, `installedAppViteConfig` in `packages/vite-config/src/index.ts`), or the repository would hold the browser build", at the browser build alone carrying the template commit's objects, and at the `template` branch's history: there is one build, the published repository holds the same artifact a web host serves, every build carries its template commit's objects, the publisher only fast-forwards `template`, and the desktop never fetches it. [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) at "An application build declares `epicenter-host` when the desktop Epicenter host serves it": no build declares a host.
-- **Unbuilt:** all of it: run-time selection of each app's seams, the one build with every route prerendered and a fallback page, the scheme serving each route's own document and the fallback document with a `<base href>`, the publisher's fast-forward-only push of `template`, the checks that replace the platform selection tests, and the deletions below. That SvelteKit's fallback document loads its assets and finds its router base through an inserted `<base href>` is not verified.
+- **Amends:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at "Keep consumer app conditions that select their own authentication and UI seams" and "This selector does not make a broker-authenticated app build standalone": an app's own seams select at run time too, and one build runs on every host; failing closed on the wrong host stands. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "The publisher runs the desktop build (`EPICENTER_HOST=1`, `installedAppViteConfig` in `packages/vite-config/src/index.ts`), or the repository would hold the browser build", at the browser build alone carrying the template commit's objects (the commit, its trees, and its blobs), and at the `template` branch's history: there is one build, the published repository holds the same artifact a web host serves, every build carries the objects of its template commit and of every template commit before it, the publisher only fast-forwards `template`, and the desktop never fetches it. [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) at "An application build declares `epicenter-host` when the desktop Epicenter host serves it": no build declares a host.
+- **Unbuilt:** all of it: run-time selection of each app's seams, the one build with every route prerendered and a fallback page, the scheme serving each route's own document and the fallback document with a `<base href>`, the template history in every build, the publisher's fast-forward-only push of `template`, the checks that replace the platform selection tests, and the deletions below. That SvelteKit's fallback document loads its assets and finds its router base through an inserted `<base href>` is not verified.
 
 ## Context
 
@@ -73,13 +73,17 @@ fallback page for a path with no file. The repository ADR-0589
 publishes holds this build, so the bytes a person approves on the desktop
 are the bytes the app's web origin serves.
 
-**Every build carries its template commit, and `template` only moves
-forward.** The browser template objects ADR-0589 describes are in the one
-build, so every approved build, on any host, can start a folder from the
-template commit it names. The publisher pushes `template` by fast-forward
-only, so each template commit's parent is the one before it, and a newer
-build's template commit descends from the commit a folder started from;
-"Update from <app>'s template" (ADR-0585) has that commit as its base. The
+**Every build carries its template's whole history, and `template` only
+moves forward.** A build's assets hold the Git objects (commits, trees, and
+blobs) of the template commit it names and of every template commit before
+it, back to the first. Every approved build, on any host, can then start a
+folder from the template commit it names. The publisher pushes `template`
+by fast-forward only, so each template commit's parent is the one before
+it, and a newer build's template commit descends from the commit a folder
+started from; "Update from <app>'s template" (ADR-0585) has that commit as
+its base. A folder that skipped any number of template versions finds every
+parent of the new template commit in the build, so its history stays
+complete, and a push to a remote that lacks those commits sends them. The
 desktop never fetches the `template` branch: it starts and updates folders
 from the objects in the approved build (ADR-0597).
 
@@ -101,10 +105,11 @@ Deleted, about 700 lines removed or rewritten:
 
 ## Consequences
 
-- A build carries one template commit's objects. A folder that skips
-  template commits, updating from its first to one several commits later,
-  receives a commit whose parents it lacks, which Git counts as missing
-  objects; which objects a build carries for that case is not yet decided.
+- Each build carries every template commit ever published. A template is
+  a few small files (`epicenter.json`, `README.md`, `.gitignore`), so each
+  new template version adds a commit, a tree, and only the blobs that
+  changed, a few kilobytes, and the history grows by that much per version
+  for the life of the app.
 - Each repository carries about 1 MB of the other host's chunks, which a
   page on this host never loads.
 - Boot takes one more request: the chosen implementation's chunk loads
