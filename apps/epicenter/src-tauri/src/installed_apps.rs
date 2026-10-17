@@ -16,11 +16,14 @@
 //! install_app            epicenter app install [--folder=<folder>] --json -- <source>
 //! update_app             epicenter app update --json -- <id>
 //! approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
-//! open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not built
+//! open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not current
 //! ```
 //!
 //! What stays here is what must be native: reading which build is current,
-//! and opening an app's window with its folder grant (`open_installed_window`).
+//! which chooses the commit a new window opens, and opening an app's window
+//! at that commit with its folder grant (`open_installed_window`). An open
+//! window keeps the build it opened on (ADR-0585), so a new build changes no
+//! open window.
 
 use std::ffi::OsString;
 use std::fs;
@@ -33,7 +36,8 @@ use crate::app_data::DesktopPaths;
 use crate::cli::{window_invocation, CliError, CliExit};
 use crate::data_folders;
 
-/// The file in an app's build directory naming the commit its window loads.
+/// The file in an app's build directory naming the commit a new window of it
+/// opens on. The CLI writes it after approving and building that commit.
 pub const CURRENT_BUILD: &str = "current";
 
 /// The commit `builds/<id>/current` names, when its build is there.
@@ -44,7 +48,9 @@ pub fn current_build(builds: &Path) -> Option<String> {
         .then(|| commit.to_string())
 }
 
-fn is_commit(value: &str) -> bool {
+/// Whether `value` is a full commit id, SHA-1 or SHA-256, and so can name a
+/// directory under `builds/<id>/`.
+pub(crate) fn is_commit(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
@@ -111,26 +117,6 @@ async fn stream(
         .await
 }
 
-/// `stream` for a command that may change app `id`'s current build: when it
-/// did, the app's open windows reload onto the new build (`update_args`).
-async fn stream_building(
-    webview: &Webview,
-    id: &str,
-    args: Vec<OsString>,
-    on_line: Channel<String>,
-) -> Result<CliExit, CliError> {
-    if !is_app_id(id) {
-        return stream(webview, args, on_line).await;
-    }
-    let builds = webview.state::<DesktopPaths>().builds_dir().join(id);
-    let before = current_build(&builds);
-    let exit = stream(webview, args, on_line).await?;
-    if current_build(&builds) != before {
-        crate::reload_installed_windows(webview.app_handle(), id);
-    }
-    Ok(exit)
-}
-
 // ---------------------------------------------------------------------------
 // Commands, granted to the Folders window alone
 
@@ -181,17 +167,11 @@ pub async fn approve_app(
     commit: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream_building(
-        &webview,
-        &id,
-        update_args(&id, Some(&commit), true),
-        on_line,
-    )
-    .await
+    stream(&webview, update_args(&id, Some(&commit), true), on_line).await
 }
 
-/// Fetch app `id`'s upstream and bring it up to date. What arrives from
-/// elsewhere waits for approval.
+/// Fetch app `id`'s upstream and bring it up to date. A commit not yet
+/// approved waits for approval.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_app(
@@ -199,16 +179,18 @@ pub async fn update_app(
     id: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream_building(&webview, &id, update_args(&id, None, false), on_line).await
+    stream(&webview, update_args(&id, None, false), on_line).await
 }
 
 /// Open app `id` at `commit`, the commit the Folders window listed, in its own
-/// window titled `title`. When that commit is not the build its window
-/// loads, the CLI builds it first, which it does only for a commit that may
-/// run (one made here, or approved). With `folder`, a scope the Folders
-/// window listed, the window is let into that folder and handed it, which
-/// the page asks for with `window_folder`. Without one, the app is handed its
-/// own folder, `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
+/// window titled `title`, served at `/apps/<id>/<commit>/`. When that commit
+/// is not the current build, the CLI makes it current first, which it does
+/// only for an approved commit. A window already open on the folder is
+/// revealed and keeps the build it opened on. With `folder`, a scope the
+/// Folders window listed, the window is let into that folder and handed it,
+/// which the page asks for with `window_folder`. Without one, the app is
+/// handed its own folder, `<folder_dir>/<id>`, whose scope is its id
+/// (ADR-0552).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_installed_app(
@@ -235,10 +217,11 @@ pub async fn open_installed_app(
                 other => format!("{other:?}"),
             })?;
         match exit.code {
-            0 => crate::reload_installed_windows(&app, &id),
+            0 if current_build(&builds).as_deref() == Some(commit.as_str()) => {}
+            0 => return Err(format!("{title} was not built at {commit}.")),
             1 => {
                 return Err(format!(
-                    "{title} changed from elsewhere. Review and approve it first."
+                    "{title} is waiting for approval. Review and approve it first."
                 ))
             }
             _ => return Err(exit.failure("app update")),
@@ -254,7 +237,7 @@ pub async fn open_installed_app(
             Some(folder) => folder,
             None => data_folders::own_folder(&app, &id)?,
         };
-        crate::open_installed_window(&app, &id, &title, &folder)
+        crate::open_installed_window(&app, &id, &commit, &title, &folder)
             .map_err(|error| format!("{error:#}"))
     })
     .await
@@ -314,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_current_build_with_its_page_is_served() {
+    fn only_a_current_build_with_its_page_opens_a_new_window() {
         let builds =
             std::env::temp_dir().join(format!("epicenter-current-build-{}", std::process::id()));
         let _ = fs::remove_dir_all(&builds);

@@ -588,8 +588,7 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
         return Ok(());
     }
 
-    let url = scheme::url(built_in.path())?;
-    let window = create_app_window(app, built_in.id(), built_in.title(), url)?;
+    let window = create_app_window(app, built_in.id(), built_in.title(), built_in.path())?;
     let close_window = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -601,22 +600,23 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     Ok(())
 }
 
-/// One window on the `epicenter-app` origin (ADR-0561). Navigation stays on
-/// the origin; a link that opens a new window reaches the system browser only
-/// when it is a hosted account page.
+/// One window on the `epicenter-app` origin (ADR-0561), opened at `path`.
+/// Navigation stays below `path`; a link that opens a new window reaches the
+/// system browser only when it is a hosted account page.
 fn create_app_window(
     app: &DesktopAppHandle,
     label: &str,
     title: &str,
-    url: tauri::Url,
+    path: &str,
 ) -> Result<WebviewWindow<Wry>> {
     let account_opener = app.clone();
-    let navigating = label.to_string();
+    let url = scheme::url(path)?;
+    let prefix = path.to_string();
     WebviewWindowBuilder::new(app, label, WebviewUrl::CustomProtocol(url))
         .title(title)
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
-        .on_navigation(move |url| scheme::is_allowed_navigation(&navigating, url))
+        .on_navigation(move |url| scheme::is_allowed_navigation(&prefix, url))
         .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {title} WebView"))
@@ -640,23 +640,10 @@ fn installed_window_label(id: &str, folder: Option<&str>) -> String {
 
 const INSTALLED_WINDOW_PREFIX: &str = "app:";
 
-/// Reload every open window of installed app `id`, on any folder, once its
-/// build changed, so a running page never asks the new build for a chunk only
-/// the old one had.
-pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
-    let own = installed_window_label(id, None);
-    let on_folder = format!("{own}:");
-    for (label, window) in app.webview_windows() {
-        if label == own || label.starts_with(&on_folder) {
-            if let Err(error) = window.reload() {
-                log::warn!("reload the {label} window: {error}");
-            }
-        }
-    }
-}
-
-/// Open installed app `id`, served at `/apps/<id>/`, in its own window on
-/// `folder`, a registered scope, or reveal the one already open on it. The
+/// Open installed app `id`'s build of `commit`, served at
+/// `/apps/<id>/<commit>/`, in its own window on `folder`, a registered scope,
+/// or reveal the one already open on it, which keeps the build it opened on
+/// until it is closed and opened again (ADR-0585). The
 /// window is permitted into the folder and into `so.epicenter`, and handed
 /// the folder (`data_folders::admit_installed_window`): the app's
 /// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
@@ -667,13 +654,14 @@ pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
 pub(crate) fn open_installed_window(
     app: &DesktopAppHandle,
     id: &str,
+    commit: &str,
     title: &str,
     folder: &str,
 ) -> Result<()> {
     let label = installed_window_label(id, Some(folder));
     data_folders::admit_installed_window(app.folders(), &label, id, folder)
         .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
-    let url = scheme::url(&format!("/apps/{id}/"))?;
+    let path = scheme::installed_app_path(id, commit);
     let title = format!("Epicenter: {title}");
 
     let (sender, receiver) = mpsc::sync_channel(1);
@@ -684,7 +672,7 @@ pub(crate) fn open_installed_window(
                 focus(window);
                 Ok(())
             }
-            None => create_app_window(&window_app, &label, &title, url).map(focus),
+            None => create_app_window(&window_app, &label, &title, &path).map(focus),
         };
         let _ = sender.send(result);
     })

@@ -4,8 +4,9 @@
  *
  * The Folders window's "Open in" buttons and its Apps list are the same act
  * on the same verb, `open_installed_app`: on the folder it was offered on, or
- * without one, on the app's own folder. It builds a commit made on this
- * machine first. Nothing here remembers who asked or where they came from
+ * without one, on the app's own folder. It builds an approved commit first
+ * when that commit is not the current build; a window already open keeps the
+ * build it opened on. Nothing here remembers who asked or where they came from
  * (ADR-0189); an app is opened because a person clicked, and that is the
  * whole state.
  *
