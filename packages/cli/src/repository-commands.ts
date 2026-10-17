@@ -32,7 +32,7 @@ import {
 	authContext,
 	type GrantKind,
 } from './auth.ts';
-import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
+import { EXIT, fail, writeJson, writeOut } from './output.ts';
 
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
@@ -130,8 +130,8 @@ export async function repos(json: boolean, grant: GrantKind) {
 /**
  * `epicenter clone <namespace>/<name> | <url> [<dir>]`: clone a hosted
  * repository into `<dir>`, by default `~/Epicenter/<name>` where its app looks
- * for it, then make the clone merge by file kind. Another URL is cloned as
- * given, with the person's own Git credentials.
+ * for it. Another URL is cloned as given, with the person's own Git
+ * credentials.
  */
 export async function clone(
 	source: string,
@@ -179,14 +179,6 @@ export async function clone(
 			cloned.stderr.trim() || `git clone exited ${cloned.code}`,
 			json,
 		);
-	try {
-		const { configureMergeDriver } = await import('./merge-driver.ts');
-		await configureMergeDriver(dir);
-	} catch (error) {
-		writeErr(
-			`git merge will merge this folder's files as text: ${error instanceof Error ? error.message : String(error)}`,
-		);
-	}
 	if (json) writeJson({ cloned: { url, dir } });
 	else writeOut(`Cloned ${url} into ${dir}`);
 	return EXIT.ok;

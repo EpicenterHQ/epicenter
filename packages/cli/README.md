@@ -27,7 +27,6 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
 | `epicenter sync <dir> [--to <namespace>/<name>]` | built | `runHistory`, `src/repository-commands.ts` |
-| `epicenter merge-driver <dir>` | built | `src/merge-driver.ts`, over `mergeForGit` in `@epicenter/folder/bun` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
 | `epicenter app list [--repository <url>]` | built | `src/installed-apps.ts` |
@@ -55,8 +54,8 @@ A hosted folder's remote is `<git origin>/<namespace>/<name>.git`
 cloud and `<origin>/git` for any other deployment, and `<namespace>` is the
 owner's 12-character id (`epicenter repos` lists them).
 
-- `epicenter sync <dir> --to <namespace>/<name>` sets `remote.origin.url`,
-  sets the merge driver, and syncs. The server answers a name nobody holds
+- `epicenter sync <dir> --to <namespace>/<name>` sets `remote.origin.url`
+  and syncs. The server answers a name nobody holds
   as an empty repository, so the sync's fetch finds nothing to take, and its
   push creates the repository. `--to` also takes any remote's URL, as the
   desktop app passes it. Any sync whose remote is one of the deployment's
@@ -64,8 +63,7 @@ owner's 12-character id (`epicenter repos` lists them).
   `https` remote only; an `http` one, as a local server, uses the helper).
   Neither `sync` nor `clone` writes Git's global configuration.
 - `epicenter clone <namespace>/<name> [<dir>]` clones into `<dir>`, by default
-  `~/Epicenter/<name>`, and configures the merge driver. A URL is cloned as
-  given.
+  `~/Epicenter/<name>`. A URL is cloned as given.
 - `epicenter repos` lists the repositories of every namespace the sign-in may
   reach, the personal one first. With `--json`:
   `{"namespaces": [{"id", "title", "personal", "role", "repositories":
@@ -146,10 +144,10 @@ never touch the real one.
 ~/.local/bin/epicenter   -> the compiled binary
 ```
 
-Every Git configuration the CLI writes, the credential helper and
-`merge.epicenter.driver`, names that link by its absolute path
-(`AppPaths.commandLink`), whether the CLI runs from the bundle, the link, or source, so
-moving the app breaks neither past its next launch and a development run
+The one Git configuration the CLI writes, the credential helper, names that
+link by its absolute path (`AppPaths.commandLink`), whether the CLI runs from
+the bundle, the link, or source, so moving the app does not break it past its
+next launch and a development run
 never writes a checkout into the global configuration. A release build runs
 `install-command --json` at every launch. A binary under macOS's App
 Translocation (`/private/var/folders/.../AppTranslocation/`) leaves the link
@@ -237,47 +235,11 @@ build runs at a time (`<cache>/apps.lock`, `holdingFileLock`).
 
 ## Merging with plain Git
 
-`epicenter merge-driver <dir>` makes `git merge`, `git pull`, an agent's Git,
-and any Git client merge the folder's files by kind, with the merge saves and
-Sync use (ADR-0551, ADR-0566): rows by field and body line, other text by
-line. It writes two things, neither committed:
-
-```txt
-.git/info/attributes   * merge=epicenter
-.git/config            merge.epicenter.name   = Epicenter folder merge
-                       merge.epicenter.driver = '<home>/.local/bin/epicenter' merge-driver -- %O %A %B %P
-```
-
-A sync that connects a remote (`--to`) writes the same, and `clone` does after cloning. A plain `git clone` does not
-carry it: Git reads a driver only from the repository's own configuration,
-and `.git/info/attributes` takes precedence over any committed `merge=`
-attribute. Without it, Git merges these files as text, which loses nothing.
-
-Git runs the driver from the top of the working tree for each file both
-sides changed. It finds the file's kind from the nearest `epicenter.json`
-above the path, merges with `merge`, the merge Sync and every save use, and
-writes the result over Git's
-`%A`:
-
-- A clean merge exits 0. A row is written in its canonical form.
-- Units both sides changed differently exit 1, so Git stops with a conflict
-  and keeps the file's stages for Sync to merge again. The file holds each
-  side's merge, that side winning every competing unit, with
-  `<<<<<<< ours`, `=======`, and `>>>>>>> theirs` around the lines where the
-  two differ.
-- A path in no data folder, a definition that does not read, a version that
-  is not text (a binary file stays ours, a conflict), and any failure of the
-  driver's own are merged by `git merge-file`, as Git would without a driver.
-
-It never exits above 128, which Git reads as a crash that ends the whole
-merge. If the configured binary is gone, Git records a conflict and keeps
-our version without markers. Each file costs one start of this binary:
-37 ms median on macOS arm64 with the compiled binary, against 27 ms for
-`--version` and 9 ms for `git merge-file`, so a merge where both sides
-changed 100 rows takes about 4 seconds.
-
-The engine's own Sync never runs `git merge`, so the driver never runs
-there, and the attribute does not change what it refuses.
+`epicenter sync` merges a folder's files by unit, with the merge every save
+uses (ADR-0576, ADR-0585): Markdown frontmatter by field and its body by line,
+JSON by key, other text by line. Plain `git merge` and `git pull` run on a
+folder use Git's own merge and stop on Git's ordinary conflict markers;
+nothing configures a merge driver for them.
 
 ## Output and exit codes
 
@@ -316,7 +278,6 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/epicenter-folder.ts` | `so.epicenter`'s definition and `declare-epicenter-folder`. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |
-| `src/merge-driver.ts` | `merge-driver`: Git's merge driver, and the repository configuration that names it. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
 | `src/app-paths.ts` | Where installed apps, approvals, builds, the sign-in locks, and the command link live, by the shell's rule. |

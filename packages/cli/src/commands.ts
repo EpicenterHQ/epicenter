@@ -75,14 +75,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		long: true,
 	},
 	{
-		path: ['merge-driver'],
-		args: '<dir>',
-		minArgs: 1,
-		// Git runs it with four: `-- %O %A %B %P`.
-		maxArgs: 4,
-		summary: "make git merge and git pull merge the folder's files by kind",
-	},
-	{
 		path: ['clone'],
 		args: '<namespace>/<name> | <url> [<dir>]',
 		minArgs: 1,

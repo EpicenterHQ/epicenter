@@ -97,11 +97,6 @@ export {
 	type HistoryState,
 } from './history-wire.js';
 export {
-	type GitMerge,
-	gitMergeKind,
-	mergeForGit,
-} from './merge-driver.js';
-export {
 	type QueryAnswer,
 	QueryFolderError,
 	queryFolder,
