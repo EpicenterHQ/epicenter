@@ -41,6 +41,7 @@ Conventions in this document:
 | [Transcribe automatically after recording](#transcribe-automatically-after-recording) | yes | gone, by decision |
 | [Model prewarm](#model-prewarm) | no (2026) | parked |
 | [Hosted transcription with account credits](#hosted-transcription-with-account-credits) | no (2026) | gone, by decision |
+| [Transcription history with Original and Cleaned](#transcription-history-with-original-and-cleaned) | no (2026) | partially present |
 | [Copy to clipboard automatically](#copy-to-clipboard-automatically) | yes | gone |
 | [Paste at the cursor](#paste-at-the-cursor) | yes | parked |
 | [Press Enter after pasting](#press-enter-after-pasting) | yes | parked |
@@ -63,13 +64,14 @@ Conventions in this document:
 | [Open the recordings folder](#open-the-recordings-folder) | yes | gone |
 | [Reading earlier data](#reading-earlier-data) | n/a | gone, no migration |
 | [Add to Capture](#add-to-capture) | no (2026) | gone |
+| [Recovery page and pending saves](#recovery-page-and-pending-saves) | no (2026) | replaced |
 | [Onboarding prompt](#onboarding-prompt) | yes | reduced |
 | [Launch at login](#launch-at-login) | yes | gone |
 | [Updates](#updates) | yes | gone |
 | [Analytics](#analytics) | yes | gone |
 | [Layout mode setting](#layout-mode-setting) | yes | replaced by automatic layout |
 
-38 features. The current README's
+40 features. The current README's
 [What is not supported](../README.md#what-is-not-supported) states the
 deliberate omissions; this document adds where each one's code is.
 
@@ -196,7 +198,10 @@ Deletions since:
   (default `manual`). `8bc2aafd03^`: `src/lib/state/vad-recorder.svelte.ts`,
   `src/routes/(app)/_components/VadRecordingAction.svelte`, KV
   `recordingTrigger` (`vad` or `manual`, default `manual`), global binding
-  `shortcuts.global.toggleVadRecording` (unbound), in-app key V.
+  `shortcuts.global.toggleVadRecording` (unbound), in-app key V. In 2026
+  Manual, Voice Activated, and Upload File were three capture surfaces
+  (`src/lib/constants/audio/capture-surfaces.ts`, `f56af8e413`, 2026-06-18);
+  only the first two were persisted as `recordingTrigger`.
 - **Today.** Gone. The README lists voice-activated recording as unsupported.
 - **Rebuild.** Page work: run VAD in the page on the microphone stream, and
   write each speech segment as a recording through the workspace recorder.
@@ -242,7 +247,9 @@ Deletions since:
   m4a, mp4, mov, and others; up to 10 files of 25 MB each in 2026) and
   transcribed them like recordings.
 - **When.** Shipped as recording mode `upload` ("Upload File"). In 2026 it
-  became its own surface (`17dbd3c14d`, 2026-06-16, ADR-0013).
+  stopped being a recording mode (`17dbd3c14d`, 2026-06-16, a refactor, so
+  not its origin; ADR-0013) and came back as the third capture surface
+  (`f56af8e413`, 2026-06-18). The desktop also accepted drag-and-drop.
 - **Where.** `v7.11.0`: `src/lib/constants/audio/recording-modes.ts`.
   `8bc2aafd03^`: `src/lib/operations/import.ts`,
   `src/lib/constants/import-formats.ts`, `src/lib/components/ImportFileButton.svelte`.
@@ -316,11 +323,14 @@ Deletions since:
 
 - **What it did.** Kept a dictionary of words and a transcription prompt in a
   speech profile tied to the account, so names and jargon came out spelled
-  right on every device.
-- **When.** 2026 (not traced).
+  right on every device. The dictionary was appended to the transcription
+  prompt and given to Polish as a `<known_terms>` block.
+- **When.** 2026; origin not traced. It moved into the account-bound store
+  `so.epicenter.whispering.speech` in `909a9cf4d9` (2026-09-23).
 - **Where.** `8bc2aafd03^`: `src/lib/whispering/personal.ts`,
   `src/routes/(app)/(config)/settings/dictation/PersonalSettings.svelte`,
-  `src/lib/operations/build-system-prompt.ts`; speech profile KV
+  `src/lib/operations/build-system-prompt.ts`, `src/lib/operations/transcribe.ts`;
+  speech profile KV
   `dictionary` (null), `transcriptionPrompt` (empty), `polishInstructions`.
 - **Today.** Gone.
 - **Rebuild.** Page work: a file in the folder holding the words, sent as the
@@ -351,15 +361,37 @@ Deletions since:
 ### Hosted transcription with account credits
 
 - **What it did.** Transcribed through Epicenter's hosted API with account
-  credits, and offered "Add credits" when they ran out.
-- **When.** 2026: Account page `6355739b4d` (2026-06-04), credit action
-  `15b730fd19` (2026-09-08).
-- **Where.** `8bc2aafd03^`: `src/lib/operations/credit-action.ts`,
+  credits (model `whisper-1`, `HOSTED_TRANSCRIPTION_MODEL` in
+  `8bc2aafd03^:packages/constants/src/ai-providers.ts`). A 402 became
+  `InsufficientCredits`, shown with an "Add credits" action.
+- **When.** 2026; origin of hosted transcription not traced. Account page
+  `6355739b4d` (2026-06-04); the credit action file arrived in `15b730fd19`
+  (2026-09-08, "feat(account): centralize purchases", so possibly a move).
+- **Where.** `8bc2aafd03^`: `src/lib/operations/transcribe.ts`,
+  `src/lib/operations/credit-action.ts`,
   `src/lib/auth.svelte.ts`, `src/routes/(app)/(config)/settings/account/+page.svelte`.
 - **Today.** Gone by decision: the README excludes accounts and hosted
   transport.
 - **Rebuild.** Would reverse that decision; Epicenter's `account_send` exists
   and is granted.
+
+### Transcription history with Original and Cleaned
+
+- **What it did.** Kept one result row per successful transcription attempt,
+  each holding the Original text and, when Polish ran, the accepted Cleaned
+  text, so a retry or a cleanup never replaced an earlier transcript.
+- **When.** 2026. The `transcriptions` table and the migration into it
+  arrived in `4b298ea2f3` (2026-09-24); the history logic file in
+  `c03be9106b` (2026-07-19, a fix, so its origin is not traced).
+- **Where.** `8bc2aafd03^`: table `transcriptions` (`rawText`,
+  `cleanedText`, `connectionId`, `model`) in `src/lib/data.ts`,
+  `src/lib/operations/transcription-history.ts`,
+  `src/lib/whispering/migrate-local-transcriptions.ts`.
+- **Today.** Partially present: each Transcribe writes its own file in
+  `transcriptions/`, and a transformation's result is its own file. There is
+  no Original and Cleaned pair on one row.
+- **Rebuild.** Page work if Polish returns: write the cleaned text as a result
+  file that names its transcript.
 
 ## Delivery
 
@@ -383,12 +415,15 @@ Deletions since:
   2026 macOS restored every pasteboard type, not just text, and left the text
   on the clipboard when paste could not land.
 - **When.** Shipped. `keep_on_clipboard` and the `LeftOnClipboard` outcome
-  arrived in `44097cc031` (2026-06-20).
+  arrived in `44097cc031` (2026-06-20). In 2026
+  `write_text(text, keepOnClipboard)` answered `pasted` or `leftOnClipboard`, and the page
+  counted the fallback as a reduced, recoverable reach.
 - **Where.** `v7.11.0`: `write_text` in `src-tauri/src/lib.rs` (enigo);
   setting `transcription.writeToCursorOnSuccess` (true).
   `8bc2aafd03^`: `src/lib/operations/sink.ts`,
   `src/lib/services/text/index.tauri.ts`, `src/lib/operations/delivery-reach.ts`;
-  KV `outputTranscriptionCursor` (false).
+  KV `outputTranscriptionCursor` (false). The default changed: on in
+  `v7.11.0`, off at `8bc2aafd03^`.
 - **Today.** Parked: `apps/epicenter/src-tauri/src/delivery.rs` and
   `apps/epicenter/src-tauri/src/clipboard.rs` (macOS).
 - **Rebuild.** Needs `input.insertText` and the input permission status.
@@ -420,7 +455,9 @@ Deletions since:
   `shortcuts.global.runTransformationOnClipboard` CmdOrCtrl+Shift+R, the rest
   unbound. `8bc2aafd03^`: `src/lib/state/device-config.svelte.ts` (bindings
   as `{ modifiers, keys }`), `src/lib/platform/system-shortcuts.tauri.ts`,
-  `src/lib/shortcuts/`; defaults toggle Cmd+Shift+Space (Ctrl+Shift+Space off
+  `src/lib/shortcuts/` (each command's reach is the minimum of command, key,
+  and platform ceilings, ADR-0052), `replaceGlobalShortcuts` in
+  `src/lib/tauri.tauri.ts`; defaults toggle Cmd+Shift+Space (Ctrl+Shift+Space off
   Apple), cancel Cmd+. (Ctrl+Shift+.), push-to-talk and VAD unbound. Rust
   registered chords and emitted `GlobalShortcutTriggered` to the `whispering`
   window (`8bc2aafd03^:apps/epicenter/src-tauri/src/shell.rs`).
@@ -471,7 +508,8 @@ Deletions since:
   a stale grant after an update, which reads as granted but drops pastes.
 - **When.** Shipped as a page. In 2026 a guide dialog
   (`b4a0bbdb87`, 2026-06-15) and a Rust capability watch (`4131e59f33`,
-  2026-06-16).
+  2026-06-16) reporting `unknown`, `inactive`, `untrusted`, `active`, or
+  `broken`.
 - **Where.** `v7.11.0`: `src/routes/(app)/(config)/macos-enable-accessibility/+page.svelte`.
   `8bc2aafd03^`: `src/lib/state/dictation-capability.svelte.ts`,
   `src/lib/components/MacosAccessibilityGuide.svelte`,
@@ -499,8 +537,9 @@ Deletions since:
 ### Launch at login
 
 - **What it did.** A switch to start Whispering when the computer starts.
-- **When.** Shipped; the 2026 switch is
-  `src/routes/(app)/(config)/settings/AutostartSwitch.svelte` at `8bc2aafd03^`.
+- **When.** Shipped. In 2026 the switch read "Automatically open Epicenter
+  when you log in" (`src/routes/(app)/(config)/settings/AutostartSwitch.svelte`
+  at `8bc2aafd03^`, calling `is_autostart_enabled` and `set_autostart_enabled`).
 - **Where.** `v7.11.0`: `src/lib/services/desktop/autostart.ts`.
 - **Today.** Gone. The commands were deleted (`fe476113af`); ADR-0328 has
   Epicenter add itself to login items once, which is unbuilt.
@@ -544,7 +583,9 @@ Deletions since:
 - **What it did.** A small floating pill near the bottom of the screen while
   recording, with live microphone levels, Stop, Cancel, and "ship raw" while
   polishing. On macOS it was a non-activating panel, so clicking it did not
-  pull focus from the app being dictated into.
+  pull focus from the app being dictated into; elsewhere it was an
+  always-on-top `WebviewWindow`. Levels arrived about 20 to 30 times a
+  second.
 - **When.** 2026, `82013bf085` (2026-06-13).
 - **Where.** `8bc2aafd03^`: `src/lib/recording-overlay/`,
   `src/lib/recording-pill/`, `src/lib/dictation-indicator/`,
@@ -559,7 +600,8 @@ Deletions since:
 ### Tray recording indicator
 
 - **What it did.** Changed the tray or menu bar icon while recording.
-- **When.** Shipped.
+- **When.** Shipped. Whispering's own tray code left in `c5d91e73be`
+  (2026-07-10), when the host tray replaced it.
 - **Where.** `v7.11.0`: `src/lib/services/desktop/tray.ts`,
   `src/routes/(app)/_layout-utils/syncIconWithRecorderState.svelte.ts`,
   `src-tauri/recorder-state-icons/`.
@@ -572,7 +614,7 @@ Deletions since:
 
 - **What it did.** Kept the window above others: Always, When Recording and
   Transcribing, When Recording, or Never.
-- **When.** Shipped.
+- **When.** Shipped. Removed in `aca2d2378f` (2026-06-16).
 - **Where.** `v7.11.0`: setting `system.alwaysOnTop` (`Never`),
   `src/lib/constants/ui/always-on-top.ts`,
   `src/routes/(app)/_layout-utils/alwaysOnTop.svelte.ts`.
@@ -587,7 +629,9 @@ Deletions since:
   resume on macOS can start a different app's media.
 - **When.** 2026, `2239d9e427` (2026-06-14).
 - **Where.** `8bc2aafd03^`: `src/lib/operations/media.ts`; KV
-  `recordingPausePlayback` (false).
+  `recordingPausePlayback` (false). With VAD it paused only while speaking
+  and resumed 1500 ms after speech ended (`VAD_RESUME_DELAY_MS` in
+  `src/lib/operations/recording.svelte.ts`, ADR-0027).
 - **Today.** Parked: `apps/epicenter/src-tauri/src/media.rs` and
   `apps/epicenter/src-tauri/src/media/`.
 - **Rebuild.** Needs `media.pause` and `media.resume`; port `src/lib/operations/media.ts`.
@@ -632,8 +676,9 @@ Deletions since:
   (OpenAI, Groq, Anthropic, Google, OpenRouter, or a custom endpoint, each
   with a model) or a find-and-replace, optionally by regex. Prompts used
   `{{input}}`. Runs were kept per recording.
-- **When.** Shipped. Deleted in `bac7a18fe7` (2026-06-27), when Polish took
-  its place.
+- **When.** Shipped. Deleted in `bac7a18fe7` (2026-06-27); Polish and
+  Recipes took its place, and Recipes were deleted in `4b298ea2f3`
+  (2026-09-24).
 - **Where.** `v7.11.0`: `src/lib/services/isomorphic/db/models/transformation-steps.ts`,
   `src/lib/components/transformations-editor/`,
   `src/routes/(app)/(config)/transformations/`,
@@ -665,7 +710,8 @@ Deletions since:
 - **What it did.** Cleaned every transcript with an LLM by default ("Fix
   grammar and punctuation. Keep my wording."), kept the original beside the
   cleaned text, and let the person ship the raw text while it ran. A failed
-  pass delivered the raw text.
+  pass delivered the Original with a "Cleanup skipped" notice
+  (`src/lib/operations/pipeline.ts`).
 - **When.** 2026, `cf3e78ea02` (2026-06-27).
 - **Where.** `8bc2aafd03^`: `src/lib/operations/run-polish.ts`,
   `src/lib/state/polish.ts`, `src/lib/state/polish-hud.svelte.ts`,
@@ -682,8 +728,10 @@ Deletions since:
 - **What it did.** A global shortcut opened a small window to pick a
   transformation; another ran the selected one on the clipboard's text and
   delivered the result.
-- **When.** Shipped. Renamed to Recipe surfaces (`cf75fa341f`, 2026-06-27),
-  then deleted with transformations.
+- **When.** Shipped. Renamed to the transformation picker (`99c1c6c77d`,
+  2026-06-12); its window and clipboard operation were deleted in
+  `cf75fa341f` (2026-06-27), which moved the commands to Recipes. The Recipe
+  picker went in `4b298ea2f3` (2026-09-24).
 - **Where.** `v7.11.0`: `src/routes/transform-clipboard/`,
   `src-tauri/capabilities/transform-clipboard.json`, commands
   `openTransformationPicker` and `runTransformationOnClipboard` in
@@ -698,7 +746,7 @@ Deletions since:
 
 - **What it did.** Kept only the newest N recordings (default 100) when set
   to limit, and deleted the rest.
-- **When.** Shipped.
+- **When.** Shipped. Removed in `b3027c4918` (2026-07-18).
 - **Where.** `v7.11.0`: settings `database.recordingRetentionStrategy`
   (`keep-forever`), `database.maxRecordingCount` (`100`).
 - **Today.** Gone.
@@ -709,7 +757,8 @@ Deletions since:
 
 - **What it did.** Saved a recording's audio file elsewhere. In 2026,
   exported all recordings as a Markdown zip on web and desktop.
-- **When.** Download shipped; export 2026, `e60c9e2204` (2026-06-16).
+- **When.** Download shipped; the 2026 per-recording download button arrived
+  in `7036e7e9e2` (2026-06-24) and the export in `e60c9e2204` (2026-06-16).
 - **Where.** `v7.11.0`: `src/lib/services/isomorphic/download/`.
   `8bc2aafd03^`: `src/routes/(app)/(config)/recordings/actions/DownloadRecordingButton.svelte`,
   `src/lib/whispering/recordings-markdown-export.ts`.
@@ -743,8 +792,9 @@ Deletions since:
 
 ### Add to Capture
 
-- **What it did.** Sent a transcript to the signed-in account's Capture app,
-  with a local receipt so a lost acknowledgement did not send it twice.
+- **What it did.** Sent a transcript to the signed-in account's Capture app
+  over a `BroadcastChannel`, with a local receipt so a lost acknowledgement
+  did not send it twice.
 - **When.** 2026, `4b298ea2f3` (2026-09-24).
 - **Where.** `8bc2aafd03^`: `src/lib/operations/capture-promotion.ts`, table
   `capturePromotions` in `src/lib/data.ts`.
@@ -752,7 +802,26 @@ Deletions since:
 - **Rebuild.** Inferred: write into Capture's folder instead, if Epicenter
   grants one app another app's folder.
 
+### Recovery page and pending saves
+
+- **What it did.** A banner listed edits not yet saved, and a recovery page
+  ("This application has stopped. Unsaved work may have been discarded.")
+  offered Reopen Whispering after the app stopped.
+- **When.** 2026: `PendingSaves` in `909a9cf4d9` (2026-09-23); the recovery
+  page in `f54245c909` (2026-09-24, a refactor, so its origin is not traced).
+- **Where.** `8bc2aafd03^`: `src/lib/components/PendingSaves.svelte`,
+  `src/lib/whispering/pending-saves.ts`, `src/routes/recovery/+page.svelte`.
+- **Today.** Replaced: the status line says when an edit or an answer is not
+  saved yet (README, "When a save does not finish"). Quitting is immediate and
+  nothing needs recovery (ADR-0542).
+- **Rebuild.** None.
+
 ## Not counted
+
+- Whispering's standalone Tauri shell from `v7.11.0` was retired in
+  `2d0d3ed2fc` (2026-07-10); Epicenter took over its native code in
+  `ef82427a33` and `003845a9d6` the same day. Its features are counted above,
+  under what each did.
 
 - The standalone file desktop's terminal and Reveal folder existed only
   between `8bc2aafd03` and `bd3e40f353`, so they are outside this inventory;
