@@ -11,17 +11,10 @@
  */
 import type { CaptureFields } from '@epicenter/capture';
 import type { StoredRow } from '@epicenter/folder';
-import { QueryClient, QueryObserver } from '@tanstack/query-core';
+import { QueryObserver } from '@tanstack/query-core';
 import type { CaptureListing, Captures } from './captures.svelte.js';
 
-export { QueryClient, QueryObserver };
-
-/** A fresh cache, configured and mounted as the layout's. */
-export function createQueryClient() {
-	const client = new QueryClient();
-	client.mount();
-	return client;
-}
+export { QueryObserver };
 
 /**
  * Observe the queries the open screens show, so invalidation reads them
@@ -34,7 +27,7 @@ export function observe(captures: Captures, ...paths: string[]) {
 			(path) =>
 				new QueryObserver(
 					captures.queryClient,
-					captures.folder$.files.text.queryOptions(path),
+					captures.queries.files.text.queryOptions(path),
 				),
 		),
 	];
@@ -60,7 +53,7 @@ export async function quiet(captures: Captures) {
 /** The capture listing the cache holds now. */
 export function listing(captures: Captures): CaptureListing {
 	const data = captures.queryClient.getQueryData<CaptureListing>(
-		captures.folder$.captures.list.queryKey(),
+		captures.queries.captures.list.queryKey(),
 	);
 	if (data === undefined) throw new Error('The capture listing is not loaded');
 	return data;
@@ -82,7 +75,7 @@ export function cachedText(captures: Captures, path: string): string {
 	const file = captures.queryClient.getQueryData<{
 		kind: string;
 		text?: string;
-	}>(captures.folder$.files.text.queryKey(path));
+	}>(captures.queries.files.text.queryKey(path));
 	if (file?.kind !== 'text' || file.text === undefined)
 		throw new Error(`No text for ${path} in the cache`);
 	return file.text;

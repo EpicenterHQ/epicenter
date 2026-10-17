@@ -37,6 +37,7 @@ import {
 	CAPTURES_TABLE,
 	type CaptureFields,
 	captureBody,
+	type captureDefinition,
 	composeBody,
 	excerpt,
 } from '@epicenter/capture';
@@ -54,15 +55,17 @@ import {
 	type WrittenRow,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
-import { folderOptions, runMutation, whenIdle } from '@epicenter/folder/query';
+import { runMutation } from '@epicenter/folder/query';
 import { createTextEditor, type TextEditor } from '@epicenter/folder/svelte';
-import type { QueryClient } from '@tanstack/svelte-query';
+import type { FolderContext } from '@epicenter/svelte/folder';
+import {
+	ActionError,
+	type DescribedError,
+} from '@epicenter/svelte/write-failure';
 import { createSubscriber, SvelteMap } from 'svelte/reactivity';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type CaptureForm, createCaptureForm } from './capture-form.svelte.js';
-import type { CaptureFolder } from './platform/types.js';
 
 export type Captures = ReturnType<typeof createCaptures>;
 
@@ -106,21 +109,11 @@ export type Deletion = {
 };
 
 /**
- * A write that failed. A capture's edit stays on screen, and the next change
- * saves it again; a file's text is dropped for the file as it is now.
+ * The opened captures folder, as `getFolder()` answers it. Its own
+ * `definition` is `captureDefinition` for Capture's own folder, and the
+ * folder's declaration for any other folder Epicenter hands it.
  */
-export type WriteFailure = {
-	readonly path: string;
-	readonly error: RowWriteError | FileError;
-	/** The text that was on screen and is not in the file. */
-	readonly text: string;
-};
-
-/** Why an action did not start. */
-export const CapturesError = defineErrors({
-	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
-});
-export type CapturesError = InferErrors<typeof CapturesError>;
+export type CaptureFolder = FolderContext<typeof captureDefinition>;
 
 const CLOSING = 'Capture is closing, so nothing was changed.';
 
@@ -134,29 +127,6 @@ export const capturesKeys = defineKeys({
 	delete: (path: string) => ['captures', 'delete', path] as const,
 	saveVersion: ['captures', 'save-version'],
 });
-
-/**
- * Library errors state failures precisely; these are the ones a person acts
- * on. A lost reply leaves the outcome unknown.
- */
-export function describeError(
-	error: FileError | RowWriteError | CapturesError,
-): string {
-	switch (error.name) {
-		case 'NotStarted':
-			return error.reason;
-		case 'NotFound':
-			return 'The file is no longer here, so nothing was changed.';
-		case 'Unconfirmed':
-			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
-		case 'InvalidValues':
-			return error.issues.map((issue) => issue.message).join(' ');
-		case 'Occupied':
-			return 'Another file already has this name, so nothing was changed.';
-		default:
-			return error.message;
-	}
-}
 
 /** A readable, sortable stem: the capture's UTC time and a short random suffix. */
 function newStem(at: Date): string {
@@ -243,17 +213,8 @@ export function timelineOf(listing: CaptureListing) {
 	};
 }
 
-export function createCaptures(
-	folder: CaptureFolder,
-	queryClient: QueryClient,
-	{
-		onWriteFailed = () => {},
-	}: {
-		/** A write failed; the app tells the person. */
-		onWriteFailed?: (failure: WriteFailure) => void;
-	} = {},
-) {
-	const folder$ = folderOptions(folder);
+export function createCaptures(context: CaptureFolder) {
+	const { folder, queries, queryClient, writeFailed } = context;
 	const table = folder.tables.captures;
 	const pathOf = (stem: string) => rowPath(CAPTURES_TABLE, stem);
 	const { defineMutation } = createQueryFactories(queryClient);
@@ -270,7 +231,6 @@ export function createCaptures(
 	const forms = new SvelteMap<string, CaptureForm>();
 	/** Each file's text edit: the text it started from, and the text typed. */
 	const texts = new SvelteMap<string, TextEditor>();
-	let closing: Promise<void> | undefined;
 	let closed = $state(false);
 
 	/** Why no edit or action starts now, if one does not. */
@@ -278,18 +238,11 @@ export function createCaptures(
 		return closed ? CLOSING : undefined;
 	}
 
-	// The app's own actions are local like the folder's writes: nothing
-	// waits for a network or retries.
-	queryClient.setMutationDefaults(capturesKeys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
-
-	const listKey = folder$.captures.list.queryKey();
+	const listKey = queries.captures.list.queryKey();
 	/** Saves of a capture and writes of a file's text, the header's Saving… */
 	const writeKeys = [
-		folder$.captures.write.mutationOptions().mutationKey,
-		folder$.write.mutationOptions().mutationKey,
+		queries.captures.write.mutationOptions().mutationKey,
+		queries.write.mutationOptions().mutationKey,
 	];
 	const writing = () =>
 		writeKeys.some(
@@ -300,7 +253,7 @@ export function createCaptures(
 	/** The text of `path` as the cache holds it, when it opens as text. */
 	const shownText = (path: string) => {
 		const opened = queryClient.getQueryData<OpenedFile>(
-			folder$.files.text.queryKey(path),
+			queries.files.text.queryKey(path),
 		);
 		return opened?.kind === 'text' ? opened.text : undefined;
 	};
@@ -326,19 +279,19 @@ export function createCaptures(
 		const form: CaptureForm = createCaptureForm({
 			row: () => rowOf(stem),
 			write: (change) =>
-				runMutation(queryClient, folder$.captures.write.mutationOptions(), {
+				runMutation(queryClient, queries.captures.write.mutationOptions(), {
 					stem,
 					...change,
 				}).catch((error: RowWriteError) => {
-					onWriteFailed({ path, error, text: form.body ?? change.to.body });
+					writeFailed({ path, error, unsaved: form.body ?? change.to.body });
 					throw error;
 				}),
 			// The file is gone: the edit has nowhere to go but the notice.
 			gone: (text) =>
-				onWriteFailed({
+				writeFailed({
 					path,
 					error: FileError.NotFound({ path }).error,
-					text,
+					unsaved: text,
 				}),
 			locked: () => refused() !== undefined || deleting(path),
 		});
@@ -355,18 +308,18 @@ export function createCaptures(
 		 * gives way to the file as it is now, read again, and the notice
 		 * offers it.
 		 */
-		const drop = (error: WriteFailure['error'], sent: string) => {
+		const drop = (error: DescribedError, sent: string) => {
 			const lost = draft.typed ?? sent;
 			draft.discard();
 			texts.delete(path);
-			onWriteFailed({ path, error, text: lost });
+			writeFailed({ path, error, unsaved: lost });
 		};
 		const draft = createTextEditor({
 			current: () => shownText(path),
 			write: async (change) => {
 				const written = await runMutation(
 					queryClient,
-					folder$.write.mutationOptions(),
+					queries.write.mutationOptions(),
 					{ path, ...change },
 				).catch((error: WriteError) => {
 					drop(error, change.to);
@@ -446,16 +399,24 @@ export function createCaptures(
 		// The view reads the file when it opens, unless its text is still being written.
 		if (as === 'text' && !texts.has(path))
 			queryClient.removeQueries({
-				queryKey: folder$.files.text.queryKey(path),
+				queryKey: queries.files.text.queryKey(path),
 				exact: true,
 			});
 		opened = { stem, mode: as };
 	}
 
+	// When the page goes away, new input is fenced at once and every edit
+	// held is sent; `<FolderApp>` then waits for every write and action and
+	// releases the folder.
+	context.beforeClose(async () => {
+		closed = true;
+		await editsSettled();
+	});
+
 	return {
 		folder,
-		/** The folder's query options: every read the views show is keyed under it. */
-		folder$,
+		/** The folder's query layer: every read the views show is keyed under it. */
+		queries,
 		queryClient,
 		get git() {
 			trackGit();
@@ -494,7 +455,7 @@ export function createCaptures(
 		rowsQuery<TData = CaptureListing>(
 			select?: (listing: CaptureListing) => TData,
 		) {
-			return { ...folder$.captures.list.queryOptions(), select };
+			return { ...queries.captures.list.queryOptions(), select };
 		},
 		/** The text typed for `path` and not written yet, read reactively. */
 		typedText(path: string): string | undefined {
@@ -543,13 +504,13 @@ export function createCaptures(
 			mutationFn: async (
 				text: string,
 			): Promise<
-				Result<WrittenRow<CaptureFields>, RowWriteError | CapturesError>
+				Result<WrittenRow<CaptureFields>, RowWriteError | ActionError>
 			> => {
 				const why = refused();
-				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+				if (why !== undefined) return ActionError.NotStarted({ reason: why });
 				// Blank text is refused and stays in the form: only the person clears it.
 				if (text.trim() === '')
-					return CapturesError.NotStarted({ reason: 'Write something first.' });
+					return ActionError.NotStarted({ reason: 'Write something first.' });
 				const now = new Date();
 				const { body } = composeBody(text);
 				return table.create(
@@ -586,9 +547,9 @@ export function createCaptures(
 		 */
 		async deletionFor(
 			stem: string,
-		): Promise<Result<Deletion, FileError | CapturesError>> {
+		): Promise<Result<Deletion, FileError | ActionError>> {
 			const why = refused();
-			if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
 			const path = pathOf(stem);
 			const { error } = await folder.files.read(path);
 			if (error !== null) return Err(error);
@@ -616,11 +577,10 @@ export function createCaptures(
 			return defineMutation({
 				mutationKey: capturesKeys.delete(deletion.path),
 				mutationFn: async (): Promise<
-					Result<undefined, FileError | WriteError | CapturesError>
+					Result<undefined, FileError | WriteError | ActionError>
 				> => {
 					const why = refused();
-					if (why !== undefined)
-						return CapturesError.NotStarted({ reason: why });
+					if (why !== undefined) return ActionError.NotStarted({ reason: why });
 					await Promise.all([
 						forms.get(deletion.stem)?.flush(),
 						writeText(deletion.path),
@@ -632,14 +592,14 @@ export function createCaptures(
 						entries?.filter((entry) => entry.stem !== deletion.stem),
 					);
 					queryClient.removeQueries({
-						queryKey: folder$.files.text.queryKey(deletion.path),
+						queryKey: queries.files.text.queryKey(deletion.path),
 						exact: true,
 					});
 					forms.delete(deletion.stem);
 					if (opened?.stem === deletion.stem) opened = undefined;
 				},
 				onError: () =>
-					queryClient.invalidateQueries(folder$.pathFilter([deletion.path])),
+					queryClient.invalidateQueries(queries.pathFilter([deletion.path])),
 			})();
 		},
 		/**
@@ -648,32 +608,12 @@ export function createCaptures(
 		 */
 		saveVersion: defineMutation({
 			mutationKey: capturesKeys.saveVersion,
-			mutationFn: async (): Promise<Result<CommitOutcome, CapturesError>> => {
+			mutationFn: async (): Promise<Result<CommitOutcome, ActionError>> => {
 				const why = refused();
-				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+				if (why !== undefined) return ActionError.NotStarted({ reason: why });
 				await editsSettled();
 				return Ok(await folder.git.commit());
 			},
 		}),
-
-		// ------------------------------------------------------------------
-		// Closing
-		// ------------------------------------------------------------------
-
-		/**
-		 * Fence new input, then wait until every edit held is written and
-		 * nothing is mutating before the page releases its folder. Every call
-		 * answers the same completion.
-		 */
-		close(): Promise<void> {
-			if (closing !== undefined) return closing;
-			closed = true;
-			closing = (async () => {
-				await editsSettled();
-				await whenIdle(queryClient);
-				await queryClient.cancelQueries({ queryKey: folder$.key });
-			})();
-			return closing;
-		},
 	};
 }

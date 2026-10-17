@@ -34,7 +34,7 @@
 
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => rowPath(captures.folder.tables.captures.name, stem));
-	const file = createQuery(() => captures.folder$.files.text.queryOptions(path));
+	const file = createQuery(() => captures.queries.files.text.queryOptions(path));
 	/** The text typed and not written yet. */
 	const typed = $derived(captures.typedText(path));
 	const text = $derived(

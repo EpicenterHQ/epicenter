@@ -10,7 +10,7 @@
  *
  * It needs to bind a local port and launch Chromium (`bun x playwright
  * install chromium` once). It does not cover the desktop build: see
- * `src/lib/platform/folder.epicenter-host.test.ts` and the desktop shell.
+ * the desktop shell, and the folder package's desktop tests.
  */
 import assert from 'node:assert/strict';
 import { type ChildProcess, spawn } from 'node:child_process';
