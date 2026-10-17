@@ -140,16 +140,13 @@ Files split by what they cost to lose (ADR-0539):
   so.epicenter/                               Epicenter's own folder
     epicenter.json                            declares the connections table
     connections/<id>.md                       one row per AI connection
-  Apps/<app-id>/                              an installed app's source repository
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
-  approvals.json                              the commit of each app approved to run here (the CLI writes it)
+  apps/<app-id>/                              an installed app's bare clone; its detached HEAD is the approved commit (the CLI writes it)
   local-transcription.json                    the active local model and when to unload it
 ~/Library/Caches/so.epicenter/                disposable
-  checkouts/<app-id>/                         the commit an app builds from, only while it builds
-  builds/<app-id>/<commit>/                   built app bundles; a finished one is never replaced, and none is cleaned up yet
-  builds/<app-id>/<commit>.built              that commit's build finished
+  sources/<app-id>/                           the approved commit's files, only while it builds
+  builds/<app-id>/<commit>/                   built app bundles, checked at every open; none is cleaned up yet
   builds/<app-id>/<commit>.log                what the install and build printed
-  builds/<app-id>/current                     the commit a newly opened window of the app loads
   apps.lock                                   one install or build at a time
 ```
 Overrides select an explicit location, so pointing both builds at the same
@@ -281,14 +278,13 @@ a string, else the directory name, and `declaration` is the text of
 `@epicenter/folder/tauri`. The reply carries no paths; the page learns a
 folder's root from the plugin's grant, as every app does.
 
-- **An installed app's own folder**, a directory named by the id of an app
-  under `Apps/`, is listed under the app's scope (`so.epicenter.todos`), as
+- **An installed app's own folder**, a directory named by the id of an
+  installed app, is listed under the app's scope (`so.epicenter.todos`), as
   [An app's own folder](#an-apps-own-folder) describes. The `folders` window
   and the app's window share that one scope, and both windows' saves are
   checked and published under the plugin's one mutex per root (ADR-0535).
 - **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
-  `folders` and `home` windows and listed under that scope. `Apps/` is not
-  listed: it holds no `epicenter.json`.
+  `folders` and `home` windows and listed under that scope.
 - **Any other data folder** gets the scope `data:<directory name>` the first
   time it is listed, registered for the `folders` window alone. Listing again
   in the same run returns the same scope. Registrations last until the
@@ -414,54 +410,62 @@ list_repository_apps   epicenter app list --repository=<source> --json
 install_app            epicenter app install [--folder=<folder>] --json -- <source>
 update_app             epicenter app update --json -- <id>
 approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
-open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not current
+open_installed_app     epicenter app update --commit=<commit> --json -- <id>, before every open
 ```
 
 The Folders window's Apps list has "Install from a repository…"
 (`src/folders/InstallApps.svelte`). It takes a Git URL (`https`, `http`,
 `ssh`, `git`, `file`, or `user@host:path`) or an absolute local path and calls
 `list_repository_apps`, which clones the repository shallowly into a dot
-directory of `Apps/`, reads each tracked `epicenter.app.json` up to four
+directory of `apps/` in app data, reads each tracked `epicenter.app.json` up to four
 directories deep outside `node_modules`, and removes the clone. It lists each
 app's title and folder; choosing one calls `install_app` with the source and
 that folder. With no app installed yet, the list offers "Install Todos": the
 same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
 `apps/todos`.
 
-`install_app` clones the whole repository into `~/Epicenter/Apps/<app-id>/`,
-records the folder in the clone's `.git/config` as `epicenter.folder` (absent
-for the root), and builds nothing that waits for approval: the CLI exits 1
-with the app and its review. Everything about an installed app is read from
-its clone, never from a row. The page shows the title, the source, the
-commit, its log, and that building runs the app's code on this computer.
-"Approve and build" calls `approve_app` with the commit shown; the CLI
-refuses if the clone moved since, then records the commit in
-`approvals.json` and builds that commit alone: it checks the commit out with
-`git --no-replace-objects worktree add --force --force --detach` into
-`checkouts/<app-id>/`, with the clone's filter drivers emptied so no smudge
-filter runs (Git LFS files build as their pointers) and sparse checkout off,
-never building in the clone. It runs
-`bun install --frozen-lockfile --ignore-scripts` at the checkout's root (when
-it has a `package.json`), runs `bun run build:installed` in the app's folder,
-copies its `dist/` beside `builds/<app-id>/<commit>/`, renames it into place,
-writes `builds/<app-id>/<commit>.built`, and removes the checkout with
-`git worktree remove --force --force`. A commit whose build carries its `.built`
-file is not built again; the directory is made current as it is. Approval
-covers the whole repository's commit.
-`epicenter app remove <id>` deletes the clone and its approval and leaves its
-builds for any window still running one, refusing while the clone holds
-uncommitted changes or commits no remote has; the window has no Remove yet.
+`install_app` clones the repository's default branch bare
+(`git clone --bare --single-branch --no-tags`) into
+`~/Library/Application Support/so.epicenter/apps/<app-id>/`, writes
+`info/attributes` so no attribute changes a byte (`neutralizeAttributes`),
+writes the one refspec `+refs/heads/<default>:refs/remotes/origin/<default>`,
+fetches once, and records the folder in the clone's `config` as
+`epicenter.folder` (absent for the root). Its `HEAD` stays symbolic, so
+nothing is approved and nothing builds: the CLI exits 1 with the app and the
+fetched commit's review (`pending`). Everything about an installed app is
+read from its clone, never from a row (ADR-0597). The page shows the title,
+the source, the commit, its log, and that building runs the app's code on
+this computer. "Approve and build" calls `approve_app` with the commit shown;
+the CLI refuses if the fetched commit moved since, and refuses a commit whose
+manifest names another id, then approves it with
+`git update-ref --no-deref HEAD <commit>` and builds it. Approval covers the
+whole repository's commit.
 
-Every commit runs only once `approvals.json` names it (ADR-0588):
+Until publishing builds apps (ADR-0589), a build runs from source: the CLI
+extracts the approved commit with `git archive` into `sources/<app-id>/`,
+runs `bun install --frozen-lockfile --ignore-scripts` at its root (when it
+has a `package.json`) and `bun run build:installed` in the app's folder,
+writes the regular files of its `dist/` into the clone as a tree named
+`refs/epicenter/builds/<commit>`, extracts that tree with `git archive` into
+a sibling of `builds/<app-id>/<commit>/`, renames it into place, and removes
+the source. Every Git command runs with replace refs ignored, and the
+attributes file unsets filters, line-ending conversion, `ident`,
+`working-tree-encoding`, `export-subst`, and `export-ignore`, so the source
+and the build hold each blob's bytes and every file (Git LFS files build as
+their pointers). `epicenter app remove <id>` deletes the clone and leaves its
+builds for any window still running one; the window has no Remove yet.
 
-- A commit made on this machine, by a person or an agent committing in
-  `Apps/<app-id>/`, waits for approval like any other.
-- "Update" (fetch, then a fast-forward or a rebase of the commits made here
-  onto upstream) refuses while the clone has uncommitted changes, and its
-  result waits for approval with `git log` and `git diff --stat` since the
-  approved commit. A rebase that conflicts is undone and reported.
-- Uncommitted, untracked, and ignored files in the clone never reach a
-  build: what runs is always a commit.
+Only approving moves the approved commit (ADR-0597):
+
+- "Update" fetches, which writes `refs/remotes/origin/<default>` and never
+  `HEAD`. A fetched commit that differs from `HEAD` waits for approval with
+  `git log` and `git diff --stat` since the approved commit, and the
+  approved commit keeps opening meanwhile.
+- `git pull` and `git merge` refuse to run in a bare clone, and the clone has
+  no working tree, so nothing uncommitted, untracked, or ignored can reach a
+  build: what runs is always an approved commit.
+- An `approvals.json` or `builds/<app-id>/current` left by an earlier build
+  of Epicenter is never read; an app installed before is installed again.
 
 The CLI runs every Git command for an app through `@epicenter/folder`'s
 runner (`createGitRunner`): no hooks, no fsmonitor, no terminal prompt, and
@@ -477,8 +481,15 @@ The scheme serves each build of an installed app at
 `epicenter-app://localhost/apps/<app-id>/<commit>/`, from
 `builds/<app-id>/<commit>/`, refusing a linked build directory.
 `open_installed_app` asks the CLI before every open
-(`epicenter app update --commit=<commit>`), which answers only for an
-approved commit and makes its build current (`builds/<app-id>/current`),
+(`epicenter app update --commit=<commit>`), which answers only for the
+approved commit. It builds that commit when it is not built, and otherwise
+compares `builds/<app-id>/<commit>/` with the commit's build tree by path and
+blob hash. A build that differs, edited, partly copied, or with a file added,
+is left in place and extracted again into a fresh sibling, and the CLI
+answers `damaged` with its name. When no window runs that commit
+(`InstalledWindowCommits`), the shell moves the damaged directory aside,
+renames the fresh one into place, and removes the damaged one; otherwise it
+opens nothing and asks the person to close that app's windows first. It
 then opens the commit it answered ready in its own window, labelled
 `app:<id with _ for .>:<folder scope in hex>`. The window keeps that build
 until it is closed and opened again: a later approval and build changes

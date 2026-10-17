@@ -99,10 +99,10 @@ from the Apps list opens its own folder, `so.epicenter.whispering`, under
 Epicenter's folder root. "Open in Whispering" beside another folder opens that
 folder through Whispering's definition, never rewriting its
 `epicenter.json`, and refuses one that lacks Whispering's tables, naming the
-folder. To try a change, commit it in the installed clone,
-`~/Epicenter/Apps/so.epicenter.whispering/`, approve it in the Folders
-window, and open the app again; a window already open keeps the build it
-opened on.
+folder. To try a change, install Whispering from your own clone of the
+repository by its absolute path, commit there, then choose Update and approve
+the commit in the Folders window, and open the app again; a window already
+open keeps the build it opened on.
 
 Inside Epicenter the shell grants the window its folder and holds the
 folder's lock. The page is the UI, and it opens the folder itself: it reads
