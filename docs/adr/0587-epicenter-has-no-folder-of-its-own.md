@@ -69,7 +69,7 @@ A page never reads a key, and the CLI still sends every desktop request
 (ADR-0557).
 
 **Which connection an app uses is kept on this machine,** in
-`connections.json` under the app's id, never in the app's synced folder. A
+`connections.json` under the app's address (ADR-0589), never in the app's synced folder. A
 choice that synced could send a person's audio to a different provider on
 another machine, where the same connection id names another endpoint or
 account. Whispering's fixed ids `whispering-transcription` and
@@ -98,9 +98,8 @@ account. Whispering's fixed ids `whispering-transcription` and
 - Whispering opening `so.epicenter`: `desktop.ts` and
   `desktop-connections.ts` list through the shell command and write through
   `ai_key_set`;
-- both `so.epicenter` clauses of ADR-0586's `admit`, which becomes: the
-  Folders window opens any data folder, and an app window opens the folder
-  it was handed.
+- both `so.epicenter` clauses of the shell's admission rule, which ADR-0586
+  reduces to one: an app window opens the folder it was handed.
 
 ## Consequences
 

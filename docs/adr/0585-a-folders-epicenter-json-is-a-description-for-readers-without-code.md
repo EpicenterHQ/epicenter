@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Supersedes:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (publication by the app a folder is named after, `folder.own`, and the read-through containment check) and [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (an app opens a folder whose declaration contains its shape; a folder names no app).
+- **Supersedes:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (a handle's first write publishes its declaration), [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) (publication by the app a folder is named after, `folder.own`, and the read-through containment check) and [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (an app opens a folder whose declaration contains its shape; a folder names no app).
 - **Amends:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing. [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "History and Sync use the handle's definition", "Only `openFolder` publishes", the typed lens that opens a folder whose declaration contains its shape, the consequence that `openFolder`'s `definition` is the only way to create a folder, and "The folders under the Epicenter root are listed by finding `epicenter.json`": history and Sync read no definition, nothing publishes, no containment is checked, a folder is made from a template, and the listing is every real, non-dot directory. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`. [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed, and rows that do not fit read as invalid rows. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the unit table's "a row, `<table>/<stem>.md`", "Paths the opened definition declares local never enter a commit", the whole-file merge of `epicenter.json` with its union of `local`, and "Sync, the one write, and the merge driver take the same rule": a `.md` file with readable frontmatter merges by field wherever it is, `.gitignore` decides what a commit leaves out, and every `.json` file, `epicenter.json` included, merges as a whole file, the writer acting winning, and the plain-Git merge driver is deleted. [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine rule table, `publishLocalPatterns`, and the consequences about `local` merging: audio stays on the machine while the folder's `.gitignore` ignores it, whoever edits that line decides for every device, and Epicenter never refuses to commit a file. [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
-- **Unbuilt:** all of it: the merge by file without a definition, with ours' key order and frontmatter kept as a side wrote it, which tests must prove before it ships (the fallback is restoring row classification); `app` and `source` in `Definition`; a folder that opens when its `epicenter.json` does not read; `template/` in Todos, Capture, Honeycrisp, and Whispering, with `epicenter generate` writing `template/epicenter.json` and CI checking it; template commits synthesized on both backends; `epicenter new <dir> --from <app>`; the folder listing of every real, non-dot directory, which waits on installed apps leaving the Epicenter folder ([ADR-0586](0586-you-open-a-folder-never-an-app.md)); "Update from <app>'s template" as a Sync against a newer template commit, and `epicenter check` saying when a folder's template differs from its installed app's; and every deletion under Consequences.
+- **Unbuilt:** all of it: the merge by file without a definition, with ours' key order and frontmatter kept as a side wrote it, which tests must prove before it ships (the fallback is restoring row classification); `app` in `Definition`; the `.json` merge by key; a folder that opens when its `epicenter.json` does not read; a `template` branch in each app's repository (ADR-0589), with `epicenter generate` writing its `epicenter.json` and CI checking it; a folder's root commit taken from that branch; `epicenter new <dir> --from <app>`; the folder listing of every real, non-dot directory, which waits on installed apps leaving the Epicenter folder ([ADR-0586](0586-you-open-a-folder-never-an-app.md)); "Update from <app>'s template" as a merge of a newer commit of that branch, and `epicenter check` saying when a folder's template differs from its installed app's; and every deletion under Consequences.
 
 ## Context
 
@@ -81,19 +81,22 @@ nothing to hold onto.
 | File | Unit |
 | --- | --- |
 | a `.md` file whose present versions all have frontmatter `parseRowSource` reads | one frontmatter field; one region of body lines |
-| a `.json` file, `epicenter.json` included | the whole file |
+| a `.json` file, `epicenter.json` included | one key of an object, recursing into nested objects |
 | other UTF-8 text | one region of lines |
 | binary, or a side absent | the whole file |
 
 - No table classifies a path and no depth rule applies: `notes/a.md`,
   `notes/2026/a.md`, and a `README.md` with frontmatter at the root merge
   alike.
-- A `.json` file merges whole, the writer acting winning, as
-  `epicenter.json` does today, because a line merge joins two different
-  insertions at one place (`mergeLines`,
-  `packages/folder/src/git/merge-lines.ts:202-209`): two items added to an
-  empty array on two devices would merge into JSON with no comma between
-  them. The rule is by extension, so it needs no Definition.
+- A `.json` file merges object by object, key by key. A nested object
+  recurses; an array or a scalar is one unit per key; a key both sides
+  changed differently goes to the writer acting. A line merge would join
+  two different insertions at one place (`mergeLines`,
+  `packages/folder/src/git/merge-lines.ts:202-209`), so two items added to
+  an empty array on two devices would merge into JSON with no comma between
+  them; a whole-file merge would freeze every template update after one
+  edit to `epicenter.json`. A version that does not parse merges whole. The
+  rule is by extension, so it needs no Definition.
 - A merged Markdown file keeps its frontmatter as a side wrote it. When the
   merged fields equal ours' fields or theirs', that side's frontmatter bytes
   stand as they are, comments and quoting included. Only when the merged
@@ -119,16 +122,13 @@ holds:
 
 ```json
 {
-  "app": "so.epicenter.todos",
-  "source": { "url": "https://github.com/EpicenterHQ/epicenter", "folder": "apps/todos" },
+  "app": "github.com/EpicenterHQ/todos",
   "tables": { "todos": { "type": "object", "properties": { "title": { "type": "string" } } } }
 }
 ```
 
-- `app` is the reverse-domain id of the app that opens the folder.
-- `source` is the app's Git URL and the folder within it, which the app's
-  author writes in the template, so a folder cloned onto a machine without
-  the app can offer to install it.
+- `app` is the address of the app that opens the folder (ADR-0589), so a
+  folder cloned onto a machine without the app can offer to install it.
 - `tables` is what it is today.
 - There is no `title`. A folder's name is its directory name everywhere,
   including where `title` is read today: `DataFolder.title`
@@ -161,36 +161,26 @@ Folder names belong to the person. `app` grants no rights, and nothing
 rewrites it. ADR-0583's `app` decided who may write `epicenter.json`; this
 `app` decides nothing about writing.
 
-**The template is the folder's Git upstream.** A template is the directory
-`template/` in the app's source, beside its `package.json`:
+**The template is the folder's Git upstream.** The app's author publishes
+a `template` branch in the app's repository (ADR-0589):
 
 ```txt
-apps/whispering/template/
+github.com/EpicenterHQ/whispering, branch template
   epicenter.json    generated by epicenter generate from whisperingDefinition; CI runs git diff --exit-code after it
   README.md         written by the app's author: what each table is for, and how to repair a row
   .gitignore        audio/
 ```
 
-Template commits form their own chain, which every device synthesizes from
-approved app commits and so builds as the same objects:
-
-```txt
-template commit for approved app commit C:
-  tree      <C>:<app folder>/template       the approved commit's tree object
-  parent    the template commit for the previously approved app commit, or none
-  author    "<app title> template", committer the same, date C's committer date
-```
-
-- A folder's root commit is the template commit for the approved app
-  commit it was made from. `epicenter new <dir> --from <app>` makes it and
-  checks out its files.
-- "Update from <app>'s template" is Sync's existing three-way merge against
-  a newer template commit: the base is the template commit the folder last
-  took, so a person's deliberate edits survive and only the template's
-  changes arrive. A unit both changed is overridden and listed as in any
-  Sync.
+- A folder's first commit is a real commit of that branch, the one
+  published with the approved app commit. `epicenter new <dir> --from
+  <address>` makes the folder from it and checks out its files.
+- "Update from <app>'s template" merges a newer commit of that branch with
+  Sync's existing three-way merge: the base is the template commit the
+  folder last took, so a person's deliberate edits survive and only the
+  template's changes arrive. A unit both changed is overridden and listed
+  as in any Sync.
 - `epicenter check <dir>` says when the folder's newest template commit
-  differs from the template of its installed app's approved commit.
+  differs from the one published with its installed app's approved commit.
 
 **Audio stays on this machine while the folder's `.gitignore` ignores it.**
 The engine follows plain Git ignore semantics on both backends, and the
@@ -216,10 +206,10 @@ running it at launch; Epicenter keeps no folder of its own (ADR-0587).
   `epicenter.json` cannot make an app reject or rewrite rows, and an app
   update that adds a field changes no folder file until the person updates
   from the template.
-- Every folder's history starts with a commit authored by its app's
-  template, and both backends synthesize template commits. Two folders made
-  from one approved app commit share a root commit, so a browser folder and
-  a desktop folder that sync to one remote merge with a real base.
+- Every folder's history starts with a commit of its app's `template`
+  branch, authored by the app's publisher. Two folders made from one
+  template commit share a root commit, so a browser folder and a desktop
+  folder that sync to one remote merge with a real base.
 - Depth no longer matters to the merge, so nested tables (a note group as a
   real directory, in the open nested-tables spec) merge by field with no new
   rule.
@@ -229,9 +219,10 @@ running it at launch; Epicenter keeps no folder of its own (ADR-0587).
   field. Its frontmatter is rewritten canonically, losing YAML comments,
   only when both sides changed its fields, as rows already are; history
   keeps the old version.
-- A `.json` file both sides changed keeps the writer acting's version
-  whole; the other side's edit is in its commit, as with any whole-file
-  merge.
+- A `.json` key both sides changed keeps the writer acting's value; the
+  other side's value is in its commit. An edit to one key of
+  `epicenter.json` no longer stops a template update from changing the
+  others.
 - A person or agent running `git pull` or `git merge` on a folder resolves
   Git's ordinary conflict markers.
 - An app handed a folder whose rows do not fit its definition shows them
@@ -298,6 +289,13 @@ running it at launch; Epicenter keeps no folder of its own (ADR-0587).
 - **Keep publication by the app a folder is named after.** No folder is
   named after its app once people name folders, and publication rewrites
   whatever a person or agent changed in the file.
+- **Merge `.json` as a whole file, the writer acting winning.** One edit to
+  `epicenter.json` would then win every later template update whole.
+- **Synthesize template commits on each device from approved app commits,
+  each one's parent the template commit of the previously approved app
+  commit.** Two machines that approved different releases would build
+  different histories for one template, and folders made on them would
+  share no base.
 - **A two-way diff against the current template, with each change accepted
   by hand.** With no base it cannot tell a person's removal from a
   template's addition, so it shows every difference for the folder's whole
