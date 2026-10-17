@@ -176,7 +176,6 @@ test('manifests are checked before anything is installed', () => {
 		['{ "id": "Board", "title": "Board" }', 'reverse-domain'],
 		['{ "id": "board", "title": "Board" }', 'reverse-domain'],
 		['{ "id": "com..board", "title": "Board" }', 'reverse-domain'],
-		['{ "id": "so.epicenter", "title": "Epicenter" }', 'Epicenter itself'],
 		['{ "id": "com.example.board", "title": " " }', 'title'],
 		['{ "id": "com.example.board" }', 'missing field `title`'],
 		['{ "title": "Board" }', 'missing field `id`'],
@@ -549,16 +548,8 @@ test('an invalid manifest is refused and nothing is kept', async () => {
 	expect(await readdir(f.paths.appsDir)).toEqual([]);
 });
 
-test("Epicenter's id and a second install are refused", async () => {
+test('a second install is refused', async () => {
 	const f = await fixture();
-	const epicenter = await appRepository(
-		f,
-		'epicenter',
-		'{ "id": "so.epicenter", "title": "Epicenter" }',
-	);
-	await expect(install(f.paths, epicenter, '')).rejects.toThrow(
-		'Epicenter itself',
-	);
 	const board = await appRepository(f, 'board');
 	await install(f.paths, board, '');
 	await expect(install(f.paths, board, '')).rejects.toThrow(

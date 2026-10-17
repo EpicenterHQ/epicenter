@@ -72,12 +72,20 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./app-commands.ts')).appUpdate(id as string, options, json),
 	'app remove': async ({ positionals: [id], json }) =>
 		(await import('./app-commands.ts')).appRemove(id as string, json),
-	'auth key': async ({ positionals: [action, connection], json }) => {
-		const [{ authKey }, { keychain }] = await Promise.all([
+	'auth key': async ({ positionals: [action, connection], options, json }) => {
+		const [{ authKey }, { keychain }, { resolveAppPaths }] = await Promise.all([
 			import('./ai-commands.ts'),
 			import('./secrets.ts'),
+			import('./app-paths.ts'),
 		]);
-		return authKey(action as string, connection as string, json, keychain());
+		return authKey(
+			action as string,
+			connection,
+			options,
+			json,
+			keychain(),
+			resolveAppPaths(),
+		);
 	},
 	send: async ({ grant }) => {
 		const [
@@ -109,8 +117,6 @@ const HANDLERS: Record<string, Run> = {
 			action as string,
 			grant,
 		),
-	'declare-epicenter-folder': async ({ json }) =>
-		(await import('./epicenter-folder.ts')).declareEpicenterFolder(json),
 	'install-command': async ({ json }) =>
 		(await import('./install-command.ts')).installCommand({ json }),
 };
@@ -160,13 +166,24 @@ lines and one result line.`,
 here, and builds the result once it is approved. Every commit is approved
 before it runs, including one made on this machine: the command prints it
 with its log and diff stat, and exits 1 until it runs again with --approve.`,
-	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
-under the connection's id, the stem of its row in so.epicenter/connections
-(ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
-stdin, never from the command line; an empty or missing key saves a keyless
-endpoint. state prints the endpoint and whether a key is saved, never the
-key. remove deletes the entry. Exits 0, or 2 when the id, the input, or the
-keychain cannot be used.`,
+	'auth key': `Keeps this computer's AI connections (ADR-0587): each one's kind,
+title, and model in connections.json in Epicenter's app data, and an
+OpenAI-compatible connection's endpoint and key in this computer's keychain,
+under the connection's id. Nothing here syncs.
+list prints every connection with its endpoint and whether its key is saved
+("key missing" when it is not), never the key, and which connection each app
+uses for each operation.
+set adds or changes one from a JSON object on stdin, never the command line:
+{"kind": "openai-compatible" | "epicenter" | "local", "title", "model",
+"endpoint", "key"}, each optional, except that a new connection needs its
+kind. An endpoint comes with its key; an empty or missing key saves a keyless
+endpoint. The entry is written first, then the key.
+remove deletes the key first, then the entry and every app's choice of it.
+state prints the endpoint and whether a key is saved, never the key.
+use <id> --app <app-id> --operation <name> records that the app uses the
+connection for that operation, on this computer only.
+Exits 0, or 2 when the id, the input, connections.json, or the keychain
+cannot be used.`,
 	'auth login': `Signs this computer in with a device code: open the link it prints, check
 the code, and choose which folders it may reach. The sign-in is kept in this
 computer's keychain, and Git's global configuration gets this command as its

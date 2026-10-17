@@ -39,14 +39,13 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter auth status` | built | `src/auth.ts` |
 | `epicenter auth token [--resource <url>]` | built | `src/auth.ts` |
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
-| `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
+| `epicenter auth key list \| set \| remove \| state \| use [<id>]` | built | `src/connections.ts`, over `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
-| `epicenter declare-epicenter-folder` | built, hidden | `src/epicenter-folder.ts` |
 
-`send`, `history`, `save-version`, `install-command`,
-`declare-epicenter-folder`, `app update --commit`, `sync --allow-unrelated`,
-and `--desktop` are left out of `--help`: the desktop app runs them.
+`send`, `history`, `save-version`, `install-command`, `app update --commit`,
+`sync --allow-unrelated`, and `--desktop` are left out of `--help`: the
+desktop app runs them.
 
 ## Hosted repositories
 
@@ -85,8 +84,8 @@ desktop shell runs them for a page, one child per operation, with `--json`;
 the one reply line is `history-wire.ts`'s encoding, which the page decodes.
 Git's own configuration names the author, and otherwise it is
 `Epicenter <epicenter@localhost>`; history is recorded on `main`. A folder
-directly under the Epicenter folder root named `so.epicenter` or an
-installed app's id is that app's own folder (`isApplicationFolder`), which
+directly under the Epicenter folder root named by an installed app's id is
+that app's own folder (`isApplicationFolder`), which
 may get a repository inside another repository's working tree; any other
 folder may not. When the shell ends the child (a page reloaded, or its
 window closed), the child ends every `git` it started, with their helpers
@@ -116,12 +115,38 @@ Every command also accepts the hidden `--desktop`, which Rust passes to select
 the desktop grant (ADR-0558); `auth token`, `auth logout`,
 `auth git-credential`, and `send` act on that grant only with it.
 
-`auth key` and `send` are ADR-0557's. An AI connection is a row of
-`so.epicenter/connections`; its endpoint and key live in this computer's
-keychain under the row's id, through `Bun.secrets` (service
-`so.epicenter.connections`). `auth key set <id>` reads `{"endpoint", "key"}`
-as JSON on stdin, never from the command line, and `state` prints the
-endpoint and whether a key is saved, never the key. `send` reads one JSON
+`auth key` keeps this computer's AI connections (ADR-0557, ADR-0587;
+`src/connections.ts`). Each is an entry of `connections.json` in app data,
+holding its kind, title, and model, which only the CLI writes; an
+`openai-compatible` connection's endpoint and key live in this computer's
+keychain under the connection's id, through `Bun.secrets` (service
+`so.epicenter.connections`), so editing the file cannot send a key to another
+server.
+
+```txt
+<dataDir>/connections.json
+  { "connections": { "<id>": { "kind", "title", "model" } },
+    "apps": { "<app id>": { "<operation>": "<connection id>" } } }
+```
+
+- `list` prints every connection with its endpoint and whether its key is
+  saved ("key missing" when it is not), never the key, and each app's
+  choices.
+- `set <id>` reads `{"kind", "title", "model", "endpoint", "key"}`, each
+  optional, as JSON on stdin, never from the command line. A new connection
+  needs its kind, and a kind never changes. It writes the entry first, then
+  the key, so a crash between them leaves an entry with its key missing.
+- `remove <id>` deletes the key first, then the entry and every app's choice
+  of it.
+- `state <id>` prints the keychain entry's endpoint and whether a key is
+  saved, never the key.
+- `use <id> --app <app-id> --operation <name>` records which connection an
+  app uses for an operation, on this computer only.
+
+A `connections.json` that does not read is refused, named, and never
+overwritten. Writes hold `<cacheDir>/connections.lock`.
+
+`send` is ADR-0557's. It reads one JSON
 line, `{"target", "request"}`, then the request body's raw bytes on stdin;
 it sends an Epicenter connection to the deployment's `/v1` with an access
 token from `auth` (the desktop grant's under `--desktop`, otherwise the
@@ -157,11 +182,6 @@ as it is and says so, and a regular file at the link's path is refused. Run
 from source under `bun`, it refuses, since it would link `bun` itself. A
 terminal finds `epicenter` once `~/.local/bin` is on `PATH`: add
 `export PATH="$HOME/.local/bin:$PATH"` to your shell profile once.
-
-`declare-epicenter-folder` publishes `so.epicenter`'s declaration
-(`src/epicenter-folder.ts`), which the desktop app runs at every launch so an
-installed app reading its `connections` table through its definition finds
-the table before any app opens.
 
 ## Signing in
 
@@ -319,14 +339,14 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
 | `src/install-command.ts` | `install-command`: the one link Git's configuration runs. |
-| `src/epicenter-folder.ts` | `so.epicenter`'s definition and `declare-epicenter-folder`. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |
 | `src/merge-driver.ts` | `merge-driver`: Git's merge driver, and the repository configuration that names it. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
 | `src/app-paths.ts` | Where installed apps, approvals, builds, the sign-in locks, and the command link live, by the shell's rule. |
-| `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
+| `src/connections.ts` | This computer's AI connections: `connections.json`, each key in the keychain, and each app's choices. |
+| `src/ai-commands.ts` | `auth key` and `send`, printing what `src/connections.ts` and `@epicenter/ai/send` return. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
 | `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |

@@ -46,6 +46,7 @@ of them.**
   (`list_installed_apps` in `apps/epicenter/src-tauri/src/installed_apps.rs`
   runs `epicenter app list --json`).
 - `so.epicenter` has no `apps` table and no `defaultApp` setting.
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0587) -->
   `epicenterDefinition` in `packages/cli/src/epicenter-folder.ts` declares
   `connections` ([ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md))
   and an empty `kv`.
@@ -53,6 +54,7 @@ of them.**
 **The CLI owns `so.epicenter`'s declaration and publishes it at every
 launch.** `epicenter declare-epicenter-folder` writes
 `so.epicenter/epicenter.json` (`declareEpicenterFolder` in
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0587) -->
 `packages/cli/src/epicenter-folder.ts`). The shell runs it in the background
 at every launch (`spawn_epicenter_folder_declaration` in
 `apps/epicenter/src-tauri/src/cli.rs`, called from `run` in

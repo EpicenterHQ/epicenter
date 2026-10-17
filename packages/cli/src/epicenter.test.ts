@@ -494,7 +494,9 @@ test('--help lists every command but send and install-command, and --json descri
 		'auth git-credential',
 		'auth key',
 	]);
-	expect(help.stdout).toContain('epicenter auth key set | remove | state <id>');
+	expect(help.stdout).toContain(
+		'epicenter auth key list | set | remove | state | use [<id>]',
+	);
 	expect(
 		described.find((c: { command: string }) => c.command === 'sync').output,
 	).toBe('ndjson');

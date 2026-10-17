@@ -1,26 +1,23 @@
 /**
  * Whispering's transcription connection of kind `epicenter`, end to end on
  * the server: the app signs in through the CLI's loopback sign-in against the
- * real authorization server on a disposable Postgres cluster, a row in
- * `so.epicenter` names the Epicenter kind, and a request Whispering sends
+ * real authorization server on a disposable Postgres cluster, this
+ * computer's connection names the Epicenter kind, and a request Whispering sends
  * over it goes through `ai_send` as the CLI's `send` runs it, with the app's
  * grant (`--desktop`), to the deployment's `/v1`. That route takes only an
  * access token for the API audience with `ai`, as inference does.
  *
- * `ai_send` and `auth_status` are answered in this process by the code
- * `epicenter send` and `epicenter auth status` run. Requires initdb and
+ * `ai_key_list`, `ai_send`, and `auth_status` are answered in this process by
+ * the code `epicenter auth key list`, `epicenter send`, and `epicenter auth
+ * status` run. Requires initdb and
  * pg_ctl on PATH; never connects to a configured database.
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsDefinition,
-} from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -28,7 +25,6 @@ import {
 	sendRequest,
 } from '@epicenter/ai/send';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
-import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import {
 	type AuthContext,
 	accountAccess,
@@ -37,6 +33,10 @@ import {
 	loginWithLoopback,
 	resolveDeployment,
 } from '../../../../../packages/cli/src/auth.js';
+import {
+	listConnections,
+	setConnection,
+} from '../../../../../packages/cli/src/connections.ts';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -182,14 +182,30 @@ afterAll(async () => {
 	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
-/** `auth_status` and `ai_send` as the CLI answers them with the app's grant. */
+/** This computer's app data, where the CLI keeps the connections. */
+const paths = () => ({
+	dataDir: join(scratch, 'data'),
+	cacheDir: join(scratch, 'cache'),
+});
+
+/**
+ * `ai_key_list`, `auth_status`, and `ai_send` as the CLI answers them with
+ * the app's grant.
+ */
 function shell(): ConnectionCommands {
-	const fail = () => {
-		throw new Error('an Epicenter connection has no keychain entry');
-	};
 	return {
-		aiKeyState: fail,
-		aiKeySet: fail,
+		async aiKeyList() {
+			const { data, error } = await listConnections(paths(), ctx.secrets);
+			if (error !== null) throw new Error(error.message);
+			return {
+				status: 'ok',
+				data: { connections: data.connections, uses: {} },
+				error: null,
+			};
+		},
+		aiKeySet: () => {
+			throw new Error('Whispering does not change an Epicenter connection');
+		},
 		async authStatus() {
 			const { data: grants, error } = await authStatus(ctx);
 			if (error !== null) throw new Error(error.message);
@@ -225,29 +241,15 @@ function shell(): ConnectionCommands {
 }
 
 test('a transcription over an Epicenter connection reaches the deployment’s /v1 with an ai token from the app’s sign-in', async () => {
-	const root = join(scratch, CONNECTIONS_FOLDER_ID);
-	await mkdir(root);
-	const opened = await openBunFolder({
-		root,
-		app: CONNECTIONS_FOLDER_ID,
-		definition: connectionsDefinition,
-		git: { author: { name: 'Test', email: 'test@localhost' } },
-	});
-	if (opened.error !== null) throw new Error(opened.error.message);
-	const folder = opened.data;
-	const { error: created } = await folder.tables.connections.create(
-		{
-			fields: { kind: 'epicenter', title: 'Epicenter', model: 'whisper-1' },
-			body: '',
-		},
-		{ stem: CONNECTION_IDS.transcription },
+	const { error: created } = await setConnection(
+		paths(),
+		ctx.secrets,
+		CONNECTION_IDS.transcription,
+		{ kind: 'epicenter', title: 'Epicenter', model: 'whisper-1' },
 	);
 	expect(created).toBeNull();
 
-	const connections = createDesktopConnections({
-		commands: shell(),
-		openConnections: async () => ({ data: folder, error: null }),
-	});
+	const connections = createDesktopConnections({ commands: shell() });
 	const info = await connections.read();
 	expect(info.transcription).toMatchObject({
 		baseUrl: `${origin}/v1`,
@@ -283,5 +285,4 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 		path: '/v1/audio/transcriptions',
 		body: JSON.stringify({ model: 'whisper-1' }),
 	});
-	await connections.close();
 }, 60_000);

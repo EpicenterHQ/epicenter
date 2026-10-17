@@ -133,6 +133,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             data_folders::list_data_folders,
             cli::ai_send,
             cli::account_send,
+            cli::ai_key_list,
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
@@ -352,8 +353,6 @@ pub fn run() {
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
-            data_folders::register_epicenter_folder(app.folders(), &desktop_paths.folder_dir)
-                .map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
                 Ok(watch) => {
                     app.manage(watch);
@@ -363,9 +362,6 @@ pub fn run() {
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
-            // An installed app may read `so.epicenter` through a definition,
-            // so its declaration is published before any app opens.
-            app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
             // Every window's page comes from the scheme, which reads these.
             app.manage(scheme::Roots {
                 pages: scheme::pages_dir(app.handle())?,
@@ -673,9 +669,9 @@ impl InstalledWindowCommits {
 /// `/apps/<id>/<commit>/`, in its own window on `folder`, a registered scope,
 /// or reveal the one already open on it when it runs that build
 /// (`reveal_on_build`). A window keeps the build it opened on until it is
-/// closed and opened again (ADR-0588). The
-/// window is permitted into the folder and into `so.epicenter`, and handed
-/// the folder (`data_folders::admit_installed_window`): the app's
+/// closed and opened again (ADR-0588). The window is permitted into the
+/// folder, and no other, and handed it
+/// (`data_folders::admit_installed_window`): the app's
 /// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
 /// and opens it through the app's definition unless it is the app's own
 /// (ADR-0538, ADR-0583). The URL names no folder, so the page's navigation
@@ -882,12 +878,7 @@ mod tests {
             "so.epicenter.todos",
             "com.example.board",
         ] {
-            for folder in [
-                None,
-                Some(id),
-                Some("data:Voice notes"),
-                Some("so.epicenter"),
-            ] {
+            for folder in [None, Some(id), Some("data:Voice notes")] {
                 let label = installed_window_label(id, folder);
                 assert!(selects(&capability, &label), "{label}");
             }
@@ -917,6 +908,7 @@ mod tests {
                 "allow-get-local-transcription-readiness",
                 "allow-open-home",
                 "allow-ai-send",
+                "allow-ai-key-list",
                 "allow-ai-key-set",
                 "allow-ai-key-remove",
                 "allow-ai-key-state",
@@ -959,8 +951,9 @@ mod tests {
     /// fixed CLI invocation that never hands a page a saved key.
     #[test]
     fn ai_commands_are_granted_to_settings_folders_and_installed_apps() {
-        const AI: [&str; 4] = [
+        const AI: [&str; 5] = [
             "allow-ai-send",
+            "allow-ai-key-list",
             "allow-ai-key-set",
             "allow-ai-key-remove",
             "allow-ai-key-state",
@@ -1277,6 +1270,7 @@ mod tests {
                 "allow-sync",
                 "allow-install-git",
                 "allow-ai-send",
+                "allow-ai-key-list",
                 "allow-ai-key-set",
                 "allow-ai-key-remove",
                 "allow-ai-key-state",

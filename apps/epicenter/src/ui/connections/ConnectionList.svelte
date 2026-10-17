@@ -1,31 +1,24 @@
 <script lang="ts">
-	import type { ConnectionKind } from '@epicenter/ai/send';
-	import type { TableOptions } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { commands } from '../bindings.gen';
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { type AiConnection, type AiConnectionKind, commands } from '../bindings.gen';
 	import ConnectionEditor from './ConnectionEditor.svelte';
-	import { type ConnectionFields, connectionId, failureText, KIND_LABELS, OFFERED_KINDS } from './connections';
+	import { CONNECTIONS_KEY, connectionId, failureText, KIND_LABELS, OFFERED_KINDS } from './connections';
 
 	/**
-	 * Every AI connection in `so.epicenter`, each with its editor, and a form
-	 * that adds one: its row, then, for an endpoint, its endpoint and key in
-	 * this computer's keychain.
+	 * Every AI connection on this computer, each with its editor, and a form
+	 * that adds one: its entry, then, for an endpoint, its endpoint and key in
+	 * this computer's keychain, in one `ai_key_set`.
 	 */
-	let { options }: { options: TableOptions<ConnectionFields> } = $props();
+	let { connections }: { connections: AiConnection[] } = $props();
 
-	const list = createQuery(() => options.list.queryOptions());
-	const create = createMutation(() => options.create.mutationOptions());
-
-	const rows = $derived(
-		(list.data ?? [])
-			.flatMap(({ stem, result }) => (result.error === null ? [{ ...result.data, stem }] : []))
-			.sort((a, b) => a.row.fields.title.localeCompare(b.row.fields.title)),
+	const client = useQueryClient();
+	const sorted = $derived(
+		[...connections].sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id)),
 	);
-	const unreadable = $derived((list.data ?? []).filter(({ result }) => result.error !== null));
 
-	let kind = $state<ConnectionKind>('openai-compatible');
+	let kind = $state<AiConnectionKind>('openai-compatible');
 	let title = $state('');
 	let model = $state('');
 	let endpoint = $state('');
@@ -37,23 +30,16 @@
 		adding = true;
 		problem = undefined;
 		try {
-			const stem = connectionId(title, new Set((list.data ?? []).map((item) => item.stem)));
-			const saved = await create
-				.mutateAsync({ stem, row: { fields: { kind, title: title.trim(), model: model.trim() }, body: '' } })
-				.then(
-					() => true,
-					(cause: unknown) => {
-						problem = cause instanceof Error ? cause.message : String(cause);
-						return false;
-					},
-				);
-			if (!saved) return;
-			if (kind === 'openai-compatible') {
-				const { error } = await commands.aiKeySet(stem, endpoint, key);
-				if (error !== null) {
-					problem = `The connection was added, but its endpoint and key were not saved on this computer: ${failureText(error)}`;
-					return;
-				}
+			const id = connectionId(title, new Set(connections.map((connection) => connection.id)));
+			const { error } = await commands.aiKeySet(id, {
+				kind,
+				title,
+				model,
+				...(kind === 'openai-compatible' && { endpoint, key }),
+			});
+			if (error !== null) {
+				problem = failureText(error);
+				return;
 			}
 			title = '';
 			model = '';
@@ -61,27 +47,19 @@
 			key = '';
 		} finally {
 			adding = false;
+			await client.invalidateQueries({ queryKey: CONNECTIONS_KEY });
 		}
 	}
 </script>
 
-{#if list.error}
-	<p role="alert" class="text-destructive">Could not list the connections: {list.error.message}</p>
-{:else if list.isPending}
-	<p class="text-muted-foreground">Reading…</p>
-{:else}
-	{#if rows.length === 0}
-		<p class="text-muted-foreground">No AI connections yet. Each one is a file in so.epicenter/connections, so it follows you to every computer where that folder syncs.</p>
-	{/if}
-	<ul class="grid gap-2">
-		{#each rows as stored (stored.stem)}
-			<ConnectionEditor {stored} {options} />
-		{/each}
-	</ul>
-	{#each unreadable as { stem, result } (stem)}
-		<p role="alert" class="text-destructive">connections/{stem}.md does not read: {result.error?.message}</p>
-	{/each}
+{#if sorted.length === 0}
+	<p class="text-muted-foreground">No AI connections on this computer yet. They stay on this computer, so each computer you use sets up its own.</p>
 {/if}
+<ul class="grid gap-2">
+	{#each sorted as connection (connection.id)}
+		<ConnectionEditor {connection} />
+	{/each}
+</ul>
 
 <form
 	class="grid gap-2 rounded-md border border-dashed p-3"

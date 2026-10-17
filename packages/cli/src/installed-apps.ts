@@ -39,7 +39,7 @@
  *
  * This module writes the clones, `approvals.json`, and the builds. They are
  * the only record of what is installed (ADR-0569): `epicenter app list`
- * reads them, and `so.epicenter` keeps no row per app.
+ * reads them, and no file keeps a row per app.
  */
 
 import { spawn } from 'node:child_process';
@@ -61,7 +61,6 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { delimiter, dirname, isAbsolute, join, sep } from 'node:path';
-import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import { createGitRunner, holdingFileLock } from '@epicenter/folder/bun';
 import type { AppPaths } from './app-paths.ts';
 
@@ -209,8 +208,7 @@ function hasControlCharacter(text: string) {
 
 /**
  * Why `id` cannot name an installed app, if it cannot: it must be a
- * lowercase reverse-domain name, such as `com.example.board`, and must not be
- * Epicenter's own (ADR-0552).
+ * lowercase reverse-domain name, such as `com.example.board` (ADR-0552).
  */
 export function appIdProblem(id: string): string | undefined {
 	const labels = id.split('.');
@@ -228,8 +226,6 @@ export function appIdProblem(id: string): string | undefined {
 		/^[a-z]/.test(id);
 	if (!wellFormed)
 		return 'is not a lowercase reverse-domain name such as com.example.board';
-	// Epicenter's own folder id, which no app may take (ADR-0552).
-	if (id === CONNECTIONS_FOLDER_ID) return 'belongs to Epicenter itself';
 	return undefined;
 }
 

@@ -104,9 +104,10 @@ opens one with its own declaration, edits its rows, and offers every installed
 app as "Open in"; an app refuses a folder its definition does not fit. Settings (the
 `home` window) keeps Chat and model administration.
 
-Epicenter's own folder is `~/Epicenter/so.epicenter`. What a person or agent
-edits lives in folders; what only Epicenter writes, such as `approvals.json`,
-lives in app data; built bundles live in Caches
+Epicenter keeps no folder of its own (ADR-0587). What a person or agent
+edits lives in folders; what only Epicenter writes, such as `approvals.json`
+and this machine's AI connections in `connections.json`, lives in app data;
+built bundles live in Caches
 ([ADR-0539](adr/0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md)).
 
 ## Built-in and installed apps

@@ -1,40 +1,32 @@
 /**
- * What Settings' AI connections share: the row's fields, how each kind is
- * named, the query key of a connection's keychain state, and a new
- * connection's id.
+ * What Settings' AI connections share: how each kind is named, the query
+ * key of the listing, a new connection's id, and what a person is told when
+ * a key command fails.
  */
 
-import type { ConnectionKind } from '@epicenter/ai/send';
-import type { CliError } from '../bindings.gen';
+import type { AiConnectionKind, CliError } from '../bindings.gen';
 
-/** A `connections` row's fields, as `so.epicenter`'s declaration reads them. */
-export type ConnectionFields = {
-	kind: ConnectionKind;
-	title: string;
-	model: string;
-};
-
-export const KIND_LABELS: Record<ConnectionKind, string> = {
+export const KIND_LABELS: Record<AiConnectionKind, string> = {
 	'openai-compatible': 'OpenAI-compatible endpoint',
 	epicenter: 'Epicenter account',
 	local: 'This computer',
 };
 
 /**
- * The kinds a new connection may have. `local` stays a kind a row may hold,
- * and `epicenter send` refuses it (`LocalNotSent`), but no app sends over it
- * yet, so it is not offered.
+ * The kinds a new connection may have. `local` stays a kind a connection may
+ * hold, and `epicenter send` refuses it (`LocalNotSent`), but no app sends
+ * over it yet, so it is not offered.
  */
 export const OFFERED_KINDS = [
 	'openai-compatible',
 	'epicenter',
-] as const satisfies readonly ConnectionKind[];
+] as const satisfies readonly AiConnectionKind[];
 
-/** The query key of what the keychain holds for `stem`. */
-export const keyStateKey = (stem: string) => ['ai-key-state', stem] as const;
+/** The query key of this computer's connections, as `ai_key_list` lists them. */
+export const CONNECTIONS_KEY = ['ai-connections'] as const;
 
 /**
- * A new connection's id, which is its row's stem and its keychain name: the
+ * A new connection's id, which names its entry and its keychain entry: the
  * title in lowercase letters, digits, and hyphens, numbered when taken.
  */
 export function connectionId(title: string, taken: ReadonlySet<string>) {
@@ -52,6 +44,6 @@ export function connectionId(title: string, taken: ReadonlySet<string>) {
 /** What a person is told when a key command did not run or was refused. */
 export function failureText(error: CliError) {
 	return error.name === 'NotGranted'
-		? 'This window was not granted the folder.'
+		? 'This window may not change AI connections.'
 		: error.message;
 }

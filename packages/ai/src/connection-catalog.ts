@@ -158,8 +158,8 @@ export type ConnectionCatalog = Awaited<
 
 /**
  * This browser's connections, kept in its storage for this site. Inside
- * Epicenter an app's connections are rows of `so.epicenter` instead, with
- * their keys in the keychain (`connection-table.ts`, `send.ts`).
+ * Epicenter an app's connections are this machine's instead, listed by the
+ * `epicenter` CLI with their keys in the keychain (ADR-0587, `send.ts`).
  */
 export async function openLocalConnectionCatalog() {
 	return openConnectionCatalog(createBrowserConnections());

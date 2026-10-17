@@ -7,6 +7,7 @@
  * ```txt
  * <folderDir>/Apps/<app-id>/                 a full clone of the app's repository
  * <dataDir>/approvals.json                   { [appId]: { commit, approvedAt } }
+ * <dataDir>/connections.json                 this machine's AI connections (connections.ts)
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
  * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
  * <cacheDir>/checkouts/<app-id>/             the commit an app builds from, only while it builds
@@ -34,13 +35,13 @@ export const APPS_DIRECTORY = 'Apps';
 export type AppPaths = {
 	/** One repository per installed app, at `<app-id>/`. */
 	readonly appsDir: string;
-	/** The Epicenter folder: `Apps/` and Epicenter's own `so.epicenter/`. */
+	/** The Epicenter folder: `Apps/` and the data folders. */
 	readonly folderDir: string;
 	/** Built bundles, at `<app-id>/<commit>/`. */
 	readonly buildsDir: string;
 	/** Which app commits may run on this machine. */
 	readonly approvalsFile: string;
-	/** Machine state worth keeping: approvals and the sign-in locks. */
+	/** Machine state worth keeping: approvals, AI connections, and the sign-in locks. */
 	readonly dataDir: string;
 	/**
 	 * The `epicenter` every Git configuration Epicenter writes runs, and a

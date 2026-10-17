@@ -141,12 +141,22 @@ export const commands = {
 	 */
 	accountSend: (audience: AccountAudience, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("account_send", { audience, request, onEvent })),
 	/**
-	 *  Save `endpoint` and `key` for `connection` in this computer's keychain,
-	 *  through `epicenter auth key set`, which reads both on stdin. An empty key
-	 *  confirms a keyless endpoint.
+	 *  Every AI connection on this computer, each with its endpoint and whether
+	 *  its key is saved, never the key, and which connection this window's app
+	 *  uses for each operation, through `epicenter auth key list`.
 	 */
-	aiKeySet: (connection: string, endpoint: string, key: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_set", { connection, endpoint, key })),
-	/**  Remove what this computer saved for `connection`; whether there was anything. */
+	aiKeyList: () => typedError<AiConnections, CliError>(__TAURI_INVOKE("ai_key_list")),
+	/**
+	 *  Add or change `connection` on this computer through `epicenter auth key
+	 *  set`, which reads the change on stdin: its entry first, then, with an
+	 *  endpoint, its endpoint and key in the keychain. Answers the connection as
+	 *  the listing names it.
+	 */
+	aiKeySet: (connection: string, change: AiConnectionChange) => typedError<AiConnection, CliError>(__TAURI_INVOKE("ai_key_set", { connection, change })),
+	/**
+	 *  Remove `connection` from this computer: its key first, then its entry and
+	 *  every app's choice of it. Whether there was anything.
+	 */
 	aiKeyRemove: (connection: string) => typedError<boolean, CliError>(__TAURI_INVOKE("ai_key_remove", { connection })),
 	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
 	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
@@ -339,8 +349,58 @@ export type ActiveModel = {
 	supportsLanguage: boolean,
 };
 
+/**  One connection on this computer, as `epicenter auth key list` prints it. */
+export type AiConnection = {
+	id: string,
+	kind: AiConnectionKind,
+	title: string,
+	/**  The model a request names when its caller names none. */
+	model: string,
+	/**  Null for a kind with no endpoint or key. */
+	key: AiListedKey | null,
+};
+
+/**
+ *  A change to one connection, as `epicenter auth key set` reads it on
+ *  stdin. A member left out keeps what is saved; a new connection needs its
+ *  kind. An endpoint comes with its key, and an empty key saves a keyless
+ *  endpoint.
+ */
+export type AiConnectionChange = {
+	kind?: AiConnectionKind | null,
+	title?: string | null,
+	model?: string | null,
+	endpoint?: string | null,
+	key?: string | null,
+};
+
+/**
+ *  What a connection sends to: an endpoint that speaks the OpenAI wire, the
+ *  deployment's API with the app's sign-in, or this computer's local model.
+ */
+export type AiConnectionKind = "openai-compatible" | "epicenter" | "local";
+
+/**
+ *  This computer's AI connections as one window sees them: every
+ *  connection, and which one the window's app uses for each operation.
+ */
+export type AiConnections = {
+	connections: AiConnection[],
+	/**
+	 *  The window's app's choices, by operation, such as
+	 *  `{ "transcription": "groq" }`. Empty for a window that runs no app.
+	 */
+	uses: { [key in string]: string },
+};
+
 /**  What this computer's keychain holds for a connection. Never the key. */
 export type AiKeyState = { state: "missing" } | { state: "saved"; endpoint: string; hasKey: boolean };
+
+/**
+ *  What the listing says of an `openai-compatible` connection's keychain
+ *  entry, never the key: missing, saved for an endpoint, or unreadable.
+ */
+export type AiListedKey = { state: "missing" } | { state: "saved"; endpoint: string; hasKey: boolean } | { state: "unreadable"; message: string };
 
 /**
  *  One request `epicenter send` carries, relative to its target: below an AI
@@ -357,10 +417,10 @@ export type AiRequest = {
 };
 
 /**
- *  Where a request goes: a connection by its id, which is the stem of its row
- *  in `so.epicenter/connections`. An `openai-compatible` target names the
- *  endpoint the page prepared the request for; the CLI sends only while the
- *  keychain entry still holds it.
+ *  Where a request goes: a connection by its id, which names its entry in
+ *  `connections.json` and its keychain entry. An `openai-compatible` target
+ *  names the endpoint the page prepared the request for; the CLI sends only
+ *  while the keychain entry still holds it.
  */
 export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint: string } | { kind: "epicenter"; connection: string } | { kind: "local"; connection: string };
 

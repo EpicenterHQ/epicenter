@@ -19,7 +19,6 @@
 
 import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	encodeHistory,
 	GitMissingError,
@@ -41,8 +40,8 @@ const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
 /**
  * Whether `dir` is an application's own folder, by the shell's rule
  * (`data_folders.rs`): directly under the Epicenter folder root and named
- * `so.epicenter` or the id of an app installed in `Apps/`. Any other folder
- * is a data folder.
+ * by the id of an app installed in `Apps/`. Any other folder is a data
+ * folder.
  */
 export async function isApplicationFolder(
 	dir: string,
@@ -54,7 +53,6 @@ export async function isApplicationFolder(
 	]);
 	if (resolved === undefined || dirname(resolved) !== folderRoot) return false;
 	const name = basename(resolved);
-	if (name === CONNECTIONS_FOLDER_ID) return true;
 	return stat(join(paths.appsDir, name)).then(
 		(found) => found.isDirectory(),
 		() => false,

@@ -24,7 +24,7 @@
 //! only after [`STOP_GRACE`], so a refresh the child already sent reaches
 //! the keychain (ADR-0565).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, Webview};
-use tauri_plugin_epicenter_folder::GrantError;
+use tauri_plugin_epicenter_folder::{FolderExt, GrantError};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Notify;
@@ -575,57 +575,18 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
     });
 }
 
-/// Whether this launch's `epicenter declare-epicenter-folder` has finished,
-/// one way or the other. An installed app may read `so.epicenter` through a
-/// definition its declaration must contain (ADR-0538), so no installed app
-/// opens before it, whichever window opened first.
-#[derive(Clone)]
-pub struct EpicenterFolderDeclared(tokio::sync::watch::Receiver<bool>);
-
-impl EpicenterFolderDeclared {
-    /// Resolves once the launch's declaration has finished.
-    pub async fn finished(&self) {
-        let mut receiver = self.0.clone();
-        let _ = receiver.wait_for(|done| *done).await;
-    }
-}
-
-/// The second launch call, in the background: publish `so.epicenter`'s
-/// declaration through the CLI (`packages/cli/src/epicenter-folder.ts`),
-/// with this shell's `paths`, in every build. A failure is logged; apps
-/// that read the folder then refuse it as `ShapeMismatch`, which they say.
-pub(crate) fn spawn_epicenter_folder_declaration(paths: &DesktopPaths) -> EpicenterFolderDeclared {
-    let (sender, receiver) = tokio::sync::watch::channel(false);
-    let invocation = bundled_program().and_then(|program| {
-        crate::deployment_origin().map(|origin| Invocation::new(program, &origin, paths))
-    });
-    tauri::async_runtime::spawn(async move {
-        let result = match invocation {
-            Ok(invocation) => invocation
-                .answer::<Value>(&["declare-epicenter-folder", "--json"], None)
-                .await
-                .map(|_| ())
-                .map_err(|error| format!("{error:?}")),
-            Err(message) => Err(message),
-        };
-        if let Err(message) = result {
-            log::warn!("Epicenter's own folder was not declared: {message}");
-        }
-        let _ = sender.send(true);
-    });
-    EpicenterFolderDeclared(receiver)
-}
-
 // ---------------------------------------------------------------------------
-// AI connections (ADR-0557): one request over a connection, and its key in
-// the keychain. The CLI holds both; these commands only carry the page's
-// typed input to one fixed invocation, so no page reads a saved key.
+// AI connections (ADR-0557, ADR-0587): this machine's connections, each an
+// entry of `connections.json` in app data with its endpoint and key in the
+// keychain, and one request over one. The CLI holds all of it; these
+// commands only carry the page's typed input to one fixed invocation, so no
+// page reads a saved key.
 // ---------------------------------------------------------------------------
 
-/// Where a request goes: a connection by its id, which is the stem of its row
-/// in `so.epicenter/connections`. An `openai-compatible` target names the
-/// endpoint the page prepared the request for; the CLI sends only while the
-/// keychain entry still holds it.
+/// Where a request goes: a connection by its id, which names its entry in
+/// `connections.json` and its keychain entry. An `openai-compatible` target
+/// names the endpoint the page prepared the request for; the CLI sends only
+/// while the keychain entry still holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum AiTarget {
@@ -674,6 +635,76 @@ pub enum AiKeyState {
         #[serde(rename = "hasKey")]
         has_key: bool,
     },
+}
+
+/// What a connection sends to: an endpoint that speaks the OpenAI wire, the
+/// deployment's API with the app's sign-in, or this computer's local model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum AiConnectionKind {
+    OpenaiCompatible,
+    Epicenter,
+    Local,
+}
+
+/// What the listing says of an `openai-compatible` connection's keychain
+/// entry, never the key: missing, saved for an endpoint, or unreadable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum AiListedKey {
+    Missing,
+    Saved {
+        endpoint: String,
+        #[serde(rename = "hasKey")]
+        has_key: bool,
+    },
+    Unreadable {
+        message: String,
+    },
+}
+
+/// One connection on this computer, as `epicenter auth key list` prints it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct AiConnection {
+    pub id: String,
+    pub kind: AiConnectionKind,
+    pub title: String,
+    /// The model a request names when its caller names none.
+    pub model: String,
+    /// Null for a kind with no endpoint or key.
+    pub key: Option<AiListedKey>,
+}
+
+/// What `epicenter auth key list --json` prints: every connection, and each
+/// app's choice of connection by operation.
+#[derive(Debug, Clone, Deserialize)]
+struct ConnectionListing {
+    connections: Vec<AiConnection>,
+    apps: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// This computer's AI connections as one window sees them: every
+/// connection, and which one the window's app uses for each operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+pub struct AiConnections {
+    pub connections: Vec<AiConnection>,
+    /// The window's app's choices, by operation, such as
+    /// `{ "transcription": "groq" }`. Empty for a window that runs no app.
+    pub uses: BTreeMap<String, String>,
+}
+
+/// A change to one connection, as `epicenter auth key set` reads it on
+/// stdin. A member left out keeps what is saved; a new connection needs its
+/// kind. An endpoint comes with its key, and an empty key saves a keyless
+/// endpoint.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, specta::Type)]
+#[serde(default)]
+pub struct AiConnectionChange {
+    pub kind: Option<AiConnectionKind>,
+    pub title: Option<String>,
+    pub model: Option<String>,
+    pub endpoint: Option<String>,
+    pub key: Option<String>,
 }
 
 /// A connection id, as `@epicenter/ai/send` reads one: it goes into the
@@ -780,12 +811,42 @@ async fn key_command<T: serde::de::DeserializeOwned>(
 async fn key_set_with(
     invocation: &Invocation,
     connection: &str,
-    endpoint: &str,
-    key: &str,
-) -> Result<AiKeyState, CliError> {
-    let input = serde_json::to_vec(&json!({ "endpoint": endpoint, "key": key }))
-        .map_err(|error| failed(error.to_string()))?;
+    change: &AiConnectionChange,
+) -> Result<AiConnection, CliError> {
+    let mut input = serde_json::Map::new();
+    let members = [
+        ("kind", change.kind.map(|kind| json!(kind))),
+        ("title", change.title.as_ref().map(|text| json!(text))),
+        ("model", change.model.as_ref().map(|text| json!(text))),
+        ("endpoint", change.endpoint.as_ref().map(|text| json!(text))),
+        ("key", change.key.as_ref().map(|text| json!(text))),
+    ];
+    for (name, value) in members {
+        if let Some(value) = value {
+            input.insert(name.into(), value);
+        }
+    }
+    let input =
+        serde_json::to_vec(&Value::Object(input)).map_err(|error| failed(error.to_string()))?;
     key_command(invocation, "set", connection, Some(input)).await
+}
+
+/// `epicenter auth key list --json`, with `app`'s choices of connection:
+/// none for a window that runs no app.
+async fn key_list_with(
+    invocation: &Invocation,
+    app: Option<&str>,
+) -> Result<AiConnections, CliError> {
+    let mut listing: ConnectionListing = invocation
+        .answer(&["auth", "key", "list", "--json"], None)
+        .await?;
+    let uses = app
+        .and_then(|app| listing.apps.remove(app))
+        .unwrap_or_default();
+    Ok(AiConnections {
+        connections: listing.connections,
+        uses,
+    })
 }
 
 async fn key_state_with(invocation: &Invocation, connection: &str) -> Result<AiKeyState, CliError> {
@@ -827,21 +888,36 @@ pub async fn ai_send(
     end_channel(&on_event, exit)
 }
 
-/// Save `endpoint` and `key` for `connection` in this computer's keychain,
-/// through `epicenter auth key set`, which reads both on stdin. An empty key
-/// confirms a keyless endpoint.
+/// Every AI connection on this computer, each with its endpoint and whether
+/// its key is saved, never the key, and which connection this window's app
+/// uses for each operation, through `epicenter auth key list`.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_key_list(webview: Webview) -> Result<AiConnections, CliError> {
+    let app = webview
+        .app_handle()
+        .folders()
+        .handed(webview.label())
+        .map(|handed| handed.app);
+    key_list_with(&window_invocation(&webview)?, app.as_deref()).await
+}
+
+/// Add or change `connection` on this computer through `epicenter auth key
+/// set`, which reads the change on stdin: its entry first, then, with an
+/// endpoint, its endpoint and key in the keychain. Answers the connection as
+/// the listing names it.
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_key_set(
     webview: Webview,
     connection: String,
-    endpoint: String,
-    key: String,
-) -> Result<AiKeyState, CliError> {
-    key_set_with(&window_invocation(&webview)?, &connection, &endpoint, &key).await
+    change: AiConnectionChange,
+) -> Result<AiConnection, CliError> {
+    key_set_with(&window_invocation(&webview)?, &connection, &change).await
 }
 
-/// Remove what this computer saved for `connection`; whether there was anything.
+/// Remove `connection` from this computer: its key first, then its entry and
+/// every app's choice of it. Whether there was anything.
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_key_remove(webview: Webview, connection: String) -> Result<bool, CliError> {
@@ -1136,25 +1212,6 @@ mod tests {
         let refused = refresh_command_link(&env("1")).await.unwrap_err();
         assert!(refused.starts_with("exit 1: "), "{refused}");
         assert!(refused.contains("translocated"), "{refused}");
-    }
-
-    /// A deep link opens a built-in window without the Folders window, so the
-    /// launch, not a window, publishes `so.epicenter`'s declaration: with no
-    /// window at all, the launch call runs the CLI (from source, as a
-    /// development build does) and writes it under the shell's folder root.
-    #[tokio::test]
-    async fn the_launch_declares_epicenters_folder_with_no_window_open() {
-        let dir = scratch("declare");
-        let paths = paths_in(&dir);
-        let declared = spawn_epicenter_folder_declaration(&paths);
-        tokio::time::timeout(Duration::from_secs(60), declared.finished())
-            .await
-            .expect("the declaration finished");
-        let declaration =
-            fs::read_to_string(paths.folder_dir.join("so.epicenter").join("epicenter.json"))
-                .expect("so.epicenter/epicenter.json was written");
-        assert!(declaration.contains("\"connections\""), "{declaration}");
-        let _ = fs::remove_dir_all(dir);
     }
 
     /// A child that prints a megabyte and a 300 KB line before it reads any
@@ -1627,9 +1684,12 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
     }
 
     /// Through the real CLI: the key state names the endpoint and never the
-    /// key, a request reaches the endpoint with the keychain's key and comes
-    /// back as head, chunks, and end, and a request prepared for another
-    /// endpoint is refused without being sent.
+    /// key; a connection set here is listed with its key missing once the
+    /// process that saved its key is gone (each run's test keychain is its
+    /// own), with the window's app's choices alone; a request reaches the
+    /// endpoint with the keychain's key and comes back as head, chunks, and
+    /// end, and a request prepared for another endpoint is refused without
+    /// being sent.
     #[tokio::test]
     async fn ai_send_and_the_key_commands_run_the_cli() {
         let dir = scratch("send-cli");
@@ -1654,20 +1714,67 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             key_state_with(&program, "other").await.unwrap(),
             AiKeyState::Missing
         );
+        let other = |endpoint: &str| AiConnectionChange {
+            kind: Some(AiConnectionKind::OpenaiCompatible),
+            title: Some("Other".into()),
+            model: Some("m".into()),
+            endpoint: Some(endpoint.into()),
+            key: Some(String::new()),
+        };
+        let saved = key_set_with(&program, "other", &other("https://API.example.com/v1/"))
+            .await
+            .unwrap();
         assert_eq!(
-            key_set_with(&program, "other", "https://API.example.com/v1/", "")
-                .await
-                .unwrap(),
-            AiKeyState::Saved {
+            saved.key,
+            Some(AiListedKey::Saved {
                 endpoint: "https://api.example.com/v1".into(),
                 has_key: false
-            }
+            })
         );
-        let refused = key_set_with(&program, "other", "ftp://x", "k")
+        let refused = key_set_with(&program, "other", &other("ftp://x"))
             .await
             .unwrap_err();
         assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
-        assert!(!key_remove_with(&program, "other").await.unwrap());
+        program
+            .answer::<Value>(
+                &[
+                    "auth",
+                    "key",
+                    "use",
+                    "other",
+                    "--app",
+                    "so.epicenter.whispering",
+                    "--operation",
+                    "text",
+                    "--json",
+                ],
+                None,
+            )
+            .await
+            .unwrap();
+        let listed = key_list_with(&program, Some("so.epicenter.whispering"))
+            .await
+            .unwrap();
+        assert_eq!(
+            listed,
+            AiConnections {
+                connections: vec![AiConnection {
+                    id: "other".into(),
+                    kind: AiConnectionKind::OpenaiCompatible,
+                    title: "Other".into(),
+                    model: "m".into(),
+                    key: Some(AiListedKey::Missing),
+                }],
+                uses: BTreeMap::from([("text".into(), "other".into())]),
+            }
+        );
+        assert!(key_list_with(&program, None).await.unwrap().uses.is_empty());
+        assert!(key_remove_with(&program, "other").await.unwrap());
+        assert!(key_list_with(&program, None)
+            .await
+            .unwrap()
+            .connections
+            .is_empty());
 
         let request = AiRequest {
             method: "POST".into(),

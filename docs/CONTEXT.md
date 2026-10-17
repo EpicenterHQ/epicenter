@@ -149,8 +149,9 @@ Screens keep the word a person already has: "Save version", "Rename",
 - **Sync** (ADR-0489): the one explicit action that commits a folder's written
   files, fetches, merges, and pushes. Nothing transfers on its own. A sync that
   committed but could not push is `'unpushed'`.
-- **AI connection** (ADR-0557, ADR-0564): a row in `so.epicenter` naming an
-  AI provider; its key and endpoint stay in this machine's keychain. Its names
+- **AI connection** (ADR-0557, ADR-0564, ADR-0587): an entry of this
+  machine's `connections.json` in app data naming an AI provider; its key and
+  endpoint stay in this machine's keychain. Nothing about it syncs. Its names
   are decided in a later change (ADR-0584).
 - **Errors**: one union per verb: `OpenError`, `ReadError`, `WriteError`,
   `GitError`, `CommitError`, `SyncError`. Absence is `null`; `undefined` means
