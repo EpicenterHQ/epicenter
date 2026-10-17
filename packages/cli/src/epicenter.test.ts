@@ -193,7 +193,7 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 	);
 });
 
-test("a typo epicenter.json would otherwise ignore is refused, and $schema and an earlier build's kv are allowed", async () => {
+test('a typo epicenter.json would otherwise ignore is refused, and $schema is allowed', async () => {
 	const { folder, write, run } = await setup();
 	const declare = (value: object) =>
 		write('epicenter.json', JSON.stringify(value));
