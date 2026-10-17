@@ -31,7 +31,9 @@ export function describeOpenRefusal(
 			};
 		case 'AppMismatch':
 			return {
-				description: `This window was opened for ${error.windowApp === null ? 'no app' : `'${error.windowApp}'`}, so ${title} cannot open a folder in it. Open ${title} again from Epicenter.`,
+				// Neutral: an app with no installed build cannot be opened from
+				// Epicenter, so this does not say where to open it.
+				description: `This window was opened for ${error.windowApp === null ? 'no app' : `'${error.windowApp}'`}, so ${title} cannot open a folder in it.`,
 				retry: false,
 			};
 		case 'InvalidDefinition':

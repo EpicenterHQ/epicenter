@@ -87,7 +87,8 @@ closing the folder after its writes when the page goes away. Nothing else is
 opened in a refused folder's place.
 
 Every component below it reads and writes through `getFolder()`, which
-answers `{ folder, isOwn, queries, queryClient, writeFailed, beforeClose }`.
+answers `{ folder, isOwn, queries, queryClient, writeFailed, beforeClose,
+close }`.
 `queries` is the TanStack Query layer over the folder (`folderOptions`):
 
 ```ts

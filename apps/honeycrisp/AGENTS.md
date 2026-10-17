@@ -57,7 +57,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   lands, and that save while another tab changed the file, guard the
   drafts; keep them.
 - Every action is a mutation (create, rename, delete, delete folder, Save
-  version), so `notes.close()` can wait for the mutation
+  version), so `<FolderApp>`'s close can wait for the mutation
   cache to be idle before it releases the folder. Do not add a manual `refresh()` after an action; its mutation
   invalidates what it changed.
 - Commits happen only on **Save version** (`folder.git.commit()`, ADR-0529).
@@ -111,8 +111,9 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   (ADR-0542). Do not add a close gate, a page vote, a wait for writes, an
   exit hold, or a quit dialog. A save cut off by a quit leaves the old file
   or the new one, because each save renames into place.
-- `notes.close()` releases the folder when the page itself goes away. Once it
-  begins, `notes.fenced` is set for good: edits are refused, notes actions
+- `<FolderApp>` releases the folder when the page itself goes away. Its
+  close first runs the notes' `beforeClose` step, which sets `notes.fenced`
+  for good and sends what is typed: edits are refused, notes actions
   refuse to run, and `NotesView` is `inert`. A new way to
   change a file must check it, and a control in a menu, popover, or dialog
   must also be `disabled`, because those render outside the inert root.

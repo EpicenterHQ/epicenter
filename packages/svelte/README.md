@@ -62,10 +62,15 @@ definition, and everything below it reads the opened folder through
   a mutation waiting its turn in a scope resumes only while the page is
   focused, and a save must not wait for the person to come back.
 - One write-failure toast. An app reports `{ path, error, unsaved, retry? }`
-  to `getFolder().writeFailed`; the toast says `Could not save <path>`, words
-  the error with `describeWriteError`, offers "Save again" when `retry` is
-  set, and offers the unsaved text with "Copy your text", staying up until
-  dismissed.
+  to `getFolder().writeFailed`; the toast says `Could not save <path>` and
+  words the error with `describeWriteError`. It offers the unsaved text with
+  "Copy your text" and stays up until the clipboard took it or the person
+  dismisses it; a refused copy shows the text in a box to select by hand.
+  It offers "Save again" when `retry` is set; `retry` answers whether a save
+  started, and when none did the toast comes back with only the text to
+  copy. A failed field set reports the text fields it sent
+  (`unsavedFields`).
+- `beforeClose` steps all start when close is called.
 - Closing when the page goes away: the app's `beforeClose` steps run first
   (fence input, send typed text), then every write and action lands, the
   change wiring stops, and the folder is released.

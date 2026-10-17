@@ -43,7 +43,7 @@ test('a window opened for another app says which', () => {
 			'Todos',
 		).description,
 	).toBe(
-		"This window was opened for 'so.epicenter.honeycrisp', so Todos cannot open a folder in it. Open Todos again from Epicenter.",
+		"This window was opened for 'so.epicenter.honeycrisp', so Todos cannot open a folder in it.",
 	);
 	expect(
 		describeOpenRefusal(

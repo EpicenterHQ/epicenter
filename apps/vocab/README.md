@@ -53,7 +53,7 @@ openFolder({ app, definition: vocabFolder }) One folder in this browser (OPFS), 
   messages/<chat id>.<message id>.md        Chat ID, one finished message
 ```
 
-`src/lib/data.ts` declares how the folder's files read, and `src/routes/+page.svelte` opens it with `<FolderApp>` from `@epicenter/svelte` under Vocab's app id, `APPS.VOCAB.id`. The folder is one directory in this browser's origin private file system, `so.epicenter.vocab`, holding the files and their Git history. It is not a directory on disk: Vocab has no desktop build, and inside the desktop app opening is refused (the shell runs no Vocab window), never answered with browser storage. No row has an account in it.
+`src/lib/data.ts` declares how the folder's files read, and `src/routes/+page.svelte` opens it with `<FolderApp>` from `@epicenter/svelte` under Vocab's app id, `APPS.VOCAB.id`. The folder is one directory in this browser's origin private file system, `so.epicenter.vocab`, holding the files and their Git history. It is not a directory on disk: Vocab has no desktop build, and inside the desktop app opening is refused (the shell runs no Vocab window), never answered with browser storage. No row has an account in it. A version the folder records names the author `Vocab <so.epicenter.vocab@localhost>` (before `<FolderApp>`, `vocab@localhost`).
 
 This version is a clean break from earlier ones. Vocab does not read, copy, or delete what an earlier version saved in IndexedDB, in an account's Personal store, or in a device chat store; it starts from the OPFS directory alone.
 

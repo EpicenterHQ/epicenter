@@ -175,8 +175,8 @@ whose README states what a grant allows. What that means for Capture:
 - Writes never request history. The folder commits only when the window
   asks with Save version.
 - History is local. Git's own configuration, global included, names the
-  commit author (otherwise `Capture <capture@localhost>`, which the shell
-  registers) and any `origin`. Capture has no control that fetches, pulls, or
+  commit author (otherwise `Epicenter <epicenter@localhost>`, which the
+  shell registers) and any `origin`. Capture has no control that fetches, pulls, or
   pushes, so nothing is fetched or pushed, whatever remote the directory
   names.
 - The shell refuses a directory whose `.git` is a symbolic link or a
@@ -216,7 +216,8 @@ calls `openFolder({ app, definition: captureDefinition })` from the bare
 own folder and reads any other through it, never writing that folder's
 declaration and refusing one without Capture's tables. In Epicenter it asks
 the shell for the directory and opens it; in a browser it opens the OPFS
-folder, with a local author and no remote. A folder that cannot open is
+folder, with a local author, `Capture <so.epicenter.capture@localhost>`
+(before `<FolderApp>`, `capture@localhost`), and no remote. A folder that cannot open is
 `<FolderApp>`'s refusal screen. `installedAppViteConfig` (from
 `@epicenter/vite-config`) points the bare `@epicenter/folder` specifier at
 the build's one entry, so a build emits one adapter, and each entry refuses

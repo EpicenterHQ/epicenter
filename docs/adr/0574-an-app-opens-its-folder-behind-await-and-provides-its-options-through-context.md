@@ -58,17 +58,21 @@ it with `<FolderProvider>`:
 - `queries`, the folder's query layer (`folderOptions(folder)`), with
   `invalidateOnChange` wired once, before anything reads;
 - `writeFailed`, one toast for a failed save: `Could not save <path>`, the
-  error worded by `describeWriteError`, "Save again" when the edit is still
-  on screen, and "Copy your text" for the unsaved text, which stays up until
-  the person dismisses it;
-- closing when the page goes away: the app's `beforeClose` steps run first
-  (fence input, send what is typed), then every write and action lands, the
-  change wiring stops, and the folder is released.
+  error worded by `describeWriteError`, and "Copy your text" for the unsaved
+  text. The toast is the only place that text exists, so it stays up until
+  the clipboard took the text or the person dismisses it, and a refused copy
+  shows the text to select by hand. "Save again" appears when the edit is
+  still on screen; `retry` answers whether a save started, and when none did
+  the toast comes back with only the text. A failed field set offers the
+  text fields it sent (`unsavedFields`);
+- closing when the page goes away: the app's `beforeClose` steps all start
+  when close is called (fence input, send what is typed), then every write
+  and action lands, the change wiring stops, and the folder is released.
 
 ```ts
 // @epicenter/svelte/folder
 type FolderContext<TDefinition> = {
-	folder: Folder<TDefinition, FolderDefinition>;
+	folder: Folder<TDefinition, Definition>;
 	isOwn: boolean; // folder.own
 	queries: FolderOptions<TDefinition>;
 	queryClient: QueryClient;
@@ -76,7 +80,7 @@ type FolderContext<TDefinition> = {
 	beforeClose: (step: () => Promise<void> | void) => void;
 	close: () => Promise<void>;
 };
-type WriteFailure = { path: string; error: DescribedError | OtherError; unsaved: string; retry?: () => void };
+type WriteFailure = { path: string; error: DescribedError | OtherError; unsaved: string; retry?: () => boolean };
 ```
 
 **Every component reads and writes through `getFolder()`.** It builds its
@@ -105,9 +109,11 @@ rows, never for the opened folder: Todos' `createTodos`, Honeycrisp's
 - An app keeps its tables, views and domain mutations. The open, the
   screens, the query client, the change wiring, the write-failure toast and
   closing are written once.
-- A save that fails always reaches the person with its unsaved text: an app
+- A save that fails reaches the person with its unsaved text: an app
   reports `{ path, error, unsaved }` and cannot word the toast without the
-  copy action.
+  copy action, and nothing closes the toast before the text is copied. A
+  text an app does not report, such as a field another view still holds,
+  is outside this guarantee.
 - Apps keep no `#platform/folder` leaves. The installed build still resolves
   `@epicenter/folder` to the desktop entry through `installedAppViteConfig`,
   and a page in the desktop app is refused rather than given browser storage
