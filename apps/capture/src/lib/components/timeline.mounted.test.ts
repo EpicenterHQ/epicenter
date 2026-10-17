@@ -17,11 +17,23 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { flushSync, mount, tick, unmount } from 'svelte';
-import { button, click, field, type } from '../svelte-dom.test-support.js';
+import {
+	click,
+	setWide,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { openCaptures } = await import('../browser-folder.test-support.js');
 const { quiet } = await import('../query.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
+
+// A desktop-width window: `min-width` queries match, so the UI kit's modal
+// renders as a dialog, as it does in the desktop app.
+setWide(true);
+
+/** The textarea or input with this id, or `null`. */
+const field = (id: string) =>
+	document.getElementById(id) as HTMLTextAreaElement | null;
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -44,7 +56,7 @@ async function setup(files: Record<string, string> = {}) {
 
 /** Open the New capture dialog and return its text box. */
 async function openNewCapture() {
-	click(button('New capture'));
+	click(document, 'New capture');
 	flushSync();
 	await tick();
 	const box = field('new-capture');
@@ -71,7 +83,7 @@ test('a file that is not a valid capture is named with why, and Edit as text ope
 	});
 	expect(document.body.textContent).toContain('captures/broken.md');
 	expect(document.body.textContent).toContain('capturedAt');
-	click(button('Edit as text'));
+	click(document, 'Edit as text');
 	await quiet(t.captures);
 	flushSync();
 	expect(t.captures.opened).toEqual({ stem: 'broken', mode: 'text' });
@@ -83,7 +95,7 @@ test('Add capture writes the file, opens it, and clears the New capture text', a
 	const t = await setup();
 	const box = await openNewCapture();
 	type(box, 'Written in the dialog');
-	click(button('Add capture'));
+	click(document, 'Add capture');
 	await quiet(t.captures);
 	flushSync();
 	const stem = t.captures.opened?.stem;
