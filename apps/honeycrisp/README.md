@@ -31,8 +31,8 @@ Checks, from `apps/honeycrisp`:
 
 | Command | What it checks |
 | --- | --- |
-| `bun run typecheck` | Both page builds and the scripts. |
-| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, which folder the installed build opens, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
+| `bun run typecheck` | The page and the scripts. |
+| `bun run test` | The page: the editor, the notes state over the browser folder, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
 | `bun run test:dom` | The note view, mounted with its UI library over jsdom, in its own process. |
 
 Epicenter's ignored test `installs_honeycrisp_from_its_folder_in_the_monorepo`
@@ -66,9 +66,11 @@ that folder instead: it reads and writes its notes, never writes its
 `epicenter.json`, and sets nothing up in it. A folder that does not declare
 them is refused with what it lacks.
 
-A missing own folder gets this layout and a Git repository. Opening publishes
-`epicenter.json` from Honeycrisp's declaration, replacing any previous
-description. Saved notes and every other file stay intact, and opening
+Opening writes nothing. The first write publishes `epicenter.json` from
+Honeycrisp's declaration, replacing any previous description, and a table's
+directory appears with its first file: Git keeps no empty directory, so
+Honeycrisp makes none. The Git repository appears with the first saved
+version. Saved notes and every other file stay intact, and opening
 records no commit. The definition file
 supports discovery and does not configure Honeycrisp.
 
@@ -235,8 +237,8 @@ the next version.
 A version's author is the repository's Git identity: `user.name` and
 `user.email` from its own configuration or your global one, as for any Git
 program. Whichever of the two is not configured is `Epicenter` or
-`epicenter@localhost` in Epicenter, and `Honeycrisp` or `honeycrisp@localhost`
-in a browser. Honeycrisp reads an `origin` the repository already
+`epicenter@localhost` in Epicenter, and `Honeycrisp` or
+`so.epicenter.honeycrisp@localhost` in a browser. Honeycrisp reads an `origin` the repository already
 names, but it has no Sync: it never pushes or fetches, and history goes
 nowhere but the directory unless you push it yourself from a terminal.
 
@@ -266,33 +268,28 @@ Page (dist, served by Epicenter) runs @epicenter/folder's own engine over the
                                  TanStack Query cache and saves each edit.
 ```
 
-The page chooses where its folder lives at build time through
-`#platform/folder`. The Epicenter host leaf
-(`folder.epicenter-host.ts`) opens the folder Epicenter handed the window,
-Honeycrisp's own, `so.epicenter.honeycrisp`, or the one a person chose "Open
-in" on, with `openFolder({ app, definition })` from
-`@epicenter/folder/tauri`. In its own folder that publishes Honeycrisp's
-declaration; any other is read through Honeycrisp's definition and never
-written over (ADR-0538, ADR-0583); `folder.own` says which. The
-browser leaf opens one OPFS directory, `Epicenter/local/so.epicenter.honeycrisp`,
-holding the notes and their `.git`, with `openFolder` from
-`@epicenter/folder/browser`. A browser folder an earlier version kept in
-IndexedDB is not read, copied, or deleted; the browser opens the OPFS
-directory alone. Shared code imports the folder contract from the bare
-`@epicenter/folder`, which `installedAppViteConfig` (from
-`@epicenter/vite-config`) aliases to the build's one entry.
-A folder Epicenter hands that cannot be opened is an error on screen, never a
-fallback to browser storage. `src/lib/platform-selection.test.ts` checks that
-the installed bundle holds no browser store and no Git implementation, that
-neither bundle holds a Yjs or Node module, and that the browser bundle holds
-no desktop adapter.
+The page mounts `<FolderApp>` from `@epicenter/svelte` with the manifest and
+`honeycrispDefinition`. It calls `openFolder({ app, definition })` from the
+bare `@epicenter/folder`, which `installedAppViteConfig` (from
+`@epicenter/vite-config`) aliases to the build's one entry. In Epicenter it
+opens the folder Epicenter handed the window, Honeycrisp's own,
+`so.epicenter.honeycrisp`, or the one a person chose "Open in" on. In its own
+folder that publishes Honeycrisp's declaration; any other is read through
+Honeycrisp's definition and never written over (ADR-0538, ADR-0583);
+`getFolder().isOwn` says which. In a browser it opens one OPFS directory,
+`so.epicenter.honeycrisp`, holding the notes and their `.git`. A browser
+folder an earlier version kept in IndexedDB is not read, copied, or deleted.
+A folder that cannot be opened is `<FolderApp>`'s refusal screen, never a
+fallback to browser storage. `src/lib/bundle.test.ts` checks that neither
+bundle holds a Yjs or Node module.
 
-The page reads files through its query cache with `folderOptions(folder)`
-from `@epicenter/folder/query` (ADR-0548). The note and folder listings, the
-file listing, and Git status are its queries; a file opened as text is a query
-over its bytes, cached under the folder's read of that file. `createNotes`
-wires the folder's change reports to the cache in one line, so a report makes
-exactly the queries it names stale; the query client's focus refetch is off.
+The page reads files through the query layer `getFolder()` answers
+(`queries`, `folderOptions` from `@epicenter/folder/query`, ADR-0548). The
+note and folder listings, the file listing, and Git status are its queries; a
+file opened as text is a query over its bytes, cached under the folder's read
+of that file. `<FolderApp>` wires the folder's change reports to the cache
+once, so a report makes exactly the queries it names stale; the query
+client's focus refetch is off.
 
 A field edit of a note or folder is `tables.<name>.set`, which sets the
 fields on the file as it is now (ADR-0576); `NoteDetail` holds a typed title in
@@ -337,13 +334,9 @@ rest in Rust (`apps/epicenter/src-tauri`):
   reads the identity and any `origin` from Git's configuration (see Git,
   above).
 
-The layout of Honeycrisp's own folder is set up by the page, through the
-folder, after the folder plugin holds the directory's lock
-(`src/lib/platform/first-open.ts`). It looks first and makes only a missing
-table directory; every other file is left as it is. Folder acquisition
-separately publishes `epicenter.json`. Neither records a commit. Another
-folder is not set up. A directory another Epicenter holds is reported as in
-use and gains no file.
+Honeycrisp sets nothing up in a folder it opens, its own or another: a
+table's directory appears with its first file, as in a browser. A directory
+another Epicenter holds is reported as in use and gains no file.
 
 Quitting Epicenter, with Cmd+Q, the Dock, a logout, or an Apple Event, quits
 at once and asks this window nothing. The operating system releases the
@@ -393,11 +386,10 @@ view and delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/lib/notes.svelte.ts` | The query cache and its change wiring, the sets fields are written with, the body and text editors and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
-| `src/lib/platform/` | The `#platform/folder` seam and its two leaves: `folder.epicenter-host.ts`, the folder Epicenter hands the window, and `folder.browser.ts`, the OPFS folder. |
-| `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
+| `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the sets fields are written with, the body and text editors and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the folder starts closing (`beforeClose`). |
+| `src/routes/+page.svelte` | `<FolderApp>` over Honeycrisp's manifest and definition, with `NotesView` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
-| `epicenter.app.json` | What Epicenter installs: the app id, which `src/lib/platform/types.ts` imports, and the title. |
+| `epicenter.app.json` | What Epicenter installs: the app id and the title, which `<FolderApp>` opens the folder with. |
 
 ## Tech stack
 

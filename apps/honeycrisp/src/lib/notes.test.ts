@@ -41,6 +41,8 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { type Row, rowStemOf } from '@epicenter/folder';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import type { NoteFields } from './data.js';
 import {
@@ -49,14 +51,8 @@ import {
 	openNotesFolder,
 	until,
 } from './folder.test-support.js';
-import type { Notes, WriteFailure } from './notes.svelte.js';
-import {
-	cached,
-	createQueryClient,
-	listing,
-	observe,
-	quiet,
-} from './query.test-support.js';
+import type { Notes } from './notes.svelte.js';
+import { cached, listing, observe, quiet } from './query.test-support.js';
 
 const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 
@@ -74,12 +70,13 @@ async function open() {
 	await disk.write(A, noteText({ title: 'Alpha', body: 'One.\n' }));
 	await disk.write(B, noteText({ title: 'Beta', body: 'Two.\n' }));
 	const failures: WriteFailure[] = [];
-	const notes = createNotes(disk.folder, createQueryClient(), {
-		onWriteFailed: (failure) => failures.push(failure),
+	const opened = createFolderContext(disk.folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
+	const notes = createNotes(opened);
 	cleanup.push(() => disk.close());
 	let closed = false;
-	cleanup.push(() => (closed ? undefined : notes.close()));
+	cleanup.push(() => (closed ? undefined : opened.close()));
 	// A test that failed while writes were held still closes.
 	cleanup.push(() => disk.release({ all: true }));
 	cleanup.push(observe(notes));
@@ -87,6 +84,7 @@ async function open() {
 	await quiet(notes);
 	return {
 		notes,
+		opened,
 		disk,
 		failures,
 		/** The test closes the notes itself. */
@@ -139,7 +137,7 @@ async function versions(notes: Notes) {
 /** The folder rows the cache holds. */
 const folderRows = (notes: Notes) =>
 	foldersOf(
-		notes.queryClient.getQueryData(notes.folder$.folders.list.queryKey()) ?? [],
+		notes.queryClient.getQueryData(notes.queries.folders.list.queryKey()) ?? [],
 	);
 
 // ============================================================================
@@ -202,7 +200,7 @@ test('a read that lands while a body is held does not replace it, and the save m
 	typeBody(notes, A, 'Typed.\n');
 	await until(() => disk.held().length === 1, 'the save to start');
 	// The report arrives while the save is held, and the read lands.
-	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await notes.queryClient.invalidateQueries(notes.queries.pathFilter([A]));
 	expect(cached(notes, 'a').row.fields.title).toBe('Theirs');
 	// The body is the draft's: the read changed the cache, not what is shown.
 	expect(shown(notes, A)?.body).toBe('Typed.\n');
@@ -243,15 +241,14 @@ test('a body saved over a delete not yet reported writes nothing, and the text i
 	expect(failures).toMatchObject([
 		{
 			path: A,
-			error: { name: 'NoteDeleted' },
+			error: { name: 'NotStarted' },
 			unsaved: 'Mine.\n',
-			kept: false,
 		},
 	]);
 	expect(notes.isUnsaved(A)).toBe(false);
 	expect(notes.unsaved).toBe(false);
 	// The listing read once the save found the note gone offers it no second time.
-	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await notes.queryClient.invalidateQueries(notes.queries.pathFilter([A]));
 	await quiet(notes);
 	expect(failures).toHaveLength(1);
 	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
@@ -263,21 +260,20 @@ test('a body typed and not yet saved when a delete is reported is dropped and of
 	// Typed, and waiting for the pause before it saves.
 	expect(notes.editBody(A, 'Mine.\n')).toBeUndefined();
 	disk.drop(A);
-	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await notes.queryClient.invalidateQueries(notes.queries.pathFilter([A]));
 	await quiet(notes);
 	expect(failures).toMatchObject([
 		{
 			path: A,
-			error: { name: 'NoteDeleted' },
+			error: { name: 'NotStarted' },
 			unsaved: 'Mine.\n',
-			kept: false,
 		},
 	]);
 	expect(notes.isUnsaved(A)).toBe(false);
 	expect(notes.unsaved).toBe(false);
 	expect(disk.text(A)).toBeUndefined();
 	// A later read of the listing offers it no second time.
-	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([B]));
+	await notes.queryClient.invalidateQueries(notes.queries.pathFilter([B]));
 	await quiet(notes);
 	expect(failures).toHaveLength(1);
 	expect(disk.text(A)).toBeUndefined();
@@ -287,7 +283,7 @@ test('a note deleted elsewhere leaves the list once reported, and takes no edit'
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	disk.drop(A);
-	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await notes.queryClient.invalidateQueries(notes.queries.pathFilter([A]));
 	await quiet(notes);
 	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
 	expect(typeBody(notes, A, 'Mine.\n')).toBeDefined();
@@ -302,14 +298,16 @@ test('a body save that fails keeps the body on screen and says so, and Save agai
 	disk.failNextWrite();
 	typeBody(notes, A, 'First.\n');
 	await quiet(notes);
-	expect(failures).toMatchObject([{ path: A, kept: true }]);
+	expect(failures).toMatchObject([{ path: A }]);
 	expect(failures[0]?.unsaved).toContain('First.');
+	// The body is still on screen, so the toast offers Save again.
+	expect(failures[0]?.retry).toBeInstanceOf(Function);
 	expect(disk.text(A)).toBe(before);
 	expect(shown(notes, A)?.body).toBe('First.\n');
 	expect(notes.isUnsaved(A)).toBe(true);
 	expect(notes.unsaved).toBe(true);
 
-	notes.saveAgain(A);
+	failures[0]?.retry?.();
 	await quiet(notes);
 	expect(failures).toHaveLength(1);
 	expect(disk.text(A)).toContain('First.\n');
@@ -323,7 +321,7 @@ test('a set that fails is reported and writes nothing', async () => {
 	disk.failNextWrite();
 	notes.patchNote(A, { title: 'First' });
 	await quiet(notes);
-	expect(failures).toMatchObject([{ path: A, kept: true }]);
+	expect(failures).toMatchObject([{ path: A, unsaved: '' }]);
 	expect(disk.text(A)).toBe(before);
 	expect(cached(notes, 'a').row.fields.title).toBe('Alpha');
 });
@@ -692,14 +690,14 @@ test('Save version waits for saves still running, and records what they wrote', 
 // ============================================================================
 
 test('close waits for a running save, every call shares one completion, and nothing starts after', async () => {
-	const { notes, disk, closing } = await open();
+	const { notes, opened, disk, closing } = await open();
 	closing();
 	disk.hold();
 	typeBody(notes, A, 'Last words.\n');
 	await until(() => disk.held().length === 1, 'the save to start');
 	let closed = false;
-	const first = notes.close();
-	const second = notes.close();
+	const first = opened.close();
+	const second = opened.close();
 	expect(second).toBe(first);
 	void first.then(() => {
 		closed = true;
@@ -715,7 +713,7 @@ test('close waits for a running save, every call shares one completion, and noth
 });
 
 test('close waits for a whole folder delete, not only the save running when it began', async () => {
-	const { notes, disk, closing } = await open();
+	const { notes, opened, disk, closing } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);
 	const [work] = folderRows(notes);
@@ -726,7 +724,7 @@ test('close waits for a whole folder delete, not only the save running when it b
 	disk.hold();
 	const deleting = notes.deleteFolder(work);
 	await until(() => disk.held().length === 1, 'the note to start moving out');
-	const closed = notes.close();
+	const closed = opened.close();
 	disk.release({ all: true });
 	expect(await deleting).toBeUndefined();
 	await closed;

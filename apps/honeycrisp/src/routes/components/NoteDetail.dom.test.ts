@@ -21,14 +21,15 @@
  */
 import '../../lib/dom.test-support.ts';
 import { afterEach, expect, test } from 'bun:test';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { click, leave, type } from '../../lib/dom.test-support.ts';
 import {
 	noteText,
 	openNotesFolder,
 	until,
 } from '../../lib/folder.test-support.js';
-import type { WriteFailure } from '../../lib/notes.svelte.js';
-import { createQueryClient, quiet } from '../../lib/query.test-support.js';
+import { quiet } from '../../lib/query.test-support.js';
 
 // jsdom has no layout, and its ranges cannot be measured. ProseMirror
 // measures the cursor to scroll it into view after typing; it gets no boxes.
@@ -53,11 +54,12 @@ async function view() {
 	const fixture = await openNotesFolder();
 	await fixture.write(PATH, noteText({ title: 'Alpha' }));
 	const failures: WriteFailure[] = [];
-	const notes = createNotes(fixture.folder, createQueryClient(), {
-		onWriteFailed: (failure) => failures.push(failure),
+	const opened = createFolderContext(fixture.folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
+	const notes = createNotes(opened);
 	cleanup.push(() => fixture.close());
-	cleanup.push(() => notes.close());
+	cleanup.push(() => opened.close());
 	await notes.load();
 	notes.open(PATH);
 	const target = document.createElement('div');
@@ -82,7 +84,7 @@ async function view() {
 		flushSync();
 		await tick();
 	}
-	return { ...fixture, notes, failures, target, settle };
+	return { ...fixture, notes, opened, failures, target, settle };
 }
 
 function only<T extends Element>(target: ParentNode, selector: string): T {
@@ -207,9 +209,9 @@ test('a change another tab saved shows in the open note', async () => {
 });
 
 test('once the notes are closing, the controls take no input', async () => {
-	const { notes, target } = await view();
+	const { notes, opened, target } = await view();
 	const rich = richOf(target);
-	const closed = notes.close();
+	const closed = opened.close();
 	flushSync();
 	expect(titleOf(target).disabled).toBe(true);
 	expect(rich.getAttribute('contenteditable')).toBe('false');

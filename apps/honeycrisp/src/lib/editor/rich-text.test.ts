@@ -30,6 +30,8 @@
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { toggleMark } from 'prosemirror-commands';
 import {
 	closeHistory,
@@ -46,8 +48,7 @@ import {
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { noteText, openNotesFolder } from '../folder.test-support.js';
-import type { WriteFailure } from '../notes.svelte.js';
-import { createQueryClient, observe, quiet } from '../query.test-support.js';
+import { observe, quiet } from '../query.test-support.js';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 
 // The notes state is a runes module: load it, and the rules, after the
@@ -70,11 +71,12 @@ async function noteOver(text: string) {
 	const folder = await openNotesFolder();
 	await folder.write(PATH, text);
 	const failures: WriteFailure[] = [];
-	const notes = createNotes(folder.folder, createQueryClient(), {
-		onWriteFailed: (failure) => failures.push(failure),
+	const context = createFolderContext(folder.folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
+	const notes = createNotes(context);
 	cleanup.push(() => folder.close());
-	cleanup.push(() => notes.close());
+	cleanup.push(() => context.close());
 	cleanup.push(() => folder.release({ all: true }));
 	cleanup.push(observe(notes));
 	await notes.load();
@@ -102,7 +104,7 @@ async function noteOver(text: string) {
 		/** Write attempts at the note since it opened. */
 		writes: () => attempts() - opened,
 		/** Close the notes: from now on the note takes no edit. */
-		closeNotes: () => notes.close(),
+		closeNotes: () => context.close(),
 	};
 }
 
@@ -605,7 +607,7 @@ describe('the editor follows the note', () => {
 		type('!');
 		const state = view.shown();
 		// The report arrives while the save is held, and the read lands.
-		await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([PATH]));
+		await notes.queryClient.invalidateQueries(notes.queries.pathFilter([PATH]));
 		follow();
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');

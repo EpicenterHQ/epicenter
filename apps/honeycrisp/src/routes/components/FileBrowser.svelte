@@ -24,7 +24,7 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const listing = createQuery(() => notes.folder$.files.list.queryOptions());
+	const listing = createQuery(() => notes.queries.files.list.queryOptions());
 	const rows = $derived(listing.data ? visibleRows(listing.data, notes.expanded) : []);
 	/** Where the notes are, in words a person can act on: a path, or the browser. */
 	const where = $derived(

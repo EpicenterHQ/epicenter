@@ -39,11 +39,11 @@
 
 	const stem = $derived(noteIdOf(path));
 	const note = createQuery(() => ({
-		...notes.folder$.notes.list.queryOptions(),
+		...notes.queries.notes.list.queryOptions(),
 		select: (listing: NoteListing) => listing.find((entry) => entry.stem === stem),
 	}));
 	const folders = createQuery(() => ({
-		...notes.folder$.folders.list.queryOptions(),
+		...notes.queries.folders.list.queryOptions(),
 		select: foldersOf,
 	}));
 	/** The note as the views read and edit it: its draft while one is held. */

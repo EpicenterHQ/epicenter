@@ -4,12 +4,6 @@
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
-	"imports": {
-		"#platform/folder": {
-			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
-			"default": "./src/lib/platform/folder.browser.ts"
-		}
-	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
@@ -20,7 +14,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
 		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte ./src/routes/components/NoteDetail.dom.test.ts",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
