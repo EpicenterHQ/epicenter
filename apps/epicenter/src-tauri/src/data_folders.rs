@@ -201,10 +201,14 @@ fn list_in(
             continue;
         }
 
+        // Named by an installed app's id: that app's own folder, under the
+        // app's scope, even when an earlier listing, before the app was
+        // installed, registered it as `data:<name>`. That scope stays
+        // registered; later listings and "Open in" name the app's.
+        let installed = apps_dir.join(&name).is_dir();
         let id = match registered.get(&name) {
-            Some(id) => id.clone(),
-            // Named by an installed app's id: that app's own folder.
-            None if apps_dir.join(&name).is_dir() => {
+            Some(id) if !installed || id == &name => id.clone(),
+            _ if installed => {
                 if let Err(error) = register_own_folder(folders, folder_dir, &name) {
                     log::warn!("data folder '{name}' was not listed: {error}");
                     continue;
@@ -212,6 +216,7 @@ fn list_in(
                 registered.insert(name.clone(), name.clone());
                 name
             }
+            Some(id) => id.clone(),
             None => {
                 let id = format!("data:{name}");
                 let folder = FolderConfig::data(root);
@@ -714,6 +719,26 @@ mod tests {
         let todos = fixture.window(label);
         assert_eq!(granted_names(&todos, "so.epicenter.todos"), ["epicenter.json"]);
         assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
+        assert_eq!(
+            granted_names(&folders, "so.epicenter.todos"),
+            ["epicenter.json"]
+        );
+    }
+
+    /// A folder listed under its data scope before its app was installed is
+    /// listed under the app's scope once the app is, without the app being
+    /// opened first, so "Open in" hands the app its own folder.
+    #[test]
+    fn a_listing_after_the_app_is_installed_names_the_apps_scope() {
+        let fixture = fixture("installed-later");
+        data_folder(&fixture, "so.epicenter.todos", "{}");
+        assert_eq!(fixture.list()[0].id, "data:so.epicenter.todos");
+
+        fs::create_dir_all(fixture.folder_dir.join("Apps/so.epicenter.todos")).unwrap();
+        assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
+        assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
+        assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");
+        let folders = fixture.window("folders");
         assert_eq!(
             granted_names(&folders, "so.epicenter.todos"),
             ["epicenter.json"]
