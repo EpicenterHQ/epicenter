@@ -9,11 +9,11 @@
  *   prepared declaration
  * - The handle never writes `epicenter.json`: a hand-formatted declaration
  *   stays byte for byte through creates, writes, and commits
- * - A declaration with a `kv` section is `InvalidDeclaration` naming `kv`,
+ * - A declaration with a `kv` section is `InvalidDefinition` naming `kv`,
  *   as any unknown key is
  * - A folder without `epicenter.json` opens with no tables; files and
  *   history work
- * - An `epicenter.json` that cannot be used is `InvalidDeclaration`, and a
+ * - An `epicenter.json` that cannot be used is `InvalidDefinition`, and a
  *   missing root is `InvalidRoot`; neither creates anything
  * - Opening creates no repository: status is an empty history with every file
  *   uncommitted, and the first commit runs `git init`
@@ -125,17 +125,20 @@ test('a folder without epicenter.json opens with no tables, and files and histor
 	await folder.close();
 });
 
-test('an epicenter.json that cannot be used is InvalidDeclaration, and opening creates nothing', async () => {
+test('an epicenter.json that cannot be used is InvalidDefinition, and opening creates nothing', async () => {
 	const root = await scratch('data-folder-invalid-');
 	await writeFile(join(root, 'epicenter.json'), '{"tables":{}');
 	const refused = expectErr(await openFolder({ root, git: { author } }));
-	expect(refused.name).toBe('InvalidDeclaration');
+	expect(refused).toMatchObject({
+		name: 'InvalidDefinition',
+		path: 'epicenter.json',
+	});
 	expect(refused.message).toContain('not JSON');
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	await writeFile(join(root, 'epicenter.json'), '{"tables":{},"extra":1}');
 	expect(expectErr(await openFolder({ root, git: { author } })).name).toBe(
-		'InvalidDeclaration',
+		'InvalidDefinition',
 	);
 
 	// The `kv` section settings once had is an unknown key like any other.
@@ -144,7 +147,7 @@ test('an epicenter.json that cannot be used is InvalidDeclaration, and opening c
 		'{"tables":{},"kv":{"theme":{"type":"string"}}}',
 	);
 	const kv = expectErr(await openFolder({ root, git: { author } }));
-	expect(kv.name).toBe('InvalidDeclaration');
+	expect(kv.name).toBe('InvalidDefinition');
 	expect(kv.message).toContain("'kv'");
 	expect(existsSync(join(root, '.git'))).toBe(false);
 

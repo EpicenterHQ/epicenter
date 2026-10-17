@@ -1,15 +1,18 @@
 /**
- * Whether one schema contains another's shape (ADR-0538).
+ * Whether one definition contains another (ADR-0538).
  *
- * An app declares the shape it opens: the tables and fields it reads, as a
- * schema. A folder declares its own. The app can open the folder when every
- * value the folder's declaration admits for a field the shape reads is one the
- * shape's field accepts, so the app never reads a value its types do not
- * describe. The folder may declare more tables and fields than the shape.
+ * An app opens a folder with its definition: the tables and fields it reads.
+ * A folder has its own definition. The app can open the folder when every
+ * value the folder's definition admits for a field the app reads is one the
+ * app's field accepts, so the app never reads a value its types do not
+ * describe. The folder may define more tables and fields than the app reads.
+ *
+ * Below, and in the reasons this gives, `shape` is the reader's definition
+ * and `declared` is the folder's.
  *
  * Containment of two JSON Schemas is not decidable in general, so this asks
  * a fixed, conservative set of questions. A pair it cannot decide is refused
- * with the reason, never accepted: an app that meets one widens its shape.
+ * with the reason, never accepted: an app that meets one widens its field.
  * Two schemas that are the same apart from annotations always match.
  *
  * Like `fieldEditorOf`, this reads keywords. The one validator it runs is the
@@ -19,12 +22,12 @@
 
 import type { TSchema } from 'typebox';
 import { Compile } from 'typebox/compile';
-import type { DataSchema, FieldMap, TableDeclaration } from './declaration.js';
+import type { Definition, FieldMap, TableDeclaration } from './declaration.js';
 import { FIELD_KEYWORD } from './field/editor.js';
 import { isOptional } from './prepare.js';
 
-/** One way a declaration does not contain a shape, in the table named `table`. */
-export type ShapeProblem =
+/** One way a folder's definition does not contain a reader's, in the table named `table`. */
+export type Mismatch =
 	| {
 			readonly kind: 'missingTable';
 			readonly table: string;
@@ -51,11 +54,12 @@ export type ShapeProblem =
 	  };
 
 /**
- * Every way `declared` does not contain `shape`; empty when it does.
+ * Every way the folder's definition `declared` does not contain the reader's
+ * definition `shape`; empty when it does.
  *
  * - Every table of the shape is a table of the declaration.
  * - Every field the shape reads is declared in that table with a schema the
- *   shape's field accepts (see {@link schemaContainment}).
+ *   shape's field accepts (see {@link containment}).
  * - A field the shape requires is required by the declaration too; a field
  *   the shape leaves optional may be either.
  * - A shape table that is closed (`additionalProperties: false`) reads only
@@ -66,11 +70,11 @@ export type ShapeProblem =
  * Both are prepared schemas, or native ones: only keywords and TypeBox's
  * optional marker are read.
  */
-export function shapeProblems(
-	declared: DataSchema,
-	shape: DataSchema,
-): ShapeProblem[] {
-	const problems: ShapeProblem[] = [];
+export function mismatches(
+	declared: Definition,
+	shape: Definition,
+): Mismatch[] {
+	const problems: Mismatch[] = [];
 	for (const [table, wanted] of Object.entries(shape.tables)) {
 		const found = Object.hasOwn(declared.tables, table)
 			? declared.tables[table]
@@ -97,10 +101,11 @@ export function shapeProblems(
 }
 
 /**
- * The fields `declared` requires that `shape` does not declare. A row cannot
- * be added through the shape unless this is empty: it could not supply them.
+ * The fields the folder's table `declared` requires that the reader's table
+ * `shape` does not define. A row cannot be added through the reader's table
+ * unless this is empty: it could not supply them.
  */
-export function requiredOutsideShape(
+export function requiredOutside(
 	declared: TableDeclaration,
 	shape: TableDeclaration,
 ): string[] {
@@ -131,7 +136,7 @@ function fieldProblems(
 	table: string,
 	declared: FieldMap,
 	shape: FieldMap,
-	problems: ShapeProblem[],
+	problems: Mismatch[],
 ): void {
 	for (const [field, wanted] of Object.entries(shape)) {
 		const name = `field '${table}.${field}'`;
@@ -148,7 +153,7 @@ function fieldProblems(
 		const reason =
 			!isOptional(wanted) && isOptional(found)
 				? 'the shape requires it, and the folder lets a row leave it out'
-				: schemaContainment(wanted, found);
+				: containment(wanted, found);
 		if (reason !== undefined)
 			problems.push({
 				kind: 'incompatibleField',
@@ -202,7 +207,7 @@ const ANNOTATIONS = new Set([
  * admits, so it is ignored. A keyword of the shape this does not know is a
  * refusal, as are a shape `oneOf`, `not`, conditional, or `$ref`.
  */
-export function schemaContainment(
+export function containment(
 	shape: TSchema & object,
 	declared: TSchema & object,
 ): string | undefined {

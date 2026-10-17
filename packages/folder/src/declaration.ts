@@ -1,9 +1,9 @@
 /**
- * `epicenter.json`: a data folder's declaration as JSON Schema (ADR-0517).
+ * `epicenter.json`: a folder's definition as JSON Schema (ADR-0517).
  *
  * The file is a generated, portable contract, not a source to author: an
  * application writes it from its code definition, and a folder no application
- * owns keeps its declaration in `epicenter.ts`, from which `epicenter generate`
+ * owns keeps its definition in `epicenter.ts`, from which `epicenter generate`
  * writes it (ADR-0527). Every written file has `tables`, even when empty, so
  * a reader never guesses at a missing section.
  *
@@ -36,25 +36,22 @@
  * A folder whose definition keeps files on the machine that wrote them adds
  * `"local": ["audio/"]`, its `.gitignore` patterns (ADR-0577). The folder's
  * own file is what every host reads, the `epicenter` CLI included, so each
- * one leaves the same paths out of every commit. A declaration without
+ * one leaves the same paths out of every commit. A definition without
  * `local` keeps nothing local.
  *
  * A top-level `$schema` lets an editor offer completion and is not
  * interpreted. Anything else is refused, so a misspelled key never reads as
- * an empty declaration.
+ * an empty definition.
  */
 
 import { type FieldMap, field, isOptional } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
-import { DECLARATION_PATH } from './paths.js';
+import { type Definition, prepareFolderDefinition } from './definition.js';
+import { DEFINITION_PATH } from './paths.js';
 
 /** The text an opener publishes for a prepared definition. */
-export function formatDeclaration(definition: FolderDefinition): string {
+export function formatDefinition(definition: Definition): string {
 	const tables: Record<string, unknown> = {};
 	for (const [name, table] of Object.entries(definition.tables))
 		tables[name] = {
@@ -79,13 +76,13 @@ export function formatDeclaration(definition: FolderDefinition): string {
 }
 
 /**
- * Read declaration text into a definition for `prepareFolderDefinition`, or
+ * Read `epicenter.json` text into a definition for `prepareFolderDefinition`, or
  * say why the text is not one. Field schemas are checked when the result is
  * prepared, not here.
  */
-export function parseDeclaration(
+export function parseDefinition(
 	text: string,
-): Result<FolderDefinition, { readonly reason: string }> {
+): Result<Definition, { readonly reason: string }> {
 	const refuse = (reason: string) => Err({ reason });
 	let declared: unknown;
 	try {
@@ -117,7 +114,7 @@ export function parseDeclaration(
 
 	if (declared.tables === undefined)
 		return refuse(
-			"it has no 'tables'; every generated declaration has them, so declare the folder in epicenter.ts and run `epicenter generate`",
+			"it has no 'tables'; every generated definition has them, so define the folder in epicenter.ts and run `epicenter generate`",
 		);
 	if (!isPlainObject(declared.tables))
 		return refuse("'tables' must map table names to object schemas");
@@ -148,7 +145,7 @@ export function parseDeclaration(
 			: { title: declared.title as string }),
 		...(local === undefined ? {} : { local: local as string[] }),
 		tables,
-	} as FolderDefinition);
+	} as Definition);
 }
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -159,10 +156,10 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
  * `undefined` when the folder has none, or why the file cannot be used. It
  * writes nothing.
  */
-export async function readDeclaration(
+export async function readDefinition(
 	storage: Pick<FolderStorage, 'read'>,
-): Promise<Result<FolderDefinition | undefined, { readonly reason: string }>> {
-	const { data: read, error: readError } = await storage.read(DECLARATION_PATH);
+): Promise<Result<Definition | undefined, { readonly reason: string }>> {
+	const { data: read, error: readError } = await storage.read(DEFINITION_PATH);
 	if (readError !== null)
 		return readError.name === 'NotFound'
 			? Ok(undefined)
@@ -173,7 +170,7 @@ export async function readDeclaration(
 	} catch {
 		return Err({ reason: 'it is not UTF-8 text' });
 	}
-	const { data: declared, error: parseError } = parseDeclaration(text);
+	const { data: declared, error: parseError } = parseDefinition(text);
 	if (parseError !== null) return Err(parseError);
 	return prepareFolderDefinition(declared);
 }

@@ -71,14 +71,30 @@ test('the settled words pass', () => {
 	});
 });
 
-test('a retired word fails, with its file, line, and replacement', () => {
+test('a retired word fails, with its file, line, replacement, and the ADR that retired it', () => {
 	withRepo((dir) => {
 		write(dir, 'packages/app/src/data/row.ts', '// ok\n// a scalar field\n');
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(1);
 		expect(out).toContain('packages/app/src/data/row.ts:2');
-		expect(out).toContain('use value');
+		expect(out).toContain('use value (ADR-0309)');
+	});
+});
+
+test('a retired identifier fails as a whole word, citing ADR-0584', () => {
+	withRepo((dir) => {
+		write(
+			dir,
+			'packages/folder/src/open.ts',
+			'// a FolderDefinition\n// prepareFolderDefinition is another word\n',
+		);
+		commitAll(dir);
+		const { code, out } = run(dir);
+		expect(code).toBe(1);
+		expect(out).toContain('packages/folder/src/open.ts:1');
+		expect(out).not.toContain('packages/folder/src/open.ts:2');
+		expect(out).toContain('use Definition (ADR-0584)');
 	});
 });
 

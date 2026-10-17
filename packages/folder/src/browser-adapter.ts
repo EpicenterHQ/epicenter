@@ -25,7 +25,7 @@ import { Buffer } from 'buffer/';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { browserChangeDetector } from './changes-browser.js';
 import type { OpenFolder, OpenFolderOptions } from './contract.js';
-import type { FolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
@@ -128,10 +128,10 @@ function folderAddress(id: string): FolderAddress {
  * its repository.
  */
 export async function openAnyFolder<
-	const TDefinition extends FolderDefinition = FolderDefinition,
+	const TDefinition extends Definition = Definition,
 >(
 	options: OpenFolderOptions<TDefinition>,
-): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>> {
 	const { credentials, browser = {} } = options;
 	const id = options.app === undefined ? options.id : options.app;
 	const { data: target, error: definitionError } = opening(

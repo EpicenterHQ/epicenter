@@ -15,7 +15,7 @@ export type OpenRefusal = {
 
 /**
  * Word why the app titled `title` could not open its folder. A refusal that
- * names the folder already says enough (`ShapeMismatch` names the app and the
+ * names the folder already says enough (`DefinitionMismatch` names the app and the
  * folder and every missing table); one a person cannot act on from its
  * library message gets the sentence they need.
  */
@@ -24,7 +24,7 @@ export function describeOpenRefusal(
 	title: string,
 ): OpenRefusal {
 	switch (error.name) {
-		case 'ShapeMismatch':
+		case 'DefinitionMismatch':
 			return {
 				description: `${error.message} Open this folder with an app that reads it.`,
 				retry: false,
@@ -34,11 +34,15 @@ export function describeOpenRefusal(
 				description: `This window was opened for ${error.windowApp === null ? 'no app' : `'${error.windowApp}'`}, so ${title} cannot open a folder in it. Open ${title} again from Epicenter.`,
 				retry: false,
 			};
-		case 'InvalidDeclaration':
-			return {
-				description: `${error.message} Fix or remove the folder's epicenter.json, then try again.`,
-				retry: true,
-			};
+		case 'InvalidDefinition':
+			// A folder's own file that cannot be used can be repaired; the app's
+			// own definition cannot be, by the person.
+			return error.path === undefined
+				? { description: error.message, retry: false }
+				: {
+						description: `${error.message} Fix or remove the folder's ${error.path}, then try again.`,
+						retry: true,
+					};
 		case 'NoFileSystem':
 			return {
 				description: `This browser cannot keep ${title}'s files: ${error.missing} is not available here. Open ${title} in a current browser.`,

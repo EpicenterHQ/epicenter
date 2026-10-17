@@ -22,7 +22,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | --- | --- | --- |
 | `epicenter check <dir>` | built | `checkFolder` in `@epicenter/folder/bun` |
 | `epicenter query <dir> [<sql>]` | built | `checkFolder`, `queryFolder`, `describeTables` |
-| `epicenter generate <dir>` | built | `generateDeclaration` |
+| `epicenter generate <dir>` | built | `generateDefinition` |
 | `epicenter status <dir>` | built | `runHistory` in `@epicenter/folder/bun` |
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
@@ -265,7 +265,7 @@ writes the result over Git's
   side's merge, that side winning every competing unit, with
   `<<<<<<< ours`, `=======`, and `>>>>>>> theirs` around the lines where the
   two differ.
-- A path in no data folder, a declaration that does not read, a version that
+- A path in no data folder, a definition that does not read, a version that
   is not text (a binary file stays ours, a conflict), and any failure of the
   driver's own are merged by `git merge-file`, as Git would without a driver.
 

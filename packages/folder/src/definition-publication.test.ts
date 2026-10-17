@@ -10,13 +10,13 @@ import { mkdir, rm, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
+	type Definition,
 	defineFolder,
 	defineTable,
 	type Folder,
-	type FolderDefinition,
 	field,
 } from './contract.js';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { events } from './publication-log.test-support.js';
 import { put } from './put.test-support.js';
 
@@ -52,7 +52,7 @@ const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const DISPLAY = 'settings/display.md';
 
 /** Set the display theme: the row is created the first time, then set. */
-async function setTheme(folder: Folder<FolderDefinition>, theme: string) {
+async function setTheme(folder: Folder<Definition>, theme: string) {
 	const settings = folder.tables.settings!;
 	const current = expectOk(await settings.get('display'));
 	return expectOk(
@@ -91,7 +91,7 @@ test('opening writes nothing, so a fresh browser copy takes an existing remote a
 			).toEqual({ theme: 'remote' });
 			expect(
 				decode(expectOk(await receiver.files.read('epicenter.json')).bytes),
-			).toBe(formatDeclaration(definition));
+			).toBe(formatDefinition(definition));
 			expect(expectOk(await receiver.git.status()).changes).toEqual([]);
 		} finally {
 			await receiver.close();
@@ -106,7 +106,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 	test(`${adapter}: the first write publishes the declaration, and each later handle's first write replaces it, preserving data in manual history`, async () => {
 		const root = await scratch('definition-publication-');
 		const environment = createTestStorage();
-		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
+		const open = async <TSchema extends Definition>(schema: TSchema) =>
 			expectOk(
 				adapter === 'bun'
 					? await openBun({
@@ -127,7 +127,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		const declaration = async (folder: {
 			files: Folder<typeof definition>['files'];
 		}) => decode(expectOk(await folder.files.read('epicenter.json')).bytes);
-		let folder: Folder<FolderDefinition> = await open(definition);
+		let folder: Folder<Definition> = await open(definition);
 		try {
 			expect(expectErr(await folder.files.read('epicenter.json')).name).toBe(
 				'NotFound',
@@ -138,7 +138,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 					{ stem: 'kept' },
 				),
 			);
-			expect(await declaration(folder)).toBe(formatDeclaration(definition));
+			expect(await declaration(folder)).toBe(formatDefinition(definition));
 			await setTheme(folder, 'dark');
 			const row = expectOk(await folder.files.read('notes/kept.md'));
 			const display = expectOk(await folder.files.read(DISPLAY));
@@ -150,7 +150,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			folder = await open(definition);
 			expect(await declaration(folder)).toBe('malformed manual description');
 			await setTheme(folder, 'light');
-			expect(await declaration(folder)).toBe(formatDeclaration(definition));
+			expect(await declaration(folder)).toBe(formatDefinition(definition));
 			await folder.close();
 			const changed = defineFolder({
 				title: 'Changed',
@@ -163,7 +163,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			});
 			folder = await open(changed);
 			await setTheme(folder, 'dark');
-			expect(await declaration(folder)).toBe(formatDeclaration(changed));
+			expect(await declaration(folder)).toBe(formatDefinition(changed));
 			expect(expectOk(await folder.files.read('notes/kept.md')).bytes).toEqual(
 				row.bytes,
 			);
@@ -183,7 +183,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		// Pages of one origin tell each other the paths they write, so a
 		// second browser handle hears what the first one wrote.
 		const environment = createTestStorage({ BroadcastChannel });
-		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
+		const open = async <TSchema extends Definition>(schema: TSchema) =>
 			expectOk(
 				adapter === 'bun'
 					? await openBun({
@@ -201,7 +201,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		const watched = ['epicenter.json', DISPLAY];
 		/** Which files the saves in `write` replaced. */
 		const landed = async (
-			_folder: Folder<FolderDefinition>,
+			_folder: Folder<Definition>,
 			write: () => Promise<unknown>,
 		) => {
 			if (adapter === 'bun') {
@@ -227,7 +227,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			await listener.close();
 			return watched.filter((path) => paths.has(path));
 		};
-		let folder: Folder<FolderDefinition> = await open(definition);
+		let folder: Folder<Definition> = await open(definition);
 		try {
 			expect(await landed(folder, () => setTheme(folder, 'dark'))).toEqual([
 				'epicenter.json',
@@ -247,7 +247,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			]);
 			expect(
 				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
-			).toBe(formatDeclaration(changed));
+			).toBe(formatDefinition(changed));
 		} finally {
 			await folder.close();
 			await rm(root, { recursive: true, force: true });

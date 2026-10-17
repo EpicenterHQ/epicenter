@@ -13,11 +13,7 @@
  * or `@epicenter/folder/tauri`, or alias this exact specifier to one of them.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import type {
-	FolderDefinition,
-	OpenFolder,
-	OpenFolderOptions,
-} from './contract.js';
+import type { Definition, OpenFolder, OpenFolderOptions } from './contract.js';
 
 export * from './contract.js';
 
@@ -29,7 +25,7 @@ export * from './contract.js';
  * storage instead.
  */
 export const openFolder: OpenFolder = async <
-	const TDefinition extends FolderDefinition = FolderDefinition,
+	const TDefinition extends Definition = Definition,
 >(
 	options: OpenFolderOptions<TDefinition>,
 ) =>

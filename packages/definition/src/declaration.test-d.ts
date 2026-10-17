@@ -8,7 +8,7 @@
  * in the values that create one, as every field of the `settings` table is.
  * The reserved-name rule holds, a primitive is not a schema, and a native
  * `default` annotation is admitted without making a field optional.
- * `prepareSchema` returns the type it was given.
+ * `prepareDefinition` returns the type it was given.
  *
  * A refinement or codec declared as a field is refused by its type here, and
  * one nested inside another schema by preparation at run time (see
@@ -21,14 +21,14 @@ import { type Static, Type } from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
 import {
 	type CreateRowOf,
-	type DataSchema,
+	type Definition,
 	defineTable,
 	type FieldMap,
 	field,
 	type InstantString,
 	type JsonValue,
 	jsonValue,
-	prepareSchema,
+	prepareDefinition,
 } from './index.js';
 
 type Equal<X, Y> =
@@ -118,7 +118,7 @@ const settings = defineTable({
 });
 const definition = {
 	tables: { mixed, settings },
-} satisfies DataSchema;
+} satisfies Definition;
 type Settings = {
 	theme?: 'light' | 'dark';
 	window?: { width: number; height: number };
@@ -229,7 +229,7 @@ export const _stillRequired: Pick<
 
 // A prepared schema has the declared type: the same literal keys and the
 // same native schemas, so the lenses read it like the declaration.
-const prepared = prepareSchema(definition).data;
+const prepared = prepareDefinition(definition).data;
 if (prepared !== null) {
 	prepared satisfies typeof definition;
 	// A prepared native snapshot can be composed again without a cast.

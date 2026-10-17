@@ -8,14 +8,11 @@
  * directory, ADR-0541), and the host's one detector of changes made outside
  * the handle (ADR-0548).
  */
-import { shapeProblems } from '@epicenter/definition';
+import { mismatches } from '@epicenter/definition';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import { readDeclaration } from './declaration.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import { readDefinition } from './declaration.js';
+import { type Definition, prepareFolderDefinition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import {
 	assembleFolder,
@@ -26,6 +23,7 @@ import {
 	type FolderLocation,
 } from './folder.js';
 import type { Opening } from './opening.js';
+import { DEFINITION_PATH } from './paths.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -69,7 +67,7 @@ type StartFolder = (wiring: {
 	 * an app reading a folder that is not its own.
 	 */
 	readonly history: (
-		definition: FolderDefinition,
+		definition: Definition,
 		appLocal?: readonly string[],
 	) => FolderHistory;
 }>;
@@ -80,7 +78,7 @@ type StartFolder = (wiring: {
  * own `epicenter.json` anywhere else, which must contain the definition the
  * folder is read through, if any.
  */
-export async function openAtRoot<TDefinition extends FolderDefinition>(
+export async function openAtRoot<TDefinition extends Definition>(
 	target: Opening,
 	captured: {
 		readonly location: FolderLocation;
@@ -88,7 +86,7 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 		/** The host's detector of outside changes; none in Bun. */
 		readonly detector?: ChangeDetector;
 	},
-): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>> {
 	const hints = createFileHints();
 	let history: FolderHistory | undefined;
 	let detected: ReturnType<ChangeDetector> | undefined;
@@ -111,22 +109,25 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 		});
 		const { boundary } = started;
 		const { definition } = target;
-		let prepared: FolderDefinition;
+		let prepared: Definition;
 		if (target.own) prepared = target.definition;
 		else {
 			// Read through the folder's own file boundary, after the grant, as
 			// every later read is.
-			const { data: declared, error } = await readDeclaration(boundary);
+			const { data: declared, error } = await readDefinition(boundary);
 			if (error !== null) {
 				release();
-				return OpenFolderError.InvalidDeclaration(error);
+				return OpenFolderError.InvalidDefinition({
+					reason: error.reason,
+					path: DEFINITION_PATH,
+				});
 			}
 			prepared = declared ?? UNDECLARED;
 			if (definition !== undefined) {
-				const problems = shapeProblems(prepared, definition);
+				const problems = mismatches(prepared, definition);
 				if (problems.length > 0) {
 					release();
-					return OpenFolderError.ShapeMismatch({
+					return OpenFolderError.DefinitionMismatch({
 						// An app is named by its definition's title; a reader
 						// that is no app is not named.
 						app:
@@ -142,13 +143,13 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 		// A change made once the handle is returned is heard.
 		await detected?.ready;
 		// An app keeps its own `local` files out of a folder it reads through
-		// its definition, without writing them into that folder's declaration.
+		// its definition, without writing them into that folder's definition.
 		const opened = started.history(
 			prepared,
 			target.own ? undefined : definition?.local,
 		);
 		history = opened;
-		const folder = assembleFolder<TDefinition, FolderDefinition>({
+		const folder = assembleFolder<TDefinition, Definition>({
 			id: target.id,
 			own: target.own,
 			prepared,

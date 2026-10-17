@@ -81,7 +81,7 @@ export function localMatcher(
  * `isLocal` matches. `isAppLocal`, the `local` patterns of an app that reads
  * a folder it is not the owner of, leaves out only untracked files: what the
  * app keeps on this machine never enters that folder's history, and what the
- * folder already tracks stays tracked, since its own declaration says so.
+ * folder already tracks stays tracked, since its own definition says so.
  */
 export async function sourceFiles(
 	current: ReadonlyMap<string, Uint8Array>,

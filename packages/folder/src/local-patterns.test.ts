@@ -31,7 +31,7 @@ import {
 	defineFolder,
 	defineTable,
 	field,
-	formatDeclaration,
+	formatDefinition,
 } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
@@ -366,7 +366,7 @@ for (const [name, fixture] of [
 		// Another device's declaration keeps drafts local too; nothing it
 		// pushes adds the pattern to `.gitignore`.
 		await at.push({
-			'epicenter.json': formatDeclaration(
+			'epicenter.json': formatDefinition(
 				defineFolder({ tables, local: ['audio/', 'drafts/'] }),
 			),
 		});

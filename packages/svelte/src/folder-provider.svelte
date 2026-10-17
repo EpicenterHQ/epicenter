@@ -5,8 +5,8 @@
 	inside it over a test folder. It closes nothing: whoever opened the folder
 	closes it.
 -->
-<script lang="ts" generics="TDefinition extends FolderDefinition">
-	import type { FolderDefinition } from '@epicenter/folder';
+<script lang="ts" generics="TDefinition extends Definition">
+	import type { Definition } from '@epicenter/folder';
 	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import type { Snippet } from 'svelte';
 	import { type FolderContext, setFolder } from './folder-context.js';

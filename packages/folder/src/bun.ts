@@ -38,8 +38,8 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { LockingStorage } from './boundary.js';
-import { readDeclaration } from './declaration.js';
-import type { FolderDefinition } from './definition.js';
+import { readDefinition } from './declaration.js';
+import type { Definition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
@@ -69,15 +69,15 @@ import { opening } from './opening.js';
 export {
 	type CheckedTable,
 	checkFolder,
-	DECLARATION_SOURCE_PATH,
+	DEFINITION_SOURCE_PATH,
 	type Finding,
 	type FolderCheck,
-	hasDeclarationSource,
+	hasDefinitionSource,
 } from './check-folder.js';
 export * from './contract.js';
 export {
-	GenerateDeclarationError,
-	generateDeclaration,
+	GenerateDefinitionError,
+	generateDefinition,
 } from './generate-declaration.js';
 export { basicAuthorization } from './git/http.js';
 export { GitCommandError, type GitRun } from './git/native-backend.js';
@@ -126,10 +126,10 @@ export {
  *   published.
  *
  * A directory read through a definition must declare everything the
- * definition does (ADR-0538), or it is `ShapeMismatch`.
+ * definition does (ADR-0538), or it is `DefinitionMismatch`.
  */
 export type DirectoryFolderOptions<
-	TDefinition extends FolderDefinition = FolderDefinition,
+	TDefinition extends Definition = Definition,
 > = DefinedDirectoryOptions<TDefinition> | DeclaredDirectoryOptions;
 
 type DirectoryRoot = {
@@ -139,7 +139,7 @@ type DirectoryRoot = {
 };
 
 /** The forms that read the directory through a definition: with or without `app`. */
-export type DefinedDirectoryOptions<TDefinition extends FolderDefinition> =
+export type DefinedDirectoryOptions<TDefinition extends Definition> =
 	DirectoryRoot &
 		(
 			| {
@@ -170,17 +170,17 @@ export type DeclaredDirectoryOptions = DirectoryRoot & {
  * another repository's working tree: that commit is `blocked`, and the
  * files are committed with that repository's Git (ADR-0517).
  */
-export async function openFolder<const TDefinition extends FolderDefinition>(
+export async function openFolder<const TDefinition extends Definition>(
 	options: DefinedDirectoryOptions<TDefinition>,
-): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>>;
+): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>>;
 export async function openFolder(
 	options: DeclaredDirectoryOptions,
-): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>;
+): Promise<Result<Folder<Definition>, OpenFolderError>>;
 export async function openFolder<
-	const TDefinition extends FolderDefinition = FolderDefinition,
+	const TDefinition extends Definition = Definition,
 >(
 	options: DirectoryFolderOptions<TDefinition>,
-): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>> {
 	const { root, git } = options;
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
@@ -270,7 +270,7 @@ export async function runHistory(
 
 	const { storage: boundary } = directory(resolved);
 	const { data: declared, error: declarationError } =
-		await readDeclaration(boundary);
+		await readDefinition(boundary);
 	// What stays local is read from `epicenter.json`, so a commit made without
 	// it could carry those files (ADR-0577). Reading status and the log
 	// commits nothing and proceeds; anything that commits is refused.
@@ -282,7 +282,7 @@ export async function runHistory(
 		throw new Error(
 			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, or open the folder in its app to write it again.`,
 		);
-	const definition: FolderDefinition | undefined = declared ?? undefined;
+	const definition: Definition | undefined = declared ?? undefined;
 	const landed: string[] = [];
 	const open = await systemHistory(
 		resolved,

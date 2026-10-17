@@ -42,15 +42,12 @@ import {
 	defineFolder,
 	defineTable,
 	field,
-	formatDeclaration,
+	formatDefinition,
 	formatRow,
-	parseDeclaration,
+	parseDefinition,
 	parseRow,
 } from './contract.js';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import { type Definition, prepareFolderDefinition } from './definition.js';
 import { installWebLocks } from './web-locks.test-support.js';
 
 afterAll(installWebLocks());
@@ -60,7 +57,7 @@ afterEach(async () => {
 	for (const close of closers.splice(0)) await close();
 });
 
-async function open<const TDefinition extends FolderDefinition>(
+async function open<const TDefinition extends Definition>(
 	definition: TDefinition,
 	{
 		id = 'so.epicenter.definitiontest',
@@ -480,7 +477,7 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 		{ message: 'subtitel is not declared', line: 3, field: 'subtitel' },
 	]);
 
-	const declaration = formatDeclaration(definition);
+	const declaration = formatDefinition(definition);
 	expect(JSON.parse(declaration).tables.closed.additionalProperties).toBe(
 		false,
 	);
@@ -488,12 +485,12 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 		'additionalProperties',
 	);
 	const reread = prepareFolderDefinition(
-		expectOk(parseDeclaration(declaration)),
+		expectOk(parseDefinition(declaration)),
 	);
 	expect(expectOk(reread).tables.closed?.additionalProperties).toBe(false);
 	expect(
 		expectErr(
-			parseDeclaration(
+			parseDefinition(
 				JSON.stringify({
 					tables: {
 						notes: { type: 'object', properties: {}, additionalProperties: {} },

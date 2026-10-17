@@ -15,7 +15,7 @@ import { OpenFolderError } from '@epicenter/folder';
 import { describeOpenRefusal } from './open-refusal.js';
 
 test('a folder without the app tables names them, and opening again would not help', () => {
-	const { error } = OpenFolderError.ShapeMismatch({
+	const { error } = OpenFolderError.DefinitionMismatch({
 		app: 'Todos',
 		folder: 'Recipes',
 		problems: [

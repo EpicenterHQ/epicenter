@@ -34,7 +34,7 @@ one row per concern, such as `settings/display.md` (ADR-0576). This is the
 convention for when an app has settings; no first-party app declares the
 table yet. Every field it declares is `field.optional`,
 so a setting may always be unset and the app's own default applies;
-`defineFolder` refuses a required one, and a published declaration that has
+`defineFolder` refuses a required one, and a published definition that has
 one still opens. Reading and writing it is reading and writing any table, so
 the first setting of a concern is a `create`, which a second device's create
 of the same row merges with by field, and `set` changes a row that is there.
@@ -71,7 +71,7 @@ dataset.
 Opening writes nothing. One handle publishes root `epicenter.json`: an app's,
 in the folder named after the app
 ([the one rule](#which-folder-opens-and-the-one-rule)). It writes
-`formatDeclaration(definition)` just before its first write (ADR-0508). Every
+`formatDefinition(definition)` just before its first write (ADR-0508). Every
 other handle reads the file as the folder's schema and never writes it. Each
 table is one JSON Schema object, `{ type: 'object', properties, required }`,
 whose properties are the table's fields as the prepared definition holds them:
@@ -113,7 +113,7 @@ uncertain.
 
 Publication writes `epicenter.json` once per handle, before that handle's
 first save, with the one write, as a create that joins the file there: a
-missing file is created, and a present one takes the declaration whole but
+missing file is created, and a present one takes the definition whole but
 for `local`, which keeps every pattern the file lists, as `merge` decides
 every write of `epicenter.json` (ADR-0576). A file that already holds the
 result is not written, and another writer getting there first starts the
@@ -131,10 +131,10 @@ const definition = defineFolder({
 });
 ```
 
-`local` is part of the declaration: the handle publishes it in
+`local` is part of the definition: the handle publishes it in
 `epicenter.json` as `"local": ["audio/"]`, so every host that reads the
 folder's own file, the `epicenter` CLI's Sync and Save version included,
-leaves out the same paths. A declaration without `local` keeps nothing local.
+leaves out the same paths. A definition without `local` keeps nothing local.
 `local` is sorted and kept once each, so the file's bytes do not depend on the
 order it was declared in. When the folder's `epicenter.json` is there but
 cannot be read or prepared, the CLI's `runHistory` refuses a save version and
@@ -155,7 +155,7 @@ the rule is removed from the next commit's tree and from the index, as
 plain `git add -f` is left out of the next commit Epicenter makes too. A
 person's `!` exception in `.gitignore` does not override it.
 
-With the declaration, before the same first write, the handle also makes the
+With the definition, before the same first write, the handle also makes the
 root `.gitignore` name each pattern `epicenter.json` then lists, its
 definition's and any a Sync brought from another device, so plain `git` and
 the `epicenter` CLI agree. A missing `.gitignore` is created holding the patterns. A present one
@@ -219,20 +219,20 @@ openFolder({
   definition,
   credentials, // optional: (url, signal) => Promise<{ username, password } | undefined>
   browser,     // optional: { author, httpFetch, opfs }
-}): Promise<Result<Folder<typeof definition, FolderDefinition>, OpenFolderError>>
+}): Promise<Result<Folder<typeof definition, Definition>, OpenFolderError>>
 
 openFolder({
   id,          // any folder by its ID, such as 'data:Groceries'. Never a path.
   definition,  // the definition to read it through
   credentials,
   browser,
-}): Promise<Result<Folder<typeof definition, FolderDefinition>, OpenFolderError>>
+}): Promise<Result<Folder<typeof definition, Definition>, OpenFolderError>>
 
 openFolder({
   id,          // any folder, read with its own epicenter.json
   credentials,
   browser,
-}): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+}): Promise<Result<Folder<Definition>, OpenFolderError>>
 ```
 
 `credentials` is asked right before each push and fetch with the exact URL
@@ -290,17 +290,17 @@ definition instead, as an app reads Epicenter's own folder.
 | | The app's own folder | Any other folder, through a definition | Any folder by `{ id }` alone |
 | --- | --- | --- | --- |
 | `folder.own` | `true` | `false` | `false` |
-| Schema | the app's `definition` | the folder's `epicenter.json`, which must contain the definition ([below](#opening-another-folder)) | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
+| Definition | the app's `definition` | the folder's `epicenter.json`, which must contain the definition ([below](#opening-another-folder)) | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
 | `epicenter.json` | published before the first write, if its bytes differ | never written | never written |
-| No `epicenter.json` | published on the first write | contains only a definition with no tables, so a definition that reads a table is `ShapeMismatch` | no tables; files, history, and Sync work |
-| An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens | `InvalidDeclaration`, and nothing opens |
+| No `epicenter.json` | published on the first write | contains only a definition with no tables, so a definition that reads a table is `DefinitionMismatch` | no tables; files, history, and Sync work |
+| An unusable `epicenter.json` | replaced on the first write | `InvalidDefinition` with `path: 'epicenter.json'`, and nothing opens | `InvalidDefinition` with `path: 'epicenter.json'`, and nothing opens |
 | Tables | typed by the definition | the definition's tables, typed by it | keyed by any name, rows checked at run time |
 | Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same | the same |
 
 Every handle has `folder.definition`, the prepared definition it reads with,
-so a view can render a folder it did not declare. History and Sync use it
-too: Sync merges a folder's rows by the folder's own declaration. The
-definition is read once, when the folder opens; a declaration that changes
+so a view can render a folder it did not define. History and Sync use it
+too: Sync merges a folder's rows by the folder's own definition. The
+definition is read once, when the folder opens; a definition that changes
 afterward, such as one a Sync brought, is read by the next open.
 
 On the desktop, `id` names a folder the shell registered, until the shell
@@ -312,8 +312,8 @@ repository.
 ### Opening another folder
 
 An app that reads a folder it did not create reads it through its definition
-(ADR-0538). The folder opens when its own declaration contains the
-definition's shape, and its tables are typed by the definition:
+(ADR-0538). The folder opens when its own definition contains the one it
+is read through, and its tables are typed by that definition:
 
 ```ts
 const board = defineFolder({
@@ -325,7 +325,7 @@ const board = defineFolder({
 
 // On the desktop, the folder the shell handed this window.
 const { data: folder, error } = await openFolder({ app: 'so.epicenter.board', definition: board });
-// ShapeMismatch: "Board cannot open the folder 'Groceries': ...", with `error.problems`.
+// DefinitionMismatch: "Board cannot open the folder 'Groceries': ...", with `error.problems`.
 if (error !== null) return show(error.message);
 await folder.tables.todos.set('milk', { status: 'done' }); // fields the definition does not name stay on the row
 ```
@@ -333,7 +333,7 @@ await folder.tables.todos.set('milk', { status: 'done' }); // fields the definit
 The folder contains the definition when, for every table of the definition,
 it declares a table of that name, and for every field the definition reads,
 it declares that field with a schema whose every value the definition's field
-accepts (`schemaContainment` in `@epicenter/definition`). A definition's
+accepts (`containment` in `@epicenter/definition`). A definition's
 `string` accepts a folder `string`, a select of strings, or a date; a
 `number` accepts an `integer`; a nullable field accepts a field that is never
 `null`; a select accepts a select of some of its options. A field the
@@ -347,12 +347,12 @@ no tables.
 
 | | Through a definition |
 | --- | --- |
-| A folder that does not contain the definition | `ShapeMismatch`, its message naming the folder by its directory's name, and the app by the definition's `title` when an app opened it, with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
+| A folder that does not contain the definition | `DefinitionMismatch`, its message naming the folder by its directory's name, and the app by the definition's `title` when an app opened it, with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
 | `tables` | the definition's tables alone, typed by it; the folder's other tables are not on the handle |
 | A row read | every field the file holds, the ones the definition does not name included, so a write of the row read keeps them |
-| A write | checked against the folder's own declaration, every field of it, a merged row included: the definition cannot write a value the folder refuses |
+| A write | checked against the folder's own definition, every field of it, a merged row included: the definition cannot write a value the folder refuses |
 | `create` | `canCreate` is false, and `create` is `InvalidValues` naming the fields, when the folder requires a field the definition does not declare; rows can still be edited |
-| `definition` | the folder's own prepared declaration |
+| `definition` | the folder's own prepared definition |
 | `epicenter.json` | never written |
 | The definition's `local` | an untracked file it matches is never committed, so what the app keeps on this machine never enters the folder's history; a file the folder already tracks stays tracked. Nothing is added to the folder's `epicenter.json` or `.gitignore`. |
 
@@ -649,8 +649,8 @@ CLI's history commands are stricter about the second: `isApplicationFolder`
 in `packages/cli` also requires the directory to sit directly under the
 Epicenter folder root and its app to be installed, which a directory opener
 is not told. A script that edits a data
-folder opens it with `{ root }`; passing `parseDeclaration` of the file as an
-app's definition is safe only for a declaration `epicenter generate` wrote,
+folder opens it with `{ root }`; passing `parseDefinition` of the file as an
+app's definition is safe only for a definition `epicenter generate` wrote,
 since an app publishes its own formatting on the first write. Opening
 creates nothing. A directory that is not an app's own and is inside another
 repository's working tree, where ADR-0517 records the folder in the host's
@@ -684,28 +684,28 @@ programs' changes watches with `fs.watch` itself.
 import { readFolder } from '@epicenter/folder/bun';
 
 const { data: reading, error } = await readFolder('/path/to/a/data/folder');
-if (error !== null) return show(error.message); // NotDataFolder, InvalidDeclaration, or a file error
-reading.definition; // the prepared declaration from epicenter.json
+if (error !== null) return show(error.message); // NotDataFolder, InvalidDefinition, or a file error
+reading.definition; // the prepared definition from epicenter.json
 reading.tables.todos; // exactly what tables.todos.list() returns
 ```
 
 A data folder is a directory holding `epicenter.json` (ADR-0517), the
-declaration an opener publishes as `DECLARATION_PATH`. `readFolder` reads it,
-prepares it, and reads every declared table through the same tables and
+definition an opener publishes as `DEFINITION_PATH`. `readFolder` reads it,
+prepares it, and reads every defined table through the same tables and
 native file boundary an opened folder uses, so a tool
 and an application reach the same verdict on every file. A symbolically
 linked table directory is that table's `InvalidPath`, never followed.
 
-`parseDeclaration(text)` reads the file's grammar and nothing else: a
+`parseDefinition(text)` reads the file's grammar and nothing else: a
 top-level `$schema` (which only helps an editor offer completion), `title`,
 `local`, and `tables`, each table `{ type: 'object', properties, required? }`
 with every `required` name declared. A table without `required` has only
 optional fields. Any other top-level key, a `kv` included, a visible `~` key on a
 field, or a field preparation refuses, such as one with an unknown `format`
-or a `$ref` that names nothing in the field, is `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
+or a `$ref` that names nothing in the field, is `InvalidDefinition` with `path: 'epicenter.json'`. The older `{ fields }` form is refused; there is no
 migration.
 
-It writes nothing: no Git repository, lock, or declaration. It can read a folder an application has open, or one
+It writes nothing: no Git repository, lock, or definition. It can read a folder an application has open, or one
 nested anywhere in another repository. Each file is read whole, but the
 reading is not a snapshot across files: a save in progress elsewhere can show
 in one table and not yet in another.
@@ -720,20 +720,20 @@ successful reading does not mean an application can open the folder.
 and `generate` do (`packages/cli`); the CLI only prints it (ADR-0556).
 
 ```ts
-import { checkFolder, generateDeclaration, queryFolder } from '@epicenter/folder/bun';
+import { checkFolder, generateDefinition, queryFolder } from '@epicenter/folder/bun';
 
 const { data: checked, error } = await checkFolder(dir); // readFolder's errors
 checked.invalid; // files to fix, compiler-style findings
 checked.unreadable; // files that could not be read
 const { data: answer } = queryFolder(checked, 'SELECT stem FROM posts'); // { columns, rows, excluded }
-await generateDeclaration(dir); // runs dir/epicenter.ts and writes epicenter.json
+await generateDefinition(dir); // runs dir/epicenter.ts and writes epicenter.json
 ```
 
 `checkFolder` sorts what `readFolder` reports: a row that does not conform, bytes that are not UTF-8, or a path the folder cannot hold is
 `invalid`; anything else that could not be read is `unreadable`. `queryFolder`
 projects only the rows that conform into an in-memory `bun:sqlite` database,
 runs exactly one statement that reads, and names in `excluded` every file it
-left out. `generateDeclaration` is the one reading that runs a folder's code:
+left out. `generateDefinition` is the one reading that runs a folder's code:
 it imports `epicenter.ts`, resolving `@epicenter/folder`, `@epicenter/definition`,
 and `typebox` to this process's own modules, and writes the `epicenter.json`
 its default export declares (ADR-0527).
@@ -1463,15 +1463,16 @@ reader prepares.
 
 A definition is `{ title?, local?, tables }` and nothing else. `defineFolder`
 throws on any other key, an `id` or a `kv` included, and an opener given an
-untyped definition with one returns `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
-`DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
+untyped definition with one returns `InvalidDefinition`. Its type is `Definition`, re-exported
+from `@epicenter/definition`, which names no dataset, and it is prepared with
+`prepareDefinition`.
 
-`defineFolder` returns the prepared definition. It has the shape and type of
-what was declared: each table's `fields` is a record of native schemas, and a table's key is its name. Each table's type also carries the
+`defineFolder` returns the prepared definition. It has the structure and type
+of what was written: each table's `fields` is a record of native schemas, and a table's key is its name. Each table's type also carries the
 `PreparedFolderTable` mark that `parseRow` and `formatRow` require; the
 mark is a type, not a property. Each schema is an owned, frozen snapshot, so
 editing a schema after `defineFolder` changes nothing an opened folder
-accepts. An opener handed any other declaration prepares it first and reads
+accepts. An opener handed any other definition prepares it first and reads
 the snapshot.
 
 A field's editor hint decides nothing about what a folder stores.

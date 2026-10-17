@@ -16,7 +16,7 @@
  *   write keeps them, and every write is checked against the folder's
  *   declaration
  * - `epicenter.json` is never written
- * - A definition the declaration does not contain is `ShapeMismatch`,
+ * - A definition the declaration does not contain is `DefinitionMismatch`,
  *   naming the folder, and the app when an app opened it, and listing every
  *   problem; opening creates nothing
  * - A table whose folder requires a field the definition does not declare
@@ -241,7 +241,7 @@ test('a definition that does not declare a required field cannot add rows', asyn
 	await knowing.close();
 });
 
-test('a definition the declaration does not contain is ShapeMismatch, naming the folder and listing every problem, and opens nothing', async () => {
+test('a definition the declaration does not contain is DefinitionMismatch, naming the folder and listing every problem, and opens nothing', async () => {
 	const root = await folderRoot('read-through-mismatch-');
 	const reader = defineFolder({
 		title: 'Calendar',
@@ -262,8 +262,8 @@ test('a definition the declaration does not contain is ShapeMismatch, naming the
 	const refused = expectErr(
 		await openFolder({ root, git: { author }, definition: reader }),
 	);
-	expect(refused.name).toBe('ShapeMismatch');
-	if (refused.name !== 'ShapeMismatch') return;
+	expect(refused.name).toBe('DefinitionMismatch');
+	if (refused.name !== 'DefinitionMismatch') return;
 	expect(
 		refused.problems.map((problem) => [
 			problem.kind,
@@ -291,7 +291,7 @@ test('a folder without epicenter.json contains only a definition that reads noth
 	expect(
 		expectErr(await openFolder({ root, git: { author }, definition: board }))
 			.name,
-	).toBe('ShapeMismatch');
+	).toBe('DefinitionMismatch');
 	const empty = defineFolder({ tables: {} });
 	const folder = expectOk(
 		await openFolder({ root, git: { author }, definition: empty }),
@@ -378,7 +378,7 @@ test('a browser folder read through a definition reads, writes, and refuses alik
 				definition: mismatch,
 			}),
 		).name,
-	).toBe('ShapeMismatch');
+	).toBe('DefinitionMismatch');
 });
 
 test("a definition's local files never enter the folder's history, and what it tracks stays", async () => {

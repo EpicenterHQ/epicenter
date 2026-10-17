@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
-		DECLARATION_PATH,
+		type Definition,
+		DEFINITION_PATH,
 		type Folder,
-		type FolderDefinition,
 		type PreparedFolderTable,
 	} from '@epicenter/folder';
 	import { visibleRows } from '@epicenter/folder/file-browser';
@@ -38,8 +38,8 @@
 		folder$,
 		declarationChanged,
 	}: {
-		folder: Folder<FolderDefinition>;
-		folder$: FolderOptions<FolderDefinition>;
+		folder: Folder<Definition>;
+		folder$: FolderOptions<Definition>;
 		declarationChanged: () => void;
 	} = $props();
 
@@ -85,7 +85,7 @@
 
 	/** The declaration's version: its SHA-256, `null` for no file. */
 	const declaration = createQuery(() =>
-		folder$.files.read.queryOptions(DECLARATION_PATH),
+		folder$.files.read.queryOptions(DEFINITION_PATH),
 	);
 	/** The declaration's SHA-256 when this view first read it, `null` for no file. */
 	let declaredAs: string | null | undefined;

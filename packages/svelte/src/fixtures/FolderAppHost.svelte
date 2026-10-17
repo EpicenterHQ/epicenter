@@ -4,7 +4,7 @@
 	the app layout mounts.
 -->
 <script lang="ts">
-	import type { BrowserFolderOptions, FolderDefinition } from '@epicenter/folder';
+	import type { BrowserFolderOptions, Definition } from '@epicenter/folder';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import FolderApp from '../folder-app.svelte';
 	import type { FolderContext } from '../folder-context.js';
@@ -17,7 +17,7 @@
 		onFolder,
 	}: {
 		app: { id: string; title: string };
-		definition: FolderDefinition;
+		definition: Definition;
 		browser?: BrowserFolderOptions;
 		onFolder: (context: FolderContext) => void;
 	} = $props();

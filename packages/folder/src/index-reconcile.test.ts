@@ -21,7 +21,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { defineFolder, defineTable, field } from './contract.js';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 
@@ -48,7 +48,7 @@ async function repository() {
 	await git(root, 'init', '--quiet', '--initial-branch=main');
 	await writeFile(join(root, 'a.md'), 'A\n');
 	await writeFile(join(root, 'kept.md'), 'kept\n');
-	await writeFile(join(root, 'epicenter.json'), formatDeclaration(definition));
+	await writeFile(join(root, 'epicenter.json'), formatDefinition(definition));
 	await git(root, 'add', '--all');
 	await git(root, 'commit', '--quiet', '-m', 'Start');
 	return root;

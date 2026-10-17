@@ -36,12 +36,12 @@
  */
 import type { Result } from 'wellcrafted/result';
 import {
-	DECLARATION_PATH,
+	DEFINITION_PATH,
 	defineFolder,
 	defineTable,
 	type Folder,
 	field,
-	formatDeclaration,
+	formatDefinition,
 	hashBytes,
 	openFolder,
 } from '../../src/browser.js';
@@ -322,8 +322,8 @@ async function publication(id: string) {
 			const folder = await open(id);
 			assert(!(await rawDirectoryExists(id)), 'opening made the directory');
 			ok(await folder.write('rows/first.md', null, '---\ntitle: First\n---\n'));
-			const expected = formatDeclaration(definition);
-			const stored = decoder.decode(await rawRead(id, DECLARATION_PATH));
+			const expected = formatDefinition(definition);
+			const stored = decoder.decode(await rawRead(id, DEFINITION_PATH));
 			assert(stored === expected, `stored ${stored}`);
 			// The first commit makes the repository, not the first write.
 			assert(
@@ -349,11 +349,11 @@ async function publication(id: string) {
 				),
 			);
 			const before = await rawRead(id, 'rows/kept.md');
-			ok(await put(folder, DECLARATION_PATH, 'manual malformed description'));
+			ok(await put(folder, DEFINITION_PATH, 'manual malformed description'));
 			await folder.close();
 			const reopened = await open(id);
 			assert(
-				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
+				decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
 					'manual malformed description',
 				'reopening wrote',
 			);
@@ -365,8 +365,8 @@ async function publication(id: string) {
 				),
 			);
 			assert(
-				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
-					formatDeclaration(definition),
+				decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
+					formatDefinition(definition),
 				'manual description stayed after a write',
 			);
 			await reopened.close();
@@ -377,8 +377,8 @@ async function publication(id: string) {
 			const third = await open(id, { definition: changed });
 			ok(await third.write('rows/third.md', null, '---\ntitle: Third\n---\n'));
 			assert(
-				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
-					formatDeclaration(changed),
+				decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
+					formatDefinition(changed),
 				'changed declaration was not published',
 			);
 			assert(
@@ -1014,15 +1014,15 @@ async function reloadCheck(stage: string) {
 	}
 	await check('bytes and epicenter.json survive a page reload', async () => {
 		const persistedDefinition = decoder.decode(
-			await rawRead(id, DECLARATION_PATH),
+			await rawRead(id, DEFINITION_PATH),
 		);
 		assert(
-			persistedDefinition === formatDeclaration(definition),
+			persistedDefinition === formatDefinition(definition),
 			'definition did not persist across page reload',
 		);
 		const folder = await open(id);
 		assert(
-			decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
+			decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
 				persistedDefinition,
 			'reopening changed definition bytes',
 		);

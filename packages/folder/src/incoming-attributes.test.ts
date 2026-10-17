@@ -41,7 +41,7 @@ import {
 	dumpStorage,
 } from './browser-storage.test-support.js';
 import { defineFolder, type Folder } from './contract.js';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
 	createBareRemote,
@@ -128,7 +128,7 @@ async function incoming(kind: 'browser' | 'directory') {
 	// write, so that write leaves the folder clean.
 	await writeFile(
 		join(upstream, 'epicenter.json'),
-		formatDeclaration(definition),
+		formatDefinition(definition),
 	);
 	await git(upstream, 'add', '--all');
 	await git(upstream, 'commit', '--quiet', '-m', 'audio');

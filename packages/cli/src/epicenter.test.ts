@@ -189,7 +189,7 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 	const noTables = run('check', folder);
 	expect(noTables.exitCode).toBe(2);
 	expect(noTables.stderr).toContain(
-		"it has no 'tables'; every generated declaration has them, so declare the folder in epicenter.ts and run `epicenter generate`",
+		"it has no 'tables'; every generated definition has them, so define the folder in epicenter.ts and run `epicenter generate`",
 	);
 });
 

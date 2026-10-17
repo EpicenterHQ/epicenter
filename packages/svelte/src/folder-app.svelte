@@ -16,10 +16,10 @@
 	(ADR-0583). A folder that cannot open is shown as that refusal; nothing
 	else is opened in its place. Importing this component opens nothing.
 -->
-<script lang="ts" generics="TDefinition extends FolderDefinition">
+<script lang="ts" generics="TDefinition extends Definition">
 	import {
 		type BrowserFolderOptions,
-		type FolderDefinition,
+		type Definition,
 		openFolder,
 	} from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';

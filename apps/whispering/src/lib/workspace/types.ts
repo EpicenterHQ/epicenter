@@ -7,11 +7,7 @@
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser has no local model.
  */
-import type {
-	Folder,
-	FolderDefinition,
-	OpenFolderError,
-} from '@epicenter/folder';
+import type { Definition, Folder, OpenFolderError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import manifest from '../../../epicenter.app.json';
@@ -38,10 +34,7 @@ import type { LocalTranscription } from './local-transcription.js';
  * declaration is that definition, or another folder read through it, whose
  * declaration is its own `epicenter.json`.
  */
-export type WhisperingFolder = Folder<
-	typeof whisperingDefinition,
-	FolderDefinition
->;
+export type WhisperingFolder = Folder<typeof whisperingDefinition, Definition>;
 
 /**
  * The folder both workspaces open, named by Whispering's app id in

@@ -12,7 +12,7 @@
  * Plain module: a store imports the types and `createFolderContext` without
  * loading Svelte components.
  */
-import type { Folder, FolderDefinition } from '@epicenter/folder';
+import type { Definition, Folder } from '@epicenter/folder';
 import {
 	type FolderOptions,
 	folderOptions,
@@ -26,15 +26,13 @@ import type { WriteFailure } from './write-failure.js';
 const log = createLogger('svelte/folder-context');
 
 /** What `getFolder()` answers: one opened folder and the page's cache over it. */
-export type FolderContext<
-	TDefinition extends FolderDefinition = FolderDefinition,
-> = {
+export type FolderContext<TDefinition extends Definition = Definition> = {
 	/**
 	 * The opened handle. Its own `definition` is the app's in the app's own
 	 * folder, and the folder's declaration in any other the desktop handed
 	 * the window.
 	 */
-	readonly folder: Folder<TDefinition, FolderDefinition>;
+	readonly folder: Folder<TDefinition, Definition>;
 	/**
 	 * Whether this is the app's own folder, the one named after it: the
 	 * handle's `folder.own`, true exactly when it publishes the app's
@@ -86,8 +84,8 @@ export type FolderContext<
  * reach files, not a network, so none waits for one (`networkMode:
  * 'always'`); and a failure is shown, not retried (`retry: false`).
  */
-export function createFolderContext<TDefinition extends FolderDefinition>(
-	folder: Folder<TDefinition, FolderDefinition>,
+export function createFolderContext<TDefinition extends Definition>(
+	folder: Folder<TDefinition, Definition>,
 	{
 		writeFailed = () => {},
 	}: {
@@ -164,13 +162,13 @@ const [getContext, setContext] = createContext<FolderContext>();
  * component initializes.
  */
 export function getFolder<
-	TDefinition extends FolderDefinition = FolderDefinition,
+	TDefinition extends Definition = Definition,
 >(): FolderContext<TDefinition> {
 	return getContext() as unknown as FolderContext<TDefinition>;
 }
 
 /** Provide `context` to this component's subtree. `<FolderProvider>` calls it. */
-export function setFolder<TDefinition extends FolderDefinition>(
+export function setFolder<TDefinition extends Definition>(
 	context: FolderContext<TDefinition>,
 ): void {
 	setContext(context as unknown as FolderContext);

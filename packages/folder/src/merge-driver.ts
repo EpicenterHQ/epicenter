@@ -8,7 +8,7 @@
  * the nearest `epicenter.json` above the path in the working tree. The answer
  * is the merged file, a file with Git's conflict markers where both sides
  * changed one unit differently, or `git` for a file this merge leaves to
- * Git's own text merge: a path in no data folder, a declaration that does not
+ * Git's own text merge: a path in no data folder, a definition that does not
  * read, or a version that is not text.
  *
  * Git calls a driver only when both sides changed the path. An added file
@@ -18,11 +18,11 @@
 
 import { lstat, readFile } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
-import { parseDeclaration } from './declaration.js';
+import { parseDefinition } from './declaration.js';
 import { prepareFolderDefinition } from './definition.js';
 import { markConflicts } from './git/merge-lines.js';
 import { type FileKind, fileKindOf, merge } from './merge-file.js';
-import { DECLARATION_PATH } from './paths.js';
+import { DEFINITION_PATH } from './paths.js';
 
 /** What the driver leaves for Git. */
 export type GitMerge =
@@ -39,7 +39,7 @@ const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
  * The kind of the repository path `path` (relative to `top`, the working
- * tree Git runs the driver in) under its nearest data folder's declaration,
+ * tree Git runs the driver in) under its nearest data folder's definition,
  * or why Git's own merge applies.
  */
 export async function gitMergeKind(
@@ -51,7 +51,7 @@ export async function gitMergeKind(
 		return { reason: `${path} is outside the working tree` };
 	for (let depth = segments.length - 1; depth >= 0; depth--) {
 		const folder = segments.slice(0, depth).join('/');
-		const declaration = join(top, folder, DECLARATION_PATH);
+		const declaration = join(top, folder, DEFINITION_PATH);
 		const found = await lstat(declaration).catch(() => undefined);
 		if (found === undefined || !found.isFile()) continue;
 		let text: string;
@@ -60,7 +60,7 @@ export async function gitMergeKind(
 		} catch {
 			return { reason: `${declaration} is not UTF-8 text` };
 		}
-		const { data: declared, error } = parseDeclaration(text);
+		const { data: declared, error } = parseDefinition(text);
 		if (error !== null)
 			return { reason: `${declaration} does not read: ${error.reason}` };
 		const { data: definition, error: prepareError } =

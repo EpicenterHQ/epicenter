@@ -1,5 +1,5 @@
 /**
- * Folder definitions: the shared declaration vocabulary, checked for what a
+ * Folder definitions: the shared definition vocabulary, checked for what a
  * file folder can keep.
  *
  * A folder definition is how a tool reads and edits a folder's files. It names
@@ -15,11 +15,11 @@
  */
 import {
 	type CreateRowOf,
-	type DataSchema,
 	type DeclaredTable,
+	type Definition,
 	type FieldMap,
 	isOptional,
-	prepareSchema,
+	prepareDefinition,
 	SETTINGS_TABLE,
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -52,7 +52,7 @@ export type PreparedFolderTable<TTable extends FolderTable = FolderTable> =
  * The type `defineFolder` returns: the declared definition with each table
  * marked prepared. The runtime value is the prepared definition itself.
  */
-type PreparedFolderDefinition<TDefinition extends FolderDefinition> = {
+type PreparedDefinition<TDefinition extends Definition> = {
 	readonly [K in keyof TDefinition]: K extends 'tables'
 		? {
 				readonly [Name in keyof TDefinition['tables']]: TDefinition['tables'][Name] extends FolderTable
@@ -63,32 +63,32 @@ type PreparedFolderDefinition<TDefinition extends FolderDefinition> = {
 };
 
 /**
- * What a folder reads its files through: a schema that names no dataset.
+ * What a folder reads its files through: a definition that names no dataset.
  *
  * Its `local` patterns name files that stay on the machine that wrote them.
  * Every commit leaves out a path they match, and untracks one already
  * committed, whatever `.gitignore` says (`git/scope.ts`). `epicenter.json`
- * carries them, so every host that reads the folder's own declaration, the
+ * carries them, so every host that reads the folder's own definition, the
  * `epicenter` CLI included, excludes the same paths. Before its first write
  * a handle also adds each pattern the root `.gitignore` lacks, so plain `git`
  * agrees (`publish-definition.ts`).
  */
-export type FolderDefinition = DataSchema;
+export type { Definition };
 
 /**
  * Prepare a definition for file storage, or say why a folder cannot keep it.
  *
- * The result is the prepared definition: the declared shape, holding the
+ * The result is the prepared definition: the given structure, holding the
  * frozen schema snapshots a folder reads values through. Preparation is
- * memoized on the declaration and on its result, so an opener handed what
+ * memoized on the definition and on its result, so an opener handed what
  * `defineFolder` returned gets it back and does no work twice. A definition
  * with a key besides `title`, `local`, and `tables`, which only an untyped
  * caller can hand in, is refused.
  */
-export function prepareFolderDefinition<TDefinition extends FolderDefinition>(
+export function prepareFolderDefinition<TDefinition extends Definition>(
 	definition: TDefinition,
 ): Result<TDefinition, { readonly reason: string }> {
-	const { data: prepared, error: schemaError } = prepareSchema(definition);
+	const { data: prepared, error: schemaError } = prepareDefinition(definition);
 	if (schemaError !== null) return Err({ reason: schemaError.message });
 	for (const [name, table] of Object.entries(prepared.tables)) {
 		const problem = publicationProblem(name, table.fields);
@@ -217,17 +217,18 @@ type TableUnder<TName, TTable> = TTable extends FolderTable
 	: FolderTable;
 
 /**
- * Declare how a folder's files read without opening anything or naming a
+ * Define how a folder's files read without opening anything or naming a
  * folder. Tables use `defineTable` and fields use `field`, the same
  * vocabulary every Epicenter storage declares with.
  *
  * The definition is checked here, where it is written: a malformed schema
  * or a key besides `title`, `local`, and `tables`, such as an `id`, throws at
- * the declaration, not at the first open. What comes back has the declared shape and type, and is the prepared
- * definition: an owned, frozen snapshot of each schema. Its tables are typed
+ * the definition, not at the first open. What comes back has the given
+ * structure and type, and is the prepared definition: an owned, frozen
+ * snapshot of each schema. Its tables are typed
  * {@link PreparedFolderTable}, so `parseRow` and `formatRow` take them.
  */
-export function defineFolder<const TDefinition extends DataSchema>(
+export function defineFolder<const TDefinition extends Definition>(
 	schema: TDefinition & {
 		tables: {
 			[Name in keyof TDefinition['tables']]: TableUnder<
@@ -236,16 +237,16 @@ export function defineFolder<const TDefinition extends DataSchema>(
 			>;
 		};
 		local?: readonly string[];
-	} & Record<Exclude<keyof TDefinition, keyof DataSchema | 'local'>, never>,
-): PreparedFolderDefinition<
-	Pick<TDefinition & Pick<DataSchema, 'title'>, 'title' | 'tables'> &
-		Pick<FolderDefinition, 'local'>
+	} & Record<Exclude<keyof TDefinition, keyof Definition | 'local'>, never>,
+): PreparedDefinition<
+	Pick<TDefinition & Pick<Definition, 'title'>, 'title' | 'tables'> &
+		Pick<Definition, 'local'>
 > {
-	type Definition = Pick<
-		TDefinition & Pick<DataSchema, 'title'>,
+	type Defined = Pick<
+		TDefinition & Pick<Definition, 'title'>,
 		'title' | 'tables'
 	> &
-		Pick<FolderDefinition, 'local'>;
+		Pick<Definition, 'local'>;
 	// The types refuse other keys, an `id` included: a definition names no
 	// folder. An untyped caller, such as a generated epicenter.ts, is refused
 	// here rather than having a misspelling dropped.
@@ -263,14 +264,14 @@ export function defineFolder<const TDefinition extends DataSchema>(
 			throw new Error(
 				`'${name}' is a setting, which may be unset: declare it with field.optional(...)`,
 			);
-	const declaration: Definition = {
+	const defined: Defined = {
 		...(title === undefined ? {} : { title }),
 		tables,
 		...(local === undefined ? {} : { local }),
 	};
 	const { data: prepared, error: definitionError } =
-		prepareFolderDefinition(declaration);
+		prepareFolderDefinition(defined);
 	if (definitionError !== null) throw new Error(definitionError.reason);
 	// The mark is a type alone: the prepared definition is returned as it is.
-	return prepared as PreparedFolderDefinition<Definition>;
+	return prepared as PreparedDefinition<Defined>;
 }
