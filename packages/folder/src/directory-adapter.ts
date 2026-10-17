@@ -21,11 +21,15 @@ import type { Opening } from './opening.js';
 /**
  * A directory folder's history, made when the folder opens: `landed` hears
  * the paths an incoming update wrote. Answers the history for the definition
- * the handle reads with; without one, Sync merges rows as text.
+ * the handle reads with; without one, Sync merges rows as text. `appLocal`
+ * is the `local` patterns of an app reading a folder that is not its own,
+ * whose untracked matches are never committed.
  */
 export type DirectoryHistory = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
-}) => Promise<(definition?: FolderDefinition) => FolderHistory>;
+}) => Promise<
+	(definition?: FolderDefinition, appLocal?: readonly string[]) => FolderHistory
+>;
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given

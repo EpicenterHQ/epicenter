@@ -63,8 +63,15 @@ type StartFolder = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
 }) => Promise<{
 	readonly boundary: FolderStorage;
-	/** The history, whose Sync merges rows by `definition`. */
-	readonly history: (definition: FolderDefinition) => FolderHistory;
+	/**
+	 * The history, whose Sync merges rows by `definition`, and which never
+	 * commits an untracked file `appLocal` matches: the `local` patterns of
+	 * an app reading a folder that is not its own.
+	 */
+	readonly history: (
+		definition: FolderDefinition,
+		appLocal?: readonly string[],
+	) => FolderHistory;
 }>;
 
 /**
@@ -129,7 +136,12 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 		}
 		// A change made once the handle is returned is heard.
 		await detected?.ready;
-		const opened = started.history(prepared);
+		// An app keeps its own `local` files out of a folder it reads through
+		// its definition, without writing them into that folder's declaration.
+		const opened = started.history(
+			prepared,
+			target.own ? undefined : definition?.local,
+		);
 		history = opened;
 		const folder = assembleFolder<TDefinition, FolderDefinition>({
 			id: target.id,

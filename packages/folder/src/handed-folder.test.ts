@@ -23,6 +23,8 @@
  *   another folder in its query, still opens the folder the shell handed it
  * - A page that names an app its window does not run is `AppMismatch`, and
  *   asks for no folder
+ * - The app's `local` files in a handed folder never enter its history: the
+ *   page passes the patterns to the CLI's history, and writes them nowhere
  *
  * See also:
  * - `read-through.test.ts` for the containment check and the Bun rule
@@ -33,7 +35,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { scratch } from './git-http.test-support.js';
+import { git, scratch } from './git-http.test-support.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
@@ -291,6 +293,36 @@ test('a folder opened by ID with no definition reads its own epicenter.json, wha
 			{ stem: 'corner' },
 		),
 	);
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
+	await folder.close();
+});
+
+test("a handed folder's history never takes the app's local files, and its declaration is not changed", async () => {
+	openWindow('data:Groceries');
+	const root = await grant('Groceries', {
+		'epicenter.json': GROCERIES,
+		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
+	});
+	const recorder = defineFolder({
+		title: 'Todos',
+		local: ['audio/'],
+		tables: definition.tables,
+	});
+
+	const folder = expectOk(
+		await openFolder({ app: TODOS, definition: recorder }),
+	);
+	expectOk(await folder.write('audio/note.wav', null, 'recorded here'));
+	expectOk(await folder.tables.todos.set('milk', { done: true }));
+	expect((await folder.git.commit()).status).toBe('committed');
+
+	const asked = shell.calls.filter(({ cmd }) => cmd === 'save_version');
+	expect(asked.map(({ args }) => args.appLocal)).toEqual([['audio/']]);
+	const committed = await git(root, 'ls-files');
+	expect(committed.split('\n').sort()).toEqual([
+		'epicenter.json',
+		'todos/milk.md',
+	]);
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
 	await folder.close();
 });

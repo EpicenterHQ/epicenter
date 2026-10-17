@@ -216,6 +216,12 @@ export type HistoryOptions = {
 	 */
 	readonly application?: boolean;
 	/**
+	 * The `local` patterns of an app reading a folder that is not its own
+	 * (ADR-0583): an untracked file they match is never committed, and the
+	 * folder's `epicenter.json` is not changed.
+	 */
+	readonly appLocal?: readonly string[];
+	/**
 	 * The credential for the remote a fetch or push names, asked for each
 	 * transfer with the URL the folder's history reads.
 	 */
@@ -242,7 +248,7 @@ export type HistoryOptions = {
 export async function runHistory(
 	root: string,
 	request: HistoryRequest,
-	{ author, application = false, credentials }: HistoryOptions,
+	{ author, application = false, appLocal, credentials }: HistoryOptions,
 ): Promise<HistoryReply<unknown>> {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null)
@@ -292,7 +298,7 @@ export async function runHistory(
 	)({
 		landed: (paths) => landed.push(...paths),
 	});
-	const history = open(definition);
+	const history = open(definition, appLocal);
 	try {
 		const result = await (async (): Promise<unknown> => {
 			switch (request.op) {
