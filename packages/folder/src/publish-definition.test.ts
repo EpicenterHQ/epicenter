@@ -10,8 +10,8 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
-import { formatDefinition } from './declaration.js';
 import { defineFolder, defineTable, field } from './contract.js';
+import { formatDefinition } from './declaration.js';
 import { FileError } from './errors.js';
 import { hashBytes } from './hash.js';
 import { events } from './publication-log.test-support.js';
