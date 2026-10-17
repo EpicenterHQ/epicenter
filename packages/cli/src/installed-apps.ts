@@ -622,13 +622,22 @@ async function review(
 	approved: string | undefined,
 	head: string,
 ): Promise<Review> {
+	// What the person reviews is what `checkOut` builds: the commits' own
+	// history, never one a replace ref swapped in.
 	const from =
 		approved !== undefined &&
-		(await gitSucceeds(source, ['cat-file', '-e', `${approved}^{commit}`]))
+		(await gitSucceeds(source, [
+			'--no-replace-objects',
+			'cat-file',
+			'-e',
+			`${approved}^{commit}`,
+		]))
 			? approved
 			: null;
 	const text = (args: readonly string[]) =>
-		git(source, args).catch((cause: Error) => cause.message);
+		git(source, ['--no-replace-objects', ...args]).catch(
+			(cause: Error) => cause.message,
+		);
 	const logArgs = ['log', '--oneline', '--no-decorate', '-n', MAX_LOG_LINES];
 	const [log, diffStat] =
 		from === null
@@ -868,6 +877,16 @@ export async function update(
 	id: string,
 	options: SettleOptions = {},
 ): Promise<InstalledApp> {
+	// Opening an app asks this for its commit every time. When that commit is
+	// already approved and current there is nothing to write, so it answers
+	// without the lock and opens while another app installs or builds.
+	// `approvals.json` and `current` are replaced by rename and the `.built`
+	// file is only created, so this unlocked read sees a whole state.
+	if (options.commit !== undefined && !options.approve) {
+		await installedSource(paths, id);
+		const app = await inspect(paths, id);
+		if (app.state.kind === 'ready' && app.commit === options.commit) return app;
+	}
 	return exclusively(paths, async () => {
 		const source = await installedSource(paths, id);
 		if (options.commit === undefined) {
@@ -1089,16 +1108,25 @@ async function keep(output: string, builds: string, commit: string) {
 		await rm(staged, { recursive: true, force: true });
 		throw cause;
 	}
-	if (movedAside) await rm(aside, { recursive: true, force: true });
 	await writeFile(join(builds, `${commit}${BUILT_MARKER}`), '');
+	// Best effort: the build is in place, and the next build's sweep of dot
+	// entries removes what is left.
+	if (movedAside)
+		await rm(aside, { recursive: true, force: true }).catch((cause) => {
+			process.stderr.write(
+				`the replaced build ${aside} could not be removed: ${String(cause)}\n`,
+			);
+		});
 }
 
 /**
  * Configuration for the checkout's Git: every filter driver this clone's
  * configuration names, from any level, emptied and not required, so no
  * smudge, clean, or process command runs however `.gitattributes` or
- * `.git/info/attributes` map files to it. Replace refs are ignored with
- * `--no-replace-objects`, so the checkout holds the commit's own tree.
+ * `.git/info/attributes` map files to it, Git LFS's included, so a file LFS
+ * tracks is checked out as its pointer. Replace refs are ignored with
+ * `--no-replace-objects`, and sparse checkout, which `worktree add` copies
+ * from the clone, is off, so the checkout holds the commit's whole tree.
  */
 async function checkoutOptions(source: string) {
 	const names = await git(source, [
@@ -1114,7 +1142,7 @@ async function checkoutOptions(source: string) {
 			.filter((name) => name !== '')
 			.map((name) => name.slice('filter.'.length, name.lastIndexOf('.'))),
 	);
-	const options = ['--no-replace-objects'];
+	const options = ['-c', 'core.sparseCheckout=false', '--no-replace-objects'];
 	for (const driver of drivers)
 		for (const [key, value] of [
 			['smudge', ''],
@@ -1129,12 +1157,14 @@ async function checkoutOptions(source: string) {
 /** Check `commit` out detached at `checkout`, a worktree of the clone at `source`. */
 async function checkOut(source: string, checkout: string, commit: string) {
 	await mkdir(dirname(checkout), { recursive: true });
-	// `--force` takes over a path a build that did not finish left
-	// registered, without pruning anyone else's worktree.
+	// `--force --force` takes over a path a build that did not finish left
+	// registered, even one still locked while it was being added, without
+	// pruning anyone else's worktree.
 	await git(source, [
 		...(await checkoutOptions(source)),
 		'worktree',
 		'add',
+		'--force',
 		'--force',
 		'--detach',
 		'--',

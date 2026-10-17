@@ -709,6 +709,19 @@ test("the checkout ignores the clone's filters and replace refs", async () => {
 	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
 });
 
+test("the checkout holds the whole commit, whatever the clone's sparse checkout", async () => {
+	const f = await fixture();
+	const pending = await install(f.paths, await appRepository(f, 'board'), '');
+	const clone = join(f.paths.appsDir, BOARD);
+	shGit(clone, 'sparse-checkout', 'set', '--no-cone', '/*', '!/page.html');
+	expect(await exists(join(clone, 'page.html'))).toBe(false);
+
+	expect((await approve(f.paths, BOARD, pending.commit)).state).toEqual({
+		kind: 'ready',
+	});
+	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
+});
+
 test('listing reads every installed app and reports a broken one', async () => {
 	const f = await fixture();
 	expect(await listInstalled(f.paths)).toEqual([]);
@@ -752,6 +765,42 @@ test('one machine runs one install at a time', async () => {
 		held.close();
 	}
 	expect((await install(f.paths, upstream, '')).id).toBe(BOARD);
+});
+
+test('opening an app that is ready answers while another build holds the lock', async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	const first = shGit(upstream, 'rev-parse', 'HEAD');
+	await install(f.paths, upstream, '', { approve: true });
+	const held = new Database(join(f.paths.cacheDir, 'apps.lock'), {
+		create: true,
+	});
+	held.exec('BEGIN EXCLUSIVE');
+	try {
+		expect((await update(f.paths, BOARD, { commit: first })).state).toEqual({
+			kind: 'ready',
+		});
+		// Anything that has to write still waits its turn.
+		await rm(join(f.paths.buildsDir, BOARD, 'current'));
+		await expect(update(f.paths, BOARD, { commit: first })).rejects.toThrow(
+			'already installing',
+		);
+	} finally {
+		held.exec('COMMIT');
+		held.close();
+	}
+});
+
+test('a current build is named only in the lowercase hex Git prints', async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	const first = shGit(upstream, 'rev-parse', 'HEAD');
+	await install(f.paths, upstream, '', { approve: true });
+	const builds = join(f.paths.buildsDir, BOARD);
+	expect(await currentBuild(builds)).toBe(first);
+	// On a case-insensitive volume the uppercase name finds the same build.
+	await writeFile(join(builds, 'current'), `${first.toUpperCase()}\n`);
+	expect(await currentBuild(builds)).toBeUndefined();
 });
 
 test('removing an app deletes its clone and approval, keeps its builds, and never loses work no remote has', async () => {
