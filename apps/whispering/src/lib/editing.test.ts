@@ -20,6 +20,8 @@
  *   text typed is offered to copy, and nothing creates it again
  * - A row that is not valid is named for repair, edited as its text, and
  *   edited as fields once it reads
+ * - Switching between the fields and Source refuses while the edit being
+ *   left did not save, in both directions
  * - A deletion runs after the edits are written and removes what they saved;
  *   its audio stays, and a change made elsewhere since does not stop it
  * - Nothing commits on its own; Save version records a version
@@ -107,6 +109,13 @@ async function open() {
 			hold = Promise.withResolvers<void>();
 			held = Promise.withResolvers<void>();
 			return { held: held.promise, release: hold.resolve };
+		},
+		/** Every write of `path` fails before it publishes, until called with none. */
+		failWrites(path?: string) {
+			faults.write =
+				path === undefined
+					? undefined
+					: (file) => (file.endsWith(`/${path}`) ? 'fail' : undefined);
 		},
 		/** The next write of `path` fails before it publishes. */
 		failNextWrite(path: string) {
@@ -256,7 +265,13 @@ test('a read never touches notes typed, and their save merges with the change it
 		row.body = 'Mine.\n';
 	});
 	await quiet(library);
-	expect(notices).toMatchObject([{ kind: 'failed', lost: undefined }]);
+	expect(notices).toMatchObject([
+		{
+			kind: 'failed',
+			retry: expect.any(Function),
+			discard: expect.any(Function),
+		},
+	]);
 	expect(library.unsaved).toBe(true);
 
 	// Another program changes the title, and the folder reports it.
@@ -338,9 +353,11 @@ test('a recording deleted elsewhere stays deleted: its save writes nothing, noth
 		path,
 		error: { name: 'NotFound' },
 	});
-	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain(
-		'Typed after it was deleted.',
-	);
+	expect(
+		notices[0]?.kind === 'failed' &&
+			notices[0].retry === undefined &&
+			notices[0].unsaved,
+	).toContain('Typed after it was deleted.');
 	expect(await text(library, path)).toBeUndefined();
 	// The listing read it gone: the table and the detail show it gone.
 	expect(library.entries).toEqual([]);
@@ -372,7 +389,11 @@ test('a transcript deleted elsewhere stays deleted too', async () => {
 	});
 	await settle(library);
 	expect(notices).toMatchObject([{ kind: 'failed', path: editor.path }]);
-	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain('Mine.');
+	expect(
+		notices[0]?.kind === 'failed' &&
+			notices[0].retry === undefined &&
+			notices[0].unsaved,
+	).toContain('Mine.');
 	expect(await text(library, editor.path)).toBeUndefined();
 	expect(library.transcriptions).toEqual([]);
 });
@@ -449,6 +470,43 @@ test('Source edits a valid row as its exact text, after the fields it was typed 
 	expect(await text(library, path)).toEndWith('---\nTyped as text.\n');
 	expect(await library.useForm(path)).toBeUndefined();
 	expect(recordingEditor(library).draft.body).toBe('Typed as text.\n');
+});
+
+test('switching between the fields and Source refuses while the edit being left did not save, either way', async () => {
+	const { library, notices, failWrites } = await open();
+	const editor = await record(library);
+	const { path } = editor;
+
+	failWrites(path);
+	editor.edit((row) => {
+		row.body = 'Older body.\n';
+	});
+	await settle(library);
+	expect(library.isUnsaved(path)).toBe(true);
+	expect(await library.editSource(path)).toContain('did not save');
+	expect(library.showsText(path)).toBe(false);
+	notices.at(-1)?.discard?.();
+	expect(library.isUnsaved(path)).toBe(false);
+
+	failWrites();
+	expect(await library.editSource(path)).toBeUndefined();
+	const source = await openText(library, path);
+	failWrites(path);
+	source.input(
+		source.draft.replace(/\n---\n[\s\S]*$/, '\n---\nNewer source.\n'),
+	);
+	await settle(library);
+	expect(library.isUnsaved(path)).toBe(true);
+	expect(await library.useForm(path)).toContain('did not save');
+	expect(library.showsText(path)).toBe(true);
+
+	// Once it can save, the source lands, and no older edit overwrites it.
+	failWrites();
+	await library.edits.settled();
+	await settle(library);
+	expect(await text(library, path)).toEndWith('---\nNewer source.\n');
+	expect(await library.useForm(path)).toBeUndefined();
+	expect(recordingEditor(library).draft.body).toBe('Newer source.\n');
 });
 
 // ============================================================================

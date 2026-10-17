@@ -150,7 +150,8 @@ test('a save whose reply was lost is reported and keeps the edit, which saves ag
 		{
 			kind: 'failed',
 			error: { name: 'Io', cause: { name: 'Unconfirmed' } },
-			lost: undefined,
+			retry: expect.any(Function),
+			discard: expect.any(Function),
 		},
 	]);
 	expect(await shell.text(PATH)).toContain('Tidy it.');
@@ -195,7 +196,13 @@ test('a refused save is reported and keeps the edit; the next edit saves it', as
 
 	type(session, 'Mine.\n');
 	await settle(library);
-	expect(notices).toMatchObject([{ kind: 'failed', lost: undefined }]);
+	expect(notices).toMatchObject([
+		{
+			kind: 'failed',
+			retry: expect.any(Function),
+			discard: expect.any(Function),
+		},
+	]);
 	expect(session.draft.body).toBe('Mine.\n');
 	expect(await shell.text(PATH)).toBe(SEED);
 

@@ -62,7 +62,7 @@ import {
 } from '@epicenter/folder/file-browser';
 import { folderOptions, type TableOptions } from '@epicenter/folder/query';
 import type { RecordingFolder } from '@epicenter/recorder';
-import { createEdits } from '@epicenter/svelte/edits';
+import { createEdits, UNSAVED } from '@epicenter/svelte/edits';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
@@ -172,19 +172,12 @@ export type Selection = {
 };
 
 /**
- * What the person is told about an edit's write: it failed. A row's edit is
- * kept and is saved again with the next change, or before anything that
- * reads it. `lost` is the text that was dropped instead: a row whose file is
- * gone, or text whose save failed.
+ * What the person is told about an edit's write: it failed, as the shared
+ * edit layer reports it (`WriteFailure`). An edit still on screen comes with
+ * its text, Save again, and Discard; text in no file, such as typing into a
+ * file deleted elsewhere, comes with its text alone.
  */
-export type WriteNotice = {
-	readonly kind: 'failed';
-	readonly path: string;
-	/** Why: the write's error, or `NotFound` for a file deleted elsewhere. */
-	readonly error: WriteFailure['error'];
-	/** What was typed and is in no file now; `undefined` while the edit is still on screen. */
-	readonly lost: string | undefined;
-};
+export type WriteNotice = WriteFailure & { readonly kind: 'failed' };
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -319,19 +312,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	function notify(notice: WriteNotice) {
 		for (const listener of noticeListeners) listener(notice);
 	}
-	// Every write and draft of the folder. A failed save whose edit is still
-	// on screen, with Save again, loses nothing; text in no file is offered.
+	// Every write and draft of the folder. Each failure is told as the edit
+	// layer reports it: the text, and Save again and Discard while the edit
+	// is still on screen.
 	const edits = createEdits({
 		folder,
 		queries: folder$,
 		queryClient,
-		writeFailed: ({ path, error, unsaved, retry }) =>
-			notify({
-				kind: 'failed',
-				path,
-				error,
-				lost: retry !== undefined || unsaved === '' ? undefined : unsaved,
-			}),
+		writeFailed: (failure) => notify({ kind: 'failed', ...failure }),
 	});
 
 	/** Why nothing new starts now, if it does not. Work accepted before stays accepted. */
@@ -559,17 +547,26 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	 * Run `work` as a mutation, so closing waits for it. `scope` names the
 	 * file whose turn a write takes (`inTurn`): a recording's lifecycle steps
 	 * run in order, after its edits, and the folder is read again after each.
-	 * Work with no scope only reads.
+	 * `file`, when it is another file, is the one `work` writes: its turn is
+	 * taken first, so a result's write is ordered with the person's edits of
+	 * the result as well as with its recording. Work with no scope only
+	 * reads.
 	 */
-	async function track<T>(work: () => Promise<T>, scope?: string): Promise<T> {
+	async function track<T>(
+		work: () => Promise<T>,
+		scope?: string,
+		file?: string,
+	): Promise<T> {
+		const inScope = () =>
+			scope === undefined ? work() : edits.writes.inTurn(scope, work);
 		const ran = await defineMutation({
 			mutationKey:
 				scope === undefined ? keys.action('read') : keys.recording(scope),
 			mutationFn: async () =>
 				Ok(
-					await (scope === undefined
-						? work()
-						: edits.writes.inTurn(scope, work)),
+					await (file === undefined || file === scope
+						? inScope()
+						: edits.writes.inTurn(file, inScope)),
 				),
 			onSettled: () => (scope === undefined ? undefined : invalidate()),
 		})();
@@ -637,7 +634,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		refused,
 		connections: () => ({ info: connections, error: connectionsError }),
 		resolve,
-		settle: () => edits.settled(),
+		settle: async () => {
+			await edits.settled();
+		},
 		deleting,
 		capturing,
 		track,
@@ -712,7 +711,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		listing: queryClient.getQueryData<FileListing>(
 			folder$.files.list.queryKey(),
 		),
-		writesSettled: () => edits.settled(),
+		writesSettled: async () => {
+			await edits.settled();
+		},
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
 		audioOf: (path) => {
@@ -942,6 +943,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** Whether a write of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving: (path: string) => edits.writing(path),
+		/** Whether text typed at `path` did not save, with no save running or waiting; read reactively. */
+		isUnsaved: (path: string) => edits.unsaved(path),
 		/** Whether a write of any file runs, or typing waits to be sent; read reactively. */
 		get saving() {
 			return edits.writing();
@@ -955,12 +958,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			path === undefined ? edits.fenced : edits.locked(path),
 		/**
 		 * Edit a row file's whole text instead of its fields. Its writes land
-		 * first, and its text is read then. Answers why not.
+		 * first, and its text is read then. A body or field typed there that
+		 * did not save refuses the switch, so the file never has two edits
+		 * at once. Answers why not.
 		 */
 		async editSource(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			await edits.settled(path);
+			if ((await edits.settled(path)).length > 0) return UNSAVED;
 			await queryClient
 				.fetchQuery({ ...textQuery(path), staleTime: 0 })
 				.catch(() => undefined);
@@ -970,7 +975,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/**
 		 * Edit a row file's fields again after editing its text. Its writes
 		 * land, and its row is read then. Text that does not read as a row
-		 * stays as text, and this says so.
+		 * stays as text, and this says so; so does text whose save failed,
+		 * until it saves or is discarded.
 		 */
 		async useForm(path: string): Promise<string | undefined> {
 			const why = refused();
@@ -983,7 +989,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				parseRow(whisperingDefinition.tables[table], typed).error !== null
 			)
 				return STILL_TEXT;
-			await edits.settled(path);
+			if ((await edits.settled(path)).length > 0) return UNSAVED;
 			await queryClient
 				.fetchQuery({ ...listingOf(table), staleTime: 0 })
 				.catch(() => undefined);
@@ -1357,8 +1363,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const nextStem = rowStemOf(TRANSCRIPTIONS, to);
 			if (stem !== undefined && nextStem === undefined && !showsText(path))
 				return TRANSCRIPT_NAME;
-			// The file's edits land first; edits of it wait meanwhile.
-			const { error } = await edits.exclusive(path, () =>
+			// The file's edits land first; edits of it, and of the name it
+			// takes, wait meanwhile.
+			const { error } = await edits.exclusive([path, to], () =>
 				edits.writes.move(path, to),
 			);
 			if (error === null) moved(path, to);
@@ -1435,23 +1442,32 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const busy = recording && deletionContext().busy(recording);
 			if (busy) return busy;
 			const { path } = deletion;
-			// Typed while the person was asked: written first, and deleted with it.
-			const problem = await edits
-				.exclusive(path, async () => {
-					await edits.settled();
-					return runDeletion(
-						{
-							...deletionContext(),
-							deleting,
-							dropFailed: runs.dropFailed,
-							deleted,
-						},
-						deletion,
-					);
-				})
-				.catch(describe);
+			// Typed while the person was asked: written first, and deleted with
+			// it. A recording's transcripts and results go with it, so typing
+			// in any of them that did not save refuses the deletion.
+			const result = await edits
+				.exclusive(
+					deletion.kind === 'recording' ? [path, ...deletion.results] : path,
+					async () => {
+						await edits.settled();
+						const problem = await runDeletion(
+							{
+								...deletionContext(),
+								deleting,
+								dropFailed: runs.dropFailed,
+								deleted,
+							},
+							deletion,
+						);
+						return problem === undefined ? Ok(undefined) : Err(problem);
+					},
+				)
+				.catch((cause: unknown) => Err(describe(cause)));
 			void invalidate();
-			return problem;
+			if (result.error === null) return undefined;
+			return typeof result.error === 'string'
+				? result.error
+				: describeError(result.error);
 		},
 		/**
 		 * Record a version: commit the saved files (ADR-0529). Writes still

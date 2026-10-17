@@ -442,7 +442,12 @@ test('a transcript whose save failed keeps the edit, and a run saves it before i
 		chmodSync(join(root, 'transcriptions'), 0o755);
 	}
 	expect(notices).toMatchObject([
-		{ kind: 'failed', path: transcript.path, lost: undefined },
+		{
+			kind: 'failed',
+			path: transcript.path,
+			retry: expect.any(Function),
+			discard: expect.any(Function),
+		},
 	]);
 	expect(source.draft.body).toBe('Mine.\n');
 

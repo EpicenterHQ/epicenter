@@ -146,10 +146,16 @@ export function createRuns({
 	/**
 	 * Run folder work as a mutation, so closing waits for it and the folder is
 	 * read again after it. `scope` names the file whose queue it joins: a
-	 * recording's results are written in order, after its writes. Waiting on
-	 * an endpoint is not tracked.
+	 * recording's results are written in order, after its writes. `file`
+	 * names the file the work writes, whose turn it takes first, so it is
+	 * ordered with the person's edits of that file too. Waiting on an
+	 * endpoint is not tracked.
 	 */
-	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
+	track: <T>(
+		work: () => Promise<T>,
+		scope?: string,
+		file?: string,
+	) => Promise<T>;
 }) {
 	const { folder } = workspace;
 	const tableOf = (name: ResultTable) =>
@@ -185,7 +191,7 @@ export function createRuns({
 		const path = pathOf(target);
 		writing.set(path, target.recording);
 		try {
-			return await track(work, scopeOf(target));
+			return await track(work, scopeOf(target), path);
 		} finally {
 			writing.delete(path);
 		}

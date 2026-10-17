@@ -181,7 +181,11 @@ test('a recording deleted elsewhere stays deleted: typing in it is refused, repo
 	await settle(library);
 
 	expect(notices).toHaveLength(1);
-	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain('Mine.');
+	expect(
+		notices[0]?.kind === 'failed' &&
+			notices[0].retry === undefined &&
+			notices[0].unsaved,
+	).toContain('Mine.');
 	expect(library.selection).toBeUndefined();
 	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
 	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);

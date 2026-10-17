@@ -147,12 +147,13 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier.startsWith('@epicenter/sync') ||
 				// Files are edited through the query cache and the folder's one
 				// edit layer (ADR-0528, ADR-0576): no edit session, open-item
-				// slot, admission, or save bar. The other shared view is the
-				// header status.
+				// slot, admission, or save bar. The other shared views are the
+				// header status and the failed-save toast.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
 						'@epicenter/svelte/edits',
 						'@epicenter/svelte/write-failure',
+						'@epicenter/svelte/write-failure-toast',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',
