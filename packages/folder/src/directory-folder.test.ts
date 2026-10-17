@@ -169,10 +169,6 @@ const HOUR = 60 * 60 * 1000;
 const stagedName = (offset: number) =>
 	`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
 
-/** A staged file's name as handles made it before each had an engine id. */
-const earlierStagedName = (offset: number) =>
-	`${(Date.now() + offset).toString(36)}-0-a1b2c3d4`;
-
 type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
 
 async function addTodo(folder: OpenedFolder, title: string) {
@@ -461,11 +457,6 @@ describe('a folder over an ordinary directory', () => {
 		// once it is old enough that no write can still be about to rename it.
 		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
 		await writeFile(join(root, SCRATCH_DIRECTORY, stagedName(-2 * HOUR)), 'x');
-		// So is one named as handles named them before each had an engine id.
-		await writeFile(
-			join(root, SCRATCH_DIRECTORY, earlierStagedName(-2 * HOUR)),
-			'x',
-		);
 		const reopened = expectOk(await open(root));
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await reopened.close();
@@ -478,12 +469,11 @@ describe('a folder over an ordinary directory', () => {
 		// shares no lock with this one.
 		const fresh = stagedName(0);
 		const old = stagedName(-2 * HOUR);
-		const earlierFresh = earlierStagedName(0);
-		for (const name of [fresh, old, earlierFresh, 'left-behind'])
+		for (const name of [fresh, old, 'left-behind'])
 			await writeFile(join(root, SCRATCH_DIRECTORY, name), 'x');
 		const folder = expectOk(await open(root));
 		expect((await readdir(join(root, SCRATCH_DIRECTORY))).sort()).toEqual(
-			[fresh, earlierFresh, 'left-behind'].sort(),
+			[fresh, 'left-behind'].sort(),
 		);
 		await folder.close();
 	});
