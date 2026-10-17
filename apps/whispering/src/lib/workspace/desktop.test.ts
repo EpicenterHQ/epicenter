@@ -10,34 +10,33 @@
  * (`granted-shell.test-support.ts` in the folder package); nothing here runs the Rust shell or a
  * WebView.
  *
- * The connections are rows of a real `so.epicenter` folder on disk, opened
- * through `connectionsDefinition`. The AI commands are scripted with the code the
- * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
- * a stubbed endpoint, so a test about a key or a request runs against what
- * the CLI really checks and sends.
+ * The connections are this computer's: the AI commands are scripted with the
+ * code the `epicenter` CLI runs (`connections.ts` in the CLI, and
+ * `@epicenter/ai/send`) over a real `connections.json` in a scratch app data
+ * directory, an in-memory keychain, and a stubbed endpoint, so a test about
+ * a key or a request runs against what the CLI really keeps, checks, and
+ * sends. No folder is opened for them.
  * Local transcription answers with scripted shell commands.
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsDefinition,
-} from '@epicenter/ai/connection-table';
+import { join } from 'node:path';
 import {
 	base64ToBytes,
 	createMemorySecrets,
-	keyState,
 	responseEvents,
-	saveKey,
 	sendRequest,
 } from '@epicenter/ai/send';
 import { isStoredRow } from '@epicenter/folder';
-import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import {
+	listConnections,
+	setConnection,
+	useConnection,
+} from '../../../../../packages/cli/src/connections.ts';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
 import {
 	createGrantedShell,
@@ -168,19 +167,15 @@ type ProviderCall = {
 };
 
 /**
- * Epicenter as Whispering's connections reach it: a real `so.epicenter`
- * folder on disk, and the AI commands answered by the code `epicenter send`
- * and `epicenter auth key` run, over an in-memory keychain and an endpoint
- * that answers every request. `keychain` is what the CLI would hold; the
- * page is never handed it.
+ * Epicenter as Whispering's connections reach it: the AI commands answered
+ * by the code `epicenter auth key` and `epicenter send` run, over a real
+ * `connections.json` in scratch app data, an in-memory keychain, and an
+ * endpoint that answers every request. `keychain` is what the CLI would
+ * hold; the page is never handed it.
  */
 async function epicenter() {
-	// Epicenter's own folder, named after it, where the CLI publishes.
-	const root = join(
-		await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-')),
-		CONNECTIONS_FOLDER_ID,
-	);
-	await mkdir(root);
+	const dir = await mkdtemp(join(tmpdir(), 'whispering-connections-'));
+	const paths = { dataDir: join(dir, 'data'), cacheDir: join(dir, 'cache') };
 	const keychain = createMemorySecrets();
 	const provider: ProviderCall[] = [];
 	/** Every line the page was sent. */
@@ -203,6 +198,12 @@ async function epicenter() {
 			choices: [{ message: { role: 'assistant', content: 'A steady tone.' } }],
 		});
 	}) as typeof fetch;
+	const refused = (error: { message: string }) =>
+		({
+			status: 'error',
+			data: null,
+			error: { name: 'Refused', message: error.message },
+		}) as const;
 	const ai: ConnectionCommands = {
 		async authStatus() {
 			return {
@@ -211,28 +212,30 @@ async function epicenter() {
 				error: null,
 			};
 		},
-		async aiKeyState(connection) {
-			const { data, error } = await keyState(keychain, connection);
-			return error === null
-				? { status: 'ok', data, error: null }
-				: {
-						status: 'error',
-						data: null,
-						error: { name: 'Refused', message: error.message },
-					};
+		// The shell answers the window's own app's choices alone.
+		async aiKeyList() {
+			const { data, error } = await listConnections(paths, keychain);
+			if (error !== null) return refused(error);
+			return {
+				status: 'ok',
+				data: {
+					connections: data.connections,
+					uses: data.apps[WHISPERING_FOLDER_ID] ?? {},
+				},
+				error: null,
+			};
 		},
-		async aiKeySet(connection, url, key) {
-			const { data, error } = await saveKey(keychain, connection, {
-				endpoint: url,
-				key,
-			});
-			return error === null
-				? { status: 'ok', data, error: null }
-				: {
-						status: 'error',
-						data: null,
-						error: { name: 'Refused', message: error.message },
-					};
+		async aiKeySet(connection, change) {
+			const { data, error } = await setConnection(
+				paths,
+				keychain,
+				connection,
+				Object.fromEntries(
+					Object.entries(change).filter(([, value]) => value != null),
+				),
+			);
+			if (error !== null) return refused(error);
+			return { status: 'ok', data, error: null };
 		},
 		async aiSend(target, request, channel) {
 			const deliver = (line: string) => {
@@ -266,20 +269,18 @@ async function epicenter() {
 			return { status: 'ok', data: { ...exit, reply: null }, error: null };
 		},
 	} as ConnectionCommands;
-	cleanups.push(() => rm(dirname(root), { recursive: true, force: true }));
+	cleanups.push(() => rm(dir, { recursive: true, force: true }));
 	return {
-		root,
+		paths,
+		/** `connections.json` as the CLI wrote it. */
+		file: async () =>
+			JSON.parse(
+				await readFile(join(paths.dataDir, 'connections.json'), 'utf8'),
+			),
 		keychain,
 		provider,
 		lines,
 		ai,
-		open: () =>
-			openBunFolder({
-				root,
-				app: CONNECTIONS_FOLDER_ID,
-				definition: connectionsDefinition,
-				git: { author: { name: 'Test', email: 'test@localhost' } },
-			}),
 		lose(next: boolean) {
 			losing = next;
 		},
@@ -293,7 +294,6 @@ const openWith = (host: Epicenter) =>
 	openDesktopWorkspace({
 		commands: noCommands,
 		connectionCommands: host.ai,
-		openConnectionsFolder: host.open,
 	});
 
 // ============================================================================
@@ -516,10 +516,10 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 });
 
 // ============================================================================
-// Connections are rows of so.epicenter, and keys stay in the keychain
+// Connections are this computer's, and keys stay in the keychain
 // ============================================================================
 
-test('a connection is a row of so.epicenter with its endpoint and key in the keychain; the page is told whether a key is set and never the key', async () => {
+test("a connection is this computer's entry with its endpoint and key in the keychain; the page is told whether a key is set and never the key", async () => {
 	setup();
 	await granted();
 	const host = await epicenter();
@@ -542,19 +542,24 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 		keyPresent: true,
 		readOnlyReason: undefined,
 	});
-	// One row, named for what it is, holding no endpoint and no key.
-	const row = await readFile(
-		join(host.root, 'connections/whispering-text.md'),
-		'utf8',
-	);
-	expect(row).toContain('kind: openai-compatible');
-	expect(row).toContain('title: Whispering text');
-	expect(row).toContain('model: chat-model');
-	expect(row).not.toContain(ENDPOINT);
-	expect(row).not.toContain('device-secret-key');
+	// One entry, named for what it is, holding no endpoint and no key.
+	expect(await host.file()).toEqual({
+		connections: {
+			'whispering-text': {
+				kind: 'openai-compatible',
+				title: 'Whispering text',
+				model: 'chat-model',
+			},
+		},
+		apps: {},
+	});
 	expect(await host.keychain.get('whispering-text')).toBe(
 		JSON.stringify({ endpoint: ENDPOINT, key: 'device-secret-key' }),
 	);
+	// The page opened its own folder and no other.
+	for (const call of calls)
+		if (call.args.scope !== undefined)
+			expect(call.args.scope).toBe(WHISPERING_FOLDER_ID);
 
 	// The key is never carried to another base URL.
 	const moved = await first.connections.set('text', {
@@ -568,7 +573,7 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	).toBe(ENDPOINT);
 	await first.close();
 
-	// Another window reads the same row; removing the key keeps the endpoint.
+	// Another window reads the same entry; removing the key keeps the endpoint.
 	const second = expectOk(await openWith(host));
 	expect((await second.connections.read()).text?.keyPresent).toBe(true);
 	const removed = expectOk(
@@ -588,12 +593,103 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	);
 	await second.close();
 
-	// A row synced from another computer is not set up here until this
-	// computer saves its endpoint.
+	// An entry whose keychain entry is gone is not set up until this
+	// computer saves its endpoint again.
 	await host.keychain.delete('whispering-text');
 	const third = expectOk(await openWith(host));
 	expect((await third.connections.read()).text).toBeUndefined();
 	await third.close();
+});
+
+test("an operation uses the connection Whispering's choice on this computer names, and saving changes that connection", async () => {
+	setup();
+	await granted();
+	const host = await epicenter();
+	expectOk(
+		await setConnection(host.paths, host.keychain, 'groq', {
+			kind: 'openai-compatible',
+			title: 'Groq',
+			model: 'whisper-large-v3',
+			endpoint: ENDPOINT,
+			key: 'groq-key',
+		}),
+	);
+	expectOk(
+		await setConnection(host.paths, host.keychain, 'account', {
+			kind: 'epicenter',
+			title: 'Epicenter',
+			model: 'gpt-4o-mini',
+		}),
+	);
+	for (const [operation, id] of [
+		['transcription', 'groq'],
+		['text', 'account'],
+	] as const)
+		expectOk(
+			await useConnection(host.paths, {
+				id,
+				app: WHISPERING_FOLDER_ID,
+				operation,
+			}),
+		);
+	// Another app's choice is not Whispering's.
+	await setConnection(host.paths, host.keychain, 'other', {
+		kind: 'openai-compatible',
+	});
+	await useConnection(host.paths, {
+		id: 'other',
+		app: 'so.epicenter.todos',
+		operation: 'transcription',
+	});
+
+	const workspace = expectOk(await openWith(host));
+	expect(await workspace.connections.read()).toEqual({
+		transcription: {
+			baseUrl: ENDPOINT,
+			model: 'whisper-large-v3',
+			keyPresent: true,
+			readOnlyReason: undefined,
+		},
+		text: {
+			baseUrl: 'https://api.example.test/v1',
+			model: 'gpt-4o-mini',
+			// The app is not signed in.
+			keyPresent: false,
+			readOnlyReason:
+				'This connection uses your Epicenter account. Change it in Epicenter’s Settings.',
+		},
+	});
+
+	// Saving the transcription connection changes groq itself, and makes no
+	// connection of Whispering's own.
+	expectOk(
+		await workspace.connections.set('transcription', {
+			baseUrl: ENDPOINT,
+			model: 'whisper-1',
+			key: { action: 'keep' },
+		}),
+	);
+	const { connections } = await host.file();
+	expect(connections.groq).toEqual({
+		kind: 'openai-compatible',
+		title: 'Groq',
+		model: 'whisper-1',
+	});
+	expect(connections['whispering-transcription']).toBeUndefined();
+	expect(await host.keychain.get('groq')).toBe(
+		JSON.stringify({ endpoint: ENDPOINT, key: 'groq-key' }),
+	);
+	// An Epicenter connection is changed in Settings, not here.
+	expect(
+		expectErr(
+			await workspace.connections.set('text', {
+				baseUrl: ENDPOINT,
+				model: 'other',
+				key: { action: 'remove' },
+			}),
+		),
+	).toContain('Epicenter’s Settings');
+	await workspace.close();
 });
 
 test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {

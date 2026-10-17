@@ -132,6 +132,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             data_folders::list_data_folders,
             cli::ai_send,
             cli::account_send,
+            cli::ai_key_list,
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
@@ -837,6 +838,7 @@ mod tests {
                 "allow-get-local-transcription-readiness",
                 "allow-open-home",
                 "allow-ai-send",
+                "allow-ai-key-list",
                 "allow-ai-key-set",
                 "allow-ai-key-remove",
                 "allow-ai-key-state",
@@ -879,8 +881,9 @@ mod tests {
     /// fixed CLI invocation that never hands a page a saved key.
     #[test]
     fn ai_commands_are_granted_to_settings_folders_and_installed_apps() {
-        const AI: [&str; 4] = [
+        const AI: [&str; 5] = [
             "allow-ai-send",
+            "allow-ai-key-list",
             "allow-ai-key-set",
             "allow-ai-key-remove",
             "allow-ai-key-state",
@@ -1197,6 +1200,7 @@ mod tests {
                 "allow-sync",
                 "allow-install-git",
                 "allow-ai-send",
+                "allow-ai-key-list",
                 "allow-ai-key-set",
                 "allow-ai-key-remove",
                 "allow-ai-key-state",

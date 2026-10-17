@@ -19,6 +19,7 @@
 		"allow-get-unload-policy",
 		"allow-set-unload-policy",
 		"allow-ai-send",
+		"allow-ai-key-list",
 		"allow-ai-key-set",
 		"allow-ai-key-remove",
 		"allow-ai-key-state",

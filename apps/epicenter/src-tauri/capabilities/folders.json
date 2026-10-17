@@ -15,6 +15,7 @@
 		"allow-sync",
 		"allow-install-git",
 		"allow-ai-send",
+		"allow-ai-key-list",
 		"allow-ai-key-set",
 		"allow-ai-key-remove",
 		"allow-ai-key-state",

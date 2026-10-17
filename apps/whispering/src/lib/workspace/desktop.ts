@@ -23,9 +23,10 @@
  *   reads one's level, and writes a recording into the granted folder as it
  *   captures, and the page opens no microphone of its own (ADR-0543,
  *   ADR-0571, `desktop-microphone.ts`);
- * - the two connections, rows of Epicenter's own folder `so.epicenter`, whose
- *   endpoints and keys stay in this computer's keychain; requests go through
- *   the `epicenter` CLI, which adds the key (`desktop-connections.ts`);
+ * - the two connections, this computer's AI connections as the `epicenter`
+ *   CLI lists them, whose endpoints and keys stay in this computer's
+ *   keychain; requests go through the CLI, which adds the key
+ *   (`desktop-connections.ts`);
  * - transcription with Epicenter's active local model
  *   (`local-transcription.ts`).
  *
@@ -37,10 +38,6 @@
  * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsDefinition,
-} from '@epicenter/ai/connection-table';
 import { openFolder } from '@epicenter/folder/tauri';
 import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -62,7 +59,6 @@ import {
 } from '../transformation.js';
 import {
 	type ConnectionCommands,
-	type ConnectionsFolder,
 	createDesktopConnections,
 	type DesktopConnections,
 } from './desktop-connections.js';
@@ -84,19 +80,10 @@ type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 export async function openDesktopWorkspace({
 	commands: native = commands,
 	connectionCommands = commands,
-	openConnectionsFolder = () =>
-		openFolder({
-			id: CONNECTIONS_FOLDER_ID,
-			definition: connectionsDefinition,
-		}),
 }: {
 	commands?: LocalTranscriptionCommands;
 	/** The AI connection commands; injected for tests. */
 	connectionCommands?: ConnectionCommands;
-	/** Open `so.epicenter` through its `connections` table; injected for tests. */
-	openConnectionsFolder?: () => Promise<
-		Result<ConnectionsFolder, { readonly message: string }>
-	>;
 } = {}): Promise<Result<Workspace, WorkspaceError>> {
 	const opened = await openFolder({
 		app: WHISPERING_FOLDER_ID,
@@ -119,7 +106,6 @@ export async function openDesktopWorkspace({
 	const root = folder.location.kind === 'directory' ? folder.location.root : '';
 	const connections = createDesktopConnections({
 		commands: connectionCommands,
-		openConnections: openConnectionsFolder,
 	});
 
 	async function readBytes(path: string): Promise<Result<Uint8Array, string>> {
@@ -188,7 +174,7 @@ export async function openDesktopWorkspace({
 		}),
 		connections: {
 			storedIn:
-				'Epicenter’s AI connections, which follow you wherever Epicenter’s folder syncs; the endpoint and key are kept in this computer’s keychain',
+				'Epicenter’s AI connections on this computer; the endpoint and key are kept in this computer’s keychain',
 			defaults: {
 				transcription: DEFAULT_TRANSCRIPTION_CONNECTION,
 				text: { baseUrl: DEFAULT_TRANSCRIPTION_CONNECTION.baseUrl, model: '' },
@@ -197,11 +183,9 @@ export async function openDesktopWorkspace({
 			set: connections.set,
 		},
 		preferences: localPreferences,
-		// Closing the folders waits for the saves already under way and commits
+		// Closing the folder waits for the saves already under way and commits
 		// nothing.
-		close: async () => {
-			await Promise.all([folder.close(), connections.close()]);
-		},
+		close: () => folder.close(),
 	});
 }
 

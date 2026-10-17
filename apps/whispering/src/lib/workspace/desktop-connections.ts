@@ -1,39 +1,36 @@
 /**
- * Whispering's two connections inside Epicenter (ADR-0557).
+ * Whispering's two connections inside Epicenter (ADR-0557, ADR-0587).
  *
- * Each is a row of the `connections` table in Epicenter's own folder,
- * `so.epicenter`: `whispering-transcription` and `whispering-text`, holding
- * the kind, a title, and the model, so they follow the person to every
- * computer where that folder syncs. Opening Whispering's window permits it
- * into that folder, which it reads through `connectionsDefinition`.
+ * A connection is this computer's: an entry the `epicenter` CLI keeps in
+ * Epicenter's app data, holding the kind, a title, and the model, with an
+ * `openai-compatible` connection's endpoint and key in this computer's
+ * keychain under the same id. The page lists the connections with
+ * `ai_key_list`, which names each endpoint and whether its key is saved but
+ * never the key, and saves one with `ai_key_set`. It opens no folder for
+ * them. A request goes out through `ai_send`: the CLI checks that the
+ * keychain still holds the endpoint the request was prepared for, adds the
+ * key, sends it, and streams the response back, which `@epicenter/ai/send`
+ * reads into a `Response`. The endpoint needs no CORS headers, because the
+ * request never leaves from the page.
  *
- * The endpoint and key are not in the row. They live in this computer's
- * keychain under the row's id, and only the `epicenter` CLI reads them: the
- * page saves them with `ai_key_set`, learns the endpoint and whether a key
- * is saved with `ai_key_state`, and never reads a key back. A request goes
- * out through `ai_send`: the CLI checks that the keychain still holds the
- * endpoint the request was prepared for, adds the key, sends it, and streams
- * the response back, which `@epicenter/ai/send` reads into a `Response`. The
- * endpoint needs no CORS headers, because the request never leaves from the
- * page.
+ * Which connection each operation uses is Whispering's choice on this
+ * computer, kept by the CLI under Whispering's id and answered by
+ * `ai_key_list` as `uses` (`epicenter auth key use`). With no choice
+ * recorded, an operation uses its own connection, `whispering-transcription`
+ * or `whispering-text`, which Whispering adds when it is first saved.
  *
- * A row of kind `epicenter` sends to the deployment the app signed in to,
- * `<origin>/v1`, with an `ai` access token the CLI mints from the app's
+ * A connection of kind `epicenter` sends to the deployment the app signed in
+ * to, `<origin>/v1`, with an `ai` access token the CLI mints from the app's
  * sign-in (`--desktop`), which Settings makes: the page learns the origin
  * and whether the app is signed in from `auth_status`, sends through the
  * same `ai_send` with an `epicenter` target, and holds no token. Whispering
- * cannot change such a row; Settings does. A `local` row is not used.
+ * cannot change such a connection; Settings does. A `local` one is not used.
  *
  * The rules are `connections.ts`'s: a canonical base URL, a model, and a key
  * kept only for the base URL it was saved for.
  */
 
-import {
-	CONNECTIONS_FOLDER_ID,
-	type connectionsDefinition,
-} from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
-import type { Definition, Folder } from '@epicenter/folder';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -45,9 +42,12 @@ import {
 	type Operation,
 	type StoredConnection,
 } from '../connections.js';
-import type { commands } from '../tauri/bindings.gen.js';
+import type { AiConnections, commands } from '../tauri/bindings.gen.js';
 
-/** The rows Whispering uses, by operation: their stems in `so.epicenter/connections`. */
+/**
+ * The connection each operation uses while this computer records no other
+ * choice for Whispering: its own, which it adds when first saved.
+ */
 export const CONNECTION_IDS: Record<Operation, string> = {
 	transcription: 'whispering-transcription',
 	text: 'whispering-text',
@@ -61,30 +61,25 @@ const TITLES: Record<Operation, string> = {
 /** Stands in for a key the keychain holds, so `applyConnectionChange` can refuse carrying it elsewhere. */
 const HELD_KEY = 'held in the keychain';
 
-/** Why Whispering does not change an `epicenter` row. */
+/** Why Whispering does not change an `epicenter` connection. */
 const SET_IN_SETTINGS =
 	'This connection uses your Epicenter account. Change it in Epicenter’s Settings.';
 
 /** The shell commands the connections use. */
 export type ConnectionCommands = Pick<
 	typeof commands,
-	'aiKeyState' | 'aiKeySet' | 'aiSend' | 'authStatus'
+	'aiKeyList' | 'aiKeySet' | 'aiSend' | 'authStatus'
 >;
 
 /** How a connection sends: over its own endpoint and key, or with the app's sign-in. */
 type ConnectionTarget = 'openai-compatible' | 'epicenter';
 
-/** A connection as a row and the shell describe it. */
+/** A connection as the listing and the shell describe it. */
 type Resolved = {
+	readonly id: string;
 	readonly target: ConnectionTarget;
 	readonly connection: StoredConnection;
 };
-
-/** `so.epicenter` as Whispering opens it: through its `connections` table alone. */
-export type ConnectionsFolder = Pick<
-	Folder<typeof connectionsDefinition, Definition>,
-	'tables' | 'close'
->;
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -123,48 +118,38 @@ async function sendThroughEpicenter(
 
 export type DesktopConnections = ReturnType<typeof createDesktopConnections>;
 
-/**
- * Whispering's connections in `so.epicenter`, opened when first read and
- * kept open until `close`.
- */
+/** Whispering's connections on this computer, listed afresh on every read. */
 export function createDesktopConnections({
 	commands: native,
-	openConnections,
 }: {
 	commands: ConnectionCommands;
-	/** Open `so.epicenter` through `connectionsDefinition`; injected for tests. */
-	openConnections: () => Promise<
-		Result<ConnectionsFolder, { readonly message: string }>
-	>;
 }) {
-	let opening: Promise<ConnectionsFolder> | undefined;
-	function folder() {
-		opening ??= openConnections().then(({ data, error }) => {
-			if (error !== null) {
-				opening = undefined;
-				throw new Error(
-					`Epicenter's folder, ${CONNECTIONS_FOLDER_ID}, did not open: ${error.message}`,
-				);
-			}
-			return data;
-		});
-		return opening;
+	async function list(): Promise<AiConnections> {
+		const { data, error } = await native.aiKeyList();
+		if (error !== null) throw new Error(failureOf(error));
+		return data;
 	}
 
+	/** The id of the connection `operation` uses: Whispering's choice, or its own. */
+	const idFor = (listing: AiConnections, operation: Operation) =>
+		listing.uses[operation] ?? CONNECTION_IDS[operation];
+
 	/**
-	 * The connection `operation` uses now, or undefined when its row is
-	 * missing, is `local`, or names an endpoint this computer has no entry
-	 * for. An `epicenter` row's endpoint is the signed-in deployment's `/v1`,
-	 * and its key is present while the app is signed in.
+	 * The connection `operation` uses now, or undefined when it is not on
+	 * this computer, is `local`, or has no endpoint saved here. An `epicenter`
+	 * connection's endpoint is the signed-in deployment's `/v1`, and its key
+	 * is present while the app is signed in.
 	 */
-	async function stored(operation: Operation): Promise<Resolved | undefined> {
-		const id = CONNECTION_IDS[operation];
-		const { data: row, error } = await (await folder()).tables.connections.get(
-			id,
+	async function stored(
+		listing: AiConnections,
+		operation: Operation,
+	): Promise<Resolved | undefined> {
+		const id = idFor(listing, operation);
+		const found = listing.connections.find(
+			(connection) => connection.id === id,
 		);
-		if (error !== null) throw new Error(error.message);
-		if (row === undefined) return undefined;
-		const { kind, model } = row.row.fields;
+		if (found === undefined) return undefined;
+		const { kind, model, key } = found;
 		if (kind === 'epicenter') {
 			const { data: status, error: statusError } = await native.authStatus();
 			if (statusError !== null) throw new Error(failureOf(statusError));
@@ -172,6 +157,7 @@ export function createDesktopConnections({
 				(grant) => grant.grant === 'desktop' && grant.signedIn,
 			);
 			return {
+				id,
 				target: 'epicenter',
 				connection: {
 					baseUrl: `${new URL(status.origin).origin}/v1`,
@@ -181,15 +167,15 @@ export function createDesktopConnections({
 			};
 		}
 		if (kind !== 'openai-compatible') return undefined;
-		const { data: state, error: stateError } = await native.aiKeyState(id);
-		if (stateError !== null) throw new Error(failureOf(stateError));
-		if (state.state === 'missing') return undefined;
+		if (key?.state === 'unreadable') throw new Error(key.message);
+		if (key?.state !== 'saved') return undefined;
 		return {
+			id,
 			target: 'openai-compatible',
 			connection: {
-				baseUrl: state.endpoint,
+				baseUrl: key.endpoint,
 				model,
-				...(state.hasKey && { apiKey: HELD_KEY }),
+				...(key.hasKey && { apiKey: HELD_KEY }),
 			},
 		};
 	}
@@ -207,9 +193,10 @@ export function createDesktopConnections({
 	}
 
 	async function read(): Promise<ConnectionsInfo> {
+		const listing = await list();
 		return {
-			transcription: infoOf(await stored('transcription')),
-			text: infoOf(await stored('text')),
+			transcription: infoOf(await stored(listing, 'transcription')),
+			text: infoOf(await stored(listing, 'text')),
 		};
 	}
 
@@ -217,16 +204,18 @@ export function createDesktopConnections({
 		read,
 
 		/**
-		 * Save one connection: its endpoint and key in the keychain first, then
-		 * its row, made or updated in place.
+		 * Save the connection `operation` uses, in one `ai_key_set`: its entry
+		 * first, made with its kind and title when it is new, then, unless the
+		 * saved key is kept, its endpoint and key.
 		 */
 		async set(
 			operation: Operation,
 			change: ConnectionChange,
 		): Promise<Result<ConnectionsInfo, string>> {
 			try {
-				const id = CONNECTION_IDS[operation];
-				const found = await stored(operation);
+				const listing = await list();
+				const id = idFor(listing, operation);
+				const found = await stored(listing, operation);
 				if (found?.target === 'epicenter') return Err(SET_IN_SETTINGS);
 				const current = found?.connection;
 				const { data: next, error: changeError } = applyConnectionChange(
@@ -241,35 +230,18 @@ export function createDesktopConnections({
 					change.key.action === 'keep' &&
 					current !== undefined &&
 					current.baseUrl === next.baseUrl;
-				if (!keepsEntry) {
-					const { error } = await native.aiKeySet(
-						id,
-						next.baseUrl,
-						change.key.action === 'replace' ? (next.apiKey ?? '') : '',
-					);
-					if (error !== null) return Err(failureOf(error));
-				}
-				const table = (await folder()).tables.connections;
-				const { data: row, error: readError } = await table.get(id);
-				if (readError !== null) return Err(readError.message);
-				const { error: writeError } =
-					row === undefined
-						? await table.create(
-								{
-									fields: {
-										kind: 'openai-compatible',
-										title: TITLES[operation],
-										model: next.model,
-									},
-									body: '',
-								},
-								{ stem: id },
-							)
-						: await table.set(id, {
-								kind: 'openai-compatible',
-								model: next.model,
-							});
-				if (writeError !== null) return Err(writeError.message);
+				const isNew = !listing.connections.some(
+					(connection) => connection.id === id,
+				);
+				const { error } = await native.aiKeySet(id, {
+					...(isNew && { kind: 'openai-compatible', title: TITLES[operation] }),
+					model: next.model,
+					...(!keepsEntry && {
+						endpoint: next.baseUrl,
+						key: change.key.action === 'replace' ? (next.apiKey ?? '') : '',
+					}),
+				});
+				if (error !== null) return Err(failureOf(error));
 				return Ok(await read());
 			} catch (cause) {
 				return Err(describe(cause));
@@ -289,9 +261,8 @@ export function createDesktopConnections({
 			  }
 			| undefined
 		> {
-			const found = await stored(operation);
+			const found = await stored(await list(), operation);
 			if (found === undefined) return undefined;
-			const id = CONNECTION_IDS[operation];
 			const { baseUrl, model } = found.connection;
 			return {
 				stored: { baseUrl, model },
@@ -303,23 +274,13 @@ export function createDesktopConnections({
 					return sendThroughEpicenter(
 						native,
 						found.target,
-						id,
+						found.id,
 						baseUrl,
 						url,
 						init,
 					);
 				},
 			};
-		},
-
-		/** Close `so.epicenter`, if it was opened. */
-		async close() {
-			const opened = opening;
-			opening = undefined;
-			await opened?.then(
-				(folder) => folder.close(),
-				() => {},
-			);
 		},
 	};
 }

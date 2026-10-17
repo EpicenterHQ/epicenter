@@ -173,11 +173,15 @@ export const COMMANDS: readonly CommandSpec[] = [
 	},
 	{
 		path: ['auth', 'key'],
-		args: 'set | remove | state <id>',
-		minArgs: 2,
+		args: 'list | set | remove | state | use [<id>]',
+		minArgs: 1,
 		maxArgs: 2,
+		options: [
+			{ name: 'app', value: '<app-id>' },
+			{ name: 'operation', value: '<name>' },
+		],
 		summary:
-			"an AI connection's endpoint and key in this computer's keychain; set reads them on stdin",
+			"this computer's AI connections, with each key in its keychain; set reads a key on stdin",
 	},
 	{
 		path: ['send'],

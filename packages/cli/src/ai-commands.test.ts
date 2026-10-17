@@ -7,12 +7,18 @@
  * request with no sign-in, an account path outside `/api/`, or a missing key
  * sends nothing.
  *
+ * `auth key list`, `set`, `remove`, and `use` keep `connections.json` in a
+ * scratch app data directory; `connections.test.ts` covers their rules.
+ *
  * The keychain is never touched: `EPICENTER_TEST_SECRETS` seeds a store held
- * in the process's memory (`secrets.ts`). Like `epicenter.test.ts`, these run
- * `src/bin.ts` under Bun, or the compiled binary `EPICENTER_BIN` names.
+ * in the process's memory (`secrets.ts`), so a key saved by one process is
+ * gone in the next. Like `epicenter.test.ts`, these run `src/bin.ts` under
+ * Bun, or the compiled binary `EPICENTER_BIN` names.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { resolve } from 'node:path';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import {
 	createResponseReader,
 	encodeSendInput,
@@ -41,6 +47,8 @@ const seen: Seen[] = [];
 let releaseStream: (() => void) | undefined;
 let server: ReturnType<typeof Bun.serve>;
 let endpoint: string;
+/** App data and cache for every process, so no test reads or writes the real ones. */
+const scratch = mkdtempSync(join(tmpdir(), 'epicenter-ai-commands-'));
 
 beforeAll(() => {
 	server = Bun.serve({
@@ -111,7 +119,13 @@ function spawn(
 		stdin: typeof stdin === 'string' ? new TextEncoder().encode(stdin) : stdin,
 		stdout: 'pipe',
 		stderr: 'pipe',
-		env: { ...process.env, EPICENTER_TEST_SECRETS: JSON.stringify(secrets) },
+		env: {
+			...process.env,
+			EPICENTER_TEST_SECRETS: JSON.stringify(secrets),
+			EPICENTER_DATA_DIR: join(scratch, 'data'),
+			EPICENTER_CACHE_DIR: join(scratch, 'cache'),
+			EPICENTER_FOLDER_DIR: join(scratch, 'Epicenter'),
+		},
 	});
 }
 
@@ -360,26 +374,35 @@ test('auth key state answers with the endpoint and never the key', async () => {
 	);
 });
 
-test('auth key set reads the endpoint and key on stdin, never from arguments', async () => {
+test('auth key set reads the connection and its key on stdin, never from arguments', async () => {
 	const set = await run(
-		['auth', 'key', 'set', 'groq', '--json'],
+		['auth', 'key', 'set', 'groq-fast', '--json'],
 		JSON.stringify({
+			kind: 'openai-compatible',
+			title: 'Groq',
+			model: 'whisper-large-v3',
 			endpoint: 'https://API.groq.com/openai/v1/',
 			key: ` ${KEY} `,
 		}),
 	);
 	expect(set.code).toBe(0);
 	expect(JSON.parse(set.stdout)).toEqual({
-		state: 'saved',
-		endpoint: 'https://api.groq.com/openai/v1',
-		hasKey: true,
+		id: 'groq-fast',
+		kind: 'openai-compatible',
+		title: 'Groq',
+		model: 'whisper-large-v3',
+		key: {
+			state: 'saved',
+			endpoint: 'https://api.groq.com/openai/v1',
+			hasKey: true,
+		},
 	});
 	expect(set.stdout).not.toContain(KEY);
 
-	const inArguments = await run(['auth', 'key', 'set', 'groq', KEY], '');
+	const inArguments = await run(['auth', 'key', 'set', 'groq-fast', KEY], '');
 	expect(inArguments.code).toBe(2);
 
-	const notJson = await run(['auth', 'key', 'set', 'groq', '--json'], KEY);
+	const notJson = await run(['auth', 'key', 'set', 'groq-fast', '--json'], KEY);
 	expect(notJson.code).toBe(2);
 	expect(JSON.parse(notJson.stdout).error).toContain(
 		'stdin must be one JSON object',
@@ -388,7 +411,67 @@ test('auth key set reads the endpoint and key on stdin, never from arguments', a
 
 	const badId = await run(['auth', 'key', 'state', '../groq', '--json'], '');
 	expect(badId.code).toBe(2);
+});
 
-	const removed = await run(['auth', 'key', 'remove', 'groq', '--json'], '');
+test('auth key list names every connection and its endpoint, says when a key is missing, and never prints a key', async () => {
+	// This process's keychain holds groq's key; the entry set above has none here.
+	const added = await run(
+		['auth', 'key', 'set', 'groq', '--json'],
+		JSON.stringify({ kind: 'openai-compatible', title: 'Groq', model: 'm' }),
+	);
+	expect(added.code).toBe(0);
+	const used = await run(
+		[
+			'auth',
+			'key',
+			'use',
+			'groq',
+			'--app',
+			'so.epicenter.whispering',
+			'--operation',
+			'transcription',
+			'--json',
+		],
+		'',
+	);
+	expect(used.code).toBe(0);
+	const listed = await run(['auth', 'key', 'list', '--json'], '');
+	expect(listed.code).toBe(0);
+	expect(listed.stdout).not.toContain(KEY);
+	expect(JSON.parse(listed.stdout)).toEqual({
+		connections: [
+			{
+				id: 'groq',
+				kind: 'openai-compatible',
+				title: 'Groq',
+				model: 'm',
+				key: { state: 'saved', endpoint, hasKey: true },
+			},
+			{
+				id: 'groq-fast',
+				kind: 'openai-compatible',
+				title: 'Groq',
+				model: 'whisper-large-v3',
+				key: { state: 'missing' },
+			},
+		],
+		apps: { 'so.epicenter.whispering': { transcription: 'groq' } },
+	});
+	const text = await run(['auth', 'key', 'list'], '');
+	expect(text.stdout).toContain(
+		'groq-fast  openai-compatible  "Groq"  whisper-large-v3  key missing',
+	);
+	expect(text.stdout).toContain(
+		'so.epicenter.whispering uses groq for transcription',
+	);
+
+	const removed = await run(
+		['auth', 'key', 'remove', 'groq-fast', '--json'],
+		'',
+	);
 	expect(JSON.parse(removed.stdout)).toEqual({ removed: true });
+	const after = await run(['auth', 'key', 'list', '--json'], '');
+	expect(
+		JSON.parse(after.stdout).connections.map((c: { id: string }) => c.id),
+	).toEqual(['groq']);
 });
