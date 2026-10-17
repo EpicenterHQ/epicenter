@@ -17,6 +17,7 @@
  *   stops reading as text and thoughts
  * - A file that is not a valid capture shows its issues as text is typed,
  *   and opens as a capture once they are fixed
+ * - Editing a CRLF file as text shows LF and writes CRLF back
  * - While Epicenter asks to quit, the text boxes take nothing
  *
  * jsdom has no layout, focus, selection, or IME; these tests say what a
@@ -174,4 +175,18 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	await settle(harness);
 	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(field('capture-text')?.value).toBe('Repaired');
+});
+
+test('editing a CRLF file as text shows LF lines and writes CRLF back', async () => {
+	const broken = '---\r\ncapturedAt: nope\r\n---\r\n\r\nBroken\r\n';
+	const harness = await setup({ [PATH]: broken }, 'capture');
+	const contents = harness.target.querySelector('textarea');
+	expect(contents?.value).toBe(broken.replaceAll('\r\n', '\n'));
+
+	type(contents, `---\ncapturedAt: ${AT}\n---\n\nRepaired\n`);
+	blur(contents);
+	await settle(harness);
+	expect(await harness.text(PATH)).toBe(
+		`---\r\ncapturedAt: ${AT}\r\n---\r\n\r\nRepaired\r\n`,
+	);
 });

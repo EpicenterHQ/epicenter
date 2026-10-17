@@ -8,8 +8,9 @@
 	capture.
 -->
 <script lang="ts">
-	import { captureBody, captureDefinition, fromTextarea, toTextarea } from '@epicenter/capture';
+	import { captureBody, captureDefinition } from '@epicenter/capture';
 	import { parseRow, rowPath, wellFormed } from '@epicenter/folder';
+	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -101,13 +102,10 @@
 			spellcheck={false}
 			readonly={locked}
 			bind:value={
-				() => toTextarea(text ?? ''),
+				() => (text ?? '').replace(/\r\n?/g, '\n'),
 				(typed) => {
 					if (text === undefined) return;
-					const taken = captures.editText(
-						path,
-						fromTextarea(text, wellFormed(typed), text.includes('\r\n') ? '\r\n' : '\n'),
-					);
+					const taken = captures.editText(path, withFileNewlines(wellFormed(typed), text));
 					if (taken) void saveLater();
 				}
 			}

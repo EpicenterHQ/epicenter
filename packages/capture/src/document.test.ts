@@ -19,12 +19,12 @@
  */
 import { expect, test } from 'bun:test';
 import { frameRowText } from '@epicenter/folder';
+import { fromTextarea } from './document.js';
 import {
 	type CaptureBody,
 	type CaptureBodyReading,
 	captureBody,
 	composeBody,
-	fromTextarea,
 	normalizeThought,
 	type Refusal,
 } from './index.js';
@@ -54,7 +54,6 @@ function parseCapture(source: string): CaptureDocument {
 				refusal: result.error,
 				text: undefined,
 				thoughts: [],
-				newline: frame.newline,
 				hasSection: false,
 				hasOtherContent: false,
 			};
