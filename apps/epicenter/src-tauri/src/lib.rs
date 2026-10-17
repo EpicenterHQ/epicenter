@@ -256,6 +256,20 @@ mod export_bindings {
                 .export(specta_typescript::Typescript::default(), &target)
                 .unwrap_or_else(|error| panic!("failed to export bindings to {target:?}: {error}"));
         }
+        // The dictation build's API carries every command its feature adds,
+        // so the list in `command_names.rs` cannot drift from the builder.
+        #[cfg(feature = "dictation")]
+        for target in WHOLE_API {
+            let path = scratch.path().join(target.replace(['/', '.'], "_"));
+            let exported = std::fs::read_to_string(&path).unwrap();
+            for command in crate::command_names::DICTATION_COMMANDS {
+                assert!(
+                    exported.contains(&format!("\"{command}\"")),
+                    "{command} is missing from the dictation build's {target}"
+                );
+            }
+            assert!(exported.contains("\"dictation-capability-event\""));
+        }
     }
 }
 
@@ -1166,6 +1180,12 @@ mod tests {
                 assert!(
                     !names(command),
                     "regenerate bindings without the dictation feature: {command} is present"
+                );
+            }
+            for event in ["dictation-capability-event", "dictationCapabilityEvent"] {
+                assert!(
+                    !bindings.contains(event),
+                    "regenerate bindings without the dictation feature: {event} is present"
                 );
             }
         }

@@ -538,16 +538,17 @@ Native dictation, which no page reaches, compiles only with the `dictation`
 Cargo feature, off by default: paste at the cursor and the keyboard supervisor
 that watches its Accessibility grant, pausing other apps' media,
 `prewarm_model`, the macOS overlay panel (`src-tauri/src/overlay.rs`), and the
-clipboard-manager and global-shortcut plugins. A default build neither
-registers nor starts any of it and its generated bindings name none of it,
-because the page API only grows after the first release; it joins that API
-when a native API decision grants it (ADR-0555).
+clipboard-manager plugin paste uses. The global-shortcut plugin is ADR-0555's
+plugin awaiting a grant; nothing uses it, so it is parked with the feature. A
+default build neither registers nor starts any of it and its generated
+bindings name none of it, because the page API only grows after the first
+release; it joins that API when a native API decision grants it (ADR-0555).
 There is no shell command for permissions: the recorder plugin asks for
 microphone access itself, and a page opens System Settings through the opener.
 Autostart is not registered; enabling it once on first run (ADR-0328) is
-unbuilt. The shell registers the opener plugin and grants a page only its
-System Settings URLs; the notification plugin is a dependency but stays
-unregistered until a capability grants it (ADR-0555).
+unbuilt. Of the official plugins ADR-0555 lists, a default build registers the
+opener and grants a page only its System Settings URLs; the notification
+plugin is a dependency but stays unregistered until a capability grants it.
 
 ## Quitting Epicenter
 
