@@ -67,7 +67,7 @@ import {
 	type ResultFailures,
 	TEST_BASE_URL,
 	testConnections,
-	testInjection,
+	withObstructedCreates,
 	withResultFailures,
 } from './workspace.test-support.js';
 
@@ -84,7 +84,7 @@ const opened: Library[] = [];
 const roots: string[] = [];
 
 type Options = {
-	/** Fail this many recording row writes after the audio lands. */
+	/** Fail this many recording row writes, made when a recording starts. */
 	failRowWrites?: number;
 	/** Fail this many transcript rows written when a transcription starts. */
 	failResultStarts?: number;
@@ -124,6 +124,9 @@ async function open({
 	const tables = {
 		...folder.tables,
 		transcriptions: withResultFailures(folder.tables.transcriptions, failures),
+		recordings: withObstructedCreates(folder.tables.recordings, directory, {
+			creates: failRowWrites,
+		}),
 	};
 	const transcribed: Parameters<Workspace['transcribe']>[0][] = [];
 	const device = testConnections(connections);
@@ -143,17 +146,11 @@ async function open({
 		} as Workspace['folder'],
 		folderId: WHISPERING_FOLDER_ID,
 		location: directory,
-		terminal: {
-			cwd: '/',
-			exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
-			note: 'test',
-		},
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
 		captureNotice: undefined,
-		reveal: undefined,
 		async transcribe(request) {
 			transcribed.push(request);
 			if (transcribe !== undefined) return transcribe(request);
@@ -167,9 +164,6 @@ async function open({
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
-		debugControls: true,
-		// A debug shell's injection: the row write fails after the audio landed.
-		injection: testInjection(directory, { audio: 0, row: failRowWrites }),
 		close: () => folder.close(),
 	};
 	const library = createLibrary(workspace, createQueryClient());

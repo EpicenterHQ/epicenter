@@ -11,11 +11,8 @@
  */
 export { openWorkspace } from '#platform/workspace';
 export type {
-	InjectionState,
 	OpenWorkspace,
-	TerminalResult,
 	WhisperingFolder,
 	Workspace,
 	WorkspaceError,
-	WorkspaceTerminal,
 } from './types.js';

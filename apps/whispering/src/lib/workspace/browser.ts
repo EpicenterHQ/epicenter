@@ -2,9 +2,8 @@
  * The browser workspace: a logical folder and its Git history in OPFS.
  *
  * The same tables, files, and history as the desktop folder, in a private browser
- * directory. The terminal is the in-page shell over those files, and
- * transcription requests go straight from the page, so the endpoint must allow
- * this origin.
+ * directory. Transcription requests go straight from the page, so the endpoint
+ * must allow this origin.
  *
  * The opener is the browser one, named explicitly. It refuses inside a
  * desktop app or when browser storage cannot be opened. Any refusal is what
@@ -117,7 +116,6 @@ export const openWorkspace: OpenWorkspace = async () => {
 		folder,
 		folderId: WHISPERING_FOLDER_ID,
 		location: 'Private files for this site in this browser',
-		terminal: undefined,
 		capture: wantsToneFixture()
 			? createFixtureDevice({
 					name: 'generated tone',
@@ -125,7 +123,6 @@ export const openWorkspace: OpenWorkspace = async () => {
 				})
 			: createWebViewMicrophone(),
 		captureNotice: undefined,
-		reveal: undefined,
 		transcribe: (request) =>
 			transcribeOverConnection(
 				async () => storedConnection('transcription'),
@@ -189,8 +186,6 @@ export const openWorkspace: OpenWorkspace = async () => {
 			},
 		},
 		preferences: localPreferences,
-		debugControls: import.meta.env.DEV,
-		injection: undefined,
 		close: () => folder.close(),
 	});
 };

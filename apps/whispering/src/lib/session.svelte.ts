@@ -8,8 +8,8 @@
  * The app layout opens exactly one session when it mounts and closes it when it
  * is destroyed. Pages receive it from context and never open a workspace, so
  * moving between `/`, `/recordings`, and `/transformations` keeps the live
- * recording, selections, running requests, the query cache,
- * and the terminal exactly as they were. Quitting the desktop app is
+ * recording, selections, running requests, and the query cache exactly as
+ * they were. Quitting the desktop app is
  * immediate: a recording and a run's result are in the folder from the moment
  * they start (ADR-0542, ADR-0543).
  */
@@ -80,7 +80,6 @@ export async function createSession(
 		filesPane: false,
 		/** The file browser in a sheet, on a narrow window. */
 		filesSheet: false,
-		terminalOpen: false,
 		/** The recordings search. Rows needing repair are never searched out. */
 		recordingQuery: '',
 		/** The order of the recordings table. */

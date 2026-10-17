@@ -329,11 +329,6 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(false);
 	expect((await workspace.folder.git.commit()).status).toBe('unchanged');
 	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
-	// Epicenter offers Whispering no terminal, reveal, or failure injection.
-	expect(workspace.terminal).toBeUndefined();
-	expect(workspace.reveal).toBeUndefined();
-	expect(workspace.injection).toBeUndefined();
-	expect(workspace.debugControls).toBe(false);
 	expect(workspace.capture.source).toBe('microphone');
 	await workspace.close();
 });

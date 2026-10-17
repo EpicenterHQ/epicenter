@@ -30,11 +30,7 @@ import {
 import { whisperingDefinition } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import {
-	type RecordingWriteHook,
-	WHISPERING_FOLDER_ID,
-	type Workspace,
-} from './workspace/types.js';
+import { WHISPERING_FOLDER_ID, type Workspace } from './workspace/types.js';
 
 type TransformRequest = Parameters<Workspace['transform']>[0];
 type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
@@ -127,61 +123,31 @@ export async function openTestFolder(root: string) {
 	);
 }
 
-/** How many upcoming recording writes fail, by step. */
-export type RecordingFailures = {
-	/** Audio writes on stop: the row stays without its audio. */
-	audio: number;
-	/** Row writes on start: the recording runs, and no row names its audio. */
-	row: number;
-};
-
 /**
- * What a debug desktop shell does around each write of a recording, in this
- * process: while `failures` has any left for the
- * write's step, an empty directory is put where that write goes and removed
- * after it. Nothing is answered on the folder's behalf; the folder refuses the
- * obstructed write itself, as it would on a real disk.
+ * A table whose next creates find an empty directory where the row's file
+ * goes, as many times as `failures.creates` says. Nothing is answered on the
+ * folder's behalf: the folder refuses the obstructed write itself, as it
+ * would on a real disk, and the directory is removed after. A test may arm
+ * more after opening.
  */
-export function recordingWriteFailures(
+export function withObstructedCreates<TFields>(
+	table: FileTable<TFields>,
 	root: string,
-	failures: RecordingFailures,
-): RecordingWriteHook {
-	return async (write, run) => {
-		let obstacle: string | undefined;
-		if (failures[write.step] > 0) {
-			failures[write.step] -= 1;
-			obstacle = join(
-				root,
-				write.step === 'audio' ? write.path : `recordings/${write.stem}.md`,
-			);
-			mkdirSync(obstacle, { recursive: true });
-		}
-		try {
-			return await run();
-		} finally {
-			if (obstacle !== undefined) rmdirSync(obstacle);
-		}
-	};
-}
-
-/** A debug shell's injection whose only armed failures are recording writes. */
-export function testInjection(
-	root: string,
-	failures: RecordingFailures,
-): NonNullable<Workspace['injection']> {
-	const state = () => ({
-		rowWrites: failures.row,
-		audioWrites: failures.audio,
-		commitsBlocked: false,
-	});
+	failures: { creates: number },
+): FileTable<TFields> {
 	return {
-		state: async () => state(),
-		async arm(change) {
-			failures.row = change.rowWrites ?? failures.row;
-			failures.audio = change.audioWrites ?? failures.audio;
-			return state();
+		...table,
+		async create(row, options) {
+			if (failures.creates === 0) return table.create(row, options);
+			failures.creates -= 1;
+			const obstacle = join(root, table.name, `${options?.stem}.md`);
+			mkdirSync(obstacle, { recursive: true });
+			try {
+				return await table.create(row, options);
+			} finally {
+				rmdirSync(obstacle);
+			}
 		},
-		aroundRecordingWrite: recordingWriteFailures(root, failures),
 	};
 }
 
@@ -190,10 +156,6 @@ export type TestWorkspaceOptions = {
 	transcribe?: Workspace['transcribe'];
 	/** Replace the stubbed transformation answer. */
 	transform?: Workspace['transform'];
-	/** Fail this many recording audio writes, made when a fixture recording stops. */
-	failAudioWrites?: number;
-	/** Fail this many recording row writes, made when a recording starts. */
-	failRowWrites?: number;
 	/** Fail this many result rows written when a run starts, in any result table. */
 	failResultStarts?: number;
 	/** Fail this many answers written into result rows, in any result table. */
@@ -242,8 +204,6 @@ export function withResultFailures<TFields>(
 export async function openTestWorkspace({
 	transcribe,
 	transform,
-	failAudioWrites = 0,
-	failRowWrites = 0,
 	failResultStarts = 0,
 	failAnswerWrites = 0,
 	connections,
@@ -270,8 +230,6 @@ export async function openTestWorkspace({
 
 	const transformed: TransformRequest[] = [];
 	const transcribed: TranscribeRequest[] = [];
-	const terminalRuns: string[] = [];
-	let cwd = '/';
 	let opens = 0;
 	let closes = 0;
 
@@ -283,23 +241,11 @@ export async function openTestWorkspace({
 		} as Workspace['folder'],
 		folderId: WHISPERING_FOLDER_ID,
 		location: root,
-		terminal: {
-			get cwd() {
-				return cwd;
-			},
-			async exec(command) {
-				terminalRuns.push(command);
-				if (command.startsWith('cd ')) cwd = `/${command.slice(3)}`;
-				return { stdout: `ran ${command}\n`, stderr: '', exitCode: 0 };
-			},
-			note: 'test',
-		},
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),
 		captureNotice: undefined,
-		reveal: undefined,
 		// Each stub decides the connection as the host does, at entry, and only a
 		// request that would go out is counted as sent.
 		async transcribe(request) {
@@ -345,11 +291,6 @@ export async function openTestWorkspace({
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
-		debugControls: true,
-		injection:
-			failAudioWrites > 0 || failRowWrites > 0
-				? testInjection(root, { audio: failAudioWrites, row: failRowWrites })
-				: undefined,
 		async close() {
 			closes += 1;
 			await folder.close();
@@ -372,7 +313,6 @@ export async function openTestWorkspace({
 		transcribed,
 		/** The device's stored connections, keys included. */
 		device,
-		terminalRuns,
 		get opens() {
 			return opens;
 		},
