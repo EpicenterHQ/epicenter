@@ -15,12 +15,10 @@ import { Err, Ok } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import { createFixtureDevice, toneWav } from '../capture.js';
 import {
-	adoptLegacyKey,
 	applyConnectionChange,
 	type ConnectionsInfo,
 	connectionInfo,
 	OPERATION_NAMES,
-	OPERATIONS,
 	type Operation,
 	readStoredConnection,
 	type StoredConnection,
@@ -44,8 +42,6 @@ import {
 
 /** This tab's two connections, keys included, as one JSON object. */
 const CONNECTIONS_STORAGE = 'whispering.connections';
-/** Where an earlier build kept its one key. Read only to move it into a connection. */
-const LEGACY_KEY_STORAGE = 'whispering.transcriptionApiKey';
 
 const UNREADABLE_CONNECTIONS =
 	'This browser’s saved Whispering connections do not read as a JSON object, so they were left as they are. Set them up again in Settings after removing whispering.connections from this site’s storage.';
@@ -87,7 +83,6 @@ function readConnections(): ConnectionsInfo {
 	return {
 		transcription: transcription && connectionInfo(transcription),
 		text: text && connectionInfo(text),
-		legacyKey: (localStorage.getItem(LEGACY_KEY_STORAGE) ?? '') !== '',
 	};
 }
 
@@ -187,28 +182,6 @@ export const openWorkspace: OpenWorkspace = async () => {
 						CONNECTIONS_STORAGE,
 						JSON.stringify({ ...stored, [operation]: next }),
 					);
-					return Ok(readConnections());
-				} catch (cause) {
-					return Err(describe(cause));
-				}
-			},
-			async adoptLegacyKey(targets) {
-				try {
-					const stored = storedConnections();
-					const { data: adopted, error: adoptError } = adoptLegacyKey(
-						localStorage.getItem(LEGACY_KEY_STORAGE) ?? '',
-						targets,
-						{},
-					);
-					if (adoptError !== null) return Err(adoptError);
-					const next = { ...stored };
-					for (const operation of OPERATIONS)
-						if (adopted[operation] !== undefined) {
-							storedConnection(operation);
-							next[operation] = adopted[operation];
-						}
-					localStorage.setItem(CONNECTIONS_STORAGE, JSON.stringify(next));
-					localStorage.removeItem(LEGACY_KEY_STORAGE);
 					return Ok(readConnections());
 				} catch (cause) {
 					return Err(describe(cause));

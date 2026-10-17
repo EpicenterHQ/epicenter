@@ -9,10 +9,8 @@
  * Key behaviors:
  * - One resolver decides whether a recipe runs and with what; the Run check,
  *   the post-processing choice, the transcript menu, and the run agree
- * - A new recipe names no endpoint or model and runs with the text
- *   connection; a recipe's model overrides the connection's; an endpoint an
- *   earlier build wrote is a constraint that must match the connection
- *   exactly, never a destination, and removing it lets the recipe run
+ * - A new recipe names no model and runs with the text connection; a
+ *   recipe's model overrides the connection's
  * - A recipe runs on pasted text with no recordings in the folder; its row is
  *   written to `text_runs/` when it starts, with the exact instructions,
  *   input, model, and endpoint, and filled when the answer arrives, with no
@@ -29,7 +27,7 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
@@ -114,16 +112,16 @@ async function recipe(library: Library, starter = CLEANUP) {
 const selectedStem = (library: Library) =>
 	library.selectedTransformation!.path.slice('transformations/'.length, -3);
 
-/** Write a recipe file as an earlier build left it. */
-async function earlierRecipe(
+/** Write a recipe file with this model and these instructions. */
+async function recipeFile(
 	root: string,
 	stem: string,
-	{ model, endpoint }: { model: string; endpoint: string },
+	{ model, body = 'Fix it.\n' }: { model: string; body?: string },
 ) {
 	await mkdir(join(root, 'transformations'), { recursive: true });
 	await writeFile(
 		join(root, 'transformations', `${stem}.md`),
-		`---\ntitle: Earlier\nmodel: ${model}\nendpoint: ${endpoint}\n---\nFix it.\n`,
+		`---\ntitle: Earlier\nmodel: ${model}\n---\n${body}`,
 	);
 	return `transformations/${stem}.md`;
 }
@@ -152,64 +150,27 @@ const reading = (fields: Record<string, unknown>, body = 'Fix it.\n') => ({
 	body,
 });
 
-test('the resolver uses the text connection, lets a recipe name its model, and takes an earlier endpoint only as an exact constraint', () => {
-	expect(
-		resolveRecipe(reading({ title: 'New', model: null, endpoint: null }), TEXT),
-	).toEqual({
+test('the resolver uses the text connection and lets a recipe name its model', () => {
+	expect(resolveRecipe(reading({ title: 'New', model: null }), TEXT)).toEqual({
 		kind: 'ready',
 		title: 'New',
 		prompt: 'Fix it.\n',
 		model: 'connection-model',
 		endpoint: TEST_BASE_URL,
 	});
-	// Blank is the same as null: an earlier build wrote '' for "no model yet".
+	// Blank is the same as null.
 	expect(
-		resolveRecipe(reading({ title: 'Old', model: ' ', endpoint: '' }), TEXT),
+		resolveRecipe(reading({ title: 'Old', model: ' ' }), TEXT),
 	).toMatchObject({ kind: 'ready', model: 'connection-model' });
 	expect(
-		resolveRecipe(
-			reading({
-				title: 'Own',
-				model: 'gpt-4o-mini',
-				endpoint: `${TEST_BASE_URL}/`,
-			}),
-			TEXT,
-		),
+		resolveRecipe(reading({ title: 'Own', model: 'gpt-4o-mini' }), TEXT),
 	).toMatchObject({
 		kind: 'ready',
 		model: 'gpt-4o-mini',
 		endpoint: TEST_BASE_URL,
 	});
-
-	for (const endpoint of [
-		'https://api.openai.com/v1',
-		'http://127.0.0.1:18080/other/v1',
-		'http://127.0.0.1:18080',
-	])
-		expect(
-			resolveRecipe(
-				reading({ title: 'Elsewhere', model: null, endpoint }),
-				TEXT,
-			),
-		).toMatchObject({
-			kind: 'blocked',
-			fix: 'recipe',
-			reason: expect.stringContaining(`runs only at ${endpoint}`),
-		});
 	expect(
-		resolveRecipe(
-			reading({ title: 'Bad', model: null, endpoint: 'nope' }),
-			TEXT,
-		),
-	).toMatchObject({
-		kind: 'blocked',
-		reason: expect.stringContaining('not a base URL'),
-	});
-	expect(
-		resolveRecipe(
-			reading({ title: 'New', model: null, endpoint: null }),
-			undefined,
-		),
+		resolveRecipe(reading({ title: 'New', model: null }), undefined),
 	).toEqual({
 		kind: 'blocked',
 		fix: 'connection',
@@ -217,7 +178,7 @@ test('the resolver uses the text connection, lets a recipe name its model, and t
 	});
 	expect(
 		resolveRecipe(
-			reading({ title: 'New', model: null, endpoint: null }),
+			reading({ title: 'New', model: null }),
 			undefined,
 			'disk refused',
 		),
@@ -226,10 +187,7 @@ test('the resolver uses the text connection, lets a recipe name its model, and t
 		reason: expect.stringContaining('disk refused'),
 	});
 	expect(
-		resolveRecipe(
-			reading({ title: 'New', model: null, endpoint: null }, ' \n'),
-			TEXT,
-		),
+		resolveRecipe(reading({ title: 'New', model: null }, ' \n'), TEXT),
 	).toMatchObject({ reason: 'Write instructions to run this.' });
 	expect(resolveRecipe(undefined, TEXT)).toMatchObject({
 		reason: 'Repair this transformation before running it.',
@@ -240,17 +198,14 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 	const { session, library, root, transformed } = await open();
 	const { transcript } = await transcribed(library);
 	const fresh = await recipe(library);
-	const matching = await earlierRecipe(root, 'matching', {
+	const own = await recipeFile(root, 'own', { model: 'old-model' });
+	const blank = await recipeFile(root, 'blank', {
 		model: 'old-model',
-		endpoint: 'HTTP://127.0.0.1:18080/v1/',
-	});
-	const elsewhere = await earlierRecipe(root, 'elsewhere', {
-		model: 'old-model',
-		endpoint: 'http://127.0.0.1:18080/other/v1',
+		body: ' \n',
 	});
 	await settle(library);
 
-	for (const path of [fresh, matching, elsewhere]) {
+	for (const path of [fresh, own, blank]) {
 		const entry = library.transformations.find((item) => item.path === path)!;
 		const listed = library.resolve(entry.row);
 		// The draft on the recipe's page is read by the same resolver.
@@ -284,43 +239,9 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 	]);
 });
 
-test('removing an earlier endpoint from a recipe lets it run with the text connection, and its other fields are kept', async () => {
-	const { library, root, transformed } = await open();
-	const { transcript } = await transcribed(library);
-	const path = await earlierRecipe(root, 'old', {
-		model: 'old-model',
-		endpoint: 'https://api.openai.com/v1',
-	});
-	await settle(library);
-	await library.open(path);
-	const editor = transformationEditor(library);
-	expect(await library.transform(transcript.path, path)).toContain(
-		'runs only at https://api.openai.com/v1',
-	);
-
-	editor.edit((row) => {
-		row.fields.endpoint = null;
-	});
-	expect(await library.transform(transcript.path, path)).toBeUndefined();
-
-	expect(transformed).toEqual([
-		expect.objectContaining({
-			expectedBaseUrl: TEST_BASE_URL,
-			model: 'old-model',
-		}),
-	]);
-	// The whole row is saved, with the other fields as they were.
-	expect(await readFile(join(root, path), 'utf8')).toBe(
-		'---\ntitle: Earlier\nmodel: old-model\nendpoint: null\n---\nFix it.\n',
-	);
-});
-
 test('a result file and a recipe written by an earlier build still read and list', async () => {
 	const { library, root } = await open();
-	const path = await earlierRecipe(root, 'old', {
-		model: 'old-model',
-		endpoint: 'https://api.openai.com/v1',
-	});
+	const path = await recipeFile(root, 'old', { model: 'old-model' });
 	await mkdir(join(root, 'transformation_runs'));
 	const old =
 		'---\nrecordingId: 20250101-000000-abcd\ntranscriptionId: 20250101-000001-abcd\ntransformationId: old\ntransformationTitle: Earlier\ncreatedAt: 2025-01-01T00:00:02.000Z\nmodel: old-model\nendpoint: https://api.openai.com/v1\nprompt: Fix it.\ninput: some text\n---\nFixed text.\n';

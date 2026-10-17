@@ -20,7 +20,6 @@ import type {
 	ConnectionChange,
 	ConnectionDefaults,
 	ConnectionsInfo,
-	LegacyKeyTargets,
 	Operation,
 } from '../connections.js';
 import type { whisperingDefinition } from '../definition.js';
@@ -180,14 +179,10 @@ export type Workspace = {
 			operation: Operation,
 			change: ConnectionChange,
 		): Promise<Result<ConnectionsInfo, string>>;
-		/** Move the earlier build's key into the chosen connections; a refusal is returned as text. */
-		adoptLegacyKey(
-			targets: LegacyKeyTargets,
-		): Promise<Result<ConnectionsInfo, string>>;
 	};
 	/**
 	 * What this device remembers that is neither folder data nor a secret. It
-	 * is never written to `kv.json`, so it does not travel with the folder.
+	 * is never written to the folder, so it does not travel with it.
 	 */
 	readonly preferences: {
 		/** The saved microphone, or undefined for the system default. Rejects when it cannot be read. */

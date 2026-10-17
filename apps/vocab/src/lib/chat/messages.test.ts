@@ -13,8 +13,7 @@
  * - A new chat is its focus file: listed before any answer, and refused
  *   without one to three expressions
  * - A message file is named by its chat, and a chat reads only its own
- *   files and the ones an earlier version saved
- * - Earlier, message-only chats are listed by their first learner question
+ *   files; the chat list reads none
  * - A message file that cannot be read is reported, never dropped silently
  * - A refused or closed folder fails the write and the tutor is not asked
  */
@@ -109,20 +108,6 @@ async function listed(folder: VocabFolder) {
 	return (await chatsOver(folder).list()).chats;
 }
 
-/** Save a message file as an earlier version did: named by its message ID alone. */
-async function saveEarlier(
-	folder: VocabFolder,
-	chat: string,
-	message: AgentMessage,
-) {
-	expectOk(
-		await folder.tables.messages.create(
-			{ fields: { chat, message }, body: '' },
-			{ stem: message.id },
-		),
-	);
-}
-
 test('a message write resolves only after its file exists, and chats stay apart across reopening', async () => {
 	await using context = await setup();
 	const { browser, folder } = context;
@@ -210,7 +195,6 @@ test('a new chat is its focus file: listed before any answer, there after reopen
 			id: chat.id,
 			title: '顺便 lucid',
 			focus: [{ entryId: 'deleted-entry', text: '顺便 lucid' }],
-			legacy: false,
 		},
 	];
 	expect(cachedList()?.chats).toMatchObject(expected);
@@ -262,44 +246,26 @@ test('a chat the folder refuses is not listed, and a closed folder reports that 
 	expect(list()).rejects.toBeDefined();
 });
 
-test('chats are ordered newest first, and an earlier message-only chat is titled by its first question', async () => {
+test('chats are ordered newest first by when they started, and a message does not move one', async () => {
 	await using context = await setup();
 	const { folder } = context;
-	const focused = expectOk(
+	const older = expectOk(
 		await startChat(folder.tables.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	);
-	// Saved out of order: the title is still the earliest question.
-	await saveEarlier(folder, 'old-chat', {
-		...nextQuestion,
-		id: 'later',
-		createdAt: 20,
-	});
-	await saveEarlier(folder, 'old-chat', { ...question, id: 'earlier' });
-	// A message saved now is named by its chat; the list does not read it.
-	expectOk(
-		await createChatMessageStore(folder, 'old-chat').set(answer.id, answer),
+	await Bun.sleep(2);
+	const newer = expectOk(
+		await startChat(folder.tables.chats, [
+			{ entryId: 'entry', text: 'opaque' },
+		]),
 	);
-
+	expectOk(
+		await createChatMessageStore(folder, older.id).set(question.id, question),
+	);
 	expect(
-		(await listed(folder)).map(({ id, title, legacy, focus }) => ({
-			id,
-			title,
-			legacy,
-			focus,
-		})),
+		(await listed(folder)).map(({ id, title }) => ({ id, title })),
 	).toEqual([
-		{
-			id: focused.id,
-			title: 'lucid',
-			legacy: false,
-			focus: [{ entryId: 'entry', text: 'lucid' }],
-		},
-		{
-			id: 'old-chat',
-			title: 'What does "lucid" mean?',
-			legacy: true,
-			focus: [],
-		},
+		{ id: newer.id, title: 'opaque' },
+		{ id: older.id, title: 'lucid' },
 	]);
 });
 
@@ -320,7 +286,7 @@ test('a message file that cannot be read is reported and left as it is, and two 
 	expectOk(
 		await folder.write('messages/chat-a.wrong-shape.md', null, wrongShape),
 	);
-	// An earlier file, named by message ID alone, names no chat it can be read for.
+	// A file named for no chat is read by none.
 	expectOk(await folder.write('messages/unparsed.md', null, unparsed));
 
 	expectOk(await store.load());
@@ -330,20 +296,26 @@ test('a message file that cannot be read is reported and left as it is, and two 
 		'messages/chat-a.wrong-shape.md',
 	]);
 
-	// The chat list reports the earlier file, which belongs to no chat it can name.
-	const { unreadable } = await chatsOver(folder).list();
-	expect(unreadable.map((file) => file.path)).toEqual(['messages/unparsed.md']);
+	// The chat list reads no message file.
+	expect((await chatsOver(folder).list()).unreadable).toEqual([]);
 	expect(await fileText(folder, 'messages/chat-a.wrong-shape.md')).toBe(
 		wrongShape,
 	);
 	expect(await fileText(folder, 'messages/unparsed.md')).toBe(unparsed);
 });
 
-test('a chat reads its own files and the earlier ones, never another chat’s', async () => {
+test('a chat reads its own files, never another chat’s', async () => {
 	await using context = await setup();
 	const { folder } = context;
-	await saveEarlier(folder, 'chat-a', question);
-	await saveEarlier(folder, 'chat-b', nextQuestion);
+	expectOk(
+		await createChatMessageStore(folder, 'chat-a').set(question.id, question),
+	);
+	expectOk(
+		await createChatMessageStore(folder, 'chat-b').set(
+			nextQuestion.id,
+			nextQuestion,
+		),
+	);
 	expectOk(
 		await createChatMessageStore(folder, 'chat-a').set(answer.id, answer),
 	);
@@ -371,7 +343,7 @@ test('a chat reads its own files and the earlier ones, never another chat’s', 
 		question,
 		answer,
 	]);
-	expect(reads.sort()).toEqual(['chat-a.answer', 'next-question', 'question']);
+	expect(reads.sort()).toEqual(['chat-a.answer', 'chat-a.question']);
 });
 
 test('a message saved again after its answer was lost is found by its own file, with no second one', async () => {

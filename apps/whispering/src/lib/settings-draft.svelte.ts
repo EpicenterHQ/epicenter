@@ -11,8 +11,8 @@
  *
  * The base URL and model follow the saved connection until they are typed
  * in, and follow it again when it changes. A connection not set up yet
- * starts from what an earlier build saved in `kv.json`, or from the
- * workspace's defaults; nothing is sent to those, or saved, until Save. The
+ * starts from the workspace's defaults; nothing is sent to those, or saved,
+ * until Save. The
  * key is never read back: the draft holds only what was typed since the last
  * save, and whether to keep, replace, or remove the saved one. Keeping is
  * offered only for the base URL the key was saved for, by the same rule the
@@ -23,7 +23,6 @@ import {
 	type ConnectionChange,
 	type ConnectionInfo,
 	type KeyChange,
-	type LegacyKeyTargets,
 	type Operation,
 } from './connections.js';
 import type { Library } from './library.svelte.js';
@@ -44,13 +43,10 @@ function createConnectionDraft(library: Library, operation: Operation) {
 		library.connections?.[operation],
 	);
 	const defaults = library.workspace.connections.defaults[operation];
-	/** Where an unconfigured form starts: what an earlier build saved, then the defaults. */
+	/** Where an unconfigured form starts: the defaults. */
 	const start = $derived.by(() => {
 		if (operation === 'transcription')
-			return {
-				baseUrl: library.earlierTranscription.baseUrl ?? defaults.baseUrl,
-				model: library.earlierTranscription.model ?? defaults.model,
-			};
+			return { baseUrl: defaults.baseUrl, model: defaults.model };
 		// Text often goes to the same provider as transcription.
 		return {
 			baseUrl: library.connections?.transcription?.baseUrl ?? defaults.baseUrl,
@@ -163,39 +159,8 @@ function createConnectionDraft(library: Library, operation: Operation) {
 }
 
 export function createSettingsDraft(library: Library) {
-	const transcription = createConnectionDraft(library, 'transcription');
-	const text = createConnectionDraft(library, 'text');
-	let adopting = $state(false);
-
 	return {
-		transcription,
-		text,
-		get adopting() {
-			return adopting;
-		},
-		/**
-		 * Move the key an earlier build saved into the chosen connections, at
-		 * the base URL and model each form shows now. That shown base URL is
-		 * the destination the person agrees to; the key is sent nowhere else.
-		 */
-		async adoptLegacyKey(
-			operations: readonly Operation[],
-		): Promise<SettingsSaveProblem | undefined> {
-			if (adopting) return undefined;
-			const targets: LegacyKeyTargets = {};
-			for (const operation of operations) {
-				const draft = operation === 'transcription' ? transcription : text;
-				targets[operation] = { baseUrl: draft.baseUrl, model: draft.model };
-			}
-			adopting = true;
-			try {
-				const refused = await library.adoptLegacyKey(targets);
-				return refused
-					? { title: 'Could not use the earlier key', description: refused }
-					: undefined;
-			} finally {
-				adopting = false;
-			}
-		},
+		transcription: createConnectionDraft(library, 'transcription'),
+		text: createConnectionDraft(library, 'text'),
 	};
 }

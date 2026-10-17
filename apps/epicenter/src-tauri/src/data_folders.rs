@@ -585,7 +585,7 @@ mod tests {
     fn epicenters_own_folder_is_listed_under_its_scope_for_both_windows() {
         let fixture = fixture("epicenter");
         data_folder(&fixture, EPICENTER_FOLDER, r#"{ "title": "Epicenter" }"#);
-        fs::write(fixture.folder_dir.join("so.epicenter/kv.json"), "{}").unwrap();
+        fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
 
         assert_eq!(
             fixture.list(),
@@ -598,7 +598,7 @@ mod tests {
         for label in ["folders", "home"] {
             assert_eq!(
                 granted_names(&fixture.window(label), EPICENTER_FOLDER),
-                ["epicenter.json", "kv.json"]
+                ["epicenter.json", "notes.md"]
             );
         }
         assert!(invoke(
@@ -738,7 +738,7 @@ mod tests {
     #[test]
     fn the_reply_carries_the_declaration_text_the_page_matches_against() {
         let fixture = fixture("declaration");
-        let declared = r#"{ "kv": {}, "tables": { "todos": { "type": "object" } } }"#;
+        let declared = r#"{ "tables": { "todos": { "type": "object" } } }"#;
         data_folder(&fixture, "list", declared);
         let unreadable = fixture.folder_dir.join("binary");
         fs::create_dir_all(&unreadable).unwrap();

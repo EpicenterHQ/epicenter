@@ -36,8 +36,7 @@ Checked before this record was written:
 - **Nothing outside the engine reads `kv.json` at runtime.** Rust names it
   only in tests, as an ordinary path. The CLI reads it through the engine:
   `check` and `query` through `readFolder`, and the merge driver through
-  `mergeFile`. Whispering reads an earlier build's endpoint from it and never
-  writes it; Honeycrisp's first open writes a default `{}`.
+  `mergeFile`. No app reads or writes it.
 - **The draft's revision counter and re-merge are not load-bearing once its
   base advances to what a save sent.** The counter answers whether typing
   happened during a save, which comparing the typed text with the sent text
@@ -100,9 +99,8 @@ it is now and merges the change from `from` to `to` into it, by unit:
 and `lock`. `ifMatch` is the SHA-256 the path must hold, or `null` for no
 file; `put` answers `'landed'` or `'stale'` and lands whole, so a reader and
 a crash see the old file or the new one, and a new file never appears empty
-first, except in a browser whose file handles cannot move (Chrome before
-102), where a new file is written in place and a cut write can leave it
-empty. The host checks the condition where the bytes land, under the
+first. A browser whose file handles cannot move (Chrome before 102) does not
+open a folder. The host checks the condition where the bytes land, under the
 folder's save lock: the browser's Web Lock over the origin private file
 system, where a new file is written to `.git/epicenter/scratch` and moved
 into place; a directory's save lock, which the desktop shell and Bun share
@@ -324,8 +322,8 @@ declaration that requires one is read as written.
 - Sync's journal, `.git/epicenter/sync-journal.json`, and its recovery
 - `folder.kv`, `kv.json`, `kv.ts`, `kv-merge.ts`, `KV_ROOT`, `InvalidKv`, and
   the `kv` section of `epicenter.json` and `defineFolder`. An `epicenter.json`
-  an earlier build published still holds `"kv": {}`; it is admitted and not
-  read, and the next publication drops it.
+  that still holds `"kv": {}` is refused as an unknown key until an app's
+  publication replaces it or the key is deleted.
 
 ## Consequences
 
@@ -367,9 +365,8 @@ declaration that requires one is read as written.
   makes that whole row one to repair, and every setting in it falls back to
   the app's default until then; `kv.json` read each key alone. And `set`
   changes a row that is there: the first setting of a concern is a `create`.
-- `kv.json` becomes an ordinary file. Each app moves its settings into
-  `settings/<concern>.md` rows; Whispering keeps reading an earlier build's
-  endpoint as a file.
+- `kv.json` becomes an ordinary file that no app reads. Each app moves its
+  settings into `settings/<concern>.md` rows.
 
 ## Considered alternatives
 

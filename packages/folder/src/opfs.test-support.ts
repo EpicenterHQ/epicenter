@@ -24,6 +24,7 @@
  * did not cover that. `drop` acts below the API and takes no lock.
  */
 
+import { SCRATCH_DIRECTORY } from './boundary.js';
 import type {
 	OpfsDirectoryHandle,
 	OpfsEnvironment,
@@ -33,6 +34,7 @@ import type {
 	OpfsLocks,
 	OpfsWritable,
 } from './opfs-store.js';
+import { basename } from './paths.js';
 
 /** A folder whose directory is `handle`, already there. */
 export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
@@ -41,38 +43,44 @@ export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
 });
 
 /**
- * OPFS handles over `directory` that call `beforeClose` with a file's own
- * handle before a stream to it publishes: the window in which a save is
- * running, which a test can hold open. The handles cannot move a file, so a
- * new file is written in place.
+ * OPFS handles over `directory` that call `beforePublish` with a file's
+ * handle just before its new bytes publish: the window in which a save is
+ * running, which a test can hold open. An existing file publishes when its
+ * stream closes. A new file publishes when its staged copy moves into place,
+ * and is reported under the name it moves to; its staged stream is not.
  */
 export function holdCloses(
 	directory: OpfsDirectoryHandle,
-	beforeClose: (file: OpfsFileHandle) => Promise<void>,
+	beforePublish: (file: OpfsFileHandle) => Promise<void>,
 ): OpfsDirectoryHandle {
+	const staging = directory.name === basename(SCRATCH_DIRECTORY);
 	const holdFile = (file: OpfsFileHandle): OpfsFileHandle => ({
 		kind: 'file',
 		name: file.name,
 		getFile: () => file.getFile(),
+		async move(destination, name) {
+			await beforePublish({ ...holdFile(file), name });
+			return file.move(heldOver.get(destination) ?? destination, name);
+		},
 		async createWritable(options) {
 			const writable = await file.createWritable(options);
 			return {
 				write: (data) => writable.write(data),
 				abort: (reason) => writable.abort(reason),
 				async close() {
-					await beforeClose(file);
+					if (!staging) await beforePublish(file);
 					return writable.close();
 				},
 			};
 		},
 	});
-	return {
+	const held: OpfsDirectoryHandle = {
 		kind: 'directory',
 		name: directory.name,
 		getDirectoryHandle: async (name, options) =>
 			holdCloses(
 				await directory.getDirectoryHandle(name, options),
-				beforeClose,
+				beforePublish,
 			),
 		getFileHandle: async (name, options) =>
 			holdFile(await directory.getFileHandle(name, options)),
@@ -81,10 +89,15 @@ export function holdCloses(
 			for await (const entry of directory.values())
 				yield entry.kind === 'file'
 					? holdFile(entry)
-					: holdCloses(entry, beforeClose);
+					: holdCloses(entry, beforePublish);
 		},
 	};
+	heldOver.set(held, directory);
+	return held;
 }
+
+/** The directory each `holdCloses` handle wraps, which a move is given. */
+const heldOver = new WeakMap<OpfsDirectoryHandle, OpfsDirectoryHandle>();
 
 type FileNode = {
 	kind: 'file';

@@ -204,10 +204,7 @@ test('a transformation that does not read opens as its text with its issues, and
 	).toContain('model');
 	expect(instructions()?.disabled).toBe(true);
 
-	type(
-		source(),
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
-	);
+	type(source(), '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
 	leave(source());
 	await settle(library);
 	flushSync();
@@ -223,8 +220,7 @@ test('a transformation that does not read opens as its text with its issues, and
 });
 
 test('a transformation’s title, model, and instructions save from their own controls, and a CRLF file is written in LF (ADR-0572)', async () => {
-	const seed =
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\r\n';
+	const seed = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\r\n';
 	const { library, target, root } = await open(
 		{ [RECIPE]: seed },
 		'transformations',
@@ -247,7 +243,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	leave(model());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
-		'---\ntitle: Clean up\nmodel: chat-model\nendpoint: null\n---\nTidy.\n',
+		'---\ntitle: Clean up\nmodel: chat-model\n---\nTidy.\n',
 	);
 
 	// An emptied model is no model: the text connection's is used.
@@ -259,7 +255,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	leave(prompt());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
-		'---\ntitle: Tidied\nmodel: null\nendpoint: null\n---\nTidy.\nThen check.\n',
+		'---\ntitle: Tidied\nmodel: null\n---\nTidy.\nThen check.\n',
 	);
 	expect(prompt()?.value).toBe('Tidy.\nThen check.\n');
 	expect(model()?.value).toBe('');

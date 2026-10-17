@@ -40,10 +40,8 @@
  * `local` keeps nothing local.
  *
  * A top-level `$schema` lets an editor offer completion and is not
- * interpreted. A `kv` section, which an earlier build wrote for the settings
- * it kept as keys, declares nothing now and is not read, so a folder that
- * build published still opens (ADR-0576). Anything else is refused, so a
- * misspelled key never reads as an empty declaration.
+ * interpreted. Anything else is refused, so a misspelled key never reads as
+ * an empty declaration.
  */
 
 import { type FieldMap, field, isOptional } from '@epicenter/definition';
@@ -98,12 +96,10 @@ export function parseDeclaration(
 		);
 	}
 	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
-	// An earlier build's `kv` section is admitted and never read.
 	const unknown = unknownKeys(declared, [
 		'$schema',
 		'title',
 		'local',
-		'kv',
 		'tables',
 	]);
 	if (unknown !== undefined)

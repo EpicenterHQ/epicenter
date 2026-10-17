@@ -255,7 +255,7 @@ export function defineFolder<const TDefinition extends DataSchema>(
 	);
 	if (unknown.length > 0)
 		throw new Error(
-			`A folder definition declares title, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}${unknown.includes('kv') ? '. Settings are rows of a `settings` table' : ''}`,
+			`A folder definition declares title, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
 		);
 	const { title, tables, local } = schema;
 	const settings = (tables as Record<string, FolderTable>)[SETTINGS_TABLE];

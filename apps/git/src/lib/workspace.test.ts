@@ -73,6 +73,7 @@ async function setup() {
 		configurable: true,
 		value: class {
 			createWritable() {}
+			move() {}
 		},
 	});
 	const workspace = await openWorkingCopy('a', '');

@@ -9,7 +9,7 @@
  * - A table goes through `defineTable`, which leaves its fields exact
  * - A prepared schema has the declared shape: records of native schemas,
  *   named by their keys, frozen and without a prototype. A top-level key it
- *   does not name, such as an earlier declaration's `kv`, is not read
+ *   does not name is not read
  * - Preparation is memoized on the declaration and on the schema it
  *   returned
  * - A schema names no dataset, so a declaration with an ID is malformed
@@ -149,13 +149,10 @@ test('a table is prepared as its fields', () => {
 });
 
 test('a prepared schema has the declared shape and nothing else', () => {
-	// An earlier declaration's `kv` section is a key the shape does not name,
-	// so it is not read.
 	const prepared = expectOk(
 		prepareSchema({
 			...declaration,
 			title: 'Shared',
-			kv: { theme: field.string() },
 			extra: true,
 		} as never),
 	) as DataSchema;

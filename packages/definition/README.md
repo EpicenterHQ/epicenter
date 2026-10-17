@@ -40,8 +40,7 @@ when the table is closed. Settings are a table too, `settings`
 (`SETTINGS_TABLE`). `prepareSchema` returns that same shape with the same
 literal type, so `RowOf`, `CreateRowOf`, and every field's `Static<>` read a
 prepared schema exactly as they read the declaration. A top-level key the
-shape does not name, such as the `kv` section an earlier build wrote, is not
-read. There is no second,
+shape does not name is not read. There is no second,
 compiled representation: no field wrapper, no table object with methods, no
 `Map`, and no name stored anywhere but the record key.
 

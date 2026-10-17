@@ -8,8 +8,7 @@
  *
  * Key behaviors:
  * - The definition is one a file folder accepts
- * - A recipe from an earlier build, with string model and endpoint, still
- *   reads as a row, and `null` reads as "use the connection"
+ * - A recipe names its model, and `null` reads as "use the connection"
  * - A recording row declares `audioPath`, and reading it infers nothing
  */
 import { expect, test } from 'bun:test';
@@ -50,27 +49,18 @@ test('a file folder accepts the definition as declared', () => {
 	]);
 });
 
-test('a recipe written by an earlier build still reads, and a new one says “use the connection” with null', () => {
+test('a recipe names its model, or says “use the connection” with null', () => {
 	const recipes = (text: string) =>
 		parseRow(whisperingDefinition.tables.transformations, text);
-	const earlier = recipes(
-		'---\ntitle: Clean up\nmodel: gpt-4o-mini\nendpoint: https://api.openai.com/v1\n---\nFix it.\n',
-	);
-	expect(earlier.data?.fields).toEqual({
-		title: 'Clean up',
-		model: 'gpt-4o-mini',
-		endpoint: 'https://api.openai.com/v1',
-	});
-	const inherits = recipes(
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nFix it.\n',
-	);
-	expect(inherits.data?.fields).toEqual({
-		title: 'Clean up',
-		model: null,
-		endpoint: null,
-	});
+	expect(
+		recipes('---\ntitle: Clean up\nmodel: gpt-4o-mini\n---\nFix it.\n').data
+			?.fields,
+	).toEqual({ title: 'Clean up', model: 'gpt-4o-mini' });
+	expect(
+		recipes('---\ntitle: Clean up\nmodel: null\n---\nFix it.\n').data?.fields,
+	).toEqual({ title: 'Clean up', model: null });
 	// A field left out is still an issue: the file says nothing about it.
-	expect(recipes('---\ntitle: Clean up\n---\nFix it.\n').error).toHaveLength(2);
+	expect(recipes('---\ntitle: Clean up\n---\nFix it.\n').error).toHaveLength(1);
 });
 
 test('a recording’s audio is only what its row names', () => {

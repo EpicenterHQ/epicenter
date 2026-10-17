@@ -210,7 +210,6 @@ export function createDesktopConnections({
 		return {
 			transcription: infoOf(await stored('transcription')),
 			text: infoOf(await stored('text')),
-			legacyKey: false,
 		};
 	}
 

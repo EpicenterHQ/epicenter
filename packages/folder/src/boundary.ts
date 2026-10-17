@@ -146,20 +146,11 @@ const STALE_SCRATCH_MS = 60 * 60 * 1000;
 const SCRATCH_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
 
 /**
- * The name hosts gave a staged file before each had an engine id: its
- * creation time (eight base-36 digits for any time since 1973), a counter,
- * and up to eight random characters, all in base 36. A folder may still hold
- * one a stopped write left.
- */
-const EARLIER_SCRATCH_NAME = /^([0-9a-z]{8,})-[0-9a-z]+-[0-9a-z]{1,8}$/;
-
-/**
  * Whether the staged file `name` was made more than `STALE_SCRATCH_MS`
- * before `now`. A name no host made, now or earlier, is never stale.
+ * before `now`. A name no host made is never stale.
  */
 export function isStaleScratch(name: string, now = Date.now()): boolean {
-	const time = (SCRATCH_NAME.exec(name) ??
-		EARLIER_SCRATCH_NAME.exec(name))?.[1];
+	const time = SCRATCH_NAME.exec(name)?.[1];
 	if (time === undefined) return false;
 	const created = Number.parseInt(time, 36);
 	return Number.isSafeInteger(created) && now - created > STALE_SCRATCH_MS;

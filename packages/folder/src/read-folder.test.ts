@@ -6,7 +6,6 @@
  *
  * Key behaviors:
  * - Every declared table is exactly what an opened folder's `list()` returns
- * - A `kv` section an earlier build wrote is admitted and not read
  * - A directory without `epicenter.json` is `NotDataFolder`; a declaration
  *   that is not UTF-8 JSON, is not the declaration grammar (an unknown key, a
  *   `required` naming no property, a visible `~optional`), or declares a field
@@ -141,20 +140,6 @@ test('a declaration that cannot be used is InvalidDeclaration', async () => {
 			name: 'InvalidDeclaration',
 		});
 	}
-});
-
-test("an earlier build's kv section is admitted and not read", async () => {
-	const root = await scratch();
-	await writeFile(
-		join(root, DECLARATION_PATH),
-		JSON.stringify({
-			kv: { type: 'object', properties: { theme: { type: 'string' } } },
-			tables: { todos: objectSchema({ title: { type: 'string' } }) },
-		}),
-	);
-	const reading = expectOk(await readFolder(root));
-	expect(Object.keys(reading.definition)).toEqual(['tables']);
-	expect(Object.keys(reading.definition.tables)).toEqual(['todos']);
 });
 
 test('an unknown top-level key is InvalidDeclaration, and $schema is allowed', async () => {

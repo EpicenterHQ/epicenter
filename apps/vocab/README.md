@@ -38,7 +38,7 @@ The phrase becomes one entry with an empty note and the New stage. "Saved to you
 
 ### Chat history
 
-Below 768px, Words and Chat sit in a bottom navigation bar; desktop keeps them in the header. A selected practice action sits above the bar without covering words. Chat returns to the selected conversation without opening History. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers separate history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft, and never asks first. Focus text stays visible if its saved entry is deleted; its stage control then disappears. Earlier message-only chats remain readable, with their first learner question as the title.
+Below 768px, Words and Chat sit in a bottom navigation bar; desktop keeps them in the header. A selected practice action sits above the bar without covering words. Chat returns to the selected conversation without opening History. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers separate history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft, and never asks first. Focus text stays visible if its saved entry is deleted; its stage control then disappears.
 
 ### Choosing a model
 
@@ -59,9 +59,9 @@ This version is a clean break from earlier ones. Vocab does not read, copy, or d
 
 A new word's file is named by the SHA-256 of its exact UTF-8 text. An add creates that file, and a create is refused when a file is already there. Adding one text twice, from one tab or two, or again after an answer that never arrived, reaches the same file: the refused add reads it and finds the word with its note and stage as they are, so adds made at the same moment leave one file. A different file at that name is refused and left alone. A word file under another name, such as one written outside Vocab, is found by its text in the list.
 
-A chat's ID is the `chat` field of its messages and the first part of their file names, so a chat reads only its own message files and the chat list reads none of them. Message files saved before chat prefixes are named by message ID alone; every chat reads them, and the chat list reads them for earlier message-only chats, which have no `chats` file and are listed without a focus. The chat list is read again when the folder reports a change to `chats/`; an open chat reads its messages when it opens and before each tutor request. A focus item holds the original text and its entry's ID.
+A chat's ID is the `chat` field of its messages and the first part of their file names, so a chat reads only its own message files and the chat list reads none of them. The chat list is read again when the folder reports a change to `chats/`; an open chat reads its messages when it opens and before each tutor request. A focus item holds the original text and its entry's ID.
 
-A file Vocab cannot read as a row, because its text does not parse or a field does not conform, is listed by path with the reason and left as it is. It is never dropped from view silently. A word file can be repaired as text in Words; a chat or message file is only named.
+A file Vocab reads that it cannot read as a row, because its text does not parse or a field does not conform, is listed by path with the reason and left as it is. Vocab reads `words/`, `chats/`, and the message files named for an open chat; any other file is left alone and not listed. It is never dropped from view silently. A word file can be repaired as text in Words; a chat or message file is only named.
 
 The app runs the UI-free `@epicenter/agent` loop over one chat's message files. An unsent draft and a partial response are not saved. The selected chat owns the only live loop.
 
@@ -93,5 +93,5 @@ This version saves a note or a stage as a change to the word's file as it is now
 - Saves never record a version, and Vocab offers none to record (ADR-0529).
 - A note with half of a surrogate pair is saved with U+FFFD in its place, instead of being refused with a notice. A note's line endings are saved as typed (LF) rather than in the file's own convention.
 - The first save of a word written by an earlier version rewrites its file in the current plain YAML form. Comments in a hand-edited word file are lost.
-- New message files are named `<chat id>.<message id>.md`, and a chat reads only its own. Message files from before this change are still read by every chat and by the chat list; there are as many of them as there will ever be.
-- Chats are listed newest first by when they started, not by their latest message. A chat with messages saved before this change also moves up to its latest such message, and an earlier message-only chat is placed by its latest message; messages saved after this change never move a chat.
+- Message files are named `<chat id>.<message id>.md`, and a chat reads only its own. A message file named otherwise belongs to no chat and is not shown.
+- Chats are listed newest first by when they started, not by their latest message.

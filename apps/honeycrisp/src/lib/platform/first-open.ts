@@ -5,8 +5,8 @@
  * This runs after the desktop folder is granted, so the directory's lock is
  * already held and every change goes through the folder. It looks first and
  * makes only the table directories the listing does not have, so a folder
- * that has them all is opened without a write. Any other file, an earlier
- * build's `kv.json` included, is ordinary and left as it is.
+ * that has them all is opened without a write. Any other file is
+ * ordinary and left as it is.
  *
  * No commit is requested here. The declaration the first directory publishes
  * is recorded in history only when the person saves a version.

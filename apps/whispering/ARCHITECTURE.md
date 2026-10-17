@@ -79,12 +79,10 @@ What Whispering adds on top:
 - A transcription is a separate row, so a recording can have several and each is
   a readable file.
 - A transformation (a recipe) is a row in `transformations/`: title in
-  frontmatter, the instructions as its body. `model` and `endpoint` are
-  nullable: `null` or empty means "the text connection's". A string `model`
-  overrides the connection's model. A string `endpoint` (written by an earlier
-  build) is kept and read as a constraint the text connection must meet
-  exactly; it never chooses where a request goes. Its results refer to it by
-  stem, so the app never renames it either.
+  frontmatter, the instructions as its body. `model` is nullable: `null` or
+  empty means "the text connection's", and a string overrides the
+  connection's model. Its results refer to it by stem, so the app never
+  renames it either.
 - A result on a transcript is a row in `transformation_runs/`. A table name is
   one bare identifier, which is why the folder is not `transformation-runs`.
   The row names its recording, transcription, and transformation, and carries
@@ -94,10 +92,6 @@ What Whispering adds on top:
   person saves it. It carries the same snapshot (transformation and title,
   time, model, endpoint, prompt, input) and names no recording or
   transcript, so recording deletion never counts or waits on it.
-- `kv.json` is an ordinary file, where an earlier build saved the
-  transcription endpoint and model. It is read as text to fill in the
-  transcription form, and never written; a file that does not parse, or a
-  value that is not a string, offers nothing (`earlierTranscriptionOf`).
 - Connections are not data in Whispering's folder. There are two,
   transcription and text, each a canonical base URL, a default model, and an
   optional key. In Epicenter each is a row of the `connections` table in
@@ -106,13 +100,11 @@ What Whispering adds on top:
   the title "Whispering transcription" or "Whispering text", and the model.
   The base URL and key are not in the row: they are in this computer's
   keychain under the row's id (`src/lib/workspace/desktop-connections.ts`).
-  In a browser tab they are
-  `whispering.connections` in `localStorage`, where an earlier build's single
-  key stays, unused, until the person moves it into a connection.
+  In a browser tab they are `whispering.connections` in `localStorage`.
   `src/lib/connections.ts` holds the rules both storages apply.
 - The chosen microphone is not folder data either: it names hardware on one
-  device. It is `whispering.microphone` in the origin's `localStorage`, never
-  `kv.json` (`src/lib/workspace/microphone-preference.ts`). Epicenter serves
+  device. It is `whispering.microphone` in the origin's `localStorage`
+  (`src/lib/workspace/microphone-preference.ts`). Epicenter serves
   every app from one fixed loopback origin, so it lasts between launches.
 
 Every file command, including settings saves, file creation, rename, and
@@ -402,9 +394,8 @@ carries the key: an endpoint that echoes it has it removed.
 `src/lib/recipe.ts` decides whether a recipe runs and with what, from the
 recipe as read (a listed row, or its text as typed in Source) and the text connection
 as last read: the file must read without issues and have instructions; a text
-connection must be set up; an endpoint the recipe names must be exactly the
-connection's base URL (canonical spelling, no same-origin relaxation); the
-model is the recipe's if it names one, else the connection's. The library
+connection must be set up; the model is the recipe's if it names one, else the
+connection's. The library
 exposes it as `library.resolve`, and the Run check, the post-processing
 choice, a transcript's Transform menu, the recipe's page, and both run entry
 points call it, so they cannot disagree.
@@ -497,7 +488,7 @@ is deleted.
 Files are read through the TanStack Query cache (ADR-0528, ADR-0548), with
 the folder's own query options (`folderOptions` from
 `@epicenter/folder/query`). The library observes each table's listing, the
-folder listing, the text of `kv.json`, and Git status for as long as it is
+folder listing, and Git status for as long as it is
 open, and a view that shows a file's exact text reads it with its own query,
 keyed beside the folder's read of that file. A row that does not read is an
 `Err(InvalidRow)` entry in the same listing, shown as text with its issues
@@ -637,7 +628,7 @@ obstacle in that write's way so the folder itself fails it
 | `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections, local transcription, and microphone, and the microphone preference. |
 | `src/lib/session.svelte.ts` | The one session a mounted layout owns, and its context. It holds what the shell shows, the post-processing choice, the pasted text, and the settings draft. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
-| `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
+| `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
 | `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held in text editors and their saves, selections, the live recording, settings, and every action as a mutation. |

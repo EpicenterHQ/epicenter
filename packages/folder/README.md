@@ -388,8 +388,9 @@ of the bytes read from it, so a same-size rewrite in the same millisecond is
 still a change. `open(path)` returns a Blob of the bytes read, which keeps
 them after the path is replaced.
 
-Opening requires `navigator.storage.getDirectory`, writable file streams, and
-Web Locks; without one it returns `NoFileSystem` and never falls back.
+Opening requires `navigator.storage.getDirectory`, writable file streams, file
+moves, and Web Locks; without one it returns `NoFileSystem` and never falls
+back.
 IndexedDB is not required and is never read or written. A folder an earlier
 version kept in IndexedDB is not opened, copied, or removed.
 
@@ -403,7 +404,7 @@ holds it across several, as Sync's publish does. Reads take no lock. Every chang
 replaced file's bytes publish when its stream closes, so a reader sees the
 old bytes or the new ones, and a new file is written to
 `.git/epicenter/scratch` and moved into place, so a crash never leaves it
-empty. A browser that cannot move a file writes a new one in place.
+empty.
 
 | What happened | Outcome |
 | --- | --- |
@@ -641,9 +642,7 @@ linked table directory is that table's `InvalidPath`, never followed.
 top-level `$schema` (which only helps an editor offer completion), `title`,
 `local`, and `tables`, each table `{ type: 'object', properties, required? }`
 with every `required` name declared. A table without `required` has only
-optional fields. A `kv` section, which an earlier build wrote for the
-settings it kept as keys, is admitted and not read, so a folder that build
-published still opens (ADR-0576). Any other key, a visible `~` key on a
+optional fields. Any other key, a visible `~` key on a
 field, or a field preparation refuses, such as one with an unknown `format`
 or a `$ref` that names nothing in the field, is `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.
@@ -1389,8 +1388,7 @@ renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
 A definition is `{ title?, local?, tables }` and nothing else. `defineFolder`
-throws on an `id`, and on a `kv`, naming the `settings` table that replaced
-it; an opener given an untyped definition with one returns
+throws on any other key, an `id` included; an opener given an untyped definition with one returns
 `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
 

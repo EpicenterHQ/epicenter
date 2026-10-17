@@ -10,9 +10,6 @@
  * Key behaviors:
  * - A first launch creates no files or history, and saving a connection
  *   writes nothing to the folder
- * - `kv.json` from an earlier build is read as an ordinary file and offered,
- *   never written, and never where a request goes; one that does not read
- *   offers nothing
  * - Record, stop, and save produce audio, a row that names it, and a commit
  *   of the row; the audio stays out of history, and a recording being
  *   captured never reads as absent
@@ -43,7 +40,6 @@ import {
 	readFile,
 	realpath,
 	rm,
-	stat,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -238,9 +234,7 @@ test('the first launch creates no files or history, and saving a connection writ
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
-		legacyKey: false,
 	});
-	expect(library.earlierTranscription).toEqual({});
 
 	expect(
 		await library.saveConnection('transcription', {
@@ -260,36 +254,6 @@ test('the first launch creates no files or history, and saving a connection writ
 	expect(await readdir(root)).toEqual([]);
 });
 
-test('kv.json from an earlier build is offered, never written, and never where a request goes', async () => {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), 'whispering-library-')),
-	);
-	roots.push(root);
-	const saved =
-		'{"transcriptionBaseUrl": "https://elsewhere.example/v1", "transcriptionModel": "old-model"}\n';
-	await writeFile(join(root, 'kv.json'), saved);
-	const { library, transcribed } = await open({ root });
-
-	expect(library.earlierTranscription).toEqual({
-		baseUrl: 'https://elsewhere.example/v1',
-		model: 'old-model',
-	});
-	await record(library);
-	await library.transcribe(library.entries[0]!);
-
-	// The request is prepared for the device's connection, never kv.json's.
-	expect(transcribed).toEqual([
-		expect.objectContaining({
-			expectedBaseUrl: TEST_BASE_URL,
-			model: 'verification-model',
-		}),
-	]);
-	expect(
-		library.resultsFor(library.entries[0]!.stem)[0]!.row.fields,
-	).toMatchObject({ endpoint: TEST_BASE_URL, model: 'verification-model' });
-	expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(saved);
-});
-
 test('with no transcription connection, transcribing sends nothing and says to set one up', async () => {
 	const { library, transcribed } = await open({
 		connections: { connections: {} },
@@ -305,44 +269,6 @@ test('with no transcription connection, transcribing sends nothing and says to s
 		message: expect.stringContaining('No transcription connection is set up'),
 	});
 	expect(library.resultsFor(entry.stem)).toEqual([]);
-});
-
-test('a kv.json that cannot be read offers nothing, and nothing is created in its place', async () => {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), 'whispering-library-')),
-	);
-	roots.push(root);
-	await mkdir(join(root, 'kv.json'));
-	const { library } = await open({ root });
-
-	expect(library.earlierTranscription).toEqual({});
-	expect((await stat(join(root, 'kv.json'))).isDirectory()).toBe(true);
-});
-
-test('kv.json is read leniently: text that does not parse offers nothing, and only string values are offered', async () => {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), 'whispering-library-')),
-	);
-	roots.push(root);
-	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": ');
-	const { library } = await open({ root });
-
-	expect(library.earlierTranscription).toEqual({});
-
-	await writeFile(
-		join(root, 'kv.json'),
-		'{"transcriptionModel": 7, "transcriptionBaseUrl": "http://kept"}\n',
-	);
-	await settle(library);
-	expect(library.earlierTranscription).toEqual({ baseUrl: 'http://kept' });
-
-	await writeFile(join(root, 'kv.json'), '["transcriptionModel"]\n');
-	await settle(library);
-	expect(library.earlierTranscription).toEqual({});
-
-	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": "kept"}\n');
-	await settle(library);
-	expect(library.earlierTranscription).toEqual({ model: 'kept' });
 });
 
 // ============================================================================
@@ -380,7 +306,6 @@ test('record, stop, and save leave a row, real audio, and a commit that leaves t
 	).toEqual(['audio/']);
 	expect(tree).toContain('.gitignore');
 	expect(tree).not.toContain(fields.audioPath);
-	expect(tree).not.toContain('kv.json');
 	expect(git(root, 'status', '--porcelain')).toBe('');
 });
 
