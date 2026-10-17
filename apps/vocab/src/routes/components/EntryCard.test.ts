@@ -21,16 +21,20 @@
  * The confirmation is the shared dialog's state, answered as its buttons
  * would; the dialog's own markup is not mounted here.
  */
-import './svelte-dom.test-support.js';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
+import {
+	blur,
+	click,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { readEntry, readRows, type vocabFolder } from '../../lib/data.js';
 import type { EntryListing } from '../../lib/entries.svelte.js';
 import { createBrowser, fileText } from '../../lib/folder.test-support.js';
 import { cached, observe, quiet } from '../../lib/query.test-support.js';
-import { click, leave, type } from './svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createVocab } = await import('../../lib/vocab.svelte.js');
@@ -137,7 +141,7 @@ test('the note is editable at once, and written a second after the last keystrok
 test('leaving the note writes it at once, and so does the card going away', async () => {
 	await using context = await setup('lucid');
 	type(context.note(), 'left');
-	leave(context.note());
+	blur(context.note());
 	await quiet(context.vocab);
 	expect(await context.file()).toContain('note: left');
 
@@ -157,7 +161,7 @@ test('the typed note survives the list being read again before it is sent', asyn
 	await quiet(context.vocab);
 	flushSync();
 	expect(context.note()?.value).toBe('mine');
-	leave(context.note());
+	blur(context.note());
 	await quiet(context.vocab);
 	expect(await context.file()).toContain('note: mine');
 });
@@ -175,7 +179,7 @@ test('a stage press is written at once, and does not undo a note typed meanwhile
 	expect(pressed?.textContent?.trim()).toBe('Understand');
 	expect(context.note()?.value).toBe('clear');
 
-	leave(context.note());
+	blur(context.note());
 	await quiet(context.vocab);
 	const file = await context.file();
 	expect(file).toContain('note: clear');
@@ -186,7 +190,7 @@ test('a save that fails keeps the note on screen and is reported, and Try again 
 	await using context = await setup('lucid');
 	context.failWrite();
 	type(context.note(), 'kept');
-	leave(context.note());
+	blur(context.note());
 	await quiet(context.vocab);
 	flushSync();
 	expect(context.note()?.value).toBe('kept');
