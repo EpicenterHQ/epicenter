@@ -33,8 +33,9 @@ serves the built assets, so every UI change inside the host is a rebuild.
 
 ## Decision
 
-**Whispering's `#platform/*` seams split on one axis, `epicenter-host` against
-`default`.** A seam exists when the host owns the thing behind it and the page
+**Whispering's `#platform/*` seams split on one axis, the Epicenter host
+against a page with no host, and the running page picks the leaf by
+`isTauri()` in the one build that carries both (ADR-0598).** A seam exists when the host owns the thing behind it and the page
 has its own owner for the same thing: a credential, a keychain and files,
 recording bytes. That is three seams, `#platform/auth`, `#platform/binding`,
 and `#platform/blobs`, and nothing else is one. A module that only runs in the
@@ -42,18 +43,16 @@ Epicenter build is a plain path alias with no condition, which is what the
 fourteen already are.
 
 **The `tauri` condition is retired from Whispering.** No `imports` entry names
-it and no tsconfig activates it. The host build is checked by
-`tsconfig.epicenter-host.json`, named for the one condition it activates, as
-Local Mail's is. A file that calls native commands keeps its `.tauri.ts` name:
+it and no tsconfig activates it. A file that calls native commands keeps its `.tauri.ts` name:
 the suffix says what the module reaches, and the rule that native reach lives
 in `$lib/tauri.tauri.ts` reads it. It is no longer a leaf anything selects.
 
 **The `default` leaf is the browser development loop, and it is kept for
 that.** It is not a hosted product, which ADR-0227 refused and this record
 does not reopen, and it is not a second runtime: it is the same page over a
-store the page owns, which every build is (ADR-0226). `tsconfig.json` checks
-it, so a browser leaf that drifts from its contract fails the same typecheck
-the host leaf does.
+store the page owns, which every build is (ADR-0226). One `tsconfig.json`
+checks both leaves, so either one that drifts from its contract fails the
+typecheck.
 
 **Base path is not a seam.** `svelte.config.js` already sets `paths.base` from
 the same environment flag, so SvelteKit's `resolve` from `$app/paths` carries
@@ -63,13 +62,8 @@ routes call `resolve` as Honeycrisp's do.
 
 ## Consequences
 
-- The seam map is three entries, each with both keys, and
-  `56e3400507:apps/whispering/src/lib/platform-selection.test.ts` asserts exactly that:
-  every conditional seam names both leaves, every leaf exists, and no seam
-  names `tauri`. A dropped host leaf falls back to `default` silently, which is
-  the hazard the platform-seams skill names; the test is what makes it loud.
-- `bun run typecheck` still runs twice, once per condition, and the second
-  config is named for what it checks.
+- Each seam has two leaves, and the one build imports both, so no build
+  condition can drop one silently (ADR-0598).
 - `bun dev:whispering` keeps working as it does today, with browser auth,
   tab-lifetime binding, and IndexedDB blobs. The SQLite worker the browser
   store needs is a shared concern in `@epicenter/vite-config`, not a
@@ -83,8 +77,7 @@ routes call `resolve` as Honeycrisp's do.
 - **Delete the `default` leaves and make every seam a plain alias.** Rejected.
   It would leave `vite dev` unable to run outside the host, since the host
   leaves read a bootstrap element only the host injects, and the host serves
-  built assets. The cost is three browser leaves and one extra svelte-check
-  pass; what it buys is the only fast iteration loop the app has.
+  built assets. The cost is three browser leaves; what they buy is the only fast iteration loop the app has.
 - **Keep the `tauri` condition activated for symmetry with the vite config.**
   Rejected. A condition nothing declares a leaf for is a claim that a build
   chooses something, and the test that reads the declarations would have to
