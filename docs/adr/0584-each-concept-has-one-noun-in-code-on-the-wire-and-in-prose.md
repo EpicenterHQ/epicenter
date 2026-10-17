@@ -34,7 +34,7 @@ person already has: "Save version", "Rename", "folder".
 | Noun | What it is | Code and wire |
 | --- | --- | --- |
 | App | an installed program, named by its reverse-domain id (`so.epicenter.todos`) | `app` (`openFolder({ app, definition })`, `WindowFolder.app`); `application` retires |
-| Folder | a directory a person owns, named by its id, with or without `epicenter.json` | `Folder`, `folder.id`, `folder.own`; `folderId` on the wire (Rust `folder_id`); "data folder" and the folder sense of `scope` retire |
+| Folder | a directory a person owns, named by its id, with or without `epicenter.json` | `Folder`, `folder.id`, `folder.isOwn` (was `folder.own`), `queries` for the query layer over it (was `folder$`/`folderOptions`); `folderId` on the wire (Rust `folder_id`); "data folder" and the folder sense of `scope` retire |
 | Definition | what `epicenter.json` holds and `defineFolder` returns | `Definition`, `prepareDefinition`, `DEFINITION_PATH`, `InvalidDefinition`, `DefinitionMismatch`; folder-level "schema", "declaration", and "shape" retire |
 | Table | a directory of rows a definition names | `TableDefinition` (from `defineTable`), `PreparedTable`, `Table<TFields>` (the handle) |
 | Row, stem | one `<table>/<stem>.md`; the stem is its address | `stem`; `FieldsOf` (was `CreateRowOf`) |
@@ -92,7 +92,7 @@ replaces the seven-status `CommitOutcome`; `CommitError` is `BranchMoved`,
   credentials?, httpFetch? }`; a Bun opener requires `git.author`; browser test
   injection is a top-level `opfs?`. `runHistory` takes `{ git, own? }`, and the
   CLI's `isApplicationFolder` is `isOwnFolder`: whether a folder is its app's
-  own is the same question `folder.own` answers.
+  own is the same question `folder.isOwn` answers.
 - `storage.children()` answers `{ fileNames, directoryNames }`; `list()` keeps
   `{ files, directories }`.
 - "Schema" keeps its field-level meaning: `TSchema`, `FieldMap`, `$schema`,
@@ -101,6 +101,14 @@ replaces the seven-status `CommitOutcome`; `CommitError` is `BranchMoved`,
   `refs/epicenter/publishing`); `put` stays the storage port's verb.
 - Source file names stay, and accepted records keep the names they were
   written with.
+
+**Handle names.** The opened handle is `folder`. Its query layer, the cached
+queries and the mutations that invalidate them, is `queries` (was `folder$`,
+built by `folderOptions`): the `$` suffix borrowed an observable convention for
+something that is not one. `folder.own` is `folder.isOwn`, a boolean read as
+one. `isOwn` is publication eligibility (ADR-0583); once Todos' Connect works
+per folder and Honeycrisp needs no own-folder setup, no app reads it and it
+leaves the public handle.
 
 **Two pairs stay separate.** The write lock and the history lock serialize
 different work: a write holds the write lock for one checked change to one
