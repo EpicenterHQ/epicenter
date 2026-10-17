@@ -25,8 +25,10 @@ import {
 	createConversation,
 } from '@epicenter/agent';
 import { folderOptions } from '@epicenter/folder/query';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
+import type { VocabFolder, vocabFolder } from '../data.js';
 import {
 	createBrowser,
 	fileText,
@@ -35,7 +37,7 @@ import {
 	settle,
 	tableFiles,
 } from '../folder.test-support.js';
-import { setVocabDefaults, vocabKeys, type WriteFailure } from '../query.js';
+import { vocabKeys } from '../query.js';
 import { createQueryClient } from '../query.test-support.js';
 import { type ChatListing, createChats } from './chats.js';
 import { createChatMessageStore, startChat } from './messages.js';
@@ -85,12 +87,11 @@ function chatsOver(
 	over: Partial<Pick<VocabFolder, 'tables' | 'files'>> = {},
 ) {
 	const queryClient = createQueryClient();
-	const folder$ = folderOptions(folder);
-	setVocabDefaults(queryClient);
+	const queries = folderOptions(folder);
 	const failures: WriteFailure[] = [];
-	const chats = createChats({ ...folder, ...over }, folder$, queryClient, {
+	const chats = createChats({ ...folder, ...over }, queries, queryClient, {
 		refused: () => undefined,
-		onWriteFailed: (failure) => failures.push(failure),
+		writeFailed: (failure) => failures.push(failure),
 	});
 	return {
 		chats,
@@ -523,10 +524,11 @@ test('one chat’s message writes run one at a time through its scope, and close
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
-	const vocab = createVocab(
-		{ ...folder, ...gatedFolder } as VocabFolder,
-		createQueryClient(),
-	);
+	const opened = createFolderContext<typeof vocabFolder>({
+		...folder,
+		...gatedFolder,
+	} as VocabFolder);
+	const vocab = createVocab(opened);
 	const store = createChatMessageStore(
 		gatedFolder,
 		'chat-a',
@@ -547,7 +549,7 @@ test('one chat’s message writes run one at a time through its scope, and close
 	).toEqual([false, true]);
 	expect(vocab.busy).toBe(true);
 	let closed = false;
-	const closing = vocab.close().then(() => {
+	const closing = opened.close().then(() => {
 		closed = true;
 	});
 	await Bun.sleep(5);
@@ -583,7 +585,7 @@ test('a message write the folder refuses is reported with its text', async () =>
 	expect(failures).toMatchObject([
 		{
 			path: 'messages/chat-a.answer.md',
-			lost: 'Clear and easy to understand: 清楚。',
+			unsaved: 'Clear and easy to understand: 清楚。',
 		},
 	]);
 });

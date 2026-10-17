@@ -20,15 +20,15 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
+import { createFolderContext } from '@epicenter/svelte/folder';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
+import type { VocabFolder, vocabFolder } from '../data.js';
 import {
 	createBrowser,
 	gatedMessages,
 	tableFiles,
 } from '../folder.test-support.js';
-import { createQueryClient } from '../query.test-support.js';
 import {
 	createChatMessageStore,
 	type MessageWrite,
@@ -553,10 +553,11 @@ test('the tutor is asked over the transcript the folder holds now, not the one f
 
 test('a tutor reply is written by a mutation scoped to its chat, and close waits for it', async () => {
 	await using context = await setup();
-	const vocab = createVocab(
-		{ ...context.folder, ...context.gatedFolder } as VocabFolder,
-		createQueryClient(),
-	);
+	const opened = createFolderContext<typeof vocabFolder>({
+		...context.folder,
+		...context.gatedFolder,
+	} as VocabFolder);
+	const vocab = createVocab(opened);
 	using chat = await ready(
 		context.open(
 			context.gatedFolder,
@@ -573,7 +574,7 @@ test('a tutor reply is written by a mutation scoped to its chat, and close waits
 	expect(roles(chat)).toEqual(['assistant']);
 	expect(vocab.busy).toBe(true);
 	let closed = false;
-	const closing = vocab.close().then(() => {
+	const closing = opened.close().then(() => {
 		closed = true;
 	});
 	await Bun.sleep(5);
