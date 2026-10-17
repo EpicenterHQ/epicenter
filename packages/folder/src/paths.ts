@@ -180,4 +180,4 @@ export function collisionKey(path: string): string {
 }
 
 /** Where an opened folder publishes its declaration (ADR-0517). */
-export const DECLARATION_PATH = 'epicenter.json';
+export const DEFINITION_PATH = 'epicenter.json';

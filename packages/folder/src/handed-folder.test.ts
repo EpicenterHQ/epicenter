@@ -15,7 +15,7 @@
  * - `folder.id` is the granted scope, and `folder.own` is true only for the
  *   app's own folder
  * - A handed folder whose declaration does not contain the definition is
- *   `ShapeMismatch`, naming the app and the folder's directory, and opens
+ *   `DefinitionMismatch`, naming the app and the folder's directory, and opens
  *   nothing
  * - A folder opened by ID, with no definition, reads its own `epicenter.json`,
  *   and with one reads through it, whatever the window was handed
@@ -202,7 +202,7 @@ test("a handed folder that does not contain the definition is refused by the app
 
 	const refused = expectErr(await openFolder({ app: TODOS, definition }));
 
-	expect(refused.name).toBe('ShapeMismatch');
+	expect(refused.name).toBe('DefinitionMismatch');
 	expect(refused.message).toBe(
 		"Todos cannot open the folder 'Recipes': The folder declares no 'todos' table.",
 	);

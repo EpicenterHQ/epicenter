@@ -61,7 +61,7 @@ const { data: openedFolder, error: openedError } = await openFolder({
 if (openedError) {
 	print({
 		error:
-			openedError.name === 'ShapeMismatch'
+			openedError.name === 'DefinitionMismatch'
 				? `${openedError.message} Use a checkout of a folder Todos synced, which holds its epicenter.json, or a directory named ${TODOS_FOLDER_ID}, which Todos publishes its declaration into.`
 				: openedError.message,
 	});

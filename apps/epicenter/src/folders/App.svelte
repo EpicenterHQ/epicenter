@@ -32,7 +32,7 @@
 	 * said while it runs. The shell publishes Epicenter's own folder's
 	 * declaration at launch, before it opens any app.
 	 */
-	import type { Folder, FolderDefinition } from '@epicenter/folder';
+	import type { Definition, Folder } from '@epicenter/folder';
 	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
@@ -59,8 +59,8 @@
 	let openId = $state<string | undefined>(undefined);
 	let opened = $state.raw<
 		| {
-				readonly folder: Folder<FolderDefinition>;
-				readonly options: FolderOptions<FolderDefinition>;
+				readonly folder: Folder<Definition>;
+				readonly options: FolderOptions<Definition>;
 		  }
 		| undefined
 	>(undefined);

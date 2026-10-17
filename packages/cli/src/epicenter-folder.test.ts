@@ -119,7 +119,7 @@ test('declaring publishes the definition, so a definition reading a table an upd
 		definition: connectionsDefinition,
 		git: { author },
 	});
-	expect(refused.error?.name).toBe('ShapeMismatch');
+	expect(refused.error?.name).toBe('DefinitionMismatch');
 
 	// The next launch publishes it again, before anything else writes.
 	expect(await declareEpicenterFolder(false, paths)).toBe(0);

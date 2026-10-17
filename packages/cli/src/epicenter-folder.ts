@@ -8,9 +8,9 @@
  * `@epicenter/ai`'s, so an installed app reads it through the same table.
  *
  * The folder is named after Epicenter, so Epicenter publishes its
- * declaration. An installed app reads it through a definition the published
- * declaration must contain (ADR-0538), and a handle publishes its
- * declaration only before its first write (ADR-0508). So the desktop app
+ * definition. An installed app reads it through a definition the published
+ * one must contain (ADR-0538), and a handle publishes its definition only
+ * before its first write (ADR-0508). So the desktop app
  * runs `epicenter declare-epicenter-folder` at every launch (`spawn_epicenter_folder_declaration` in
  * `apps/epicenter/src-tauri/src/cli.rs`), and opens no installed app before
  * it has finished, whichever window opened first.
@@ -42,11 +42,11 @@ export const epicenterDefinition = defineFolder({
 });
 
 /**
- * Make the handle's first write, which publishes its declaration first: the
+ * Make the handle's first write, which publishes its definition first: the
  * `connections` table's directory, the table apps read through their
  * definition. A
  * directory already there is left as it is, and so is an `epicenter.json`
- * that already holds the declaration's bytes.
+ * that already holds the definition's bytes.
  */
 export async function declare(
 	folder: Folder<typeof epicenterDefinition>,

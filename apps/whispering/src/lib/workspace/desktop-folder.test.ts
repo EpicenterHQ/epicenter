@@ -22,7 +22,7 @@ import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { formatDeclaration } from '@epicenter/folder';
+import { formatDefinition } from '@epicenter/folder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createGrantedShell,
@@ -121,7 +121,7 @@ test("a window handed Whispering's own folder opens it with its definition", asy
 test('a window handed another folder opens it through the definition and keeps its declaration', async () => {
 	openWindow('data:Dictation');
 	// Whispering's tables, declared by the folder itself, with one more table.
-	const declared = JSON.parse(formatDeclaration(whisperingDefinition));
+	const declared = JSON.parse(formatDefinition(whisperingDefinition));
 	declared.title = 'Dictation';
 	declared.tables.notes = { type: 'object', properties: {} };
 	const dictation = `${JSON.stringify(declared, null, '\t')}\n`;

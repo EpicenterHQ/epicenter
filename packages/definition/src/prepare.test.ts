@@ -1,7 +1,7 @@
 /**
  * Definition Preparation Tests
  *
- * `prepareSchema` checks a declaration and returns an owned schema of the
+ * `prepareDefinition` checks a declaration and returns an owned schema of the
  * same shape, without knowing which storage will use it. `check` reads values
  * through its fields, as a read or a whole-row input.
  *
@@ -54,7 +54,7 @@ import { Settings } from 'typebox/system';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	check,
-	type DataSchema,
+	type Definition,
 	defineTable,
 	FIELD_KEYWORD,
 	type FieldMap,
@@ -62,12 +62,12 @@ import {
 	fieldEditorOf,
 	isOptional,
 	jsonValue,
-	prepareSchema,
+	prepareDefinition,
 } from './index.js';
 
 /** Prepare one table's fields, as the table `rows`. */
 const prepareRows = (fields: FieldMap) =>
-	prepareSchema({ tables: { rows: defineTable({ fields }) } });
+	prepareDefinition({ tables: { rows: defineTable({ fields }) } });
 
 /** The prepared fields of one table, where a field may be required. */
 const rowFields = (fields: FieldMap) =>
@@ -113,7 +113,7 @@ const editorsOf = (fields: FieldMap) =>
 		Object.keys(fields).map((name) => [name, editorOf(fields, name)]),
 	);
 
-const declaration: DataSchema = {
+const declaration: Definition = {
 	tables: {
 		notes: defineTable({ fields: { title: field.string() } }),
 		queries: defineTable({
@@ -137,7 +137,7 @@ const Node = Type.Cyclic(
 // ============================================================================
 
 test('a table is prepared as its fields', () => {
-	const prepared = expectOk(prepareSchema(declaration));
+	const prepared = expectOk(prepareDefinition(declaration));
 	const queries = prepared.tables.queries?.fields ?? {};
 	expect(Object.keys(queries)).toEqual(['name', 'limit']);
 	expect(editorOf(queries, 'limit')).toEqual({
@@ -150,8 +150,8 @@ test('a table is prepared as its fields', () => {
 
 test('a prepared schema has the declared shape', () => {
 	const prepared = expectOk(
-		prepareSchema({ ...declaration, title: 'Shared' }),
-	) as DataSchema;
+		prepareDefinition({ ...declaration, title: 'Shared' }),
+	) as Definition;
 	expect(Object.keys(prepared)).toEqual(['title', 'tables']);
 	expect(prepared.title).toBe('Shared');
 	expect(Object.keys(prepared.tables)).toEqual(['notes', 'queries']);
@@ -163,43 +163,49 @@ test('a prepared schema has the declared shape', () => {
 	expect(prepared.tables.queries?.fields.limit).toEqual(
 		field.nullable(field.integer()),
 	);
-	expect(Object.keys(expectOk(prepareSchema(declaration)))).toEqual(['tables']);
+	expect(Object.keys(expectOk(prepareDefinition(declaration)))).toEqual([
+		'tables',
+	]);
 });
 
 test('preparation is memoized on the declaration and on the schema it returned', () => {
-	const first = prepareSchema(declaration);
-	expect(prepareSchema(declaration)).toBe(first);
-	expect(prepareSchema({ ...declaration })).not.toBe(first);
+	const first = prepareDefinition(declaration);
+	expect(prepareDefinition(declaration)).toBe(first);
+	expect(prepareDefinition({ ...declaration })).not.toBe(first);
 	// Preparing a prepared schema returns it, and prepares nothing again.
 	const prepared = expectOk(first);
 	expect(prepared).not.toBe(declaration);
-	expect(prepareSchema(prepared)).toBe(first);
-	expect(expectOk(prepareSchema(prepared))).toBe(prepared);
+	expect(prepareDefinition(prepared)).toBe(first);
+	expect(expectOk(prepareDefinition(prepared))).toBe(prepared);
 	// A refusal is memoized the same way.
 	const malformed = { ...declaration, title: '' };
-	expect(prepareSchema(malformed)).toBe(prepareSchema(malformed));
-	expectErr(prepareSchema(malformed));
+	expect(prepareDefinition(malformed)).toBe(prepareDefinition(malformed));
+	expectErr(prepareDefinition(malformed));
 });
 
 test('a top-level key besides title, local, and tables is malformed, an id included', () => {
-	const named = prepareSchema({ ...declaration, id: 'so.epicenter.shared' });
+	const named = prepareDefinition({
+		...declaration,
+		id: 'so.epicenter.shared',
+	});
 	expect(expectErr(named).message).toContain("declares 'id'");
 	expect(
-		expectErr(prepareSchema({ ...declaration, id: undefined } as never)).name,
+		expectErr(prepareDefinition({ ...declaration, id: undefined } as never))
+			.name,
 	).toBe('Malformed');
 	expect(
-		expectErr(prepareSchema({ ...declaration, kv: {} } as never)).message,
+		expectErr(prepareDefinition({ ...declaration, kv: {} } as never)).message,
 	).toContain("declares 'kv'");
 });
 
 test('a declaration that is not an object is malformed', () => {
 	for (const value of [undefined, null, 7, 'definition', []])
-		expect(expectErr(prepareSchema(value as never)).name).toBe('Malformed');
+		expect(expectErr(prepareDefinition(value as never)).name).toBe('Malformed');
 });
 
 test('an unknown table option is malformed', () => {
 	const extra = expectErr(
-		prepareSchema({
+		prepareDefinition({
 			...declaration,
 			tables: {
 				// @ts-expect-error A table declares fields and whether it is closed.
@@ -216,12 +222,12 @@ test('a table closes with additionalProperties false', () => {
 		additionalProperties: false,
 	} as const;
 	const prepared = expectOk(
-		prepareSchema({ tables: { notes: defineTable(closed) } }),
+		prepareDefinition({ tables: { notes: defineTable(closed) } }),
 	);
 	expect(prepared.tables.notes.additionalProperties).toBe(false);
 	expect(
 		expectErr(
-			prepareSchema({
+			prepareDefinition({
 				tables: {
 					notes: defineTable({
 						fields: {},
@@ -241,12 +247,12 @@ test('field and table names keep their grammar for raw schemas', () => {
 		);
 	const table = defineTable({ fields: { a: Type.String() } });
 	for (const name of ['1st', 'a-b', 'order'])
-		expect(expectErr(prepareSchema({ tables: { [name]: table } })).name).toBe(
-			'Malformed',
-		);
+		expect(
+			expectErr(prepareDefinition({ tables: { [name]: table } })).name,
+		).toBe('Malformed');
 	// No table name is reserved: `kv` is an ordinary table.
 	expect(
-		Object.keys(expectOk(prepareSchema({ tables: { kv: table } })).tables),
+		Object.keys(expectOk(prepareDefinition({ tables: { kv: table } })).tables),
 	).toEqual(['kv']);
 });
 
@@ -255,7 +261,7 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 		fields: { constructor: field.string(), toString: field.integer() },
 	});
 	const prepared = expectOk(
-		prepareSchema({ tables: { constructor: row, toString: row } }),
+		prepareDefinition({ tables: { constructor: row, toString: row } }),
 	);
 	// The records have no prototype, so a name reads as its own entry or not at all.
 	for (const record of [prepared.tables, prepared.tables.constructor.fields])
@@ -296,7 +302,9 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 	// An own `__proto__` key, as JSON reads one, fails the name grammar, as a
 	// table name and as a field name.
 	const proto = JSON.parse('{"__proto__": {"type": "string"}}');
-	expect(expectErr(prepareSchema({ tables: proto })).name).toBe('Malformed');
+	expect(expectErr(prepareDefinition({ tables: proto })).name).toBe(
+		'Malformed',
+	);
 	expect(expectErr(prepareRows(proto)).name).toBe('Malformed');
 });
 
@@ -305,7 +313,7 @@ test('one declared table under two names is prepared once per name', () => {
 		fields: { title: field.string(), status: field.select(['open', 'done']) },
 	});
 	const prepared = expectOk(
-		prepareSchema({
+		prepareDefinition({
 			tables: { tasks: shared, archive: shared },
 		}),
 	);
@@ -975,12 +983,12 @@ test('a prepared field is the JSON of its declaration, so the field in memory is
 		written: { type: 'string', maxLength: 4 },
 	};
 	const prepared = expectOk(
-		prepareSchema({
+		prepareDefinition({
 			tables: { rows: defineTable({ fields: declared }) },
 		}),
 	);
 	const restored = expectOk(
-		prepareSchema({
+		prepareDefinition({
 			tables: {
 				rows: defineTable({
 					fields: JSON.parse(JSON.stringify(declared)) as FieldMap,
@@ -1448,7 +1456,7 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 });
 
 test('a prepared definition and its records cannot be changed', () => {
-	const prepared = expectOk(prepareSchema(declaration));
+	const prepared = expectOk(prepareDefinition(declaration));
 	const notes = prepared.tables.notes;
 	for (const owned of [
 		prepared,
@@ -1566,7 +1574,7 @@ test('undefined annotations do not stop freezing a prepared snapshot', () => {
 // ============================================================================
 
 const checked: FieldMap = expectOk(
-	prepareSchema({
+	prepareDefinition({
 		tables: {
 			rows: defineTable({
 				fields: {
@@ -1833,7 +1841,7 @@ test('a settings table prepares like any table, so a published one that requires
 			width: field.optional(Type.Integer()),
 		},
 	});
-	const prepared = expectOk(prepareSchema({ tables: { settings } }));
+	const prepared = expectOk(prepareDefinition({ tables: { settings } }));
 	// An unset setting is the application's default, never an issue.
 	expect(check(prepared.tables.settings.fields, {}, 'read')).toEqual({
 		conforming: {},
@@ -1843,7 +1851,9 @@ test('a settings table prepares like any table, so a published one that requires
 	const required = defineTable({
 		fields: { theme: field.optional(field.string()), width: Type.Integer() },
 	});
-	const published = expectOk(prepareSchema({ tables: { settings: required } }));
+	const published = expectOk(
+		prepareDefinition({ tables: { settings: required } }),
+	);
 	expect(isOptional(fieldOf(published.tables.settings.fields, 'width'))).toBe(
 		false,
 	);

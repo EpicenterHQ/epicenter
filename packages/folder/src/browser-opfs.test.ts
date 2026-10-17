@@ -33,7 +33,7 @@ import {
 	field,
 	openFolder,
 } from './browser.js';
-import { formatDeclaration } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { hashBytes } from './hash.js';
 import {
 	type MemoryOpfs,
@@ -493,7 +493,7 @@ describe('address and history', () => {
 		expectOk(await folder.git.log(10));
 		expect(stored()).toEqual(before);
 		expect(decoder.decode(opfs.files('test').get('epicenter.json'))).toBe(
-			formatDeclaration(definition),
+			formatDefinition(definition),
 		);
 		const other = await open({ app: 'other' });
 		expectOk(await other.write('who.md', null, 'other'));

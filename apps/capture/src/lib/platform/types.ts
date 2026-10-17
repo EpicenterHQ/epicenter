@@ -7,7 +7,7 @@
  */
 
 import type { captureDefinition } from '@epicenter/capture';
-import type { Folder, FolderDefinition } from '@epicenter/folder';
+import type { Definition, Folder } from '@epicenter/folder';
 import manifest from '../../../epicenter.app.json';
 
 /**
@@ -25,7 +25,7 @@ export const CAPTURE_FOLDER_ID = manifest.id;
  * folder's declaration for any other folder the desktop hands Capture, read
  * through Capture's definition.
  */
-export type CaptureFolder = Folder<typeof captureDefinition, FolderDefinition>;
+export type CaptureFolder = Folder<typeof captureDefinition, Definition>;
 
 /**
  * Opens the build's folder. A folder that cannot be opened throws; a leaf

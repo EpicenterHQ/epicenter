@@ -33,7 +33,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineFolder, type Folder, openFolder } from '../browser.js';
-import { formatDeclaration } from '../declaration.js';
+import { formatDefinition } from '../declaration.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -63,7 +63,7 @@ const FILES_LOCK = 'epicenter-folder:merge:files';
 const GIT_LOCK = 'epicenter-folder:merge:git';
 const REMOTE_URL = 'http://git.test/remote.git';
 const definition = defineFolder({ tables: {} });
-const discovery = formatDeclaration(definition);
+const discovery = formatDefinition(definition);
 
 type Tree = Record<string, string>;
 type Opened = Folder<typeof definition>;
@@ -480,7 +480,7 @@ test("a local pattern Sync brings in keeps its files out of this open folder's n
 	const { folder, bare, push } = await synced({});
 	// Another device's definition keeps drafts on the machine that wrote them.
 	await push({
-		'epicenter.json': formatDeclaration(
+		'epicenter.json': formatDefinition(
 			defineFolder({ tables: {}, local: ['drafts/'] }),
 		),
 	});

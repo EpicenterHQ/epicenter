@@ -2,42 +2,43 @@
  * Read a data folder on disk without opening it (ADR-0517).
  *
  * A data folder is a directory holding `epicenter.json`. `readFolder` reads
- * and prepares that declaration, then reads every declared table through the
+ * and prepares that definition, then reads every defined table through the
  * same tables and directory file storage an opened folder uses, so a tool and an application reach the same verdict
  * on every file: path policy, symbolic links, names, UTF-8, and row
  * validity included.
  *
  * It writes nothing. It takes no lock, leaves no marker, initializes no Git
- * repository, and publishes no declaration, so it can read a folder an
+ * repository, and publishes no definition, so it can read a folder an
  * application has open, or one nested in any repository.
  */
 
 import { lstat, realpath } from 'node:fs/promises';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { readDeclaration } from './declaration.js';
-import type { FolderDefinition, PreparedFolderTable } from './definition.js';
+import { readDefinition } from './declaration.js';
+import type { Definition, PreparedFolderTable } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { FileError } from './errors.js';
-import { DECLARATION_PATH } from './paths.js';
+import { DEFINITION_PATH } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
 export const ReadFolderError = defineErrors({
 	/** The directory has no `epicenter.json`, so it is not a data folder. */
 	NotDataFolder: ({ root }: { root: string }) => ({
-		message: `'${root}' is not a data folder: it has no ${DECLARATION_PATH}`,
+		message: `'${root}' is not a data folder: it has no ${DEFINITION_PATH}`,
 		root,
 	}),
 	/**
-	 * `epicenter.json` is not a readable file, is not UTF-8 JSON, is not the
-	 * declaration grammar `parseDeclaration` reads, or declares a field a
-	 * folder cannot keep.
+	 * `epicenter.json` (`path`) is not a readable file, is not UTF-8 JSON, is
+	 * not the definition grammar `parseDefinition` reads, or declares a field
+	 * a folder cannot keep.
 	 */
-	InvalidDeclaration: ({ root, reason }: { root: string; reason: string }) => ({
-		message: `'${root}/${DECLARATION_PATH}' cannot be used: ${reason}`,
+	InvalidDefinition: ({ root, reason }: { root: string; reason: string }) => ({
+		message: `'${root}/${DEFINITION_PATH}' cannot be used: ${reason}`,
 		root,
 		reason,
+		path: DEFINITION_PATH,
 	}),
 });
 export type ReadFolderError = InferErrors<typeof ReadFolderError>;
@@ -46,8 +47,8 @@ export type ReadFolderError = InferErrors<typeof ReadFolderError>;
 export type FolderReading = {
 	/** The directory read, as the caller named it. */
 	readonly root: string;
-	/** The prepared declaration from `epicenter.json`. */
-	readonly definition: FolderDefinition;
+	/** The prepared definition from `epicenter.json`. */
+	readonly definition: Definition;
 	/** Exactly what each declared table's `list()` returns. */
 	readonly tables: Readonly<
 		Record<string, Result<TableListing<Record<string, unknown>>, FileError>>
@@ -56,8 +57,8 @@ export type FolderReading = {
 
 /**
  * Read the data folder at `root`. A directory with no `epicenter.json` is
- * `NotDataFolder`; one whose declaration cannot be used is
- * `InvalidDeclaration`; a missing root is `NotFound`, and a root that is not
+ * `NotDataFolder`; one whose definition cannot be used is
+ * `InvalidDefinition`; a missing root is `NotFound`, and a root that is not
  * a directory is `NotADirectory`. A table that cannot be read is that
  * entry's error, beside the others.
  */
@@ -80,9 +81,9 @@ export async function readFolder(
 	});
 
 	const { data: definition, error: declarationError } =
-		await readDeclaration(storage);
+		await readDefinition(storage);
 	if (declarationError !== null)
-		return ReadFolderError.InvalidDeclaration({
+		return ReadFolderError.InvalidDefinition({
 			root,
 			reason: declarationError.reason,
 		});

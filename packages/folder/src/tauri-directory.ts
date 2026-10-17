@@ -13,7 +13,7 @@
 import type { Result } from 'wellcrafted/result';
 import { hostStorage } from './boundary.js';
 import { tauriChangeDetector } from './changes-tauri.js';
-import type { FolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
@@ -22,14 +22,14 @@ import type { Opening } from './opening.js';
 import { tauriHostFiles } from './tauri-files.js';
 import { cliHistory } from './tauri-history.js';
 
-export async function openGrantedFolder<TDefinition extends FolderDefinition>({
+export async function openGrantedFolder<TDefinition extends Definition>({
 	opening,
 	granted,
 }: {
 	/** The granted scope, and how it is read. */
 	readonly opening: Opening;
 	readonly granted: Granted;
-}): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+}): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>> {
 	const { id } = opening;
 	return openDirectoryFolder<TDefinition>({
 		opening,

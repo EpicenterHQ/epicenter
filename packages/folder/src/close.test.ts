@@ -23,7 +23,7 @@ import {
 	rawBrowserFolder,
 } from './browser-storage.test-support.js';
 import {
-	DECLARATION_PATH,
+	DEFINITION_PATH,
 	defineFolder,
 	defineTable,
 	field,
@@ -119,7 +119,7 @@ async function held() {
 	const boundary: LockingStorage = {
 		...base,
 		async put(path, bytes, ifMatch) {
-			if (path === DECLARATION_PATH) return base.put(path, bytes, ifMatch);
+			if (path === DEFINITION_PATH) return base.put(path, bytes, ifMatch);
 			const putting = base.put(path, bytes, ifMatch);
 			reach();
 			await released;

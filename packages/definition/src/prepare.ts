@@ -1,14 +1,14 @@
 /**
- * Prepare developer declarations for reading.
+ * Prepare developer definitions for reading.
  *
- * A field is a native TypeBox schema, and a prepared schema has the shape
- * it was declared in: each table's `fields` is a record of native schemas.
- * Preparation adds what a declaration cannot say by itself: usable names, an
- * owned frozen snapshot of each schema, and TypeBox's compiled validator for
- * that snapshot, held privately beside it.
+ * A field is a native TypeBox schema, and a prepared definition has the
+ * structure it was written in: each table's `fields` is a record of native
+ * schemas. Preparation adds what a definition cannot say by itself: usable
+ * names, an owned frozen snapshot of each schema, and TypeBox's compiled
+ * validator for that snapshot, held privately beside it.
  *
  * A prepared field is plain JSON: the schema a file holds, frozen, so a
- * declaration in code and the same declaration read from a file validate
+ * definition in code and the same definition read from a file validate
  * alike. Preparation refuses what JSON cannot hold, including native
  * callbacks.
  *
@@ -27,16 +27,16 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result, trySync } from 'wellcrafted/result';
 import type {
 	ConformanceIssue,
-	DataSchema,
+	Definition,
 	FieldMap,
 	TableDeclaration,
 } from './declaration.js';
 import { isJsonSafe, type JsonObject, type JsonValue } from './json.js';
 import { isTableName } from './table-name.js';
 
-export const DataDefinitionParseError = defineErrors({
+export const DefinitionError = defineErrors({
 	Malformed: ({ reason }: { reason: string }) => ({
-		message: `This data definition is not well formed: ${reason}`,
+		message: `This definition is not well formed: ${reason}`,
 		reason,
 	}),
 	UnrecognizedField: ({
@@ -54,96 +54,90 @@ export const DataDefinitionParseError = defineErrors({
 		reason,
 	}),
 });
-export type DataDefinitionParseError = InferErrors<
-	typeof DataDefinitionParseError
->;
+export type DefinitionError = InferErrors<typeof DefinitionError>;
 
 export type Conformance = {
 	conforming: JsonObject;
 	issues: ConformanceIssue[];
 };
 
-const preparedSchemas = new WeakMap<
+const preparedDefinitions = new WeakMap<
 	object,
-	Result<DataSchema, DataDefinitionParseError>
+	Result<Definition, DefinitionError>
 >();
 
 /**
- * Check one schema and return the copy every read uses (ADR-0266).
+ * Check one definition and return the copy every read uses (ADR-0266).
  *
- * The result has the declared shape and the declared type: an optional
+ * The result has the given structure and type: an optional
  * `title` and `local`, and `tables`, each table holding `fields` and, when it
  * is closed, `additionalProperties`. It is owned here. Every field is the
  * declared schema's frozen JSON (see `plainSchema`). `tables` and each
  * `fields` are frozen records without a prototype, so a name like
  * `constructor` reads as its own entry or as nothing.
  *
- * A declaration holds `title`, `local`, and `tables` and nothing else: any
+ * A definition holds `title`, `local`, and `tables` and nothing else: any
  * other own key, such as an `id` naming a dataset, is malformed.
  *
  * Names come from the record keys and are stored nowhere else. No field or
  * table name can be an integer, so a record keeps its declaration order.
  *
- * Memoised on object identity, for the declaration handed in and for the
- * schema handed back, so preparing a prepared schema returns it. Identity
- * keying means a declaration MUTATED IN PLACE reads back its old preparation.
- * That is the intent: the prepared schema is a snapshot.
+ * Memoised on object identity, for the definition handed in and for the one
+ * handed back, so preparing a prepared definition returns it. Identity
+ * keying means a definition MUTATED IN PLACE reads back its old preparation.
+ * That is the intent: the prepared definition is a snapshot.
  */
-export function prepareSchema<TSchema extends DataSchema>(
-	value: TSchema,
-): Result<TSchema, DataDefinitionParseError> {
-	return memoised(value) as Result<TSchema, DataDefinitionParseError>;
+export function prepareDefinition<TDefinition extends Definition>(
+	value: TDefinition,
+): Result<TDefinition, DefinitionError> {
+	return memoised(value) as Result<TDefinition, DefinitionError>;
 }
 
-function memoised(
-	value: unknown,
-): Result<DataSchema, DataDefinitionParseError> {
-	// A declaration that arrived untyped may not be an object, and only an
+function memoised(value: unknown): Result<Definition, DefinitionError> {
+	// A definition that arrived untyped may not be an object, and only an
 	// object can be a memo key.
 	if (typeof value !== 'object' || value === null) return prepareRoot(value);
-	const found = preparedSchemas.get(value);
+	const found = preparedDefinitions.get(value);
 	if (found !== undefined) return found;
 	const result = prepareRoot(value);
-	preparedSchemas.set(value, result);
-	if (result.error === null) preparedSchemas.set(result.data, result);
+	preparedDefinitions.set(value, result);
+	if (result.error === null) preparedDefinitions.set(result.data, result);
 	return result;
 }
 
-function prepareRoot(
-	value: unknown,
-): Result<DataSchema, DataDefinitionParseError> {
+function prepareRoot(value: unknown): Result<Definition, DefinitionError> {
 	if (!isPlainObject(value))
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: 'it is not a plain object',
 		});
 	const unknown = Object.keys(value).filter(
 		(key) => key !== 'title' && key !== 'local' && key !== 'tables',
 	);
 	if (unknown.length > 0)
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: `it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a schema declares title, local, and tables`,
 		});
 	return prepareShape(value);
 }
 
-/** The prepared title, local patterns, and tables of a plain-object declaration. */
+/** The prepared title, local patterns, and tables of a plain-object definition. */
 function prepareShape(
 	value: Record<string, unknown>,
-): Result<DataSchema, DataDefinitionParseError> {
-	const { title, tables, local } = value as Partial<DataSchema>;
+): Result<Definition, DefinitionError> {
+	const { title, tables, local } = value as Partial<Definition>;
 	if (
 		title !== undefined &&
 		(typeof title !== 'string' || title.trim() === '')
 	) {
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: 'its title must say something or be absent',
 		});
 	}
 	const localProblem = local === undefined ? undefined : localProblemOf(local);
 	if (localProblem !== undefined)
-		return DataDefinitionParseError.Malformed({ reason: localProblem });
+		return DefinitionError.Malformed({ reason: localProblem });
 	if (!isPlainObject(tables))
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: 'it declares no tables',
 		});
 
@@ -151,19 +145,19 @@ function prepareShape(
 	const foldedNames = new Set<string>();
 	for (const [tableName, declaration] of Object.entries(tables)) {
 		if (!isTableName(tableName)) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `table name '${tableName}' is not usable`,
 			});
 		}
 		const folded = tableName.toLowerCase();
 		if (foldedNames.has(folded)) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `table names collide case-insensitively: '${tableName}'`,
 			});
 		}
 		foldedNames.add(folded);
 		if (!isPlainObject(declaration)) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `table '${tableName}' must declare fields`,
 			});
 		}
@@ -173,13 +167,13 @@ function prepareShape(
 				(key) => key !== 'fields' && key !== 'additionalProperties',
 			)
 		) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `table '${tableName}' declares an unknown option`,
 			});
 		}
 		if (Object.hasOwn(table, 'additionalProperties')) {
 			if (table.additionalProperties !== false)
-				return DataDefinitionParseError.Malformed({
+				return DefinitionError.Malformed({
 					reason: `table '${tableName}' declares additionalProperties; the only value is false, which closes the table`,
 				});
 		}
@@ -202,7 +196,7 @@ function prepareShape(
 				? {}
 				: { local: Object.freeze([...new Set(local)].sort()) }),
 			// `defineTable`'s mark is a type and nothing at run time.
-			tables: Object.freeze(preparedTables) as DataSchema['tables'],
+			tables: Object.freeze(preparedTables) as Definition['tables'],
 		}),
 	);
 }
@@ -232,9 +226,9 @@ function localProblemOf(local: unknown): string | undefined {
 function prepareFields(
 	tableName: string,
 	declaration: unknown,
-): Result<FieldMap, DataDefinitionParseError> {
+): Result<FieldMap, DefinitionError> {
 	if (!isPlainObject(declaration))
-		return DataDefinitionParseError.Malformed({
+		return DefinitionError.Malformed({
 			reason: `table '${tableName}' does not declare a flat field map`,
 		});
 	const fields: Record<string, TSchema & object> = Object.create(null);
@@ -243,12 +237,12 @@ function prepareFields(
 			fieldName.toLowerCase() === 'id' ||
 			!/^[A-Za-z!][A-Za-z0-9_!]*$/.test(fieldName)
 		) {
-			return DataDefinitionParseError.Malformed({
+			return DefinitionError.Malformed({
 				reason: `field name '${tableName}.${fieldName}' is not usable`,
 			});
 		}
 		const unrecognized = (reason: string) =>
-			DataDefinitionParseError.UnrecognizedField({
+			DefinitionError.UnrecognizedField({
 				table: tableName,
 				field: fieldName,
 				reason,
@@ -286,7 +280,7 @@ function validatorOf(schema: TSchema & object): ReturnType<typeof Compile> {
 	const validator = validators.get(schema);
 	if (validator === undefined)
 		throw new Error(
-			'This schema was not prepared. Read fields from the schema that prepareSchema or defineFolder returned.',
+			'This schema was not prepared. Read fields from the schema that prepareDefinition or defineFolder returned.',
 		);
 	return validator;
 }

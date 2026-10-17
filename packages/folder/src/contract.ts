@@ -10,7 +10,7 @@
  * Git implementation, and no runtime-specific module.
  */
 import type { Result } from 'wellcrafted/result';
-import type { FolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import type { GitCredentials, HttpFetch } from './git/http.js';
@@ -19,10 +19,10 @@ import type { OpfsEnvironment } from './opfs-store.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export type { FileListing, FileRead } from './boundary.js';
-export { formatDeclaration, parseDeclaration } from './declaration.js';
+export { formatDefinition, parseDefinition } from './declaration.js';
 export {
+	type Definition,
 	defineFolder,
-	type FolderDefinition,
 	type FolderTable,
 	type PreparedFolderTable,
 } from './definition.js';
@@ -66,7 +66,7 @@ export { hashBytes } from './hash.js';
 export { frameRowText } from './markdown.js';
 export type { FileContent, Overridden } from './merge-file.js';
 export {
-	DECLARATION_PATH,
+	DEFINITION_PATH,
 	pathProblem,
 	rowPath,
 	rowStemOf,
@@ -140,9 +140,9 @@ type HostOptions = {
  * `epicenter.json` is published by the app the folder is named after, and
  * every other opener reads through its definition. A folder read through a
  * definition must declare everything the definition does (ADR-0538), or it
- * is `ShapeMismatch`; the handle has the definition's tables, every write is
- * still checked against the folder's own declaration, and `epicenter.json`
- * is never written.
+ * is `DefinitionMismatch`; the handle has the definition's tables, every
+ * write is still checked against the folder's own definition, and
+ * `epicenter.json` is never written.
  *
  * - `{ app, definition }`: an app opening its folder. `app` is the app's
  *   id, as its manifest names it, such as `so.epicenter.todos`. On the
@@ -160,25 +160,24 @@ type HostOptions = {
  * An `id` is never a path. A browser names its directory after it; the
  * desktop shell maps it to a directory it registered.
  */
-export type OpenFolderOptions<
-	TDefinition extends FolderDefinition = FolderDefinition,
-> = DefinedFolderOptions<TDefinition> | DeclaredFolderOptions;
+export type OpenFolderOptions<TDefinition extends Definition = Definition> =
+	| DefinedFolderOptions<TDefinition>
+	| DeclaredFolderOptions;
 
 /** The forms that read a folder through a definition: `{ app }` and `{ id }`. */
-export type DefinedFolderOptions<TDefinition extends FolderDefinition> =
-	HostOptions &
-		(
-			| {
-					readonly app: string;
-					readonly definition: TDefinition;
-					readonly id?: never;
-			  }
-			| {
-					readonly id: string;
-					readonly definition: TDefinition;
-					readonly app?: never;
-			  }
-		);
+export type DefinedFolderOptions<TDefinition extends Definition> = HostOptions &
+	(
+		| {
+				readonly app: string;
+				readonly definition: TDefinition;
+				readonly id?: never;
+		  }
+		| {
+				readonly id: string;
+				readonly definition: TDefinition;
+				readonly app?: never;
+		  }
+	);
 
 /** `{ id }` alone: the folder read with its own `epicenter.json`. */
 export type DeclaredFolderOptions = HostOptions & {
@@ -190,15 +189,15 @@ export type DeclaredFolderOptions = HostOptions & {
 /**
  * The one opener signature. Every entry but `/bun`, which opens a directory
  * by its path, exports an `openFolder` of exactly this type. The handle's
- * `definition` is the folder's own declaration wherever the folder is not
+ * `definition` is the folder's own definition wherever the folder is not
  * the app's own, so it is typed as any definition. Without a definition the
  * tables are the folder's own, typed as any, whatever a caller claims.
  */
 export type OpenFolder = {
-	<const TDefinition extends FolderDefinition>(
+	<const TDefinition extends Definition>(
 		options: DefinedFolderOptions<TDefinition>,
-	): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>>;
+	): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>>;
 	(
 		options: DeclaredFolderOptions,
-	): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>;
+	): Promise<Result<Folder<Definition>, OpenFolderError>>;
 };

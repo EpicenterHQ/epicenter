@@ -30,7 +30,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { OpenFolder, OpenFolderOptions } from './contract.js';
-import type { FolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import {
@@ -112,10 +112,10 @@ async function handedFolder(
  * repository; the first commit does.
  */
 export async function openAnyFolder<
-	const TDefinition extends FolderDefinition = FolderDefinition,
+	const TDefinition extends Definition = Definition,
 >(
 	options: OpenFolderOptions<TDefinition>,
-): Promise<Result<Folder<TDefinition, FolderDefinition>, OpenFolderError>> {
+): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>> {
 	if (!isTauri()) return OpenFolderError.NotTauri();
 	let id: string;
 	if (options.app === undefined) id = options.id;

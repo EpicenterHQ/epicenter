@@ -13,6 +13,7 @@ import * as root from './index.js';
 import {
 	type CreateRowOf,
 	type DefinedFolderOptions,
+	type Definition,
 	defineFolder,
 	defineTable,
 	type FileContent,
@@ -20,7 +21,6 @@ import {
 	type FileRead,
 	type FileTable,
 	type Folder,
-	type FolderDefinition,
 	type FolderGit,
 	type FolderLocation,
 	field,
@@ -211,7 +211,7 @@ expectTypeOf<Opened['tables']['todos']>().toEqualTypeOf<
 export type _NoKv = Opened['kv'];
 // Every handle exposes the declaration it reads with: the app's definition
 // only in the app's own folder, so it is typed as any definition.
-expectTypeOf<Opened['definition']>().toEqualTypeOf<FolderDefinition>();
+expectTypeOf<Opened['definition']>().toEqualTypeOf<Definition>();
 // And which folder it is, and whether it is the app's own.
 expectTypeOf<Opened['id']>().toEqualTypeOf<string>();
 expectTypeOf<Opened['own']>().toEqualTypeOf<boolean>();
@@ -250,12 +250,12 @@ void root.openFolder({
 
 // Without a definition, a folder by ID reads with its own schema.
 expectTypeOf(root.openFolder({ id: 'data:Groceries' })).toEqualTypeOf<
-	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+	Promise<Result<Folder<Definition>, OpenFolderError>>
 >();
-async function untypedRows(folder: Folder<FolderDefinition>) {
+async function untypedRows(folder: Folder<Definition>) {
 	// A data folder's tables are whatever its epicenter.json declares.
 	const table = folder.tables.anything;
-	expectTypeOf(folder.definition).toEqualTypeOf<FolderDefinition>();
+	expectTypeOf(folder.definition).toEqualTypeOf<Definition>();
 	void table;
 }
 void untypedRows;
@@ -269,7 +269,7 @@ const board = defineFolder({
 		}),
 	},
 });
-type ReadThrough = Folder<typeof board, FolderDefinition>;
+type ReadThrough = Folder<typeof board, Definition>;
 expectTypeOf(root.openFolder<typeof board>).returns.toEqualTypeOf<
 	Promise<Result<ReadThrough, OpenFolderError>>
 >();
@@ -285,7 +285,7 @@ async function readThroughRows() {
 		definition: board,
 	});
 	if (error !== null) {
-		if (error.name === 'ShapeMismatch')
+		if (error.name === 'DefinitionMismatch')
 			expectTypeOf(error.problems[0]!.kind).toEqualTypeOf<
 				| 'missingTable'
 				| 'incompatibleTable'
@@ -295,7 +295,7 @@ async function readThroughRows() {
 		return;
 	}
 	expectTypeOf(folder).toEqualTypeOf<ReadThrough>();
-	expectTypeOf(folder.definition).toEqualTypeOf<FolderDefinition>();
+	expectTypeOf(folder.definition).toEqualTypeOf<Definition>();
 	expectTypeOf(folder.tables.todos.canCreate).toEqualTypeOf<boolean>();
 	// @ts-expect-error The definition declares no such table.
 	void folder.tables.projects;
@@ -333,7 +333,7 @@ expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 // The directory opener is its own contract: an explicit root and history.
 const git = { author: { name: 'Tool', email: 'tool@example.test' } };
 expectTypeOf(bun.openFolder({ root: '/vault', git })).toEqualTypeOf<
-	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+	Promise<Result<Folder<Definition>, OpenFolderError>>
 >();
 // @ts-expect-error A definition-less open takes no definition type.
 void bun.openFolder<typeof definition>({ root: '/vault', git });

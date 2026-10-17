@@ -28,10 +28,10 @@
  *
  * This module writes nothing and loads no Git implementation.
  */
-import type { FolderDefinition, PreparedFolderTable } from './definition.js';
+import type { Definition, PreparedFolderTable } from './definition.js';
 import { mergeLines, type SettledRegion } from './git/merge-lines.js';
 import { frameRowText } from './markdown.js';
-import { DECLARATION_PATH, ROW_EXTENSION } from './paths.js';
+import { DEFINITION_PATH, ROW_EXTENSION } from './paths.js';
 import { type AnyRow, mergeRows, sameValue, setField } from './row-merge.js';
 import { parseRow, writeRow } from './row-text.js';
 
@@ -39,7 +39,7 @@ import { parseRow, writeRow } from './row-text.js';
 export type FileKind =
 	| { readonly kind: 'row'; readonly table: PreparedFolderTable }
 	/** `epicenter.json`, which merges whole but for the union of `local`. */
-	| { readonly kind: 'declaration' }
+	| { readonly kind: 'definition' }
 	| { readonly kind: 'file' };
 
 /** A file's content as a merge reads it: text, or bytes that may be text. */
@@ -54,10 +54,10 @@ export type FileVersions = {
 
 /** The kind of `path` under `definition`; no definition knows only plain files. */
 export function fileKindOf(
-	definition: FolderDefinition | undefined,
+	definition: Definition | undefined,
 	path: string,
 ): FileKind {
-	if (path === DECLARATION_PATH) return { kind: 'declaration' };
+	if (path === DEFINITION_PATH) return { kind: 'definition' };
 	if (definition === undefined) return { kind: 'file' };
 	const table = tableAt(definition, path);
 	return table === undefined ? { kind: 'file' } : { kind: 'row', table };
@@ -65,7 +65,7 @@ export function fileKindOf(
 
 /** The table whose row lives at `path`, if any. */
 function tableAt(
-	definition: FolderDefinition,
+	definition: Definition,
 	path: string,
 ): PreparedFolderTable | undefined {
 	if (!path.endsWith(ROW_EXTENSION)) return undefined;
@@ -161,7 +161,7 @@ export function wholeFile(
 		: { content: theirs, overridden: [{ kind: 'file', lost: 'ours' }] };
 }
 
-/** The patterns a declaration's `local` lists, or `undefined` when it is no declaration. */
+/** The patterns a definition's `local` lists, or `undefined` when it is no definition. */
 export function localPatterns(
 	content: FileContent | null,
 ): string[] | undefined {
@@ -185,10 +185,10 @@ export function localPatterns(
  * `epicenter.json` (ADR-0576, ADR-0577): the writer's whole file, with
  * `local` listing every pattern either side lists, sorted, so a path one
  * device keeps local is never committed because another device's
- * declaration won. A side that does not read as a declaration keeps the
+ * definition won. A side that does not read as a definition keeps the
  * whole-file result as it is.
  */
-function declarationWins(versions: FileVersions, winner: Winner): Merged {
+function definitionWins(versions: FileVersions, winner: Winner): Merged {
 	const won = wholeFile(versions, winner);
 	if (won.content === null) return won;
 	const sides = [localPatterns(versions.ours), localPatterns(versions.theirs)];
@@ -370,7 +370,7 @@ export async function merge(
 		return { content: versions.ours, overridden: [] };
 	if (sameContent(versions.ours, versions.base))
 		return { content: versions.theirs, overridden: [] };
-	if (kind.kind === 'declaration') return declarationWins(versions, winner);
+	if (kind.kind === 'definition') return definitionWins(versions, winner);
 	const [base, ours, theirs] = [
 		textOf(versions.base),
 		textOf(versions.ours),
