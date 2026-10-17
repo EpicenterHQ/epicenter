@@ -219,13 +219,16 @@ the shell sets when it runs the CLI, or the release app's when they are unset
 (only `id` and `title`, nothing else). `app list --repository <url>` lists
 the apps a repository holds without installing any.
 
-A commit fetched from elsewhere builds only once approved: without
-`--approve`, `install` and `update` print it with its log and diff stat and
-exit 1. A commit made on this machine builds without asking, and building it
-records it as approved. The build is `bun install --frozen-lockfile
---ignore-scripts` at the repository's root, then `bun run build:installed` in
-the app's folder, run by this binary as `bun` (`BUN_BE_BUN=1`), and its
-`dist/` is copied to `builds/<app-id>/<commit>/`. `app update --commit <sha>`,
+Every commit builds only once approved, including one made on this machine:
+without `--approve`, `install` and `update` print it with its log and diff
+stat and exit 1. The build runs in a detached `git worktree` of that commit
+under `checkouts/<app-id>/` in the cache directory, never in the clone, so
+nothing uncommitted, untracked, or ignored there reaches it: `bun install
+--frozen-lockfile --ignore-scripts` at the checkout's root, then `bun run
+build:installed` in the app's folder, run by this binary as `bun`
+(`BUN_BE_BUN=1`). Its `dist/` is copied beside `builds/<app-id>/<commit>/`
+and renamed into place, and the checkout is removed. A commit already built
+is not built again, since a window may be running that build. `app update --commit <sha>`,
 hidden, fetches nothing and acts only on that commit: the Folders window
 passes the commit it showed, so approving never covers a commit nobody saw.
 `app remove` refuses while the clone holds uncommitted changes or commits no

@@ -332,23 +332,29 @@ test('install clones and waits for approval, then approval builds', async () => 
 	);
 });
 
-test('rebuilding the same commit replaces its build without deleting it first', async () => {
+test("a commit's build is reused, never built again over a window that may be running it", async () => {
 	const f = await fixture();
 	const upstream = await appRepository(f, 'board');
 	const first = shGit(upstream, 'rev-parse', 'HEAD');
 	await install(f.paths, upstream, '', { approve: true });
 
 	// The build of `first` is there but no longer current, so opening that
-	// commit builds it again over the old directory.
+	// commit makes the same directory current again, untouched.
 	const builds = join(f.paths.buildsDir, BOARD);
-	await writeFile(join(builds, first, 'stale.txt'), 'from the old build');
+	await writeFile(join(builds, first, 'kept.txt'), 'from the first build');
+	await writeFile(join(builds, `${first}.log`), 'the first build');
 	await rm(join(builds, 'current'));
+	expect((await inspect(f.paths, BOARD)).state).toEqual({ kind: 'unbuilt' });
 	const ready = await update(f.paths, BOARD, { commit: first });
 
 	expect(ready.state).toEqual({ kind: 'ready' });
 	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
-	expect(await exists(join(builds, first, 'stale.txt'))).toBe(false);
-	// Neither the staged copy nor the old build is left beside it.
+	expect(await readFile(join(builds, first, 'kept.txt'), 'utf8')).toBe(
+		'from the first build',
+	);
+	expect(await readFile(join(builds, `${first}.log`), 'utf8')).toBe(
+		'the first build',
+	);
 	expect((await readdir(builds)).sort()).toEqual(
 		[first, `${first}.log`, 'current'].sort(),
 	);
@@ -363,9 +369,10 @@ test('approval names the commit it was shown', async () => {
 	expect(await exists(f.paths.approvalsFile)).toBe(false);
 });
 
-test('a commit made here runs without asking and is recorded', async () => {
+test('a commit made here needs approval like any other', async () => {
 	const f = await fixture();
 	const upstream = await appRepository(f, 'board');
+	const first = shGit(upstream, 'rev-parse', 'HEAD');
 	await install(f.paths, upstream, '', { approve: true });
 
 	const clone = join(f.paths.appsDir, BOARD);
@@ -374,15 +381,48 @@ test('a commit made here runs without asking and is recorded', async () => {
 		'<!doctype html><title>mine</title>',
 		'mine',
 	);
-	expect((await inspect(f.paths, BOARD)).state).toEqual({ kind: 'unbuilt' });
+	const pending = await inspect(f.paths, BOARD);
+	expect(review(pending).from).toBe(first);
+	expect(review(pending).log).toContain('mine');
+	// Opening it builds nothing until it is approved.
+	expect((await update(f.paths, BOARD, { commit: local })).state.kind).toBe(
+		'needsApproval',
+	);
+	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
 
-	const ready = await update(f.paths, BOARD, { commit: local });
+	const ready = await approve(f.paths, BOARD, local);
 	expect(ready.state).toEqual({ kind: 'ready' });
 	expect(ready.commit).toBe(local);
 	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>mine</title>');
 	expect((await readApprovals(f.paths.approvalsFile))[BOARD]?.commit).toBe(
 		local,
 	);
+});
+
+test('a commit pulled from another repository still needs approval once FETCH_HEAD moves', async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	await install(f.paths, upstream, '', { approve: true });
+	const fork = join(f.root, 'upstream', 'fork');
+	shGit(f.root, 'clone', '-q', upstream, fork);
+	const theirs = await commitPage(
+		fork,
+		'<!doctype html><title>theirs</title>',
+		'theirs',
+	);
+
+	const clone = join(f.paths.appsDir, BOARD);
+	shGit(clone, 'pull', '-q', '--ff-only', fork, 'main');
+	// A later fetch points FETCH_HEAD elsewhere, and no remote-tracking ref
+	// has the pulled commit.
+	shGit(clone, 'fetch', '-q', 'origin');
+	const app = await inspect(f.paths, BOARD);
+	expect(app.commit).toBe(theirs);
+	expect(review(app).log).toContain('theirs');
+	expect((await update(f.paths, BOARD, { commit: theirs })).state.kind).toBe(
+		'needsApproval',
+	);
+	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
 });
 
 test('a fetched commit needs approval with its log and diff', async () => {
@@ -411,6 +451,10 @@ test('a fetched commit needs approval with its log and diff', async () => {
 	expect(await servedPage(f, BOARD)).toBe(
 		'<!doctype html><title>theirs</title>',
 	);
+	// The first build stays for a window still running it.
+	expect(
+		await readFile(join(f.paths.buildsDir, BOARD, first, 'index.html'), 'utf8'),
+	).toBe('<!doctype html><title>one</title>');
 });
 
 test('a pull merged by hand still needs approval', async () => {
@@ -515,16 +559,38 @@ test('a failed build keeps the approval and serves nothing new', async () => {
 	);
 	expect(log).toContain('broken');
 	expect((await inspect(f.paths, BOARD)).state).toEqual({ kind: 'unbuilt' });
+	expect(await exists(join(f.paths.cacheDir, 'checkouts', BOARD))).toBe(false);
 });
 
-test('uncommitted changes do not build', async () => {
+test("a build holds its commit alone, none of the clone's other files", async () => {
 	const f = await fixture();
-	const pending = await install(f.paths, await appRepository(f, 'board'), '');
-	await writeFile(join(f.paths.appsDir, BOARD, 'page.html'), 'edited');
-	await expect(approve(f.paths, pending.id, pending.commit)).rejects.toThrow(
-		'not committed',
+	// The build copies whatever of these it finds next to the page.
+	const upstream = await appRepository(
+		f,
+		'board',
+		BOARD_MANIFEST,
+		`${BUILD} && for file in extra.html .env.local; do if [ -f "$file" ]; then cp "$file" dist/; fi; done`,
 	);
-	expect(await exists(f.paths.approvalsFile)).toBe(false);
+	const pending = await install(f.paths, upstream, '');
+	const clone = join(f.paths.appsDir, BOARD);
+	// An edit not committed, an untracked file, and an ignored one.
+	await writeFile(join(clone, 'page.html'), 'edited');
+	await writeFile(join(clone, 'extra.html'), 'untracked');
+	await writeAt(clone, '.git/info/exclude', '.env.local\n');
+	await writeFile(join(clone, '.env.local'), 'SECRET=1');
+
+	const ready = await approve(f.paths, pending.id, pending.commit);
+	expect(ready.state).toEqual({ kind: 'ready' });
+	const build = join(f.paths.buildsDir, BOARD, pending.commit);
+	expect(await readdir(build)).toEqual(['index.html']);
+	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
+	// The clone is left as it was, and the checkout is gone.
+	expect(await readFile(join(clone, 'page.html'), 'utf8')).toBe('edited');
+	expect(await exists(join(clone, 'dist'))).toBe(false);
+	expect(await exists(join(f.paths.cacheDir, 'checkouts', BOARD))).toBe(false);
+	expect(shGit(clone, 'worktree', 'list', '--porcelain')).not.toContain(
+		'checkouts',
+	);
 });
 
 test('listing reads every installed app and reports a broken one', async () => {
@@ -680,8 +746,8 @@ test('an app in a folder installs, records its folder, and builds there', async 
 	expect(await servedPage(f, BOARD)).toBe(
 		'<!doctype html><title>board</title>',
 	);
-	// The build ran in the app's folder.
-	expect(await exists(join(clone, 'apps/board/dist/index.html'))).toBe(true);
+	// The build ran in a checkout of the commit, never in the clone.
+	expect(await exists(join(clone, 'apps/board/dist'))).toBe(false);
 	expect(await exists(join(clone, 'dist'))).toBe(false);
 	expect((await listInstalled(f.paths))[0]?.folder).toBe('apps/board');
 });
@@ -903,7 +969,8 @@ describe.skipIf(monorepoClone === undefined)(
 					expect(shGit(clone, 'config', '--local', '--get', FOLDER_KEY)).toBe(
 						folder,
 					);
-					expect(await exists(join(clone, 'node_modules'))).toBe(true);
+					// Dependencies were installed in the checkout, not the clone.
+					expect(await exists(join(clone, 'node_modules'))).toBe(false);
 
 					const page = await servedPage(f, id);
 					expect(page).not.toContain('/apps/');
