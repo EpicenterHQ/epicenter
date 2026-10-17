@@ -39,7 +39,7 @@
  *
  * This module writes the clones, `approvals.json`, and the builds. They are
  * the only record of what is installed (ADR-0569): `epicenter app list`
- * reads them, and `so.epicenter` keeps no row per app.
+ * reads them, and no file keeps a row per app.
  */
 
 import { spawn } from 'node:child_process';

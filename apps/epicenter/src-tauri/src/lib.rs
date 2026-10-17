@@ -878,12 +878,7 @@ mod tests {
             "so.epicenter.todos",
             "com.example.board",
         ] {
-            for folder in [
-                None,
-                Some(id),
-                Some("data:Voice notes"),
-                Some("so.epicenter"),
-            ] {
+            for folder in [None, Some(id), Some("data:Voice notes")] {
                 let label = installed_window_label(id, folder);
                 assert!(selects(&capability, &label), "{label}");
             }
