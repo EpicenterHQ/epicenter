@@ -163,7 +163,7 @@ export function createHistory({
 	backend: GitBackend;
 	boundary: LockingStorage;
 	author: Author;
-	/** The prepared definition whose `local` patterns no commit carries; nothing else reads it, so it leaves with `local`. */
+	/** The prepared definition whose `local` patterns no commit carries; nothing else reads it, so it leaves with `local` (ADR-0592). */
 	definition?: Definition;
 	/**
 	 * The `local` patterns of an app reading a folder that is not its own:
@@ -315,8 +315,9 @@ export function createHistory({
 
 	/**
 	 * Files kept on this machine now: what the definition keeps and what
-	 * `epicenter.json` lists, which a Sync can change (ADR-0577). No commit carries one, whether or not `.gitignore`
-	 * names it. A definition that cannot be read is the reason, since a
+	 * `epicenter.json` lists, which a Sync can change (ADR-0577; ADR-0592
+	 * replaces both with `.gitignore`). No commit carries one, whether or not
+	 * `.gitignore` names it. A definition that cannot be read is the reason, since a
 	 * commit made without it could carry those files.
 	 */
 	async function localNow(): Promise<Result<IsLocal, string>> {

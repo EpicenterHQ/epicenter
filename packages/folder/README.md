@@ -166,8 +166,8 @@ already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 
-No publication drops a pattern: it unions `local` until templates replace
-it. Sync merges `epicenter.json` by key, where `local` is one unit, so two
+No publication drops a pattern: it unions `local` until the folder's
+`.gitignore` replaces it (ADR-0592). Sync merges `epicenter.json` by key, where `local` is one unit, so two
 devices that changed it differently since their last Sync keep this
 device's list; each device still excludes its own definition's patterns,
 and lists them again on its next publication. `.gitignore` merges by line and keeps the patterns meanwhile, so

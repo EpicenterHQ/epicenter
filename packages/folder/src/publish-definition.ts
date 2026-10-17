@@ -59,7 +59,7 @@ const PublicationError = defineErrors({
  * definition replaces what it read whole, keys only the file held included.
  * The one exception is `local`, the sorted union of the file's patterns and
  * the definition's, so a pattern a Sync brought from another device is kept
- * (ADR-0577) until templates replace `local`. A file already holding the
+ * (ADR-0577) until the folder's `.gitignore` replaces `local` (ADR-0592). A file already holding the
  * result is left as it is. Another writer landing between the read and the
  * put makes the put stale, and the publication reads that file and replaces
  * it instead, at most `WRITE_ATTEMPTS` times; it never merges with it. A
