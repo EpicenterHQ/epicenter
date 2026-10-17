@@ -232,12 +232,11 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 	);
 	expect(connected.stderr).toBe('');
 	expect(connected.code).toBe(0);
-	// The remote and the merge driver are set; the global configuration is
-	// left as it was, since only `auth login` writes the credential helper.
+	// The remote is set; the global configuration is left as it was, since
+	// only `auth login` writes the credential helper.
 	expect((await git(folder, 'remote', 'get-url', 'origin')).stdout.trim()).toBe(
 		url,
 	);
-	expect((await git(folder, 'config', 'merge.epicenter.driver')).code).toBe(0);
 	expect(await readFile(globalConfig, 'utf8')).toBe(globalBefore);
 
 	const listing = await epicenter('repos', '--json');
@@ -261,7 +260,6 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 	expect(cloned.stderr).toBe('');
 	expect(cloned.code).toBe(0);
 	expect(await readFile(join(copy, 'a.md'), 'utf8')).toBe('one\n');
-	expect((await git(copy, 'config', 'merge.epicenter.driver')).code).toBe(0);
 
 	// Each side adds a file; syncing both ways brings them together.
 	await writeFile(join(copy, 'b.md'), 'two\n');

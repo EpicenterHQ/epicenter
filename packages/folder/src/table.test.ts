@@ -418,6 +418,14 @@ test('a body write rewrites the frontmatter in the standard form and the body wi
 	expect(written.row.body).toBe('One\nTwo\nThree\n');
 });
 
+test('a write that changes nothing leaves a styled CRLF row byte for byte', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', STYLED);
+	const stored = await s.row('a');
+	mustRow(await s.table.write('a', stored.row, stored.row));
+	expect(await s.stored('todos/a.md')).toBe(STYLED);
+});
+
 test('a write keeps fields and lines another writer changed, and wins lines both changed', async () => {
 	const s = await setup();
 	const at = (title: string, body: string) =>

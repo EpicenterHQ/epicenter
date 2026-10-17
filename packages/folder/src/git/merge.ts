@@ -5,7 +5,7 @@
  * Each path that changed between the base and either head is settled once,
  * net. A path only one side changed, or both changed alike, keeps that
  * side's blob and mode exactly. A path both changed differently takes
- * `merge(kind, { base, ours, theirs })`, `ours` the device syncing. A delete
+ * `merge(path, { base, ours, theirs })`, `ours` the device syncing. A delete
  * beats an edit it never saw. A rename is a path one side deleted and the
  * same side created elsewhere with the deleted path's blob at the base, the
  * only such pair: the other side's version, and the base's, move to the new
@@ -16,12 +16,7 @@
  * A path the folder keeps local is in no merge commit (ADR-0577).
  */
 import * as git from 'isomorphic-git';
-import {
-	type FileKind,
-	merge,
-	type Overridden,
-	wholeFile,
-} from '../merge-file.js';
+import { merge, type Overridden, wholeFile } from '../merge-file.js';
 import {
 	commitTree,
 	EMPTY_TREE,
@@ -124,8 +119,7 @@ function followRenames(
 
 /**
  * Merge `ours` and `theirs` over `base` into a tree, with `ours` the writer
- * acting. `kindOf` says how each path merges; `isLocal` names the paths
- * kept out of every commit.
+ * acting. `isLocal` names the paths kept out of every commit.
  */
 export async function mergeHistories(
 	access: ObjectAccess,
@@ -133,13 +127,11 @@ export async function mergeHistories(
 		base,
 		ours,
 		theirs,
-		kindOf,
 		isLocal,
 	}: {
 		readonly base: string | undefined;
 		readonly ours: string;
 		readonly theirs: string;
-		readonly kindOf: (path: string) => FileKind;
 		readonly isLocal: (path: string) => boolean;
 	},
 ): Promise<HistoryMerge> {
@@ -168,9 +160,7 @@ export async function mergeHistories(
 			const plain = [atBase, mine, yours].every(
 				(entry) => entry === undefined || entry.mode === PLAIN,
 			);
-			const merged = !plain
-				? wholeFile(versions)
-				: await merge(kindOf(path), versions);
+			const merged = !plain ? wholeFile(versions) : await merge(path, versions);
 			for (const unit of merged.overridden)
 				overrides.push({
 					path,

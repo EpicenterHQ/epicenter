@@ -8,9 +8,6 @@
  * `sync` asks nothing: what both sides changed merges into one commit
  * whose competing units go to this folder (ADR-0576).
  *
- * A sync that connects a remote also configures the repository for
- * `epicenter merge-driver`, so terminal merges use the same merge.
- *
  * Who commits comes from the folder's Git configuration, and otherwise is
  * `Epicenter <epicenter@localhost>`. History is recorded on `main`. An
  * application's own folder (`isApplicationFolder`) may get a repository
@@ -63,7 +60,7 @@ export async function isApplicationFolder(
 
 /**
  * The request `sync`'s options make. `--to` connects the folder
- * first, and the merge driver follows from connecting: `<namespace>/<name>`
+ * first: `<namespace>/<name>`
  * names a hosted repository on this deployment (ADR-0546), whose remote is
  * `<git origin>/<namespace>/<name>.git`; anything else is the remote's URL,
  * as the desktop app passes it. A sync to any of this deployment's hosted
@@ -235,18 +232,6 @@ export async function historyCommand(
 		}
 		return fail(error instanceof Error ? error.message : String(error), json);
 	}
-	// Connecting makes the folder's repository merge by kind under plain
-	// `git merge` and `git pull` too (ADR-0566). A failure here leaves Git's
-	// text merge, which loses nothing, so it is said and not fatal.
-	if (request.op === 'sync' && request.connect !== undefined)
-		try {
-			const { configureMergeDriver } = await import('./merge-driver.ts');
-			await configureMergeDriver(dir);
-		} catch (error) {
-			writeErr(
-				`git merge will merge this folder's files as text: ${error instanceof Error ? error.message : String(error)}`,
-			);
-		}
 	if (json) process.stdout.write(`${encodeHistory(reply)}\n`);
 	else writeOut(describeReply(request, reply));
 	return historyExitCode(reply) === 0 ? EXIT.ok : EXIT.finding;

@@ -8,19 +8,20 @@
  * - Several merge bases, as hand-run merges leave, resolve to the newest by
  *   committer time, then the smallest object ID, so every host picks one
  * - A path one side changed keeps that side's blob; one both changed merges
- *   by kind with this device winning, each lost unit an override naming the
- *   losing head
+ *   by its content and extension with this device winning, each lost unit
+ *   an override naming the losing head
+ * - A Markdown row merges by field at any depth, with no definition
  * - A rename on one side carries the other side's edit to the new path
  * - A file against a directory stands beside it as `~local` or `~remote`
- * - `epicenter.json` merges whole but for `local`, which lists every
- *   pattern either side keeps; local paths are in no merge
+ * - A JSON file, `epicenter.json` included, merges key by key, nested
+ *   objects recursing, and a key both changed is this device's; local paths
+ *   are in no merge
  * - A file moved beside a directory never takes a name another file holds
  * - `mergeMessage` writes one `Overrode:` trailer per lost unit
  */
 import { expect, test } from 'bun:test';
 import * as isogit from 'isomorphic-git';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
-import { fileKindOf } from '../merge-file.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';
 import {
 	type ObjectAccess,
@@ -83,8 +84,6 @@ async function treeText(access: ObjectAccess, tree: string) {
 		out[path] = decoder.decode(await readBlob(access, entry.oid));
 	return out;
 }
-
-const plain = () => ({ kind: 'file' }) as const;
 
 test('several merge bases resolve to the newest, then the smallest object ID', async () => {
 	const withObjects = await objects();
@@ -152,7 +151,6 @@ test('one-sided changes keep their blob, and competing ones go to this device', 
 			base,
 			ours,
 			theirs,
-			kindOf: plain,
 			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
@@ -195,7 +193,6 @@ test("a rename carries the other side's edit to the new path", async () => {
 			base,
 			ours,
 			theirs,
-			kindOf: plain,
 			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
@@ -225,7 +222,6 @@ test('a file against a directory stands beside it, by the side it came from', as
 			base,
 			ours,
 			theirs,
-			kindOf: plain,
 			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
@@ -238,7 +234,44 @@ test('a file against a directory stands beside it, by the side it came from', as
 	});
 });
 
-test('epicenter.json merges whole, and local paths are in no merge', async () => {
+test('a row two levels deep merges by field, with no definition', async () => {
+	const withObjects = await objects();
+	await withObjects(async (access) => {
+		const path = 'notes/2026/walk.md';
+		const row = (title: string, done: string) =>
+			`---\ntitle: ${title}\ndone: ${done}\n---\nLeft at dawn.\n`;
+		const base = await commitOf(
+			access,
+			{ [path]: row('Walk', 'false') },
+			[],
+			100,
+		);
+		const ours = await commitOf(
+			access,
+			{ [path]: row('Evening walk', 'false') },
+			[base],
+			200,
+		);
+		const theirs = await commitOf(
+			access,
+			{ [path]: row('Walk', 'true') },
+			[base],
+			200,
+		);
+		const merged = await mergeHistories(access, {
+			base,
+			ours,
+			theirs,
+			isLocal: () => false,
+		});
+		expect(await treeText(access, merged.tree)).toEqual({
+			[path]: row('Evening walk', 'true'),
+		});
+		expect(merged.overrides).toEqual([]);
+	});
+});
+
+test('epicenter.json merges key by key, nested objects too, and local paths are in no merge', async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (theme: string, size: string) =>
@@ -265,25 +298,18 @@ test('epicenter.json merges whole, and local paths are in no merge', async () =>
 			base,
 			ours,
 			theirs,
-			kindOf: (path) => fileKindOf(undefined, path),
 			isLocal: (path) => path.endsWith('.db'),
 		});
-		// Lines that did not compete would merge as text; the declaration
-		// does not, and this device's whole file wins.
+		// Each side's key stands; the result is neither side's, so it is
+		// written with a two-space indent.
 		expect(await treeText(access, merged.tree)).toEqual({
-			'epicenter.json': declaration('2', '1'),
+			'epicenter.json': `${JSON.stringify({ meta: { theme: 2, size: 2 } }, null, 2)}\n`,
 		});
-		expect(merged.overrides).toEqual([
-			{
-				path: 'epicenter.json',
-				unit: { kind: 'file', lost: 'theirs' },
-				losing: theirs,
-			},
-		]);
+		expect(merged.overrides).toEqual([]);
 	});
 });
 
-test("epicenter.json's local lists every pattern either side keeps local", async () => {
+test("a JSON key both sides changed is this device's, an array included", async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (title: string, local: string[]) =>
@@ -310,16 +336,21 @@ test("epicenter.json's local lists every pattern either side keeps local", async
 			base,
 			ours,
 			theirs,
-			kindOf: (path) => fileKindOf(undefined, path),
 			isLocal: () => false,
 		});
-		// This device's file, with the patterns of both.
-		expect(
-			JSON.parse((await treeText(access, merged.tree))['epicenter.json']!),
-		).toEqual({
-			title: 'Mine',
-			local: ['audio/', 'cache/', 'video/'],
+		expect(await treeText(access, merged.tree)).toEqual({
+			'epicenter.json': declaration('Mine', ['audio/', 'cache/']),
 		});
+		expect(merged.overrides).toEqual(
+			['title', 'local'].map((field) => ({
+				path: 'epicenter.json',
+				unit: { kind: 'field', field },
+				losing: theirs,
+			})),
+		);
+		expect(mergeMessage('Merge', merged.overrides)).toBe(
+			`Merge\n\nOverrode: ${theirs} field="title" "epicenter.json"\nOverrode: ${theirs} field="local" "epicenter.json"`,
+		);
 	});
 });
 
@@ -343,7 +374,6 @@ test('a file moved beside a directory takes a name nothing else holds', async ()
 			base,
 			ours,
 			theirs,
-			kindOf: plain,
 			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({

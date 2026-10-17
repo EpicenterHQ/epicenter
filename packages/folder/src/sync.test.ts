@@ -21,7 +21,7 @@
  * - Only the net change of each side counts: a change made and reverted
  *   between syncs does not override the other side
  * - A rename merges the other side's edit into the renamed file
- * - A row that does not read merges as text with no frontmatter union
+ * - A row its table would refuse still merges by field: no schema takes part
  * - A push that loses a race merges again from the same local head against
  *   the new remote; it never merges its own merge, and gives up after five
  * - A push whose reply is lost still publishes, and the next Sync finds the
@@ -384,10 +384,10 @@ test("a rename merges the other side's edit into the renamed file", async () => 
 	expect(await context.remoteFile('todos/stroll.md')).toContain('done: true');
 });
 
-test('a row that does not read merges as text, and its frontmatter lines compete', async () => {
+test('a row its table would refuse still merges by field', async () => {
 	const context = await setup();
 	const { local } = context;
-	// `done` is not a boolean on either side, so the row merges as text.
+	// `done` is not a boolean on either side; the merge reads no schema.
 	const mine = row(
 		['title: Walk', 'done: maybe', 'note: mine'],
 		'Left at dawn.\n',
@@ -402,7 +402,9 @@ test('a row that does not read merges as text, and its frontmatter lines compete
 
 	synced(expectOk(await local.sync.run()));
 	expect(await text(local, TODO)).toBe(mine);
-	expect(await context.remoteMessage()).toContain(`Overrode: ${theirs} lines=`);
+	expect(await context.remoteMessage()).toContain(
+		`Overrode: ${theirs} field="note" "${TODO}"`,
+	);
 });
 
 test('a merge that would hold two paths only their case tells apart is not sent', async () => {

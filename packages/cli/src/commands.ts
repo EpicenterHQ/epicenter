@@ -71,16 +71,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 			{ name: 'allow-unrelated', hidden: true },
 			APP_LOCAL,
 		],
-		summary: 'fetch, merge by file kind, commit, and push',
+		summary: 'fetch, merge by unit, commit, and push',
 		long: true,
-	},
-	{
-		path: ['merge-driver'],
-		args: '<dir>',
-		minArgs: 1,
-		// Git runs it with four: `-- %O %A %B %P`.
-		maxArgs: 4,
-		summary: "make git merge and git pull merge the folder's files by kind",
 	},
 	{
 		path: ['clone'],

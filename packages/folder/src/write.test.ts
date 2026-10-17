@@ -10,14 +10,14 @@
  * - Units only one side changed survive; on a unit both changed, the writer
  *   acting wins, and `overridden` names the unit
  * - Two insertions at one place both survive; identical ones are one
- * - A row is written canonically, except that a row the writer left as it
- *   was is no change, so the other writer's spelling stands
+ * - Merged frontmatter keeps a side's spelling where its fields are that
+ *   side's, and is written canonically only where they are neither side's
  * - A delete and an edit are the whole file: the delete beats an edit it
  *   never saw, and only a write from no file creates one
  * - A write from no file onto a file already there is `Occupied` and
  *   changes nothing, unless the file holds the same bytes: a retried create
  *   is done
- * - A version that does not read as a row merges as text
+ * - A version whose frontmatter does not read merges as text
  * - `put` lands only while the path holds `ifMatch`, and is `'stale'`
  *   otherwise, changing nothing
  * - A write that loses a race reads and merges again, and gives up as
@@ -38,8 +38,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { openFolder } from './bun.js';
 import { defineFolder, defineTable, field, hashBytes } from './contract.js';
-import { prepareFolderDefinition } from './definition.js';
-import { fileKindOf, merge } from './merge-file.js';
+import { merge } from './merge-file.js';
 import { WRITE_ATTEMPTS, writeFile as writeFolderFile } from './write.js';
 
 const definition = defineFolder({
@@ -53,9 +52,8 @@ const definition = defineFolder({
 		}),
 	},
 });
-const prepared = expectOk(prepareFolderDefinition(definition));
-const ROW = fileKindOf(prepared, 'notes/a.md');
-const TEXT = fileKindOf(prepared, 'notes.txt');
+const ROW = 'notes/a.md';
+const TEXT = 'notes.txt';
 
 const row = (frontmatter: string[], body = '') =>
 	['---', ...frontmatter, '---', body].join('\n');
@@ -106,7 +104,7 @@ test('two appends to one body both survive, and two identical fills are one', as
 	).toEqual({ content: note('Walk', 'The answer.\n'), overridden: [] });
 });
 
-test('a merged row is written canonically, and a row the writer left alone keeps the other spelling', async () => {
+test("a row only one writer changed keeps that writer's spelling, comments included", async () => {
 	const handWritten = row(['# a comment', "title: 'Walk'", 'done: false']);
 	expect(
 		await merge(ROW, {
@@ -155,7 +153,7 @@ test('a delete and an edit are the whole file, and the delete beats the edit it 
 	).toEqual({ content: null, overridden: [] });
 });
 
-test('a version that does not read as a row merges as text, and binary is the whole file', async () => {
+test('a version whose frontmatter does not read merges as text, and binary is the whole file', async () => {
 	const broken = '---\ntitle: [unclosed\n---\n';
 	expect(
 		await merge(ROW, {
@@ -174,24 +172,25 @@ test('a version that does not read as a row merges as text, and binary is the wh
 });
 
 test('a row merged as text never joins two lines added at one place in its frontmatter', async () => {
-	const base = '---\ntitle: Walk\n---\nbody\n';
+	// No version's frontmatter reads as YAML, so the rows merge as text.
+	const base = '---\ntitle: Walk\nnote: [unclosed\n---\nbody\n';
 	const merged = await merge(ROW, {
 		base,
-		// Neither reads as a row of this table, so the rows merge as text.
-		ours: '---\ntitle: Walk\ncolor: red\n---\nbody\nmine\n',
-		theirs: '---\ntitle: Walk\ncolor: blue\n---\nbody\nyours\n',
+		ours: '---\ntitle: Walk\ncolor: red\nnote: [unclosed\n---\nbody\nmine\n',
+		theirs:
+			'---\ntitle: Walk\ncolor: blue\nnote: [unclosed\n---\nbody\nyours\n',
 	});
 	// The frontmatter lines compete, and the writer's stands alone; the
 	// body's insertions both stay.
 	expect(merged.content).toBe(
-		'---\ntitle: Walk\ncolor: red\n---\nbody\nyours\nmine\n',
+		'---\ntitle: Walk\ncolor: red\nnote: [unclosed\n---\nbody\nyours\nmine\n',
 	);
 	expect(merged.overridden).toEqual([
 		{ kind: 'lines', part: 'text', line: 3, count: 1 },
 	]);
 });
 
-test('the merge driver asks for either side to win, with the same lines kept beside it', async () => {
+test("Sync's publish asks for the file as it is now to win, with the same lines kept beside it", async () => {
 	const versions = {
 		base: 'a\nb\nc\n',
 		ours: 'a\nB (ours)\nc\nadded\n',
@@ -252,7 +251,6 @@ test('a write that loses a race reads and merges again', async () => {
 	const written = expectOk(
 		await writeFolderFile(
 			storage,
-			ROW,
 			'notes/a.md',
 			note('Walk'),
 			note('Evening walk'),
@@ -279,7 +277,7 @@ test('a file that changes on every attempt is KeptChanging, and nothing of the w
 		},
 	};
 	const error = expectErr(
-		await writeFolderFile(storage, TEXT, 'n.txt', '0\n', '0\nmine\n'),
+		await writeFolderFile(storage, 'n.txt', '0\n', '0\nmine\n'),
 	);
 	expect(error).toMatchObject({
 		name: 'KeptChanging',
@@ -372,7 +370,7 @@ test('a write that changes nothing puts nothing', async () => {
 		},
 	};
 	const written = expectOk(
-		await writeFolderFile(storage, TEXT, 'a.txt', 'old\n', 'same\n'),
+		await writeFolderFile(storage, 'a.txt', 'old\n', 'same\n'),
 	);
 	expect(puts).toBe(0);
 	expect(decoder.decode(written.file?.bytes)).toBe('same\n');

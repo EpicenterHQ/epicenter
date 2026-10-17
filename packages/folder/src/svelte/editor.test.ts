@@ -145,23 +145,16 @@ test('a file save that finds the file deleted keeps what is typed and marks it g
 
 test("another writer's lines merged between two file saves stay, and typing after a save appears once", async () => {
 	const { boundary } = await rawBrowserFolder({ id: 'editor.file' });
-	const kind = { kind: 'file' } as const;
 	const read = async () =>
 		new TextDecoder().decode(
 			(await boundary.read('notes.txt')).data?.bytes ?? new Uint8Array(),
 		);
-	await writeFile(boundary, kind, 'notes.txt', null, 'Hello\n');
+	await writeFile(boundary, 'notes.txt', null, 'Hello\n');
 	let cached = await read();
 	const text = createTextEditor({
 		current: () => cached,
 		write: async ({ from, to }) => {
-			const { data, error } = await writeFile(
-				boundary,
-				kind,
-				'notes.txt',
-				from,
-				to,
-			);
+			const { data, error } = await writeFile(boundary, 'notes.txt', from, to);
 			if (error !== null) throw error;
 			cached = await read();
 			return data.file === null ? 'gone' : 'landed';
@@ -174,7 +167,7 @@ test("another writer's lines merged between two file saves stay, and typing afte
 	await saving;
 	// Another writer appends after the saves landed, before the cache
 	// hears of it.
-	await writeFile(boundary, kind, 'notes.txt', cached, `${cached}Agent note\n`);
+	await writeFile(boundary, 'notes.txt', cached, `${cached}Agent note\n`);
 	text.change('Hello\nthere, friend!\n');
 	await text.save();
 

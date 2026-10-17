@@ -398,9 +398,9 @@ test('a write of the text that meets a change made elsewhere merges with it by l
 	typeFile(captures, PATH, `${HAND}- mine\n`);
 	await quiet(captures);
 	stop();
-	// Their changes and the added line do not compete, so both stand. A row
-	// is written in its standard form.
-	const merged = `---\ncapturedAt: "${AT}"\n---\n\nTheirs\n- mine\n`;
+	// Their changes and the added line do not compete, so both stand. The
+	// merged fields are theirs, so their frontmatter stands as they wrote it.
+	const merged = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n- mine\n`;
 	expect(harness.failures).toEqual([]);
 	expect(captures.typedText(PATH)).toBeUndefined();
 	expect(cachedText(captures, PATH)).toBe(merged);

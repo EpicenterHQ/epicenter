@@ -75,6 +75,29 @@ export function formatDefinition(definition: Definition): string {
 	)}\n`;
 }
 
+const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/**
+ * The patterns the `local` key of `epicenter.json`'s bytes lists: none when
+ * the key is absent, `undefined` when the bytes are not a JSON object or
+ * `local` is not a list of strings.
+ */
+export function localPatterns(bytes: Uint8Array | null): string[] | undefined {
+	if (bytes === null) return undefined;
+	try {
+		const value: unknown = JSON.parse(strict.decode(bytes));
+		if (typeof value !== 'object' || value === null || Array.isArray(value))
+			return undefined;
+		const local = (value as { local?: unknown }).local;
+		if (local === undefined) return [];
+		if (!Array.isArray(local) || local.some((item) => typeof item !== 'string'))
+			return undefined;
+		return local as string[];
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Read `epicenter.json` text into a definition for `prepareFolderDefinition`, or
  * say why the text is not one. Field schemas are checked when the result is

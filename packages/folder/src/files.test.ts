@@ -356,7 +356,7 @@ describe('a write reads the file it merges into, and never reads back what it wr
 		throw new Error('this test uses no Git');
 	}
 
-	test('each write and move reads its own path once, before it puts', async () => {
+	test('each write and move reads its own path before it puts', async () => {
 		const { folder, reads } = await instrumented();
 		expectOk(await folder.write('a.md', null, 'one'));
 		expectOk(await folder.write('a.md', 'one', 'two'));
@@ -377,14 +377,16 @@ describe('a write reads the file it merges into, and never reads back what it wr
 		expectOk(await folder.tables.todos.rename('r', 's'));
 		expectOk(await folder.tables.todos.delete('s'));
 		// Each write reads the file it merges into, and the declaration is read
-		// before the first put (ADR-0508); a move reads the bytes it carries;
-		// nothing reads back what it wrote.
+		// before the first put (ADR-0508); a table write reads its row once more to
+		// start from the file's own spelling; a move reads the bytes it
+		// carries; nothing reads back what it wrote.
 		expect(reads).toEqual([
 			'a.md',
 			'epicenter.json',
 			'a.md',
 			'a.md',
 			'b.md',
+			'todos/r.md',
 			'todos/r.md',
 			'todos/r.md',
 			'todos/r.md',
