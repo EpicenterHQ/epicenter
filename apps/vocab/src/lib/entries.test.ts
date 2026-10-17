@@ -388,6 +388,8 @@ test('an update that fails is reported and writes nothing; the next one writes',
 	entries.setNote(entry.id, 'kept');
 	await quiet(vocab);
 	expect(failures.map((failure) => failure.path)).toEqual([path]);
+	// The typed note is offered to copy.
+	expect(failures[0]?.unsaved).toBe('note: kept');
 	expect(await context.text(path)).toBe(saved);
 	expect(cached(vocab, 'lucid').note).toBe('');
 
@@ -478,6 +480,32 @@ test('a file that is not a valid word is named for repair, is written as typed t
 	expect(entries.repairing).toBeUndefined();
 	expect(repairsOf(listing(vocab))).toEqual([]);
 	expect(cached(vocab, 'lucid')).toMatchObject({ note: 'fixed', stage: 'new' });
+});
+
+test('a repair that fails to save offers its text, and Save again starts a save only while the repair is open', async () => {
+	const context = await setup();
+	const { vocab, entries, failures } = context;
+	const path = (await context.add('lucid')).stored.path;
+	await context.writeElsewhere(path, '---\ntext: lucid\nnote: *bad\n---\n');
+	await vocab.queryClient.invalidateQueries(vocab.queries.pathFilter([path]));
+	await quiet(vocab);
+	entries.openRepair(path);
+	cleanup.push(observe(vocab, path));
+	await quiet(vocab);
+	const typed = wordText('lucid', 'fixed', 'new');
+	entries.inputText(path, typed);
+
+	context.failNextWrite(path);
+	void entries.saveRepair();
+	await quiet(vocab);
+	expect(failures).toMatchObject([{ path, unsaved: typed }]);
+	// The repair is open, so Save again starts a save, which lands.
+	expect(failures[0]?.retry?.()).toBe(true);
+	await quiet(vocab);
+	expect(await context.text(path)).toBe(typed);
+	// Once the repair is closed there is nothing to save again.
+	expect(await entries.closeRepair()).toBe(true);
+	expect(failures[0]?.retry?.()).toBe(false);
 });
 
 // ============================================================================

@@ -48,11 +48,30 @@ export type WriteFailure = {
 	/** The text that was typed and is not in the file; `''` when none is lost. */
 	readonly unsaved: string;
 	/**
-	 * Send the edit again. Set when the edit is still on screen, so saving
-	 * it again is all the person needs to do.
+	 * Send the edit again, answering whether a save started. Set when the
+	 * edit is still on screen, so saving it again is all the person needs to
+	 * do. When none starts, the toast stays up with the text to copy.
 	 */
-	readonly retry?: () => void;
+	readonly retry?: () => boolean;
 };
+
+/**
+ * The text fields of a set that failed, as a person reads them back: one
+ * `name: value` line for each string field sent, so a typed title or note
+ * is offered to copy. Other fields, such as a checkbox, are not text the
+ * person typed; `''` when no field was text.
+ */
+export function unsavedFields(
+	fields: Readonly<Record<string, unknown>>,
+): string {
+	return Object.entries(fields)
+		.filter(
+			(entry): entry is [string, string] =>
+				typeof entry[1] === 'string' && entry[1] !== '',
+		)
+		.map(([name, value]) => `${name}: ${value}`)
+		.join('\n');
+}
 
 const UNCONFIRMED =
 	'The change was sent, but nothing confirmed it, so it may or may not have happened.';

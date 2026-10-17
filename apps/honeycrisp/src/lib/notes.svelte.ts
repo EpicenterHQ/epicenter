@@ -74,6 +74,7 @@ import {
 	ActionError,
 	type DescribedError,
 	describeWriteError,
+	unsavedFields,
 } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
@@ -318,8 +319,13 @@ export function createNotes(opened: NotesFolder) {
 		const setRow = {
 			...options.set.mutationOptions(),
 			// What was typed stays on screen, to be sent again.
-			onError: (error, { stem }) =>
-				writeFailed({ path: rowPath(name, stem), error, unsaved: '' }),
+			// A typed title or folder name is offered to copy as well.
+			onError: (error, { stem, fields }) =>
+				writeFailed({
+					path: rowPath(name, stem),
+					error,
+					unsaved: unsavedFields(fields),
+				}),
 		} satisfies ReturnType<TableOptions<TFields>['set']['mutationOptions']>;
 
 		/**
@@ -414,8 +420,14 @@ export function createNotes(opened: NotesFolder) {
 				path: rowPath(NOTES, stem),
 				error,
 				unsaved: to?.body ?? '',
+				// Starts a save only while the body is still held and the folder
+				// is not closing; otherwise the toast keeps the text to copy.
 				retry: () => {
-					if (refused() === undefined) void bodies.get(stem)?.draft.save();
+					const held = bodies.get(stem);
+					if (refused() !== undefined || held?.typed() === undefined)
+						return false;
+					void held.draft.save();
+					return true;
 				},
 			}),
 	} satisfies ReturnType<typeof queries.notes.write.mutationOptions>;

@@ -309,7 +309,7 @@ test('a set that fails is reported and writes nothing; the next one sends', asyn
 	failNextWrite(path);
 	await set(titled('First'));
 	await quiet(todos);
-	expect(failures).toMatchObject([{ path, unsaved: '' }]);
+	expect(failures).toMatchObject([{ path, unsaved: 'title: First' }]);
 	expect(await text(todos, path)).toBe(saved);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 

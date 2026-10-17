@@ -22,7 +22,7 @@
  *   as text (`notesGone`).
  */
 import type { WriteError } from '@epicenter/folder';
-import { ActionError } from '@epicenter/svelte/write-failure';
+import { ActionError, unsavedFields } from '@epicenter/svelte/write-failure';
 import { defineKeys } from 'wellcrafted/query';
 import type { Result } from 'wellcrafted/result';
 import {
@@ -78,8 +78,13 @@ export function createRows({
 		 */
 		set: {
 			...queries.todos.set.mutationOptions(),
-			onError: (error, { stem }) =>
-				writeFailed({ path: todoPath(stem), error, unsaved: '' }),
+			// A typed title is offered to copy; the view that held it may be gone.
+			onError: (error, { stem, fields }) =>
+				writeFailed({
+					path: todoPath(stem),
+					error,
+					unsaved: unsavedFields(fields),
+				}),
 		} satisfies ReturnType<typeof queries.todos.set.mutationOptions>,
 		/**
 		 * Write one todo's notes: the change from the row the edit started

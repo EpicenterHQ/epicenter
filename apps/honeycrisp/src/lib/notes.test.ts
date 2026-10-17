@@ -307,12 +307,28 @@ test('a body save that fails keeps the body on screen and says so, and Save agai
 	expect(notes.isUnsaved(A)).toBe(true);
 	expect(notes.unsaved).toBe(true);
 
-	failures[0]?.retry?.();
+	expect(failures[0]?.retry?.()).toBe(true);
 	await quiet(notes);
 	expect(failures).toHaveLength(1);
 	expect(disk.text(A)).toContain('First.\n');
 	expect(notes.isUnsaved(A)).toBe(false);
 	expect(notes.unsaved).toBe(false);
+	// The body is saved: Save again has nothing to send, and says so.
+	expect(failures[0]?.retry?.()).toBe(false);
+});
+
+test('Save again starts no save once the notes are closing, so the toast keeps the text', async () => {
+	const { notes, opened, disk, failures, closing } = await open();
+	disk.failNextWrite();
+	typeBody(notes, A, 'First.\n');
+	await quiet(notes);
+	expect(failures).toMatchObject([{ path: A }]);
+	closing();
+	disk.hold();
+	const closed = opened.close();
+	expect(failures[0]?.retry?.()).toBe(false);
+	disk.release({ all: true });
+	await closed;
 });
 
 test('a set that fails is reported and writes nothing', async () => {
@@ -321,7 +337,7 @@ test('a set that fails is reported and writes nothing', async () => {
 	disk.failNextWrite();
 	notes.patchNote(A, { title: 'First' });
 	await quiet(notes);
-	expect(failures).toMatchObject([{ path: A, unsaved: '' }]);
+	expect(failures).toMatchObject([{ path: A, unsaved: 'title: First' }]);
 	expect(disk.text(A)).toBe(before);
 	expect(cached(notes, 'a').row.fields.title).toBe('Alpha');
 });

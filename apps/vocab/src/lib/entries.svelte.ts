@@ -47,6 +47,7 @@ import {
 } from '@epicenter/folder/svelte';
 import {
 	ActionError,
+	unsavedFields,
 	type WriteFailure,
 } from '@epicenter/svelte/write-failure';
 import type { QueryClient } from '@tanstack/svelte-query';
@@ -161,8 +162,13 @@ export function createEntries(
 				unsaved: fields.note ?? '',
 			});
 		},
-		onError: (error, { stem }) =>
-			writeFailed({ path: pathOf(stem), error, unsaved: '' }),
+		// A typed note is offered to copy; the card that held it may be gone.
+		onError: (error, { stem, fields }) =>
+			writeFailed({
+				path: pathOf(stem),
+				error,
+				unsaved: unsavedFields(fields),
+			}),
 	} satisfies ReturnType<typeof queries.entries.set.mutationOptions>;
 	const setKey = setEntry.mutationKey ?? [];
 
@@ -192,8 +198,17 @@ export function createEntries(
 					writeFailed({
 						path,
 						error,
-						unsaved: '',
-						retry: () => void repair?.draft.save(),
+						unsaved:
+							(repair?.path === path ? repair.draft.typed : undefined) ??
+							change.to,
+						// Starts a save only while the repair is still open and the
+						// page is not closing.
+						retry: () => {
+							if (refused() !== undefined || repair?.path !== path)
+								return false;
+							void repair.draft.save();
+							return true;
+						},
 					}),
 			},
 			{ path, ...change },

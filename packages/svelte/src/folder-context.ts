@@ -60,8 +60,9 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	readonly writeFailed: (failure: WriteFailure) => void;
 	/**
 	 * Run `step` first when the folder closes: fence new input, or send what
-	 * is typed and not yet saved. Close then waits for every write and
-	 * action, so a save a step starts lands before the folder is released.
+	 * is typed and not yet saved. Every step starts as `close` is called, and
+	 * the steps run together. Close then waits for every write and action,
+	 * so a save a step starts lands before the folder is released.
 	 */
 	readonly beforeClose: (step: () => Promise<void> | void) => void;
 	/**
@@ -131,17 +132,20 @@ export function createFolderContext<TDefinition extends Definition>(
 		},
 		close() {
 			closing ??= (async () => {
-				// The first step starts as `close` is called, so input it fences is
-				// refused from then. A step that throws is logged; the folder is
-				// still released.
-				for (const step of steps)
-					try {
-						await step();
-					} catch (cause) {
-						log.error(
-							new Error('A step before closing the folder threw.', { cause }),
-						);
-					}
+				// Every step starts as `close` is called, so input each one fences
+				// is refused from then, and they run together. A step that throws
+				// is logged; the folder is still released.
+				await Promise.all(
+					steps.map(async (step) => {
+						try {
+							await step();
+						} catch (cause) {
+							log.error(
+								new Error('A step before closing the folder threw.', { cause }),
+							);
+						}
+					}),
+				);
 				await whenIdle(queryClient);
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: queries.key });

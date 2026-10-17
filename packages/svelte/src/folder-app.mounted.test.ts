@@ -18,11 +18,12 @@
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { defineFolder, defineTable, field } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder/browser';
 import {
 	browserStorage,
 	createTestStorage,
 } from '../../folder/src/browser-storage.test-support.js';
-import type { FolderContext } from './folder-context.js';
+import { createFolderContext, type FolderContext } from './folder-context.js';
 import { click } from './svelte-dom.test-support.js';
 import { ActionError } from './write-failure.js';
 
@@ -134,34 +135,129 @@ test('a folder that cannot open is the refusal screen, worded for it, with no ch
 	expect(target.querySelector('[data-testid="opened"]')).toBeNull();
 });
 
-test('a failed save is one toast that offers the unsaved text to copy', async () => {
+/** The clipboard answers `writeText` with `answer`; answers what it took. */
+function clipboard(answer: 'takes' | 'refuses') {
 	const copied: string[] = [];
 	Object.defineProperty(navigator, 'clipboard', {
 		configurable: true,
-		value: { writeText: async (text: string) => void copied.push(text) },
+		value: {
+			writeText: async (text: string) => {
+				if (answer === 'refuses') throw new Error('Clipboard access denied');
+				copied.push(text);
+			},
+		},
 	});
+	return copied;
+}
+
+/** Whether a toast saying `path` did not save is up. */
+const toastFor = (path: string) =>
+	document.body.textContent?.includes(`Could not save ${path}`) ?? false;
+
+/** Wait until the toast for `path` is gone, letting its exit animation end. */
+async function gone(path: string) {
+	await until(() => !toastFor(path), `the toast for ${path} to close`);
+}
+
+/** Wait a while and say whether the toast for `path` is still up. */
+async function stillUp(path: string) {
+	for (let tries = 0; tries < 60; tries++) {
+		flushSync();
+		await Bun.sleep(5);
+	}
+	return toastFor(path);
+}
+
+const deleted = ActionError.NotStarted({
+	reason: 'The note was deleted elsewhere, so your edit was not saved.',
+}).error;
+
+test('a failed save is one toast that offers the unsaved text, and closes once the clipboard took it', async () => {
+	const copied = clipboard('takes');
 	const { opened } = mountApp(createTestStorage());
 	const context = await opened;
 	cleanup.push(() => context.close());
 
 	context.writeFailed({
 		path: 'notes/a.md',
-		error: ActionError.NotStarted({
-			reason: 'The note was deleted elsewhere, so your edit was not saved.',
-		}).error,
+		error: deleted,
 		unsaved: 'What I typed',
 	});
-	await until(
-		() =>
-			document.body.textContent?.includes('Could not save notes/a.md') ?? false,
-		'the toast',
-	);
+	await until(() => toastFor('notes/a.md'), 'the toast');
 	expect(document.body.textContent).toContain(
 		'The note was deleted elsewhere, so your edit was not saved.',
 	);
 	click(document.body, 'Copy your text');
-	await Bun.sleep(0);
+	await gone('notes/a.md');
 	expect(copied).toEqual(['What I typed']);
+});
+
+test('a copy the clipboard refuses keeps the toast up, with the text to select', async () => {
+	clipboard('refuses');
+	const { opened } = mountApp(createTestStorage());
+	const context = await opened;
+	cleanup.push(() => context.close());
+
+	context.writeFailed({
+		path: 'notes/b.md',
+		error: deleted,
+		unsaved: 'Only here',
+	});
+	await until(() => toastFor('notes/b.md'), 'the toast');
+	click(document.body, 'Copy your text');
+	await until(
+		() => document.querySelector('[data-testid="unsaved-text"]') !== null,
+		'the text to select',
+	);
+	expect(await stillUp('notes/b.md')).toBe(true);
+	const box = document.querySelector<HTMLTextAreaElement>(
+		'[data-testid="unsaved-text"]',
+	);
+	expect(box?.value).toBe('Only here');
+	expect(document.body.textContent).toContain('Copying did not work');
+	// Copying again stays possible.
+	expect(document.body.textContent).toContain('Copy your text');
+});
+
+test('Save again that starts no save keeps the text offered', async () => {
+	clipboard('takes');
+	const { opened } = mountApp(createTestStorage());
+	const context = await opened;
+	cleanup.push(() => context.close());
+	let asked = 0;
+
+	context.writeFailed({
+		path: 'notes/c.md',
+		error: deleted,
+		unsaved: 'Typed body',
+		retry: () => {
+			asked++;
+			return false;
+		},
+	});
+	await until(() => toastFor('notes/c.md'), 'the toast');
+	click(document.body, 'Save again');
+	expect(asked).toBe(1);
+	expect(await stillUp('notes/c.md')).toBe(true);
+	expect(document.body.textContent).toContain('Copy your text');
+	// Nothing to save again any more: only the text is offered.
+	expect(document.body.textContent).not.toContain('Save again');
+});
+
+test('Save again that starts a save closes the toast', async () => {
+	const { opened } = mountApp(createTestStorage());
+	const context = await opened;
+	cleanup.push(() => context.close());
+
+	context.writeFailed({
+		path: 'notes/d.md',
+		error: deleted,
+		unsaved: '',
+		retry: () => true,
+	});
+	await until(() => toastFor('notes/d.md'), 'the toast');
+	click(document.body, 'Save again');
+	await gone('notes/d.md');
 });
 
 test('unmounting closes the folder once its writes land', async () => {
@@ -184,4 +280,29 @@ test('unmounting closes the folder once its writes land', async () => {
 		return refusal === 'Closed';
 	}, 'the folder to close');
 	expect(refusal).toBe('Closed');
+});
+
+test('every step before close starts when close is called', async () => {
+	const { data: folder, error } = await openFolder({
+		app: `so.epicenter.app-test-${count++}`,
+		definition,
+		browser: browserStorage(createTestStorage()),
+	});
+	if (error !== null) throw new Error(error.message);
+	const context = createFolderContext(folder);
+	const fenced: string[] = [];
+	const first = Promise.withResolvers<void>();
+	context.beforeClose(async () => {
+		fenced.push('first');
+		await first.promise;
+	});
+	context.beforeClose(() => {
+		fenced.push('second');
+	});
+	const closing = context.close();
+	// The second fence is up although the first step still waits.
+	expect(fenced).toEqual(['first', 'second']);
+	first.resolve();
+	await closing;
+	expect(folder.signal.aborted).toBe(true);
 });
