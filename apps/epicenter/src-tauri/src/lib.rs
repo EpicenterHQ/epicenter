@@ -643,7 +643,7 @@ const INSTALLED_WINDOW_PREFIX: &str = "app:";
 /// Open installed app `id`'s build of `commit`, served at
 /// `/apps/<id>/<commit>/`, in its own window on `folder`, a registered scope,
 /// or reveal the one already open on it, which keeps the build it opened on
-/// until it is closed and opened again (ADR-0585). The
+/// until it is closed and opened again (ADR-0588). The
 /// window is permitted into the folder and into `so.epicenter`, and handed
 /// the folder (`data_folders::admit_installed_window`): the app's
 /// `openFolder({ app, definition })` asks the shell for it (`window_folder`)

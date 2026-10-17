@@ -1,6 +1,6 @@
-# 0585. An installed app's window runs one approved commit's own build
+# 0588. An installed app's window runs one approved commit's own build
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "A commit made on this machine ... runs without asking" and at building in the clone, and [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at the installed app's URL, which becomes `epicenter-app://localhost/apps/<app-id>/<commit>/` and is resolved from that commit, not from `builds/<app-id>/current`.
 - **Unbuilt:** removing a build no window runs; every earlier commit's directory stays in `builds/<app-id>/`.

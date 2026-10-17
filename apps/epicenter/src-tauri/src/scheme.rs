@@ -8,7 +8,7 @@
 //!
 //! An installed app's URL names its commit, so a window keeps the build it
 //! opened on, every file of it, until it is opened again; a newer build only
-//! changes which commit the next window opens (ADR-0585).
+//! changes which commit the next window opens (ADR-0588).
 //!
 //! The handler answers GET only. It serves a regular file inside the page's
 //! or the app's directory and refuses a symbolic link and anything outside it;
@@ -39,7 +39,7 @@ pub struct Roots {
     /// Epicenter's own pages, one directory per `BuiltInApp` id.
     pub pages: PathBuf,
     /// Installed apps' builds: `<builds>/<id>/<commit>/`, the commit named by
-    /// the URL (ADR-0585).
+    /// the URL (ADR-0588).
     pub builds: PathBuf,
 }
 

@@ -22,7 +22,7 @@
 //! What stays here is what must be native: reading which build is current,
 //! which chooses the commit a new window opens, and opening an app's window
 //! at that commit with its folder grant (`open_installed_window`). An open
-//! window keeps the build it opened on (ADR-0585), so a new build changes no
+//! window keeps the build it opened on (ADR-0588), so a new build changes no
 //! open window.
 
 use std::ffi::OsString;

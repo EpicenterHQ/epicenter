@@ -1,5 +1,5 @@
 /**
- * Installed apps (ADR-0540, ADR-0552, ADR-0560, ADR-0585): an app is a folder
+ * Installed apps (ADR-0540, ADR-0552, ADR-0560, ADR-0588): an app is a folder
  * holding `epicenter.app.json` in a Git repository, the repository's root
  * unless installing names another folder. The repository is cloned into
  * `Apps/<app-id>/`, and each approved commit is built on this machine from a
@@ -646,7 +646,7 @@ export async function inspect(
 	} catch (cause) {
 		return broken(manifest.title, (cause as Error).message);
 	}
-	// A commit runs only once approved, wherever it was made (ADR-0585).
+	// A commit runs only once approved, wherever it was made (ADR-0588).
 	const approved = (await readApprovals(paths.approvalsFile))[id]?.commit;
 	let state: AppState;
 	if (approved !== commit)

@@ -448,7 +448,7 @@ commit.
 refusing while the clone holds uncommitted changes or commits no remote has;
 the window has no Remove yet.
 
-Every commit runs only once `approvals.json` names it (ADR-0585):
+Every commit runs only once `approvals.json` names it (ADR-0588):
 
 - A commit made on this machine, by a person or an agent committing in
   `Apps/<app-id>/`, waits for approval like any other.
