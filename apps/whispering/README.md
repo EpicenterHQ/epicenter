@@ -613,6 +613,8 @@ Nothing reads that data. There is no migration. The pages, sidebar, and
 recorder follow that app's layout; the code and the data underneath do not come
 from it.
 
+[Features before the file rewrite](./docs/features-before-the-file-rewrite.md) lists each earlier feature, where its code last lived, and what rebuilding it needs.
+
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the pieces fit,
 [recipes and connections](./docs/recipe-playground.md) for why requests are
 routed by device connections and what that change costs an existing folder, and
