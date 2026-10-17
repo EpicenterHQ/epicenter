@@ -73,7 +73,7 @@ so a page may still fetch another build's files.
 
 Opening an app whose window is already open on the folder reveals that
 window when it runs the requested build, and otherwise refuses with
-"<title> is open on an earlier version. Close its window, then open it
+"<title> is open on another version. Close its window, then open it
 again." Building a commit whose directory carries its `.built` file makes
 it current as it is; a directory without one, partly copied or left by
 another pipeline, is built again once. `epicenter app remove` deletes the

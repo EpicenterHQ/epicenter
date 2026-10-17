@@ -483,7 +483,7 @@ then opens the commit it answered ready in its own window, labelled
 until it is closed and opened again: a later approval and build changes
 which commit the next window opens, never an open window. Opening an app
 whose window is already open on that folder reveals that window when it runs
-the same build, and otherwise says the app is open on an earlier version.
+the same build, and otherwise says the app is open on another version.
 Navigation pins a window's page and its relative assets to its build; every
 app shares the one origin, so it does not fence requests. Opened from the Apps list, the
 app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open

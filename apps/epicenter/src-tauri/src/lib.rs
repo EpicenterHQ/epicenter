@@ -687,7 +687,7 @@ fn reveal_on_build<R: Runtime>(window: WebviewWindow<R>, path: &str, title: &str
     let open = window.url().context("read the app window's address")?;
     focus(window);
     if !open.path().starts_with(path) {
-        bail!("{title} is open on an earlier version. Close its window, then open it again.");
+        bail!("{title} is open on another version. Close its window, then open it again.");
     }
     Ok(())
 }
@@ -713,7 +713,7 @@ mod tests {
     /// refused, so the old build is never shown as the approved one; its own
     /// build, at any route below it, is revealed.
     #[test]
-    fn an_open_window_on_an_earlier_build_is_refused() {
+    fn an_open_window_on_another_build_is_refused() {
         let app = tauri::test::mock_builder()
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
@@ -733,7 +733,7 @@ mod tests {
         let refused = reveal_on_build(on_earlier, &approved, "Board").unwrap_err();
         assert_eq!(
             refused.to_string(),
-            "Board is open on an earlier version. Close its window, then open it again."
+            "Board is open on another version. Close its window, then open it again."
         );
         let on_route = window("app:com_example_board:62", format!("{approved}todo/42"));
         assert!(reveal_on_build(on_route, &approved, "Board").is_ok());
