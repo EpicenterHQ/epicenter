@@ -8,7 +8,8 @@
 	capture.
 -->
 <script lang="ts">
-	import { captureBody, captureDefinition } from '@epicenter/capture';
+	import { captureDefinition } from '$lib/definition.js';
+	import { captureBody } from '$lib/document.js';
 	import { parseRow, rowPath, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { Badge } from '@epicenter/ui/badge';

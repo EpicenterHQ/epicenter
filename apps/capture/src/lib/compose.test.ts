@@ -14,7 +14,7 @@
  */
 import { expect, test } from 'bun:test';
 import { frameRowText } from '@epicenter/folder';
-import { captureBody, composeBody } from './index.js';
+import { captureBody, composeBody } from './document.js';
 
 const HEAD = '---\ncapturedAt: 2026-01-01T00:00:00.000Z\n---\n';
 const OWN_LIST_THEN_OPEN_FENCE =
