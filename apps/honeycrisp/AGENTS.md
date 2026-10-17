@@ -12,26 +12,23 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   disagree with a file.
 - Do not add Yjs, a CRDT, an account, or sync to this app. Nothing in
   `src/` may import `@y/*`, `yjs`, `@epicenter/auth`, or
-  `@epicenter/sync`. `src/lib/platform-selection.test.ts` checks the
-  bundles.
+  `@epicenter/sync`. `src/lib/bundle.test.ts` checks the bundles.
 - Do not add a migration, a legacy reader, or a compatibility path for the
   earlier Yjs-backed Honeycrisp. There are no users to carry forward.
 - Opening or listing a note must not write its file. Only an edit writes.
-- Opening an initialized folder changes no saved file, commit, or ref,
-  even when its repository has no commit yet. Only missing layout is
-  initialized. Do not request a commit because a folder has no head.
-- Epicenter's shell writes nothing inside the notes directory. A missing
-  layout of Honeycrisp's own folder is created by the page through the
-  granted folder, after the shell's grant takes the folder's lock, in
-  `src/lib/platform/first-open.ts`: look first, make only the table
-  directories the listing lacks, and never retry a refusal. Table directories
-  come from the declaration; no other file is written. A folder Epicenter
+- Opening a folder changes no saved file, commit, or ref, even when its
+  repository has no commit yet. Do not request a commit because a folder has
+  no head.
+- Neither Epicenter's shell nor the page sets up a layout in the notes
+  directory. A table's directory appears with its first file, in Epicenter
+  and in a browser alike: Git keeps no empty directory. A folder Epicenter
   hands the window that is not Honeycrisp's own is opened through
-  Honeycrisp's shape and never set up.
+  Honeycrisp's shape and never written over.
 - The query cache holds what the files held when they were read (ADR-0528,
   ADR-0548). The note and folder listings, the file listing, each file
-  opened as text, and Git status are queries from the folder's options
-  (`folderOptions`) in `src/lib/notes.svelte.ts`. Do not add a second
+  opened as text, and Git status are queries from the folder's query layer
+  (`queries` in `getFolder()`, `folderOptions`) in
+  `src/lib/notes.svelte.ts`. Do not add a second
   store, a review, or a retained editor per path. `$state` holds only input
   that is not saved yet: a title typed, body and text drafts, the search, a
   folder name being typed.
@@ -125,14 +122,15 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 
 ## The boundary
 
-- The page reaches its folder only through `#platform/folder`. Do not
-  detect the platform at runtime, and do not import a Node or Bun module
-  under `src/`.
+- The page reaches its folder only through `<FolderApp>` from
+  `@epicenter/svelte`, and components through `getFolder()`. Do not detect
+  the platform in app code, and do not import a Node or Bun module under
+  `src/`.
 - The installed build's folder is the one Epicenter hands the window, which
-  the shell answers the page (`window_folder`). The page opens it with
-  `openFolder({ app, definition })` from `@epicenter/folder/tauri`, which
+  the shell answers the page (`window_folder`). `<FolderApp>` opens it with
+  `openFolder({ app, definition })` from `@epicenter/folder`, which
   publishes only to Honeycrisp's own folder and reads any other through
-  Honeycrisp's definition; `folder.own` says which. Never publish Honeycrisp's
+  Honeycrisp's definition; `getFolder().isOwn` says which. Never publish Honeycrisp's
   declaration over another folder's. Shared code imports
   the folder contract from the bare `@epicenter/folder`, which each build
   aliases to its one adapter entry in `vite.config.ts`; keep
@@ -149,8 +147,9 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 - Honeycrisp has no desktop shell and no native commands of its own (ADR-0552).
   A native need is a host function Epicenter grants every installed app
   (ADR-0555, ADR-0570); do
-  not add a Tauri shell back to this app. Each leaf returns the folder
-  itself, and `notes.close()` releases it. A future reveal, ADR-0555's
+  not add a Tauri shell back to this app. `<FolderApp>` opens and releases
+  the folder; the notes fence input and send what is typed first
+  (`beforeClose`). A future reveal, ADR-0555's
   `reveal_folder`, arrives as `folder.reveal`; `FileBrowser` would add a
   **Reveal folder** button back then.
 - Do not describe the native conditional save as atomic. It compares, then

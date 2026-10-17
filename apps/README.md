@@ -32,22 +32,28 @@ export const todosDefinition = defineFolder({
 });
 ```
 
-The mounted page opens it. `@epicenter/folder` picks the desktop shell or the
-browser's storage when `openFolder` is called
-([ADR-0533](../docs/adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)),
-and an app that builds for one environment selects its leaf with
-`#platform/folder`:
+The mounted root page opens it with `<FolderApp>` from `@epicenter/svelte`,
+given the app's manifest (`epicenter.app.json`, `{ id, title }`) and its
+definition:
 
-```ts
-import { openFolder } from '@epicenter/folder/tauri';
+```svelte
+<script lang="ts">
+	import FolderApp from '@epicenter/svelte/folder-app';
+	import manifest from '../../epicenter.app.json';
+	import { todosDefinition } from '$lib/definition.js';
+	import TodosView from './components/TodosView.svelte';
+</script>
 
-const { data: folder, error } = await openFolder({
-  app: 'so.epicenter.todos',
-  definition: todosDefinition,
-});
+<FolderApp app={manifest} definition={todosDefinition}><TodosView /></FolderApp>
 ```
 
-`app` is the app's id, its manifest `id`. A folder's `epicenter.json` is
+`<FolderApp>` calls `openFolder({ app: manifest.id, definition })` from
+`@epicenter/folder`, which picks the desktop shell or the browser's storage
+when it is called
+([ADR-0533](../docs/adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md));
+`installedAppViteConfig` resolves that specifier to the build's one entry.
+An app keeps no per-host folder leaves. `app` is the app's id, its manifest
+`id`. A folder's `epicenter.json` is
 published only by the app the folder is named after
 ([ADR-0583](../docs/adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md)).
 In a browser the app opens its own folder. In the desktop app it opens the
@@ -55,8 +61,9 @@ folder the shell handed its window, which the shell answers the page, never
 its URL; any folder but its own is read through the definition and never
 written over, one that does not declare the definition's tables is refused,
 named, and what the definition keeps `local` never enters that folder's
-history. `folder.own` says whether the handle may publish, for a feature that
-belongs to the app's own folder only, such as Todos' Connect.
+history. `getFolder().isOwn`, the handle's `folder.own`, says whether the
+handle may publish, for a feature that belongs to the app's own folder only,
+such as Todos' Connect.
 
 A browser folder is the directory its ID names, and opening it writes nothing;
 the first write creates it. Its remote is its own Git configuration, set by
@@ -70,34 +77,34 @@ remote on the desktop
 
 ## Provide the folder, then read it through context
 
-This section is proposed, not built: no app has `FolderProvider` or
-`getFolder()` yet
-([ADR-0574](../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md),
-Proposed). Today every app opens its folder in its root page behind
-`{#await}`, as below, then builds its own store object around
-`folderOptions(folder)`, such as Todos' `createTodos`.
+`<FolderApp>` owns what every app root needs
+([ADR-0574](../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md)):
+one loading screen and one refusal screen worded per `OpenFolderError`; the
+page's one `QueryClient`, with one policy (fresh until the folder's change
+channel says otherwise, no retry, no wait for a network); `invalidateOnChange`
+wired once; one toast for a failed save that offers the unsaved text; and
+closing the folder after its writes when the page goes away. Nothing else is
+opened in a refused folder's place.
 
-The root page starts opening the folder when it mounts and waits with
-`{#await}`; loading and a refusal are screens. Once it is open,
-`FolderProvider` creates the page's `QueryClient`, provides
-`folderOptions(folder)` with `setFolder`, connects `invalidateOnChange` once,
-and closes the folder after its writes when the page goes away
-([ADR-0574](../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md)).
-
-```svelte
-{#await opening}<Loading … />{:then opened}
-	{#if opened.error}<Empty …>{opened.error.message}</Empty>
-	{:else}<FolderProvider folder={opened.data}>{@render children()}</FolderProvider>{/if}
-{/await}
-```
-
-Every component reads and writes through `getFolder()`:
+Every component below it reads and writes through `getFolder()`, which
+answers `{ folder, isOwn, queries, queryClient, writeFailed, beforeClose }`.
+`queries` is the TanStack Query layer over the folder (`folderOptions`):
 
 ```ts
-const folder = getFolder();
-const book = createQuery(() => folder.books.get.queryOptions(stem));
-const setBook = createMutation(() => folder.books.set.mutationOptions());
+const { queries } = getFolder<typeof reading>();
+const book = createQuery(() => queries.books.get.queryOptions(stem));
+const setBook = createMutation(() => queries.books.set.mutationOptions());
 ```
+
+An app module adds only what the folder's options do not offer, such as a
+compound action, and is named for its rows: Todos' `createTodos`,
+Honeycrisp's `createNotes`, Capture's `createCaptures`, and Vocab's
+`entries` and `chats`, which `createVocab` composes. The root view builds it
+over `getFolder()`. A save that
+fails is reported to `writeFailed` as `{ path, error, unsaved, retry? }`;
+input an app must fence or send before the folder closes goes to
+`beforeClose`. Whispering still opens its folder through its own
+`#platform/workspace` leaves.
 
 Input that is not yet committed is local `$state` bound with `bind:value`: a
 new-item box, a search, a field being typed.
@@ -115,21 +122,21 @@ or desktop restart ends the session. A folder's `close()`
 is terminal and awaitable; it settles admitted work. Navigation itself does not
 prove that pending work was saved.
 
-Application-specific platform differences use `#platform/*` subpath imports,
-resolved at build time: `#platform/folder` for the folder, `#platform/connect`
-for Connect. Tests open
-folders over a real directory with `@epicenter/folder/bun`, or over an
-in-memory OPFS stand-in.
+Application-specific platform differences that are not the folder use
+`#platform/*` subpath imports, resolved at build time, such as Todos'
+`#platform/auth` for its account and Whispering's `#platform/workspace`.
+Tests open folders over a real directory with `@epicenter/folder/bun`, or
+over an in-memory OPFS stand-in, and build the page's context with
+`createFolderContext(folder)` from `@epicenter/svelte/folder`.
 
 ## Adding an app
 
 1. Declare `defineFolder({ tables })` in `apps/<app>/src/lib/`. Preserve
    existing table and field names. Applications own fallback values; schema
    fields have no defaults.
-2. Add `#platform/folder` leaves that open the folder in the browser and, if
-   the app runs in the desktop host, through `@epicenter/folder/tauri`.
-3. Open the folder from the mounted primary route. Callback and auxiliary
-   routes must not open a second copy.
+2. Add `epicenter.app.json` with the app's `id` and `title`.
+3. Mount `<FolderApp>` in the primary route, and build the app's views over
+   `getFolder()`. Callback and auxiliary routes must not open a second copy.
 4. Write work into the folder when it starts, not when the page leaves. A
    sync is an explicit action.
 5. If the app needs the hosted API in development, add a `dev:<app>` script at
