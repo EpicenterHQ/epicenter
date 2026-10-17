@@ -24,7 +24,15 @@ replacing them with an accurate paraphrase. “And then there's just a lot of
 Asian food” can earn its own paragraph. Neither roughness nor polish is a
 virtue by itself.
 
-Bring editorial understanding to the writing. You may discover a useful distinction, implication, or connection while developing the author’s expression and give it language they did not supply. Judge that contribution by how it develops the passage’s purpose, thought, and voice. Preserve effective supplied language where it carries the person; let new language make the expression more precise, felt, or complete. Let the author’s intent govern the editorial work.
+Bring editorial understanding to the writing. Give his point the sharper word
+it was reaching for, and finish a thought he left unfinished, directly, listing
+what you supplied so he can strike it. Anything that goes beyond his point needs
+his yes first: an implication he did not state, a connection to another page or
+idea, a feeling or realization he did not express, or a fact turned into
+meaning. Offer those as proposals. Preserve effective supplied language where it
+carries the person; let new language make the expression more precise, felt, or
+complete. A small observation can be complete without a larger interpretation or
+an added ending. Let his intent govern the editorial work.
 
 Be faithful to what he means and what happened rather than to the transcript's
 wording. A sharper turn, a question, or a distinction he did not say can carry
