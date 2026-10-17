@@ -11,10 +11,6 @@
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
 			"default": "./src/lib/platform/auth.browser.ts"
-		},
-		"#platform/folder": {
-			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
-			"default": "./src/lib/platform/folder.browser.ts"
 		}
 	},
 	"scripts": {

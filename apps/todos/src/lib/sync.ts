@@ -6,8 +6,9 @@
  * `Unrelated` until the person agrees to combine them.
  */
 import type { SyncError, SyncOutcome } from '@epicenter/folder';
+import type { ActionError } from '@epicenter/svelte/write-failure';
 import type { Result } from 'wellcrafted/result';
-import type { Session, TodosError } from './session.js';
+import type { TodosParts } from './todos.svelte.js';
 
 /** A remote to connect to; `combine` agrees to merge separate histories. */
 export type ConnectTo = { readonly url: string; readonly combine?: boolean };
@@ -17,7 +18,7 @@ export function createSync({
 	defineMutation,
 	writesSettled,
 	invalidate,
-}: Session) {
+}: TodosParts) {
 	return {
 		/** Sync now, or connect to `url` and sync. Writes still running land first. */
 		run: defineMutation({
@@ -25,7 +26,7 @@ export function createSync({
 			mutationFn: async (
 				// biome-ignore lint/suspicious/noConfusingVoidType: TanStack lets `run()` take no input only when its variables admit `void`.
 				connect: ConnectTo | void,
-			): Promise<Result<SyncOutcome, SyncError | TodosError>> => {
+			): Promise<Result<SyncOutcome, SyncError | ActionError>> => {
 				await writesSettled();
 				return !connect
 					? folder.sync.run()

@@ -23,7 +23,7 @@ import type { HttpFetch } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { auth } from '#platform/auth';
-import { TODOS_FOLDER_ID } from './platform/types.js';
+import { TODOS_FOLDER_ID } from './definition.js';
 
 export const RemoteError = defineErrors({
 	SignInRequired: () => ({

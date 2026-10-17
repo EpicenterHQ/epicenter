@@ -14,7 +14,7 @@
 	import { toastStatus } from '@epicenter/svelte/status-popover';
 	import type { CreateMutationResult } from '@tanstack/svelte-query';
 	import { Err, Ok } from 'wellcrafted/result';
-	import type { TodosError } from '$lib/session.js';
+	import type { ActionError } from '@epicenter/svelte/write-failure';
 	import { remoteLabel, syncOutcomeLine } from '$lib/status.js';
 	import { isEpicenter } from '$lib/remote.js';
 	import type { ConnectTo } from '$lib/sync.js';
@@ -27,7 +27,7 @@
 	}: {
 		open?: boolean;
 		/** The page's Sync, which connects when given a URL. */
-		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, ConnectTo | void, unknown>;
+		sync: CreateMutationResult<SyncOutcome, SyncError | ActionError, ConnectTo | void, unknown>;
 	} = $props();
 
 	const todos = getTodos();

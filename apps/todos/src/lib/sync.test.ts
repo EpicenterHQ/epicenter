@@ -18,6 +18,7 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
+import { createFolderContext } from '@epicenter/svelte/folder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -67,8 +68,9 @@ async function openDemo() {
 			},
 		}),
 	);
-	const todos = createTodos(folder);
-	cleanup.push(() => todos.close());
+	const opened = createFolderContext(folder);
+	const todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	cleanup.push(observe(todos));
 	expectOk(
 		await folder.tables.todos.create(
@@ -166,8 +168,9 @@ test('Connect sends a first folder, gives the next one its todos, and asks befor
 				},
 			}),
 		);
-		const todos = createTodos(folder);
-		cleanup.push(() => todos.close());
+		const opened = createFolderContext(folder);
+		const todos = createTodos(opened);
+		cleanup.push(() => opened.close());
 		cleanup.push(observe(todos));
 		return todos;
 	};

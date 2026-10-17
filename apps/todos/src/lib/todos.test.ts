@@ -29,6 +29,8 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { folderOptions } from '@epicenter/folder/query';
+import { createFolderContext } from '@epicenter/svelte/folder';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -45,7 +47,6 @@ import {
 	quiet,
 	rowEditor,
 } from './query.test-support.js';
-import type { WriteFailure } from './session.js';
 import { repairsOf, todosOf } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
 
@@ -93,15 +94,17 @@ async function open() {
 		}),
 	);
 	const failures: WriteFailure[] = [];
-	const todos = createTodos(folder, {
-		onWriteFailed: (failure) => failures.push(failure),
+	const opened = createFolderContext(folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
-	cleanup.push(() => todos.close());
+	const todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	cleanup.push(observe(todos));
 	await quiet(todos);
 	const faults = opfsOf(storage).faults;
 	return {
 		todos,
+		opened,
 		counter,
 		failures,
 		/** Another page of this origin, open on the same folder. */
@@ -462,14 +465,14 @@ async function textElsewhere(other: Todos['folder'], path: string) {
 }
 
 test('close waits for running saves, and every close call shares one completion', async () => {
-	const { todos, holdNextWrite, otherPage } = await open();
+	const { todos, opened, holdNextWrite, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
 	let closed = false;
-	const first = todos.close();
-	const second = todos.close();
+	const first = opened.close();
+	const second = opened.close();
 	expect(second).toBe(first);
 	void first.then(() => {
 		closed = true;
@@ -487,13 +490,13 @@ test('close waits for running saves, and every close call shares one completion'
 });
 
 test('an edit made while close waits is written before the folder closes', async () => {
-	const { todos, holdNextWrite, otherPage } = await open();
+	const { todos, opened, holdNextWrite, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const set = rowEditor(todos, stem);
 	const { held, release } = holdNextWrite();
 	void set(titled('Oat'));
 	await held;
-	const closing = todos.close();
+	const closing = opened.close();
 	// Close is waiting for the held set; this one runs after it.
 	void set(titled('Oat milk'));
 	release();

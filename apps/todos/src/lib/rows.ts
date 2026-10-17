@@ -22,8 +22,9 @@
  *   as text (`notesGone`).
  */
 import type { WriteError } from '@epicenter/folder';
+import { ActionError } from '@epicenter/svelte/write-failure';
+import { defineKeys } from 'wellcrafted/query';
 import type { Result } from 'wellcrafted/result';
-import { type Session, TodosError, todosKeys } from './session.js';
 import {
 	repairsOf,
 	type TodoListing,
@@ -31,17 +32,24 @@ import {
 	todosOf,
 	unreadableOf,
 } from './todo-listing.js';
+import type { TodosParts } from './todos.svelte.js';
+
+/** Cache identity for the mutations the app runs beyond the folder's own. */
+export const todosKeys = defineKeys({
+	/** The delete of the file at `path`, which pauses its edits. */
+	delete: (path: string) => ['todos', 'delete', path] as const,
+});
 
 export function createRows({
 	folder,
-	folder$,
+	queries,
 	queryClient,
 	defineMutation,
 	invalidate,
 	writesSettled,
-	onWriteFailed,
-}: Session) {
-	const listing = folder$.todos.list.queryOptions();
+	writeFailed,
+}: TodosParts) {
+	const listing = queries.todos.list.queryOptions();
 
 	/** Whether the cache lists `stem`: as a row, or as text that is not one. */
 	const isListed = (stem: string) =>
@@ -69,10 +77,10 @@ export function createRows({
 		 * reported; the view keeps what was typed.
 		 */
 		set: {
-			...folder$.todos.set.mutationOptions(),
+			...queries.todos.set.mutationOptions(),
 			onError: (error, { stem }) =>
-				onWriteFailed({ path: todoPath(stem), error, unsaved: '' }),
-		} satisfies ReturnType<typeof folder$.todos.set.mutationOptions>,
+				writeFailed({ path: todoPath(stem), error, unsaved: '' }),
+		} satisfies ReturnType<typeof queries.todos.set.mutationOptions>,
 		/**
 		 * Write one todo's notes: the change from the row the edit started
 		 * from to the typed body, merged by line into the file as it is now
@@ -80,23 +88,23 @@ export function createRows({
 		 * reported with the notes as text.
 		 */
 		write: {
-			...folder$.todos.write.mutationOptions(),
+			...queries.todos.write.mutationOptions(),
 			onError: (error, { stem, to }) =>
-				onWriteFailed({
+				writeFailed({
 					path: todoPath(stem),
 					error,
 					unsaved: to?.body ?? '',
 				}),
-		} satisfies ReturnType<typeof folder$.todos.write.mutationOptions>,
+		} satisfies ReturnType<typeof queries.todos.write.mutationOptions>,
 		/**
 		 * Notes typed into a todo that was deleted before they were written:
 		 * nothing writes them (a delete beats edits that never saw it), so
 		 * they are reported as a failed write, with the notes as text.
 		 */
 		notesGone(stem: string, unsaved: string) {
-			onWriteFailed({
+			writeFailed({
 				path: todoPath(stem),
-				error: TodosError.NotStarted({
+				error: ActionError.NotStarted({
 					reason: 'The todo was deleted, so your notes were not saved.',
 				}).error,
 				unsaved,

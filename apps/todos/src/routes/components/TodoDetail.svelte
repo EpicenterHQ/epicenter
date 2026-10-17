@@ -35,8 +35,8 @@
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
 	import type { TodoFields } from '$lib/definition.js';
-	import { describeError } from '$lib/describe-error.js';
-	import { todosKeys } from '$lib/session.js';
+	import { describeWriteError } from '@epicenter/svelte/write-failure';
+	import { todosKeys } from '$lib/rows.js';
 	import { todoPath } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -178,7 +178,7 @@
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { error } = await todos.rows.delete(stem);
-				if (error !== null) toast.error(`Could not delete ${path}`, { description: describeError(error) });
+				if (error !== null) toast.error(`Could not delete ${path}`, { description: describeWriteError(error) });
 				else onDeleted?.();
 			},
 		});
@@ -234,7 +234,7 @@
 			{#if pending}
 				Saving…
 			{:else if failure}
-				Not saved: {describeError(failure)}
+				Not saved: {describeWriteError(failure)}
 				<Button variant="link" size="xs" class="h-auto p-0" onclick={tryAgain}>Try again</Button>
 			{:else}
 				Saved to {path}

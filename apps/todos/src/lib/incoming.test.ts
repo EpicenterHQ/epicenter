@@ -22,6 +22,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import { createFolderContext } from '@epicenter/svelte/folder';
 import { $ } from 'bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -94,9 +95,10 @@ async function openDemo() {
 				},
 			}),
 		);
-		const todos = createTodos(folder);
+		const opened = createFolderContext(folder);
+		const todos = createTodos(opened);
 		const stop = observe(todos);
-		cleanup.push(() => todos.close());
+		cleanup.push(() => opened.close());
 		cleanup.push(stop);
 		await quiet(todos);
 		return todos;

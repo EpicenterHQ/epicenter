@@ -20,8 +20,7 @@
  * written over (ADR-0583), so an empty one is refused with how to fix it.
  */
 import { openFolder } from '@epicenter/folder/bun';
-import { todosDefinition } from '../src/lib/definition.js';
-import { TODOS_FOLDER_ID } from '../src/lib/platform/types.js';
+import { TODOS_FOLDER_ID, todosDefinition } from '../src/lib/definition.js';
 
 const [root, command, ...args] = process.argv.slice(2);
 if (root === undefined || command === undefined) {

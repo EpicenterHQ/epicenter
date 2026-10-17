@@ -4,6 +4,14 @@ import {
 	defineTable,
 	field,
 } from '@epicenter/folder';
+import manifest from '../../epicenter.app.json';
+
+/**
+ * Todos's own folder, named by its app id in `epicenter.app.json`. The
+ * browser names its OPFS directory after it; the desktop shell registers its
+ * directory under it.
+ */
+export const TODOS_FOLDER_ID = manifest.id;
 
 /**
  * Each todo is `todos/<stem>.md`: `title` and `done` in frontmatter, notes in

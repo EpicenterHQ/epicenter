@@ -191,10 +191,12 @@ overtook merges with it (`table.save`, ADR-0548). Todos follows
 `folder.onFilesChanged`, which the shell's watcher feeds
 ([above](#where-the-files-are)).
 
-The `epicenter-host` build condition selects the desktop leaf of
-`#platform/folder`, and `installedAppViteConfig` (from
-`@epicenter/vite-config`, which `vite.config.ts` builds on) resolves the bare
-`@epicenter/folder` specifier to `@epicenter/folder/tauri` for that build. That build carries the
+The page opens its folder with `<FolderApp>` from `@epicenter/svelte`, which
+calls `openFolder` from the bare `@epicenter/folder` specifier.
+`installedAppViteConfig` (from `@epicenter/vite-config`, which
+`vite.config.ts` builds on) resolves that specifier to
+`@epicenter/folder/tauri` for the installed build, and the `epicenter-host`
+build condition selects the desktop leaf of `#platform/auth`. That build carries the
 directory folder and the folder plugin's commands, and none of the browser
 folder's storage address, download, or private Git, and no Node or Bun
 module. The browser build selects the browser leaf and resolves the same
@@ -421,38 +423,37 @@ todo; `todos/a.MD` is an ordinary file.
 
 | Path | Role |
 | --- | --- |
-| `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary. It names no folder. |
+| `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary, and `TODOS_FOLDER_ID`, Todos's own folder, from `epicenter.app.json`. |
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
-| `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. It turns a failed write into a toast with **Copy your text**. |
+| `src/routes/+page.svelte` | Mounts `<FolderApp>` with the manifest, the definition, and the browser folder's author and `httpFetch`, and `TodosView` inside it. `<FolderApp>` opens the folder, shows the loading and refusal screens, owns the query client and its change wiring, turns a failed write into a toast with **Copy your text**, and closes the folder when the page goes away. |
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the folder the host handed the window (`window_folder`) through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
+| `src/lib/platform/` | The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing either opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
-| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528, ADR-0548): its own TanStack `QueryClient` with every rule (never stale, no retry, no focus refetch), the one line that wires `folder.onFilesChanged` to the cache, the browser leave check, and closing. It composes the namespaces below over one `Session`. |
-| `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |
-| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `set` options each field sends with, the `write` options the notes' body editor writes with, `create`, `listed`, `delete`, and `notesGone`, which reports notes typed into a deleted todo. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
+| `src/lib/todos.svelte.ts` | The store over the folder `getFolder()` answers (ADR-0548, ADR-0574): the browser leave check, and the namespaces below, composed over `TodosParts`, the folder's context with the query factories, `writesSettled`, and `invalidate`. |
+| `src/lib/rows.ts` | The delete's mutation key (`todosKeys`), and `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `set` options each field sends with, the `write` options the notes' body editor writes with, `create`, `listed`, `delete`, and `notesGone`, which reports notes typed into a deleted todo. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
+| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and Connect (`ConnectDialog`). `TodosView` builds the store over `getFolder()` and sets it as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
 | `packages/folder/src/git-demo-server.test-support.ts` | The loopback `git http-backend` server `apps/todos/scripts/dev.ts` starts: a bare repository plus the native checkout, shared with Git lab. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
 | `apps/todos/scripts/remote-edit.ts` | Demo fixture: a hand edit with undeclared frontmatter, committed and pushed from the native checkout with ordinary Git. |
-| `epicenter.app.json` | The manifest Epicenter installs Todos from: its id, which `src/lib/platform/types.ts` imports, and its title. |
+| `epicenter.app.json` | The manifest Epicenter installs Todos from: its id, which `src/lib/definition.ts` and `<FolderApp>` read, and its title. |
 
-Reads and saves come from the folder's options (`folderOptions` in
-`@epicenter/folder/query`). A view passes them to `createQuery` or
+Reads and saves come from the folder's query layer, `queries` in
+`getFolder()` (`folderOptions` in `@epicenter/folder/query`). A view passes them to `createQuery` or
 `createMutation`, adding `select` where it narrows a query. Git status,
 Save version, Sync, create, and delete are wellcrafted definitions: code and
 tests call a mutation, or `.fetch()` a query, and get a `Result`.
 
 The query cache holds what the files held when they were read; files are the
-truth. The store wires the folder's one channel of outside change to the
-cache in one line, `folder$.invalidateOnChange(queryClient)`, so another
+truth. `<FolderApp>` wires the folder's one channel of outside change to the
+cache once, `queries.invalidateOnChange(queryClient)`, so another
 window's save, an agent's edit, or Sync landing a change marks exactly the
 queries it names stale. TanStack's focus refetch is off, and no view has
 refresh logic of its own. The todo listing is one query
-(`folder$.todos.list`); a row that does not read as a todo is an
+(`queries.todos.list`); a row that does not read as a todo is an
 `Err(InvalidRow)` entry in it. The store defines its views over that one
 cache entry, each with `select`: the list reads `todos.rows.todos` and
 `todos.rows.repairs`, and `TodoDetail` reads `todos.rows.entry(stem)`, so
@@ -483,10 +484,9 @@ version (ADR-0576). A write to a todo deleted since writes nothing and
 resolves with `null`; the body editor then keeps the typed notes and sets
 `gone`, and `TodoDetail` hands them to `todos.rows.notesGone`, which reports
 them as a failed write with the notes as text. The URL holds which todo is open; the new todo's title lives in the
-list. Components find the store with `getTodos()` and never touch its query
-client.
+list. Components find the store with `getTodos()`.
 
-Checks: `bun run --cwd apps/todos typecheck` (both seam leaves and the Bun
+Checks: `bun run --cwd apps/todos typecheck` (both auth leaves and the Bun
 side), `bun run --cwd apps/todos test` (it builds the Folder's file exchange
 addon that the native harness needs, runs the tests on Svelte's server
 runtime, then `test:mounted`: the real views mounted in jsdom under

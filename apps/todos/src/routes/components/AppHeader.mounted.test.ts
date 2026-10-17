@@ -18,6 +18,7 @@
 import '../../lib/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
+import { createFolderContext } from '@epicenter/svelte/folder';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -58,8 +59,9 @@ async function setup({
 			browser: { ...browserStorage(storage) },
 		}),
 	);
-	const todos: Todos = createTodos(folder);
-	cleanup.push(() => todos.close());
+	const opened = createFolderContext(folder);
+	const todos: Todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	const target = document.createElement('div');
 	document.body.append(target);
 	const view = mount(AppHeaderHost, { target, props: { todos, ...props } });
