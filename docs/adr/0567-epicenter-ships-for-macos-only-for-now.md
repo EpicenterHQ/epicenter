@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "Epicenter bundles `git` only on Windows, as MinGit", its Windows installer consequence, and its MinGit checks: no release bundles `git`, and a Mac without the Command Line Tools installs them from the Folders window.
-- **Relates:** [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md) (the command link, whose platform table and NSIS hook this decision removed while 0566 was still Proposed), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (its serving probe now runs on one platform).
+- **Relates:** [ADR-0566](0566-every-git-configuration-epicenter-writes-runs-one-command-link-each-launch-repoints.md) (the command link, whose platform table and NSIS hook this decision removed while 0566 was still Proposed), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (its serving probe now runs on one platform).
 - **Unbuilt:** a release workflow for the macOS app.
 
 ## Context

@@ -4,6 +4,9 @@
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the `apps` table, the `defaultApp` setting, "Every app is a row", and the consequences that an agent lists apps by editing `so.epicenter` and that connecting it carries a person's apps to another machine: `so.epicenter` holds the `connections` table only, and the installed apps are the clones in `Apps/` with `approvals.json`.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "every app is a row, and the row gains `folder`" and the `apps` row's `folder` that lets another machine install the same app: there is no row, and `epicenter.folder` in the clone is the only record of the folder.
+- **Amended by:** [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "The CLI owns `so.epicenter`'s declaration and publishes it at every launch": there is no `so.epicenter` and no declaration.
+- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `~/Epicenter/Apps/`: the clones are in `<data_dir>/apps/`.
+- **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "the clones in `~/Epicenter/Apps/`": the installed apps are clones of built repositories in `<data_dir>/apps/<encoded address>/`.
 
 ## Context
 

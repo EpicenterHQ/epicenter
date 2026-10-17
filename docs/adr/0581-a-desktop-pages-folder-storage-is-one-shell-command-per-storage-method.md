@@ -3,6 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at its read and change commands (`read_folder_file`, `read_folder_directory`, `stat_folder_path`, `write_folder_file` and its siblings), at "a read may reach anything there, `.git` included", at a change inside `.git` being "the engine's staging files and private index copies", at a publish carrying "nothing, a file, a file with a given SHA-256, or anything", and at the desktop page's file storage being "a directory handle built on seven calls": the page names data paths only, and the shell stages, checks, and publishes each put itself.
+- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at each command's `scope` argument: it is a folder's directory name.
+- **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "The page-to-shell command set is not a cross-version contract" and "an installed app built for the old ones is rebuilt": after the first release the page API changes only by addition.
 - **Relates:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) defines the storage port these commands answer; [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) and [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) define the save lock a put takes.
 
 ## Context
