@@ -3,7 +3,6 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "One approved commit of the default branch supplies every byte a window runs" and "A window runs exactly the bytes approved": the approved commit supplies the window's page and the assets it loads by relative path.
-- **Amends:** [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) at principle 6's "one approved commit supplies every byte that runs": it supplies the page and its relative assets.
 
 ## Context
 
@@ -19,8 +18,8 @@ by absolute path, and the scheme serves it
 
 **An approved commit supplies a window's top-level page and every asset
 that page loads by relative path.** A request by absolute path to another
-build is answered from that build, which was approved when it was
-installed. No rule promises that every byte a window runs came from its own
+build is answered from any build still on disk, including a superseded
+commit's build and the builds of a removed app (ADR-0588). No rule promises that every byte a window runs came from its own
 commit.
 
 ## Consequences

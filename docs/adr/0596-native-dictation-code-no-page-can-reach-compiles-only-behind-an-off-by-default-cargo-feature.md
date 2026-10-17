@@ -2,8 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Amends:** [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) at "Clipboard-manager, global-shortcut, opener, and autostart are registered", the global-shortcut and clipboard-manager grants, and the custom Rust kept for `write_text`, `simulate_enter_keystroke`, `pause_playback`, `resume_playback`, `open_panel`, and `get_dictation_capability`: none of it is compiled, registered, or in the page API by default, until a native API decision exposes it.
-- **Amends:** [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) at "A hidden window keeps its global shortcuts live" and push-to-talk from boot: no global-shortcut plugin runs in the default shell, so neither applies until a native API decision exposes it.
+- **Amends:** [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) at "Clipboard-manager, global-shortcut, opener, and autostart are registered", the global-shortcut and clipboard-manager grants, and the custom Rust kept for `write_text`, `simulate_enter_keystroke`, `pause_playback`, `resume_playback`, `open_panel`, and `get_dictation_capability`: none of it is compiled, registered, or in the page API by default, until a native API decision exposes it. [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) at "A hidden window keeps its global shortcuts live" and push-to-talk from boot: no global-shortcut plugin runs in the default shell, so neither applies until a native API decision exposes it.
 - **Relates:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) (after the first release the page API changes only by addition).
 - **Unbuilt:** all of it: the `dictation` feature in `apps/epicenter/src-tauri/Cargo.toml`, the `cfg` gates, and a default build whose generated bindings carry none of these commands.
 
@@ -66,9 +65,9 @@ decoding (`src/audio/`), and the transcription commands pages use
 - The first release's page API holds only what a page calls today.
 - The default shell links fewer crates and runs no thread that polls the
   macOS Accessibility grant.
-- `cargo test --features dictation` is what keeps the parked code
-  compiling. Without it in CI, the code can rot until the decision that
-  needs it.
+- CI builds and tests default features only, so the parked code is not
+  compiled there and can stop compiling. Whoever turns it on for a native
+  API decision fixes what has rotted.
 - Whispering's paste at the cursor, media pause, overlay, and global
   shortcut stay unavailable in Epicenter, as they are today.
 

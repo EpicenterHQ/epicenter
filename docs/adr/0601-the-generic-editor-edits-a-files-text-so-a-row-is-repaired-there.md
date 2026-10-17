@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Amends:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "The generic editor is its own app": it edits any file's text, so an invalid row is repaired there on the desktop, and an app that runs in a browser keeps its own repair.
-- **Unbuilt:** all of it: text editing of a file in the generic editor.
+- **Relates:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) (the generic editor is its own app, reached by "Show files"), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (a row that does not fit reads as an invalid row, for repair).
+- **Unbuilt:** text editing of a file in the generic editor, and an in-app text repair in Todos, which lists invalid rows and says to fix them in a text editor (`apps/todos/src/routes/components/TodoList.svelte:95-100`), and in Whispering. Capture has one (`apps/capture/src/lib/components/TextDetail.svelte`).
 
 ## Context
 

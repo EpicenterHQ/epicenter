@@ -2,10 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Amends:** [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at `approvals.json`, `builds/<app-id>/current`, the checkout by `git worktree add` with every filter driver emptied, `<commit>.built`, "a finished build is never replaced", and the rejected alternative "`git archive` of the commit instead of a worktree": the approved commit is the clone's detached `HEAD`, a build directory is a `git archive` of that commit checked against it at every open, and per-commit directories, URLs, and window pinning stand.
-- **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "`approvals.json` keys an approval by the readable address and the commit": the approval is the clone's `HEAD`, and the clone is bare.
-- **Amends:** [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "the approvals in `approvals.json`": the clones alone record what is installed and approved.
-- **Amends:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `approvals.json` in its app-data tree: there is no such file.
+- **Amends:** [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at `approvals.json`, `builds/<app-id>/current`, the checkout by `git worktree add` with every filter driver emptied, `<commit>.built`, "a finished build is never replaced", and the rejected alternative "`git archive` of the commit instead of a worktree": the approved commit is the clone's detached `HEAD`, a build directory is a `git archive` of that commit checked against it at every open, and per-commit directories, URLs, and window pinning stand. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "`approvals.json` keys an approval by the readable address and the commit": the approval is the clone's `HEAD`, and the clone is bare. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "the approvals in `approvals.json`": the clones alone record what is installed and approved. [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `approvals.json` in its app-data tree: there is no such file.
 - **Unbuilt:** all of it: bare clones in `<data_dir>/apps/<encoded address>/` with a detached `HEAD`, their `info/attributes`, extraction by `git archive`, the check at open, and the deletions below.
 
 ## Context
@@ -38,18 +35,23 @@ commit.
 approved commit.**
 
 ```txt
-<data_dir>/apps/<encoded address>/      git clone --bare of the app's repository
+<data_dir>/apps/<encoded address>/      git clone --bare --single-branch --no-tags of the default branch
   HEAD                                  detached: the approved commit
-  config                                remote.origin.fetch = +refs/heads/*:refs/remotes/origin/*, and tags
+  config                                remote.origin.fetch = +refs/heads/<default>:refs/remotes/origin/<default>
+                                        remote.origin.tagOpt = --no-tags
   info/attributes                       * -filter -text -eol -ident -export-ignore -export-subst -working-tree-encoding
 ```
 
-- Installing clones bare and detaches `HEAD` at the commit the person
-  approves (`git update-ref --no-deref HEAD <commit>`). A clone whose `HEAD`
-  is still a symbolic ref has no approved commit and opens nothing.
-- Fetching writes `refs/remotes/origin/*` and tags and never `HEAD`. An
-  update is available when the default branch's remote-tracking ref differs
-  from `HEAD`.
+- Installing clones bare with `--single-branch --no-tags`, which fetches
+  only the default branch, records `remote.origin.tagOpt=--no-tags`, and
+  writes no fetch refspec. The installer reads
+  `<default>` from the clone's symbolic `HEAD`, writes the refspec above,
+  fetches once, and detaches `HEAD` at the commit the person approves
+  (`git update-ref --no-deref HEAD <commit>`). A clone whose `HEAD` is still
+  a symbolic ref has no approved commit and opens nothing.
+- Fetching writes `refs/remotes/origin/<default>` and never `HEAD`, and
+  never fetches the `template` branch or tags (ADR-0598). An update is
+  available when `refs/remotes/origin/<default>` differs from `HEAD`.
 - `git pull` and `git merge` refuse to run in a bare repository ("this
   operation must be run in a work tree"), so nothing but approving moves
   `HEAD`.
@@ -66,11 +68,21 @@ conversion, `ident`, working-tree encoding, `export-subst`, and
 `export-ignore`, so no file is dropped. `core.autocrlf` converts nothing
 for a path whose `text` is unset.
 
-**Opening an app checks its build directory against the commit.** Before a
-window loads `/apps/<encoded address>/<commit>/`, the opener compares the
-directory with the commit's tree, by path and blob hash. On any difference,
-or a check that cannot finish, it extracts the commit again and swaps the
-new directory into place. ADR-0588's per-commit directories and URLs, and a
+**Opening an app checks its build directory against the commit.** The
+check runs in the CLI, inside `epicenter app update --commit=<commit>`,
+which `open_installed_app` already runs before every open (ADR-0588). It
+compares `<cache_dir>/builds/<encoded address>/<commit>/` with the commit's
+tree, by path and blob hash. On any difference, or a check that cannot
+finish, the CLI extracts the commit into a fresh sibling directory and
+answers that the build was damaged.
+
+**A damaged build is switched only when no window runs it.** When
+`InstalledWindowCommits` (`apps/epicenter/src-tauri/src/lib.rs`) names no
+window on that commit, `open_installed_app` moves the damaged directory
+aside, renames the fresh one into place, removes the damaged one, and
+opens. Otherwise it leaves both directories, opens nothing, and reports the
+damaged build to the person, so the windows on that commit are closed
+before it is replaced. ADR-0588's per-commit directories and URLs, and a
 window keeping the build it opened on, stand.
 
 Deleted: `approvals.json`, `readApprovals`, and `recordApproval`;

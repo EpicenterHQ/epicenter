@@ -808,11 +808,11 @@ When you add an ADR, add its row here.
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
 | [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585; amended by 0586; amended by 0589) |
 | [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584) |
-| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597 and 0601) |
+| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597) |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Accepted (amends 0539, 0557, 0564, 0569, and 0570) |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Accepted (amends 0540 and 0561; amended by 0589 and 0597) |
-| [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Accepted (supersedes 0540; amends 0204, 0246, 0552, 0560, 0569, 0581, 0584, and 0588; amended by 0597, 0598, 0599, 0600, and 0602) |
-| [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted (amended by 0600) |
+| [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Accepted (supersedes 0540; amends 0204, 0246, 0552, 0560, 0569, 0581, 0584, and 0588; amended by 0597, 0598, 0600, and 0602) |
+| [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted |
 | [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576) |
 | [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | The hosted Git service stores data repositories and offers no rename or move | Accepted (amends 0546 and 0547; amended by 0594) |
@@ -821,7 +821,6 @@ When you add an ADR, add its row here.
 | [0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md) | Native dictation code no page can reach compiles only behind an off-by-default Cargo feature | Accepted (amends 0555 and 0563) |
 | [0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) | An installed app's approved commit is its bare clone's detached HEAD | Accepted (amends 0569, 0586, 0588, and 0589) |
 | [0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) | An app is built once and selects its host implementation at run time | Accepted (supersedes 0391; amends 0190, 0403, and 0589) |
-| [0599](0599-every-published-template-commit-keeps-a-permanent-tag-in-its-apps-repository.md) | Every published template commit keeps a permanent tag in its app's repository | Accepted (amends 0589) |
-| [0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) | An approved commit supplies a window's page and its relative assets | Accepted (amends 0589 and 0590) |
-| [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | The generic editor edits a file's text, so a row is repaired there | Accepted (amends 0586) |
+| [0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) | An approved commit supplies a window's page and its relative assets | Accepted (amends 0589) |
+| [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | The generic editor edits a file's text, so a row is repaired there | Accepted |
 | [0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) | `<FolderApp>` names its app by the last segment of its address | Accepted (amends 0589) |

@@ -3,10 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) (the build selects every implementation); the package it governed, `@epicenter/app`, no longer exists.
-- **Amends:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at "Keep consumer app conditions that select their own authentication and UI seams" and "This selector does not make a broker-authenticated app build standalone": an app's own seams select at run time too, and one build runs on every host. Failing closed on the wrong host stands.
-- **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "The publisher runs the desktop build (`EPICENTER_HOST=1`, `installedAppViteConfig` in `packages/vite-config/src/index.ts`), or the repository would hold the browser build": there is one build, and the published repository holds the same artifact a web host serves.
-- **Amends:** [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) at "An application build declares `epicenter-host` when the desktop Epicenter host serves it": no build declares a host.
-- **Unbuilt:** all of it: run-time selection of each app's seams, the one build with every route prerendered and a fallback page, the scheme serving each route's own document, the checks that replace the platform selection tests, and the deletions below.
+- **Amends:** [ADR-0403](0403-the-package-selects-its-platform-leaves-at-runtime-and-a-consumers-build-passes-no-condition.md) at "Keep consumer app conditions that select their own authentication and UI seams" and "This selector does not make a broker-authenticated app build standalone": an app's own seams select at run time too, and one build runs on every host; failing closed on the wrong host stands. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "The publisher runs the desktop build (`EPICENTER_HOST=1`, `installedAppViteConfig` in `packages/vite-config/src/index.ts`), or the repository would hold the browser build", at the browser build alone carrying the template commit's objects, and at the `template` branch's history: there is one build, the published repository holds the same artifact a web host serves, every build carries its template commit's objects, the publisher only fast-forwards `template`, and the desktop never fetches it. [ADR-0190](0190-a-build-declares-which-epicenter-owns-its-data-not-which-window-it-runs-in.md) at "An application build declares `epicenter-host` when the desktop Epicenter host serves it": no build declares a host.
+- **Unbuilt:** all of it: run-time selection of each app's seams, the one build with every route prerendered and a fallback page, the scheme serving each route's own document and the fallback document with a `<base href>`, the publisher's fast-forward-only push of `template`, the checks that replace the platform selection tests, and the deletions below. That SvelteKit's fallback document loads its assets and finds its router base through an inserted `<base href>` is not verified.
 
 ## Context
 
@@ -25,7 +23,7 @@ a fallback page, and each app's `src/routes/+layout.ts` sets
 `prerender = import.meta.env.EPICENTER_HOST === '1'` (Capture, Honeycrisp,
 Todos, Whispering).
 
-Keeping two builds honest takes:
+Keeping two builds in step takes:
 
 - `build:installed` in four apps' `package.json`;
 - `tsconfig.epicenter-host.json` in Todos and Whispering and a second
@@ -66,10 +64,24 @@ instead (ADR-0403).
 ```
 
 The desktop scheme serves a route's own prerendered document,
-`<build>/<route>/index.html`, in place of the root `index.html`. A web host
-serves the fallback page for a path with no file. The repository ADR-0589
+`<build>/<route>/index.html`, in place of the root `index.html`. A route
+with no prerendered document of its own gets the build's fallback document,
+with a `<base href>` naming the build's root,
+`/apps/<encoded address>/<commit>/`, inserted into its head, so its
+relative asset paths resolve from the build's root. A web host serves the
+fallback page for a path with no file. The repository ADR-0589
 publishes holds this build, so the bytes a person approves on the desktop
 are the bytes the app's web origin serves.
+
+**Every build carries its template commit, and `template` only moves
+forward.** The browser template objects ADR-0589 describes are in the one
+build, so every approved build, on any host, can start a folder from the
+template commit it names. The publisher pushes `template` by fast-forward
+only, so each template commit's parent is the one before it, and a newer
+build's template commit descends from the commit a folder started from;
+"Update from <app>'s template" (ADR-0585) has that commit as its base. The
+desktop never fetches the `template` branch: it starts and updates folders
+from the objects in the approved build (ADR-0597).
 
 Deleted, about 700 lines removed or rewritten:
 
@@ -80,13 +92,19 @@ Deleted, about 700 lines removed or rewritten:
   `apps/whispering/tsconfig.epicenter-host.json`, and their `svelte-check`;
 - `build:installed` in Capture, Honeycrisp, Todos, and Whispering;
 - the `prerender` conditionals in those four `+layout.ts` files;
-- both `platform-selection.test.ts` files and the module-graph helper; the
-  three `bundle.test.ts` files that import it are rewritten;
-- `.agents/skills/platform-seams/`;
+- both `platform-selection.test.ts` files, their
+  `platform-selection.test-support.ts` files, and the module-graph helper;
+  the three `bundle.test.ts` files that import it are rewritten;
+- `.agents/skills/platform-seams/`, and the `epicenter-host` guidance in
+  `.agents/skills/services-layer/references/service-organization-platforms.md`;
 - the publisher's choice of build.
 
 ## Consequences
 
+- A build carries one template commit's objects. A folder that skips
+  template commits, updating from its first to one several commits later,
+  receives a commit whose parents it lacks, which Git counts as missing
+  objects; which objects a build carries for that case is not yet decided.
 - Each repository carries about 1 MB of the other host's chunks, which a
   page on this host never loads.
 - Boot takes one more request: the chosen implementation's chunk loads
@@ -96,8 +114,6 @@ Deleted, about 700 lines removed or rewritten:
   loads, in place of reading two bundles' module graphs.
 - A browser tab and a desktop window run one build, so a fix tested in one
   is the fix shipped to the other.
-- ADR-0589's browser template objects are in every build, whichever host
-  runs it.
 
 ## Considered alternatives
 
