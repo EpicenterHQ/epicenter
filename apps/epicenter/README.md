@@ -241,10 +241,11 @@ app is first opened; if the Folders window already holds it under the data
 scope, both scopes share the one root and publish under its one mutex
 (ADR-0568).
 
-The page opens the folder with `@epicenter/folder`'s own engine: reads and
-writes through the shell (`read_folder_file`, `write_folder_file`), which read
-only beneath the root, never through a link, and change only data paths the
-shared path rule accepts, never Git's own state. Its history runs in the
+The page opens the folder with `@epicenter/folder`'s own engine: its storage
+is the shell's commands, one per storage method (`read_folder_file`,
+`put_folder_file`, and the rest, ADR-0581), which reach only data paths
+beneath the root that the shared path rule accepts, never through a link and
+never Git's own state. Its history runs in the
 `epicenter` CLI: the shell's `status`, `history`, `save_version`, and `sync`
 (`src-tauri/src/history.rs`) each run one child over a folder the
 window was granted, granted to the Folders window and to every installed app's

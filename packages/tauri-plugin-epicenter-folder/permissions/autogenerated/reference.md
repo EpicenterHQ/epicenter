@@ -5,13 +5,12 @@ Ask for the folder the shell registered for this window, then read and change it
 #### This default permission set includes the following:
 
 - `allow-grant-directory`
-- `allow-read-folder-directory`
-- `allow-stat-folder-path`
+- `allow-list-folder`
+- `allow-read-folder-children`
 - `allow-read-folder-file`
-- `allow-write-folder-file`
-- `allow-rename-folder-path`
-- `allow-remove-folder-path`
+- `allow-put-folder-file`
 - `allow-make-folder-directory`
+- `allow-remove-folder-directory`
 
 ## Permission Table
 
@@ -51,6 +50,32 @@ Denies the grant_directory command without any pre-configured scope.
 <tr>
 <td>
 
+`epicenter-folder:allow-list-folder`
+
+</td>
+<td>
+
+Enables the list_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-list-folder`
+
+</td>
+<td>
+
+Denies the list_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `epicenter-folder:allow-make-folder-directory`
 
 </td>
@@ -77,12 +102,12 @@ Denies the make_folder_directory command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-read-folder-directory`
+`epicenter-folder:allow-put-folder-file`
 
 </td>
 <td>
 
-Enables the read_folder_directory command without any pre-configured scope.
+Enables the put_folder_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -90,12 +115,38 @@ Enables the read_folder_directory command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:deny-read-folder-directory`
+`epicenter-folder:deny-put-folder-file`
 
 </td>
 <td>
 
-Denies the read_folder_directory command without any pre-configured scope.
+Denies the put_folder_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-read-folder-children`
+
+</td>
+<td>
+
+Enables the read_folder_children command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-read-folder-children`
+
+</td>
+<td>
+
+Denies the read_folder_children command without any pre-configured scope.
 
 </td>
 </tr>
@@ -129,25 +180,12 @@ Denies the read_folder_file command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-remove-folder-path`
+`epicenter-folder:allow-remove-folder-directory`
 
 </td>
 <td>
 
-Enables the remove_folder_path command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-remove-folder-path`
-
-</td>
-<td>
-
-Denies the remove_folder_path command without any pre-configured scope.
+Enables the remove_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -155,77 +193,12 @@ Denies the remove_folder_path command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-rename-folder-path`
+`epicenter-folder:deny-remove-folder-directory`
 
 </td>
 <td>
 
-Enables the rename_folder_path command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-rename-folder-path`
-
-</td>
-<td>
-
-Denies the rename_folder_path command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-stat-folder-path`
-
-</td>
-<td>
-
-Enables the stat_folder_path command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-stat-folder-path`
-
-</td>
-<td>
-
-Denies the stat_folder_path command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-write-folder-file`
-
-</td>
-<td>
-
-Enables the write_folder_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-write-folder-file`
-
-</td>
-<td>
-
-Denies the write_folder_file command without any pre-configured scope.
+Denies the remove_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>

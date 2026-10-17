@@ -262,20 +262,18 @@ export const OpenFolderError = defineErrors({
 export type OpenFolderError = InferErrors<typeof OpenFolderError>;
 
 /**
- * Internal: a change whose outcome is unknown, such as a stream that failed
- * to close, a file it created whose absence could not be shown after it
- * failed, or a removal whose reply was lost and whose path is still there.
- * Git work that meets one reports `unconfirmed`, never `failed`, and does not
- * treat the private file's current bytes as proof of what landed; file
- * storage reports `Unconfirmed`.
+ * Internal: a write whose outcome is unknown, such as a stream that failed
+ * to close, or a file it created whose absence could not be shown after it
+ * failed. Git work that meets one reports `unconfirmed`, never `failed`, and
+ * does not treat the private file's current bytes as proof of what landed;
+ * file storage reports `Unconfirmed`.
  */
 export class UnconfirmedWrite extends Error {
 	constructor(
 		readonly path: string,
 		cause: unknown,
-		done: 'written' | 'removed' = 'written',
 	) {
-		super(`Whether '${path}' was ${done} is unknown: ${describe(cause)}`, {
+		super(`Whether '${path}' was written is unknown: ${describe(cause)}`, {
 			cause,
 		});
 		this.name = 'UnconfirmedWrite';
@@ -283,8 +281,20 @@ export class UnconfirmedWrite extends Error {
 }
 
 /**
- * Internal: a directory host checked what a publishing rename or a removal
- * expected at its path, found something else, and changed nothing. `found`
+ * Internal: a host refused a change before making any of it, such as a save
+ * lock it could not take in time. File storage reports it as `Io`, never
+ * `Unconfirmed`. Its message is the refusal's.
+ */
+export class NothingChanged extends Error {
+	constructor(cause: unknown) {
+		super(describe(cause), { cause });
+		this.name = 'NothingChanged';
+	}
+}
+
+/**
+ * Internal: the Bun directory host checked what a publishing rename or a
+ * removal expected at its path, found something else, and changed nothing. `found`
  * says what: a file with other bytes (`actualSha256`, or `undefined` when no
  * file is there), something where nothing was expected, or nothing where a
  * file was. File storage answers it as a `'stale'` put, never as

@@ -45,8 +45,11 @@ import {
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import { createDirectoryStorage } from './directory-store.js';
-import { OpenFolderError } from './errors.js';
+import {
+	createDirectoryStorage,
+	sweepStaleScratch,
+} from './directory-store.js';
+import { NothingChanged, OpenFolderError } from './errors.js';
 import type { Folder, FolderGitOptions, FolderHistory } from './folder.js';
 import type { GitCredentials } from './git/http.js';
 import { createMutex } from './git/mutex.js';
@@ -149,6 +152,8 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
 		return OpenFolderError.InvalidDefinition(definitionError);
+	// What a stopped write staged an hour or more ago goes before opening.
+	await sweepStaleScratch(resolved, savingPrimitives(resolved));
 	const opened = directory(resolved);
 	return openDirectoryFolder<TDefinition>({
 		schema: prepared,
@@ -188,6 +193,8 @@ export async function openDataFolder<
 		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
 		shape = prepared;
 	}
+	// What a stopped write staged an hour or more ago goes before opening.
+	await sweepStaleScratch(resolved, savingPrimitives(resolved));
 	const opened = directory(resolved);
 	return openDirectoryFolder<TLens, FolderDefinition>({
 		schema: 'declared',
@@ -368,12 +375,11 @@ export async function directoryRoot(
 	}
 }
 
-/** This process's file system at `resolved`, and the folder's storage over it. */
+/** The folder's storage over this process's file system at `resolved`. */
 function directory(resolved: string) {
 	const files = savingPrimitives(resolved);
 	return {
 		rootPath: resolved,
-		files,
 		storage: createDirectoryStorage({
 			root: resolved,
 			primitives: files,
@@ -496,7 +502,8 @@ const lockTurns = new Map<string, ReturnType<typeof createMutex>>();
  * Work in this process takes turns first, so only one connection per lock
  * waits on the file lock, and it waits by polling with timers, never by
  * blocking the event loop. When another process still holds it after
- * `waitMs` (at once, for `0`), it throws `held` before `work` runs. A path
+ * `waitMs` (at once, for `0`), it throws `held` before `work` runs, as
+ * `NothingChanged`, which every failure to take the lock is. A path
  * that is a link or not a regular file is refused, so the lock is never
  * taken on a database somewhere else.
  */
@@ -511,7 +518,11 @@ export function holdingFileLock<T>(
 		lockTurns.set(path, turn);
 	}
 	return turn.run(async () => {
-		const database = await takeFileLock(path, waitMs, held);
+		const database = await takeFileLock(path, waitMs, held).catch(
+			(cause: unknown) => {
+				throw new NothingChanged(cause);
+			},
+		);
 		try {
 			return await work();
 		} finally {

@@ -1,8 +1,8 @@
 /**
- * The file system calls a directory folder is built on (`directory-store.ts`),
- * which each host supplies: `node:fs` in Bun (`directory-node.ts`), and the
- * folder plugin's commands on the desktop (`directory-tauri.ts`). Paths are
- * absolute and use `/`.
+ * The file system calls the directory storage is built on
+ * (`directory-store.ts`), which Bun supplies over `node:fs`
+ * (`directory-node.ts`). A desktop page has none: the shell answers each
+ * storage method itself (`tauri-files.ts`). Paths are absolute and use `/`.
  */
 
 /**

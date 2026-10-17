@@ -3,31 +3,43 @@
  * directory, for tests that run the production desktop opener
  * (`@epicenter/folder/tauri`) and everything above it.
  *
- * The shell grants the window one directory (`grant_directory`). The page
- * reads and changes it through the folder plugin's commands, and its history
- * runs in the `epicenter` CLI through the shell's history commands
- * (ADR-0559). Here `node:fs` stands in for the plugin, and the CLI's engine
- * runs in this process (`answerShellHistory`), failing as each fails: a
- * refused read or staged write is text carrying the operating system's
- * reason, and a refused rename or removal is the plugin's `ChangeError`. A
- * rename or removal lands only if its path holds what the page expected,
- * checked when the change is made, as the plugin checks it. A test installs
- * `invoke` with `mock.module`, then opens the folder the way its app does.
+ * The shell grants the window one directory (`grant_directory`). The page's
+ * storage is the folder plugin's commands, one per storage method
+ * (ADR-0581), and its history runs in the `epicenter` CLI through the
+ * shell's history commands (ADR-0559). Here the Bun directory storage over
+ * `node:fs` (`directory-store.ts`), whose outcomes the plugin's
+ * `storage.rs` matches, answers each storage command, and the CLI's engine
+ * runs in this process (`answerShellHistory`). A command answers as the
+ * plugin does: its value, or a rejection with the plugin's `StorageError`,
+ * where a failure the shell reports changed nothing and so is `Io`, never
+ * `Unconfirmed`. A grant sweeps staged files an hour old, as the shell's
+ * does. A test installs `invoke` with `mock.module`, then opens the folder
+ * the way its app does.
  *
- * A data file is published as the engine publishes one: its bytes are staged
- * under `.git/epicenter/scratch` and renamed over the path, or the path is
- * removed. A test decides when such a change is made (`beforeChange`),
- * whether it fails before it lands (`refuseNext`), what happens once it
- * landed (`afterChange`), and whether its reply is lost after it landed
- * (`loseReplies`). Reads of a path can fail (`failReads`). What a handle
- * publishes before its first write, `epicenter.json` and `.gitignore`, is
- * outside every control. Nothing here checks paths the way the shell does;
- * `packages/tauri-plugin-epicenter-folder` tests what it allows.
+ * A data file is published as the shell publishes one: its bytes are staged
+ * under `.git/epicenter/scratch` and renamed over the path once the path is
+ * checked, or the path is checked and removed. A test decides when such a
+ * change is made, before the check (`beforeChange`), whether it fails
+ * before it lands (`refuseNext`), what happens once it landed
+ * (`afterChange`), and whether its reply is lost after it landed
+ * (`loseReplies`, or a throw in `afterChange`): the command then rejects
+ * with something other than a `StorageError`, as a lost reply does. A
+ * directory removal is no data change: it can lose its reply after it
+ * landed (`loseDirectoryReplies`), and nothing else. Reads of a path can
+ * fail (`failReads`). What a handle publishes before its
+ * first write, `epicenter.json` and `.gitignore`, is outside every control.
+ * `packages/tauri-plugin-epicenter-folder` tests the plugin's own checks.
  */
-import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Result } from 'wellcrafted/result';
+import { isStaleScratch, SCRATCH_DIRECTORY } from './boundary.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
+import { createDirectoryStorage } from './directory-store.js';
+import { describe, type FileError } from './errors.js';
+import type { StorageError } from './native/bindings.gen.js';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
@@ -37,8 +49,8 @@ export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
 /**
  * The arguments of one `invoke`, as the shell reads them. A command that takes
- * a raw body (`write_folder_file`) carries the rest in percent-encoded
- * headers, decoded here beside the body as `bytes`.
+ * a raw body (`put_folder_file`) carries the rest in percent-encoded headers,
+ * decoded here beside the body as `bytes`.
  */
 export function shellArguments(
 	body: Record<string, unknown> | Uint8Array = {},
@@ -58,72 +70,35 @@ export type DataChange =
 
 /** What a handle publishes before its first write: outside every control. */
 const PUBLISHED = new Set(['epicenter.json', '.gitignore']);
-const SCRATCH = '/.git/epicenter/scratch/';
 
-/** The plugin's errors are text carrying the operating system's message. */
-async function asPluginError<T>(work: () => Promise<T>): Promise<T> {
-	try {
-		return await work();
-	} catch (cause) {
-		const code = (cause as { code?: string }).code;
-		const os = code === 'ENOENT' ? 2 : code === 'EEXIST' ? 17 : 5;
-		throw `failed with error: ${String(cause)} (os error ${os})`;
+/** A storage failure as the plugin answers it. */
+function storageError(error: FileError): StorageError {
+	switch (error.name) {
+		case 'InvalidPath':
+			return { name: error.name, path: error.path, reason: error.reason };
+		case 'NotFound':
+		case 'NotAFile':
+		case 'NotADirectory':
+		case 'DirectoryNotEmpty':
+			return { name: error.name, path: error.path };
+		case 'Io':
+		case 'Unconfirmed':
+			return {
+				name: 'Io',
+				path: error.path,
+				operation: error.operation,
+				message: describe(error.cause),
+			};
+		case 'Closed':
+			throw new Error('the shell never answers Closed');
 	}
 }
 
-/**
- * A rename's or removal's failure as the plugin refuses it: `NotFound` for a
- * removal of a missing path, `Failed` with the reason otherwise.
- */
-async function asChangeError<T>(
-	work: () => Promise<T>,
-	operation: 'rename' | 'remove',
-): Promise<T> {
-	try {
-		return await work();
-	} catch (cause) {
-		if (
-			operation === 'remove' &&
-			(cause as { code?: string }).code === 'ENOENT'
-		)
-			throw { name: 'NotFound' };
-		throw { name: 'Failed', message: String(cause) };
-	}
-}
-
-/** Refuse, as the plugin does, unless `path` holds what `expected` says. */
-async function expectAt(path: string, expected: unknown): Promise<void> {
-	if (expected === undefined || expected === 'any') return;
-	const found = await nodeFs.lstat(path).catch(() => undefined);
-	if (expected === 'absent') {
-		if (found !== undefined) throw { name: 'Exists' };
-		return;
-	}
-	if (expected === 'present') {
-		if (found === undefined) throw { name: 'NotFound' };
-		return;
-	}
-	if (!found?.isFile()) throw { name: 'Conflict', actualSha256: null };
-	const actualSha256 = createHash('sha256')
-		.update(await nodeFs.readFile(path))
-		.digest('hex');
-	if (actualSha256 !== (expected as { sha256: string }).sha256)
-		throw { name: 'Conflict', actualSha256 };
-}
-
-/** What an entry is, without following a link, as the shell names it. */
-function kindOf(entry: {
-	isFile(): boolean;
-	isDirectory(): boolean;
-	isSymbolicLink(): boolean;
-}) {
-	return entry.isSymbolicLink()
-		? 'link'
-		: entry.isFile()
-			? 'file'
-			: entry.isDirectory()
-				? 'directory'
-				: 'other';
+/** A storage call's value, or a rejection with the plugin's answer. */
+async function answered<T>(result: Promise<Result<T, FileError>>) {
+	const { data, error } = await result;
+	if (error !== null) throw storageError(error);
+	return data;
 }
 
 /** A new, empty directory to grant, resolved to the spelling the shell reports. */
@@ -139,7 +114,7 @@ export function createGrantedShell(root: string) {
 	const control = {
 		/** The shell's answer to `grant_directory`; throw to refuse. */
 		grant: (): unknown => ({ root }),
-		/** Runs before each data change is made; await in it to hold the change. */
+		/** Runs before each data change is checked and made; await in it to hold the change. */
 		beforeChange: undefined as
 			| ((change: DataChange) => Promise<void> | void)
 			| undefined,
@@ -149,11 +124,19 @@ export function createGrantedShell(root: string) {
 		refuseNext: 0,
 		/** How many upcoming data changes land and then lose their reply. */
 		loseReplies: 0,
+		/**
+		 * How many upcoming directory removals land and then lose their reply.
+		 * A directory removal is no data change: the controls above never
+		 * reach it.
+		 */
+		loseDirectoryReplies: 0,
 		/** Folder-relative paths whose reads fail, as a disk that cannot be read. */
 		failReads: new Set<string>(),
 	};
 	const relative = (path: string) =>
 		path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+	/** Data paths whose change landed and whose reply is to be lost, with why. */
+	const lostReplies = new Map<string, unknown>();
 	/** One history command, as the shell runs the CLI for it. */
 	const history = (cmd: string) => async (args: Record<string, unknown>) => {
 		// The CLI's `git` reads no global or system configuration here.
@@ -171,106 +154,125 @@ export function createGrantedShell(root: string) {
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;
-			throw {
-				name: 'Failed',
-				message: `'${described.path}' could not be written: the disk refused the write`,
-			};
+			throw new Error(
+				`'${described.path}' could not be written: the disk refused the write`,
+			);
 		}
 		await make();
 		changes.push(described);
-		control.afterChange?.(described);
+		try {
+			control.afterChange?.(described);
+		} catch (lost) {
+			lostReplies.set(described.path, lost);
+		}
 		if (control.loseReplies > 0) {
 			control.loseReplies -= 1;
-			throw 'the reply never reached the window';
+			lostReplies.set(described.path, 'the reply never reached the window');
 		}
 	}
 
+	/**
+	 * The shell's file system: `node:fs`, with each data change, the rename
+	 * of a staged file over its path or a removal, under the test's controls.
+	 */
+	const files: DirectoryPrimitives = {
+		...nodeDirectoryPrimitives,
+		async rename(from, to, expected) {
+			const text = new TextDecoder().decode(await nodeFs.readFile(from));
+			await change({ kind: 'write', path: relative(to), text }, () =>
+				nodeDirectoryPrimitives.rename(from, to, expected),
+			);
+		},
+		async remove(path, options) {
+			// A removal with no expectation is the storage's own: a staged
+			// file, a directory a put made, or `rmdir`'s directory.
+			if (options?.expected === undefined)
+				return nodeDirectoryPrimitives.remove(path, options);
+			await change({ kind: 'remove', path: relative(path) }, () =>
+				nodeDirectoryPrimitives.remove(path, options),
+			);
+		},
+	};
+	const storage = createDirectoryStorage({ root, primitives: files });
+
+	/** Remove the staged files a stopped save left an hour or more ago. */
+	async function sweep() {
+		const scratch = join(root, SCRATCH_DIRECTORY);
+		const now = Date.now();
+		const entries = await nodeFs
+			.readdir(scratch, { withFileTypes: true })
+			.catch(() => []);
+		for (const entry of entries)
+			if (entry.isFile() && isStaleScratch(entry.name, now))
+				await nodeFs.rm(join(scratch, entry.name), { force: true });
+	}
+
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
-		grant_directory: () => control.grant(),
+		async grant_directory() {
+			const granted = control.grant();
+			await sweep();
+			return granted;
+		},
 		status: history('status'),
 		history: history('history'),
 		save_version: history('save_version'),
 		sync: history('sync'),
-		read_folder_directory: (args) =>
-			asPluginError(async () =>
-				(
-					await nodeFs.readdir(args.path as string, { withFileTypes: true })
-				).map((entry) => ({ name: entry.name, kind: kindOf(entry) })),
-			),
-		stat_folder_path: (args) =>
-			asPluginError(async () => {
-				const stats = await nodeFs
-					.lstat(args.path as string)
-					.catch((cause: { code?: string }) => {
-						if (cause.code === 'ENOENT') return undefined;
-						throw cause;
-					});
-				if (stats === undefined) return null;
-				return { kind: kindOf(stats), size: stats.size, mode: stats.mode };
-			}),
-		read_folder_file: (args) =>
-			asPluginError(async () => {
-				const path = args.path as string;
-				if (control.failReads.has(relative(path)))
-					throw Object.assign(new Error('the disk could not be read'), {
-						code: 'EIO',
-					});
-				// The raw response arrives as an `ArrayBuffer`.
-				const bytes = await nodeFs.readFile(path);
-				return bytes.buffer.slice(
-					bytes.byteOffset,
-					bytes.byteOffset + bytes.byteLength,
-				);
-			}),
-		async write_folder_file(args) {
-			// Staged bytes, or the engine's private files under `.git`. A data
-			// file reaches its path only by the rename that follows. The bytes
-			// are the raw body; a JSON body is refused, as the shell does.
+		list_folder: () => answered(storage.list()),
+		read_folder_children: (args) =>
+			answered(storage.children(args.directory as string)),
+		async read_folder_file(args) {
+			const path = args.path as string;
+			if (control.failReads.has(path))
+				throw {
+					name: 'Io',
+					path,
+					operation: 'read',
+					message: 'the disk could not be read (os error 5)',
+				} satisfies StorageError;
+			const { bytes } = await answered(storage.read(path));
+			// The raw response arrives as an `ArrayBuffer`.
+			return bytes.buffer.slice(
+				bytes.byteOffset,
+				bytes.byteOffset + bytes.byteLength,
+			);
+		},
+		async put_folder_file(args) {
+			const path = args.path as string;
+			// The bytes are the raw body; a JSON body is refused, as the shell
+			// refuses one that is not an array of bytes.
 			const bytes = args.bytes;
 			if (!(bytes instanceof Uint8Array))
-				throw 'write_folder_file takes its bytes as a raw body, not JSON';
-			await asPluginError(() =>
-				nodeFs.writeFile(args.path as string, bytes, {
-					flag: args['create-new'] === 'true' ? 'wx' : 'w',
-				}),
+				throw {
+					name: 'Io',
+					path,
+					operation: 'write',
+					message: 'put_folder_file takes its bytes as a raw body',
+				} satisfies StorageError;
+			const ifMatch = args['if-match'];
+			const outcome = await answered(
+				storage.put(
+					path,
+					args.remove === 'true' ? null : bytes,
+					typeof ifMatch === 'string' ? ifMatch : null,
+				),
 			);
-			return null;
-		},
-		async rename_folder_path(args) {
-			const from = args.from as string;
-			const to = args.to as string;
-			const rename = async () => {
-				await expectAt(to, args.expected);
-				await asChangeError(() => nodeFs.rename(from, to), 'rename');
-			};
-			if (!from.includes(SCRATCH) || to.includes('/.git/')) {
-				await rename();
-				return null;
+			if (lostReplies.has(path)) {
+				const lost = lostReplies.get(path);
+				lostReplies.delete(path);
+				throw lost;
 			}
-			const text = new TextDecoder().decode(await nodeFs.readFile(from));
-			await change({ kind: 'write', path: relative(to), text }, rename);
-			return null;
-		},
-		async remove_folder_path(args) {
-			const path = args.path as string;
-			const remove = async () => {
-				await expectAt(path, args.expected);
-				await asChangeError(
-					() => nodeFs.rm(path, { recursive: args.recursive === true }),
-					'remove',
-				);
-			};
-			if (path.includes('/.git/')) {
-				await remove();
-				return null;
-			}
-			await change({ kind: 'remove', path: relative(path) }, remove);
-			return null;
+			return outcome;
 		},
 		async make_folder_directory(args) {
-			await asPluginError(() =>
-				nodeFs.mkdir(args.path as string, { recursive: true }),
-			);
+			await answered(storage.mkdir(args.path as string));
+			return null;
+		},
+		async remove_folder_directory(args) {
+			await answered(storage.rmdir(args.path as string));
+			if (control.loseDirectoryReplies > 0) {
+				control.loseDirectoryReplies -= 1;
+				throw new Error('the reply never reached the window');
+			}
 			return null;
 		},
 	};

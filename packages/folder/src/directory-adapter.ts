@@ -1,21 +1,18 @@
 /**
  * A folder in an ordinary directory a trusted host has given this code: the
  * desktop page's granted directory, or a directory a Bun process names.
- * Files go through the directory's storage over its host's primitives
- * (`directory-store.ts`); history is whatever the host supplies:
+ * Files go through the storage the host supplies: the shell's storage
+ * commands on the desktop (`tauri-files.ts`), and the directory's storage
+ * over `node:fs` in Bun (`directory-store.ts`); history is whatever the host
+ * supplies:
  * the system `git` run in this process (`git/native-history.ts`, Bun), or
  * the `epicenter` CLI the shell runs for a page (`tauri-history.ts`,
  * ADR-0559). Nothing of the browser folder's OPFS directory or private Git
  * is here.
  */
 import type { Result } from 'wellcrafted/result';
-import {
-	type FolderStorage,
-	isStaleScratch,
-	SCRATCH_DIRECTORY,
-} from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition } from './definition.js';
-import type { DirectoryPrimitives } from './directory-primitives.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {
@@ -44,12 +41,12 @@ export type DirectoryHistory = (wiring: {
  * definition as its `schema`, the handle publishes it to `epicenter.json`
  * before its first write. With `'declared'`, the handle reads with the
  * folder's own `epicenter.json` and never writes it.
- * Files are read and written through the directory's storage
- * (`directory-store.ts`). History is real Git on every host, so it honors Git's lock files,
+ * Files are read and written through the host's storage. History is real
+ * Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the
  * repository; `history` decides which process runs it.
  *
- * A save is checked where it lands: the desktop shell checks each rename
+ * A save is checked where it lands: the desktop shell checks each put
  * against what the page expects, and in Bun the check runs just before the
  * rename, under the save lock. Across processes, the shell and the Bun host each hold the folder's save lock
  * across one check and rename (ADR-0562), so saves wait only for each other
@@ -67,7 +64,6 @@ export async function openDirectoryFolder<
 	schema,
 	lens,
 	rootPath,
-	files,
 	storage,
 	history,
 	detector,
@@ -78,33 +74,13 @@ export async function openDirectoryFolder<
 	readonly lens?: FolderDefinition;
 	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
-	/** The host's file system, with absolute paths. */
-	readonly files: DirectoryPrimitives;
-	/**
-	 * The directory's storage over `files`, which the host also gives the
-	 * history it runs in this process.
-	 */
+	/** The directory's storage, which the host also gives the history it runs in this process. */
 	readonly storage: FolderStorage;
 	/** The folder's history. */
 	readonly history: DirectoryHistory;
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
 }): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	// A write that stopped before its rename (a crash, a quit) leaves its
-	// staged bytes behind. Another handle or process may be writing the
-	// directory now, so only files staged long enough ago to be abandoned are
-	// removed. What cannot be removed stays; it is inert.
-	const scratch = `${rootPath}/${SCRATCH_DIRECTORY}`;
-	try {
-		if ((await files.lstat(scratch))?.kind === 'directory') {
-			const now = Date.now();
-			for (const entry of await files.readDir(scratch))
-				if (entry.kind === 'file' && isStaleScratch(entry.name, now))
-					await files.remove(`${scratch}/${entry.name}`).catch(() => {});
-		}
-	} catch {
-		// Leftovers are inert; an open that cannot clear them still opens.
-	}
 	return openAtRoot<TDefinition, TDeclared>(schema, {
 		detector,
 		lens,

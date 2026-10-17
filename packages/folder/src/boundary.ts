@@ -1,8 +1,9 @@
 /**
  * The folder's one storage contract, which every host implements natively
  * (ADR-0576): a browser over the origin private file system
- * (`opfs-store.ts`), and a directory over its host's file system
- * (`directory-store.ts`), in Bun and in the desktop shell alike.
+ * (`opfs-store.ts`), a directory over `node:fs` in Bun
+ * (`directory-store.ts`), and a desktop page's directory through the shell,
+ * one command per method (`tauri-files.ts`, ADR-0581).
  *
  * `put` is the one change: one file's bytes, or its removal, landing only
  * while the path holds what the caller expects. It lands whole: a reader,
@@ -19,8 +20,9 @@
  * What every host shares is here once (`hostStorage`, `lockingStorage`): the
  * path rule, owning the bytes a put was handed, telling other pages what
  * landed, the order of a listing, holding the lock, and where and under what
- * names a new file is staged. A host supplies only its own operations
- * (`HostFiles`).
+ * names a new file is staged, which the desktop shell's own staging matches
+ * (`storage.rs` in `tauri-plugin-epicenter-folder`). A host supplies only
+ * its own operations (`HostFiles`).
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { FileError } from './errors.js';
