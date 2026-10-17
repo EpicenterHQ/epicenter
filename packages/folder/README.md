@@ -441,31 +441,39 @@ through the shell's commands:
 | Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own, in the CLI: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
 | Pages of one folder | Web Locks; each page tells the others the paths it wrote on a `BroadcastChannel` | Several windows may open one root; the shell checks each save where it lands, Git orders commits (ADR-0541), and the shell's watcher tells each window what changed |
 
-Files go through the directory's storage (`directory-store.ts`), the same
-port the browser implements, built on seven calls (`directory-primitives.ts`):
-`readDir`, `lstat`, `readFile`, `writeFile` with `createNew`, `rename`,
-`remove`, and `mkdir`. `directory-tauri.ts` supplies them from the shell's
-commands and `directory-node.ts` from `node:fs`. A write's bytes are staged under
+Files go through the same storage port the browser implements
+(`boundary.ts`), over the directory. On the desktop each port method is one
+command of the shell (`tauri-files.ts`,
+[ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)):
+`list_folder`, `read_folder_children`, `read_folder_file`,
+`put_folder_file`, `make_folder_directory`, and `remove_folder_directory`,
+each taking folder-relative paths, so a read and a put are one call each. In
+Bun the directory's storage (`directory-store.ts`) is built on seven calls
+over `node:fs` (`directory-primitives.ts`, `directory-node.ts`): `readDir`,
+`lstat`, `readFile`, `writeFile` with `createNew`, `rename`, `remove`, and
+`mkdir`. The two give the same outcomes. A write's bytes are staged under
 `.git/epicenter/scratch` and renamed over the path, so another program sees
-the old file or the new one, never an empty or partial one; opening clears
-what a stopped write left there. Symbolic links and special entries are
-listed and never followed. On the desktop the shell reads only beneath the
-root and never through a link on the way, and makes every change and checks
-its whole path: any data path the shared path rule accepts
-(`paths.ts`, held to the plugin's `fixtures/path-rules.json` with its Rust
-twin), no link on the way, and inside `.git` only the engine's staging and
-private index copies. Each rename that publishes a file, and each removal,
-names what it expects at its path: nothing, a file, a file with a given
-SHA-256, or anything. The shell checks it and changes the path under one
-lock per root, which every window's changes share, so a save that carries
+the old file or the new one, never an empty or partial one; what a stopped
+write left there an hour or more ago is cleared when Bun opens the folder,
+and by the shell at each grant. Symbolic links and special entries are
+listed and never followed, and a path through a link is refused. On the
+desktop the shell checks every path itself: any data path the shared path
+rule accepts (`paths.ts`, held to the plugin's `fixtures/path-rules.json`
+with its Rust twin), with no link on the way, and never `.git`. A put names
+what it expects at its path: no file, or a file with a given SHA-256. The
+shell checks it and changes the path under one lock per root, which every
+window's changes share, and the folder's save lock, so a save that carries
 what it read (a hash, or a create) and that another window landed after
-this page checked is `stale`, never `Unconfirmed`. In Bun,
+this page checked is `stale`, never `Unconfirmed`; a save lock another
+process held too long is `Io`, and nothing changed. In Bun,
 `directory-node.ts` makes the same check as a separate step before the
 change, and `bun.ts` holds the folder's save lock across both, the lock the
 shell takes around its own (below); `lock(work)` holds it across several
-changes, which then go through `node:fs` without asking for it again. A
-change whose reply is lost is read back once: a removal is done if the path
-is then gone, a write if it holds the bytes sent, and anything else is
+changes, which then go through `node:fs` without asking for it again. On
+the desktop a put whose reply is lost is `Unconfirmed`, except a removal,
+which the page checks once and is done if the path is then gone. A write
+reads an `Unconfirmed` put back once (`write.ts`): a removal is done if the
+path is gone, a write if it holds the bytes sent, and anything else stays
 `Unconfirmed`. Objects
 are stored with `git hash-object -w` through the host (`ObjectStore` in
 `git/primitive-fs.ts`), in Bun as on the desktop, so no object file is
@@ -497,7 +505,7 @@ check it has instead:
 
 | Host | Save | Commit | First commit or remote |
 | --- | --- | --- | --- |
-| Desktop page | The shell's checked rename | In the CLI, under the folder's history lock, then Git's lock files and the branch's compare-and-swap | `git init` in the CLI, run again if another opener raced it |
+| Desktop page | The shell's checked put | In the CLI, under the folder's history lock, then Git's lock files and the branch's compare-and-swap | `git init` in the CLI, run again if another opener raced it |
 | Bun | Checked just before the rename, under the folder's save lock, which saves from this process, other Bun processes, and the desktop shell take in turn | Git's lock files and the branch's compare-and-swap | The same |
 | Browser (OPFS) | The files Web Lock | The Git Web Lock, under which the branch is read, compared, and written | The open Web Lock |
 
@@ -1425,7 +1433,9 @@ dangle.
 | `src/boundary.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, and `lock` where Sync publishes), and the part of it every host shares: the path rule, owned bytes, the relay to other pages, sorted listings, holding the lock, and staged names. |
 | `src/write.ts`, `hash.ts` | The one write (`writeFile`, `folder.write`) and the one move (`movePath`, `folder.move`), with the guarded put they share; and the SHA-256 that names a file's bytes. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
-| `src/directory-adapter.ts`, `directory-store.ts`, `directory-primitives.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: its storage over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
+| `src/directory-adapter.ts` | The directory folder both the Bun entry and a desktop page open, over the storage its host gives it. |
+| `src/tauri-files.ts` | A desktop page's storage: one folder plugin command per storage method. |
+| `src/directory-store.ts`, `directory-primitives.ts`, `directory-node.ts` | The Bun directory's storage over seven file system calls, and those calls over `node:fs`. |
 | `src/git/merge.ts`, `git/history.ts` | Sync's one merge commit as objects, and the coordinator that checkpoints, fetches, pushes, and publishes. |
 | `git/native-*.ts` | The `git` program a directory folder records history with, in Bun. |
 | `src/history-wire.ts`, `tauri-history.ts` | A desktop page's history: the reply line the `epicenter` CLI prints for what it runs (`runHistory` in `bun.ts`), and the page's `folder.git` over the shell's history commands. |

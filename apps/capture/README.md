@@ -190,10 +190,10 @@ Capture window (WebView)
    openDataFolder({ id, lens })       any other folder it is handed
    the folder engine, in the page
         |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
-        |  plugin:epicenter-folder|read_folder_directory, stat_folder_path,
+        |  plugin:epicenter-folder|list_folder, read_folder_children,
         |    read_folder_file                        -> reads under <root>
-        |  plugin:epicenter-folder|write_folder_file, rename_folder_path,
-        |    remove_folder_path, make_folder_directory -> changes, path-checked
+        |  plugin:epicenter-folder|put_folder_file, make_folder_directory,
+        |    remove_folder_directory                 -> changes, path-checked
         |  status, history, save_version             -> one `epicenter` child over <root>
         v
 Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>

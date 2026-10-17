@@ -1,8 +1,8 @@
 # tauri-plugin-epicenter-folder
 
 The desktop shell's side of an Epicenter folder: it grants a directory to the
-windows registered for it, and makes each window's reads and file changes
-under checks the page cannot get around. It runs no `git`: the folder's
+windows registered for it, and is each window's folder storage, one command
+per storage method, under checks the page cannot get around. It runs no `git`: the folder's
 history runs in the `epicenter` CLI, which the shell starts for a page over
 the root this crate granted
 ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
@@ -16,9 +16,9 @@ it. The page names the scope and nothing else: it never supplies a root.
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the registry, the cross-process save lock, the shared path rule, and the checked reads and file changes. No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the registry, the cross-process save lock, the shared path rule, and the page's storage (`storage.rs`). No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: the commands, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
-| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
+| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 
 This crate has no JavaScript package of its own. A page reaches it through
@@ -63,10 +63,9 @@ configuration, and the CLI supplies its own defaults.
 
 Several windows may edit one scope at once. Each page runs its own engine over
 the directory, and the shell checks and publishes every save under one mutex
-per root (see File changes), so a save that carries the hash it read, or a
-create, that another window overtook is refused as `Conflict` (or `Exists`)
-instead of silently replacing it. An overwrite replaces whatever is there, by
-contract. Only a scope's windows change once
+per root (see Storage), so a save that carries the hash it read, or a
+create, that another window overtook is answered `stale` instead of silently
+replacing it, and the page reads again and merges. Only a scope's windows change once
 it is registered. Two scopes may hold one root, as the Folders window's
 `data:<name>` and an app's own scope do; they share the root's mutex.
 
@@ -92,6 +91,13 @@ first grant, from whichever of the scope's windows asks first:
    `.git/refs`, or `.git/logs`, and a linked `.git/epicenter` or scratch
    directory.
 
+Every grant, the first and each later one, also removes the staged files
+under `.git/epicenter/scratch` that a stopped save left more than an hour
+ago (`storage::sweep_scratch`), by the creation time in the name the stager
+gave it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger
+ones may belong to a save still running in another process, and a name no
+stager made is never removed.
+
 A grant returns `{ root }`. A later grant, such as a reloaded page's or
 another window's, returns the same root. Nothing keeps out a second scope on
 the root or a second Epicenter process: each save takes the folder's save
@@ -102,101 +108,110 @@ repository's working tree whatever the page asks. The grant adds nothing to
 the app's access control: the window reaches the folder only through this
 plugin's commands, each of which looks up the root the scope was granted.
 
-## Reads
+## Storage
 
-The page reads through this crate: `read_folder_directory` lists a
-directory as `{ name, kind }` entries, `stat_folder_path` describes a path
-as `{ kind, size, mode }` or `null` when nothing is there, and
-`read_folder_file` returns a file's bytes. A kind is `file`, `directory`,
-`link`, or `other`. `page_reads.rs` checks the path on disk first: it must be
-the granted root or beneath it, with no `.` or `..`, and no existing
-component on the way to it may be a link. The final component may be one:
-listing and describing report it as `link` and never follow it, and reading
-a file or listing a directory through it is refused. A read may reach
-anything under the root, `.git` and other dot files included. A name that is
-not text is left out of a listing. `mode` is the Unix mode, file type bits
-included, and `null` on Windows.
+A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
+`boundary.ts`) is these commands, one per method, each one IPC call
+([ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md)):
 
-`read_folder_file` returns the bytes as a raw response, an `ArrayBuffer` to
-the page, rather than as a JSON array of numbers. The generated bindings
-cannot type a raw response, so the command is left out of them; the plugin
-dispatches it beside the typed commands, under the same permission, and
-`directory-tauri.ts` invokes it by name.
+| Method | Command | Answers |
+| --- | --- | --- |
+| `list()` | `list_folder(scope)` | `{ files: { path, size }[], directories: string[] }` |
+| `children(directory)` | `read_folder_children(scope, directory)` | `{ files: string[], directories: string[] }`; `""` is the root |
+| `read(path)` | `read_folder_file(scope, path)` | the bytes, raw |
+| `put(path, bytes, ifMatch)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
+| `mkdir(path)` | `make_folder_directory(scope, path)` | `null` |
+| `rmdir(path)` | `remove_folder_directory(scope, path)` | `null` |
 
-## File changes
+Paths are folder-relative with `/`, and must pass the shared path rule
+(`paths::path_problem`, the same rule as `pathProblem` in
+`@epicenter/folder`). The rule refuses an alias of `.git` in any segment (any
+case, trailing dots and spaces, ignorable code points, `git~1`), `HEAD`, and
+names that do not survive every desktop file system: a trailing dot or
+space, a Windows device name, a Windows short name such as `GIT~1`, a
+reserved or control character. Leading dots are ordinary. The shell keeps no
+list of a folder's files; which data paths a folder has is the page's
+business. `.git` at the root is never listed and never named.
 
-The page changes files through this crate (`write_folder_file`,
-`rename_folder_path`, `remove_folder_path`, `make_folder_directory`).
-`page_files.rs` checks the whole path on disk first. It must be under the
-granted root with no `.` or `..`, and no existing component on the way may
-be a link. Then it must be:
+`storage.rs` resolves every path literally, with the outcomes of the Bun
+directory storage (`directory-store.ts`):
 
-- a data path: any file or directory the shared path rule accepts
-  (`paths::path_problem`, the same rule as `pathProblem` in
-  `@epicenter/folder`). The rule refuses an alias of `.git` in any segment
-  (any case, trailing dots and spaces, ignorable code points, `git~1`),
-  `HEAD`, and names that do not survive every desktop file system: a
-  trailing dot or space, a Windows device name, a Windows short name such as `GIT~1`, a
-  reserved or control character. Leading dots are ordinary. The shell keeps
-  no list of a folder's files; which data paths a folder has is the page's
-  business;
-- or, inside `.git` (compared case-insensitively), the engine's staging
-  directory `.git/epicenter/scratch` and its files, and the private index
-  copies `.git/index.tmp-*`.
+- No link is followed. A path through a link, or naming one, is
+  `InvalidPath`; a listing reports a link as a file.
+- A name stored under another spelling, which a disk that ignores case or
+  Unicode normalization would reach (`plan.md` for `Plan.md`), is another
+  entry: a read or `read_folder_children` finds nothing there (`NotFound`),
+  and a put or `make_folder_directory` is `InvalidPath`. On macOS and
+  Windows the stored spelling comes from resolving the path; elsewhere from
+  listing each parent.
+- A file where a directory should be is `NotADirectory` naming it, and a
+  directory where a file should be is `NotAFile`.
+
+A refusal or a failure is a `StorageError`, named and shaped as the page's
+`FileError`: `InvalidPath`, `NotFound`, `NotAFile`, `NotADirectory`,
+`DirectoryNotEmpty`, or `Io` with the operation and the system's message. A
+failure the shell reports changed nothing. Only the page can tell that a
+reply was lost, which it reports as `Unconfirmed`.
+
+### A put
+
+`put_folder_file` publishes a file's bytes at a path, or removes its file,
+only while the path holds what the page expects. It takes the bytes as the
+request's raw body, so content crosses IPC as it is rather than as a JSON
+array of numbers. Its arguments are headers, each percent-encoded: `scope`,
+`path`, `remove` (`true` to remove the file, when the body is ignored), and
+`if-match`, the lowercase SHA-256 of the file the page expects there, left
+out when it expects no file. A JSON array of bytes, Tauri's `postMessage`
+fallback, is accepted too. The generated bindings cannot type a raw request,
+so the command is left out of them; the plugin dispatches it beside the
+typed commands, under the same permission, and `tauri-files.ts` invokes it
+by name. `read_folder_file` returns its bytes as a raw response, an
+`ArrayBuffer` to the page, for the same reason the same way.
+
+A put of bytes makes the path's missing parent directories, writes the bytes
+to a new file under `.git/epicenter/scratch` (opened with `create_new`, so
+nothing already there is written through), then checks the path and renames
+the staged file over it. A removal checks and removes. The check and the
+change hold one mutex per canonical root, kept in the registry and shared by
+every window and scope of the folder, and the folder's save lock, an
+exclusive SQLite transaction on `.<directory>.epicenter-save-lock` beside it
+(`lock.rs`). A Bun process opening the same directory
+(`@epicenter/folder/bun`, and so the `epicenter` CLI) takes the same save
+lock around each of its own checks and renames, as does any other Epicenter
+shell, so no other save through the plugin or the Bun host lands between
+the check and the change
+([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
+Staging the bytes holds neither. A put waits up to ten seconds for another
+process's save; past that it changes nothing and is `Io`, naming the lock
+file. The cost is a read and hash of the destination when `if-match` names a
+hash. A path that holds something else changes nothing and answers
+`"stale"`. The staged file is removed whenever the put does not land.
 
 A folder has no repository until its first commit, Sync or Save version
 ([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
-but its first save stages in `.git/epicenter/scratch` before that. So
-`make_folder_directory` makes `.git` itself on the way to scratch when `.git`
-is absent, which is exactly when no repository exists; `git init` later fills
-in the same directory. `.git` is never a change's target, and nothing else in
-it becomes reachable, with or without `HEAD`.
+but its first save stages in `.git/epicenter/scratch` before that. So a put
+makes `.git` itself on the way to scratch when `.git` is absent, which is
+exactly when no repository exists; `git init` later fills in the same
+directory. Nothing else in `.git` becomes reachable, with or without `HEAD`
+(`page_files.rs`).
 
-`write_folder_file` writes only a new staged file or index copy, and only
-with `create-new`, so nothing already at the path, such as a hard link another
-program planted, is written through. The engine never writes a data file in
-place: it writes a staged copy and renames it over the path
-(`rename_folder_path`), which replaces a hard link rather than writing
-through it. The one data file written in place is a recording, by
-`tauri-plugin-epicenter-recorder`
+A data file is never written in place: the rename replaces a hard link
+rather than writing through it. The one data file written in place is a
+recording, by `tauri-plugin-epicenter-recorder`
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
 It asks `app.folders().granted_root(scope, window)` for the window's root,
 checks the path with `page_files::data_path` (the same rule and link check
-as a change), and creates the file with `create_new`. A directory is removed only when empty; nothing removes a tree
-whole.
+as a put), and creates the file with `create_new`. A directory is removed
+only when empty; nothing removes a tree whole. The page writes no Git
+object: the `epicenter` CLI stores each with `git hash-object -w`, which
+names and checks it.
 
-`rename_folder_path` and `remove_folder_path` also take `expected`, what the
-page expects at the path it changes: `"absent"` (a new file or a move's
-destination), `"present"` (a file, whatever its bytes), `{ "sha256": "<hex>" }` (a
-file whose bytes hash to that lowercase SHA-256), or `"any"` (an overwrite,
-the folder's declaration, a staged file). An incoming Sync write carries the
-hash of the file it replaces, or `"absent"`. The plugin checks the path and
-then renames or removes it while holding one mutex per canonical root, kept
-in the registry and shared by every window and scope of the folder, and the
-folder's save lock, an exclusive SQLite
-transaction on `.<directory>.epicenter-save-lock` beside it (`lock.rs`). A
-Bun process opening the same directory (`@epicenter/folder/bun`, and so the
-`epicenter` CLI) takes the same save lock around each of its own checks and
-renames, as does any other Epicenter shell, so no other change through the
-plugin or the Bun host lands between the check and the change
-([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
-The save lock is held for nothing else. A change waits up to ten seconds for
-another process's; past that it changes nothing and is `Failed`, naming the
-lock file. The cost is a read and hash of the destination when `expected`
-names a hash. A path that holds something else changes nothing and is
-refused as a `ChangeError` the page tells apart: `Conflict` with
-`actualSha256` (the hash of the file there, or `null` when none is),
-`Exists`, or `NotFound`. Every other refusal or failure is `Failed` with its
-message. A refused rename leaves its staged source for the page to remove.
+### Not a cross-version contract
 
-`write_folder_file` takes the file's bytes as the request's raw body, so
-content crosses IPC as it is rather than as a JSON array of numbers. Its arguments are headers, each percent-encoded:
-`scope`, `path`, and `create-new` (`true` or `false`). A JSON array of bytes,
-Tauri's `postMessage` fallback, is accepted too.
-The generated bindings cannot type a raw request, so the command is left out
-of them; the plugin dispatches it beside the typed commands, under the same
-permission, and `directory-tauri.ts` invokes it by name. The page writes no Git object: the `epicenter` CLI
-stores each with `git hash-object -w`, which names and checks it.
+These commands are a contract between a shell and the pages it ships or
+installs, not across versions. A shell update may change them, and an
+installed app built for the old ones is rebuilt; no command set is kept for
+an older page.
 
 ## Git
 
@@ -231,7 +246,7 @@ type FolderChanged = { scope: string; paths: string[] | null };
 | --- | --- |
 | A path outside `.git` | The path, relative to the root with `/`; each once per batch, sorted |
 | `.git` itself, `.git/HEAD`, `.git/packed-refs`, or a ref under `.git/refs/` | `".git"`: history moved |
-| Anything else in `.git`: objects, the index, logs, lock files, `.git/epicenter/scratch`, `.git/index.tmp-*` | Nothing is reported |
+| Anything else in `.git`: objects, the index, logs, lock files, `.git/epicenter/scratch` | Nothing is reported |
 | Watching began, the operating system dropped events or asked for a rescan (notify's `Flag::Rescan`, FSEvents' `MustScanSubDirs`), a watch error arrived, the root itself changed, or the computer woke from sleep | `null`: anything may have changed |
 
 A sleep is noticed by a clock thread that reads the wall clock every 5
@@ -241,7 +256,7 @@ one reread. Reading a file is not a change. The watch never follows a link and
 keeps no file ID cache, so nothing outside the root is watched or read, and an
 event naming a path outside the root is ignored.
 
-The event carries no content: a window rereads through the plugin's reads. A
+The event carries no content: a window rereads through the plugin's storage. A
 missed event costs a delay, never data. The page's own saves are reported too,
 which at most rereads a file whose content did not change. `FolderChanged` and
 `FOLDER_CHANGED_EVENT` are in the generated bindings as a type and a constant
@@ -256,7 +271,7 @@ opens; the failure is logged and its windows hear no outside change.
 
 ## Shutdown
 
-Every file change holds an admission while it runs; a read
+Every put and directory change holds an admission while it runs; a read
 holds none. When the app exits, or the shell calls
 `app.folders().shutdown()`, the plugin refuses new grants, reads, and work,
 and stops watching. It waits for nothing: quitting is
@@ -267,7 +282,8 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 ## What is best effort
 
 - A link another program swaps in between a check and the read or change
-  that follows is not defended against; a page cannot make one.
+  that follows is not defended against; a page cannot make one. A put
+  checks the path for links again under the save lock.
 - The save lock is an exclusive SQLite transaction on
   `.<directory>.epicenter-save-lock` beside the directory. The system
   releases it when the process ends, however it ends (`fcntl`, through
