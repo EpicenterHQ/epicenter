@@ -16,14 +16,15 @@
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/lib/components"
 	},
 	"dependencies": {
-		"@epicenter/capture": "workspace:*",
 		"@epicenter/constants": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/epicenter": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
+		"markdown-it": "^14.0.0",
 		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
@@ -35,6 +36,7 @@
 		"@tanstack/query-core": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
+		"@types/markdown-it": "^14.0.0",
 		"jsdom": "26.1.0",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",

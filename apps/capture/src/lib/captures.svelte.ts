@@ -33,14 +33,6 @@
  */
 
 import {
-	CAPTURES_TABLE,
-	type CaptureFields,
-	captureBody,
-	type captureDefinition,
-	composeBody,
-	excerpt,
-} from '@epicenter/capture';
-import {
 	type CommitOutcome,
 	type FileError,
 	isStoredRow,
@@ -60,6 +52,12 @@ import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type CaptureForm, createCaptureForm } from './capture-form.svelte.js';
+import {
+	CAPTURES_TABLE,
+	type CaptureFields,
+	type captureDefinition,
+} from './definition.js';
+import { captureBody, composeBody, excerpt } from './document.js';
 
 export type Captures = ReturnType<typeof createCaptures>;
 

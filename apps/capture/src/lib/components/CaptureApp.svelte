@@ -4,7 +4,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { createMutation } from '@tanstack/svelte-query';
 	import type { CommitOutcome } from '@epicenter/folder';
-	import type { captureDefinition } from '@epicenter/capture';
+	import type { captureDefinition } from '$lib/definition.js';
 	import { getFolder } from '@epicenter/svelte/folder';
 	import { describeWriteError } from '@epicenter/svelte/write-failure';
 	import { createCaptures } from '$lib/captures.svelte.js';

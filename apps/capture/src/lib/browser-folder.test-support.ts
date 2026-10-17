@@ -11,7 +11,7 @@
  * (`svelte-modules.test-support.js` or `svelte-dom.test-support.js`); this
  * module loads `captures.svelte.ts`.
  */
-import { captureDefinition } from '@epicenter/capture';
+
 import { openFolder } from '@epicenter/folder/browser';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
@@ -23,6 +23,7 @@ import {
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { holdCloses } from '../../../../packages/folder/src/opfs.test-support.js';
 import type { Captures } from './captures.svelte.js';
+import { captureDefinition } from './definition.js';
 import { observe, quiet } from './query.test-support.js';
 
 let count = 0;

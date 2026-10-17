@@ -85,14 +85,15 @@
       "name": "@epicenter/capture-app",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/capture": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/epicenter": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "@tauri-apps/api": "catalog:",
+        "markdown-it": "^14.0.0",
         "runed": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -104,6 +105,7 @@
         "@tanstack/query-core": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
+        "@types/markdown-it": "^14.0.0",
         "jsdom": "26.1.0",
         "playwright": "^1.61.1",
         "svelte": "catalog:",
@@ -481,21 +483,6 @@
       "optionalPeers": [
         "svelte",
       ],
-    },
-    "packages/capture": {
-      "name": "@epicenter/capture",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
-        "markdown-it": "^14.0.0",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "@types/markdown-it": "^14.0.0",
-        "typescript": "catalog:",
-      },
     },
     "packages/cli": {
       "name": "@epicenter/cli",
@@ -952,7 +939,6 @@
 
     "@epicenter/auth": ["@epicenter/auth@workspace:packages/auth"],
 
-    "@epicenter/capture": ["@epicenter/capture@workspace:packages/capture"],
 
     "@epicenter/capture-app": ["@epicenter/capture-app@workspace:apps/capture"],
 

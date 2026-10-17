@@ -9,10 +9,11 @@
  * depends on, so the install holds one copy and a mounted test that mixes
  * the two shares every class and manager. Change the two pins together.
  */
-import type { CaptureFields } from '@epicenter/capture';
+
 import type { StoredRow } from '@epicenter/folder';
 import { QueryObserver } from '@tanstack/query-core';
 import type { CaptureListing, Captures } from './captures.svelte.js';
+import type { CaptureFields } from './definition.js';
 
 export { QueryObserver };
 

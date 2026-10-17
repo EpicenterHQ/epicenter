@@ -28,13 +28,10 @@
  * remembers the thought it started from and is refused, with its text kept,
  * when that thought changed.
  */
-import {
-	type CaptureBody,
-	type CaptureFields,
-	captureBody,
-} from '@epicenter/capture';
 import type { StoredRow } from '@epicenter/folder';
 import type { Draft } from '@epicenter/svelte/edits';
+import type { CaptureFields } from './definition.js';
+import { type CaptureBody, captureBody } from './document.js';
 
 /** One edit of a thought, from Edit until it is saved or cancelled. */
 export type ThoughtEdit = {
