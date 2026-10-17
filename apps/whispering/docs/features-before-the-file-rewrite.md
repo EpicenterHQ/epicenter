@@ -729,8 +729,9 @@ Deletions since:
 ### Reading earlier data
 
 - **What it did.** `v7.11.0` desktop kept recordings as Markdown files plus
-  audio in the app data folder; the web build kept them in IndexedDB and
-  migrated them. In 2026 recordings lived in a Yjs store.
+  audio in the app data folder, and its Migration dialog moved older
+  IndexedDB data into those files; the web build kept recordings in
+  IndexedDB. In 2026 recordings lived in a Yjs store.
 - **When.** n/a.
 - **Where.** `v7.11.0`: `src/lib/services/isomorphic/db/file-system.ts`,
   `src/lib/components/MigrationDialog.svelte`. `8bc2aafd03^`:
