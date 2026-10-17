@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at "Epicenter's own folder is `~/Epicenter/so.epicenter`", its tree's `so.epicenter/` entries, and "App source never sits inside `so.epicenter`": Epicenter keeps no folder, and the split of machine state by what it costs to lose stands. [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at "An AI connection is a row in `so.epicenter`", "Pickers read the table with `folderOptions` on `so.epicenter`", and "Whispering's two connections become rows": a connection is one keychain entry, listed without its key through the CLI. [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) at "its row in `so.epicenter` holds only `kind`, `title`, and `model`" and "A page learns a connection's endpoint from the keychain": the keychain entry holds the kind, title, and model too, and a page learns all of them, never the key. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "The CLI owns `so.epicenter`'s declaration and publishes it at every launch": there is no such folder or declaration. [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "Opening any installed app permits its window into `so.epicenter`": an app window reaches only the folder it was handed.
-- **Unbuilt:** all of it: the full keychain entry and its id list; `epicenter auth key list` and the shell command that runs it; Settings and Whispering listing connections through it; Whispering's choice of connection as a setting in its own folder; and every deletion below.
+- **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at "Epicenter's own folder is `~/Epicenter/so.epicenter`", its tree's `so.epicenter/` entries, and "App source never sits inside `so.epicenter`": Epicenter keeps no folder, and the split of machine state by what it costs to lose stands. [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at "An AI connection is a row in `so.epicenter`", "Pickers read the table with `folderOptions` on `so.epicenter`", and "Whispering's two connections become rows": a connection is an entry of `connections.json` in app data plus a keychain entry, listed without its key through the CLI, and which connection an app uses is kept on this machine, not in the app's folder. [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) at "its row in `so.epicenter` holds only `kind`, `title`, and `model`" and "A page learns a connection's endpoint from the keychain": the kind, title, and model move to `connections.json` in app data, the endpoint stays with the key, and a page learns everything but the key. [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) at "The CLI owns `so.epicenter`'s declaration and publishes it at every launch": there is no such folder or declaration. [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "Opening any installed app permits its window into `so.epicenter`": an app window reaches only the folder it was handed.
+- **Unbuilt:** all of it: `connections.json` and the CLI's writes to it; `epicenter auth key list` and the shell command that runs it; Settings and Whispering listing connections through it; Whispering's choice of connection kept in `connections.json`; and every deletion below.
 
 ## Context
 
@@ -43,28 +43,37 @@ again. Holding the row required a folder no person chose:
 
 ## Decision
 
-**An AI connection lives entirely in this machine's keychain entry.** The
-entry under `so.epicenter.connections`, named by the connection id, holds:
+**An AI connection lives on this machine: an entry of `connections.json`
+in app data, plus a keychain entry.**
 
-```json
-{ "kind": "openai-compatible", "title": "OpenAI", "model": "gpt-4o-mini", "endpoint": "https://api.openai.com/v1", "key": "sk-..." }
+```txt
+<data_dir>/connections.json       { "<id>": { "kind", "title", "model" } }   written only by the CLI
+keychain so.epicenter.connections <id> -> { "endpoint", "key" }            today's entry, unchanged
 ```
 
-An `epicenter` or `local` connection has no endpoint or key. `Bun.secrets`
-cannot list a service's entries, so `auth key set` and `auth key remove`
-also keep the entry `$ids`, the list of connection ids; no connection id
-starts with `$`.
+- The endpoint stays with the key, so editing `connections.json` cannot
+  send a key to a new server: `send` sends an `openai-compatible` request
+  only while the keychain entry still holds the endpoint it was prepared
+  for, and always to the entry's own (`packages/ai/src/send.ts:106-112`).
+- `auth key set <id>` writes the file's entry first, then the key.
+  `auth key remove <id>` deletes the key first, then the entry. A crash
+  between the two leaves an entry with no key, never a key with no entry.
+- An `epicenter` or `local` connection has no endpoint or key.
 
 **Apps and Settings list connections without their keys.** `epicenter auth
-key list --json` prints each connection's id, kind, title, model, and
-endpoint, and whether a key is saved. The shell runs it for a page as one
+key list --json` reads `connections.json` and joins each entry with its
+keychain entry's state: id, kind, title, model, endpoint, and "key
+missing" when the keychain holds none. The shell runs it for a page as one
 fixed command beside `ai_key_set`, `ai_key_remove`, and `ai_key_state`.
-`auth key set <id>` reads the whole entry on stdin. A page never reads a
-key, and the CLI still sends every desktop request (ADR-0557).
+A page never reads a key, and the CLI still sends every desktop request
+(ADR-0557).
 
-**Which connection an app uses stays the app's own setting, in its own
-folder,** naming the connection id (ADR-0557). Whispering's fixed rows
-become such a setting in Whispering's folder.
+**Which connection an app uses is kept on this machine,** in
+`connections.json` under the app's id, never in the app's synced folder. A
+choice that synced could send a person's audio to a different provider on
+another machine, where the same connection id names another endpoint or
+account. Whispering's fixed ids `whispering-transcription` and
+`whispering-text` become such a choice.
 
 **In a browser, connections stay where they are today,** in `localStorage`
 (`packages/ai/src/browser.ts`), since a browser has no keychain.
@@ -96,14 +105,14 @@ become such a setting in Whispering's folder.
 ## Consequences
 
 - An agent configures connections with `epicenter auth key set`, `list`,
-  and `remove`, not by editing files.
+  and `remove`; it can read `connections.json`, and never sees a key.
 - Titles and models no longer sync between machines; keys never did. A
   second machine sets its connections up again, as it already had to for
   an endpoint and key.
 - A connection is usable wherever it is listed: no half-configured row
   arrives from another machine.
 - Settings needs no folder grant, and no window reaches a folder it was not
-  handed except the Folders window.
+  handed.
 - Launch waits on no folder declaration.
 - No released build reads `so.epicenter`. A development machine's
   `~/Epicenter/so.epicenter/` becomes an ordinary folder with no `app`,
@@ -117,3 +126,11 @@ become such a setting in Whispering's folder.
 - **Keep connections as rows in each app's own folder.** Two apps that use
   one connection would each hold a copy, and the key still could not move
   with the row.
+- **Everything in the keychain entry, with an index entry listing the
+  ids.** `Bun.secrets` cannot list a service's entries, so the index is a
+  second write with the same crash window as a file, and a person or agent
+  cannot read or repair it without the CLI.
+- **The endpoint in `connections.json`.** An edit to the file would point a
+  saved key at another server.
+- **The app's choice of connection in its synced folder.** On another
+  machine the same id can name a different provider.

@@ -4,6 +4,7 @@
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
 - **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing.
+- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at the desktop address `~/Epicenter/so.epicenter.todos/`: a folder's directory name is the person's.
 - **Relates:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to. [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server a remote names and how a folder reaches it.
 
 ## Context

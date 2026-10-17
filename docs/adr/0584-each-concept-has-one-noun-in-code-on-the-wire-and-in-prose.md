@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
+- **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `openFolder({ app, definition })` and `WindowFolder.app`: the opener takes no `app`, and `window_folder` answers the folder alone.
 - **Unbuilt:** every rename below except the glossary in `docs/CONTEXT.md` and the per-rule `adr` field in `scripts/check-vocabulary.ts`; pull requests P1 to P10 build the rest in the order under Consequences.
 - **Relates:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) decided the opener (`openFolder`, `folder.own`, no `lens`); [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) is the one write; [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) pins installed apps to the shell commands they were built against; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) addresses a row by its stem.
 
