@@ -10,7 +10,7 @@
  * - The handle never writes `epicenter.json`: a hand-formatted declaration
  *   stays byte for byte through creates, writes, and commits
  * - A declaration an earlier build wrote, with the `kv` section settings once
- *   had, opens; the section is not read
+ *   had, is `InvalidDeclaration` naming `kv`, as any unknown key is
  * - A folder without `epicenter.json` opens with no tables; files and
  *   history work
  * - An `epicenter.json` that cannot be used is `InvalidDeclaration`, and a
@@ -137,6 +137,16 @@ test('an epicenter.json that cannot be used is InvalidDeclaration, and opening c
 	expect(expectErr(await openFolder({ root, git: { author } })).name).toBe(
 		'InvalidDeclaration',
 	);
+
+	// The `kv` section settings once had is an unknown key like any other.
+	await writeFile(
+		join(root, 'epicenter.json'),
+		'{"tables":{},"kv":{"theme":{"type":"string"}}}',
+	);
+	const kv = expectErr(await openDataFolder({ root, git: { author } }));
+	expect(kv.name).toBe('InvalidDeclaration');
+	expect(kv.message).toContain("'kv'");
+	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	const missing = join(root, 'missing');
 	expect(

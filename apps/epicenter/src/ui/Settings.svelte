@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { type AuthGrant, commands, events, type HomeSection } from './bindings.gen';
 	import { failureText } from './connections/connections';
-	import { followHomeSections } from './home-section';
+	import { followHomeSections, keepInView } from './home-section';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import AiConnections from './connections/AiConnections.svelte';
@@ -29,7 +29,8 @@
 	 * reach the wrong device.
 	 *
 	 * An app that cannot transcribe locally sends the person here with
-	 * `open_home('transcription')`, and the page scrolls to the model.
+	 * `open_home('transcription')`, and the page scrolls to the model and keeps
+	 * it there while the sections above it load.
 	 */
 
 	let origin = $state('');
@@ -56,13 +57,24 @@
 	onMount(() => {
 		if (!isDesktopHost()) return;
 		void readStatus().finally(() => (busy = null));
-		return followHomeSections({
+		let stopScrolling: (() => void) | undefined;
+		const stopFollowing = followHomeSections({
 			claim: commands.takePendingHomeSection,
 			// The window's own listener: the shell nudges this window alone.
 			onNudge: (nudged) =>
 				events.homeSectionPending(getCurrentWebviewWindow()).listen(nudged),
-			show: (section) => sections[section]?.scrollIntoView({ block: 'start' }),
+			show: (section) => {
+				const target = sections[section];
+				if (target === undefined) return;
+				stopScrolling?.();
+				// The account and the connections above it fill in after this.
+				stopScrolling = keepInView(target);
+			},
 		});
+		return () => {
+			stopFollowing();
+			stopScrolling?.();
+		};
 	});
 
 	async function signIn() {

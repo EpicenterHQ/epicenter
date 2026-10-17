@@ -142,11 +142,12 @@ export type FolderAccess<TDefinition extends FolderDefinition> = {
 	 * at `next` only where nothing is, then `path` is removed only while it
 	 * holds them, a write that lands there meanwhile carried along first. A
 	 * move changes where a file is, not what it holds, so it merges nothing.
-	 * No file at `path`, or one already at `next`, is `InvalidPath`, as is
-	 * another writer changing `next` while the file moved there, which
-	 * leaves the file at `path`. `KeptChanging`, or a removal that failed,
-	 * leaves the file at both paths, to repair. Answers the file as it
-	 * stands at `next`.
+	 * No file at `path` is `InvalidPath`, and a file already at `next` is
+	 * `Occupied`; nothing changes. Another writer changing or deleting `next`
+	 * after the copy landed there is `InvalidPath` naming `next`, and leaves
+	 * the file at `path` and `next` as that writer left it. `KeptChanging`,
+	 * or a removal that failed, leaves the file at both paths, to repair.
+	 * Answers the file as it stands at `next`.
 	 */
 	move(path: string, next: string): Promise<Result<Written, WriteError>>;
 };
