@@ -1454,9 +1454,11 @@ advertises no resolvable `HEAD`; that failure changes nothing.
 
 A whole-folder commit on disk records every file as plain `100644` bytes,
 so it is refused in a repository it would misrepresent: symbolic links,
-executables, submodules, nested `.git` data, `core.autocrlf`, or a
-`.gitattributes` the commit would carry that names a filter. Reads and file
-saves still work.
+executables, submodules, nested `.git` data, or a `.gitattributes` the
+commit would carry that names a filter. Reads and file saves still work.
+Every `git` the folder runs sets `core.autocrlf=false` and `core.eol=lf`
+for itself, so a person's line-ending setting, such as the `core.autocrlf=true`
+Git for Windows installs, never changes what is committed.
 
 ## Declaring a folder
 

@@ -287,6 +287,66 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
+	test.each([
+		'global',
+		'repository',
+	] as const)("with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk", async (where) => {
+		const project = await scratch('directory-folder-autocrlf-');
+		const bare = await createBareRemote(project);
+		const root = join(project, 'desktop');
+		await git(project, 'init', '--quiet', '--initial-branch=main', root);
+		await git(root, 'remote', 'add', 'origin', bare);
+		// Git for Windows writes this when it installs.
+		const global = process.env.GIT_CONFIG_GLOBAL;
+		if (where === 'global') {
+			const config = join(project, 'gitconfig');
+			await writeFile(config, '[core]\n\tautocrlf = true\n');
+			process.env.GIT_CONFIG_GLOBAL = config;
+		} else await git(root, 'config', 'core.autocrlf', 'true');
+		try {
+			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\n');
+			const ran: (readonly string[])[] = [];
+			const folder = expectOk(
+				await open(root, { beforeGit: async (args) => void ran.push(args) }),
+			);
+			const created = await addTodo(folder, 'Line feeds');
+			/** Whether `path`'s blob in `commit` is its bytes on disk. */
+			const stored = async (commit: string, path: string) =>
+				(await git(root, 'rev-parse', `${commit}:${path}`)) ===
+				(await git(root, 'hash-object', '--no-filters', path));
+
+			expect(
+				(await folder.git.commit({ message: 'Keep line endings' })).status,
+			).toBe('committed');
+			for (const path of [created.path, 'windows.txt'])
+				expect([path, await stored('HEAD', path)]).toEqual([path, true]);
+
+			// A native checkout with no conversion of its own sends a file back.
+			const native = join(project, 'native');
+			expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+			await git(project, 'clone', '--quiet', bare, native);
+			await writeFile(join(native, 'incoming.txt'), 'a\nb\n');
+			await git(native, 'add', 'incoming.txt');
+			await git(native, 'commit', '--quiet', '-m', 'Incoming');
+			await git(native, 'push', '--quiet', 'origin', 'main');
+			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\nthree\r\n');
+
+			expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+			expect(await readFile(join(root, 'incoming.txt'), 'utf8')).toBe('a\nb\n');
+			expect(await git(bare, 'rev-parse', 'main')).toBe(
+				await git(root, 'rev-parse', 'main'),
+			);
+			for (const path of [created.path, 'windows.txt', 'incoming.txt'])
+				expect([path, await stored('main', path)]).toEqual([path, true]);
+			// No command needs Git 2.40's `check-attr --source`.
+			expect(ran.filter((args) => args.includes('check-attr'))).toEqual([]);
+			await folder.close();
+		} finally {
+			if (global === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+			else process.env.GIT_CONFIG_GLOBAL = global;
+		}
+	});
+
 	test('an attribute file that names a filter refuses the commit; line-ending attributes commit the bytes on disk', async () => {
 		const { root, start } = await nativeRepository('directory-folder-filter-');
 		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');

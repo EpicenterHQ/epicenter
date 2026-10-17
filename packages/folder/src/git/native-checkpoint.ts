@@ -3,12 +3,13 @@
  *
  * Automatic commits and fast-forwards write every source file as plain
  * `100644` bytes through the folder's file boundary. They do not run Git's
- * attribute filters, line-ending conversion, or LFS, and they cannot record
- * symbolic links, submodules, or executable bits. Rather than rewrite history
- * for such a repository, the checkpoint is refused with the first reason
- * found, as it is for unmerged index stages no `MERGE_HEAD` explains. Reads,
- * raw file access, and explicit native Git (`git add`, `git commit`) are
- * unaffected.
+ * attribute filters or LFS, and they cannot record symbolic links,
+ * submodules, or executable bits. Rather than rewrite history for such a
+ * repository, the checkpoint is refused with the first reason found, as it is
+ * for unmerged index stages no `MERGE_HEAD` explains. Line endings are not a
+ * reason: no Git command Epicenter runs converts them (`native-host.ts`), so
+ * a file is committed with the bytes it has on disk. Reads, raw file access,
+ * and explicit native Git (`git add`, `git commit`) are unaffected.
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { pathProblem } from '../paths.js';
@@ -73,13 +74,6 @@ export async function nativeCheckpointProblem({
 		if (mode !== '100644')
 			return `${path} is tracked as ${MODES[mode] ?? `mode ${mode}`}; ${plainOnly}`;
 	}
-
-	const autocrlf = await run(['config', '--get', 'core.autocrlf'], {
-		allowFailure: true,
-	});
-	const conversion = text(autocrlf.stdout).trim().toLowerCase();
-	if (conversion === 'true' || conversion === 'input')
-		return `core.autocrlf is ${conversion}; commits do not convert line endings`;
 
 	// Working files Git would record differently, and nested Git data.
 	const special: { path: string; reason: string }[] = [];

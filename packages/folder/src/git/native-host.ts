@@ -325,15 +325,22 @@ function killGroup(group: number) {
 /**
  * Configuration every `git` this process starts runs with, ahead of its own
  * arguments: no hook and no fsmonitor, whatever the repository or the person
- * configures; the `ext` and `fd` transports refused, since each runs an
- * arbitrary command; and no color in output this process reads. A `-c`
- * reaches every `git` the command starts in turn, such as a submodule's.
+ * configures; no line-ending conversion, so a person's `core.autocrlf` (Git
+ * for Windows sets `true` when it installs) never changes the bytes a
+ * command reads or writes; the `ext` and `fd` transports refused, since each
+ * runs an arbitrary command; and no color in output this process reads. A
+ * `-c` reaches every `git` the command starts in turn, such as a
+ * submodule's.
  */
 const SAFETY = (hooksPath: string) => [
 	'-c',
 	`core.hooksPath=${hooksPath}`,
 	'-c',
 	'core.fsmonitor=false',
+	'-c',
+	'core.autocrlf=false',
+	'-c',
+	'core.eol=lf',
 	'-c',
 	'protocol.ext.allow=never',
 	'-c',

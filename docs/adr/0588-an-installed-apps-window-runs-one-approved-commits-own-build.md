@@ -50,8 +50,10 @@ copies `dist/` to a sibling of `builds/<app-id>/<commit>/`, renames it into
 place, writes `builds/<app-id>/<commit>.built`, and removes the checkout with
 `git worktree remove --force --force`. Nothing is built in the clone, and no other
 worktree of the clone is pruned. The build's other inputs are the person's:
-global and system Git configuration other than filters and hooks (such as
-`core.autocrlf` and `eol` attributes), Bun's global package cache, global
+global and system Git configuration other than filters, hooks,
+`core.autocrlf`, and `core.eol`, which every `git` Epicenter runs pins to
+no conversion (such as `text` and `eol` in a global attributes file), Bun's
+global package cache, global
 `bunfig.toml` and `.npmrc`, the inherited environment, and module
 resolution that walks above the checkout (`~/node_modules`).
 
