@@ -37,7 +37,7 @@ export function rowEditor(todos: Todos, stem: string) {
 		}
 		if (Object.keys(rest).length > 0) {
 			todos.edits.set('todos', stem, rest);
-			saves.push(todos.edits.settled(`todos/${stem}.md`));
+			saves.push(todos.edits.settled(`todos/${stem}.md`).then(() => undefined));
 		}
 		await Promise.all(saves);
 	};

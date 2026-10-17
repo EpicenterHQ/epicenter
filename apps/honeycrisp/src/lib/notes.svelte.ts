@@ -534,7 +534,8 @@ export function createNotes(opened: NotesFolder) {
 	 * Rename a file within its folder, through the folder's one move: a row
 	 * and any other file alike move as exact bytes, a row to the path of its
 	 * new stem. It waits for the file's drafts and saves to land and moves
-	 * what the file holds then. Edits of the file wait meanwhile.
+	 * what the file holds then. Edits of the file, and of the name it takes,
+	 * wait meanwhile; typing in it whose save failed refuses the rename.
 	 */
 	async function rename(
 		path: string,
@@ -551,7 +552,7 @@ export function createNotes(opened: NotesFolder) {
 			return ActionError.NotStarted({
 				reason: `A ${at.table === NOTES ? 'note' : 'folder'} file keeps its .md extension.`,
 			});
-		const renamed = await edits.exclusive(path, async () =>
+		const renamed = await edits.exclusive([path, to], async () =>
 			// A close that began meanwhile stops the move.
 			edits.fenced
 				? ActionError.NotStarted({ reason: CLOSING })
@@ -677,11 +678,8 @@ export function createNotes(opened: NotesFolder) {
 		},
 		/** Whether a write of `path` is running, or typing there waits to be sent. */
 		isWriting: (path: string) => edits.writing(path),
-		/** Whether the body typed at `path` did not save, with no save running. */
-		isUnsaved(path: string) {
-			const stem = noteIdOf(path);
-			return stem !== undefined && edits.body('notes', stem).failed;
-		},
+		/** Whether typing at `path`, its body, a field, or its exact text, did not save, with no save running. */
+		isUnsaved: (path: string) => edits.unsaved(path),
 		/** Whether edits of `path` are refused now: closing, or a rename or delete runs. */
 		isLocked: (path: string) => edits.locked(path),
 		/** Whether input and actions are held back because the notes are closing. */

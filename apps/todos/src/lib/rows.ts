@@ -18,6 +18,7 @@
  *   meanwhile.
  */
 import type { WriteError } from '@epicenter/folder';
+import type { ActionError } from '@epicenter/svelte/write-failure';
 import type { Result } from 'wellcrafted/result';
 import {
 	repairsOf,
@@ -76,9 +77,10 @@ export function createRows({
 		},
 		/**
 		 * Delete a todo's file once its drafts and saves have landed,
-		 * whatever it holds then. A file that shares the stem stays.
+		 * whatever it holds then. A file that shares the stem stays. Notes
+		 * whose save failed refuse it until they save or are discarded.
 		 */
-		delete(stem: string): Promise<Result<undefined, WriteError>> {
+		delete(stem: string): Promise<Result<undefined, WriteError | ActionError>> {
 			return edits.exclusive(todoPath(stem), () =>
 				edits.writes.tables.todos.delete(stem),
 			);
