@@ -76,8 +76,7 @@ const preparedSchemas = new WeakMap<
  * is closed, `additionalProperties`. It is owned here. Every field is the
  * declared schema's frozen JSON (see `plainSchema`). `tables` and each
  * `fields` are frozen records without a prototype, so a name like
- * `constructor` reads as its own entry or as nothing. A top-level key the
- * shape does not name is not read.
+ * `constructor` reads as its own entry or as nothing.
  *
  * A declaration holds `title`, `local`, and `tables` and nothing else: any
  * other own key, such as an `id` naming a dataset, is malformed.

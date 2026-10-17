@@ -80,8 +80,8 @@ A readable stem may become less descriptive as its content changes.
 `table.rename(stem, nextStem, options)` moves only the Markdown file, preserving
 its bytes. With `{ expectedSha256 }` it checks the reviewed bytes; with `{}` it
 moves whatever the row holds (ADR-0464). It checks an absent destination, and a
-collision refuses the operation. Renaming to the current stem is `InvalidPath`,
-since that move would check nothing. Title edits do not invoke rename. No alias
+collision refuses the operation. Renaming to the current stem moves nothing
+and answers the row as it is. Title edits do not invoke rename. No alias
 silently preserves the old address.
 
 ```text
