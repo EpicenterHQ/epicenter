@@ -133,15 +133,17 @@ export function createFolderContext<TDefinition extends FolderDefinition>(
 		},
 		close() {
 			closing ??= (async () => {
-				// A step that throws is logged; the folder is still released.
+				// The first step starts as `close` is called, so input it fences is
+				// refused from then. A step that throws is logged; the folder is
+				// still released.
 				for (const step of steps)
-					await Promise.resolve()
-						.then(step)
-						.catch((cause) =>
-							log.error(
-								new Error('A step before closing the folder threw.', { cause }),
-							),
+					try {
+						await step();
+					} catch (cause) {
+						log.error(
+							new Error('A step before closing the folder threw.', { cause }),
 						);
+					}
 				await whenIdle(queryClient);
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: queries.key });
