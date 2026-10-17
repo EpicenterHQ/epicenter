@@ -29,7 +29,6 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { folderOptions } from '@epicenter/folder/query';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -49,6 +48,8 @@ import {
 } from './query.test-support.js';
 import { repairsOf, todosOf } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createTodos } = await import('./todos.svelte.ts');
 

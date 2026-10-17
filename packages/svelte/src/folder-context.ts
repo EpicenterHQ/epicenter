@@ -13,14 +13,11 @@
  * loading Svelte components.
  */
 import type { Definition, Folder } from '@epicenter/folder';
-import {
-	type FolderOptions,
-	folderOptions,
-	whenIdle,
-} from '@epicenter/folder/query';
+import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 import { focusManager, QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
 import { createLogger } from 'wellcrafted/logger';
+import { createEdits, type Edits } from './edits.svelte.js';
 import type { WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder-context');
@@ -48,6 +45,12 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	 */
 	readonly queries: FolderOptions<TDefinition>;
 	/**
+	 * Every write of the folder, and what a person typed and has not saved:
+	 * drafts, field sets, renames and deletes, Save version, and Sync
+	 * (`createEdits` in `@epicenter/svelte/edits`).
+	 */
+	readonly edits: Edits<Folder<TDefinition, Definition>['tables']>;
+	/**
 	 * The page's one cache. svelte-query's `useQueryClient()` answers it
 	 * inside `<FolderProvider>`; a store built outside a component takes it
 	 * from here.
@@ -66,8 +69,9 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	 */
 	readonly beforeClose: (step: () => Promise<void> | void) => void;
 	/**
-	 * Run the steps given to `beforeClose`, wait until nothing is mutating,
-	 * stop the change wiring, then release the folder. Work that starts
+	 * Run the steps given to `beforeClose`, then close the edit layer: fence
+	 * new input and wait for every draft, write, and action. Then stop the
+	 * change wiring and release the folder. Work that starts
 	 * meanwhile is waited for too; after that the folder refuses with
 	 * `Closed`. Every call answers the same completion.
 	 */
@@ -118,6 +122,7 @@ export function createFolderContext<TDefinition extends Definition>(
 	const queries = folderOptions(folder) as FolderOptions<TDefinition>;
 	// Wired before anything reads, so no change falls between.
 	const stopChanges = queries.invalidateOnChange(queryClient);
+	const edits = createEdits({ folder, queries, queryClient, writeFailed });
 	const steps: (() => Promise<void> | void)[] = [];
 	let closing: Promise<void> | undefined;
 
@@ -125,12 +130,15 @@ export function createFolderContext<TDefinition extends Definition>(
 		folder,
 		isOwn: folder.own,
 		queries,
+		edits,
 		queryClient,
 		writeFailed,
 		beforeClose: (step) => {
 			steps.push(step);
 		},
 		close() {
+			// The edit layer refuses new input from the call on.
+			edits.fence();
 			closing ??= (async () => {
 				// Every step starts as `close` is called, so input each one fences
 				// is refused from then, and they run together. A step that throws
@@ -146,7 +154,7 @@ export function createFolderContext<TDefinition extends Definition>(
 						}
 					}),
 				);
-				await whenIdle(queryClient);
+				await edits.close();
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: queries.key });
 				await folder.close();

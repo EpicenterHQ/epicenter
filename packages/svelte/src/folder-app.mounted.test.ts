@@ -23,11 +23,12 @@ import {
 	browserStorage,
 	createTestStorage,
 } from '../../folder/src/browser-storage.test-support.js';
-import { createFolderContext, type FolderContext } from './folder-context.js';
+import type { FolderContext } from './folder-context.js';
 import { click } from './svelte-dom.test-support.js';
 import { ActionError } from './write-failure.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
+const { createFolderContext } = await import('./folder-context.js');
 const { default: FolderAppHost } = await import(
 	'./fixtures/FolderAppHost.svelte'
 );

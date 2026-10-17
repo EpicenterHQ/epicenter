@@ -22,7 +22,6 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import { $ } from 'bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -43,6 +42,8 @@ import {
 import { todosDefinition } from './definition.js';
 import { cached, notesEditor, observe, quiet } from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createTodos } = await import('./todos.svelte.ts');
 

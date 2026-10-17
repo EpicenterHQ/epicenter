@@ -20,7 +20,6 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
 import type { VocabFolder, vocabFolder } from '../data.js';
@@ -34,6 +33,8 @@ import {
 	type MessageWrite,
 	startChat,
 } from './messages.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createVocabChat } = await import('./session.svelte.js');
 const { createVocab } = await import('../vocab.svelte.ts');

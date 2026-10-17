@@ -5,8 +5,10 @@
 import { expectTypeOf } from 'bun:test';
 import type {
 	MutationObserverOptions,
+	QueryClient,
 	QueryObserverOptions,
 } from '@tanstack/query-core';
+import type { Result } from 'wellcrafted/result';
 import {
 	defineFolder,
 	defineTable,
@@ -22,7 +24,7 @@ import {
 	type Written,
 	type WrittenRow,
 } from './contract.js';
-import { folderOptions } from './query.js';
+import { folderOptions, folderWrites } from './query.js';
 
 const definition = defineFolder({
 	tables: {
@@ -131,3 +133,22 @@ const plain$ = folderOptions(plainFolder);
 expectTypeOf<
 	QueryData<ReturnType<typeof plain$.todos.list.queryOptions>>
 >().toEqualTypeOf<TableListing<{ title: string }>>();
+
+// `folderWrites` answers each write's Result, typed by the folder's tables.
+declare const client: QueryClient;
+const writes = folderWrites(folder, client);
+expectTypeOf(writes.tables.todos.write).parameters.toEqualTypeOf<
+	[stem: string, from: Row<Todo> | null, to: Row<Todo> | null]
+>();
+expectTypeOf(writes.tables.todos.write).returns.toEqualTypeOf<
+	Promise<Result<WrittenRow<Todo>, RowWriteError>>
+>();
+expectTypeOf(writes.tables.todos.delete).returns.toEqualTypeOf<
+	Promise<Result<undefined, WriteError>>
+>();
+expectTypeOf(writes.write).returns.toEqualTypeOf<
+	Promise<Result<Written, WriteError>>
+>();
+expectTypeOf<[stem: 'milk', fields: { done: 'yes' }]>().not.toExtend<
+	Parameters<typeof writes.tables.todos.set>
+>();

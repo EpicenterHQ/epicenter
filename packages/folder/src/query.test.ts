@@ -27,11 +27,14 @@
  * - `runMutation` runs a write through the cache; `whenIdle` waits for it
  * - A change another page made, wired from `onFilesChanged` to
  *   `invalidateQueries`, marks exactly the affected queries stale
+ * - `folderWrites` writes without the mutation cache: each write answers the
+ *   engine's Result, keeps the cache in step, and runs in its file's turn,
+ *   which `pending`, `idle`, and `inTurn` follow
  */
 import { afterEach, expect, test } from 'bun:test';
 import { MutationObserver, QueryClient } from '@tanstack/query-core';
 import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder } from './browser.js';
 import {
 	browserStorage,
@@ -39,9 +42,9 @@ import {
 	type TestStorage,
 } from './browser-storage.test-support.js';
 import { defineFolder, defineTable, type Folder, field } from './contract.js';
-import { folderOptions, runMutation, whenIdle } from './query.js';
+import { folderOptions, folderWrites, runMutation, whenIdle } from './query.js';
 import { mustRow } from './row-write.test-support.js';
-import { isStoredRow } from './table.js';
+import { isStoredRow, type TableListing } from './table.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
@@ -52,6 +55,7 @@ const definition = defineFolder({
 	},
 });
 type Todos = Folder<typeof definition>;
+type Todo = { title: string; done: boolean };
 const author = { name: 'Query', email: 'query@example.test' };
 
 const opened: Todos[] = [];
@@ -82,6 +86,25 @@ function client() {
 	});
 	clients.push(queryClient);
 	return queryClient;
+}
+
+/** A folder with the row `milk`, its options, and its writes over one client. */
+async function openWithMilk() {
+	const folder = await open();
+	const queryClient = client();
+	const created = mustRow(
+		await folder.tables.todos.create(
+			{ fields: { title: 'Milk', done: false }, body: '' },
+			{ stem: 'milk' },
+		),
+	);
+	return {
+		folder,
+		created,
+		queryClient,
+		folder$: folderOptions(folder),
+		writes: folderWrites(folder, queryClient),
+	};
 }
 
 /** The keys of the cached queries `filters` matches. */
@@ -491,6 +514,221 @@ test('runMutation runs a write through the cache, and whenIdle waits for it', as
 			stem: 'other',
 		}),
 	).rejects.toMatchObject({ name: 'InvalidValues' });
+});
+
+// ============================================================================
+// folderWrites
+// ============================================================================
+
+test('a set puts its row in the listing, and marks the rest of its path stale', async () => {
+	const { folder$, writes, queryClient } = await openWithMilk();
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+	queryClient.setQueryData(folder$.history.status.queryKey(), 'before');
+	queryClient.setQueryData(folder$.files.text.queryKey('todos/milk.md'), 1);
+
+	const written = expectOk(
+		await writes.tables.todos.set('milk', { done: true }),
+	);
+
+	if (!isStoredRow(written)) throw new Error('the set left no row');
+	expect(written.row.fields.done).toBe(true);
+	const listing = queryClient.getQueryData<TableListing<Todo>>(
+		folder$.todos.list.queryKey(),
+	);
+	expect(listing?.map((item) => item.result.data)).toEqual([written]);
+	// The folder does not report the page's own write to it: the write marks
+	// what else a change to its file makes stale.
+	expect(invalidatedIn(queryClient)).toEqual([
+		folder$.history.status.queryKey(),
+		folder$.files.text.queryKey('todos/milk.md'),
+	]);
+});
+
+test('a delete drops the listing entry', async () => {
+	const { folder, folder$, writes, queryClient } = await openWithMilk();
+	expectOk(
+		await folder.tables.todos.create(
+			{ fields: { title: 'b', done: false }, body: '' },
+			{ stem: 'b' },
+		),
+	);
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+	const stems = () =>
+		queryClient
+			.getQueryData<{ stem: string }[]>(folder$.todos.list.queryKey())
+			?.map((item) => item.stem)
+			.sort();
+
+	expectOk(await writes.tables.todos.delete('milk'));
+	expect(stems()).toEqual(['b']);
+});
+
+test('a read running when a folderWrites write lands is read again, not kept over the write', async () => {
+	const { folder, folder$, writes, queryClient } = await openWithMilk();
+	const before = expectOk(await folder.tables.todos.list());
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+	// A read that answers the listing from before the save, after it lands;
+	// a read after it reads the folder.
+	let answer = () => {};
+	let first = true;
+	const late = queryClient
+		.fetchQuery({
+			...folder$.todos.list.queryOptions(),
+			staleTime: 0,
+			queryFn: async () => {
+				if (!first) return expectOk(await folder.tables.todos.list());
+				first = false;
+				return new Promise<typeof before>((resolve) => {
+					answer = () => resolve(before);
+				});
+			},
+		})
+		.catch(() => undefined);
+	expectOk(await writes.tables.todos.set('milk', { done: true }));
+	// What the write left is held while the read is done again, never what
+	// the query held before it.
+	const doneOf = () =>
+		queryClient
+			.getQueryData<TableListing<Todo>>(folder$.todos.list.queryKey())
+			?.find((entry) => entry.stem === 'milk')?.result.data?.row.fields.done;
+	expect(doneOf()).toBe(true);
+	answer();
+	await late;
+	await queryClient.refetchQueries({ queryKey: folder$.todos.list.queryKey() });
+	expect(doneOf()).toBe(true);
+});
+
+test('the folder write puts what it wrote in the file read and text, reading nothing back', async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	const writes = folderWrites(folder, queryClient);
+	expectOk(await folder.write('note.txt', null, 'one\n'));
+	await queryClient.fetchQuery(folder$.files.read.queryOptions('note.txt'));
+	await queryClient.fetchQuery(folder$.files.text.queryOptions('note.txt'));
+
+	const written = expectOk(await writes.write('note.txt', 'one\n', 'two\n'));
+
+	expect(written.file).not.toBeNull();
+	expect<unknown>(
+		queryClient.getQueryData(folder$.files.read.queryKey('note.txt')),
+	).toEqual(written.file);
+	expect<unknown>(
+		queryClient.getQueryData(folder$.files.text.queryKey('note.txt')),
+	).toEqual({ kind: 'text', text: 'two\n' });
+	expect(invalidatedIn(queryClient)).toEqual([]);
+});
+
+test("the folder write to a row's path marks its listing stale", async () => {
+	const { folder$, writes, queryClient, created } = await openWithMilk();
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+
+	expectOk(await writes.write(created.path, created.text, null));
+
+	expect(invalidatedIn(queryClient)).toEqual([folder$.todos.list.queryKey()]);
+	await queryClient.refetchQueries();
+	expect(
+		queryClient.getQueryData<TableListing<Todo>>(folder$.todos.list.queryKey()),
+	).toEqual([]);
+});
+
+test('a move through folderWrites reads both paths again', async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	const writes = folderWrites(folder, queryClient);
+	expectOk(await folder.write('a.txt', null, 'one\n'));
+	await queryClient.fetchQuery(folder$.files.list.queryOptions());
+	await queryClient.fetchQuery(folder$.files.read.queryOptions('a.txt'));
+
+	const moved = expectOk(await writes.move('a.txt', 'b.txt'));
+
+	expect(moved.path).toBe('b.txt');
+	expect(invalidatedIn(queryClient)).toEqual([
+		folder$.files.list.queryKey(),
+		folder$.files.read.queryKey('a.txt'),
+	]);
+});
+
+test('a failed write reads its path again and answers the error', async () => {
+	const { folder$, writes, queryClient } = await openWithMilk();
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+
+	const error = expectErr(
+		await writes.tables.todos.set('milk', { done: 'maybe' as never }),
+	);
+	expect(error.name).toBe('InvalidValues');
+	expect(invalidatedIn(queryClient)).toEqual([folder$.todos.list.queryKey()]);
+});
+
+test("one row's sets run in the order made, each over the last one's write, and pending counts them", async () => {
+	const { folder, writes } = await openWithMilk();
+	const read = folder.tables.todos.get;
+	const titlesRead: string[] = [];
+	folder.tables.todos.get = async (stem) => {
+		const result = await read(stem);
+		if (result.data) titlesRead.push(result.data.row.fields.title);
+		return result;
+	};
+	const told: number[] = [];
+	const stop = writes.subscribe(() =>
+		told.push(writes.pending('todos/milk.md')),
+	);
+
+	const first = writes.tables.todos.set('milk', { title: 'Oat milk' });
+	const second = writes.tables.todos.set('milk', { done: true });
+	expect(writes.pending('todos/milk.md')).toBe(2);
+	expect(writes.pending()).toBe(2);
+	expect(writes.pending('todos/other.md')).toBe(0);
+	await writes.idle();
+	stop();
+
+	// The second set waited for the first: it read the title it wrote.
+	expect(titlesRead).toEqual(['Milk', 'Oat milk']);
+	expect(told).toEqual([1, 2, 1, 0]);
+	const last = expectOk(await second);
+	expect(isStoredRow(last) && last.row.fields).toEqual({
+		title: 'Oat milk',
+		done: true,
+	});
+	expectOk(await first);
+});
+
+test("work run in a file's turn waits for the writes to it made before", async () => {
+	const { writes } = await openWithMilk();
+	const order: string[] = [];
+	const set = writes.tables.todos
+		.set('milk', { done: true })
+		.then(() => order.push('set'));
+	const work = writes.inTurn('todos/milk.md', async () => {
+		order.push('work');
+		return 1;
+	});
+	expect(await work).toBe(1);
+	await set;
+	expect(order).toEqual(['set', 'work']);
+});
+
+test('a create at a generated stem is counted and puts its row in the listing', async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	const writes = folderWrites(folder, queryClient);
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+
+	const creating = writes.tables.todos.create({
+		fields: { title: 'Milk', done: false },
+		body: '',
+	});
+	expect(writes.pending()).toBe(1);
+	const created = expectOk(await creating);
+	await writes.idle();
+
+	expect(
+		queryClient
+			.getQueryData<TableListing<Todo>>(folder$.todos.list.queryKey())
+			?.map((entry) => entry.result.data?.path),
+	).toEqual([created?.path]);
 });
 
 // Commits need the shared lock; this runtime has none of its own.

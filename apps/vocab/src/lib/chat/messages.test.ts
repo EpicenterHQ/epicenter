@@ -25,7 +25,6 @@ import {
 	createConversation,
 } from '@epicenter/agent';
 import { folderOptions } from '@epicenter/folder/query';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder, vocabFolder } from '../data.js';
@@ -41,6 +40,8 @@ import { vocabKeys } from '../query.js';
 import { createQueryClient } from '../query.test-support.js';
 import { type ChatListing, createChats } from './chats.js';
 import { createChatMessageStore, startChat } from './messages.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createVocab } = await import('../vocab.svelte.ts');
 

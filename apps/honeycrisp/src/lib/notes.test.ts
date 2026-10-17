@@ -41,7 +41,6 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { type Row, rowStemOf } from '@epicenter/folder';
-import { createFolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import type { NoteFields } from './data.js';
@@ -53,6 +52,8 @@ import {
 } from './folder.test-support.js';
 import type { Notes } from './notes.svelte.js';
 import { cached, listing, observe, quiet } from './query.test-support.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 

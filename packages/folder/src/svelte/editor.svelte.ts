@@ -2,9 +2,6 @@
  * `@epicenter/folder/svelte`: the one text editor a component types through
  * (ADR-0548, ADR-0576).
  *
- * A field is not edited here: a component holds what was typed in its own
- * `$state` and sends it with the table's `set`.
- *
  * `createTextEditor({ current, write })` opens one document's text for a
  * control. It holds `from`, the document the edit started from, and
  * `typed`, the text typed and not yet in the file, and sends each save to
@@ -15,34 +12,32 @@
  * file's exact text is the plain case:
  *
  * ```ts
- * const writeFile = createMutation(() => folder$.write.mutationOptions());
  * const text = createTextEditor({
  *   current: () => (opened.data?.kind === 'text' ? opened.data.text : undefined),
- *   write: async (change) =>
- *     (await writeFile.mutateAsync({ path, ...change })).file === null ? 'gone' : 'landed',
+ *   write: async (change) => {
+ *     const written = unwrap(await writes.write(path, change.from, change.to));
+ *     return written.file === null ? 'gone' : 'landed';
+ *   },
  * });
  * ```
  *
  * `createBodyEditor({ row, write })` is its row case: the document is the
- * row, its text the body, and each save goes to the table's `write`
- * mutation, so fields another writer changed meanwhile stay too:
+ * row, its text the body, and each save goes to the table's `write`, so
+ * fields another writer changed meanwhile stay too:
  *
  * ```ts
- * const writeNote = createMutation(() => folder$.notes.write.mutationOptions());
  * const body = createBodyEditor({
- *   row: () => note.data ?? undefined,
- *   write: (change) => writeNote.mutateAsync({ stem, ...change }),
+ *   row: () => note ?? undefined,
+ *   write: async (change) => unwrap(await writes.tables.notes.write(stem, change.from, change.to)),
  * });
  * ```
  *
- * ```svelte
- * <Textarea bind:value={() => body.text ?? '', (text) => body.change(text)} onblur={() => body.save()} />
- * ```
- *
  * A failed save keeps what is typed, so nothing typed is lost; the next
- * `save()` tries again, and the failure itself is the mutation's to show.
- * The component decides when to call `save()`: after a pause in typing, and
- * when the person leaves the editor or it goes away.
+ * `save()` tries again, and the failure itself is the caller's to show.
+ * The caller decides when to call `save()`. A folder app does not build
+ * these itself: its edit layer (`@epicenter/svelte/edits`) holds one per
+ * path, saves it after a pause in typing, and offers its text when the file
+ * is gone.
  */
 import type { Row } from '../row-text.js';
 import type { StoredRow, WrittenRow } from '../table.js';
@@ -72,7 +67,7 @@ export type TextEditor = {
 	/**
 	 * Save what is typed, one save at a time, until nothing typed is
 	 * unsent. Called while a save runs, it resolves when that loop ends. A
-	 * failed save keeps what is typed; its error is the mutation's. A save
+	 * failed save keeps what is typed; its error is the writer's to show. A save
 	 * of a document deleted since writes nothing (a delete beats an edit it
 	 * never saw), and nothing is sent while the document is gone from the
 	 * cache: what is typed stays, and `gone` says so.
@@ -86,8 +81,8 @@ type TextEditorOptions<TDoc> = {
 	/** The document as the cache holds it now; `undefined` while it is absent or cannot be edited as text. */
 	current: () => TDoc | undefined;
 	/**
-	 * Write the change, rejecting on failure: `mutateAsync` of the folder's
-	 * write for the document's path. It resolves `'gone'` when the write
+	 * Write the change, rejecting on failure: the folder's write for the
+	 * document's path. It resolves `'gone'` when the write
 	 * found no file there, which stops the editor, and `'landed'` otherwise.
 	 */
 	write: (change: TextChange<TDoc>) => Promise<'landed' | 'gone'>;
@@ -143,7 +138,7 @@ export function createTextEditor<TDoc>({
 				const landed = await write({ from: base, to }).catch(
 					() => 'failed' as const,
 				);
-				// The mutation holds the error; what is typed stays.
+				// The writer holds the error; what is typed stays.
 				if (landed === 'failed') return;
 				if (landed === 'gone') {
 					if (from === base) deleted = true;
@@ -226,9 +221,8 @@ export function createBodyEditor<TFields>({
 	/** The row as the cache holds it now; `undefined` while it is absent or does not read as a row. */
 	row: () => StoredRow<TFields> | undefined;
 	/**
-	 * Write the change from `from` to `to`, rejecting on failure:
-	 * `mutateAsync` of `folder.<table>.write` with the row's stem. It
-	 * resolves with what the write left: `null` when the row is gone, which
+	 * Write the change from `from` to `to`, rejecting on failure: the
+	 * table's `write` with the row's stem. It resolves with what the write left: `null` when the row is gone, which
 	 * stops the editor; a file that does not read as a row still holds what
 	 * was sent.
 	 */
