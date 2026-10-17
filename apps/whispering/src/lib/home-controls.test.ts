@@ -20,8 +20,6 @@
  *   model, and key on the device only, keeps the saved key when none is
  *   typed, refuses to keep a key for another endpoint, and asks no endpoint
  *   anything
- * - A key saved by an earlier build moves only into the connections chosen,
- *   at the base URL each form shows
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -269,33 +267,6 @@ test('a connection the device refuses is reported, its typed key stays, and noth
 	expect(draft.key).toBe('typed-key');
 	expect(draft.saving).toBe(false);
 	expect(device.stored.transcription?.apiKey).toBeUndefined();
-});
-
-test('the earlier key moves only into the connections chosen, at the endpoint each form shows', async () => {
-	const { session, library, device, transformed } = await open(undefined, {
-		connections: {},
-		legacyKey: 'earlier-key',
-	});
-	expect(library.connections?.legacyKey).toBe(true);
-	const { settings } = session;
-	settings.text.baseUrl = 'http://127.0.0.1:11434/v1';
-	settings.text.model = 'local-chat';
-
-	expect(await settings.adoptLegacyKey(['text'])).toBeUndefined();
-
-	expect(device.stored.text).toEqual({
-		baseUrl: 'http://127.0.0.1:11434/v1',
-		model: 'local-chat',
-		apiKey: 'earlier-key',
-	});
-	// Moved, not copied: it is not offered again, and transcription did not get it.
-	expect(device.stored.transcription).toBeUndefined();
-	expect(device.device.legacyKey).toBe('');
-	expect(library.connections?.legacyKey).toBe(false);
-	expect(await settings.adoptLegacyKey(['transcription'])).toMatchObject({
-		description: 'No key from an earlier version is saved on this device.',
-	});
-	expect(transformed).toEqual([]);
 });
 
 test.each([

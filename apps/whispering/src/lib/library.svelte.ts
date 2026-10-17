@@ -99,7 +99,6 @@ import type { ActiveCapture } from './capture.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
-	LegacyKeyTargets,
 	Operation,
 } from './connections.js';
 import {
@@ -1628,19 +1627,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		 * and nothing is written to the folder.
 		 */
 		saveConnection,
-		/** Move the key an earlier build saved into the chosen connections. */
-		adoptLegacyKey: action(
-			'adopt-legacy-key',
-			async (targets: LegacyKeyTargets) => {
-				const { data: adopted, error } =
-					await workspace.connections.adoptLegacyKey(targets);
-				if (error !== null) return error;
-				connections = adopted;
-				connectionsError = undefined;
-				return undefined;
-			},
-			() => undefined,
-		),
 		/** Read the connections again, as after a failed read. */
 		readConnections,
 

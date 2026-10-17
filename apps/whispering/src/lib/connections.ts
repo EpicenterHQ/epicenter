@@ -23,7 +23,6 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export type Operation = 'transcription' | 'text';
-export const OPERATIONS: readonly Operation[] = ['transcription', 'text'];
 
 /** What storage holds for one connection. The key never leaves the storage that holds it. */
 export type StoredConnection = {
@@ -46,11 +45,6 @@ export type ConnectionInfo = {
 export type ConnectionsInfo = {
 	readonly transcription: ConnectionInfo | undefined;
 	readonly text: ConnectionInfo | undefined;
-	/**
-	 * A key saved by an earlier build, which used one key for every endpoint.
-	 * It is sent nowhere until the person moves it into a connection.
-	 */
-	readonly legacyKey: boolean;
 };
 
 export type KeyChange =
@@ -181,46 +175,6 @@ export function applyConnectionChange(
 	return Ok(
 		apiKey === undefined ? { baseUrl, model } : { baseUrl, model, apiKey },
 	);
-}
-
-/** Where the earlier key is to go: the destination the person was shown and agreed to. */
-export type LegacyKeyTargets = Partial<
-	Record<Operation, { readonly baseUrl: string; readonly model: string }>
->;
-
-/**
- * The connections that result from moving the earlier key into the targets
- * the person chose. Each target becomes a connection with that key, so the
- * key goes only to destinations shown to them.
- */
-export function adoptLegacyKey(
-	key: string,
-	targets: LegacyKeyTargets,
-	readOnly: Partial<Record<Operation, string>>,
-): Result<Partial<Record<Operation, StoredConnection>>, string> {
-	if (key === '')
-		return Err('No key from an earlier version is saved on this device.');
-	const chosen = OPERATIONS.filter((operation) => targets[operation]);
-	if (chosen.length === 0)
-		return Err('Choose where the earlier key may be sent.');
-	const adopted: Partial<Record<Operation, StoredConnection>> = {};
-	for (const operation of chosen) {
-		const reason = readOnly[operation];
-		if (reason !== undefined) return Err(reason);
-		const target = targets[operation]!;
-		const { data: made, error: changeError } = applyConnectionChange(
-			operation,
-			undefined,
-			{
-				baseUrl: target.baseUrl,
-				model: target.model,
-				key: { action: 'replace', key },
-			},
-		);
-		if (changeError !== null) return Err(changeError);
-		adopted[operation] = made;
-	}
-	return Ok(adopted);
 }
 
 /**

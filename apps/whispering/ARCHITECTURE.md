@@ -102,9 +102,7 @@ What Whispering adds on top:
   the title "Whispering transcription" or "Whispering text", and the model.
   The base URL and key are not in the row: they are in this computer's
   keychain under the row's id (`src/lib/workspace/desktop-connections.ts`).
-  In a browser tab they are
-  `whispering.connections` in `localStorage`, where an earlier build's single
-  key stays, unused, until the person moves it into a connection.
+  In a browser tab they are `whispering.connections` in `localStorage`.
   `src/lib/connections.ts` holds the rules both storages apply.
 - The chosen microphone is not folder data either: it names hardware on one
   device. It is `whispering.microphone` in the origin's `localStorage`
@@ -633,7 +631,7 @@ obstacle in that write's way so the folder itself fails it
 | `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections, local transcription, and microphone, and the microphone preference. |
 | `src/lib/session.svelte.ts` | The one session a mounted layout owns, and its context. It holds what the shell shows, the post-processing choice, the pasted text, and the settings draft. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
-| `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
+| `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
 | `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held in text editors and their saves, selections, the live recording, settings, and every action as a mutation. |

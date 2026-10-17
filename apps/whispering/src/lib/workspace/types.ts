@@ -20,7 +20,6 @@ import type {
 	ConnectionChange,
 	ConnectionDefaults,
 	ConnectionsInfo,
-	LegacyKeyTargets,
 	Operation,
 } from '../connections.js';
 import type { whisperingDefinition } from '../definition.js';
@@ -179,10 +178,6 @@ export type Workspace = {
 		set(
 			operation: Operation,
 			change: ConnectionChange,
-		): Promise<Result<ConnectionsInfo, string>>;
-		/** Move the earlier build's key into the chosen connections; a refusal is returned as text. */
-		adoptLegacyKey(
-			targets: LegacyKeyTargets,
 		): Promise<Result<ConnectionsInfo, string>>;
 	};
 	/**

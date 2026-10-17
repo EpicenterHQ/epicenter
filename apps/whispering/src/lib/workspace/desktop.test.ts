@@ -515,7 +515,6 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	expect(await first.connections.read()).toEqual({
 		transcription: undefined,
 		text: undefined,
-		legacyKey: false,
 	});
 
 	const saved = expectOk(
@@ -575,8 +574,6 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	expect(await host.keychain.get('whispering-text')).toBe(
 		JSON.stringify({ endpoint: ENDPOINT, key: '' }),
 	);
-	const { error: adopted } = await second.connections.adoptLegacyKey({});
-	expect(adopted).toContain('No key from an earlier version');
 	await second.close();
 
 	// A row synced from another computer is not set up here until this

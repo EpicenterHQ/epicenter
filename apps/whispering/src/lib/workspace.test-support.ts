@@ -20,12 +20,10 @@ import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
-	adoptLegacyKey,
 	applyConnectionChange,
 	type ConnectionsInfo,
 	connectionInfo,
 	connectionTargets,
-	OPERATIONS,
 	type Operation,
 	type StoredConnection,
 } from './connections.js';
@@ -61,23 +59,19 @@ export const TEST_CONNECTIONS: Record<Operation, StoredConnection> = {
  */
 export function testConnections({
 	connections = TEST_CONNECTIONS,
-	legacyKey = '',
 	readOnly = {},
 }: {
 	connections?: Partial<Record<Operation, StoredConnection>>;
-	legacyKey?: string;
 	readOnly?: Partial<Record<Operation, string>>;
 } = {}) {
 	const stored: Partial<Record<Operation, StoredConnection>> = {
 		...connections,
 	};
-	const device = { legacyKey };
 	const info = (): ConnectionsInfo => ({
 		transcription:
 			stored.transcription &&
 			connectionInfo(stored.transcription, readOnly.transcription),
 		text: stored.text && connectionInfo(stored.text, readOnly.text),
-		legacyKey: device.legacyKey !== '',
 	});
 	const member: Workspace['connections'] = {
 		storedIn: 'test',
@@ -101,21 +95,8 @@ export function testConnections({
 			stored[operation] = next;
 			return Ok(info());
 		},
-		async adoptLegacyKey(targets) {
-			const { data: adopted, error: adoptError } = adoptLegacyKey(
-				device.legacyKey,
-				targets,
-				readOnly,
-			);
-			if (adoptError !== null) return Err(adoptError);
-			for (const operation of OPERATIONS)
-				if (adopted[operation] !== undefined)
-					stored[operation] = adopted[operation];
-			device.legacyKey = '';
-			return Ok(info());
-		},
 	};
-	return { stored, device, member };
+	return { stored, member };
 }
 
 /**
@@ -219,8 +200,6 @@ export type TestWorkspaceOptions = {
 	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
-	/** A key an earlier build saved on the device. */
-	legacyKey?: string;
 	/** Open this folder instead of a directory with the Bun opener, such as a browser folder. */
 	folder?: Workspace['folder'] & { close(): Promise<void> };
 };
@@ -268,7 +247,6 @@ export async function openTestWorkspace({
 	failResultStarts = 0,
 	failAnswerWrites = 0,
 	connections,
-	legacyKey,
 	folder: given,
 }: TestWorkspaceOptions = {}) {
 	const root = await realpath(
@@ -288,7 +266,7 @@ export async function openTestWorkspace({
 		),
 		text_runs: withResultFailures(folder.tables.text_runs, failures),
 	};
-	const device = testConnections({ connections, legacyKey });
+	const device = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];
 	const transcribed: TranscribeRequest[] = [];
@@ -392,7 +370,7 @@ export async function openTestWorkspace({
 		transformed,
 		/** Every transcription request the endpoint stub received, in order. */
 		transcribed,
-		/** The device's stored connections, keys included, and its earlier key. */
+		/** The device's stored connections, keys included. */
 		device,
 		terminalRuns,
 		get opens() {

@@ -153,14 +153,13 @@ async function browserWithStorage(stored: Map<string, string>) {
 }
 
 test('a browser keeps connections and keys in its own storage, tells the page no key, and sends only to the connection it was prepared for', async () => {
-	const stored = new Map([['whispering.transcriptionApiKey', 'earlier-key']]);
+	const stored = new Map<string, string>();
 	const { browser, sent } = await browserWithStorage(stored);
 	expect(await browser.connections.read()).toEqual({
 		transcription: undefined,
 		text: undefined,
-		legacyKey: true,
 	});
-	// Nothing is set up, so nothing is sent, and the earlier key is lent to nothing.
+	// Nothing is set up, so nothing is sent.
 	const { error: unavailable } = await browser.transform(prepared(BASE_URL));
 	expect(unavailable?.name).toBe('ConnectionUnavailable');
 
@@ -201,22 +200,6 @@ test('a browser keeps connections and keys in its own storage, tells the page no
 		key: { action: 'keep' },
 	});
 	expect(refusal).toContain('saved key is not sent there');
-
-	// The earlier key moves into the chosen connection, at the URL shown, and is gone.
-	expectOk(
-		await browser.connections.adoptLegacyKey({
-			transcription: { baseUrl: BASE_URL, model: 'whisper-1' },
-		}),
-	);
-	expect(stored.has('whispering.transcriptionApiKey')).toBe(false);
-	expect(JSON.parse(stored.get('whispering.connections')!)).toEqual({
-		text: { baseUrl: BASE_URL, model: 'chat-model', apiKey: 'text-key' },
-		transcription: {
-			baseUrl: BASE_URL,
-			model: 'whisper-1',
-			apiKey: 'earlier-key',
-		},
-	});
 });
 
 test('browser connections that do not read are reported, never taken for none, and never replaced', async () => {
@@ -238,14 +221,11 @@ test('browser connections that do not read are reported, never taken for none, a
 	expect(sent).toEqual([]);
 });
 
-test('a malformed browser connection is never replaced by setup or legacy adoption', async () => {
+test('a malformed browser connection is never replaced by setup', async () => {
 	const original = JSON.stringify({
 		text: { baseUrl: BASE_URL, model: 7, apiKey: 'recoverable-key' },
 	});
-	const stored = new Map([
-		['whispering.connections', original],
-		['whispering.transcriptionApiKey', 'earlier-key'],
-	]);
+	const stored = new Map([['whispering.connections', original]]);
 	const { browser, sent } = await browserWithStorage(stored);
 	for (const key of [
 		{ action: 'keep' },
@@ -260,11 +240,5 @@ test('a malformed browser connection is never replaced by setup or legacy adopti
 		expect(refusal).toContain('does not read as one');
 		expect(stored.get('whispering.connections')).toBe(original);
 	}
-	const { error: adoptionRefusal } = await browser.connections.adoptLegacyKey({
-		text: { baseUrl: BASE_URL, model: 'chat-model' },
-	});
-	expect(adoptionRefusal).toContain('does not read as one');
-	expect(stored.get('whispering.connections')).toBe(original);
-	expect(stored.get('whispering.transcriptionApiKey')).toBe('earlier-key');
 	expect(sent).toEqual([]);
 });

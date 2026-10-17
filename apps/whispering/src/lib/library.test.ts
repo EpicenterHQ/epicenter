@@ -234,7 +234,6 @@ test('the first launch creates no files or history, and saving a connection writ
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
-		legacyKey: false,
 	});
 
 	expect(

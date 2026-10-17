@@ -366,13 +366,6 @@ history.
   browser, where code running on the site can read it, and the key form says
   so. Errors that echo the key have it removed.
 
-**From an earlier version.** An earlier version kept one key for every
-endpoint. In a browser tab, that key
-stays where it was and is sent nowhere. Settings shows it as "A key saved by an earlier version";
-tick the connections it may go to, each at the endpoint its form shows, and
-press **Use the earlier key there**. It moves into those connections and is
-removed from where it was; it is never shown. Epicenter holds no such key.
-
 One failure is different. If Epicenter stops answering partway, the window cannot tell whether the request reached the endpoint: it
 may have been sent, and even answered, with the reply lost on the way back. The
 notice says the outcome is not known, not that nothing was sent. Whispering

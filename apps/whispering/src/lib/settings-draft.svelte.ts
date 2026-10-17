@@ -23,7 +23,6 @@ import {
 	type ConnectionChange,
 	type ConnectionInfo,
 	type KeyChange,
-	type LegacyKeyTargets,
 	type Operation,
 } from './connections.js';
 import type { Library } from './library.svelte.js';
@@ -160,39 +159,8 @@ function createConnectionDraft(library: Library, operation: Operation) {
 }
 
 export function createSettingsDraft(library: Library) {
-	const transcription = createConnectionDraft(library, 'transcription');
-	const text = createConnectionDraft(library, 'text');
-	let adopting = $state(false);
-
 	return {
-		transcription,
-		text,
-		get adopting() {
-			return adopting;
-		},
-		/**
-		 * Move the key an earlier build saved into the chosen connections, at
-		 * the base URL and model each form shows now. That shown base URL is
-		 * the destination the person agrees to; the key is sent nowhere else.
-		 */
-		async adoptLegacyKey(
-			operations: readonly Operation[],
-		): Promise<SettingsSaveProblem | undefined> {
-			if (adopting) return undefined;
-			const targets: LegacyKeyTargets = {};
-			for (const operation of operations) {
-				const draft = operation === 'transcription' ? transcription : text;
-				targets[operation] = { baseUrl: draft.baseUrl, model: draft.model };
-			}
-			adopting = true;
-			try {
-				const refused = await library.adoptLegacyKey(targets);
-				return refused
-					? { title: 'Could not use the earlier key', description: refused }
-					: undefined;
-			} finally {
-				adopting = false;
-			}
-		},
+		transcription: createConnectionDraft(library, 'transcription'),
+		text: createConnectionDraft(library, 'text'),
 	};
 }

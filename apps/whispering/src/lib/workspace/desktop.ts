@@ -194,9 +194,6 @@ export async function openDesktopWorkspace({
 			},
 			read: connections.read,
 			set: connections.set,
-			// Only a browser tab can hold a key an earlier build saved.
-			adoptLegacyKey: async () =>
-				Err('No key from an earlier version is saved in Epicenter.'),
 		},
 		preferences: localPreferences,
 		debugControls: false,
