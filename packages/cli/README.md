@@ -223,9 +223,12 @@ install's `HEAD` is symbolic and approves nothing; `app update` fetches,
 which writes `refs/remotes/origin/<default>` and never `HEAD`. Without
 `--approve`, `install` and `update` print the fetched commit waiting for
 approval with its log and diff stat; `install` exits 1, since nothing is
-approved yet. `--approve` approves it with `git update-ref --no-deref HEAD`,
-and `app update --commit <sha> --approve` approves only the commit shown, so
-approving never covers a commit nobody saw.
+approved yet. Approving needs the commit that was shown:
+`app install --commit <sha> --approve` or `app update --commit <sha>
+--approve` approves that commit, and only when it is the one waiting, with
+`git update-ref --no-deref HEAD`, so approving never covers a commit nobody
+saw. `--approve` without `--commit` is refused, and approving fetches
+nothing.
 
 Until publishing builds apps (ADR-0589), the approved commit is built from
 source: it is extracted with `git archive` into `sources/<app-id>/` in the
@@ -236,10 +239,13 @@ clone as the tree `refs/epicenter/builds/<commit>`, which is extracted with
 `git archive` into `builds/<app-id>/<commit>/`. `app update --commit <sha>`,
 hidden, is what the shell runs before every open: it answers only for the
 approved commit, builds it when it is not built, and checks its build
-directory against that tree by path and blob hash. A damaged build stays in
-place, since a window may be running it, and a fresh copy is extracted beside
-it (`state: damaged`) for the shell to swap in. `app remove` deletes the
-clone and leaves the builds for windows still running them.
+directory against that tree by path and blob hash. A damaged build is
+reported (`state: damaged`) and left as it is, since a window may be running
+it; the shell, when no window runs that commit, adds the hidden `--restore`,
+which extracts the tree again, checks it, and swaps it in. From a terminal,
+opening the app in Epicenter restores it. `app remove` deletes the clone and
+leaves the builds for windows still running them. Clones from before this
+layout, in `~/Epicenter/Apps/`, are left on disk and never read.
 
 Git runs through `@epicenter/folder`'s runner (`createGitRunner`), with no
 hooks and the `ext` and `fd` transports refused. One install, update, or

@@ -72,18 +72,22 @@ for a path whose `text` is unset.
 check runs in the CLI, inside `epicenter app update --commit=<commit>`,
 which `open_installed_app` already runs before every open (ADR-0588). It
 compares `<cache_dir>/builds/<encoded address>/<commit>/` with the commit's
-tree, by path and blob hash. On any difference, or a check that cannot
-finish, the CLI extracts the commit into a fresh sibling directory and
-answers that the build was damaged.
+tree, by path and blob hash. A difference, or a check that cannot finish,
+is a damaged build.
 
-**A damaged build is switched only when no window runs it.** When
+**A damaged build is replaced only when no window runs it.** When
 `InstalledWindowCommits` (`apps/epicenter/src-tauri/src/lib.rs`) names no
-window on that commit, `open_installed_app` moves the damaged directory
-aside, renames the fresh one into place, removes the damaged one, and
-opens. Otherwise it leaves both directories, opens nothing, and reports the
-damaged build to the person, so the windows on that commit are closed
-before it is replaced. ADR-0588's per-commit directories and URLs, and a
-window keeping the build it opened on, stand.
+window on that commit, `open_installed_app` reserves that commit, so no
+other open pins a window to it meanwhile, and asks the CLI to restore it
+(`--restore`): the CLI extracts the commit into a new sibling directory,
+checks it, moves the damaged directory aside, renames the fresh one into
+place, and removes the damaged one. Every window is pinned to its commit
+before its WebView is created, so no page loads a build being replaced.
+When a window runs that commit, the CLI writes nothing and answers that
+the build was damaged, and the shell opens nothing and reports it to the
+person, so the windows on that commit are closed before it is replaced.
+ADR-0588's per-commit directories and URLs, and a window keeping the build
+it opened on, stand.
 
 Deleted: `approvals.json`, `readApprovals`, and `recordApproval`;
 `CURRENT_BUILD`, `currentBuild`, and `settle`'s write of `current`;
@@ -100,6 +104,11 @@ check at open finds a partial build as it finds an edited one.
   remote code, not local processes (ADR-0556).
 - Every open reads each file of the build once and hashes it. An app's
   build is a few megabytes.
+- The build is verified when an app opens, not as each file is served:
+  bytes a local process changes under `builds/` after that check are
+  served until the next open. That is the trust ADR-0540 already grants
+  local processes; the check catches a damaged or partial build, not a
+  process racing the scheme.
 - A file Git LFS tracks is extracted as its pointer, as under ADR-0588.
 - A commit whose tree holds a symbolic link extracts the link, and the
   scheme refuses to serve through it (ADR-0588).

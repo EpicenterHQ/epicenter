@@ -429,15 +429,18 @@ same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
 `~/Library/Application Support/so.epicenter/apps/<app-id>/`, writes
 `info/attributes` so no attribute changes a byte (`neutralizeAttributes`),
 writes the one refspec `+refs/heads/<default>:refs/remotes/origin/<default>`,
-fetches once, and records the folder in the clone's `config` as
+fetches once with that refspec passed explicitly, so no refspec from a
+person's global configuration applies, deletes the clone's local branch, and
+records the folder in the clone's `config` as
 `epicenter.folder` (absent for the root). Its `HEAD` stays symbolic, so
 nothing is approved and nothing builds: the CLI exits 1 with the app and the
 fetched commit's review (`pending`). Everything about an installed app is
 read from its clone, never from a row (ADR-0597). The page shows the title,
 the source, the commit, its log, and that building runs the app's code on
 this computer. "Approve and build" calls `approve_app` with the commit shown;
-the CLI refuses if the fetched commit moved since, and refuses a commit whose
-manifest names another id, then approves it with
+the CLI refuses an approval without the commit shown, refuses if the fetched
+commit moved since, and refuses a commit whose manifest names another id,
+then approves it with
 `git update-ref --no-deref HEAD <commit>` and builds it. Approval covers the
 whole repository's commit.
 
@@ -446,7 +449,8 @@ extracts the approved commit with `git archive` into `sources/<app-id>/`,
 runs `bun install --frozen-lockfile --ignore-scripts` at its root (when it
 has a `package.json`) and `bun run build:installed` in the app's folder,
 writes the regular files of its `dist/` into the clone as a tree named
-`refs/epicenter/builds/<commit>`, extracts that tree with `git archive` into
+`refs/epicenter/builds/<commit>` (a link in `dist/` fails the build), extracts
+that tree with `git archive` into
 a sibling of `builds/<app-id>/<commit>/`, renames it into place, and removes
 the source. Every Git command runs with replace refs ignored, and the
 attributes file unsets filters, line-ending conversion, `ident`,
@@ -466,6 +470,8 @@ Only approving moves the approved commit (ADR-0597):
   build: what runs is always an approved commit.
 - An `approvals.json` or `builds/<app-id>/current` left by an earlier build
   of Epicenter is never read; an app installed before is installed again.
+  Its old clone in `~/Epicenter/Apps/<app-id>/` is left on disk, with any
+  commits made there, for the person to keep or delete.
 
 The CLI runs every Git command for an app through `@epicenter/folder`'s
 runner (`createGitRunner`): no hooks, no fsmonitor, no terminal prompt, and
@@ -484,12 +490,16 @@ The scheme serves each build of an installed app at
 (`epicenter app update --commit=<commit>`), which answers only for the
 approved commit. It builds that commit when it is not built, and otherwise
 compares `builds/<app-id>/<commit>/` with the commit's build tree by path and
-blob hash. A build that differs, edited, partly copied, or with a file added,
-is left in place and extracted again into a fresh sibling, and the CLI
-answers `damaged` with its name. When no window runs that commit
-(`InstalledWindowCommits`), the shell moves the damaged directory aside,
-renames the fresh one into place, and removes the damaged one; otherwise it
-opens nothing and asks the person to close that app's windows first. It
+blob hash, ignoring a `.DS_Store`. When no window runs that commit
+(`InstalledWindowCommits`), the shell reserves it and passes `--restore`: a
+build that differs, edited, partly copied, or with a file added, is extracted
+again into a new sibling, checked, and swapped in. When a window runs it, the
+CLI writes nothing and answers `damaged`, and the shell opens nothing and asks
+the person to close that app's windows first. A window is pinned to its
+commit before its WebView is created, so no page loads a build being
+replaced. The check runs at each open, not at each request: bytes a local
+process changes under `builds/` afterward are served until the next open,
+which is the trust ADR-0540 already grants local processes. It
 then opens the commit it answered ready in its own window, labelled
 `app:<id with _ for .>:<folder scope in hex>`. The window keeps that build
 until it is closed and opened again: a later approval and build changes
