@@ -6,7 +6,6 @@
  *
  * Key behaviors:
  * - Every declared table is exactly what an opened folder's `list()` returns
- * - A `kv` section an earlier build wrote is admitted and not read
  * - A directory without `epicenter.json` is `NotDataFolder`; a declaration
  *   that is not UTF-8 JSON, is not the declaration grammar (an unknown key, a
  *   `required` naming no property, a visible `~optional`), or declares a field
