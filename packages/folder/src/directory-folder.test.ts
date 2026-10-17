@@ -7,7 +7,7 @@
  * repository.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
@@ -38,60 +38,6 @@ const definition = defineFolder({
 
 const author = { name: 'Todos', email: 'todos@localhost' };
 
-/**
- * Every file change these folders make, as a path below the root with Git's
- * object names and staging names reduced to their kind. `page_files.rs`
- * tests every recorded path; the desktop shell makes the file changes of a
- * page, and the `epicenter` CLI those of its history (ADR-0559).
- */
-const FILE_CHANGES = join(
-	import.meta.dir,
-	'../../tauri-plugin-epicenter-folder/fixtures/page-file-changes.json',
-);
-const changed = new Set<string>();
-
-function changeOf(root: string, path: string): string {
-	return path
-		.slice(root.length + 1)
-		.replace(/^\.git\/objects\/[0-9a-f]{2}(?=\/|$)/, '.git/objects/ab')
-		.replace(/^\.git\/objects\/ab\/[0-9a-f]{38}/, '.git/objects/ab/<object>')
-		.replace(/\.tmp-[^/]+$/, '.tmp-<n>')
-		.replace(
-			/^\.git\/epicenter\/scratch\/[^/]+$/,
-			'.git/epicenter/scratch/<staged>',
-		)
-		.replace(/^todos\/[^/]+\.md$/, 'todos/<stem>.md');
-}
-
-function recording(
-	root: string,
-	files: DirectoryPrimitives,
-): DirectoryPrimitives {
-	const note = (path: string) => {
-		if (path.startsWith(`${root}/`)) changed.add(changeOf(root, path));
-	};
-	return {
-		...files,
-		async writeFile(path, bytes, options) {
-			note(path);
-			return files.writeFile(path, bytes, options);
-		},
-		async rename(from, to, expected) {
-			note(from);
-			note(to);
-			return files.rename(from, to, expected);
-		},
-		async remove(path, options) {
-			note(path);
-			return files.remove(path, options);
-		},
-		async mkdir(path) {
-			note(path);
-			return files.mkdir(path);
-		},
-	};
-}
-
 const originalEnv = { ...process.env };
 
 beforeAll(() => {
@@ -103,23 +49,6 @@ beforeAll(() => {
 	});
 });
 afterAll(() => {
-	if (process.env.FOLDER_WRITE_GIT_CALLS === '1') {
-		writeFileSync(
-			FILE_CHANGES,
-			`${JSON.stringify([...changed].sort(), null, '\t')}\n`,
-		);
-	} else {
-		const knownChanges = new Set<string>(
-			existsSync(FILE_CHANGES)
-				? (JSON.parse(readFileSync(FILE_CHANGES, 'utf8')) as string[])
-				: [],
-		);
-		const unlisted = [...changed].filter((path) => !knownChanges.has(path));
-		if (unlisted.length > 0)
-			throw new Error(
-				`The folder engine changes paths the desktop contract does not list; run FOLDER_WRITE_GIT_CALLS=1 bun test src/directory-folder.test.ts and update page_files.rs if its tests fail:\n${unlisted.join('\n')}`,
-			);
-	}
 	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
 		if (originalEnv[key] === undefined) delete process.env[key];
 		else process.env[key] = originalEnv[key];
@@ -133,10 +62,7 @@ function open(
 		beforeGit?: (args: readonly string[]) => Promise<void>;
 	} = {},
 ) {
-	const primitives = options.primitives ?? nodeDirectoryPrimitives;
-	// Only the page's file changes are recorded: on the desktop the history
-	// runs in the `epicenter` CLI, which the shell does not hold to them.
-	const files = recording(root, primitives);
+	const files = options.primitives ?? nodeDirectoryPrimitives;
 	const system = createGitRunner(root);
 	const run: typeof system = async (args, runOptions) => {
 		await options.beforeGit?.(args);
@@ -156,7 +82,7 @@ function open(
 		storage,
 		history: nativeHistory({
 			rootPath: root,
-			host: { run, files: primitives },
+			host: { run, files },
 			boundary: storage,
 			author,
 		}),

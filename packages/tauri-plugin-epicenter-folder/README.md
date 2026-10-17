@@ -20,7 +20,6 @@ it. The page names the scope and nothing else: it never supplies a root.
 | `src/` | The Tauri plugin: the commands, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
-| `fixtures/page-file-changes.json` | Every file change the engine makes in `@epicenter/folder`'s real-Git tests; `page_files.rs` allows each. |
 
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
