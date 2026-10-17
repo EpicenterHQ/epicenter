@@ -1447,8 +1447,8 @@ filter a blob means something other than its bytes, and every file here is
 written as its bytes. This is refusal, not Git LFS support: pointer-shaped
 text with no declared filter is ordinary bytes. Line-ending and encoding
 attributes (`text`, `eol`, `crlf`, `working-tree-encoding`) and `ident` are
-not refused: nothing here applies them, so each file is committed and
-written with the bytes it has. Browser fetch uses isomorphic-git 1.38.5,
+not refused. A commit hashes each file's bytes with no path, and Sync writes
+each blob's bytes, so neither applies them. Browser fetch uses isomorphic-git 1.38.5,
 which fails when a non-default remote branch exists but the server
 advertises no resolvable `HEAD`; that failure changes nothing.
 
@@ -1457,9 +1457,22 @@ so it is refused in a repository it would misrepresent: symbolic links,
 executables, submodules, nested `.git` data, or a `.gitattributes`
 anywhere in the folder, ignored or not, that names a filter. Reads and file
 saves still work.
-Every `git` the folder runs sets `core.autocrlf=false` and `core.eol=lf`
-for itself, so a person's line-ending setting, such as the `core.autocrlf=true`
-Git for Windows installs, never changes what is committed.
+
+Git's own checkout does apply attributes: a smudge filter, `text` and
+`eol`, `ident`, and `working-tree-encoding`. A file checked out that way
+differs from its blob, and the next Save version would commit the
+difference. So every repository Epicenter creates or clones gets
+`$GIT_DIR/info/attributes` holding exactly
+`* -filter -text -eol -ident -working-tree-encoding -export-ignore -export-subst`
+before anything is checked out (`neutralizeAttributes`,
+`src/git/neutral-attributes.ts`): the folder's first commit or connect,
+`epicenter clone`, and an installed app's clone and build worktree. Git
+reads that file before any `.gitattributes` and `core.attributesFile`, so
+every checkout there, a person's included, writes each blob's bytes. Every
+`git` Epicenter runs also sets `core.autocrlf=false` and `core.eol=lf`,
+which cover line endings from configuration alone, such as the
+`core.autocrlf=true` Git for Windows installs, in a repository without that
+file.
 
 ## Declaring a folder
 

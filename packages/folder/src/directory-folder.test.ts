@@ -8,7 +8,14 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { SCRATCH_DIRECTORY } from './boundary.js';
@@ -23,6 +30,7 @@ import {
 } from './directory-store.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
+import { NEUTRAL_ATTRIBUTES } from './git/neutral-attributes.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -290,26 +298,47 @@ describe('a folder over an ordinary directory', () => {
 	test.each([
 		'global',
 		'repository',
-	] as const)("with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk", async (where) => {
+	] as const)("with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk, and the person's checkout writes it back the same", async (where) => {
 		const project = await scratch('directory-folder-autocrlf-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');
-		await git(project, 'init', '--quiet', '--initial-branch=main', root);
-		await git(root, 'remote', 'add', 'origin', bare);
+		await mkdir(root);
 		// Git for Windows writes this when it installs.
 		const global = process.env.GIT_CONFIG_GLOBAL;
 		if (where === 'global') {
 			const config = join(project, 'gitconfig');
 			await writeFile(config, '[core]\n\tautocrlf = true\n');
 			process.env.GIT_CONFIG_GLOBAL = config;
-		} else await git(root, 'config', 'core.autocrlf', 'true');
+		}
+		/** The person's own `git`, with their configuration. */
+		const theirs = async (...args: string[]) => {
+			const child = Bun.spawn(['git', ...args], {
+				cwd: root,
+				env: { ...GIT_ENV, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL },
+				stderr: 'pipe',
+			});
+			expect([
+				await child.exited,
+				await new Response(child.stderr).text(),
+			]).toEqual([0, '']);
+		};
 		try {
-			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\n');
 			const ran: (readonly string[])[] = [];
 			const folder = expectOk(
 				await open(root, { beforeGit: async (args) => void ran.push(args) }),
 			);
 			const created = await addTodo(folder, 'Line feeds');
+			// The folder's first commit creates its repository.
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
+				NEUTRAL_ATTRIBUTES,
+			);
+			if (where === 'repository')
+				await git(root, 'config', 'core.autocrlf', 'true');
+			await writeFile(join(root, 'windows.txt'), 'one\r\ntwo\r\n');
+			// An attribute the person's checkout would apply, but for the
+			// repository's own `info/attributes`.
+			await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
 			/** Whether `path`'s blob in `commit` is its bytes on disk. */
 			const stored = async (commit: string, path: string) =>
 				(await git(root, 'rev-parse', `${commit}:${path}`)) ===
@@ -323,7 +352,7 @@ describe('a folder over an ordinary directory', () => {
 
 			// A native checkout with no conversion of its own sends a file back.
 			const native = join(project, 'native');
-			expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+			expect(expectOk(await folder.sync.connect(bare)).kind).toBe('synced');
 			await git(project, 'clone', '--quiet', bare, native);
 			await writeFile(join(native, 'incoming.txt'), 'a\nb\n');
 			await git(native, 'add', 'incoming.txt');
@@ -336,11 +365,18 @@ describe('a folder over an ordinary directory', () => {
 			expect(await git(bare, 'rev-parse', 'main')).toBe(
 				await git(root, 'rev-parse', 'main'),
 			);
-			for (const path of [created.path, 'windows.txt', 'incoming.txt'])
+			const tracked = [created.path, 'windows.txt', 'incoming.txt'];
+			for (const path of tracked)
 				expect([path, await stored('main', path)]).toEqual([path, true]);
 			// No command needs Git 2.40's `check-attr --source`.
 			expect(ran.filter((args) => args.includes('check-attr'))).toEqual([]);
 			await folder.close();
+
+			// The person checks the files out again with their own Git.
+			for (const path of tracked) await rm(join(root, path));
+			await theirs('checkout', '--', ...tracked);
+			for (const path of tracked)
+				expect([path, await stored('main', path)]).toEqual([path, true]);
 		} finally {
 			if (global === undefined) delete process.env.GIT_CONFIG_GLOBAL;
 			else process.env.GIT_CONFIG_GLOBAL = global;

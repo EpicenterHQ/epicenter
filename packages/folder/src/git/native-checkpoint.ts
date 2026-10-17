@@ -6,10 +6,11 @@
  * attribute filters or LFS, and they cannot record symbolic links,
  * submodules, or executable bits. Rather than rewrite history for such a
  * repository, the checkpoint is refused with the first reason found, as it is
- * for unmerged index stages no `MERGE_HEAD` explains. Line endings are not a
- * reason: no Git command Epicenter runs converts them (`native-host.ts`), so
- * a file is committed with the bytes it has on disk. Reads, raw file access,
- * and explicit native Git (`git add`, `git commit`) are unaffected.
+ * for unmerged index stages no `MERGE_HEAD` explains. Line-ending and
+ * encoding attributes are not a reason: a commit hashes each file's bytes
+ * with no path, so no attribute applies (`native-backend.ts`). Reads, raw
+ * file access, and explicit native Git (`git add`, `git commit`) are
+ * unaffected.
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { pathProblem } from '../paths.js';

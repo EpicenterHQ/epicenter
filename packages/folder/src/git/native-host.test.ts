@@ -9,6 +9,8 @@
  *   `core.hooksPath` names, does not run on `update-ref` or `add`, though
  *   plain `git` runs it
  * - A configured `core.fsmonitor` program does not run on `status`
+ * - A checkout writes a blob's line endings, whatever `core.autocrlf` or
+ *   `core.eol` the repository configures, though plain `git` converts
  * - A file planted in the empty hooks directory refuses every command
  * - An abort ends `git` with the helpers it started, such as
  *   `git-remote-http` waiting on a server that never answers
@@ -107,6 +109,34 @@ for (const where of ['.git/hooks', 'core.hooksPath'] as const) {
 		},
 	);
 }
+
+test("a checkout through the runner writes the blob's line endings whatever core.autocrlf or core.eol says", async () => {
+	const root = await scratch('native-host-eol-');
+	try {
+		await repository(root);
+		const checkout = async (run: (args: string[]) => Promise<unknown>) => {
+			await rm(join(root, 'a.md'));
+			await run(['checkout', '--', 'a.md']);
+			return readFile(join(root, 'a.md'), 'utf8');
+		};
+		const plain = (args: string[]) => git(root, ...args);
+		const runner = createGitRunner(root);
+		const ours = (args: string[]) => runner(args);
+
+		await git(root, 'config', 'core.autocrlf', 'true');
+		expect(await checkout(plain)).toBe('a\r\n');
+		expect(await checkout(ours)).toBe('a\n');
+
+		// `core.eol` decides for a file `text` selects with no `eol` of its own.
+		await git(root, 'config', 'core.autocrlf', 'false');
+		await git(root, 'config', 'core.eol', 'crlf');
+		await writeFile(join(root, '.gitattributes'), '* text\n');
+		expect(await checkout(plain)).toBe('a\r\n');
+		expect(await checkout(ours)).toBe('a\n');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 test.skipIf(process.platform === 'win32')(
 	'a configured fsmonitor runs for plain git status and never for the runner',

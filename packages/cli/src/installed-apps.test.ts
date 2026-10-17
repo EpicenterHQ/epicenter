@@ -27,6 +27,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { NEUTRAL_ATTRIBUTES } from '@epicenter/folder/bun';
 import { type AppPaths, resolveAppPaths } from './app-paths.ts';
 import {
 	appIdProblem,
@@ -707,6 +708,28 @@ test("the checkout ignores the clone's filters and replace refs", async () => {
 		kind: 'ready',
 	});
 	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
+});
+
+test("the clone and the checkout hold each blob's bytes, whatever the commit's attributes say", async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	const page = '<!doctype html>\n<title>$Id$</title>\n';
+	await commitPage(upstream, page, 'expand nothing');
+	// Committed after the page, so the page's blob keeps its bytes.
+	await writeAt(upstream, '.gitattributes', 'page.html text eol=crlf ident\n');
+	shGit(upstream, 'add', '.gitattributes');
+	shGit(upstream, 'commit', '-q', '-m', 'attributes');
+
+	const pending = await install(f.paths, upstream, '');
+	const clone = join(f.paths.appsDir, BOARD);
+	expect(await readFile(join(clone, '.git/info/attributes'), 'utf8')).toBe(
+		NEUTRAL_ATTRIBUTES,
+	);
+	expect(await readFile(join(clone, 'page.html'), 'utf8')).toBe(page);
+	expect((await approve(f.paths, BOARD, pending.commit)).state).toEqual({
+		kind: 'ready',
+	});
+	expect(await servedPage(f, BOARD)).toBe(page);
 });
 
 test("the checkout holds the whole commit, whatever the clone's sparse checkout", async () => {

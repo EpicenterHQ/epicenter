@@ -23,6 +23,8 @@ import {
 import {
 	basicAuthorization,
 	type GitCredentials,
+	neutralizeAttributes,
+	nodeDirectoryPrimitives,
 	runGit,
 } from '@epicenter/folder/bun';
 import { resolveAppPaths } from './app-paths.ts';
@@ -161,8 +163,19 @@ export async function clone(
 			url,
 			AbortSignal.timeout(60_000),
 		);
+		// Nothing is checked out until the clone's attributes change no bytes,
+		// so the files on disk are the blobs and the first Save version
+		// records nothing.
 		cloned = await runGit(
-			['clone', '--no-recurse-submodules', '--template=', '--', url, dir],
+			[
+				'clone',
+				'--no-checkout',
+				'--no-recurse-submodules',
+				'--template=',
+				'--',
+				url,
+				dir,
+			],
 			{
 				allowFailure: true,
 				credential:
@@ -179,6 +192,23 @@ export async function clone(
 			cloned.stderr.trim() || `git clone exited ${cloned.code}`,
 			json,
 		);
+	await neutralizeAttributes(nodeDirectoryPrimitives, join(dir, '.git'));
+	// An empty repository has no commit to check out.
+	const born = await runGit(['rev-parse', '--verify', '--quiet', 'HEAD'], {
+		cwd: dir,
+		allowFailure: true,
+	});
+	if (born.code === 0) {
+		const checkedOut = await runGit(['checkout', '--quiet'], {
+			cwd: dir,
+			allowFailure: true,
+		});
+		if (checkedOut.code !== 0)
+			return fail(
+				checkedOut.stderr.trim() || `git checkout exited ${checkedOut.code}`,
+				json,
+			);
+	}
 	if (json) writeJson({ cloned: { url, dir } });
 	else writeOut(`Cloned ${url} into ${dir}`);
 	return EXIT.ok;

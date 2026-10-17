@@ -27,6 +27,7 @@ import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
+import { neutralizeAttributes } from './neutral-attributes.js';
 import type { CommitSummary, ObjectAccess } from './objects.js';
 import { primitiveFs } from './primitive-fs.js';
 import { gitignoreMatcher } from './scope.js';
@@ -140,7 +141,10 @@ export async function createNativeGitBackend({
 	const { run, files } = host;
 	const gitdir = `${root}/.git`;
 	// Objects are stored by `git hash-object -w`, which names and checks
-	// each one; nothing writes an object file by hand.
+	// each one; nothing writes an object file by hand. Hashing from standard
+	// input with no `--path` applies no attribute and no line-ending
+	// conversion, which is what commits each file with the bytes it has on
+	// disk, whatever the repository's or the person's attributes say.
 	const access: ObjectAccess = {
 		fs: primitiveFs(files, {
 			gitdir,
@@ -189,14 +193,16 @@ export async function createNativeGitBackend({
 		return present;
 	}
 	/**
-	 * Create the repository if there is none; see `initialized`. Answers why
-	 * it may not be created here, having run nothing.
+	 * Create the repository if there is none, with attributes that change no
+	 * bytes (`neutralizeAttributes`); see `initialized`. Answers why it may
+	 * not be created here, having run nothing.
 	 */
 	async function createRepository(): Promise<string | undefined> {
 		if (await exists()) return undefined;
 		const problem = await initProblem?.();
 		if (problem !== undefined) return problem;
 		await init();
+		await neutralizeAttributes(files, gitdir);
 		present = true;
 		await initialized?.();
 		return undefined;

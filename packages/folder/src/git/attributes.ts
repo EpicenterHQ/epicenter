@@ -10,8 +10,10 @@
  * a value, refuses even when its pattern selects no file, and a macro line
  * (`[attr]lfs filter=lfs`) refuses as its own line. Line-ending and encoding
  * attributes (`text`, `eol`, `crlf`, `working-tree-encoding`) and `ident`
- * pass: Epicenter applies none of them, so the bytes on disk are the bytes
- * committed.
+ * pass. Epicenter's commits hash each file's bytes with no path and Sync
+ * writes each blob's bytes, so neither applies them; Git's checkout does,
+ * except in a repository Epicenter created or cloned, whose
+ * `info/attributes` unsets them (`neutral-attributes.ts`).
  */
 
 /** A line of an attribute file that assigns `filter`. */
