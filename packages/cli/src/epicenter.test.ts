@@ -158,9 +158,9 @@ test('a closed table reports an undeclared key, and query leaves its file out', 
 	expect(result.stdout).toContain(
 		'accounts/instagram.md:3: handle is not declared',
 	);
-	const query = run('query', folder, 'SELECT stem FROM accounts', '--json');
+	const query = run('query', folder, 'SELECT id FROM accounts', '--json');
 	expect(JSON.parse(query.stdout)).toMatchObject({
-		rows: [{ stem: 'threads' }],
+		rows: [{ id: 'threads' }],
 		excluded: ['accounts/instagram.md'],
 	});
 });
@@ -220,7 +220,7 @@ test('a typo epicenter.json would otherwise ignore is refused, and $schema is al
 	expect(run('check', folder).exitCode).toBe(0);
 });
 
-test('query refuses fields it cannot project: case duplicates, stem, and body', async () => {
+test('query refuses fields it cannot project: case duplicates and body; a field named id is no field at all', async () => {
 	const { folder, write, run } = await setup();
 	for (const [fields, message] of [
 		[
@@ -228,7 +228,6 @@ test('query refuses fields it cannot project: case duplicates, stem, and body', 
 			"'title' and 'Title'",
 		],
 		[{ body: { type: 'string' } }, "a field 'body'"],
-		[{ Stem: { type: 'string' } }, "a field 'Stem'"],
 	] as const) {
 		await write(
 			'epicenter.json',
@@ -241,6 +240,25 @@ test('query refuses fields it cannot project: case duplicates, stem, and body', 
 		expect(result.stderr).toContain(message);
 		expect(run('check', folder).exitCode).not.toBe(2);
 	}
+	// `id` is the row's own column, and a definition cannot declare it.
+	await write(
+		'epicenter.json',
+		JSON.stringify({ tables: { posts: objectSchema({ ID: { type: 'string' } }) } }),
+	);
+	for (const args of [['check'], ['query', 'SELECT 1']]) {
+		const refused = run(args[0]!, folder, ...args.slice(1));
+		expect(refused.exitCode).toBe(2);
+		expect(refused.stderr).toContain("field name 'posts.ID' is not usable");
+	}
+	// `stem` names the row no more: it is an ordinary field.
+	await write(
+		'epicenter.json',
+		JSON.stringify({
+			tables: { posts: objectSchema({ stem: { type: 'string' } }) },
+		}),
+	);
+	await rm(join(folder, 'posts/reel.md'));
+	expect(run('query', folder, 'SELECT id, stem FROM posts').exitCode).toBe(0);
 });
 
 test('a directory named epicenter.ts is not a declaration source', async () => {
@@ -275,17 +293,17 @@ test('query without a statement describes the declaration, even while rows are b
 	expect(result.stdout).toBe(
 		[
 			'posts:',
-			"  stem: the row's file is posts/<stem>.md",
+			"  id: the row's file is posts/<id>.md",
 			'  title: string',
 			'  status: planned|drafting|done',
 			'  due: date|null',
 			'  order: number',
 			'  pinned: boolean',
 			'  tags: list of string',
-			'  account: stem in accounts',
+			'  account: id in accounts',
 			'  body: Markdown after the frontmatter',
 			'accounts:',
-			"  stem: the row's file is accounts/<stem>.md",
+			"  id: the row's file is accounts/<id>.md",
 			'  kind: social',
 			'  body: Markdown after the frontmatter',
 			'',
@@ -301,15 +319,15 @@ test('query projects rows with quoted keyword columns and SQLite values', async 
 	const result = run(
 		'query',
 		folder,
-		`SELECT stem, "order", pinned, tags, due, body FROM posts WHERE status != 'done'`,
+		`SELECT id, "order", pinned, tags, due, body FROM posts WHERE status != 'done'`,
 		'--json',
 	);
 	expect(result.exitCode).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({
-		columns: ['stem', 'order', 'pinned', 'tags', 'due', 'body'],
+		columns: ['id', 'order', 'pinned', 'tags', 'due', 'body'],
 		rows: [
 			{
-				stem: 'reel',
+				id: 'reel',
 				order: 1,
 				pinned: 1,
 				tags: '["a","b"]',

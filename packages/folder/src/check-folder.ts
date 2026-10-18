@@ -28,11 +28,11 @@ export type Finding = {
 	message: string;
 };
 
-/** One declared table, with its fields and the rows that conform, sorted by stem. */
+/** One declared table, with its fields and the rows that conform, sorted by id. */
 export type CheckedTable = ProjectedTable & {
 	fields: { name: string; schema: object }[];
 	rows: {
-		stem: string;
+		id: string;
 		fields: Record<string, unknown>;
 		body: string;
 	}[];
@@ -120,7 +120,7 @@ export async function checkFolder(
 			if (result.error !== null) report(`${name}/${stem}.md`, result.error);
 			else
 				table.rows.push({
-					stem,
+					id: stem,
 					fields: result.data.row.fields,
 					body: result.data.row.body,
 				});

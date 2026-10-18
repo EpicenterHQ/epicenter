@@ -2,8 +2,8 @@
  * A data folder as SQL: the projection `epicenter query` reads and an
  * application's SQL view can read the same way (ADR-0520, ADR-0494).
  *
- * Each declared table becomes one SQLite table with `stem` (the row's file is
- * `<table>/<stem>.md`), one quoted column per declared field, and `body`. A
+ * Each declared table becomes one SQLite table with `id` (the row's file is
+ * `<table>/<id>.md`), one quoted column per declared field, and `body`. A
  * null or absent value is `NULL`, a boolean is `0` or `1`, a list or object is
  * JSON text, and strings and numbers are stored as they are. Only rows that
  * conform are projected; the caller names the files it left out.
@@ -35,14 +35,14 @@ export type ProjectedTable = {
 		readonly schema: object;
 	}[];
 	readonly rows: readonly {
-		readonly stem: string;
+		readonly id: string;
 		readonly fields: Readonly<Record<string, unknown>>;
 		readonly body: string;
 	}[];
 };
 
 /** Columns the projection adds beside the declared fields. */
-const ROW_COLUMNS = ['stem', 'body'];
+const ROW_COLUMNS = ['id', 'body'];
 
 /** A SQL identifier, quoted, because declared field names may be keywords. */
 function quote(name: string) {
@@ -59,7 +59,7 @@ function toSql(value: unknown): SqlValue {
 
 /**
  * Why a table cannot be one SQLite table, or `undefined` when it can. SQLite
- * compares column names without case, and `stem` and `body` are the
+ * compares column names without case, and `id` and `body` are the
  * projection's own columns.
  */
 export function projectionProblem(table: ProjectedTable): string | undefined {
@@ -92,12 +92,12 @@ export function projectTables(
 		for (const table of tables) {
 			const fields = table.fields.map(({ name }) => quote(name));
 			db.run(
-				`CREATE TABLE ${quote(table.name)} (stem TEXT PRIMARY KEY, ${[...fields, 'body'].join(', ')})`,
+				`CREATE TABLE ${quote(table.name)} (id TEXT PRIMARY KEY, ${[...fields, 'body'].join(', ')})`,
 			);
 			const insert = `INSERT INTO ${quote(table.name)} VALUES (${['?', ...fields.map(() => '?'), '?'].join(', ')})`;
 			for (const row of table.rows)
 				db.run(insert, [
-					row.stem,
+					row.id,
 					...table.fields.map(({ name }) => toSql(row.fields[name])),
 					row.body,
 				]);
@@ -148,7 +148,7 @@ function valuesOf(schema: object): string {
 	if (Array.isArray(node.enum)) return node.enum.map(literal).join('|');
 	if (Array.isArray(node.anyOf)) return node.anyOf.map(valuesOf).join('|');
 	if (node['x-field']?.kind === 'reference' && node['x-field'].target)
-		return `stem in ${node['x-field'].target}`;
+		return `id in ${node['x-field'].target}`;
 	if (node.format) return node.format;
 	if (node.type === 'array' && node.items)
 		return `list of ${valuesOf(node.items)}`;
@@ -161,7 +161,7 @@ export function describeTables(tables: readonly ProjectedTable[]) {
 	return tables.map((table) => ({
 		name: table.name,
 		columns: [
-			{ name: 'stem', values: `the row's file is ${table.name}/<stem>.md` },
+			{ name: 'id', values: `the row's file is ${table.name}/<id>.md` },
 			...table.fields.map(({ name, schema }) => ({
 				name,
 				values: valuesOf(schema),
