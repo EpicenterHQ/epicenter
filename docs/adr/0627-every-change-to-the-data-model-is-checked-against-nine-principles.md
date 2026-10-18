@@ -56,7 +56,9 @@ governs where the two differ.
 7. The library writes text; binary files come later, through Git LFS
    (ADR-0621).
 8. An app is a program you let into a repository, and a website is
-   identified by its origin (ADR-0614, ADR-0626).
+   identified by its origin and holds a grant per repository; a signed-in
+   device, the CLI and the data browser through it, holds an account grant
+   (ADR-0614, ADR-0626).
 9. Epicenter builds only the data layer and two tools over it, the CLI and
    the desktop data browser, and hosts no app. Later work adds clients,
    access, or transport, never a data rule (ADR-0611, ADR-0618).

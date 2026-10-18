@@ -111,7 +111,8 @@ the Git service as a client.
 **The CLI is these ten commands, over plain Git.**
 
 ```txt
-epicenter login     signs in and installs Git's credential helper for the Git service
+epicenter login     signs in with an account grant (ADR-0614) and installs Git's credential
+                    helper for the Git service
 epicenter logout    signs out
 epicenter repos     lists the repositories the person is on, each by id and name
 epicenter clone     clones a repository by name or id; a name several repositories share asks for the id

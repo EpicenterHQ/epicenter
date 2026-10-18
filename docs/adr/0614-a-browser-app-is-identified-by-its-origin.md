@@ -4,7 +4,7 @@
 - **Date:** 2026-10-18
 - **Amends:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "a grant has no target, and a token reaches its person's own namespace": a grant names one repository; [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (a first-party app is an ordinary client), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (what a grant names).
-- **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name or offering to create a repository by it; a refresh token per grant that renews without leaving the page; and native app identity.
+- **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name or offering to create a repository by it; a refresh token per grant that renews without leaving the page; the account grant `epicenter login` holds; and native app identity.
 
 ## Context
 
@@ -43,6 +43,12 @@ so revoking a grant retires its tokens at once. A refresh token per grant
 renews access without leaving the page. Cost: a site that works in two
 repositories holds two grants.
 
+**A signed-in device holds an account grant.** `epicenter login` gives the
+CLI a grant that reaches every repository the person is on, and the data
+browser reaches the Git service through the CLI's credential helper
+([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
+Only browser apps hold per-repository grants.
+
 **`connect()` navigates the page to consent and back.** An app may suggest
 a repository name; at consent the one repository of that name on the
 person's list is preselected, and otherwise the person chooses. Consent
@@ -75,6 +81,9 @@ Git service through the CLI's credential helper
   and neither overwrites the other.
 - A token reaches its whole repository, so which tables an app touches is
   etiquette, not permission.
+- A signed-in device reaches every repository its person is on, and
+  `epicenter repos` lists them all; a browser app reaches only the
+  repositories it holds grants for.
 - A first-party app's consent screen is the one an outside site gets.
 
 ## Considered alternatives
