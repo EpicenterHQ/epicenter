@@ -42,9 +42,9 @@ governs where the two differ.
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613).
 5. Every place that edits is its own clone: each app origin keeps its own,
-   with one writer at a time. On disk, the person, their agents, and the
-   data browser write files with last-write-wins between them, and commits
-   happen at `epicenter sync` (ADR-0611, ADR-0623).
+   with one writer at a time. On disk, the person and their agents write
+   files with last-write-wins, the data browser saves through the merge,
+   and commits happen at `epicenter sync` (ADR-0611, ADR-0622, ADR-0623).
 6. One TypeScript merge runs wherever Epicenter merges, in a sync on every
    host and in a save, and the edit that reaches `main` last wins each unit
    both sides changed, an edit beats a delete it never

@@ -83,7 +83,8 @@ Git service through the CLI's credential helper, lists and clones with
 ```txt
 the clones it lists    every clone under ~/Epicenter, and every directory the person adds
 each one known by      its remote URL
-what it writes         working files, as an editor writes them; epicenter sync commits them
+what it writes         working files, each save one merge of the whole file (ADR-0622);
+                       epicenter sync commits them
 ```
 
 Kept from [ADR-0586](0586-you-open-a-folder-never-an-app.md): a window that
@@ -154,8 +155,9 @@ commits everything `.gitignore` does not ignore.**
 - An agent on a Mac works on a clone with plain `git` and these commands,
   and renames a row with `git mv` on its `.md` and its folder; a website
   works on its own clone through the library; both read the same files.
-- On disk, the person, their agents, and the data browser write files with
-  last-write-wins between them, and commits happen at `epicenter sync`.
+- On disk, the person and their agents write files with last-write-wins,
+  the data browser's save merges against the version it read, and commits
+  happen at `epicenter sync`.
 - Every file in a clone that `.gitignore` does not ignore reaches `main`
   at the next `epicenter sync`, inside tables or not; a file meant for one
   device is a `.gitignore` line.

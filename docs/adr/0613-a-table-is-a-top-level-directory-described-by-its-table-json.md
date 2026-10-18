@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (a data folder keeps `epicenter.ts`, and `epicenter generate <dir>` writes the `epicenter.json` it declares): a table's description is the literal JSON Schema in its `table.json`, and nothing generates it.
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the root `epicenter.json`, its `app` and `title`, and "A data folder is every real, non-dot directory directly in the Epicenter folder": a table is described by its own `<table>/table.json`, which only people and agents write, and the unit a person owns is a repository; [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) at `field.optional` as the declaration of optionality: a field is optional when its table's `required` list omits it; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`; [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "`epicenter.json` included": a `table.json` is text and merges as any text file does ([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`check` and `query`), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository a table lives in), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (the app API over tables and rows).
-- **Unbuilt:** all of it: tables found as top-level directories, each described by its own `table.json`, and the deletion of the root `epicenter.json`; the one row predicate; the `id` name; readers that describe and never refuse; and key order from `table.json`.
+- **Unbuilt:** all of it: tables found as top-level directories, each described by its own `table.json`, and the deletion of the root `epicenter.json`; the one row predicate; the `id` name; readers that describe and never refuse; and a save keeping a file's key order.
 
 ## Context
 
@@ -72,18 +72,17 @@ row from landing; it shows up in `check` and as raw fields in every app.
 
 **People and agents author `table.json`; an app never writes one in v1.**
 An app reads rows with its own schema
-([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)), may
-read a table's `table.json` for key order, and never creates or changes
-one. Deleted: `publishDefinition`. Cost: a directory an app writes rows
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)) and
+never reads, creates, or changes a `table.json`. Deleted: `publishDefinition`. Cost: a directory an app writes rows
 into is plain files to `check`, `query`, and the data browser until a
 person or an agent writes its `table.json`; the app itself reads and writes
 its rows either way.
 
-**When the library saves a row, its frontmatter keys are written in its
-table's `table.json` order, then alphabetically, without comments.** A row
-in a directory with no `table.json` is written alphabetically. The save
-formats the row (`formatRowSource` in `packages/folder/src/canonical.ts`)
-with that order. A merge reads no description: it keeps the change's key
+**When the library saves a row, its frontmatter keeps the file's existing
+key order, and keys new to the file follow alphabetically, without
+comments.** A new row's keys are alphabetical, and no save reads
+`table.json`. The save formats the row (`formatRowSource` in
+`packages/folder/src/canonical.ts`) with that order. A merge reads no description: it keeps the change's key
 order and adds keys only the other side has
 ([ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md)).
 A row a person wrote by hand keeps its bytes until something rewrites its

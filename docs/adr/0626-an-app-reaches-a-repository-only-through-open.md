@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "`openFolder({ definition })` (ADR-0586) validates every table read and write against `definition`" and "`openFolder({ id })` and `openFolder({ root, git })`": an app opens a repository with `open({ id?, tables })`, and its schemas check what it reads and refuse no write; [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) at "The library resolves paths and lists folders" and "`openFolder` refuses an `id` that names no directory": the library has no `resolve` or `listFolders`, and `open` returns `undefined` when this origin holds no grant.
-- **Relates:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (tables and rows), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (grants and consent), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text only), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge, and a save's body), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the clone behind `open`), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the four words).
+- **Relates:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (tables and rows), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (grants and consent), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text only), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge, and every save), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the clone behind `open`), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the four words).
 - **Unbuilt:** all of it: `open`, `connect`, `newId`, `subscribe`, the table methods, a row's `version`, and `files` in `@epicenter/data`.
 
 ## Context
@@ -49,7 +49,7 @@ Table
   get(id)            one row, or undefined                                  v1
   set(id, { fields?, body?, version? })                                     v1
                      creates a missing row; a field set to undefined is removed;
-                     with version the body merges against it, without it the body replaces
+                     one merge of the whole file, with version as its base
   delete(id)         removes the row and its folder <id>/                   v1
   files(id)          list() · read(path): Blob | undefined ·
                      write(path, text) · delete(path)                       v1
@@ -65,15 +65,17 @@ Row  { id, version, ok: true,  fields, body }    fields typed by the app's schem
 written with TypeBox or as a literal `as const` schema, and a row's type is
 its `Static`. A row that fits comes back `ok` with typed fields; one that
 does not comes back with its raw fields, never dropped. The app's schema is
-the only one it reads rows with; a table's `table.json` only orders the
-keys a save writes
+the only one it reads rows with, and no save reads a table's `table.json`:
+a save keeps the file's key order and appends new keys alphabetically
 ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
 
-**A row's `version` is opaque: the blob id the row was read at.** `set`
-given it merges the body against that version by diff3 region, so two tabs
-editing different paragraphs both keep their edits; `set` without it
-replaces the body. Fields are set as named, never merged
+**A row's `version` is opaque: the blob id the row was read at.** Every
+`set` is one merge of the whole file,
+`merge(path, { base: version ?? current, current, change })`
 ([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
+Given `version`, two tabs editing different paragraphs or different fields
+both keep their edits; without it, the save's fields and body win every
+unit they change.
 
 **Only these throw:**
 

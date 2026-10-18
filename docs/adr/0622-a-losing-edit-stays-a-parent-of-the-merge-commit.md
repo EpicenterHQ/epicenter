@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) (a folder has one write, a merge by unit where the writer acting wins): the edit that reaches `main` last wins each unit both sides changed, an edit beats a delete it never saw, and Epicenter writes no conflict marker or conflict file.
 - **Amends:** [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", "binary, or a side absent | the whole file" for a side absent: all text, `.json` included, merges by diff3 region, and an edit beats a delete it never saw.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter sync`), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`set` and a row's `version`).
-- **Unbuilt:** all of it: `merge(path, { base, current, change })`; diff3 regions in place of `mergeLines`; an edit beating a delete; the change winning a path where a file and a directory collide; `epicenter sync` running the merge over the local `.git` and writing its own merge commits; a save merging its body against `version`; and `check` listing conflict markers.
+- **Unbuilt:** all of it: `merge(path, { base, current, change })`; diff3 regions in place of `mergeLines`; an edit beating a delete; the change winning a path where a file and a directory collide; `epicenter sync` running the merge over the local `.git` and writing its own merge commits; every save merging the whole file, the data browser's included; and `check` listing conflict markers.
 
 ## Context
 
@@ -71,11 +71,18 @@ trailers. Epicenter registers no Git merge driver: no
 Plain `git pull` stays plain Git; the conflict markers it leaves are
 `check` lines, and `epicenter sync` refuses to commit a file holding them.
 
-**A save merges its body and sets its fields.** `set` given a row's
-`version`, the blob id the app read it at, merges the body it is given
-against that version by diff3 region; given no `version`, its body replaces
-the row's. Fields are set as named, never merged
-([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)).
+**Every Epicenter save is one merge of the whole file:**
+`merge(path, { base: version ?? current, current, change })`. `current` is
+the file the clone holds, `change` is the file the save writes, and
+`version` is the blob id the app read the row at
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)). Given
+`version`, a unit the save did not change keeps what `current` holds, so
+two tabs editing different paragraphs of one row both keep their edits;
+given none, `base` is `current`, and the save wins every unit it changes.
+The data browser saves the same way and writes no file last-write-wins.
+The file a save writes keeps the existing file's key order, with keys new
+to it appended alphabetically
+([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
 
 ## Consequences
 
@@ -93,6 +100,8 @@ the row's. Fields are set as named, never merged
 - Two tabs that edit different paragraphs of one row both keep their
   edits. Two that edit one line keep the later save's line, and the earlier
   one survives only if a sync committed it first.
+- The data browser's save keeps an agent's edit to another unit of the
+  file it saves, where it used to overwrite the whole file.
 - A `.json` file two clones edited in one region keeps the change's
   region; the rare merge that leaves invalid JSON, such as a `table.json`,
   is a `check` line and is repaired by an edit.
@@ -121,3 +130,6 @@ the row's. Fields are set as named, never merged
   so it carries no `Overrode:` trailer.
 - **A save whose body always replaces the row's.** Two tabs editing
   different paragraphs of one row lose one tab's edit.
+- **Fields set as named, outside the merge.** A save then has two rules,
+  a merge for the body and an overwrite for fields, and an app that sends
+  back a field it read undoes another writer's change to it.
