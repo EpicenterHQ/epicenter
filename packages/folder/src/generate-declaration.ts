@@ -9,15 +9,15 @@
  * folder whose code you trust, as you would any script.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { DEFINITION_SOURCE_PATH, hasDefinitionSource } from './check-folder.js';
 import { formatDefinition } from './declaration.js';
 import { defineFolder } from './definition.js';
-import { gitignoreNaming } from './publish-definition.js';
+import { nameLocalPatterns, writeSchemaFile } from './publish-definition.js';
 
 export const GenerateDefinitionError = defineErrors({
 	/** The folder has no `epicenter.ts`. */
@@ -35,6 +35,12 @@ export const GenerateDefinitionError = defineErrors({
 	InvalidDefinition: ({ reason }: { reason: string }) => ({
 		message: reason,
 		reason,
+	}),
+	/** A file the definition declares could not be written; earlier ones may have been. */
+	WriteFailed: ({ path, cause }: { path: string; cause: unknown }) => ({
+		message: `${path} could not be written: ${cause instanceof Error ? cause.message : typeof cause === 'object' && cause !== null && 'message' in cause ? String(cause.message) : String(cause)}`,
+		path,
+		cause,
 	}),
 });
 export type GenerateDefinitionError = InferErrors<
@@ -106,30 +112,35 @@ export async function generateDefinition(
 		});
 	// defineFolder refuses what a folder cannot keep, and returns a prepared
 	// definition as it is.
-	let files: Record<string, string>;
+	let definition: ReturnType<typeof defineFolder>;
 	try {
-		const definition = defineFolder(
-			declared as Parameters<typeof defineFolder>[0],
-		);
-		files = { ...formatDefinition(definition) };
-		const gitignore = await readFile(resolve(dir, '.gitignore'), 'utf8').catch(
-			() => '',
-		);
-		const named = gitignoreNaming(gitignore, definition.local ?? []);
-		if (named !== undefined) files['.gitignore'] = named;
+		definition = defineFolder(declared as Parameters<typeof defineFolder>[0]);
 	} catch (cause) {
 		return GenerateDefinitionError.InvalidDefinition({
 			reason: cause instanceof Error ? cause.message : String(cause),
 		});
 	}
+	// Each file goes through the folder's one write boundary, under its save
+	// lock: a schema replaces what it read only while it still holds that,
+	// and `.gitignore` merges with what another writer added meanwhile.
+	const { directoryStorage } = await import('./bun.js');
+	const storage = directoryStorage(await realpath(dir));
 	const written: string[] = [];
-	for (const [path, text] of Object.entries(files)) {
-		const target = resolve(dir, path);
-		const current = await readFile(target, 'utf8').catch(() => undefined);
-		if (current === text) continue;
-		await mkdir(dirname(target), { recursive: true });
-		await writeFile(target, text);
-		written.push(path);
+	for (const [path, text] of Object.entries(formatDefinition(definition))) {
+		const { data: changed, error } = await writeSchemaFile(path, text, storage);
+		if (error !== null)
+			return GenerateDefinitionError.WriteFailed({ path, cause: error });
+		if (changed) written.push(path);
 	}
+	const { data: named, error } = await nameLocalPatterns(
+		definition.local ?? [],
+		storage,
+	);
+	if (error !== null)
+		return GenerateDefinitionError.WriteFailed({
+			path: '.gitignore',
+			cause: error,
+		});
+	if (named) written.push('.gitignore');
 	return Ok({ written });
 }
