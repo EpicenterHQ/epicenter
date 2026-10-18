@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "AI settings live in `kv.json` in `so.epicenter`": AI connections are rows of a `connections` table in `so.epicenter`, read by every app, and which connection an app uses is the app's own setting in its own folder.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at "model choices" in `kv.json`: each connection row names its model, and an app's choice of connection is in the app's own folder.
 - **Amended by:** [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) at the row's `endpoint` field, the `savedForAnotherAddress` state, the kind named `endpoint`, the key commands' names and arguments, and the capability-file rule that lets an app into `so.epicenter`: the endpoint lives only in the keychain entry, the kind is `openai-compatible`, and `AI_CONNECTION_APPS` names the apps whose windows open `so.epicenter`.

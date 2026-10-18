@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.
 - **Relates:** [ADR-0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md) (the shared cache these files live in), [ADR-0397](0397-native-inference-selects-an-installed-model-explicitly.md) (requests and transcripts name the model id).
 
 ## Context

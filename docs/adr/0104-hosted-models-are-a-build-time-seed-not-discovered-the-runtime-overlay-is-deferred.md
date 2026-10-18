@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-07-03
-- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.
 - **Relates:** [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) (custom connections discover their models via `/v1/models`; this decides why hosted does not), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire and the free-string model id the gateway routes), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the metered gateway hosted points at), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (the credit price a hosted catalog entry carries)
 
 ## Context
