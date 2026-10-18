@@ -809,7 +809,7 @@ When you add an ADR, add its row here.
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Superseded by 0611 |
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Superseded by 0611 |
-| [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted (amended by 0605, 0607, and 0609) |
+| [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Superseded by 0627 |
 | [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576; amended by 0613 and 0622) |
 | [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577; amended by 0619, 0620, 0621, and 0624) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | The hosted Git service stores data repositories and offers no rename or move | Accepted (amends 0546 and 0547; amended by 0594, 0608, and 0612) |
@@ -840,3 +840,4 @@ When you add an ADR, add its row here.
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Proposed (amends 0592) |
 | [0625](0625-epicenter-mv-renames-a-row-in-one-commit.md) | `epicenter mv` renames a row in one commit | Proposed |
 | [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Proposed (amends 0585 and 0608) |
+| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Proposed (supersedes 0590) |
