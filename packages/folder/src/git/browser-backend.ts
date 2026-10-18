@@ -2,10 +2,10 @@
  * Browser Git: isomorphic-git over a folder's private Git state.
  *
  * `createStoredGitBackend` is everything that is Git: objects, refs, the
- * index, the log, and transfers, through a filesystem view whose `/files` is
- * the folder's files, read-only, and whose `/git` is private Git state, the
- * `.git` of the folder's origin private file system directory
- * (`opfs-git.ts`).
+ * index, the log, and transfers (the push in `push.ts`), through a
+ * filesystem view whose `/files` is the folder's files, read-only, and whose
+ * `/git` is private Git state, the `.git` of the folder's origin private file
+ * system directory (`opfs-git.ts`).
  *
  * The branch moves only by comparing the stored ref with the pinned value.
  * Index and branch work holds a Web Lock, which queues this tab's requests
@@ -15,12 +15,7 @@
 
 import * as git from 'isomorphic-git';
 import type { OpfsFolder, OpfsLocks } from '../opfs-store.js';
-import {
-	type CasResult,
-	type GitBackend,
-	type GitRemote,
-	REMOTE_MOVED,
-} from './backend.js';
+import type { CasResult, GitBackend, GitRemote } from './backend.js';
 import {
 	abortableHttp,
 	basicAuthorization,
@@ -30,6 +25,7 @@ import {
 import { orphanStagesProblem, parseIndex } from './index-file.js';
 import { logCommits, type ObjectAccess } from './objects.js';
 import { createOpfsGitStore, GITDIR, WORKDIR } from './opfs-git.js';
+import { pushRef } from './push.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
 
 const decoder = new TextDecoder();
@@ -76,17 +72,18 @@ export async function createStoredGitBackend({
 	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const indexKey = `${GITDIR}/index`;
 	const mergeHeadKey = `${GITDIR}/MERGE_HEAD`;
-	const trackingKey = `${GITDIR}/refs/remotes/${REMOTE_NAME}/${branch}`;
+	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
+	const trackingKey = `${GITDIR}/${trackingRef}`;
 
 	/** The credential for `url`, asked for each transfer, as a header. */
 	async function authorizationHeaders(
 		url: string,
 		signal: AbortSignal,
-	): Promise<Record<string, string> | undefined> {
+	): Promise<Record<string, string>> {
 		const credential = await credentials?.(url, signal);
 		signal.throwIfAborted();
 		return credential === undefined
-			? undefined
+			? {}
 			: { authorization: basicAuthorization(credential) };
 	}
 
@@ -192,9 +189,15 @@ export async function createStoredGitBackend({
 			return remote;
 		},
 		async setRemote(url) {
+			// A browser's `fetch` refuses such a URL with an opaque error, and
+			// a credential belongs to `credentials`, never the configuration.
+			if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(url))
+				throw new Error(
+					'A remote URL may not contain a username or password; pass the credential to `credentials` instead',
+				);
 			await ensureCreated();
-			// The fetch refspec makes isomorphic-git record fetched and pushed
-			// heads as tracking refs.
+			// The fetch refspec makes isomorphic-git record fetched heads as
+			// tracking refs.
 			await withObjects(async ({ fs, gitdir }) => {
 				await git.setConfig({
 					fs,
@@ -284,52 +287,32 @@ export async function createStoredGitBackend({
 		},
 		async push(oid, signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
-			const { url, branch: remoteBranch } = remote;
+			const { url } = remote;
 			const headers = await authorizationHeaders(url, signal);
-			return withObjects(async (access): Promise<'pushed' | 'rejected'> => {
-				let result: Awaited<ReturnType<typeof git.push>>;
-				try {
-					result = await git.push({
+			return withObjects(async (access) => {
+				const outcome = await pushRef({
+					access,
+					http: abortableHttp(signal, httpFetch),
+					url,
+					headers,
+					ref: `refs/heads/${branch}`,
+					oid,
+				});
+				// The remote holds `oid` now, which the next push and fetch
+				// start from.
+				if (outcome === 'pushed')
+					await git.writeRef({
 						...access,
-						http: abortableHttp(signal, httpFetch),
-						headers,
-						dir: WORKDIR,
-						url: url,
-						remote: REMOTE_NAME,
-						ref: oid,
-						remoteRef: `refs/heads/${remoteBranch}`,
-						force: false,
+						ref: trackingRef,
+						value: oid,
+						force: true,
 					});
-				} catch (cause) {
-					// isomorphic-git refuses a push that is not a fast-forward itself,
-					// before it sends the update, and its own message advises
-					// forcing, which a folder never does.
-					if (
-						cause instanceof git.Errors.PushRejectedError &&
-						cause.data.reason === 'not-fast-forward'
-					)
-						return 'rejected';
-					// The remote moved the branch after it advertised it.
-					if (
-						cause instanceof git.Errors.GitPushError &&
-						REMOTE_MOVED.test(
-							cause.data.result.refs[`refs/heads/${remoteBranch}`]?.error ?? '',
-						)
-					)
-						return 'rejected';
-					throw cause;
-				}
-				const status = result.refs[`refs/heads/${remoteBranch}`];
-				if (result.ok && (status === undefined || status.ok)) return 'pushed';
-				if (REMOTE_MOVED.test(status?.error ?? '')) return 'rejected';
-				throw new Error(
-					status?.error ?? result.error ?? 'The remote rejected the push',
-				);
+				return outcome;
 			});
 		},
 		async fetch(signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
-			const { url, branch: remoteBranch } = remote;
+			const { url } = remote;
 			await ensureCreated();
 			const headers = await authorizationHeaders(url, signal);
 			return withObjects(async (access) => {
@@ -339,10 +322,17 @@ export async function createStoredGitBackend({
 						http: abortableHttp(signal, httpFetch),
 						headers,
 						dir: WORKDIR,
-						url: url,
+						url,
 						remote: REMOTE_NAME,
-						ref: remoteBranch,
-						remoteRef: remoteBranch,
+						// With `singleBranch`, isomorphic-git sends `ref` as its one
+						// `have` line and uses it for nothing else, since `remote` and
+						// `remoteRef` are given. The tracking ref is the commit the
+						// server is sure to know, so it sends only what is new; the
+						// branch head would not be known whenever a checkpoint is
+						// unpushed, and the whole history came back. `transfer.test.ts`
+						// fails if an upgrade changes this.
+						ref: trackingRef,
+						remoteRef: branch,
 						singleBranch: true,
 						tags: false,
 					});
@@ -351,7 +341,7 @@ export async function createStoredGitBackend({
 					if (
 						cause instanceof Error &&
 						(cause as { code?: string }).code === 'NotFoundError' &&
-						cause.message.includes(remoteBranch)
+						cause.message.includes(branch)
 					)
 						return undefined;
 					throw cause;
