@@ -150,10 +150,14 @@ test('a schema file that cannot be used makes no table, the other tables open, a
 		const notes = defineFolder({
 			tables: { notes: defineTable({ fields: { title: field.string() } }) },
 		});
-		expect(
-			expectErr(await openFolder({ root, git: { author }, definition: notes }))
-				.name,
-		).toBe('DefinitionMismatch');
+		const refused = expectErr(
+			await openFolder({ root, git: { author }, definition: notes }),
+		);
+		expect(refused.name).toBe('DefinitionMismatch');
+		// It says why the table is missing.
+		expect(refused.message).toContain(
+			'its notes/.epicenter.json cannot be used: ',
+		);
 	}
 	expect(existsSync(join(root, '.git'))).toBe(false);
 

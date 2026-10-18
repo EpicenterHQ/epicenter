@@ -23,6 +23,7 @@ import {
 	type FolderLocation,
 } from './folder.js';
 import type { Opening } from './opening.js';
+import { schemaPath } from './paths.js';
 import { nameLocalPatterns } from './publish-definition.js';
 
 /**
@@ -122,7 +123,23 @@ export async function openAtRoot<TDefinition extends Definition>(
 			// open, and `epicenter check` names it.
 			prepared = declared.definition;
 			if (definition !== undefined) {
-				const problems = mismatches(prepared, definition);
+				// A table the definition reads whose schema cannot be used is
+				// missing for that reason, which the refusal says.
+				const unusable = new Map(
+					declared.problems.map(({ path, reason }) => [path, reason]),
+				);
+				const problems = mismatches(prepared, definition).map((problem) => {
+					const reason =
+						problem.kind === 'missingTable'
+							? unusable.get(schemaPath(problem.table))
+							: undefined;
+					return reason === undefined
+						? problem
+						: {
+								...problem,
+								message: `${problem.message}: its ${schemaPath(problem.table)} cannot be used: ${reason}`,
+							};
+				});
 				if (problems.length > 0) {
 					release();
 					return OpenFolderError.DefinitionMismatch({

@@ -36,6 +36,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
@@ -46,6 +47,8 @@ import {
 	readFolder,
 	schemaPath,
 } from './bun.js';
+import { readDefinition } from './declaration.js';
+import { FileError } from './errors.js';
 
 const definition = defineFolder({
 	tables: {
@@ -420,4 +423,33 @@ test('reading writes nothing, inside a folder nested in another repository', asy
 	const reading = expectOk(await readFolder(root));
 	expect(expectOk(reading.tables.todos!)).toHaveLength(1);
 	expect(await tree(repository)).toEqual(before);
+});
+
+test('table directories whose names differ only by case are problems, and the other tables read', async () => {
+	// A case-sensitive disk can hold both; SQL and a case-insensitive disk
+	// cannot tell them apart.
+	const schema = JSON.stringify(objectSchema({ body: { type: 'string' } }));
+	const files = new Map([
+		['Notes/.epicenter.json', schema],
+		['notes/.epicenter.json', schema],
+		['todos/.epicenter.json', schema],
+	]);
+	const encoder = new TextEncoder();
+	const storage = {
+		children: async () =>
+			Ok({ files: [], directories: ['Notes', 'notes', 'todos'] }),
+		read: async (path: string) => {
+			const text = files.get(path);
+			return text === undefined
+				? FileError.NotFound({ path })
+				: Ok({ bytes: encoder.encode(text), sha256: '' });
+		},
+	};
+	const { definition, problems } = expectOk(await readDefinition(storage));
+	expect(Object.keys(definition.tables)).toEqual(['todos']);
+	expect(problems.map(({ path }) => path)).toEqual([
+		'Notes/.epicenter.json',
+		'notes/.epicenter.json',
+	]);
+	expect(problems[0]!.reason).toContain('differ only by case');
 });

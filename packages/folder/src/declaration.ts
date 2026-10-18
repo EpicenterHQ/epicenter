@@ -209,7 +209,25 @@ export async function readDefinition(
 		}
 		tables[directory] = table;
 	}
-	// Each table prepared alone; together they prepare the same way.
+	// Names that differ only by case are one name to SQL and to a
+	// case-insensitive disk: none of them is a table.
+	const byFolded = new Map<string, string[]>();
+	for (const name of Object.keys(tables)) {
+		const folded = name.toLowerCase();
+		byFolded.set(folded, [...(byFolded.get(folded) ?? []), name]);
+	}
+	for (const names of byFolded.values()) {
+		if (names.length < 2) continue;
+		for (const name of names) {
+			problems.push({
+				path: schemaPath(name),
+				reason: `the tables ${names.map((other) => `'${other}'`).join(' and ')} differ only by case, so none of them is a table`,
+			});
+			delete tables[name];
+		}
+	}
+	// Each table prepared alone, and no two names folding to one, so the
+	// rest prepare together; a failure here is the root's, naming no file.
 	const { data: definition, error: prepareError } = prepareFolderDefinition({
 		tables,
 	} as unknown as Definition);
