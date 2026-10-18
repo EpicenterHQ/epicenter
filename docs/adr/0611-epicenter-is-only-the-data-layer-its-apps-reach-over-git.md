@@ -126,6 +126,9 @@ Whether `auth logout`, `auth status`,
   `packages/tauri-plugin-epicenter-recorder` is not decided.
 - A compromised first-party origin reaches only the repositories its grants
   name, as an outside site would.
+- `apps/local-books` and `apps/vocab` are kept, and each is ported to
+  `@epicenter/data` later; Vocab's chat also needs a connection of its own
+  ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)).
 - The twenty-six desktop records stay as history, superseded; ADR-0586's
   Folders window lives on as the data browser.
 

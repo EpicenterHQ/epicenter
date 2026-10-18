@@ -62,6 +62,10 @@ service or `@epicenter/data`.
 
 - Whispering's and Vocab's hosted options go; a person sets up a provider
   key, Ollama, or a custom URL in the app.
+- Vocab's chat runs `@epicenter/agent` over `openEpicenterInference` from
+  `@epicenter/ai` (`apps/vocab/src/lib/inference.ts`), the hosted inference
+  deleted here, so Vocab's later port to `@epicenter/data` also moves its
+  chat to a connection the app keeps itself.
 - The API's audience serves no inference, so a token for it carries no
   scope that spends money.
 - An agent on a Mac still sends AI requests through `epicenter send` with a
