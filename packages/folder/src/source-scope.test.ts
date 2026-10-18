@@ -12,12 +12,25 @@
  * - Browser and native folders agree with `git status` about what is dirty
  * - A fast-forward preserves ignored files and refuses to overwrite one
  * - Status and commits decide ignored files by path and never read them
+ * - Native and browser hosts select from the same captured `.gitignore`
+ *   bytes, so a rule replaced after capture chooses nothing
+ * - Only a file named exactly `.gitignore` is a rule; another spelling is
+ *   refused, naming it, before anything is read
+ * - A native commit refuses what the captured rules leave unignored and a
+ *   plain-bytes tree cannot represent, such as an executable
  *
  * See also:
  * - `index-reconcile.test.ts` for staged-only intent after a checkpoint
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rename,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import type { LockingStorage } from './boundary.js';
@@ -29,8 +42,12 @@ import {
 import { runHistory } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
 import type { GitBackend } from './git/backend.js';
 import { createHistory } from './git/history.js';
+import { createNativeGitBackend } from './git/native-backend.js';
+import { createGitRunner } from './git/native-host.js';
 import { commitTree, readTreeFiles } from './git/objects.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
@@ -394,5 +411,286 @@ describe('an ignored file that is not tracked is never read', () => {
 		);
 		expect(saved.result).toMatchObject({ status: 'committed' });
 		expect(await git(root, 'ls-files')).toBe('notes.md');
+	});
+});
+
+/** A history over the system `git` in `root`, reading through `wrap`. */
+async function nativeHistoryAt(
+	root: string,
+	wrap: (storage: LockingStorage) => LockingStorage = (storage) => storage,
+) {
+	const files = nodeDirectoryPrimitives;
+	const backend = await createNativeGitBackend({
+		root,
+		branch: 'main',
+		host: { run: createGitRunner(root), files },
+	});
+	const storage = createDirectoryStorage({
+		root,
+		primitives: files,
+		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
+	});
+	return createHistory({ backend, boundary: wrap(storage), author });
+}
+
+describe('every host selects from the captured rules', () => {
+	test('a native folder whose .gitignore is emptied after capture neither reads nor commits what it ignored', async () => {
+		const root = await scratch('scope-native-replaced-rules-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, 'secret.key'), 'secret\n');
+		await writeFile(join(root, '.gitignore'), 'secret.key\n');
+		await writeFile(join(root, 'notes.md'), 'kept\n');
+		const read: string[] = [];
+		// Another writer empties `.gitignore` the moment the capture has it.
+		const history = await nativeHistoryAt(root, (storage) => ({
+			...storage,
+			async read(path) {
+				read.push(path);
+				const result = await storage.read(path);
+				if (path === '.gitignore')
+					await writeFile(join(root, '.gitignore'), '');
+				return result;
+			},
+		}));
+		try {
+			expect((await history.commit()).status).toBe('committed');
+		} finally {
+			await history.close();
+		}
+		expect(read).toContain('.gitignore');
+		expect(read).not.toContain('secret.key');
+		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+			'.gitignore',
+			'notes.md',
+		]);
+		// The committed rules are exactly the ones that chose the source.
+		expect(await git(root, 'show', 'HEAD:.gitignore')).toBe('secret.key');
+	});
+
+	test('native and browser folders select the same source from the same rules', async () => {
+		const files: Record<string, string> = {
+			'.gitignore': '*.log\nbuild/\nprivate/.gitignore\n',
+			// Ignored by the root, and still a rule.
+			'private/.gitignore': '*.key\n',
+			'private/secret.key': 'secret\n',
+			'private/plain.md': 'kept\n',
+			'notes/.gitignore': 'secret.txt\n!keep.log\n',
+			'notes/keep.log': 're-included\n',
+			'notes/secret.txt': 'ignored\n',
+			'notes/plain.txt': 'kept\n',
+			'app.log': 'ignored\n',
+			// Under an ignored directory: no rule, so it re-includes nothing.
+			'build/.gitignore': '!out.txt\n',
+			'build/out.txt': 'ignored\n',
+		};
+		const expected = [
+			'.gitignore',
+			'notes/.gitignore',
+			'notes/keep.log',
+			'notes/plain.txt',
+			'private/plain.md',
+		];
+		const ignoredPayloads = [
+			'private/secret.key',
+			'notes/secret.txt',
+			'app.log',
+			'build/.gitignore',
+			'build/out.txt',
+		];
+		const recording =
+			(read: string[]) =>
+			(storage: LockingStorage): LockingStorage => ({
+				...storage,
+				read(path) {
+					read.push(path);
+					return storage.read(path);
+				},
+			});
+
+		const raw = await rawBrowserFolder({ id: 'scope-hosts-agree' });
+		for (const [path, text] of Object.entries(files))
+			await overwrite(raw.boundary, path, text);
+		const browserRead: string[] = [];
+		const browserBackend = await raw.backend();
+		const browser = createHistory({
+			backend: browserBackend,
+			boundary: recording(browserRead)(raw.boundary),
+			author,
+		});
+		try {
+			expect((await browser.commit()).status).toBe('committed');
+			expect(await headPaths(browserBackend)).toEqual(expected);
+		} finally {
+			await browser.close();
+		}
+
+		const root = await scratch('scope-hosts-agree-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		for (const [path, text] of Object.entries(files)) {
+			await mkdir(join(root, path, '..'), { recursive: true });
+			await writeFile(join(root, path), text);
+		}
+		const nativeRead: string[] = [];
+		const native = await nativeHistoryAt(root, recording(nativeRead));
+		try {
+			expect((await native.commit()).status).toBe('committed');
+		} finally {
+			await native.close();
+		}
+		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual(expected);
+		// Git itself, reading the same rules, finds nothing left to commit.
+		expect(
+			await git(root, 'status', '--porcelain', '--untracked-files=all'),
+		).toBe('');
+		for (const path of ignoredPayloads) {
+			expect(browserRead).not.toContain(path);
+			expect(nativeRead).not.toContain(path);
+		}
+	});
+
+	test('a .gitignore spelled in another case is refused on both hosts, naming it, with nothing read; renamed, it applies', async () => {
+		const files: Record<string, string> = {
+			'.GITIGNORE': 'secret.key\n',
+			'secret.key': 'secret\n',
+			'notes.md': 'kept\n',
+		};
+		const recording =
+			(read: string[]) =>
+			(storage: LockingStorage): LockingStorage => ({
+				...storage,
+				read(path) {
+					read.push(path);
+					return storage.read(path);
+				},
+			});
+
+		// A browser folder.
+		const raw = await rawBrowserFolder({ id: 'scope-misnamed-rules' });
+		for (const [path, text] of Object.entries(files))
+			await overwrite(raw.boundary, path, text);
+		const browserRead: string[] = [];
+		const browserBackend = await raw.backend();
+		const browser = createHistory({
+			backend: browserBackend,
+			boundary: recording(browserRead)(raw.boundary),
+			author,
+		});
+		try {
+			const refused = await browser.commit();
+			expect(refused.status).toBe('blocked');
+			expect(refused.status === 'blocked' && refused.reason).toContain(
+				'.GITIGNORE is not named exactly .gitignore',
+			);
+			expect(await headPaths(browserBackend)).toEqual([]);
+			expect(browserRead).toEqual([]);
+			expect((await browser.status()).error?.message).toContain('.GITIGNORE');
+		} finally {
+			await browser.close();
+		}
+
+		// A native folder, with `.GitIgnore` nested too, and Sync.
+		const project = await scratch('scope-misnamed-rules-');
+		const bare = join(project, 'remote.git');
+		await git(
+			project,
+			'init',
+			'--quiet',
+			'--bare',
+			'--initial-branch=main',
+			bare,
+		);
+		const root = join(project, 'local');
+		await initWithOrigin(root, bare);
+		for (const [path, text] of Object.entries(files))
+			await writeFile(join(root, path), text);
+		await mkdir(join(root, 'notes'));
+		await writeFile(join(root, 'notes/.GitIgnore'), 'draft.md\n');
+		await writeFile(join(root, 'notes/draft.md'), 'draft\n');
+		const nativeRead: string[] = [];
+		const native = await nativeHistoryAt(root, recording(nativeRead));
+		try {
+			const refused = await native.commit();
+			expect(refused.status === 'blocked' && refused.reason).toContain(
+				'.GITIGNORE, notes/.GitIgnore are not named exactly .gitignore',
+			);
+			expect(nativeRead).toEqual([]);
+		} finally {
+			await native.close();
+		}
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		try {
+			const synced = await folder.sync.run();
+			expect(synced.error?.name).toBe('Checkpoint');
+			expect(synced.error?.message).toContain('notes/.GitIgnore');
+			expect(await git(root, 'ls-files')).toBe('');
+
+			// Renamed to the one rule file's name, each applies.
+			await rename(join(root, '.GITIGNORE'), join(root, '.gitignore'));
+			await rename(
+				join(root, 'notes/.GitIgnore'),
+				join(root, 'notes/.gitignore'),
+			);
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+				'.gitignore',
+				'notes.md',
+				'notes/.gitignore',
+			]);
+		} finally {
+			await folder.close();
+		}
+	});
+
+	test('a .gitignore spelled in another case inside an ignored directory is not refused', async () => {
+		const root = await scratch('scope-misnamed-ignored-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, '.gitignore'), 'node_modules/\n');
+		await mkdir(join(root, 'node_modules/dep'), { recursive: true });
+		await writeFile(join(root, 'node_modules/dep/.GITIGNORE'), '*\n');
+		await writeFile(join(root, 'notes.md'), 'kept\n');
+		const history = await nativeHistoryAt(root, (storage) => storage);
+		try {
+			expect((await history.commit()).status).toBe('committed');
+			expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+				'.gitignore',
+				'notes.md',
+			]);
+		} finally {
+			await history.close();
+		}
+	});
+
+	test('a native commit refuses an executable whose ignore rule is removed after the first check', async () => {
+		const root = await scratch('scope-native-executable-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, '.gitignore'), 'tool.sh\n');
+		await writeFile(join(root, 'tool.sh'), '#!/bin/sh\n');
+		await chmod(join(root, 'tool.sh'), 0o755);
+		await writeFile(join(root, 'notes.md'), 'kept\n');
+		// The early check reads the rules from disk; the capture reads them
+		// through the folder's files, by which time another writer removed
+		// the line.
+		const history = await nativeHistoryAt(root, (storage) => ({
+			...storage,
+			async read(path) {
+				if (path === '.gitignore')
+					await writeFile(join(root, '.gitignore'), '');
+				return storage.read(path);
+			},
+		}));
+		try {
+			const outcome = await history.commit();
+			expect(outcome).toMatchObject({ status: 'blocked' });
+			expect(outcome.status === 'blocked' && outcome.reason).toContain(
+				'tool.sh is an executable file',
+			);
+		} finally {
+			await history.close();
+		}
+		expect(await git(root, 'ls-files')).toBe('');
 	});
 });

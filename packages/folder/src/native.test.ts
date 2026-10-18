@@ -242,7 +242,8 @@ describe('native folder', () => {
 		});
 		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 		// An ignored local file, and the remote adding its other spelling.
-		await writeFile(join(root, '.git/info/exclude'), 'notes.md\n');
+		await writeFile(join(root, '.gitignore'), 'notes.md\n');
+		expect((await folder.git.commit()).status).toBe('committed');
 		await writeFile(join(root, 'notes.md'), 'mine, ignored\n');
 		await writeFile(join(peer, 'Notes.md'), 'theirs\n');
 		await git(peer, 'add', '--all');

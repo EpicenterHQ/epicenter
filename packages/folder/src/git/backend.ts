@@ -103,24 +103,18 @@ export type GitBackend = {
 	 * are refused rather than silently rewritten. Unmerged index stages another Git
 	 * program left are refused too: a checkpoint would reset them and record
 	 * conflict markers as ordinary content.
+	 *
+	 * `rules` is the `.gitignore` bytes a capture chose its source with;
+	 * which untracked working files are ignored, and so need not be
+	 * representable, is decided from them. Without it, from the rule files
+	 * on disk now.
 	 */
-	blocked(): Promise<string | undefined>;
+	blocked(rules?: ReadonlyMap<string, Uint8Array>): Promise<string | undefined>;
 	/**
 	 * Make every index entry match `commit`'s tree, including staged-only
 	 * additions and deletions. Working files are not touched.
 	 */
 	reconcileIndex(commit: string): Promise<void>;
-	/**
-	 * Which untracked candidates `.gitignore` (and native excludes) ignore,
-	 * decided by path alone. `gitignores` is the folder's `.gitignore` files
-	 * by path, which a backend that evaluates the rules itself reads; no other
-	 * file's bytes are needed, so an ignored file is never read to learn that
-	 * it is ignored.
-	 */
-	ignoredPaths(
-		candidates: readonly string[],
-		gitignores: ReadonlyMap<string, Uint8Array>,
-	): Promise<ReadonlySet<string>>;
 	log(depth: number): Promise<CommitSummary[]>;
 	/**
 	 * Push an exact commit to the configured remote branch, never forcing:

@@ -242,8 +242,8 @@ describe('a folder over an ordinary directory', () => {
 		await writeFile(recording, 'audio bytes');
 		const folder = expectOk(await open(root, { primitives: guarded }));
 		await addTodo(folder, 'Beside a recording');
-		// Before the repository exists the folder's `.gitignore` decides;
-		// after its first commit, `git check-ignore` does.
+		// The folder's `.gitignore` decides, before the repository exists and
+		// after its first commit alike.
 		const before = expectOk(await folder.git.status());
 		expect(before.changes.map((change) => change.path)).not.toContain(
 			'recordings/take.wav',
