@@ -3,7 +3,7 @@
 - **Status:** Superseded
 - **Date:** 2026-10-16
 - **Supersedes:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md), whose background work runs in a long-lived Bun host: background TypeScript is an `epicenter` command Rust starts and waits for, while 0323's measurement and its withdrawal of [ADR-0273](0273-an-epicenter-app-is-an-spa-with-a-namespace-and-background-work-is-a-hidden-window.md)'s hidden-window background work stand.
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
 - **Amends:** [ADR-0112](0112-the-cli-watcher-is-not-a-callable-action-server.md) at "The CLI resident process remains": no `epicenter` process outlives its command, and the refusal of a local action server stands.
 - **Amends:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) at what the host is: the Rust shell serves bundles, the `epicenter` CLI holds credentials, and no TypeScript host runs, while the refusal of application data in the host is unchanged.
 - **Amends:** [ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md) at "one Bun authority": the authority is the `epicenter` CLI, and windows stay credential-free.

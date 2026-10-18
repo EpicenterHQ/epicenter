@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at its manifest block, the `opens` paragraph with its committed shape and its reason "so Epicenter can match it to folders without building or running the app", and the defaults of `build` and `output`, while installing, approval, trust, and serving stand.
 - **Amends:** [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) at the consequence that the Folders window derives "Open in" from the shapes of installed apps, and at "the Folders window shows it as able to edit only": the Folders window reads no shape, the app's own window shows that it can only edit, and the lens check stands.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "`opens`, `build`, and `output` in `epicenter.app.json` are relative to that folder": the manifest is `id` and `title`, and the build is `bun run build:installed` in the folder, writing `dist/`.

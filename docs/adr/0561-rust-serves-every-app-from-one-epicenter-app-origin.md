@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
 - **Amends:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) at "Bun-hosted", its loopback port, and its per-launch token: Rust serves the one trusted origin over the `epicenter-app` scheme.
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at where apps are served, `epicenter-app://localhost/apps/<app-id>/`, and at its consequence that one origin shares Web Locks and `BroadcastChannel`: the desktop uses neither.
 - **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "Each app has one file": there is one capability file per kind of window, `folders.json`, `home.json`, and `installed-app.json`.

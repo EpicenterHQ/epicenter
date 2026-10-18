@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
 - **Amends:** [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` and `.<name>.epicenter-lock` are deleted, and a second shell takes turns under the save lock like the CLI.
 - **Amends:** [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) at "a second scope on one root is refused `Busy`" and its consequence "The cross-process lock stays, one per folder": two scopes on one root share its publishing mutex, and a second Epicenter process shares its save lock.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "two scopes on one root": one name reaches a root, and the mutex stays per canonical root.

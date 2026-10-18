@@ -37,8 +37,10 @@ governs where the two differ.
 4. Git's nouns win, and Epicenter names only types: its own words say what
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613, ADR-0625).
-5. Every place that edits is its own clone, with one writer at a time
-   (ADR-0611, ADR-0623).
+5. Every place that edits is its own clone, with one writer at a time:
+   each app origin keeps its own, and on disk the person, their agents, and
+   the data browser share one as one writer, the person (ADR-0611,
+   ADR-0623).
 6. Wherever Epicenter merges, the edit that reaches `main` last wins each
    unit both sides changed, an edit beats a delete it never saw, no conflict
    marker is written, and the losing version stays a parent of the merge
@@ -47,8 +49,9 @@ governs where the two differ.
    (ADR-0621).
 8. An app is a program you let into a repository, and a website is
    identified by its origin (ADR-0614, ADR-0626).
-9. Epicenter builds only the data layer. Later work adds clients, access, or
-   transport, never a data rule (ADR-0611, ADR-0618).
+9. Epicenter builds only the data layer and two tools over it, the CLI and
+   the desktop data browser, and hosts no app. Later work adds clients,
+   access, or transport, never a data rule (ADR-0611, ADR-0618).
 
 ## Consequences
 

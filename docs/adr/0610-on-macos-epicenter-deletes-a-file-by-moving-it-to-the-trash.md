@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-18
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
 - **Amends:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at the consequence "Files a folder's `.gitignore` ignores, such as Whispering's audio (ADR-0592), and changes not yet committed are gone once a page deletes them, since a storage deletion keeps no copy": on the desktop a deleted file goes to the macOS Trash, and in a browser tab a deletion stays permanent.
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (installing trusts the author fully), [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (principle 4: mistakes are left to Git), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (what a folder ignores).
 - **Unbuilt:** all of it: `storage::put` with no bytes moving the file to the Trash instead of `fs::remove_file` (`packages/tauri-plugin-epicenter-folder/core/src/storage.rs:658` at `e9027cc744`), and the Bun opener's file removal (`remove` in `packages/folder/src/directory-node.ts:108-113`, called from `packages/folder/src/directory-store.ts:192`) doing the same on macOS.

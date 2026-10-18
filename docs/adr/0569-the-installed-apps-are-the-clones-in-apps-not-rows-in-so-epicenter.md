@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the `apps` table, the `defaultApp` setting, "Every app is a row", and the consequences that an agent lists apps by editing `so.epicenter` and that connecting it carries a person's apps to another machine: `so.epicenter` holds the `connections` table only, and the installed apps are the clones in `Apps/` with `approvals.json`.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "every app is a row, and the row gains `folder`" and the `apps` row's `folder` that lets another machine install the same app: there is no row, and `epicenter.folder` in the clone is the only record of the folder.
 - **Amended by:** [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "The CLI owns `so.epicenter`'s declaration and publishes it at every launch": there is no `so.epicenter` and no declaration.
