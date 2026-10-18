@@ -1,27 +1,20 @@
 /**
- * `@epicenter/definition`: inert data-definition vocabulary, its preparation,
- * and the reads over a prepared definition.
+ * `@epicenter/definition`: inert definition vocabulary, its preparation, and
+ * the reads over a prepared definition.
  *
- * A storage imports this to read a declaration; it acquires nothing and knows
- * no storage. `@epicenter/app` binds the body conversion to its Yjs stores,
- * and `@epicenter/folder` refuses one.
+ * A storage imports this to read a definition; it acquires nothing and knows
+ * no storage. `@epicenter/folder` is the one storage.
  */
 
-export * from './addresses.js';
 export {
 	type ConformanceIssue,
 	type CreateRowOf,
-	type DataDefinition,
-	type DataSchema,
 	type DeclaredMark,
 	type DeclaredTable,
+	type Definition,
 	type FieldMap,
 	field,
-	KV_ROOT,
-	type KvOf,
-	RESERVED_TABLE_NAMES,
-	type RowOf,
-	type TableBody,
+	SETTINGS_TABLE,
 	type TableDeclaration,
 } from './declaration.js';
 export {
@@ -46,8 +39,14 @@ export {
 	type CheckMode,
 	type Conformance,
 	check,
-	DataDefinitionParseError,
+	DefinitionError,
 	isOptional,
-	prepareData,
-	prepareSchema,
+	prepareDefinition,
 } from './prepare.js';
+export {
+	containment,
+	type Mismatch,
+	mismatches,
+	requiredOutside,
+} from './shape.js';
+export { isTableName } from './table-name.js';

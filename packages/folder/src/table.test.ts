@@ -7,8 +7,8 @@
  * a caller holds after each operation and which bytes the folder holds.
  *
  * Key behaviors:
- * - `get` is a `StoredRow`: the path and hash of the bytes read and the
- *   complete row, unknown keys included; only absence is `undefined`
+ * - `get` is a `StoredRow`: the path and hash of the bytes read, their text,
+ *   and the complete row, unknown keys included; only absence is `undefined`
  * - Text that is not a valid row is `InvalidRow` with the exact text, the
  *   hash of its bytes, and located issues; bytes that are not UTF-8 are
  *   `InvalidUtf8` with their hash
@@ -17,11 +17,17 @@
  * - `list` has one item per `.md` file with its own Result, through the same
  *   pipeline as `get`
  * - `create` writes canonical text that reads back as the same row, captures
- *   the row before anything is awaited, refuses an invalid row before
- *   storage, and refuses an occupied path
- * - `replace`, `rename`, and `delete` are guarded by a capture: a stored row,
- *   an `InvalidRow`, or a listed row; different or missing bytes are
- *   `Conflict`, and a missing row is never recreated
+ *   the row before anything is awaited, and refuses an invalid row before
+ *   storage; a create at an occupied stem is `Occupied` and changes
+ *   nothing, unless the file holds the same text: a retried create is done
+ * - `write` merges the change from one row to another into the row as it is
+ *   now, written canonically; another writer landing first starts it again,
+ *   and one that never stops is `KeptChanging`
+ * - `set` changes the fields it names of the row as it is now, and makes no
+ *   row; a write over a row deleted since writes nothing; `delete` removes
+ *   whatever is there; `rename` moves the file, row or not, to a vacant
+ *   stem, never fusing two rows and carrying a write that lands meanwhile; another writer changing the new stem during the carry stops it as
+ *   `InvalidPath`, not `Occupied` (see `save.test.ts` for each over a real directory)
  * - Every literal single-segment stem is an address, the empty one included;
  *   only the exact lowercase `.md` extension is a row
  *
@@ -29,17 +35,19 @@
  * - `row-text.test.ts` for parsing, formatting, and issue locations
  * - `native.test.ts` for the same table over a real directory
  */
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field, parseRow } from './contract.js';
+import { hashBytes } from './hash.js';
+import { overwrite } from './put.test-support.js';
 import type { Row } from './row-text.js';
+import { mustRow } from './row-write.test-support.js';
 import { createTable } from './table.js';
+import { WRITE_ATTEMPTS } from './write.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: {
@@ -74,14 +82,16 @@ async function setup() {
 			reads++;
 			return base.read(path);
 		},
-		async readMany(paths: readonly string[]) {
+		// The table reads its rows once it has their names.
+		async children(directory: string) {
+			const listed = await base.children(directory);
 			await beforeReadMany?.();
-			return base.readMany(paths);
+			return listed;
 		},
-		async apply(changes: Parameters<typeof base.apply>[0]) {
+		async put(...args: Parameters<typeof base.put>) {
 			applications++;
 			await beforeApply?.();
-			return base.apply(changes);
+			return base.put(...args);
 		},
 	};
 	const table = createTable<Todo>(
@@ -93,9 +103,8 @@ async function setup() {
 	async function put(path: string, content: string | Uint8Array) {
 		const bytes =
 			typeof content === 'string' ? encoder.encode(content) : content;
-		const sha256 = await hashBytes(bytes);
-		expectOk(await base.apply([{ kind: 'overwrite', path, bytes, sha256 }]));
-		return { path, sha256 };
+		await overwrite(base, path, bytes);
+		return { path, sha256: await hashBytes(bytes) };
 	}
 	return {
 		table,
@@ -140,6 +149,7 @@ test('a stored row is the bytes it was read from and the complete row they hold'
 	expect<unknown>(expectOk(await s.table.get('a'))).toEqual({
 		path: 'todos/a.md',
 		sha256: file.sha256,
+		text: VALID,
 		row: {
 			fields: { title: 'External', done: false, tags: [], priority: 'high' },
 			body: 'Body\n',
@@ -206,6 +216,13 @@ test('a listing has one item per row file, each read through the same pipeline a
 	await s.put('todos/m.md', MALFORMED);
 	await s.put('todos/upper.MD', VALID);
 	await s.put('todos/notes.txt', 'not a row');
+	// The one row predicate: a nonempty id that is not a dot name, then `.md`.
+	await s.put('todos/.md', VALID);
+	await s.put('todos/.hidden.md', VALID);
+	await s.put('todos/.epicenter.json', '{}');
+	// Nested files are a row's own files, never rows; a directory is never a row.
+	await s.put('todos/a/nested.md', VALID);
+	await s.put('todos/dir.md/inside.txt', 'a directory named like a row');
 	const listing = expectOk(await s.table.list());
 	const byStem = Object.fromEntries(
 		listing.map(({ stem, result }) => [stem, result]),
@@ -220,7 +237,7 @@ test('a file that goes away after it was enumerated is its own NotFound', async 
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/gone.md', VALID);
 	s.beforeReadMany(async () => {
-		expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/gone.md' }]));
+		await overwrite(s.base, 'todos/gone.md', null);
 	});
 	const listing = expectOk(await s.table.list());
 	expect(listing.find(({ stem }) => stem === 'gone')?.result.error?.name).toBe(
@@ -241,7 +258,7 @@ test('create writes canonical text that reads back as the same row', async () =>
 	const row = todo('Milk', { tags: ['home'] });
 	(row.fields as Record<string, unknown>).priority = 'high';
 	row.body = 'Two percent.\n';
-	const created = expectOk(await s.table.create(row, { stem: 'milk' }));
+	const created = mustRow(await s.table.create(row, { stem: 'milk' }));
 
 	const text = await s.stored('todos/milk.md');
 	expect(text).toBe(
@@ -260,7 +277,7 @@ test('create captures the row before anything is awaited', async () => {
 	const pending = s.table.create(row, { stem: 'c' });
 	row.fields.title = 'After';
 	row.fields.tags.push('late');
-	const created = expectOk(await pending);
+	const created = mustRow(await pending);
 	expect(created.row.fields).toEqual({
 		title: 'Before',
 		done: false,
@@ -302,12 +319,23 @@ test('an invalid or unrepresentable row is refused before anything touches stora
 	expect(expectOk(await s.table.list())).toEqual([]);
 });
 
-test('an occupied path is Exists, and a differently cased stem is another file', async () => {
+test('a create at an occupied stem is refused and changes nothing, the same create sent again is done, and a differently cased stem is another file', async () => {
 	const s = await setup();
-	expectOk(await s.table.create(todo('A'), { stem: 'a' }));
+	const first = { ...todo('A', { tags: ['kept'] }), body: 'first\n' };
+	const created = mustRow(await s.table.create(first, { stem: 'a' }));
 	expect(
-		expectErr(await s.table.create(todo('Again'), { stem: 'a' })),
-	).toMatchObject({ name: 'Exists', path: 'todos/a.md' });
+		expectErr(
+			await s.table.create(
+				{ ...todo('Again', { done: true }), body: 'second\n' },
+				{ stem: 'a' },
+			),
+		),
+	).toMatchObject({ name: 'Occupied', path: 'todos/a.md' });
+	expect(await s.stored('todos/a.md')).toBe(created.text);
+	// A retried create finds its own bytes there: done, and nothing written.
+	s.resetCounts();
+	expect(mustRow(await s.table.create(first, { stem: 'a' }))).toEqual(created);
+	expect(s.counts().applications).toBe(0);
 	expectOk(await s.table.create(todo('Upper'), { stem: 'A' }));
 	expect(expectOk(await s.table.get('A'))?.row.fields.title).toBe('Upper');
 	expect(expectOk(await s.table.get('a'))?.row.fields.title).toBe('A');
@@ -315,174 +343,345 @@ test('an occupied path is Exists, and a differently cased stem is another file',
 
 test('a generated stem is used when none is given', async () => {
 	const s = await setup();
-	const created = expectOk(await s.table.create(todo('A')));
+	const created = mustRow(await s.table.create(todo('A')));
 	expect(created.path).toMatch(/^todos\/[0-9a-z]{10}\.md$/);
 });
 
-// -- Guarded writes -----------------------------------------------------------
+// -- Writes -------------------------------------------------------------------
 
-test('replace saves a row over the bytes it was read from, reading nothing', async () => {
+test('set changes the fields it names of the row as it is now, unknown keys and the body kept', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	stored.row.fields.done = true;
 	s.resetCounts();
-	const replaced = expectOk(await s.table.replace(stored, stored.row));
-	expect(s.counts()).toEqual({ reads: 0, applications: 1 });
-	expect<unknown>(replaced.row.fields).toEqual({
-		title: 'External',
-		done: true,
-		tags: [],
-		priority: 'high',
+	const written = mustRow(await s.table.set('a', { done: true }));
+	expect(s.counts().applications).toBe(1);
+	expect<unknown>(written.row).toEqual({
+		fields: { title: 'External', done: true, tags: [], priority: 'high' },
+		body: 'Body\n',
 	});
-	expect(expectOk(await s.table.get('a'))).toEqual(replaced);
+	expect(expectOk(await s.table.get('a'))).toEqual(written);
 });
 
-test('replace against bytes that changed is Conflict, and the newer bytes stay', async () => {
+test('set keeps a field another writer changed between its read and its write', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	await s.put('todos/a.md', NEWER);
-	expect(expectErr(await s.table.replace(stored, todo('Mine'))).name).toBe(
-		'Conflict',
-	);
-	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	s.beforeApply(async () => {
+		s.beforeApply(undefined);
+		await s.put('todos/a.md', VALID.replace('External', 'Theirs'));
+	});
+	s.resetCounts();
+	const written = mustRow(await s.table.set('a', { done: true }));
+	expect(s.counts().applications).toBe(2);
+	expect(written.row.fields).toMatchObject({ title: 'Theirs', done: true });
 });
 
-test('a missing row is never recreated by a guarded write', async () => {
+test('set removes a field set to undefined, and makes no row that is not there', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
-	expect(expectErr(await s.table.replace(stored, todo('Back'))).name).toBe(
-		'Conflict',
+	const removed = mustRow(
+		await s.table.set('a', { priority: undefined } as Partial<Todo>),
 	);
-	expect(await s.stored('todos/a.md')).toBeUndefined();
+	expect(removed.row.fields).toEqual({
+		title: 'External',
+		done: false,
+		tags: [],
+	});
+	expect(
+		expectOk(await s.table.set('new', { title: 'New', done: false, tags: [] })),
+	).toBeNull();
+	expect(await s.stored('todos/new.md')).toBeUndefined();
 });
 
-test('an invalid row is repaired with its own capture', async () => {
+test('set over a file that is not a row, or with a value its field does not admit, is InvalidValues', async () => {
 	const s = await setup();
 	await s.put('todos/m.md', MALFORMED);
-	const invalid = expectErr(await s.table.get('m'));
-	if (invalid.name !== 'InvalidRow') throw new Error(invalid.message);
-	expectOk(await s.table.replace(invalid, todo('Repaired')));
-	expect(expectOk(await s.table.get('m'))?.row.fields.title).toBe('Repaired');
-});
-
-test('replace refuses an invalid row before anything touches storage', async () => {
-	const s = await setup();
+	expect(expectErr(await s.table.set('m', { done: true })).name).toBe(
+		'InvalidValues',
+	);
+	expect(await s.stored('todos/m.md')).toBe(MALFORMED);
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	s.resetCounts();
 	expect(
-		expectErr(
-			await s.table.replace(stored, {
-				fields: { title: 7 as never, done: false, tags: [] },
-				body: '',
-			}),
-		),
-	).toMatchObject({ name: 'InvalidValues' });
-	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
+		expectErr(await s.table.set('a', { title: 7 as never })),
+	).toMatchObject({ name: 'InvalidValues', issues: [{ field: 'title' }] });
 	expect(await s.stored('todos/a.md')).toBe(VALID);
 });
 
-test('a capture that is not a row file of this table is InvalidPath before storage', async () => {
+const STYLED =
+	'---\r\ntitle: "Kept"   # a comment\r\ndone: false\r\ntags: []\r\npriority: high\r\n---\r\nOne\r\nTwo\r\n';
+
+test('a body write rewrites the frontmatter in the standard form and the body with line feeds', async () => {
 	const s = await setup();
-	const sha256 = '0'.repeat(64);
-	s.resetCounts();
-	for (const path of ['other/a.md', 'todos/a.txt', 'todos/nested/a.md'])
-		expect(expectErr(await s.table.delete({ path, sha256 })).name).toBe(
-			'InvalidPath',
-		);
-	expect(
-		expectErr(await s.table.delete({ path: 'todos/a.md', sha256: 'nope' }))
-			.name,
-	).toBe('InvalidPath');
-	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
+	await s.put('todos/a.md', STYLED);
+	const stored = await s.row('a');
+	const written = mustRow(
+		await s.table.write('a', stored.row, {
+			...stored.row,
+			body: 'One\nTwo\nThree\n',
+		}),
+	);
+	expect(await s.stored('todos/a.md')).toBe(
+		'---\ntitle: Kept\ndone: false\ntags: []\npriority: high\n---\nOne\nTwo\nThree\n',
+	);
+	expect(written.row.body).toBe('One\nTwo\nThree\n');
 });
 
-test('rename moves the captured row to a vacant stem and returns its capture there', async () => {
+test('a write that changes nothing leaves a styled CRLF row byte for byte', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', STYLED);
+	const stored = await s.row('a');
+	mustRow(await s.table.write('a', stored.row, stored.row));
+	expect(await s.stored('todos/a.md')).toBe(STYLED);
+});
+
+test('a write keeps fields and lines another writer changed, and wins lines both changed', async () => {
+	const s = await setup();
+	const at = (title: string, body: string) =>
+		`---\ntitle: ${title}\ndone: false\ntags: []\n---\n${body}`;
+	await s.put('todos/a.md', at('A', 'one\ntwo\nthree\n'));
+	const stored = await s.row('a');
+	await s.put('todos/a.md', at('Theirs', 'one\nTWO (theirs)\nthree\nadded\n'));
+	const written = mustRow(
+		await s.table.write('a', stored.row, {
+			...stored.row,
+			body: 'ONE\nTWO (mine)\nthree\n',
+		}),
+	);
+	expect(written.row).toEqual({
+		fields: { title: 'Theirs', done: false, tags: [] },
+		body: 'ONE\nTWO (mine)\nthree\nadded\n',
+	});
+});
+
+test('a write over a row deleted since it started writes nothing: the delete stands', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
-	expect(expectOk(await s.table.rename(stored, 'b'))).toEqual({
-		path: 'todos/b.md',
-		sha256: stored.sha256,
+	await overwrite(s.base, 'todos/a.md', null);
+	expect(
+		expectOk(
+			await s.table.write('a', stored.row, { ...stored.row, body: 'Back\n' }),
+		),
+	).toBeNull();
+	expect(await s.stored('todos/a.md')).toBeUndefined();
+});
+
+test("every attempt merges from the write's own from, and the write logs what the last one overwrote", async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const stored = await s.row('a');
+	let writes = 0;
+	// Two other writers land, one before each of the first two attempts.
+	s.beforeApply(async () => {
+		if (writes === 2) return s.beforeApply(undefined);
+		await s.put('todos/a.md', NEWER.replace('Newer', `Newer ${writes++}`));
 	});
+	const logged = spyOn(console, 'info').mockImplementation(() => {});
+	try {
+		const mine = {
+			...stored.row,
+			fields: { ...stored.row.fields, title: 'Mine' },
+		};
+		const written = mustRow(await s.table.write('a', stored.row, mine));
+		expect(written.row.fields.title).toBe('Mine');
+		expect(logged.mock.calls).toEqual([
+			[
+				'[folder/save]',
+				"Saved over another writer's change to todos/a.md",
+				{
+					path: 'todos/a.md',
+					units: [{ kind: 'field', field: 'title' }],
+				},
+			],
+		]);
+	} finally {
+		logged.mockRestore();
+	}
+});
+
+test('a row that keeps changing gives up after the bounded attempts, writing nothing of its own', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	let writes = 0;
+	// Another writer lands before every attempt, so each one is overtaken.
+	s.beforeApply(async () => {
+		await s.put('todos/a.md', NEWER.replace('Newer', `Newer ${writes++}`));
+	});
+	const refused = expectErr(await s.table.set('a', { title: 'Mine' }));
+	s.beforeApply(undefined);
+	expect(refused).toMatchObject({
+		name: 'KeptChanging',
+		path: 'todos/a.md',
+		attempts: WRITE_ATTEMPTS,
+	});
+	expect(writes).toBe(WRITE_ATTEMPTS);
+	expect(await s.stored('todos/a.md')).toContain(`Newer ${WRITE_ATTEMPTS - 1}`);
+});
+
+test('delete removes whatever is at the stem, a row or not, and a gone row is done', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	await s.put('todos/m.md', MALFORMED);
+	for (const { stem } of expectOk(await s.table.list()))
+		expectOk(await s.table.delete(stem));
+	expect(expectOk(await s.table.list())).toEqual([]);
+	expectOk(await s.table.delete('a'));
+});
+
+test('rename moves the row file to a vacant stem, a file that is not a row as it is', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	await s.put('todos/m.md', MALFORMED);
+	const moved = mustRow(await s.table.rename('a', 'b'));
+	expect(moved.path).toBe('todos/b.md');
 	expect(await s.stored('todos/a.md')).toBeUndefined();
 	expect(await s.stored('todos/b.md')).toBe(VALID);
+	// The moved file does not read as a row, and the rename answers it as it is.
+	expect(expectOk(await s.table.rename('m', 'n'))).toMatchObject({
+		name: 'InvalidRow',
+		path: 'todos/n.md',
+		text: MALFORMED,
+	});
+	expect(await s.stored('todos/n.md')).toBe(MALFORMED);
+	expect(await s.stored('todos/m.md')).toBeUndefined();
 });
 
-test('rename to its own stem is InvalidPath and to an occupied stem is Exists', async () => {
+test('two renames onto one stem never fuse two rows: one moves, the other is Occupied', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	await s.put('todos/b.md', VALID);
-	const stored = await s.row('a');
-	s.resetCounts();
-	expect(expectErr(await s.table.rename(stored, 'a')).name).toBe('InvalidPath');
-	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
-	expect(expectErr(await s.table.rename(stored, 'b')).name).toBe('Exists');
-	expect(await s.stored('todos/a.md')).toBe(VALID);
+	await s.put('todos/b.md', NEWER);
+	const [first, second] = await Promise.all([
+		s.table.rename('a', 'c'),
+		s.table.rename('b', 'c'),
+	]);
+	const outcomes = [first, second].map((result) =>
+		result.error === null ? 'moved' : result.error.name,
+	);
+	expect(outcomes.sort()).toEqual(['Occupied', 'moved']);
+	const moved = first.error === null ? VALID : NEWER;
+	const stayed = first.error === null ? 'todos/b.md' : 'todos/a.md';
+	expect(await s.stored('todos/c.md')).toBe(moved);
+	expect(await s.stored(stayed)).toBe(first.error === null ? NEWER : VALID);
 });
 
-test('rename and delete of bytes that changed are Conflict and change nothing', async () => {
+test('a write that lands at the old stem during a rename is carried to the new one', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	await s.put('todos/a.md', NEWER);
-	expect(expectErr(await s.table.rename(stored, 'b')).name).toBe('Conflict');
-	expect(expectErr(await s.table.delete(stored)).name).toBe('Conflict');
+	let raced = false;
+	// Another writer lands at the old stem once the bytes reached the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+	});
+	const moved = mustRow(await s.table.rename('a', 'b'));
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(moved.text).toBe(NEWER);
+	expect(await s.stored('todos/b.md')).toBe(NEWER);
+	expect(await s.stored('todos/a.md')).toBeUndefined();
+});
+
+test('a write at the new stem during a rename stops it there, and the answer says both stems may hold the row', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const OTHER = VALID.replace('External', 'Other');
+	let raced = false;
+	// Once the bytes reached the new stem, one writer lands at the old stem
+	// and another edits the copy at the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+		await s.put('todos/b.md', OTHER);
+	});
+	const stopped = expectErr(await s.table.rename('a', 'b'));
+	// Not `Occupied`: the new stem held nothing before the move, and the
+	// move left a copy there that another writer edited.
+	expect(stopped).toMatchObject({ name: 'InvalidPath', path: 'todos/b.md' });
+	expect(stopped.message).toContain('the file stays at its old path');
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	expect(await s.stored('todos/b.md')).toBe(OTHER);
+});
+
+test('a delete at the new stem during a rename stops it there, and the answer does not say a file is there', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	let raced = false;
+	// Once the bytes reached the new stem, one writer lands at the old stem
+	// and another deletes the copy at the new one.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await s.put('todos/a.md', NEWER);
+		await overwrite(s.base, 'todos/b.md', null);
+	});
+	const stopped = expectErr(await s.table.rename('a', 'b'));
+	expect(stopped).toMatchObject({ name: 'InvalidPath', path: 'todos/b.md' });
+	expect(stopped.message).toContain('holds what that writer left, if anything');
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
 	expect(await s.stored('todos/a.md')).toBe(NEWER);
 	expect(await s.stored('todos/b.md')).toBeUndefined();
 });
 
-test('delete removes the captured row, a listed or invalid one included', async () => {
+test('a delete of the old stem during a rename stands: the row is at neither stem', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	await s.put('todos/m.md', MALFORMED);
-	for (const { result } of expectOk(await s.table.list())) {
-		const capture = result.error === null ? result.data : result.error;
-		if (!('sha256' in capture)) throw new Error('every item here was read');
-		expectOk(await s.table.delete(capture));
-	}
-	expect(expectOk(await s.table.list())).toEqual([]);
+	let raced = false;
+	// The row is deleted once its bytes reached the new stem.
+	s.beforeApply(async () => {
+		if (raced || (await s.stored('todos/b.md')) === undefined) return;
+		raced = true;
+		await overwrite(s.base, 'todos/a.md', null);
+	});
+	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
+	s.beforeApply(undefined);
+	expect(raced).toBe(true);
+	expect(await s.stored('todos/a.md')).toBeUndefined();
+	expect(await s.stored('todos/b.md')).toBeUndefined();
 });
 
-test('a write that races a competing write returns Conflict once and leaves the competing bytes', async () => {
+test('rename from a stem with no file is InvalidPath, onto an occupied one Occupied, and changes nothing', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
-	const stored = await s.row('a');
-	s.beforeApply(async () => {
-		s.beforeApply(undefined);
-		await s.put('todos/a.md', NEWER);
-	});
-	s.resetCounts();
-	expect(expectErr(await s.table.replace(stored, todo('Mine'))).name).toBe(
-		'Conflict',
-	);
-	expect(s.counts().applications).toBe(1);
-	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	await s.put('todos/b.md', NEWER);
+	expect(expectErr(await s.table.rename('gone', 'c')).name).toBe('InvalidPath');
+	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('Occupied');
+	expect(await s.stored('todos/a.md')).toBe(VALID);
+	expect(await s.stored('todos/b.md')).toBe(NEWER);
+	expect(mustRow(await s.table.rename('a', 'a')).path).toBe('todos/a.md');
 });
 
 // -- Addresses ----------------------------------------------------------------
 
-test('every literal single-segment stem is an address, the empty one included', async () => {
+test('every literal single-segment stem that names a row file is an address', async () => {
 	const s = await setup();
-	const stems = ['', ' ', 'a b', 'ünïcode', '.hidden', 'a.b'];
+	const stems = [' ', 'a b', 'ünïcode', 'a.b', 'a.', 'trailing.md'];
 	for (const stem of stems)
 		expectOk(await s.table.create(todo(`stem ${stem}`), { stem }));
 	for (const stem of stems)
 		expect(expectOk(await s.table.get(stem))?.path).toBe(`todos/${stem}.md`);
+	expect(
+		expectOk(await s.table.list())
+			.map(({ stem }) => stem)
+			.sort(),
+	).toEqual([...stems].sort());
 });
 
-test('a stem that is not one segment is InvalidPath before storage', async () => {
+test('a stem that is not one segment, is empty, or starts with a dot is InvalidPath before storage', async () => {
 	const s = await setup();
 	s.resetCounts();
-	for (const stem of ['a/b', '../a']) {
+	for (const stem of ['a/b', '../a', '', '.hidden', '.']) {
 		expect(expectErr(await s.table.get(stem)).name).toBe('InvalidPath');
 		expect(expectErr(await s.table.create(todo('x'), { stem })).name).toBe(
 			'InvalidPath',
 		);
+		expect(expectErr(await s.table.set(stem, { done: true })).name).toBe(
+			'InvalidPath',
+		);
+		expect(expectErr(await s.table.delete(stem)).name).toBe('InvalidPath');
 	}
 	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
 });

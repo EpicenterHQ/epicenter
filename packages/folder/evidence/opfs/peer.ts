@@ -10,11 +10,11 @@ import { defineFolder, type Folder, openFolder } from '../../src/browser.js';
 
 export type PeerRequest =
 	| { readonly kind: 'open'; readonly id: string }
-	| { readonly kind: 'create'; readonly path: string; readonly content: string }
+	/** The folder's one write: the change from `from`, `null` for no file, to `content`. */
 	| {
-			readonly kind: 'replace';
+			readonly kind: 'write';
 			readonly path: string;
-			readonly sha256: string;
+			readonly from: string | null;
 			readonly content: string;
 	  }
 	/** Read `path` repeatedly for `ms` and report every SHA-256 seen. */
@@ -26,21 +26,23 @@ export type PeerReply = {
 	readonly ok: boolean;
 	readonly error?: string;
 	readonly sha256?: string;
+	/** How many units the write overrode. */
+	readonly overridden?: number;
 	readonly seen?: readonly string[];
 	readonly hints?: readonly string[];
 	readonly failures?: number;
 };
 
-const definition = defineFolder({ kv: {}, tables: {} });
+const definition = defineFolder({ tables: {} });
 let folder: Folder<typeof definition> | undefined;
 const hints: string[] = [];
 
 async function handle(request: PeerRequest): Promise<PeerReply> {
 	if (request.kind === 'open') {
 		const { data: opened, error: openError } = await openFolder({
-			id: request.id,
+			app: request.id,
 			definition,
-			browser: { scope: { channel: 'development' } },
+			browser: {},
 		});
 		if (openError !== null) return { ok: false, error: openError.message };
 		folder = opened;
@@ -49,23 +51,19 @@ async function handle(request: PeerRequest): Promise<PeerReply> {
 	}
 	if (folder === undefined) return { ok: false, error: 'not open' };
 	switch (request.kind) {
-		case 'create': {
-			const { data: saved, error: saveError } = await folder.files.create(
+		case 'write': {
+			const { data: written, error: writeError } = await folder.write(
 				request.path,
+				request.from,
 				request.content,
 			);
-			return saveError !== null
-				? { ok: false, error: saveError.name }
-				: { ok: true, sha256: saved.sha256 };
-		}
-		case 'replace': {
-			const { data: saved, error: saveError } = await folder.files.replace(
-				{ path: request.path, sha256: request.sha256 },
-				request.content,
-			);
-			return saveError !== null
-				? { ok: false, error: saveError.name }
-				: { ok: true, sha256: saved.sha256 };
+			return writeError !== null
+				? { ok: false, error: writeError.name }
+				: {
+						ok: true,
+						sha256: written.file?.sha256,
+						overridden: written.overridden.length,
+					};
 		}
 		case 'readFor': {
 			const seen = new Set<string>();

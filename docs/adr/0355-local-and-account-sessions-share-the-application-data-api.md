@@ -13,6 +13,7 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line -->
 `createEpicenter({ appId, definition, sqlite })` in `packages/app/src/index.ts`
 currently opens one account-bound session through `open(account)`. The store
 apps gate interaction on identity. An existing account replica can open offline,
@@ -20,6 +21,7 @@ but a fresh installation cannot create a durable recording library without an
 account. The product must let a person install an app, record, quit, and reopen
 the recording without configuring an account or server.
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/blobs/src/browser.ts` stores account bytes in IndexedDB at
 `epicenter/v5/<app-id>/<principal-id>/blobs`. Its portable `BlobStore`,
 `BlobRemote`, and `BlobSources` contracts already separate local persistence,
@@ -377,7 +379,8 @@ slice, looking for duplicate facts and boundaries that no longer own a distinct
 job. The implementing agent owns integration and verifies review findings.
 
 Execution checkpoints and evidence targets live in
-[the implementation spec](../../specs/20260907T231907-local-account-app-clean-break.md).
+<!-- doc-path-check: ignore-next-line -->
+the implementation spec (`specs/20260907T231907-local-account-app-clean-break.md`, deleted; recover via `git log --all --full-history`).
 
 ## Consequences
 

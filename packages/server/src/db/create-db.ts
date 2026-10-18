@@ -4,9 +4,9 @@
  * `createDb(client)` wraps a connected `pg` client or pool in drizzle with
  * the library's own schema, so the schema stays internal to
  * `@epicenter/server` and a deployment hands in only a connected client.
- * Both runtime db backends funnel through this: the Cloudflare backend (a
- * per-request `pg.Client` over Hyperdrive, see `db/backends/cloudflare.ts`)
- * and a Node host (a module-scope `pg.Pool`). `pg` + drizzle are the open
+ * Both apps/api entries funnel through this: the Worker (a per-request
+ * `pg.Client` over Hyperdrive, `worker/index.ts`) and the Bun entry (a
+ * module-scope `pg.Pool`, `server.ts`). `pg` + drizzle are the open
  * Postgres-wire standard both runtimes already speak (ADR-0066 Road 1); only
  * connection acquisition differs, which is what the runtime's `db.connect` injects.
  */

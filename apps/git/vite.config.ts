@@ -7,19 +7,11 @@ export default defineConfig(
 			alias: [
 				{
 					find: /^@epicenter\/folder$/,
-					replacement: process.env.GIT_DESKTOP
-						? '@epicenter/folder/tauri'
-						: '@epicenter/folder/browser',
+					replacement: '@epicenter/folder/browser',
 				},
 				{
 					find: /^buffer$/,
 					replacement: fileURLToPath(import.meta.resolve('buffer/')),
-				},
-				{
-					find: 'node:zlib',
-					replacement: fileURLToPath(
-						new URL('./src/lib/shims/zlib.ts', import.meta.url),
-					),
 				},
 			],
 		},

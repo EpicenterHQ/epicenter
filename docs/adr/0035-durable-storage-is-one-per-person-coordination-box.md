@@ -22,6 +22,7 @@ Workers are independently placeable spokes, not part of the box. A worker connec
 ## Consequences
 
 - The role list is now five: relay (moves bytes), anchor (keeps docs), store (keeps blobs), worker (thinks), and the agent (the durable address a worker answers as, ADR-0025). Three never think, one thinks, one is a name.
+<!-- doc-path-check: ignore-next-line -->
 - Self-hosting is one Bun process that re-implements the same contracts. A Durable Object's embedded SQLite becomes Bun plus disk, R2 becomes the local filesystem, the managed worker becomes the user's own daemon. The interface is the boundary; the backend swaps (per `specs/20260522T220000-api-runtime-portability.md`).
 - "Star" is a deployment fact, not a contract apps depend on. Apps talk to roles, so the topology can gain direct peer links (LAN shortcuts, a future mesh) without an app rewrite.
 - Refusing federation deletes the hardest problems up front: no split-brain across competing durable replicas, no consensus on which box owns a doc, no cross-center merge. The cost is that a person with several always-on boxes still names one as the coordination center, and the others are worker spokes.

@@ -10,7 +10,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import WandIcon from '@lucide/svelte/icons/wand';
 	import { resolve } from '$app/paths';
-	import { resolvePostProcessing, transformationName } from '$lib/post-processing.js';
+	import { transformationName } from '$lib/post-processing.js';
 	import { getSession } from '$lib/session.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 
@@ -25,9 +25,10 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library, view } = getSession();
+	const session = getSession();
+	const { library, view } = session;
 
-	const choice = $derived(resolvePostProcessing(view.postProcessing, library.transformations, library.resolve));
+	const choice = $derived(session.postProcessing);
 	const name = $derived(
 		choice.kind === 'none' ? 'None' : choice.kind === 'missing' ? 'Not in the folder' : transformationName(choice.entry),
 	);

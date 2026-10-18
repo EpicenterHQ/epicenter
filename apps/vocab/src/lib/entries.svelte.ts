@@ -1,50 +1,64 @@
 /**
- * The learner's saved words, read from and saved to the folder's `entries`
- * table.
+ * The learner's saved words (ADR-0548).
  *
- * The list is read when the page opens, after the app's own actions, and
- * when the learner returns to the window; the latest read wins. It offers the
- * files that read as words and names the rest, with why, for repair as text.
+ * The `entries` table's listing is one query under the folder's keys: the
+ * files that read as words, and the ones that do not, each with why, for
+ * repair as text. It is read on open and again when the folder reports a
+ * change to `entries/`. This page's own saves are not reported: each puts
+ * what it wrote in the listing itself.
  *
- * One word is open at a time, kept by `@epicenter/svelte/open-item` in one
- * edit session: a valid word is a row session over its note and stage, and a
- * file that is not a valid word is a text session over its exact text.
- * Leaving a word waits for its saves, then releases its session and lists
- * again. A save that failed or conflicted keeps the word open until the
- * learner discards it (`open` answers `unsaved`, and the view asks).
- * Returning to the window takes a newer version of the open word when it
- * holds nothing unsaved. Every change is counted from its call
- * (`@epicenter/svelte/admissions`), so closing waits for all of them.
+ * A note or a stage is set on the word's file as it is now (ADR-0576): it
+ * sets that field and keeps every other field another writer changed. A
+ * note typed is the word's field draft (`edits.field`), sent a second after
+ * the last keystroke; a stage press sends at once. One word's writes run one
+ * at a time, in the order made. A failed write is reported, and the card
+ * keeps what was typed.
  *
- * A new word's file is named by the SHA-256 of its exact text, and creation
- * is exclusive, so two adds of one text reach the same file.
+ * A word file that is not a valid word is repaired as its exact text, read
+ * as its own query and written through its text draft (`edits.text`): it
+ * holds the text it started from, saves after a pause in typing, one write
+ * at a time, as the change from that text, merged with a change made
+ * elsewhere (ADR-0576). Where both changed the same lines, the save wins,
+ * with no notice. A word file deleted elsewhere takes no repair: the text
+ * typed is offered instead. Adding a word is a mutation, and a delete runs
+ * once the word's edits landed, so closing waits for both. A delete
+ * deletes the file whatever it holds by then (ADR-0576).
+ *
+ * A new word's file is named by the SHA-256 of its exact text, so two adds
+ * of one text reach the same file. An add reads that file first and writes
+ * only when none is there.
  */
 
-import { InstantString } from '@epicenter/app/field';
-import { type FolderFiles, hashBytes, wellFormed } from '@epicenter/folder';
-import { createAdmissions } from '@epicenter/svelte/admissions';
+import { InstantString } from '@epicenter/definition/field';
 import {
-	createRowSession,
-	createTextSession,
-	type RowSession,
-	type TextSession,
-} from '@epicenter/svelte/edit-session';
-import { createOpenItem } from '@epicenter/svelte/open-item';
+	hashBytes,
+	isStoredRow,
+	rowPath,
+	type StoredRow,
+	type TableListing,
+	type WriteError,
+	wellFormed,
+} from '@epicenter/folder';
+import type { OpenedFile } from '@epicenter/folder/file-browser';
+import type { Edits } from '@epicenter/svelte/edits';
+import { ActionError } from '@epicenter/svelte/write-failure';
+import type { QueryClient } from '@tanstack/svelte-query';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+import { createQueryFactories } from 'wellcrafted/query';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type Entry,
 	type EntryFields,
 	readEntry,
 	readRows,
-	type Stage,
 	type UnreadableFile,
-	type VocabTables,
+	type VocabFolder,
 } from './data.js';
+import { type VocabOptions, vocabKeys } from './query.js';
 
 export const EntryError = defineErrors({
 	Empty: () => ({ message: 'There is no text to save.' }),
@@ -61,355 +75,229 @@ export const EntryError = defineErrors({
 });
 export type EntryError = InferErrors<typeof EntryError>;
 
-/** What the open word's slot holds once loaded. */
-type Item =
-	| {
-			readonly kind: 'word';
-			readonly id: string;
-			readonly session: RowSession<EntryFields>;
-	  }
-	| {
-			readonly kind: 'text';
-			readonly id: string;
-			readonly session: TextSession;
-	  }
-	| { readonly kind: 'failed'; readonly id: string; readonly message: string };
+/** Every word file, as the table lists it: a word, or why it is not one. */
+export type EntryListing = TableListing<EntryFields>;
 
-/** The one open word: what its card, or its repair, shows. */
-export type Opened = { readonly kind: 'loading'; readonly id: string } | Item;
+/** The directory, and table, that holds the words. */
+const ENTRIES = 'entries';
 
-type Session = RowSession<EntryFields> | TextSession;
-
-/**
- * How a word is shown: opening always asks for it as a word, and a word whose
- * text is not valid is shown as text, so asking again reads it again.
- */
-type Key = { readonly id: string; readonly as: 'word' | 'text' };
-
-const CLOSED = 'This page is closing, so nothing was changed.';
-const BUSY =
-	'This word is busy with another change. Try again when it finishes.';
-
-/** What the learner is told about a failed change. */
-export function describeError(error: {
-	readonly name: string;
-	readonly message: string;
-}): string {
-	if (error.name === 'Conflict')
-		return 'actualSha256' in error && error.actualSha256 === undefined
-			? 'The file is no longer here, so nothing was changed.'
-			: 'The file changed elsewhere, so nothing was changed. Check it and try again.';
-	return error.message;
-}
-
-export function createEntriesState({
-	table,
-	files,
-}: {
-	table: VocabTables['entries'];
-	files: FolderFiles;
-}) {
-	let rows = $state.raw<Entry[]>([]);
-	let repairs = $state.raw<UnreadableFile[]>([]);
-	let loadError = $state<string | null>(null);
-	let closed = false;
-	const admissions = createAdmissions();
-	let listSequence = 0;
-	/** Words this page saved while a listing was out, kept over that listing. */
-	const received = new Map<string, Entry>();
-	/** Every saved entry, newest first. */
-	const entries = $derived(
-		rows.toSorted(
+/** Every word that reads as one, newest first. */
+export function wordsOf(listing: EntryListing): Entry[] {
+	return readRows(ENTRIES, listing, readEntry)
+		.rows.slice()
+		.sort(
 			(a, b) =>
 				b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
-		),
-	);
+		);
+}
 
-	const locked = () => closed;
+/** The word files that are not words, each with why, by path. */
+export function repairsOf(listing: EntryListing): UnreadableFile[] {
+	return readRows(ENTRIES, listing, readEntry)
+		.unreadable.slice()
+		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
 
-	const slot = createOpenItem<Key, Item, Session>({
-		load: ({ id }) => load(id),
-		sessionOf: (item) => (item.kind === 'failed' ? undefined : item.session),
-		keyOf: (item) => ({
-			id: item.id,
-			as: item.kind === 'text' ? 'text' : 'word',
-		}),
-		sameKey: (a, b) => a.id === b.id && a.as === b.as,
-		closed: () => closed,
+export function createEntries(
+	folder: Pick<VocabFolder, 'tables'>,
+	queries: Pick<VocabOptions, 'entries' | 'files'>,
+	queryClient: QueryClient,
+	edits: Edits<VocabFolder['tables']>,
+) {
+	const table = folder.tables.entries;
+	const { defineMutation } = createQueryFactories(queryClient);
+	const listKey = queries.entries.list.queryKey();
+	const textKey = (path: string) => queries.files.text.queryKey(path);
+	/** The word file open as text for repair, if one is. */
+	let repair = $state<string | undefined>();
+
+	const pathOf = (id: string) => rowPath(table.name, id);
+	const listingData = () => queryClient.getQueryData<EntryListing>(listKey);
+	/** The text of `path` as the cache holds it, when it opens as text. */
+	const shownText = (path: string) => {
+		const opened = queryClient.getQueryData<OpenedFile>(textKey(path));
+		return opened?.kind === 'text' ? opened.text : undefined;
+	};
+
+	const addWord = defineMutation({
+		mutationKey: vocabKeys.add,
+		mutationFn: async (
+			text: string,
+		): Promise<
+			Result<
+				{
+					outcome: 'added' | 'present';
+					id: string;
+					stored: StoredRow<EntryFields>;
+				},
+				EntryError | ActionError
+			>
+		> => {
+			const why = edits.refusal();
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
+			// Well formed as the folder stores it, so a word read back compares
+			// equal to the text it was added with.
+			const exact = wellFormed(text.trim());
+			if (exact === '') return EntryError.Empty();
+			// A word under another name, such as one written outside Vocab, is
+			// found by its text; each match is read before it is called present.
+			const listing = listingData() ?? [];
+			for (const listed of wordsOf(listing).filter(
+				(entry) => entry.text === exact,
+			)) {
+				const { data: current } = await table.get(listed.id);
+				if (current?.row.fields.text === exact)
+					return Ok({ outcome: 'present', id: listed.id, stored: current });
+			}
+			const stem = await hashBytes(new TextEncoder().encode(exact));
+			const { data: created, error } = await edits.writes.tables.entries.create(
+				{
+					fields: {
+						text: exact,
+						note: '',
+						stage: 'new',
+						createdAt: InstantString.now(),
+					},
+					body: '',
+				},
+				{ stem },
+			);
+			if (error !== null) {
+				if (error.name !== 'Occupied')
+					return EntryError.NotSaved({ cause: error });
+				// A file is already at the stem. Another add, another tab, or an
+				// earlier attempt whose answer was lost may have made it: it is
+				// this word only if it holds this text.
+				const { data: current, error: readError } = await table.get(stem);
+				// It was deleted since: nothing holds this word.
+				if (readError === null && current === undefined)
+					return EntryError.NotSaved({ cause: error });
+				if (
+					readError !== null &&
+					readError.name !== 'InvalidRow' &&
+					readError.name !== 'InvalidUtf8'
+				)
+					return EntryError.NotSaved({ cause: readError });
+				if (current?.row.fields.text === exact)
+					return Ok({ outcome: 'present', id: stem, stored: current });
+				return EntryError.Taken({ path: pathOf(stem) });
+			}
+			// Only a row this create wrote can stand at a stem it found vacant.
+			if (!isStoredRow(created))
+				return EntryError.Taken({ path: pathOf(stem) });
+			return Ok({ outcome: 'added', id: stem, stored: created });
+		},
+		// A word found already saved may be one the listing does not hold yet.
+		onSuccess: ({ outcome }) =>
+			outcome === 'present'
+				? queryClient.invalidateQueries({ queryKey: listKey, exact: true })
+				: undefined,
 	});
 
-	const opened = (): Opened | undefined => {
-		const shown = slot.shown;
-		if (shown === undefined) return undefined;
-		return shown.status === 'loading'
-			? { kind: 'loading', id: shown.key.id }
-			: shown.item;
-	};
-
-	async function refresh() {
-		if (closed) return;
-		const sequence = ++listSequence;
-		// A listing asked for now holds every word saved before it.
-		received.clear();
-		const { data: listing, error } = await table.list();
-		if (closed || sequence !== listSequence) return;
-		if (error !== null) {
-			// Keep what was listed; never show an empty list for a failed read.
-			loadError = error.message;
-			return;
-		}
-		const read = readRows(table.name, listing, readEntry);
-		const listed = new Set(read.rows.map(({ id }) => id));
-		rows = [
-			...read.rows,
-			...[...received.values()].filter(({ id }) => !listed.has(id)),
-		];
-		repairs = read.unreadable;
-		loadError = null;
-	}
-
-	/** List one word this page just saved; a listing already out keeps it. */
-	function receive(entry: Entry) {
-		received.set(entry.id, entry);
-		rows = [...rows.filter(({ id }) => id !== entry.id), entry];
-	}
-
-	async function load(id: string): Promise<Item> {
-		const { data: stored, error } = await table.get(id);
-		if (error?.name === 'InvalidRow')
-			return {
-				kind: 'text',
-				id,
-				session: createTextSession(files, error, { locked }),
-			};
-		if (error !== null) return { kind: 'failed', id, message: error.message };
-		if (stored === undefined)
-			return { kind: 'failed', id, message: 'This word’s file is gone.' };
-		return {
-			kind: 'word',
-			id,
-			session: createRowSession(table, stored, { locked }),
-		};
-	}
-
-	/**
-	 * Open the word at `id`: as its note and stage when it is a valid word,
-	 * else as its exact text. The open word's saves land first and the list is
-	 * read again. Answers `unsaved`, opening nothing, when the open word holds
-	 * a draft it could not save; opening again with `discard` set to the
-	 * answered session lets it go. Opening the word already shown as a word
-	 * does nothing; a word shown as text is read again, since its text may be
-	 * a valid word now.
-	 */
-	async function open(id: string, { discard }: { discard?: Session } = {}) {
-		const opening = await slot.open({ id, as: 'word' }, { discard });
-		if (opening.kind !== 'done') return opening;
-		// A word left, or one that is not listed or no longer opens, lists again.
-		const item = slot.item;
-		if (
-			opening.left ||
-			item?.kind === 'failed' ||
-			!rows.some((entry) => entry.id === id)
-		)
-			void refresh();
-		return opening;
-	}
-
-	/** The open word's row session, if `id` is open as a word. */
-	const wordSession = (id: string) => {
-		const item = slot.item;
-		return item?.kind === 'word' && item.id === id ? item.session : undefined;
-	};
-
-	async function addWord(
-		text: string,
-	): Promise<Result<'added' | 'present', EntryError>> {
-		const exact = wellFormed(text.trim());
-		if (exact === '') return EntryError.Empty();
-		// A word under another name, such as one written outside Vocab, is
-		// found by its text; each match is read before it is called present.
-		for (const listed of rows.filter((entry) => entry.text === exact)) {
-			const { data: current } = await table.get(listed.id);
-			if (current?.row.fields.text === exact) return Ok('present');
-		}
-		const stem = await hashBytes(new TextEncoder().encode(exact));
-		const { data: created, error } = await table.create(
-			{
-				fields: {
-					text: exact,
-					note: '',
-					stage: 'new',
-					createdAt: InstantString.now(),
-				},
-				body: '',
-			},
-			{ stem },
-		);
-		if (error === null) {
-			receive(readEntry(stem, created));
-			return Ok('added');
-		}
-		if (error.name !== 'Exists') return EntryError.NotSaved({ cause: error });
-		// Another add, another tab, or an earlier attempt whose answer was
-		// lost made the file. It is this word only if it holds this text.
-		const { data: current, error: readError } = await table.get(stem);
-		if (
-			readError !== null &&
-			readError.name !== 'InvalidRow' &&
-			readError.name !== 'InvalidUtf8'
-		)
-			return EntryError.NotSaved({ cause: readError });
-		if (current?.row.fields.text !== exact)
-			return EntryError.Taken({ path: error.path });
-		receive(readEntry(stem, current));
-		return Ok('present');
-	}
-
-	async function setStage(
-		entry: Entry,
-		stage: Stage,
-	): Promise<string | undefined> {
-		const item = slot.item;
-		if (item?.kind === 'text' && item.id === entry.id)
-			return 'This word is open as text, so change its stage there.';
-		const session = wordSession(entry.id);
-		if (session !== undefined) {
-			if (session.locked) return BUSY;
-			session.edit((row) => {
-				row.fields.stage = stage;
-			});
-			return undefined;
-		}
-		// Closed, or still loading: saved as the list showed it.
-		const { row } = entry.stored;
-		const { error } = await table.replace(entry.stored, {
-			fields: { ...row.fields, stage },
-			body: row.body,
-		});
-		await refresh();
-		return error === null ? undefined : describeError(error);
-	}
-
-	async function reloadTheirs(session: Session): Promise<string | undefined> {
-		const reloaded = await slot.reloadTheirs(session);
-		if (reloaded === undefined) return undefined;
-		await refresh();
-		return reloaded.error === null ? undefined : describeError(reloaded.error);
-	}
-
-	async function keepMine(session: Session): Promise<string | undefined> {
-		const kept = await slot.keepMine(session);
-		if (kept === undefined) return undefined;
-		await refresh();
-		return kept.error === null ? undefined : describeError(kept.error);
-	}
-
-	async function remove(entry: Entry): Promise<string | undefined> {
-		const item = slot.item;
-		const session =
-			item !== undefined && item.kind !== 'failed' && item.id === entry.id
-				? item.session
-				: undefined;
-		// The open word: its last saves land, and what they saved is removed.
-		const removed =
-			session === undefined
-				? undefined
-				: await slot.removeOpen(session, (file) => table.delete(file));
-		const { error } = removed ?? (await table.delete(entry.stored));
-		await refresh();
-		return error === null ? undefined : describeError(error);
-	}
-
-	/** A learner's change: refused once closing, else counted from the call until it settles. */
-	function change<TArgs extends unknown[]>(
-		work: (...args: TArgs) => Promise<string | undefined>,
-	): (...args: TArgs) => Promise<string | undefined> {
-		const admitted = admissions.command(work);
-		return (...args) => (closed ? Promise.resolve(CLOSED) : admitted(...args));
+	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
+	function canEdit(id: string) {
+		const path = pathOf(id);
+		return repair !== path && !edits.locked(path);
 	}
 
 	return {
-		/** Every saved word, newest first, as last listed. */
-		get entries() {
-			return entries;
+		/** The word listing, narrowed by `select` for one view. */
+		entriesQuery<TData = EntryListing>(
+			select?: (listing: EntryListing) => TData,
+		) {
+			return { ...queries.entries.list.queryOptions(), select };
 		},
-		/** Files in `entries/` that are not valid words, with why. */
-		get repairs() {
-			return repairs;
-		},
-		/** Why the words could not be listed at all, until a listing succeeds. */
-		get loadError() {
-			return loadError;
-		},
-		/** The open word, or `undefined`. */
-		get opened() {
-			return opened();
-		},
-		/** Whether leaving now could lose something: the open word holds a save running or failed, or a change is under way. */
-		get unsaved() {
-			return slot.unsaved || admissions.busy;
-		},
-		/** Whether the word at `id` refuses input now: a conflict command runs on it, or the page is closing. */
-		isLocked(id: string) {
-			return closed || (wordSession(id)?.locked ?? false);
-		},
-		refresh,
-		/** Returning to the window: list again, and take a newer version of the open word when it holds nothing unsaved. */
-		async check() {
-			await Promise.all([refresh(), slot.adopt()]);
-		},
-		open,
-		/** The note and stage shown for `entry`: the open draft's when it is open. */
-		fieldsOf(entry: Entry): EntryFields {
-			return wordSession(entry.id)?.draft.fields ?? entry.stored.row.fields;
-		},
+		/** One word file's exact text, or its type and size when it is not editable text. */
+		textQuery: (path: string) => queries.files.text.queryOptions(path),
+		/** The note typed into the word at `id` and not yet saved: its field draft. */
+		noteOf: (id: string) => edits.field('entries', id, 'note'),
+		canEdit,
+		/** Whether the word at `id` takes no edit now: closing, being deleted, or open as text. */
+		isLocked: (id: string) => !canEdit(id),
+
 		/**
 		 * Save a word or a captured phrase, and answer once the folder holds its
 		 * file. The text is trimmed and otherwise exact. `present` means a word
 		 * with that exact text is already saved and nothing was written. `note`
 		 * starts empty and `stage` new: both are the learner's to set.
 		 */
-		add: admissions.command(addWord),
-		/** Type the open word's note. */
-		inputNote(id: string, note: string) {
-			wordSession(id)?.edit((row) => {
-				row.fields.note = wellFormed(note);
-			});
+		async add(
+			text: string,
+		): Promise<Result<'added' | 'present', EntryError | ActionError>> {
+			const { data, error } = await addWord(text);
+			return error === null ? Ok(data.outcome) : Err(error);
+		},
+		/** Send the note of the word at `id` now; answers whether it was sent. */
+		setNote(id: string, note: string): boolean {
+			if (!canEdit(id)) return false;
+			const draft = edits.field('entries', id, 'note');
+			if (!draft.change(note)) return false;
+			void draft.save();
+			return true;
+		},
+		/** Press a stage of the word at `id`; it is sent at once. Answers whether it was. */
+		setStage(id: string, stage: EntryFields['stage']): boolean {
+			if (!canEdit(id)) return false;
+			return edits.set('entries', id, { stage }) === undefined;
 		},
 		/**
-		 * Press a stage. The open word takes it as an edit to its draft. A word
-		 * that is not open, or is still loading, is replaced, guarded by the
-		 * version the list read: one that changed since is refused, and the list
-		 * reads it again. Answers what the learner is told, if anything.
+		 * Delete `entry` once the word's edits landed, the repair text typed
+		 * included, whatever the file holds then.
 		 */
-		setStage: change(setStage),
-		/**
-		 * Reload theirs for `session`, the open word's: show the file as it is
-		 * now. A file that is gone closes; one that is no longer a valid word
-		 * opens again as text, or as why it cannot be shown. Answers what the
-		 * learner is told, if anything.
-		 */
-		reloadTheirs: change(reloadTheirs),
-		/** Keep mine for `session`, the open word's: save the draft over the file, or create it again. */
-		keepMine: change(keepMine),
-		/**
-		 * Delete `entry`. The open word's session is released first and its last
-		 * saves land, so the delete removes what this page saved last; a closed
-		 * word is deleted only as the list showed it. A file changed elsewhere
-		 * since is refused, and an open word then opens again from the file.
-		 * Answers what the learner is told, if anything.
-		 */
-		remove: change(remove),
-		/**
-		 * Stop before the page releases its folder: changes already under way
-		 * finish, the open word's saves land, and it is let go.
-		 */
-		async close() {
-			closed = true;
-			await admissions.quiet();
-			await slot.close();
+		async delete(
+			entry: Entry,
+		): Promise<Result<undefined, WriteError | ActionError>> {
+			const why = edits.refusal();
+			if (why !== undefined) return ActionError.NotStarted({ reason: why });
+			const path = pathOf(entry.id);
+			const deleted = await edits.exclusive(path, () =>
+				edits.writes.tables.entries.delete(entry.id),
+			);
+			if (deleted.error !== null) return deleted;
+			queryClient.removeQueries({ queryKey: textKey(path), exact: true });
+			if (repair === path) repair = undefined;
+			return deleted;
 		},
+
+		/** The word file open as text for repair, if one is. */
+		get repairing() {
+			return repair;
+		},
+		/** The text typed for the repair and not yet written, if any; read reactively. */
+		get repairText() {
+			return repair === undefined ? undefined : edits.text(repair).typed;
+		},
+		/** Open a word file as its exact text. */
+		openRepair(path: string) {
+			repair = path;
+		},
+		/**
+		 * Close the repair once its text is written; the write marked the
+		 * word stale, so a repaired file shows as a word. Answers whether it
+		 * closed: a text that could not be written keeps the repair open.
+		 */
+		async closeRepair(): Promise<boolean> {
+			const open = repair;
+			if (open === undefined) return true;
+			const draft = edits.text(open);
+			await draft.save();
+			if (draft.typed !== undefined) return false;
+			if (repair === open) repair = undefined;
+			queryClient.removeQueries({ queryKey: textKey(open), exact: true });
+			return true;
+		},
+		/** Type the text of the word file open for repair; it is written after a pause, or at `saveRepair`. */
+		inputText(path: string, text: string) {
+			if (repair !== path) return false;
+			const draft = edits.text(path);
+			if (draft.typed === undefined && shownText(path) === undefined)
+				return false;
+			return draft.change(text);
+		},
+		/** Write the repair text typed, if any; resolves once no write of it runs. */
+		saveRepair: () =>
+			repair === undefined ? Promise.resolve() : edits.text(repair).save(),
 	};
 }
 
-export type EntriesState = ReturnType<typeof createEntriesState>;
+export type Entries = ReturnType<typeof createEntries>;

@@ -33,10 +33,6 @@
  * `BillingError` (fail closed), so the surface answers with a billing envelope
  * instead of a naked 500.
  *
- * Hosted blobs are unmetered in v1. Autumn `check()` denies by default with
- * no plan attached, so the authority route does not call it. Billing hosted
- * storage later requires an explicit policy seam and owner-level usage rules.
- *
  * The library remains billing-agnostic; everything here is cloud-only.
  */
 

@@ -1,29 +1,34 @@
 /**
- * `bun dev:todos`: the loopback Git backend plus the Vite UI.
+ * The local demo Git backend plus the Vite UI. The repository-root
+ * `bun dev:todos` command also starts the hosted API for the account flow.
  *
- * No hosted API, account, or secrets are involved. The printed session names
- * the native checkout to edit with ordinary Git and the UI to open.
+ * The printed session names the native checkout to edit with ordinary Git and
+ * the UI to open. `TODOS_DEMO_ROOT` reopens a root an earlier run printed.
  */
-import { DEFAULT_GIT_PORT, startGitServer } from '../server/git-server.js';
+import { startGitServer } from '../../../packages/folder/src/git-demo-server.test-support.js';
 
 const appDir = new URL('..', import.meta.url).pathname;
-const port = Number(process.env.TODOS_GIT_PORT ?? DEFAULT_GIT_PORT);
-const { session, stop } = await startGitServer({ port });
+const port = Number(process.env.TODOS_GIT_PORT ?? 5187);
+const { session, stop } = await startGitServer({
+	name: 'todos',
+	port,
+	root: process.env.TODOS_DEMO_ROOT,
+});
 const ui = 'http://127.0.0.1:5186';
 
 console.log(
 	[
 		'',
-		'Epicenter Todos (file-first demo)',
+		'Epicenter Todos (local demo)',
 		`  UI:              ${ui}`,
 		`  Remote:          ${session.remoteUrl}  (browser: ${ui}${session.browserRemotePath})`,
 		`  Bare repository: ${session.bare}`,
 		`  Native checkout: ${session.nativeCheckout}`,
 		'',
-		'  After pressing Commit and push in the browser:',
+		'  After connecting to the demo remote and pressing Sync:',
 		`    cd ${session.nativeCheckout} && git pull --ff-only`,
 		`    bun apps/todos/scripts/native.ts ${session.nativeCheckout} status`,
-		'  Then edit, commit, and push natively, and press Pull in the browser.',
+		'  Then edit, commit, and push natively, and press Sync in the browser.',
 		'',
 		`Session: ${JSON.stringify(session)}`,
 		'',

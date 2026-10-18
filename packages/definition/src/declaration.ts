@@ -1,14 +1,14 @@
 /**
  * What an application declares, and what that declaration reads as.
  *
- * All vocabulary and no behaviour. A definition separates each table's value fields
- * from its optional body conversion; the lens at the
- * bottom turns that declaration into the types an application writes.
+ * All vocabulary and no behaviour. A schema declares each table's value
+ * fields; the lens at the bottom turns that declaration into the types an
+ * application writes.
  *
  * Every type here is a LOOKUP. None asks whether its argument is a
  * declaration, because the parameter says so, and none can answer `never` for
- * "I could not tell". A definition that arrived as JSON never comes through
- * here: it reaches `prepareData` from a trusted TypeScript module and is
+ * "I could not tell". A schema that arrived as JSON never comes through
+ * here: it reaches `prepareDefinition` from a trusted TypeScript module and is
  * checked in `prepare.ts`.
  */
 
@@ -16,11 +16,16 @@ import type { Static, TObject, TSchema } from 'typebox';
 
 export { field } from './field/index.js';
 
-export const KV_ROOT = 'kv';
-export const RESERVED_TABLE_NAMES: readonly string[] = [KV_ROOT];
+/**
+ * The table whose rows are settings, one row per concern, such as
+ * `settings/display.md` (ADR-0576). Every field it declares is
+ * `field.optional`: a setting may always be unset, and the application's
+ * own default applies.
+ */
+export const SETTINGS_TABLE = 'settings';
 
 /**
- * The fields of one bucket, by name.
+ * The fields of one table, by name.
  *
  * A field is any native TypeBox schema that is plain JSON. The `field.*`
  * helpers build common ones and annotate them with an editor; a bare
@@ -35,32 +40,25 @@ export type FieldMap = {
 };
 
 /**
- * The widest body conversion a table may declare: two verbs between a live
- * body and file text.
+ * Value-field schemas, and whether the table is closed.
  *
- * This package prepares declarations for more than one storage. What a live
- * body is belongs to the storage that keeps one, so the node and the decoded
- * content are opaque here. A storage narrows them through the `TBody`
- * parameter below; one that keeps no live body refuses a declared conversion.
+ * `additionalProperties: false` is JSON Schema's own keyword for a closed
+ * object: a stored row with a key `fields` does not declare does not conform.
+ * Only a storage whose rows people write by hand keeps a closed table; one
+ * that must read keys a newer release added refuses it.
  */
-export type TableBody = {
-	readonly encode: (node: never) => string;
-	readonly decode: (text: string) => unknown;
-};
-
-/** Value-field schemas and the optional conversion for the row's separately edited body. */
-export type TableDeclaration<TBody extends TableBody = TableBody> = {
+export type TableDeclaration = {
 	readonly fields: FieldMap;
-	readonly body?: TBody;
+	readonly additionalProperties?: false;
 };
 
 /**
  * The mark `defineTable` leaves, and the only way to get one.
  *
  * A table declaration is a plain object, so any literal of the right shape used
- * to satisfy `DataDefinition`. That made two authoring paths for one thing:
+ * to satisfy a schema. That made two authoring paths for one thing:
  * `defineTable`, which checks its parameter, and a bare literal handed to
- * `defineStore`, which needed a second set of conditional types to re-check the
+ * a storage's definer, which needed a second set of conditional types to re-check the
  * same rules and could not report them as well. Every rule was written twice
  * and one of the copies silently stopped applying for a day.
  *
@@ -78,35 +76,33 @@ declare const DECLARED: unique symbol;
 export type DeclaredMark = { readonly [DECLARED]: true };
 
 /** A table declaration that went through `defineTable`. */
-export type DeclaredTable<TBody extends TableBody = TableBody> =
-	TableDeclaration<TBody> & DeclaredMark;
+export type DeclaredTable = TableDeclaration & DeclaredMark;
 
 /**
- * How stored data reads, naming no dataset: the optional title, the KV fields,
- * and the tables.
+ * How stored data reads, naming no dataset: the optional title and the
+ * tables. Settings are a table too, `settings` (`SETTINGS_TABLE`).
  *
- * A storage that selects its dataset when it opens, such as a file folder,
- * declares this shape alone. `prepareSchema` prepares it and refuses an `id`.
+ * A definition and the prepared definition `prepareDefinition` returns for
+ * it have this one type. The prepared one is an owned, frozen snapshot whose
+ * fields `check` reads; a field of a definition that was never prepared is
+ * refused by it. A storage selects its dataset when it opens, so
+ * `prepareDefinition` refuses an `id`. A folder holds one as its tables'
+ * schema files, each `<table>/.epicenter.json`.
  */
-export type DataSchema<TBody extends TableBody = TableBody> = {
+export type Definition = {
 	readonly title?: string;
-	readonly kv: FieldMap;
+	/**
+	 * Lines a storage that syncs writes into its `.gitignore` when it first
+	 * writes, such as `audio/`, so those files stay on the machine that wrote
+	 * them; `.gitignore` is what decides, and nothing reads these patterns
+	 * afterward. Each is one line that ignores something: not empty, not a
+	 * comment or a negation, and without surrounding whitespace.
+	 */
+	readonly local?: readonly string[];
 	readonly tables: {
-		readonly [table: string]: DeclaredTable<TBody>;
+		readonly [table: string]: DeclaredTable;
 	};
 };
-
-/**
- * One durable data domain's complete, inert definition: a schema and the ID
- * of the data it describes.
- *
- * A declaration and the prepared definition `prepareData` returns for it have
- * this one shape. The prepared one is an owned, frozen snapshot whose fields
- * `check` reads; a field of a declaration that was never prepared is refused
- * by it.
- */
-export type DataDefinition<TBody extends TableBody = TableBody> =
-	DataSchema<TBody> & { readonly id: string };
 
 /** A field diagnostic. Messages and diagnostic counts are not machine contracts. */
 export type ConformanceIssue = {
@@ -117,22 +113,12 @@ export type ConformanceIssue = {
 };
 
 /**
- * What one bucket's fields read as: the bucket as one `Type.Object`, so a
+ * What one table's fields read as: the fields as one `Type.Object`, so a
  * `field.optional` field is `name?:`.
  */
 type FieldsOut<TFields extends FieldMap> = Static<
 	TObject<{ -readonly [K in keyof TFields]: TFields[K] }>
 >;
 
-/** A value snapshot. A storage with live bodies reaches them through its own handle. */
-export type RowOf<T extends TableDeclaration> = { id: string } & FieldsOut<
-	T['fields']
->;
-
-/** Values supplied when creating a row. */
+/** What one table's fields read as, and what a row supplies when it is written. */
 export type CreateRowOf<T extends TableDeclaration> = FieldsOut<T['fields']>;
-
-/** Settings as read: every KV field may be unset. */
-export type KvOf<TDatabase extends DataSchema> = Partial<
-	FieldsOut<TDatabase['kv']>
->;

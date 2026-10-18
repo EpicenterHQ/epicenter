@@ -101,17 +101,31 @@ const ConfigFileSchema = Type.Object({
 });
 type ConfigFile = Static<typeof ConfigFileSchema>;
 
+/**
+ * `<app-dir>/config.json`, or nothing when there is no such file. A file that
+ * is there is read whole or refused with what does not read: dropping it for
+ * defaults would silently undo a setting such as `readOnly`.
+ */
 function readConfigFile(dataDir: string): ConfigFile {
+	const path = join(dataDir, 'config.json');
+	let source: string;
 	try {
-		const parsed: unknown = JSON.parse(
-			readFileSync(join(dataDir, 'config.json'), 'utf8'),
-		);
-		// A malformed or partially-typed config.json falls back to defaults rather
-		// than crashing: it is an optional convenience file.
-		return Value.Check(ConfigFileSchema, parsed) ? parsed : {};
-	} catch {
-		return {};
+		source = readFileSync(path, 'utf8');
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+		throw error;
 	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(source);
+	} catch (error) {
+		throw new Error(`${path} is not valid JSON: ${(error as Error).message}`);
+	}
+	if (Value.Check(ConfigFileSchema, parsed)) return parsed;
+	const problems = Value.Errors(ConfigFileSchema, parsed).map(
+		(problem) => `${problem.instancePath || '/'} ${problem.message}`,
+	);
+	throw new Error(`${path}: ${problems.join('; ')}`);
 }
 
 function env(name: string): string | undefined {

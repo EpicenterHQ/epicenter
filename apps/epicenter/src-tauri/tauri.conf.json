@@ -6,28 +6,15 @@
 	"build": {
 		"beforeBuildCommand": "bun run build:desktop",
 		"beforeDevCommand": {
-			"script": "bun run build",
+			"script": "bun run build:desktop",
 			"wait": true
-		},
-		"frontendDist": "frontend-placeholder"
+		}
 	},
 	"app": {
 		"macOSPrivateApi": true,
 		"windows": [],
 		"security": {
-			"capabilities": [
-				"home-model-administration-production",
-				"mail-gmail-authorization-production",
-				"home-launch-application-production",
-				"trusted-app-windows-production",
-				"trusted-whispering-native-production",
-				"trusted-whispering-overlay-production",
-				"departure-production",
-				"todos-folder-production",
-				"capture-folder-production",
-				"installed-app-folder-production"
-			],
-			"csp": "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+			"capabilities": ["folders", "home", "installed-app"]
 		}
 	},
 	"bundle": {
@@ -37,7 +24,7 @@
 		"publisher": "Epicenter",
 		"copyright": "Copyright © 2026 Epicenter",
 		"shortDescription": "One trusted desktop host for Epicenter apps",
-		"externalBin": ["binaries/epicenter-host"],
+		"externalBin": ["binaries/epicenter-cli"],
 		"resources": {
 			"../dist": "apps-dist",
 			"recorder-state-icons/studio_microphone.png": "recorder-state-icons/studio_microphone.png",

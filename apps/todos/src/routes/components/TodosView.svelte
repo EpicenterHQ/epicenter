@@ -1,200 +1,117 @@
 <script lang="ts">
+	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import * as Sheet from '@epicenter/ui/sheet';
-	import { toast } from '@epicenter/ui/sonner';
-	import SyncReview from '@epicenter/svelte/sync-review';
+	import { getFolder } from '@epicenter/svelte/folder';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { beforeNavigate } from '$app/navigation';
-	import { syncOutcomeLine } from '$lib/status.js';
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { todoPath } from '$lib/todo-listing.js';
+	import type { todosDefinition } from '$lib/definition.js';
+	import { createTodos, setTodos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
-	import Detail from './Detail.svelte';
-	import IncomingBanner from './IncomingBanner.svelte';
-	import { FileBrowser, FolderTerminal } from '@epicenter/svelte/folder-ui';
-	import ListTodoIcon from '@lucide/svelte/icons/list-todo';
-	import { confirmDelete, openItem } from './file-actions.js';
+	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
-	import DepartureNotice from './DepartureNotice.svelte';
-	import type { Departure } from '@epicenter/epicenter/departure/page';
+	import ConnectDialog from './ConnectDialog.svelte';
+	import { takeConnectRequest } from '$lib/connect-request.js';
 
-	let { todos, departure }: { todos: Todos; departure?: Departure } = $props();
+	// The store over the folder `<FolderApp>` opened. The views below find it
+	// with `getTodos()`, and the page's query client through svelte-query.
+	// This view belongs to one folder for its life.
+	const todos = createTodos(getFolder<typeof todosDefinition>());
+	setTodos(todos);
+	/**
+	 * Whether this folder offers Connect: Todos's own folder only, since
+	 * Epicenter's server keeps one repository per app id for now.
+	 */
+	const canConnect = todos.isOwn;
+	/** Connect shows; it opens by itself when sign-in just returned to it. */
+	let connecting = $state(canConnect && takeConnectRequest());
 
-	// Drafts live only in this open page. While any editor has typing, a save
-	// in flight, a failed save, or a conflict, leaving is cancelled; for a
+	// A write or action still running lives only in this page. Leaving the page then is cancelled; for a
 	// reload or closed tab ('leave'), SvelteKit turns the cancel into the
-	// browser's own leave confirmation.
-	beforeNavigate(({ cancel }) => {
-		if (todos.unsaved) cancel();
+	// browser's own leave confirmation. Opening another todo changes only the
+	// query, stays on this page, and loses nothing.
+	beforeNavigate(({ type, from, to, cancel }) => {
+		if (!todos.holdsUnsaved) return;
+		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 
-	const directory = $derived(
-		todos.folder.location.kind === 'directory' ? todos.folder.location.root : undefined,
-	);
-	const terminalDescription = $derived(
-		`${directory === undefined ? 'Same files as the app' : `Files in ${directory}`} · git status, diff, log, push, fetch, pull --ff-only`,
-	);
+	/** The page's Sync, which the header and Connect both run. */
+	const sync = createMutation(() => todos.sync.run.options);
 
-	/** The shared Modal's breakpoint: below it, the list, editor, and terminal take turns. */
+	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
-	let filesPane = $state(true);
-	let filesSheet = $state(false);
-	let terminalOpen = $state(false);
-	/** On narrow screens, whether the editor shows in place of the list. */
-	let showingDetail = $state(false);
+	/**
+	 * The stem of the todo the detail shows: the URL's `?todo=<stem>`, so it
+	 * survives a reload and the breakpoint. Opening never waits or asks.
+	 */
+	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
 
-	function toggleFiles() {
-		if (wide.current) filesPane = !filesPane;
-		else filesSheet = !filesSheet;
+	/**
+	 * Show the todo `stem`, or none. Opening adds a history entry, so Back
+	 * returns to the list; a delete replaces the entry, so Back
+	 * never lands on a name that is gone.
+	 */
+	async function show(stem: string | undefined, { replaceState = false } = {}) {
+		if (stem === open) return;
+		const url = new URL(page.url);
+		if (stem === undefined) url.searchParams.delete('todo');
+		else url.searchParams.set('todo', stem);
+		await goto(url, { replaceState, keepFocus: true, noScroll: true });
 	}
 
-	async function toggleTerminal() {
-		terminalOpen = !terminalOpen;
-		if (terminalOpen) return;
-		// The command field left with the terminal; give focus back to its toggle.
-		await tick();
-		if (document.activeElement === null || document.activeElement === document.body)
-			document.querySelector<HTMLElement>('[data-terminal-toggle]')?.focus();
-	}
-
-	function showDetail() {
-		if (wide.current) return;
-		showingDetail = true;
-		filesSheet = false;
-		terminalOpen = false;
-	}
-
-	let applying = $state(false);
-
-	/** Apply the review's choices; refused ones stay in the review, marked. */
-	async function applySync(...[attempt, choices]: Parameters<Todos['resolveSync']>) {
-		applying = true;
-		try {
-			const resolved = await todos.resolveSync(attempt, choices);
-			const line = syncOutcomeLine(resolved, todos.git);
-			const notify = line.tone === 'good' ? toast.success : line.tone === 'error' ? toast.error : toast.warning;
-			notify(line.label, { description: line.detail });
-		} finally {
-			applying = false;
-		}
-	}
-
+	/** On narrow screens, return to the list, focused on the todo that was open. */
 	async function back() {
-		const path = todos.current?.path;
-		showingDetail = false;
+		const stem = open;
+		await show(undefined);
 		await tick();
-		if (path !== undefined)
-			document.querySelector<HTMLElement>(`[data-todo="${CSS.escape(path)}"]`)?.focus();
+		if (stem !== undefined)
+			document.querySelector<HTMLElement>(`[data-todo="${CSS.escape(todoPath(stem))}"]`)?.focus();
 	}
 </script>
 
-<!-- Returning to the app reads the listings, Git status, and a newer version of an open item that holds nothing unsaved. -->
-<svelte:document onvisibilitychange={() => document.visibilityState === 'visible' && void todos.check()} />
-<svelte:window
-	onfocus={() => void todos.check()}
-	onkeydown={(event) => {
-		if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
-			event.preventDefault();
-			toggleFiles();
-		} else if (event.ctrlKey && event.key === '`') {
-			event.preventDefault();
-			void toggleTerminal();
-		}
-	}}
-/>
-
-{#snippet files()}
-	<FileBrowser
-		listing={todos.listing}
-		listingError={todos.listingError}
-		expanded={todos.expanded}
-		selected={(path) => todos.current?.workspace === 'files' && todos.current.path === path}
-		icon={(path) => (todos.isTodo(path) ? ListTodoIcon : undefined)}
-		emptyDescription="Add a todo, or create a file or folder above."
-		disabled={todos.departing}
-		onRefresh={() => void todos.refresh()}
-		onOpen={(path) => {
-			void openItem(todos, path, 'files');
-			showDetail();
-		}}
-		onCreate={async (directory, name, type) => {
-			const problem =
-				type === 'file' ? await todos.createFile(directory, name) : await todos.createFolder(directory, name);
-			if (problem === undefined && type === 'file') showDetail();
-			return problem;
-		}}
-		onRename={(path, name) => todos.rename(path, name)}
-		onDelete={(path) => void confirmDelete(todos, path)}
-	/>
+{#snippet detail(onBack?: () => void)}
+	{#if open === undefined}
+		<Empty.Root class="h-full">
+			<Empty.Title>Select a todo to edit it</Empty.Title>
+			<Empty.Description>Each todo is a Markdown file in <code>todos/</code>.</Empty.Description>
+		</Empty.Root>
+	{:else}
+		{#key open}
+			<TodoDetail
+				stem={open}
+				{onBack}
+				onDeleted={() => void show(undefined, { replaceState: true })}
+			/>
+		{/key}
+	{/if}
 {/snippet}
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader
-		{todos}
-		filesOpen={wide.current ? filesPane : filesSheet}
-		{terminalOpen}
-		onToggleFiles={toggleFiles}
-		onToggleTerminal={() => void toggleTerminal()}
-	/>
-	{#if departure}
-		<DepartureNotice {departure} {todos} />
-	{/if}
-	<IncomingBanner {todos} />
+	<AppHeader {sync} onconnect={canConnect ? () => (connecting = true) : undefined} />
+	{#if canConnect}<ConnectDialog bind:open={connecting} {sync} />{/if}
 
-	{#if todos.syncAttempt !== undefined}
-		<!-- The review is modal: it replaces the workspace until it is applied or cancelled. -->
-		<div class="min-h-0 flex-1 overflow-y-auto p-4">
-			{#key todos.syncAttempt.id}
-				<SyncReview
-					attempt={todos.syncAttempt}
-					pending={applying}
-					problems={todos.syncProblems}
-					onCancel={() => todos.cancelSync()}
-					onApply={(attempt, choices) => void applySync(attempt, choices)}
-				/>
-			{/key}
-		</div>
-	{:else if wide.current}
-		<Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
-			<Resizable.Pane id="workspace" order={1} minSize={30}>
-				<Resizable.PaneGroup direction="horizontal">
-					{#if filesPane}
-						<Resizable.Pane id="files" order={1} defaultSize={22} minSize={14} maxSize={40}>
-							{@render files()}
-						</Resizable.Pane>
-						<Resizable.Handle />
-					{/if}
-					<Resizable.Pane id="list" order={2} defaultSize={filesPane ? 30 : 38} minSize={20}>
-						<TodoList {todos} />
-					</Resizable.Pane>
-					<Resizable.Handle />
-					<Resizable.Pane id="detail" order={3} defaultSize={filesPane ? 48 : 62} minSize={30}>
-						<Detail {todos} />
-					</Resizable.Pane>
-				</Resizable.PaneGroup>
+	{#if wide.current}
+		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+			<Resizable.Pane id="list" order={1} defaultSize={38} minSize={20}>
+				<TodoList {open} onOpen={(stem) => void show(stem)} />
 			</Resizable.Pane>
-			{#if terminalOpen}
-				<Resizable.Handle />
-				<Resizable.Pane id="terminal" order={2} defaultSize={32} minSize={15} maxSize={70}>
-					<FolderTerminal session={todos.terminal} description={terminalDescription} onClose={() => void toggleTerminal()} />
-				</Resizable.Pane>
-			{/if}
+			<Resizable.Handle />
+			<Resizable.Pane id="detail" order={2} defaultSize={62} minSize={30}>
+				{@render detail()}
+			</Resizable.Pane>
 		</Resizable.PaneGroup>
 	{:else}
 		<main class="min-h-0 flex-1">
-			{#if terminalOpen}
-				<FolderTerminal session={todos.terminal} description={terminalDescription} onClose={() => void toggleTerminal()} />
-			{:else if showingDetail}
-				<Detail {todos} onBack={back} />
-			{:else}
-				<TodoList {todos} onOpen={showDetail} />
+			{#if open !== undefined}
+				{@render detail(back)}
 			{/if}
+			<!-- Hidden, not unmounted, behind the detail: a typed title stays. -->
+			<div class="h-full" hidden={open !== undefined}>
+				<TodoList {open} onOpen={(stem) => void show(stem)} />
+			</div>
 		</main>
-		<Sheet.Root bind:open={filesSheet}>
-			<!-- Named directly: the browser's own visible heading is the only "Files" heading. -->
-			<Sheet.Content side="left" class="gap-0 p-0" aria-label="Files">
-				{@render files()}
-			</Sheet.Content>
-		</Sheet.Root>
 	{/if}
 </div>

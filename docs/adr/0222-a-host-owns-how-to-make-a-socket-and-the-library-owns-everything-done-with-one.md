@@ -1,6 +1,7 @@
 # 0222. A host owns how to make a socket, and the library owns everything done with one
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-08-08
   this branch. Reconcile at merge time (`docs/adr/README.md`).
 - **Relates:** [ADR-0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md)
@@ -13,7 +14,9 @@
   Each dial also declares the locally persisted document ID. A pristine client
   performs a bootstrap-only dial, persists the announced ID, then redials
   before it may send or receive live workspace traffic.
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: `packages/app/src/data/sync/connection.test.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/evidence/data/workerd/results.md`.
 
 ## Context

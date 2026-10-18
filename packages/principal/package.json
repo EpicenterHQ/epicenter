@@ -5,13 +5,8 @@
 	"license": "AGPL-3.0-or-later",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./account-key": "./src/account-key.ts"
+		".": "./src/index.ts"
 	},
-	"files": [
-		"src",
-		"!src/**/*.test.ts"
-	],
 	"dependencies": {
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
@@ -23,5 +18,5 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit"
 	},
-	"description": "The branded PrincipalId that keys every storage partition: server paths, R2 prefixes, Durable Object names, local database names, and HKDF labels. Plus the pinned instance constant."
+	"description": "The branded PrincipalId that keys every storage partition: server paths, R2 prefixes, local database names, and HKDF labels. Plus the pinned instance constant."
 }

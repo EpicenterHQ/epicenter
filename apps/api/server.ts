@@ -7,69 +7,61 @@
  *
  *   - the `db` leg   a module-scope `pg.Pool` over `DATABASE_URL`, drained
  *                    fire-and-forget in the live process (no `waitUntil`)
- *   - blobs          any S3 endpoint via the existing `BLOBS_S3_*` env
+ *   - hosted Git     bare repositories on disk under `GIT_STORE_ROOT`
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
- * `bun --watch server.ts` boots instantly with real stack traces. It is the
- * hosted cloud on Bun (local dev and the runtime-parity smoke), NOT the self-host
- * artifact: the single-partition instance has its own entry
- * (`apps/self-host/server.ts`), composing no Better Auth and no Postgres (ADR-0075).
+ * `bun --watch server.ts` boots instantly with real stack traces. This entry is
+ * also the self-host path: the same Better Auth, Postgres, and mounts as the
+ * Worker, on any machine with Bun and Postgres.
  *
- * The whole hosted-cloud-on-Bun bootstrap lives here, in the app, not behind a
- * shared `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the
- * the cloud auth layer, the session/inference/blobs
- * mounts, `Bun.serve`) is this app's composition to own. The instance does NOT
- * share it (it diverges on the substrate that matters: no Better Auth, no
- * Postgres), so a shared launcher would re-introduce the mode knob ADR-0075/0076
- * deleted. The library ships the parts; each Bun entry composes its own product.
+ * The whole Bun bootstrap lives here, in the app, not behind a shared
+ * `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the cloud
+ * auth layer, the inference and Git mounts, `Bun.serve`) is this app's
+ * composition to own. The library ships the parts.
  *
- * The wiring lives in {@link startBunApiServer} so `server.dev.ts` can boot the
- * SAME server with a dev `resolveBearerPrincipal` injected (the parity smoke's credential)
- * without duplicating it. The bottom of this file runs production only when this
- * file IS the entrypoint (`import.meta.main`), so `server.dev.ts` importing the
- * builder does not also start a second listener. Production passes no
- * `resolveBearerPrincipal` and keeps the real session resolver; this file never imports the
- * dev bypass.
- *
- * Runtime skew is fenced by design: a DO-only behavior (hibernation restore,
- * alarm timing, edge placement) will not surface here, so `wrangler dev` /
+ * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive,
+ * Artifacts, edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
  *
- * Four surfaces the Worker serves are intentionally absent here, and
+ * The authorization server's pages (sign-in, consent, device) are the built
+ * `apps/api/ui`, as on the Worker: this entry serves its `fallback.html`
+ * for those URLs and its `/_app/*` files ({@link uiPages}), so sign-in
+ * completes on a self-hosted server.
+ *
+ * Two surfaces the Worker serves are intentionally absent here, and
  * `runtime-profile.test.ts` is where that list is declared and checked against
- * both entries: the dashboard SPA and the account-deletion route need Worker-only
- * bindings (`ASSETS`, `STORE_AUTHORITY`), and billing is the hosted Worker's
- * concern. Everything the shared library can mount on both runtimes is mounted
- * on both.
- * Because this runtime cannot resolve the hosted storage allowance, first
- * contact is allowed only for workspaces already registered by the hosted
- * Worker. Existing current-state replicas in this runtime's own backend may
- * still sync; opening an old records database performs the authorized protocol
- * reset and does not resume legacy receipts.
+ * both entries: the dashboard SPA needs the Worker-only `ASSETS` binding, and
+ * billing is the hosted Worker's concern. Everything the shared library can
+ * mount on both runtimes is mounted on both.
  */
 
-import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
+import { statSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
+import {
+	API_BUN_DEV_PORT,
+	resolveOAuthAudiences,
+} from '@epicenter/constants/apps';
 import {
 	CloudAuthBindings,
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
+	createDiskGitHost,
 	createServerApp,
 	mountAuthRoutes,
+	mountGitHost,
 	mountInferenceApp,
-	mountPersonalAuthorityBlobs,
-	mountSessionApp,
 	mountTranscriptionApp,
-	type ResolveBearerPrincipal,
-	requireBearerPrincipal,
-	resolveDeploymentBlobStore,
-	resolveRequestSessionPrincipal,
+	type OAuthScope,
+	registerFirstPartyClients,
+	requireAccessToken,
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
+import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import pg from 'pg';
-import { buildSessionCallbacks } from './worker/session-callbacks.js';
+import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
 
 /**
@@ -91,6 +83,11 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	DATABASE_URL: 'string',
 	'PORT?': 'string',
 	'API_PUBLIC_ORIGIN?': 'string',
+	// Where hosted Git keeps its bare repositories. Unset, Git answers 503.
+	'GIT_STORE_ROOT?': 'string',
+	// The built authorization pages (`apps/api/ui`'s `build`), by default
+	// beside this file at `ui/build`.
+	'API_UI_DIR?': 'string',
 	GOOGLE_CLIENT_ID: 'string',
 	GOOGLE_CLIENT_SECRET: 'string',
 	GITHUB_CLIENT_ID: 'string',
@@ -100,17 +97,64 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 });
 
 /**
- * Boot the apps/api Bun server, optionally with an injected principal resolver.
- *
- * Production (`server.ts` as the entrypoint) passes nothing, so
- * this entry uses the real session resolver. `server.dev.ts` passes a
- * dev `Bearer dev:<principalId>` resolver so the parity smoke needs no interactive
- * login. Everything else (env validation, pool, mounts, `Bun.serve`) is
- * identical across the two, so they cannot drift.
+ * The built authorization pages in `dir`, served as the Worker's asset layer
+ * serves them: `fallback.html` as the shell of each page, and the files under
+ * `_app/`, which never leave that directory. Unbuilt, the shell answers 503
+ * with the command that builds it.
  */
-export function startBunApiServer(
-	opts: { resolveBearerPrincipal?: ResolveBearerPrincipal<CloudEnv> } = {},
-): void {
+function uiPages(dir: string) {
+	const assets = resolve(dir, '_app');
+	const isFile = (path: string) => {
+		try {
+			return statSync(path).isFile();
+		} catch {
+			return false;
+		}
+	};
+	return {
+		shell: () => {
+			const shell = resolve(dir, 'fallback.html');
+			if (!isFile(shell))
+				return new Response(
+					`The sign-in pages are not built in ${dir}. Run \`bun run --cwd apps/api/ui build\`, or set API_UI_DIR to the built pages.`,
+					{
+						status: 503,
+						headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+					},
+				);
+			return new Response(Bun.file(shell), {
+				headers: { 'Content-Type': 'text/html; charset=utf-8' },
+			});
+		},
+		asset: (c: Context) => {
+			let path: string;
+			try {
+				path = resolve(
+					dir,
+					`.${decodeURIComponent(new URL(c.req.url).pathname)}`,
+				);
+			} catch {
+				return c.notFound();
+			}
+			if (!path.startsWith(`${assets}${sep}`) || !isFile(path))
+				return c.notFound();
+			return new Response(Bun.file(path), {
+				headers: {
+					// SvelteKit names every file under `immutable/` by its content.
+					'Cache-Control': path.includes(`${sep}immutable${sep}`)
+						? 'public, max-age=31536000, immutable'
+						: 'no-cache',
+				},
+			});
+		},
+	};
+}
+
+/**
+ * Boot the apps/api Bun server: every resource takes OAuth access tokens
+ * (ADR-0549). `runtime-profile.test.ts` boots it in process.
+ */
+export async function startBunApiServer(): Promise<void> {
 	// Validate this Bun host's environment once, at boot. The validated result IS
 	// the typed env handed to the Hono app: no `as`-cast over `process.env`, no
 	// lie (ADR-0066). A misconfiguration gets ONE descriptive error naming every
@@ -132,70 +176,75 @@ export function startBunApiServer(
 	const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
 	const db = createDb(pool);
 
+	// This process serves its own origin, so it writes the first-party clients
+	// and resources for that origin once, at boot (ADR-0549, ADR-0326). The
+	// Worker writes the hosted ones once per isolate.
+	const audiences = resolveOAuthAudiences(origin);
+	await registerFirstPartyClients(db, {
+		audiences,
+		clients: buildFirstPartyClients(origin),
+	});
+
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
+		resolveAudiences: () => audiences,
 	});
 
-	// The dev entry passes a dev bearer resolver for the parity smoke; production
-	// keeps the real session bearer resolver. Each protected wrapper closes over it.
-	const resolveBearerPrincipal =
-		opts.resolveBearerPrincipal ?? resolveRequestSessionPrincipal;
-
-	const serveAuthUiShell = () =>
-		new Response(
-			'Hosted auth UI is served by the SvelteKit app in Bun dev. Use `bun run --cwd apps/api/ui dev` for browser auth surfaces, or `bun run --cwd apps/api dev` for the Worker asset shell.',
-			{
-				status: 503,
-				headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-			},
-		);
+	const ui = uiPages(env.API_UI_DIR ?? resolve(import.meta.dir, 'ui', 'build'));
+	app.get('/_app/*', ui.asset);
 
 	app.get('/', (c) =>
 		c.json({ product: 'hub', version: '0.1.0', runtime: 'bun' }),
 	);
 	// The live Bun process keeps the drain alive without waitUntil.
-	const cloudContext = createCloudContextMiddleware({
+	const cloudContextOptions = {
 		connect: async () => ({ db, close: async () => {} }),
 		afterResponse: () => {},
-
-		resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
 		resolveAuthSecrets: () => env,
+	};
+	const cloudContext = createCloudContextMiddleware(cloudContextOptions);
+	const authServerContext = createCloudContextMiddleware({
+		...cloudContextOptions,
+		oauthServer: true,
 	});
 	// Public auth shells bypass setup. Database-backed endpoints and resource
 	// guards explicitly install the context middleware, just like the Worker.
 	mountAuthRoutes(app, {
-		setup: cloudContext,
-		serveAuthUiShell,
+		setup: authServerContext,
+		serveAuthUiShell: ui.shell,
 	});
-	const bearer = every(
-		cloudContext,
-		requireBearerPrincipal(resolveBearerPrincipal),
-	);
-	mountSessionApp(app, { auth: bearer });
-	mountInferenceApp(app, { auth: bearer });
+	// Every resource takes only an access token for its audience and the scope
+	// its operation needs (ADR-0549).
+	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
+		every(cloudContext, requireAccessToken({ audience, scope }));
+	// Hosted Git (ADR-0546) keeps bare repositories on disk under
+	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
+	// the shared profile and answer 503 `git_unavailable`.
+	const gitHost = env.GIT_STORE_ROOT
+		? createDiskGitHost({ root: env.GIT_STORE_ROOT })
+		: null;
+	mountGitHost(app, {
+		setup: cloudContext,
+		resolveHost: () => gitHost,
+	});
+	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
 	// here for the same reason inference is: this host composes no billing, so
 	// there is no Autumn policy to attach. Mounting it is what keeps a `star`
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
-	mountTranscriptionApp(app, { auth: bearer });
-	mountPersonalAuthorityBlobs(app, {
-		auth: bearer,
-		resolveStore: resolveDeploymentBlobStore,
-	});
+	mountTranscriptionApp(app, { auth: resource('api', 'ai') });
 
 	const server = Bun.serve({
 		port,
 		// Bun calls `fetch(req, server)`; route everything through the Hono app with
-		// the validated env as `c.env`. WebSocket upgrades are never intercepted
-		// ahead of the auth pipeline here.
+		// the validated env as `c.env`.
 		fetch: (req) => app.fetch(req, env),
 	});
 
-	// Nothing durable to close here any more: the store lives in the client
-	// (ADR-0223) and the authority is a Durable Object, so this process owns no
-	// database whose WAL has to be checkpointed.
+	// Nothing local needs a checkpoint: Postgres is a separate server, and the
+	// pool's connections close with the process.
 	const shutdown = () => {
 		void server.stop(true);
 		process.exit(0);
@@ -206,7 +255,5 @@ export function startBunApiServer(
 	console.log(`apps/api (Bun) listening on ${origin}`);
 }
 
-// Run production only when this file is the entrypoint. `server.dev.ts` imports
-// `startBunApiServer` to boot the dev variant, and must not trigger a second
-// listener here.
-if (import.meta.main) startBunApiServer();
+// Listen only when this file is the entrypoint, not when a test imports it.
+if (import.meta.main) await startBunApiServer();

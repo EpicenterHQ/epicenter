@@ -1,0 +1,40 @@
+{
+	"name": "@epicenter/ai",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"exports": {
+		".": "./src/ai.ts",
+		"./codex": "./src/codex-connection.ts",
+		"./connection-table": "./src/connection-table.ts",
+		"./connections": "./src/ai-connections.ts",
+		"./picker": "./src/picker/index.ts",
+		"./selections": "./src/selections.ts",
+		"./send": "./src/send.ts",
+		"./target": "./src/target.ts"
+	},
+	"dependencies": {
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/client": "workspace:*",
+		"@epicenter/folder": "workspace:*",
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
+		"@tanstack/svelte-query": "catalog:",
+		"@tauri-apps/api": "catalog:",
+		"nanoid": "catalog:",
+		"openai": "^7.12.1",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@epicenter/principal": "workspace:*",
+		"@types/bun": "catalog:",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:"
+	},
+	"scripts": {
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
+		"test": "bun test --isolate"
+	}
+}

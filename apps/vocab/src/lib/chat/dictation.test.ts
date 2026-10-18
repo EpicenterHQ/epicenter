@@ -15,7 +15,7 @@ let start = async (_options: { onSpeechEnd(blob: Blob): void }) =>
 	Ok(undefined);
 let stop = async (): Promise<unknown> => Ok(undefined);
 let respond = async () => Response.json({ text: 'phrase' });
-mock.module('@epicenter/recorder', () => ({
+mock.module('@epicenter/recorder/browser', () => ({
 	createVadRecorder: () => ({
 		startActiveListening: (options: { onSpeechEnd(blob: Blob): void }) =>
 			start(options),

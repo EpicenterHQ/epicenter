@@ -25,7 +25,7 @@
  * list, or a wrapped schema after the call changes nothing here.
  *
  * Helpers return native schema objects. Copies retain the input's property
- * descriptors. `prepareData` takes ownership by returning a frozen
+ * descriptors. `prepareDefinition` takes ownership by returning a frozen
  * snapshot. Editing a helper's schema natively before then is the author's
  * edit to make, and the editor follows the edited schema.
  *
@@ -51,7 +51,7 @@ import {
 import { Memory } from 'typebox/system';
 import type { Brand } from 'wellcrafted/brand';
 import type { JsonValue } from 'wellcrafted/json';
-import { DATA_ADDRESS_CEILINGS, isTableName } from '../addresses.js';
+import { isTableName } from '../table-name.js';
 import type { CalendarDateString } from './calendar-date-string.js';
 import type { DateTimeString } from './datetime-string.js';
 import { type Annotated, annotate, type Kind } from './editor.js';
@@ -166,7 +166,7 @@ function reference<
 	table: TTable,
 	opts?: StringOptions,
 ): Annotated<StringSchema<T>, Hint<'reference', { readonly target: TTable }>> {
-	if (typeof table !== 'string' || !isTableName(table, DATA_ADDRESS_CEILINGS))
+	if (typeof table !== 'string' || !isTableName(table))
 		throw new TypeError('field.reference needs the name of a table');
 	return annotate(stringSchema('reference', opts, 1), {
 		kind: 'reference',
@@ -376,7 +376,7 @@ function nullable<S extends TSchema & object>(inner: S): TUnion<[S, TNull]> {
  * against `inner`. `undefined` is absence, never a stored value.
  *
  * Absent and `null` stay distinct: `field.optional(field.nullable(inner))`
- * allows both. Every KV field is optional already, so this is for rows.
+ * allows both. Every field of the `settings` table is one.
  */
 function optional<S extends TSchema & object>(inner: S): TOptional<S> {
 	if (!isSchema(inner)) throw new TypeError('field.optional needs a schema');

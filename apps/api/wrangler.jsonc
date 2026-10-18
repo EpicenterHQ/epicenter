@@ -4,13 +4,20 @@
 	"main": "worker/index.ts",
 	"minify": true,
 	"compatibility_date": "2026-03-06",
-	"compatibility_flags": ["nodejs_compat", "enable_request_signal"],
+	// global_fetch_strictly_public keeps every outbound fetch on the public
+	// internet: a request this Worker makes never reaches a private or
+	// loopback address, whatever URL it was handed.
+	"compatibility_flags": [
+		"nodejs_compat",
+		"enable_request_signal",
+		"global_fetch_strictly_public"
+	],
 	"send_metrics": false,
 	// Build the cloud UI SPA before publishing. Wrangler runs build.command for
 	// `deploy` and `versions upload`, so local, CI prod, and CI preview build
 	// through one definition. Skip it for `dev`/`types`: the local `wrangler dev`
-	// launcher (scripts/dev.ts) rebuilds the UI at startup so clients and the
-	// hosted sign-in page use the same session handoff.
+	// launcher (scripts/dev.ts) rebuilds the UI at startup so the server and the
+	// authorization server's pages come from one checkout.
 	"build": {
 		"command": "case \"$WRANGLER_COMMAND\" in dev|types) ;; *) bun run --cwd ui build ;; esac"
 	},
@@ -43,68 +50,33 @@
 	// worker bakes `PRODUCTION_API_URL` from @epicenter/constants and local dev
 	// overrides it via `API_PUBLIC_ORIGIN` (apps/api/scripts/dev.ts). This keeps
 	// a single source of truth in TypeScript instead of a duplicated string.
-	"vars": {},
-	// --- Durable Objects ---
-	"durable_objects": {
-		"bindings": [
-			// One StoreAuthority per (principalId, application id, generation) holds
-			// the opaque log for the store transport (ADR-0298). It reads nothing
-			// it stores, and it is addressed only by a name built from a resolved
-			// bearer's principal, never from a query.
-			{
-				"name": "STORE_AUTHORITY",
-				"class_name": "StoreAuthority"
-			},
-			// One GenerationsLedger per (principalId, application id) holds which
-			// generations exist (ADR-0293). It stores numbers and never a byte of
-			// anyone's data: the state goes straight to the generation's own
-			// authority, and the ledger row is the last write of an import.
-			{
-				"name": "GENERATIONS_LEDGER",
-				"class_name": "GenerationsLedger"
-			},
-			{
-				"name": "GIT_GITHUB_CONNECTIONS",
-				"class_name": "GitHubConnection"
-			}
-		]
-	},
-	// The deployed Worker already uses the current authority and ledger names.
-	// These class migrations preserve their existing state and retire the former
-	// anonymous demo attempt counter. Only that counter namespace is deleted.
-	// No address rename or Worker reset is part of this deployment.
 	//
-	// The class is stable; the NAMES are not, and no migration tag can express
-	// that. Authorities are addressed
-	// `principals/<p>/data/<dataId>/generations/<n>` as of ADR-0292, renamed
-	// from `stores`, and that record extends the name again
-	// with `/generations/<n>`. A name is derived on both halves from values they
-	// already hold and is never stored, so a rename leaves old objects
-	// unreachable rather than broken: there is nothing to migrate, and nothing
-	// reads them again.
-	"migrations": [
+	// ARTIFACTS_NAMESPACE repeats the Artifacts binding's namespace below: the
+	// binding creates repositories and mints their tokens, while the Git data
+	// plane forwards to `https://<account>.artifacts.cloudflare.net/git/<namespace>/...`
+	// directly. worker/git-repositories.test.ts asserts the two agree.
+	"vars": {
+		"ARTIFACTS_NAMESPACE": "epicenter-production"
+	},
+	// --- Artifacts: hosted Git repositories (ADR-0546) ---
+	// One namespace per environment, one repository per repository id (the
+	// `repository` table's immutable id, never a URL segment). The binding has no local
+	// emulation: direct `wrangler dev` opens a remote Artifacts session.
+	// Use `bun dev:api`, whose launcher removes this production binding.
+	"artifacts": [
 		{
-			"tag": "v1",
-			"new_sqlite_classes": ["StoreAuthority"]
-		},
-		{
-			"tag": "v2",
-			"new_sqlite_classes": ["GenerationsLedger"]
-		},
-		{
-			"tag": "v3",
-			"new_sqlite_classes": ["DemoGenerationBudget"]
-		},
-		{
-			"tag": "v4",
-			"deleted_classes": ["DemoGenerationBudget"]
-		},
-		{
-			"tag": "v5",
-			"new_sqlite_classes": ["GitHubConnection"]
+			"binding": "ARTIFACTS",
+			"namespace": "epicenter-production"
 		}
 	],
-	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---
+	// --- Durable Objects ---
+	// The Worker has none, and carries no migration history. The Worker that
+	// held StoreAuthority, GenerationsLedger, and GitHubConnection (migrations
+	// v1 to v7) is deleted and recreated rather than migrated: deploying this
+	// configuration starts by deleting the existing `api` Worker, which removes
+	// every Durable Object it stored (ADR-0534).
+
+	// --- Secrets (synced from Infisical prod /api, typed via `wrangler types`) ---
 	"secrets": {
 		"required": [
 			"BETTER_AUTH_SECRET",
@@ -129,20 +101,18 @@
 			"OPENAI_API_KEY",
 			"AUTUMN_SECRET_KEY",
 			"GEMINI_API_KEY",
-			// S3 credentials for owner-addressed hosted blobs. The portable
-			// S3 client signs exact-key PUT/GET/HEAD/DELETE requests against
-			// BLOBS_S3_ENDPOINT. For hosted cloud that
-			// endpoint is `https://<accountId>.r2.cloudflarestorage.com` with a
-			// bucket-scoped Object Read & Write token. The endpoint is grouped as
-			// a secret so the account id stays out of committed config; bucket
-			// (`epicenter-blobs`) and region (`auto`) default in code.
-			"BLOBS_S3_ENDPOINT",
-			"BLOBS_S3_ACCESS_KEY_ID",
-			"BLOBS_S3_SECRET_ACCESS_KEY"
+			// The Cloudflare account that owns the Artifacts namespace. The Git
+			// data plane forwards to `https://<accountId>.artifacts.cloudflare.net`,
+			// grouped as a secret so the account id stays out of committed config.
+			"ARTIFACTS_ACCOUNT_ID"
 		]
 	},
 	// --- Hyperdrive: Postgres connection pool ---
-	// Create with: bunx wrangler hyperdrive create epicenter-db --connection-string="postgres://..."
+	// Create with: bunx wrangler hyperdrive create epicenter-db --connection-string="postgres://..." --caching-disabled
+	// This Worker is the OAuth authorization server, and every resource checks
+	// tokens in this database. The configuration must have caching disabled:
+	// Hyperdrive's default 60-second query cache would serve a revoked token
+	// as live (ADR-0549). See apps/api/README.md.
 	"hyperdrive": [
 		{
 			"binding": "HYPERDRIVE",
@@ -150,15 +120,6 @@
 			"localConnectionString": "postgres://postgres:postgres@localhost:5432/epicenter"
 		}
 	],
-	// --- R2: NO bindings ---
-	// This Worker names no `r2_buckets` binding. Hosted blob requests
-	// talk plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
-	// same code runs on this Worker against R2 and in a self-hosted Node binary
-	// against Garage/S3 with no Workers-only R2 binding. Create its bucket
-	// with: bunx wrangler r2 bucket create epicenter-blobs
-	// See packages/server/src/s3-blob-store.ts. (The legacy asset route and its
-	// `epicenter-assets` bucket binding were retired into this store.)
-	//
 	// Smart Placement: Run your Worker close to your database for lower latency
 	"placement": {
 		"region": "aws:eu-central-1"

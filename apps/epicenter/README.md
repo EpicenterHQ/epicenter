@@ -1,49 +1,110 @@
 # Epicenter desktop host
 
-Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the trusted app catalog. Product SPAs keep their source in their own `apps/*` folders; Epicenter builds and serves their desktop variants without copying that source into this folder.
-
-Honeycrisp ships its own desktop shell and is built from `apps/honeycrisp`.
+Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
 ```text
-trusted SPA source                 Epicenter build output
+page source                        build output            served at
 
-apps/whispering/src  -----------> dist/whispering
-apps/capture/src     -----------> dist/capture
-apps/local-mail/ui   -----------> dist/mail
-apps/todos/src       -----------> dist/todos
-apps/epicenter/src/ui -----------> dist/home
-                                          |
-                                          v
-                              Bun loopback sidecar
-                                          |
-                                          v
-                              apps/epicenter/src-tauri
+apps/epicenter/src/ui -----------> dist/home ------------> epicenter-app://localhost/home/
+apps/epicenter/src/folders ------> dist/folders ---------> epicenter-app://localhost/folders/
+an installed app's folder -------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/<commit>/
 ```
 
-The host serves Home and four compiled applications: Whispering, Capture,
-Local Mail, and Todos. Application routes live below `/apps/<id>/`. The
-`epicenter-host` build condition selects each product's host integrations.
-Honeycrisp has a separate desktop shell.
+Rust serves every page Epicenter shows from one origin,
+`epicenter-app://localhost`, through a scheme the shell registers
+(`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
+`/home/`, the Folders window at `/folders/`, and each installed app's build of
+one commit at `/apps/<app-id>/<commit>/`. No server listens on a port and no Bun process outlives a
+command. The `epicenter-host` build condition selects each product's host
+integrations.
 
-Capture and Todos reach native file folders through the shared Folder plugin.
-Installed applications also reach the native folder registered for their ID.
-Local Mail uses its account-bound store and SQLite capability. The shared-host
-Whispering bundle currently has no supported folder bridge and refuses before
-acquiring a folder; its inclusion in the catalog does not establish usable
-hosted editing. Standalone Whispering owns its own folder and lifecycle.
+The scheme answers GET only. It serves a regular file inside the page's
+directory or the build of the commit the URL names, refusing a symbolic link and any path
+that leaves it, and answers an extensionless path that names no file with that
+directory's `index.html`, so client-side routes load. Every response carries
+one Content-Security-Policy: a page reaches its own origin and Tauri's IPC
+(`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
+document's policy admits each of its inline scripts by hash. Each window
+navigates only below the path it opened at: a built-in page's, or an installed
+app's `/apps/<app-id>/<commit>/`, so an app window never loads another build;
+a new-window link opens in the system browser only when it is the hosted
+account website.
 
-The host brokers credentials and owns native resources. Product pages own
-unsaved input. The native Folder owner owns file publication, watching, and Git;
-the Bun sidecar serves product bundles without owning their row input.
+Installed apps reach native file folders through the shared Folder plugin.
+Each page runs `@epicenter/folder`'s own engine over a directory the shell
+grants (ADR-0531). An app that needs other native commands is granted them by
+its app id (see [Native commands for an installed app](#native-commands-for-an-installed-app)).
+
+The shell serves product bundles and holds no credential: the `epicenter`
+CLI holds the account and every key (ADR-0556). Product pages own unsaved
+input.
+
+## The epicenter binary
+
+Epicenter ships one compiled Bun binary (ADR-0556): the `epicenter` CLI from
+[`packages/cli`](../../packages/cli/README.md). `bun run build:sidecar`
+compiles its entry, `packages/cli/src/bin.ts`, to
+`src-tauri/binaries/epicenter-cli-<target triple>`, the `externalBin`. The
+bundle calls it `epicenter-cli` because Tauri refuses a sidecar named like the
+Cargo package, `epicenter`; on `PATH` it is `epicenter`.
+
+The one binary has these uses:
+
+- `epicenter app …` installs and builds apps, running the same binary as
+  `bun` with `BUN_BE_BUN=1` ([Installed apps](#installed-apps)).
+- The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
+  fixed commands. A page has no generic exec: each command maps to one
+  `epicenter` invocation, writes stdin on its own task, and streams each
+  stdout line to the page's `Channel`. The installed-app commands are below.
+  Development runs the CLI's source under `bun` instead of the binary.
+- Settings' Account section runs the CLI's desktop sign-in through three
+  fixed commands, granted to the `home` window by `home.json`
+  (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --desktop
+  --json`: the CLI listens once on
+  `http://127.0.0.1:<random port>/callback` and prints `{"open": "<url>"}`,
+  which the shell opens with the opener only when it is the deployment's
+  `/auth/oauth2/authorize`, then `{"signedIn"}` or `{"error"}`; every line
+  goes to `onEvent`. `auth_status()` runs `epicenter auth status --desktop
+  --json` and `auth_logout()` runs `epicenter auth logout --desktop --json`.
+  `ai_send` runs `epicenter send --json --desktop`, so an Epicenter
+  connection sends with the app's grant.
+- `account_send(audience, request, onEvent)` is a page's account request
+  (ADR-0549, ADR-0556). It runs `epicenter send --json --desktop` with the
+  target `{"kind":"account","audience"}`, where `audience` is `api` or `git`,
+  a closed enum that names one of the deployment's resources by role. The CLI
+  sends only a path below the deployment's `/api/`, adds the app's grant's
+  access token for that resource, and streams the response back as
+  `ai_send`'s lines do, followed by the same `{"type":"exit"}` line; with no
+  sign-in it answers `NoAccountToken`. No page holds an access token
+  (ADR-0549's desktop row), so there is no command that hands one out.
+  Each of these passes the shell's configured server as `EPICENTER_API_URL`,
+  so the CLI and the shell name one deployment. The grant's refresh token and
+  cached access tokens are in the CLI's keychain entry; no token reaches a
+  page or Rust.
+
+At every launch a release build runs `epicenter install-command --json`,
+which points `~/.local/bin/epicenter` at the bundled binary, so the Git
+configuration that names that link survives moving the app (ADR-0566,
+ADR-0567). It never needs `sudo`. To run `epicenter` in a terminal, add
+`~/.local/bin` to your `PATH` once:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+Every launch, in every build, also runs `epicenter declare-epicenter-folder`,
+which publishes `so.epicenter`'s declaration; the shell opens no installed
+app before it finishes, so an app reading `connections` through its
+definition finds that table whichever window opened first.
 
 ## Configure the server
 
 A desktop build connects to one server. The default is Epicenter Cloud. Set
 `EPICENTER_SERVER_ORIGIN` when compiling the native host to build for a
-self-hosted HTTP(S) origin. Changing it requires rebuilding the host.
-Rust passes this descriptor to Bun and uses the same origin to validate native
-sign-in URLs. App windows receive the descriptor with their identity snapshot.
-Home Settings lets people sign in and out; it cannot change the server.
+self-hosted HTTP(S) origin. Changing it requires rebuilding the app.
+Rust uses that origin to choose which account pages open in the system browser,
+and passes it to the CLI it runs for sign-in and `send`.
+Settings lets people sign in and out; it cannot change the server.
 
 Debug Cloud builds retain `EPICENTER_API_URL` for the local development API.
 This override accepts a loopback origin and does not affect release builds.
@@ -56,40 +117,65 @@ A self-hosted build takes precedence over that development override.
 Production keeps internal files under `so.epicenter` in the platform's local
 application-data directory: `~/Library/Application Support` on macOS,
 `$XDG_DATA_HOME` (default `~/.local/share`) on Linux, and `%LOCALAPPDATA%` on
-Windows. Windows storage stays out of roaming profiles because databases and
-recordings belong to this device. `EPICENTER_DATA_DIR` overrides the complete
+Windows. Windows storage stays out of roaming profiles because databases and device
+caches belong to this device. `EPICENTER_DATA_DIR` overrides the complete
 path and must be absolute.
 
-Development uses `so.epicenter.dev` for data, settings, and keyring entries.
+Development uses `so.epicenter.dev` for data and settings.
 Production's authored folder root is `~/Epicenter`; development's is `~/Epicenter Dev`.
 `EPICENTER_FOLDER_DIR` overrides the authored folder root and must be absolute.
+Built installed apps go to the platform cache directory, `so.epicenter` (or
+`so.epicenter.dev`) under `~/Library/Caches` on macOS; `EPICENTER_CACHE_DIR`
+overrides it and must be absolute. The shell resolves all three directories
+once and sets `EPICENTER_DATA_DIR`, `EPICENTER_FOLDER_DIR`, and
+`EPICENTER_CACHE_DIR` on every `epicenter app` command it runs, so the CLI
+writes where the shell reads. A terminal's `epicenter app` uses the same
+variables, or the release app's directories when they are unset
+(`packages/cli/src/app-paths.ts`).
+
+Files split by what they cost to lose (ADR-0539):
+
+```txt
+~/Epicenter/                                  read, edited, and versioned as files
+  so.epicenter/                               Epicenter's own folder
+    connections/.epicenter.json               the connections table's schema
+    connections/<id>.md                       one row per AI connection
+~/Library/Application Support/so.epicenter/   written only by Epicenter
+  apps/<app-id>/                              an installed app's bare clone; its detached HEAD is the approved commit (the CLI writes it)
+  local-transcription.json                    the active local model and when to unload it
+~/Library/Caches/so.epicenter/                disposable
+  sources/<app-id>/                           the approved commit's files, only while it builds
+  builds/<app-id>/<commit>/                   built app bundles, checked at every open; none is cleaned up yet
+  builds/<app-id>/<commit>.log                what the install and build printed
+  apps.lock                                   one install or build at a time
+```
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
 credential isolation; production credentials are unchanged.
 
-Rust resolves both directories once before recorder cleanup, stores them for the
-desktop lifetime, and sends them through the versioned startup message. Bun and
-the recorder consume those paths. Bun never derives a desktop root from its
-process environment. Native model settings retain Tauri's app-config location.
+Rust resolves the three directories once at startup and stores them for the
+desktop lifetime; the scheme serves installed apps from the cache directory,
+and every `epicenter` command the shell runs receives all three. The recorder
+writes into a folder a window was granted, not into application data
+(`tauri-plugin-epicenter-recorder`, ADR-0543). Local model files are not here:
+they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
+`$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
+Settings shows a model's folder there; deleting that folder removes the model.
+Local transcription settings, `local-transcription.json`, are in the data
+directory. A file an earlier build kept in Tauri's config directory, which
+differs from the data directory on Linux and Windows, is not read.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
 
 Earlier Windows builds used `%APPDATA%\so.epicenter`. Existing files are not
 moved automatically. To carry them forward, stop Epicenter and any CLI using
 its data, back up the old directory, then copy it to
-`%LOCALAPPDATA%\so.epicenter` before launching the new build. Retain the old
-directory: native model settings still use Roaming AppData. If the destination
+`%LOCALAPPDATA%\so.epicenter` before launching the new build. If the destination
 already contains data, do not merge or overwrite the directories. Set
 `EPICENTER_DATA_DIR` to the full path of the directory you intend to use instead.
 The same override can keep an existing installation at its old location.
 
-### Start the host
-
-Use Bun 1.3.14 or newer (`bun --version`; update with `bun upgrade`).
-Bun 1.3.1 and 1.3.3 can close the native input stream during sign-in, leaving
-Home disconnected and applications unable to open. The host rejects older
-runtimes before startup. Packaged builds embed Bun and must be rebuilt with
-the supported version.
+### Start the app
 
 Start Epicenter from the repository root:
 
@@ -97,421 +183,459 @@ Start Epicenter from the repository root:
 bun dev:epicenter
 ```
 
-This starts the local API on `http://localhost:8787` and the desktop host.
+This starts the local API on `http://localhost:8787` and the desktop app.
+Before the app starts, Tauri runs `bun run build:desktop`, which builds
+Settings and the Folders window into `dist/` and compiles the `epicenter`
+binary. A development build's scheme serves the pages from that `dist/`
+directly, so after changing a page, run `bun run --cwd apps/epicenter build`
+and reload its window (Cmd-R). There is no dev server and no hot reload: the
+scheme is the one way a page is served, in development as in a release.
 It requires the API's [local Postgres and Infisical setup](../api/README.md#development).
-The API rebuilds its sign-in page at startup so both sides use the current
-session handoff. Development never needs the deployed production sign-in page.
+Settings' Sign in is the CLI's desktop sign-in (`epicenter auth login
+--desktop`, client `so.epicenter`): finish it in your browser and Settings
+shows who the app is signed in as. Nothing restarts. It is a separate grant
+from a terminal's `epicenter auth login`, and signing one out leaves the
+other signed in.
 
-Finish sign-in in your browser, then return to Epicenter. Home shows the pending
-attempt and lets you cancel without signing out of your existing account.
-Development returns through the running host's loopback callback because a raw
-macOS development executable has no registered URL scheme. Packaged builds keep
-`epicenter://auth/callback`. If you set `EPICENTER_DEV_PORT`, set it on this root
-command so the API approves the same exact callback port the host binds.
+An installed app uses the same account. Todos' desktop leaf
+(`apps/todos/src/lib/platform/auth.epicenter-host.ts`, over
+`@epicenter/auth/desktop`) reads who is signed in with `auth_status`, sends
+`GET /api/repos` through `account_send` with the `git` resource, and
+sends the person to Settings with `open_home` to sign in; it signs out only
+from Settings. The shell has no account routes and stamps nothing into a
+page.
 
-Local Mail's Google client arrives at build time, because a page cannot read a
-machine's environment. The launcher supplies it and changes nothing else:
+Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
+Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
+it. It lists your data folders, offers "Open in <app>" for each installed app
+on every folder, lists the installed apps under Apps, and opens
+Settings from its Settings button with `open_home`. Opening an app opens its own
+window; the OS is the switcher from there, and closing the Folders window
+leaves everything it opened running.
 
-```bash
-bun dev:epicenter:mail
-```
-
-It is `bun dev:epicenter` wrapped in `infisical run` against the development
-environment, reading `VITE_GMAIL_CLIENT_ID` and `VITE_GMAIL_CLIENT_SECRET` from
-Infisical `/apps/local-mail`. They are stored under the names the build reads,
-so no secret is named twice and the launcher stays one command. Without it the
-build is honest about having no client and says so where a person would click
-Connect.
-
-A release needs the same values or it ships that honest refusal to everyone, so
-`desktop:build:remote` is the packaging command rather than bare `desktop:build`
-(`:remote` means production Infisical, per the suffix convention in the root
-`AGENTS.md`). The client identifies Local Mail to Google and is compiled into
-the bundle by design; the per-account refresh token is the secret, and it never
-leaves the machine's keychain (ADR-0310).
-
-Epicenter opens Home, which is an application beside the others rather than a
-shell above them (ADR-0209). Its Apps pane lists what this build can launch, the
-compiled applications plus the selected catalog generation's members, and
-launching one opens its own window; the OS is the switcher from there, and
-closing Home leaves everything it launched running. Its Data pane is Epicenter's
-own job: every workspace id as real read-only tables, where picking one makes
-`SELECT * FROM notes` mean something and "Everything raw" shows the storage as it
-is. Whispering hands transcription setup back to Home's Settings pane
-when the host has no usable local model, and Settings offers the ordinary launch
-action once there is one. The tray and deep links remain shortcuts into the same
-windows:
+Settings is the window labelled `home`. It signs the app in and out and alone
+administers the local transcription model (ADR-0180). An app that needs
+a local model opens it with `open_home('transcription')`, and Settings scrolls
+to the model (`src/ui/home-section.ts`). The tray (Show Folders,
+Show Settings) and deep links remain shortcuts into the same windows; installed
+apps have no deep link:
 
 ```bash
-open 'epicenter://app/whispering'
-open 'epicenter://app/todos'
+open 'epicenter://'
+open 'epicenter://app/folders'
 open 'epicenter://app/home'
 ```
 
-## The Todos folder
+## An app's own folder
 
-Todos keeps each todo as a Markdown file in an ordinary directory:
-`so.epicenter.todos` under the authored folder root native startup resolved
-(`~/Epicenter` in production, `~/Epicenter Dev` in development, or
-`EPICENTER_FOLDER_DIR`). Other programs edit the same files.
+An installed app opened without a folder, from the Apps list, is handed its
+own folder: `<folderDir>/<app-id>`, under the authored folder root native
+startup resolved (`~/Epicenter` in production, `~/Epicenter Dev` in
+development, or `EPICENTER_FOLDER_DIR`), with the scope `<app-id>` (ADR-0552).
+Installed Todos opens `so.epicenter.todos`, installed Capture
+`so.epicenter.capture`, installed Whispering `so.epicenter.whispering`, and
+installed Honeycrisp `so.epicenter.honeycrisp`. The shell registers that scope the first time the app
+is opened that way or the Folders window lists a folder named by an installed
+app's id, whichever comes first (`own_folder` in `src-tauri/src/data_folders.rs`).
+The first grant creates the directory. A folder the Folders window listed as
+`data:<app-id>` before its app was installed moves to the app's scope when the
+app is first opened; if the Folders window already holds it under the data
+scope, both scopes share the one root and publish under its one mutex
+(ADR-0568).
 
-The Rust shell installs the shared `tauri-plugin-epicenter-folder` and registers
-`so.epicenter.todos` for the `todos` window. Registration selects the directory;
-first attach opens it. The folder owner survives page reloads and sibling
-client departures until native shutdown drains it.
+The page opens the folder with `@epicenter/folder`'s own engine: its storage
+is the shell's commands, one per storage method (`read_folder_file`,
+`put_folder_file`, and the rest, ADR-0581), which reach only data paths
+beneath the root that the shared path rule accepts, never through a link and
+never Git's own state. Its history runs in the
+`epicenter` CLI: the shell's `status`, `history`, `save_version`, and `sync`
+(`src-tauri/src/history.rs`) each run one child over a folder the
+window was granted, granted to the Folders window and to every installed app's
+windows, and a reload or a closed window ends that window's children
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+Without `git` on the computer, the Folders window says so and, on macOS,
+offers to install the Command Line Tools (`install_git`). A window close destroys an installed app's
+window; quitting or restarting Epicenter is immediate and asks nothing (see
+[Quitting Epicenter](#quitting-epicenter)). Two native processes cannot open the
+same directory. See Todos' [README](../todos/README.md) and Capture's
+[README](../capture/README.md) for each app's files.
 
-The page uses the shared TypeScript Folder adapter over generated Tauri invoke
-commands. Todos has its own capability grant for the trusted production or
-development origin. The Bun host serves its compiled UI; Todos file operations
-have no HTTP route. Markdown interpretation and the restricted terminal remain
-shared TypeScript code, while Rust owns file publication, Git, watching, and the
-cross-process lock.
+## The Folders window
 
-A window close hides the loaded page and preserves its drafts. Quitting or
-restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epicenter));
-reloading the page loses unsaved typing. Native shutdown drains accepted saves
-and commits; forced termination can leave saved files uncommitted. Two native
-processes cannot open the same directory. See Todos' [README](../todos/README.md)
-for version checks, terminal interleaving, and external-edit limits.
+The Folders window (`folders`, served at `/folders/`) opens any data
+folder under the authored folder root, including an installed app's own folder
+while the app is open. Its page source is `src/folders`, built by
+`build:folders` into `dist/folders`.
+It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
 
-## The Capture folder
+The page asks the shell for `list_data_folders`, granted to this window alone
+(`folders.json`, beside `epicenter-folder:default`). The shell lists
+the direct children of the root that are real directories, not links or dot
+entries, holding at least one table: a real directory directly in it, not
+`.git`, holding a regular file `.epicenter.json` (ADR-0611). It answers each
+with `{ id, title }`, where `title` is the directory name; a folder declares
+no title. The page passes `id` to `openFolder({ id })` from
+`@epicenter/folder/tauri`. The reply carries no paths; the page learns a
+folder's root from the plugin's grant, as every app does.
 
-Capture keeps one Markdown file per capture under
-`<folderDir>/so.epicenter.capture/captures`. Frontmatter holds `capturedAt`;
-the body holds the original text and an ordered list under `## Thoughts`.
-The page edits that source, and its full-source editor exposes the same bytes.
-It opens without an Epicenter account.
+- **An installed app's own folder**, a directory named by the id of an
+  installed app, is listed under the app's scope (`so.epicenter.todos`), as
+  [An app's own folder](#an-apps-own-folder) describes. The `folders` window
+  and the app's window share that one scope, and both windows' saves are
+  checked and published under the plugin's one mutex per root (ADR-0535).
+- **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
+  `folders` and `home` windows and listed under that scope.
+- **Any other data folder** gets the scope `data:<directory name>` the first
+  time it is listed, registered for the `folders` window alone. Listing again
+  in the same run returns the same scope. Registrations last until the
+  process exits; a folder removed from the root keeps an unused scope.
 
-The Rust shell registers `so.epicenter.capture` for the `capture` window through
-the shared Folder plugin. The page opens that scope through Tauri commands;
-there is no Capture HTTP file bridge. First attach opens the directory, and
-native shutdown drains admitted work. Browser Capture keeps a separate folder
-in its origin's private file system (OPFS).
+The shell watches the root from setup until exit (`watch_data_folders`). When
+an entry directly under it, an entry directly in a folder, or a table's
+`.epicenter.json` is created, changed, or removed, it sends `epicenter://data-folders-changed` to the
+`folders` window, which calls `list_data_folders` again. A rescan or a watch
+error is sent the same way. Other deeper changes, such as a row saved in a
+table, are not.
 
-Closing the native window hides it with its drafts intact. Quitting or
-restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epicenter)).
-A stopped sidecar leaves the page open for recovering its text. Forced
-termination does not wait.
+### What the view does
 
-## Leaving Epicenter
+The page lists the folders and opens the chosen one in place; choosing another
+closes the open handle first.
 
-Capture and Todos keep unsaved text in their pages, and the Folder plugin's
-exit drain sees only writes a page already submitted, not a draft still inside
-its 400 ms batch. So before the process quits, or restarts for an account
-change, the native host runs one departure round
-(`src-tauri/src/departure.rs`) and asks both windows. The pages own their
-drafts; the host owns the round and a generation for each page. Nothing else
-takes part: Whispering's shared-host build has no folder root, and Home, Mail,
-and admitted apps hold no file-backed drafts.
+The open folder is read through TanStack Query with `folderOptions(folder)`
+from `@epicenter/folder/query` (ADR-0548). The page's root subscribes the
+folder's `onFilesChanged` when it opens it, before anything reads, and each
+report invalidates the queries `pathFilter` names; switching folders stops the
+subscription and drops the folder's cache. On the desktop the reports are the
+shell's file watcher's. Focus refetch is off and the view has no refresh of its
+own, so another window's save, an agent's edit, or Sync landing a change
+appears within the watcher's debounce. A changed table schema opens the
+folder again once the writes running settle, so the grid follows the new
+declaration.
 
-- **Who is asked.** The `capture` and `todos` windows that exist when the round
-  starts, hidden ones included. No window joins later: while a round runs, a
-  participant window cannot be created.
-- **Every quit asks.** The round starts from `ExitRequested`. The tray's Quit
-  and `app.exit` raise it directly. AppKit's own quits (the app menu's Quit and
-  Cmd-Q, the Dock's Quit, logout, restart, shutdown, a `quit` Apple event) call
-  `terminate:`, which Tao's application delegate would let through without
-  `ExitRequested`. A quit guard (`src-tauri/src/departure/terminate.rs`) adds
-  `applicationShouldTerminate:` to Tao's delegate class at startup and fails
-  startup if it cannot. With no Capture or Todos window it lets AppKit
-  terminate as before. Otherwise it refuses and requests an ordinary exit,
-  which runs the round, so a logout or shutdown that reaches Epicenter is
-  cancelled, and the person retries it once the round has finished. Epicenter
-  does not resume a cancelled logout. Force Quit, a signal, or a crash still
-  skips the round. Letting AppKit terminate runs Tao's exit path, which takes
-  a lock Tao already holds during Tauri callbacks, so `terminate:` must never
-  be answered "now" from inside one: it would hang the main thread. AppKit's
-  own quits arrive from the run loop, and nothing in Epicenter calls
-  `terminate:`; code that wants to quit calls `app.exit`. While a modal
-  session runs, the nesting identified so far, the guard always takes the
-  ordinary exit instead. Other nested run loops are not ruled out.
-- **One owner.** The round and the participant windows belong to the main
-  thread. Bun frames, timers, dialog answers, and page answers are carried
-  there, and each hide or show happens inside the step that decided it, so
-  nothing from an ended round can show or hide a window in a newer one.
-- **Nothing pops up unasked.** Starting a round shows no window. A page that
-  answers `asking` is shown, even if the person had closed it, so it can ask
-  them; so is every undecided page when the person asks again.
-- **Agreeing never ends the page.** A page answers `ready` once its draft is
-  flushed, or once the person deliberately discards it in the page. Nothing is
-  closed, discarded, or reloaded. If any page answers `cancel` ("Keep working"),
-  every page the round held resumes, and every window the round showed or hid
-  goes back as the round found it, shown or hidden.
-- **Silence is not permission.** A page that has not answered after three
-  seconds is listed in a native dialog: "Keep open" (the default), "Discard
-  and quit" or "Discard and restart", and "Cancel". Only the discard button
-  lets the round go on; "Cancel", a dialog that fails, and any other answer
-  keep Epicenter open. The discarded window
-  is hidden, and confirmed hidden, before its vote counts, and nothing shows it
-  again until the round ends without leaving. A hide that was applied but not
-  confirmed ends the round with an error and shows the window again.
-- **Asking again.** Quitting during a quit or a restart round asks the
-  undecided pages again in the same round, with the same intent, so a page that
-  hung after `asking` reaches the dialog ("Discard and restart" during a
-  restart); a live page re-sends `asking` and shows its own prompt once. Quit
-  and restart never merge: a second restart is refused as busy, and quitting
-  while a restart is granted says so and leaves the grant to Bun.
-- **Restart is granted, then finished.** An account change asks over the
-  private Bun pipe (`prepare-relaunch`, protocol 8) and gets exactly one answer.
-  Granting hides every participant window, each confirmed hidden, and refuses
-  to show them; `relaunch` then calls `request_restart`, whose Exit lets the
-  Folder plugin drain admitted writes. `relaunch-abort`, or the Bun generation
-  ending, restores them. A page that reloads or closes while the round collects
-  ends the round: a restart gets its error, a quit says so. While granted it
-  only loses its vote, and every page stays fenced.
-- **The Window menu.** AppKit lists open windows in the Window menu and raises
-  the one chosen. Capture and Todos are left out of that list and get their
-  own Window-menu items instead, which open or show them through the same
-  checked path as Home's launcher, so the menu cannot show a discarded or
-  granted window.
-- **Bun stopping** leaves both windows and their native folders running, and
-  sends them `host-stopped`. Their HTTP session does not come back; they are
-  shown when no round is in progress.
+Beside every folder, the page offers every installed app that can run
+(`src/folders/openers.ts`, ADR-0560): one shows "Open in <app>"; several show
+"Open with…". Epicenter does not check whether the app fits the folder. The
+app reads the folder through its definition (ADR-0538), which refuses a folder
+whose table schemas lack a table or field the app reads, with a message
+naming the folder and what is missing. Opening it there hands
+the app that folder; the Apps list's Open hands it its own folder. Every button
+opens through `open_installed_app`, and the Settings button through
+`open_home`, both granted by `folders.json`; model
+administration stays in Settings. An opened folder shows the tables its schema files declare
+(`folder.definition.tables`). The selected table is a grid of its rows read
+with `table.list()`: one column per declared field, in declared order. A row's
+stem opens a side panel with every field, keys the table does not declare
+(shown, kept, and not editable), and the Markdown body. A row that does not
+read (`InvalidRow`) shows its issues and text and cannot be edited. A folder
+that declares no tables says so and lists its files, read only.
 
-### The page wire
+Each field gets the editor its schema and `x-field` hint resolve to
+(`fieldEditorOf`, mapped in `src/folders/field-input.ts`): a checkbox for
+`boolean`, a menu for `select`, toggles for `multiSelect`, comma-separated
+text for `tags`, a date input for `date`, JSON text for `json` and for any
+field whose hint does not fit its schema, and a text input for the rest.
+Instants and datetimes are edited as their ISO text. A field with no hint at
+all, as a hand-written JSON Schema declares it, gets the editor its type
+implies: a checkbox for `boolean`, a number input for `integer` and `number`,
+a menu for a string `enum`, a date input for a `date` string, ISO text for a
+`date-time` string, toggles for an array of a string `enum`, tags for an array
+of strings, and a text input for any other string. A hint that is present
+always wins. Clearing an optional field removes it from the row.
 
-[`src/departure-wire.ts`](src/departure-wire.ts), exported as
-`@epicenter/epicenter/departure`, is the published shape, with a strict reader
-the native harness uses. It imports nothing, so a browser bundle can take it.
-[`src/departure-page.svelte.ts`](src/departure-page.svelte.ts), exported as
-`@epicenter/epicenter/departure/page`, is the one page client that follows the
-rules below; Capture and Todos each attach their owner to it as a participant
-(`holdsUnsaved`, `fence`, `settle`, `resume`) and word the notice themselves.
-[`src/departure-window.ts`](src/departure-window.ts), exported as
-`@epicenter/epicenter/departure/window`, binds the client to the Tauri window;
-only a page's host build imports it.
+### Saves and merges
 
-```text
-Rust -> page   emit_to(label, "departure-changed", ())     no payload
-               emit_to(label, "host-stopped", ())          no payload
-page -> Rust   departure_status() -> Status
-               departure_answer({ generation, round, answer: asking | ready | cancel }) -> Status
-Status = { version, generation, phase: idle | collecting | granted | leaving,
-           round?, intent?: quit | restart, vote?: none | asking | ready | discarded }
+Each field editor sends its own writes (ADR-0576): `table.set` through the
+table's `set` mutation, which sets or removes that field on the file as it is
+now and keeps every field another window changed. A checkbox, menu, or
+toggle sends at the click. A text field holds what is typed, shows it whatever
+is read meanwhile, and sends it a second after the last keystroke, on Enter,
+when it loses focus, and when it goes away; Escape puts back the stored value.
+Text that does not parse as the field's value is not sent, and says why.
+Writes to one row run one at a time, in the order made. A field write that
+fails says why beside the field and keeps the typed text.
+
+A row's body is a document, so the side panel's Notes box holds a body editor
+(`createBodyEditor` from `@epicenter/folder/svelte`, in
+`src/folders/RowBody.svelte`) that keeps the row as it was at the first
+keystroke, and sends the change from that row to the typed body through the
+table's `write` mutation a second after the last keystroke, when the box
+loses focus, and when the panel goes away. The engine merges it by line with
+whatever changed since: lines only one side changed keep that side's change.
+Where both changed the same lines, the typing wins, with no notice. An edit
+of a row another window deleted writes nothing, since a delete beats an edit
+that never saw it (ADR-0576): the table shows the text typed, for a field or
+the notes, with **Copy your text** until you dismiss it. A row saved in a
+form that does not read as a row is not written. An edit not yet sent when Epicenter quits is lost, at most
+the last second of typing (see [Quitting Epicenter](#quitting-epicenter)).
+
+"Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`
+(ADR-0529), and reports a version saved, nothing new to save, or why none was
+saved; the header shows how many files changed since the last version, from
+the history's `status` query. The window never writes a table's schema.
+
+## Installed apps
+
+An app is a folder holding `epicenter.app.json` in a Git repository, the
+repository's root unless installing names another folder (ADR-0540,
+ADR-0552):
+
+```json
+{ "id": "com.example.board", "title": "Board" }
 ```
 
-Rust identifies the caller by its window, never by a label the page sends. A
-stale generation or round changes nothing and returns the current status.
-`version` rises with every change. The `departure-*` capabilities grant both
-commands to `capture` and `todos` alone, and neither window holds a
-`core:window` grant, so a page cannot show itself.
+- `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
+  own folder, is refused. Todos (`so.epicenter.todos`), Capture
+  (`so.epicenter.capture`), Whispering (`so.epicenter.whispering`), and
+  Honeycrisp (`so.epicenter.honeycrisp`) install from `apps/todos`,
+  `apps/capture`, `apps/whispering`, and `apps/honeycrisp` of Epicenter's
+  repository. Each imports its id from this file.
+- `id` and `title` are the only fields, and both are read before approval,
+  from a clone where nothing runs. Any other field is refused.
+- The build is always `bun run build:installed` in the app's folder, and its
+  output is always `dist/`: a single-page app built with relative asset paths,
+  holding `index.html`.
 
-A page must, in this order: await registration of
-`getCurrentWebviewWindow().listen('departure-changed', ...)`; read status; and
-only on `idle` become editable. It drops any status older than the newest it
-applied, fences before its first await when a round arrives, answers `ready`
-directly when it holds nothing unsaved (`asking` shows its window), thaws only on an
-authoritative `idle` newer than its own answer, and stays fenced on `granted`,
-`leaving`, or `discarded`. A lost or rejected answer never thaws it. A global
-`listen` registers for every target and can hear the other window's nudge;
-that is harmless, because a nudge only means "read again".
+Installing lives in the `epicenter` CLI
+(`packages/cli/src/installed-apps.ts`, ADR-0556, ADR-0558); a terminal or an
+agent runs the same commands the Folders window does. The shell's commands
+in `src-tauri/src/installed_apps.rs` are each one fixed invocation, whose
+NDJSON lines (`{"progress"}`, then `{"app"}` or `{"error"}`) go to the page's
+`Channel`; `src/folders/app-commands.ts` reads them and the page says each
+step while it runs:
 
-## Install a local application release
-
-The local installer accepts one already-built release. It does not install
-dependencies, run build scripts, or read application source (ADR-0179). How the
-folder was produced, and by whom, is outside the contract:
-
-```text
-release/
-|-- manifest.json
-|-- index.html
-`-- assets/
+```txt
+list_installed_apps    epicenter app list --json
+list_repository_apps   epicenter app list --repository=<source> --json
+install_app            epicenter app install [--folder=<folder>] --json -- <source>
+update_app             epicenter app update --json -- <id>
+approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
+open_installed_app     epicenter app update --commit=<commit> --json -- <id>, before every open
 ```
 
-Install it from the repository root:
+The Folders window's Apps list has "Install from a repository…"
+(`src/folders/InstallApps.svelte`). It takes a Git URL (`https`, `http`,
+`ssh`, `git`, `file`, or `user@host:path`) or an absolute local path and calls
+`list_repository_apps`, which clones the repository shallowly into a dot
+directory of `apps/` in app data, reads each tracked `epicenter.app.json` up to four
+directories deep outside `node_modules`, and removes the clone. It lists each
+app's title and folder; choosing one calls `install_app` with the source and
+that folder. With no app installed yet, the list offers "Install Todos": the
+same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
+`apps/todos`.
 
-```bash
-# Stop Epicenter first, then restart it after installation.
-bun run --cwd apps/epicenter app:install -- /path/to/release --data-dir /tmp/epicenter-data
-```
+`install_app` clones the repository's default branch bare
+(`git clone --bare --single-branch --no-tags`) into
+`~/Library/Application Support/so.epicenter/apps/<app-id>/`, writes
+`info/attributes` so no attribute changes a byte (`neutralizeAttributes`),
+writes the one refspec `+refs/heads/<default>:refs/remotes/origin/<default>`,
+deletes every ref the clone wrote (its own branch, and any a refspec in a
+person's global configuration mapped), fetches once with that refspec passed
+on the command line with `--refmap=` and `--no-tags`, so the tracking ref is
+the clone's only ref, and records the folder in the clone's `config` as
+`epicenter.folder` (absent for the root). Its `HEAD` stays symbolic, so
+nothing is approved and nothing builds: the CLI exits 1 with the app and the
+fetched commit's review (`pending`). Everything about an installed app is
+read from its clone, never from a row (ADR-0597). The page shows the title,
+the source, the commit, its log, and that building runs the app's code on
+this computer. "Approve and build" calls `approve_app` with the commit shown;
+the CLI refuses an approval without the commit shown, refuses if the fetched
+commit moved since, and refuses a commit whose manifest names another id,
+then approves it with
+`git update-ref --no-deref HEAD <commit>` and builds it. Approval covers the
+whole repository's commit.
 
-Epicenter validates the manifest and static files, copies them into
-`<data-root>/apps/<app-id>/bundle`, and preserves every existing app-owned file
-outside `bundle/`. Restart Epicenter after installation so startup discovers the
-new application and composes it with the compiled applications.
+Until publishing builds apps (ADR-0589), a build runs from source: the CLI
+extracts the approved commit with `git archive` into `sources/<app-id>/`,
+runs `bun install --frozen-lockfile --ignore-scripts` at its root (when it
+has a `package.json`) and `bun run build:installed` in the app's folder,
+writes the regular files of its `dist/` into the clone as a tree named
+`refs/epicenter/builds/<commit>` (a link in `dist/` fails the build), extracts
+that tree with `git archive` into
+a sibling of `builds/<app-id>/<commit>/`, renames it into place, and removes
+the source. Every Git command runs with replace refs ignored, and the
+attributes file unsets filters, line-ending conversion, `ident`,
+`working-tree-encoding`, `export-subst`, and `export-ignore`, so the source
+and the build hold each blob's bytes and every file (Git LFS files build as
+their pointers). `epicenter app remove <id>` deletes the clone and leaves its
+builds for any window still running one; the window has no Remove yet.
 
-An installed app opens `@epicenter/folder` with its manifest ID. Native launch
-registers that scope for the app's exact window label, at one dataset named by
-the app ID under the owner the native process captured from Bun's first ready
-frame (ADR-0461):
+Only approving moves the approved commit (ADR-0597):
 
-```text
-signed out   <folderDir>/local/<app-id>                    created on launch
-signed in    <folderDir>/accounts/<account-key>/<app-id>   downloaded first
-```
+- "Update" fetches, which writes `refs/remotes/origin/<default>` and never
+  `HEAD`. A fetched commit that differs from `HEAD` waits for approval with
+  `git log` and `git diff --stat` since the approved commit, and the
+  approved commit keeps opening meanwhile.
+- `git pull` and `git merge` refuse to run in a bare clone, and the clone has
+  no working tree, so nothing uncommitted, untracked, or ignored can reach a
+  build: what runs is always an approved commit.
+- An `approvals.json` or `builds/<app-id>/current` left by an earlier build
+  of Epicenter is never read; an app installed before is installed again.
+  Its old clone in `~/Epicenter/Apps/<app-id>/` is left on disk, with any
+  commits made there, for the person to keep or delete.
 
-The shell supplies the path; the page never chooses a native directory. The
-folder uses the repository's author and `origin` when configured, with local
-history otherwise. A Bun recovery that boots with another account is refused;
-only a full restart opens another owner's folders. Signing out never redirects
-a missing account dataset to Local.
+The CLI runs every Git command for an app through `@epicenter/folder`'s
+runner (`createGitRunner`): no hooks, no fsmonitor, no terminal prompt, and
+no inherited variable pointing Git at another repository, with the `ext` and
+`fd` transports refused. One install, update, or build runs at a time on a
+machine (`apps.lock`). Builds stop after 15 minutes. `bun` is the binary
+running the command: in a release the bundled
+[`epicenter` binary](#the-epicenter-binary) itself (`BUN_BE_BUN=1`, linked as
+`bun` first on the build's `PATH`); in development the CLI's source runs under
+the `bun` on `PATH`.
 
-A signed-in installed app opens its account dataset only once that folder is a
-Git repository on this device: a real `.git` with `HEAD`, `objects`, and `refs`,
-which a download or a clone leaves, including an unborn `main`. Home's Apps pane
-reads this from the folder each time and shows "Available locally"; nothing
-records that a download happened. Where nothing is there it offers Download,
-and launching alone refuses with a request to download. A directory at that
-path that is not a repository, empty, holding files, or holding an empty
-`.git`, is neither opened nor downloaded over: Home shows how to repair it by
-hand (move it aside, download, copy files back in), and nothing in it changes.
-The Folder owner checks the same rule again under the folder's lock, so a
-`.git` that disappears after Home looked never becomes new history. The
-download:
+The scheme serves each build of an installed app at
+`epicenter-app://localhost/apps/<app-id>/<commit>/`, from
+`builds/<app-id>/<commit>/`, refusing a linked build directory.
+`open_installed_app` asks the CLI before every open
+(`epicenter app update --commit=<commit>`), which answers only for the
+approved commit. It builds that commit when it is not built, and otherwise
+compares `builds/<app-id>/<commit>/` with the commit's build tree by path and
+blob hash, ignoring a `.DS_Store`, and writes nothing. A build that differs,
+edited, partly copied, or with a file added, is answered `damaged`; the shell
+then reserves that commit, which succeeds only when no window runs it
+(`InstalledWindowCommits`) and no other open holds it, and asks again with
+`--restore`, which extracts the build again into a new sibling, checks it,
+and swaps it in. Opens of an intact build take no reservation, so two of them
+never refuse each other. When the reservation fails, the shell opens nothing
+and asks the person to close that app's windows first. A window is pinned to its
+commit before its WebView is created, so no page loads a build being
+replaced. The check runs at each open, not at each request: bytes a local
+process changes under `builds/` afterward are served until the next open,
+which is the trust ADR-0540 already grants local processes. It
+then opens the commit it answered ready in its own window, labelled
+`app:<id with _ for .>:<folder scope in hex>`. The window keeps that build
+until it is closed and opened again: a later approval and build changes
+which commit the next window opens, never an open window. Opening an app
+whose window is already open on that folder reveals that window when the
+shell recorded it opening on the same commit, and otherwise leaves it and
+says the app is open on another version.
+Navigation pins a window's page and its relative assets to its build; every
+app shares the one origin, so it does not fence requests. Opened from the Apps list, the
+app is handed its own folder, [`<app-id>`](#an-apps-own-folder); from "Open
+in", the folder it was opened on. The window is permitted into that folder's
+scope and into `so.epicenter`, whose `connections` table its AI commands
+name, and the folder plugin records which app the window runs and which
+folder it was handed. The page asks for it (`window_folder`), so its URL
+names no folder and its routes and reloads cannot change it, and the app's
+`openFolder({ app, definition })` opens it, through its definition unless it
+is the app's own (ADR-0583). Settings is handed `so.epicenter` as Epicenter's
+own; the Folders window runs no app and opens folders by ID.
 
-1. confirms the active generation lists the app, and asks Bun for the account's
-   GitHub pairing of the folder named by the app ID;
-2. reserves `<folderDir>/accounts/<account-key>/<app-id>` with the folder's
-   sibling lock, refusing anything already there;
-3. fetches `main` through a relay into a dot-prefixed sibling, writes its files
-   as their exact bytes, and refuses links, executables, attribute
-   conversions, and case collisions. A repository with no ref at all gives an
-   unborn `main`; one with any other branch or tag but no `main` is refused
-   with its refs named and its staging kept. This is narrower than the browser
-   folder's download, which can start `main` beside other refs;
-4. records the canonical `origin` and `.git/epicenter/hosted.json`: the account,
-   folder ID, GitHub repository ID, pairing revision, URL, and branch;
-5. retires the relay in the Bun generation that started it, which must confirm
-   the transfer finished: a relay already gone (the Account was disposed or Bun
-   restarted), a refusal it saw, or a host that cannot answer keeps the
-   staging directory and publishes nothing;
-6. unless cancelled by then, publishes with a rename that refuses anything at
-   the destination, even an empty directory, and Home launches the app.
+### Native commands for an installed app
 
-A failure after history arrived keeps the staging directory and names it; a
-cancellation or an earlier failure leaves nothing. A running download belongs
-to the Bun generation that started it and is cancelled when that generation is
-deactivated or replaced, as on quitting. A cancel that lands with the rename
-leaves the complete folder in place and is reported, not opened: Home then
-shows it as available locally. Download never returns success after a cancel. Windows refuses before
-reserving anything until such a publication is proven there.
+Every installed app's window gets the same grant, one capability file,
+`src-tauri/capabilities/installed-app.json` (ADR-0570):
 
-`hosted.json` is the one record of the repository a person selected. It holds
-no credential, is never replaced, and is read under the folder's lock when a
-transfer starts. Each transfer is then admitted only if the folder's `origin`
-is that canonical URL and branch, and the pairing the account's server holds
-now, read through the boot Account, equals the record in every field:
-account, folder, repository ID, revision, URL, and branch. A replacement
-repository at the same URL, a replaced pairing, or a record edited by hand
-starts no relay. Discovery never rewrites the record. A missing, malformed,
-linked, or foreign record refuses hosted transfers and nothing else: editing
-never needs the network, the session, or the pairing. A changed `origin` is
-not repeated in the refusal, since a configured URL can carry a credential.
+- Its `windows` is `app:*`. Tauri matches it against a window's label as a
+  glob (`glob::Pattern`, in Tauri 2.12's `ipc::authority`), so it selects
+  every label `installed_window_label` makes, for any app id and folder, and
+  no window of Epicenter's own.
+- Its `permissions` are the union of what any installed app's page calls: the
+  folder plugin and its change event; the folder's history (`status`,
+  `history`, `save_version`, `sync`); the recorder plugin,
+  which lists the microphones, reads one's level, and writes into the folder
+  the window was granted, asking macOS for microphone access before it opens
+  one (ADR-0543, ADR-0571); the opener's `allow-open-url`, scoped to
+  `x-apple.systempreferences:`, to open a privacy pane in System Settings
+  (ADR-0555);
+  `list_inference_models`, `transcribe_audio_bytes`, and
+  `get_local_transcription_readiness`, for transcription with the one active
+  local model (ADR-0180); `open_home`, to open Settings; `ai_send`,
+  `ai_key_set`, `ai_key_remove`, and `ai_key_state`, for AI connections
+  (ADR-0557); and `auth_status` and `account_send`, for who Epicenter is
+  signed in as and an account request such as Todos' `GET /api/repos`
+  (ADR-0558).
+- Approving an app trusts its code fully (ADR-0540), so this is wiring, not a
+  sandbox, and a per-app grant would protect nothing. A native feature an app
+  may use is one line in that file, and it reaches every app.
+- Native state an app owns, such as an overlay window or global shortcuts, is
+  created when the app's window opens, never at startup.
 
-Git never holds an Epicenter or GitHub credential. For each fetch or push the
-folder's owner asks the current Bun generation, on its own loopback listener
-with the launch token, for a relay (`src/account-git-relay.ts`): a capability
-path that forwards one service of one pairing revision through the boot
-Account. Git receives only the relay URL, under fixed controls: HTTP only, no
-hooks, fsmonitor, maintenance, proxy, or trace, and its destination pinned
-against URL rewrites. The relay URL is a capability while it lives: Git's
-output is redacted before any error, snapshot, or log reads it, naming the
-canonical repository instead. Redirects, session refusals, and connector refusals reach Git as a
-plain 502, so no credential helper or prompt runs. A cancel retires the relay
-before Git is stopped; completion and failure retire it too, and disposing the
-Account retires every relay at once. Only the original generation's own
-confirmation counts as a finished transfer: when retiring finds the relay
-already gone, sees a recorded refusal, or cannot reach that generation, a push
-Git completed is reported as unconfirmed (it may have landed; nothing is undone
-or retried) and a fetch is not reported as fetched. The relay's upstream fetch sets
-`keepalive: false`, which the Account passes to the underlying fetch even for
-a streamed body.
+Each kind of window has one capability file, and every file is `"local": true`
+because its page is served on the scheme: `folders.json`, `home.json`, and
+`installed-app.json`. A development build selects the same three.
 
-Bun discovers installed IDs once and names them in its versioned ready frame.
-Rust admits launches against that list and its matching launch token before
-registering a folder. Unknown IDs open nothing. Registrations survive Bun
-restarts for the native process's lifetime. Closing an installed app hides its
-window and keeps its drafts; host restart destroys its page. Installed apps do
-not yet enroll drafts in the full-quit departure flow.
+Whispering's page has no recording overlay and registers no global shortcuts,
+so neither is created or granted.
+Native dictation, which no page reaches, compiles only with the `dictation`
+Cargo feature, off by default: paste at the cursor and the keyboard supervisor
+that watches its Accessibility grant, pausing other apps' media,
+`prewarm_model`, the macOS overlay panel (`src-tauri/src/overlay.rs`), and the
+clipboard-manager plugin paste uses. The global-shortcut plugin is ADR-0555's
+plugin awaiting a grant; nothing uses it, so it is parked with the feature. A
+default build neither registers nor starts any of it and its generated
+bindings name none of it, because the page API only grows after the first
+release; it joins that API when a native API decision grants it (ADR-0555).
+There is no shell command for permissions: the recorder plugin asks for
+microphone access itself, and a page opens System Settings through the opener.
+Autostart is not registered; enabling it once on first run (ADR-0328) is
+unbuilt. Of the official plugins ADR-0555 lists, a default build registers the
+opener and grants a page only its System Settings URLs; the notification
+plugin is a dependency but stays unregistered until a capability grants it.
+
+## Quitting Epicenter
+
+Quitting is immediate
+([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+No window is asked, nothing is waited for, and no dialog appears. Every save
+is an atomic rename into the folder, a recording streams into its folder from
+the moment it starts, and a Whispering run writes its result row when it
+starts, so nothing finished lives only in a page. Text a person typed and did
+not submit is lost, as people expect.
+
+- **Every quit is the same.** The tray's Quit calls `app.exit`. AppKit's own
+  quits (the app menu's Quit and Cmd-Q, the Dock's Quit, logout, restart,
+  shutdown) end Tao's loop directly. Either way Tauri delivers `RunEvent::Exit`,
+  where the Folder plugin fences new work and releases each folder's lock.
+- **An account change restarts nothing.** The account is the CLI's desktop
+  grant (ADR-0556); a page that uses it reads it again when its window
+  regains focus.
+- **Closing a window hides it.** The built-in windows are hidden, not
+  destroyed, so their pages and folders stay open until Epicenter quits. An
+  installed app's window is destroyed when it closes.
 
 ## Build and verify
 
 ```bash
-# Build Home, every compiled application, and the Bun sidecar
+# Build Settings, the Folders window, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
 bun run --cwd apps/epicenter desktop:build
 
-# Package it for release, with Local Mail's Google client compiled in
-bun run --cwd apps/epicenter desktop:build:remote
-
-# Typecheck the host and Home
+# Typecheck Settings, the Folders window, and the build scripts
 bun run --cwd apps/epicenter typecheck
 
-# Typecheck the host, Home, Whispering, Capture, and Todos
-bun run --cwd apps/epicenter typecheck:desktop
-
-# Host, routing, sidecar, and window tests
+# Page builds, the epicenter binary, and window tests
 bun test apps/epicenter/scripts apps/epicenter/src
 
-# Native command and fixture tests
+# Native command, scheme, capability, and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 
-# The departure round alone, with no dependencies
-rustc --edition 2021 --test apps/epicenter/src-tauri/src/departure/machine.rs -o apps/epicenter/src-tauri/target/departure-machine
-apps/epicenter/src-tauri/target/departure-machine
-
-# Twenty real restarts through a granted relaunch, and two departure rounds
-# through Capture- and Todos-labelled windows, in an isolated profile
-bun apps/epicenter/scripts/native-runtime-evidence.ts
+# The same tests with the parked native dictation code compiled in
+cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml --features dictation
 ```
 
-The runtime harness proves what the mock-runtime tests cannot: the restart
-reaches Exit and the Folder plugin's shutdown; a page's first read carries the
-generation of every page load before it; a window-scoped listener hears only
-its own label's nudge; AppKit leaves both windows out of its Window list; a
-grant hides both windows as `is_visible` reports and refuses the Window-menu
-items, and its abort leaves a window the person had closed hidden; the
-dialog's discard path hides a silent page, which the Window menu then cannot
-show; and Bun's withdrawal restores both. On macOS every process installs the
-quit guard on Tao's delegate, and the last one leaves through `[NSApp
-terminate:]`: refused into a quit round that one page cancels with its draft
-intact, then agreed and left through one Exit. A separate process with no
-participant window terminates through AppKit with no exit request. It drives
-the rounds natively, not through Bun's `prepare-relaunch`, which the port and
-authority tests cover. It schedules `terminate:` on the main run loop, as
-AppKit's own quits arrive, rather than pressing anything; it does not prove that an
-in-flight Folder write drains, and does not press Cmd-Q, use the Dock or
-tray, log out, click the dialog, or check whether a hidden window can still
-take input.
-
-The root `bun typecheck` runs each workspace's checks, including the apps checked
-by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of
-the host with Whispering, Capture, and Todos.
+The root `bun typecheck` runs each workspace's checks. Installed apps, such as
+Whispering and Honeycrisp, are checked in their own folders.
 
 ## Ownership rules
 
-- `src-tauri` owns native commands, permissions, windows, deep links, and packaging.
-- `src` owns the Bun host, trusted route catalog, static-asset containment, and Home session.
+- `src-tauri` owns native commands, permissions, windows, deep links, the `epicenter-app` scheme that serves every page, and packaging.
+- `src` owns the Settings page and the Folders window's page. The CLI's commands live in `packages/cli`.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
 - A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.
 - Do not create `apps/epicenter/<app>` source copies. The build must consume the canonical app source directly.
 
-The durable host and trust decision is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md).
+The one trusted origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), and Rust serving it over the scheme in [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md).
 
 ## Shared AI connections
 
-Apps built for `epicenter-host` use one custom inference catalog per desktop
-profile. The host stores endpoint metadata in `ai/connections.json` under its
-resolved data directory and optional keys in the OS keychain. This configuration
-is shared across apps on that profile; it does not sync between devices or enter
-an application's store data.
-
-The `/_epicenter/ai` broker uses the existing browser session. Mutations also
-require the exact host Origin. Open apps receive committed snapshots over SSE;
-inference requests identify an immutable connection ID and captured access
-version. Apps receive `hasApiKey`, never the stored key. Their workflow choices
-remain separate. See the [App API](../../packages/app/README.md).
-
-Run `bun packages/app/scripts/shared-ai-catalog.native.mjs` from the repository
-root for native acceptance with two installed test applications. The runner
-uses a disposable profile and keychain service, restarts both native and Bun
-processes, and checks SSE recovery and request cancellation. See the
-[procedure and recorded evidence](../../packages/app/scripts/shared-ai-catalog-native/README.md)
-for build prerequisites and the scope of the fixture.
-Add `--whispering` with an existing speech fixture and cached model to verify
-the product's desktop picker, imported-audio transcription, and saved result
-after document reload.
+The shell keeps no AI connections and serves no `/_epicenter/ai` routes.
+[ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)
+makes each connection a row of a `connections` table in `so.epicenter`, keeps
+its key in this machine's keychain bound to the endpoint it was saved for, and
+sends every AI request through `epicenter send`. Check that record's Unbuilt
+line for what has landed.

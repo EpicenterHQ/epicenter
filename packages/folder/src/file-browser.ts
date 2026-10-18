@@ -1,10 +1,12 @@
-/** Pure file-browser mechanics over a folder listing and captured file bytes. */
+/** Pure file-browser mechanics over a folder listing and a file's bytes. */
 
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing } from './boundary.js';
-import type { TextCapture } from './capture.js';
 import type { FileError } from './errors.js';
 import type { FolderFiles } from './files.js';
+import { basename, dirname } from './paths.js';
+
+export { ancestors, basename, dirname } from './paths.js';
 
 export type TreeRow = {
 	path: string;
@@ -12,23 +14,8 @@ export type TreeRow = {
 	depth: number;
 } & ({ kind: 'directory'; children: number } | { kind: 'file'; size: number });
 
-export function basename(path: string): string {
-	return path.slice(path.lastIndexOf('/') + 1);
-}
-
-export function dirname(path: string): string {
-	const slash = path.lastIndexOf('/');
-	return slash < 0 ? '' : path.slice(0, slash);
-}
-
 export function joinPath(directory: string, name: string): string {
 	return directory === '' ? name : `${directory}/${name}`;
-}
-
-/** Every proper ancestor directory of a path, outermost first. */
-export function ancestorsOf(path: string): string[] {
-	const parts = path.split('/');
-	return parts.slice(1).map((_, index) => parts.slice(0, index + 1).join('/'));
 }
 
 const byName = (a: string, b: string) =>
@@ -98,36 +85,44 @@ export function visibleRows(
 }
 
 export type OpenedFile =
-	| { kind: 'text'; file: TextCapture }
+	/** The file's exact text, decoded from its whole bytes. */
+	| { kind: 'text'; text: string }
 	| { kind: 'binary'; size: number }
 	| { kind: 'tooLarge'; size: number };
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
+/** How large a file opens as text by default: 1 MiB. */
+const EDITABLE_TEXT_BYTES = 1024 * 1024;
+
 /**
- * Read a file for the editor. Only valid UTF-8 without NUL bytes opens as
- * text, and the decoded text keeps a byte order mark so a save writes the
- * same bytes back. The caller supplies its editing limit in bytes.
+ * A file's bytes as an editor opens them. Only valid UTF-8 without NUL
+ * bytes, and no larger than `maxBytes`, opens as text, and the decoded text
+ * keeps a byte order mark so a write sends the same bytes back.
  */
+export function openedFile(
+	bytes: Uint8Array,
+	maxBytes = EDITABLE_TEXT_BYTES,
+): OpenedFile {
+	if (bytes.byteLength > maxBytes)
+		return { kind: 'tooLarge', size: bytes.byteLength };
+	if (bytes.includes(0)) return { kind: 'binary', size: bytes.byteLength };
+	try {
+		return { kind: 'text', text: utf8.decode(bytes) };
+	} catch {
+		return { kind: 'binary', size: bytes.byteLength };
+	}
+}
+
+/** Read a file for the editor, as `openedFile` opens it. */
 export async function readTextFile(
 	files: Pick<FolderFiles, 'read'>,
 	path: string,
-	maxBytes: number,
+	maxBytes = EDITABLE_TEXT_BYTES,
 ): Promise<Result<OpenedFile, FileError>> {
-	const { data: file, error: readError } = await files.read(path);
-	if (readError !== null) return Err(readError);
-	const { bytes, sha256 } = file;
-	if (bytes.byteLength > maxBytes)
-		return Ok({ kind: 'tooLarge', size: bytes.byteLength });
-	if (bytes.includes(0)) return Ok({ kind: 'binary', size: bytes.byteLength });
-	try {
-		return Ok({
-			kind: 'text',
-			file: { path, text: utf8.decode(bytes), sha256 },
-		});
-	} catch {
-		return Ok({ kind: 'binary', size: bytes.byteLength });
-	}
+	const { data: file, error } = await files.read(path);
+	if (error !== null) return Err(error);
+	return Ok(openedFile(file.bytes, maxBytes));
 }
 
 /** Textareas report LF; keep the file's CRLF line endings when it uses them. */

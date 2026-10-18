@@ -1,0 +1,188 @@
+/**
+ * Check a data folder on disk: read it through `readFolder`, the same reading
+ * apps use, and sort what it reports into the files to fix and the files that
+ * could not be read (ADR-0520). `epicenter check` prints this; `epicenter
+ * query` projects the rows that conform and names the rest.
+ *
+ * Nothing executable is read and nothing is written.
+ */
+
+import { statSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
+import type { FileError } from './errors.js';
+import {
+	gitignoreMatcher,
+	misnamedRulesProblem,
+	readRules,
+} from './git/scope.js';
+import { rowPath } from './paths.js';
+import type { ProjectedTable } from './projection.js';
+import { type ReadFolderError, readFolder } from './read-folder.js';
+
+/**
+ * The authored TypeScript definition `generateDefinition` reads
+ * (ADR-0527). `checkFolder` only asks whether it exists; it never runs it.
+ */
+export const DEFINITION_SOURCE_PATH = 'epicenter.ts';
+
+/** One finding, located as precisely as the source allows. */
+export type Finding = {
+	path: string;
+	line?: number;
+	field?: string;
+	message: string;
+};
+
+/** One declared table, with its fields and the rows that conform, sorted by id. */
+export type CheckedTable = ProjectedTable & {
+	fields: { name: string; schema: object }[];
+	rows: {
+		id: string;
+		fields: Record<string, unknown>;
+		body: string;
+	}[];
+};
+
+/** What `checkFolder` found. */
+export type FolderCheck = {
+	tables: CheckedTable[];
+	/** The rows that conform, across every table. */
+	rows: number;
+	/**
+	 * Files to fix: a row that does not conform, bytes that are not UTF-8,
+	 * a path the folder cannot hold, such as a symbolic link, or a
+	 * `.gitignore` spelled in another case.
+	 */
+	invalid: Finding[];
+	/** Files that could not be read at all. */
+	unreadable: Finding[];
+	/** Whether the folder keeps the `epicenter.ts` its schemas are generated from. */
+	hasSource: boolean;
+};
+
+/** The fields of the folder package's read errors that a finding draws on. */
+type ReadError = {
+	name: string;
+	message: string;
+	reason?: string;
+	issues?: readonly Omit<Finding, 'path'>[];
+};
+
+/** Whether `path` is a file; only that is ever asked of `epicenter.ts` here. */
+function isFile(path: string) {
+	return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+}
+
+/** Whether `dir` holds an `epicenter.ts` to generate its definition from. */
+export function hasDefinitionSource(dir: string) {
+	return isFile(resolve(dir, DEFINITION_SOURCE_PATH));
+}
+
+/**
+ * Read the data folder at `dir` and sort what it reports. A folder with no
+ * table, or a table schema that cannot be used, is the error; a file that
+ * does not conform or cannot be read is a finding beside the others.
+ */
+export async function checkFolder(
+	dir: string,
+): Promise<Result<FolderCheck, ReadFolderError | FileError>> {
+	const { data: folder, error } = await readFolder(dir);
+	if (error !== null) return Err(error);
+	const invalid: Finding[] = [];
+	const unreadable: Finding[] = [];
+	function report(path: string, failure: ReadError) {
+		if (failure.issues)
+			for (const issue of failure.issues) invalid.push({ path, ...issue });
+		else if (failure.name === 'InvalidUtf8')
+			invalid.push({ path, message: 'The file is not valid UTF-8 text' });
+		else if (failure.name === 'InvalidPath')
+			invalid.push({
+				path,
+				message: `The path is not usable: ${failure.reason}`,
+			});
+		else if (failure.name === 'NotAFile')
+			invalid.push({ path, message: 'A row must be a file, not a directory' });
+		else unreadable.push({ path, message: failure.message });
+	}
+
+	// A `.gitignore` spelled in another case outside what the rules ignore,
+	// which commits and Sync refuse.
+	const storage = createDirectoryStorage({
+		root: await realpath(dir),
+		primitives: nodeDirectoryPrimitives,
+	});
+	const paths =
+		(await storage.list()).data?.files.map(({ path }) => path) ?? [];
+	const ignored = gitignoreMatcher(
+		await readRules(paths, new Set(), async (wanted) => {
+			const read = new Map<string, Uint8Array>();
+			for (const path of wanted) {
+				const { data } = await storage.read(path);
+				if (data) read.set(path, data.bytes);
+			}
+			return read;
+		}),
+	);
+	const misnamed = misnamedRulesProblem(paths.filter((path) => !ignored(path)));
+	for (const path of misnamed?.paths ?? [])
+		invalid.push({
+			path,
+			message: `A rule file must be named exactly .gitignore; rename ${path} to .gitignore`,
+		});
+
+	for (const { path, reason } of folder.problems)
+		invalid.push({
+			path,
+			message: `The table's schema cannot be used: ${reason}`,
+		});
+	for (const path of folder.notRows)
+		invalid.push({
+			path,
+			message:
+				"Not a row: a row's file is an id that is not empty and does not start with a dot, then exactly .md",
+		});
+
+	const tables: CheckedTable[] = [];
+	for (const [name, listed] of Object.entries(folder.tables)) {
+		const table: CheckedTable = {
+			name,
+			fields: Object.entries(folder.definition.tables[name]?.fields ?? {}).map(
+				([field, schema]) => ({ name: field, schema }),
+			),
+			rows: [],
+		};
+		tables.push(table);
+		if (listed.error !== null) {
+			report(name, listed.error);
+			continue;
+		}
+		// A listing has no promised order; sorting keeps output stable.
+		for (const { stem, result } of [...listed.data].sort((a, b) =>
+			a.stem < b.stem ? -1 : a.stem > b.stem ? 1 : 0,
+		)) {
+			if (result.error !== null) report(rowPath(name, stem), result.error);
+			else
+				table.rows.push({
+					id: stem,
+					fields: result.data.row.fields,
+					body: result.data.row.body,
+				});
+		}
+	}
+	return Ok({
+		tables,
+		rows: tables.reduce((sum, table) => sum + table.rows.length, 0),
+		invalid,
+		unreadable,
+		hasSource: hasDefinitionSource(dir),
+	});
+}
+
+/** Each file `check` reported, once, in the order reported: what `query` leaves out. */
+export function excludedFiles({ invalid, unreadable }: FolderCheck) {
+	return [...new Set([...unreadable, ...invalid].map(({ path }) => path))];
+}

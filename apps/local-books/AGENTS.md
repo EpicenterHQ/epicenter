@@ -43,6 +43,7 @@ Sync mode is chosen from stored state: `--full` / no cursor / cursor older than 
 - `LOCAL_BOOKS_TOKEN_FILE` — override the token file path (default `<app-dir>/credentials.json`). Used by the test harness and any custom location. The `0600` file store works the same on a desktop, a headless server, an SSH session, and CI, which is what a headless-first tool needs. See ADR-0062.
 - `LOCAL_BOOKS_READ_ONLY` — reads only: `query` and `report` stay available, `recategorize` is refused. Whether you run the verbs yourself or hand the mirror artifact to an agent.
 - Base-URL overrides (`LOCAL_BOOKS_QB_API_BASE`, `_TOKEN_URL`, `_AUTHORIZE_URL`) point the client at a mock server for tests.
+- `<app-dir>/config.json` is optional. When it is there, it is read whole or the command stops with `error: <path>: <field> <problem>`; a field that does not read never drops the file for defaults, because `readOnly` is one of its fields.
 
 ## Capabilities (verbs over the local copy)
 

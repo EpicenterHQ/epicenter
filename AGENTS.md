@@ -1,6 +1,6 @@
 # Epicenter
 
-Local-first personal data platform. Monorepo with Yjs CRDTs and Svelte UI.
+Local-first personal data platform. Monorepo of apps over Git-backed data folders, with Svelte UI.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` describes application composition; package

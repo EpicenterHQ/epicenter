@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-grant-directory"
+description = "Enables the grant_directory command without any pre-configured scope."
+commands.allow = ["grant_directory"]
+
+[[permission]]
+identifier = "deny-grant-directory"
+description = "Denies the grant_directory command without any pre-configured scope."
+commands.deny = ["grant_directory"]

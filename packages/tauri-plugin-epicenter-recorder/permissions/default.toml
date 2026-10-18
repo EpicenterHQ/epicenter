@@ -1,0 +1,16 @@
+"$schema" = "schemas/schema.json"
+
+# Granting this to a window lets it record into a folder the folder plugin
+# granted it. It does not choose a folder: a window reaches only the scopes
+# the shell registered for its label.
+[default]
+description = "List the microphones and read one's level, record from a microphone into a folder this window was granted, stop or cancel that recording, and repair recordings a quit cut off."
+permissions = [
+  "allow-inputs",
+  "allow-open-meter",
+  "allow-close-meter",
+  "allow-start",
+  "allow-stop",
+  "allow-cancel",
+  "allow-recover",
+]

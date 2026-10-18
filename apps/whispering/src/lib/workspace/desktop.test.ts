@@ -1,292 +1,304 @@
 /**
- * Opening a workspace, and the desktop workspace over a shell and a host that
- * refuse or fail.
+ * Opening a workspace, and the desktop workspace: Whispering installed in
+ * Epicenter.
  *
- * The shell's replies and the host's answers are scripted here, so these pin
- * what the page itself decides: which storage it asks for, that it names a
- * folder and never a path, that a refusal from either side is returned and
- * nothing else is opened in its place, that the folder's calls go to the
- * shell and not to the host, and how the close question reaches the page.
- * Nothing here runs the Rust owner or a WebView; `packages/folder` tests the
- * adapter against the real owner.
+ * The shell's replies are scripted here, so these pin what the page itself
+ * decides: that the browser workspace refuses inside a desktop app, that it
+ * names a folder and never a path, that a refusal is returned and nothing else is opened in its place,
+ * and that the folder's changes go to the shell. The shell grants a real
+ * directory, and the page's own folder engine opens it
+ * (`granted-shell.test-support.ts` in the folder package); nothing here runs the Rust shell or a
+ * WebView.
  *
- * Where a test is about what the host really does (answering a close, calling
- * an endpoint before its reply is lost), the host is the real one over its
- * real request handler and a real directory, with a stubbed endpoint.
+ * The connections are rows of a real `so.epicenter` folder on disk, opened
+ * through `connectionsDefinition`. The AI commands are scripted with the code the
+ * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
+ * a stubbed endpoint, so a test about a key or a request runs against what
+ * the CLI really checks and sends.
+ * Local transcription answers with scripted shell commands.
  */
-import '../svelte-modules.test-support.js';
-import { afterEach, expect, mock, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsDefinition,
+} from '@epicenter/ai/connection-table';
+import {
+	base64ToBytes,
+	createMemorySecrets,
+	keyState,
+	responseEvents,
+	saveKey,
+	sendRequest,
+} from '@epicenter/ai/send';
+import { isStoredRow } from '@epicenter/folder';
+import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { GitSnapshot } from '../../../../../packages/folder/src/native/bindings.gen.js';
-import { createHost, type HostOptions } from '../../../native/host.js';
-import { encode } from '../bridge/codec.js';
+import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
+import {
+	createGrantedShell,
+	type GrantedShell,
+	grantedDirectory,
+	shellArguments,
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
 import { toneWav } from '../capture.js';
+import type { ConnectionCommands } from './desktop-connections.js';
+import type { LocalTranscriptionCommands } from './local-transcription.js';
+import { WHISPERING_FOLDER_ID } from './types.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
 let inShell = true;
+/** Every command the page sent the shell. */
 let calls: Call[] = [];
-/** The shell's replies by command. A reply that throws is a refusal. */
-let replies: Record<string, (call: Call) => unknown> = {};
-const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
+/** The shell, once a test has one grant a directory. */
+let shell: GrantedShell | undefined;
 
 mock.module('@tauri-apps/api/core', () => ({
+	// What Epicenter's generated bindings import beside `invoke`; nothing here
+	// listens for an event or opens a channel.
+	transformCallback: () => 0,
+	Channel: class {},
 	isTauri: () => inShell,
-	async invoke(cmd: string, args: Record<string, unknown> = {}) {
+	async invoke(
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
-		calls.push({ cmd: name, args });
-		const reply = replies[name];
-		if (reply === undefined) throw new Error(`no scripted reply for ${name}`);
-		return reply({ cmd: name, args });
-	},
-}));
-mock.module('@tauri-apps/api/event', () => ({
-	async listen(name: string, callback: (event: { payload: unknown }) => void) {
-		const set = listeners.get(name) ?? new Set();
-		listeners.set(name, set);
-		set.add(callback);
-		return () => set.delete(callback);
+		calls.push({ cmd: name, args: shellArguments(body, options) });
+		if (shell === undefined) throw new Error(`no shell for ${name}`);
+		return shell.invoke(cmd, body, options);
 	},
 }));
 
-const { openWorkspace } = await import('./index.js');
-const { openBrowserWorkspace } = await import('./browser.js');
+const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace } = await import('./desktop.js');
-const { mountSession } = await import('../session.svelte.ts');
-const { createRowSession } = await import('@epicenter/svelte/edit-session');
 
-const ROOT = '/Users/someone/Epicenter/local/so.epicenter.whispering';
+const ORIGIN = 'epicenter-app://localhost';
 const SCOPE = 'so.epicenter.whispering';
-const CONNECTION = { origin: 'http://127.0.0.1:4999', token: 'test-token' };
+const ENDPOINT = 'http://127.0.0.1:18080/v1';
 
-const snapshot = () =>
-	({
-		branch: 'main',
-		remote: null,
-		pendingIncoming: null,
-		files: { state: 'unknown', error: null },
-		sync: { state: 'unknown', error: null },
-		activity: {
-			scan: { active: false },
-			commit: { active: false },
-			push: { active: false },
-			fetch: { active: false },
-			pull: { active: false },
-			merge: { active: false },
-		},
-		lastCommit: null,
-		lastPush: null,
-		lastFetch: null,
-		lastPull: null,
-		lastMerge: null,
-		closed: false,
-	}) satisfies GitSnapshot;
-
-/** A shell whose owner has the folder registered for this window. */
-function attachable(root = ROOT) {
-	replies = {
-		attach: () => ({ session: 7, root, sequence: 3, snapshot: snapshot() }),
-		detach: () => null,
-	};
-}
-
-const sent = (cmd: string) => calls.filter((call) => call.cmd === cmd);
-const answer = (ok: unknown) => Response.json({ ok: encode(ok) });
-const info = (overrides: Record<string, unknown> = {}) => ({
-	root: ROOT,
-	shell: '/bin/sh',
-	debug: false,
-	fixture: null,
-	fixtureRefused: false,
-	defaults: {
-		transcription: { baseUrl: 'u', model: 'm' },
-		text: { baseUrl: 'u', model: '' },
-	},
-	...overrides,
+const gitConfig = {
+	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+};
+beforeAll(() => {
+	// No Git identity of this machine's user: the shell's author is the fallback.
+	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+	process.env.GIT_CONFIG_NOSYSTEM = '1';
+});
+afterAll(() => {
+	for (const [key, value] of Object.entries(gitConfig))
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
 });
 
-type HostCall = { op: string; payload: unknown };
-
-/**
- * A host whose operations are scripted. Its event streams stay open until
- * ended by the test, and each one is handed over so a test can write to it.
- */
-function host(
-	operations: Record<string, (payload: unknown) => unknown> = {},
-	hostInfo = info(),
-) {
-	const requested: string[] = [];
-	const operationsAsked: HostCall[] = [];
-	const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
-	const fetch = async (input: string, init?: RequestInit) => {
-		const path = new URL(input).pathname;
-		requested.push(path);
-		if (path === '/bridge/events')
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					start(controller) {
-						streams.push(controller);
-					},
-				}),
-			);
-		const body = JSON.parse(String(init?.body)) as HostCall;
-		operationsAsked.push(body);
-		if (body.op === 'info') return answer(hostInfo);
-		const operation = operations[body.op];
-		if (operation === undefined)
-			return Response.json({ fault: 'unexpected call' }, { status: 500 });
-		return answer(await operation(body.payload));
-	};
-	return {
-		fetch,
-		requested,
-		operationsAsked,
-		streams,
-		say(event: unknown, stream = streams.at(-1)) {
-			stream?.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
-		},
-	};
-}
-
-const settle = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const cleanups: (() => Promise<void> | void)[] = [];
-const pageFetch = globalThis.fetch;
 
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
-	globalThis.fetch = pageFetch;
 	inShell = true;
 	calls = [];
-	replies = {};
-	listeners.clear();
-	const scope = globalThis as { window?: unknown; location?: unknown };
-	delete scope.window;
+	shell = undefined;
+	const scope = globalThis as { location?: unknown; localStorage?: unknown };
 	delete scope.location;
+	delete scope.localStorage;
 });
 
-/**
- * The globals the page has when a shell did, or did not, inject the host's
- * token: the token, the page's origin, the shell's page events, and where the
- * page was told to navigate.
- */
-function setup(
-	{ bridge }: { bridge: { token: string } | undefined } = {
-		bridge: { token: CONNECTION.token },
-	},
-) {
-	const scope = globalThis as { window?: unknown; location?: unknown };
-	const events = new EventTarget();
-	const navigations: string[] = [];
-	const listening = new Set<EventListener>();
-	scope.window = {
-		__WHISPERING_BRIDGE__: bridge,
-		addEventListener(type: string, listener: EventListener) {
-			listening.add(listener);
-			events.addEventListener(type, listener);
-		},
-		removeEventListener(type: string, listener: EventListener) {
-			listening.delete(listener);
-			events.removeEventListener(type, listener);
-		},
-		location: { assign: (url: string) => navigations.push(url) },
-	};
-	scope.location = { origin: CONNECTION.origin };
-	return {
-		navigations,
-		/** How many page-event listeners are attached now. */
-		get listening() {
-			return listening.size;
-		},
-		/** What the shell does when a close is attempted and its host is gone. */
-		closeBlocked: () =>
-			events.dispatchEvent(new Event('whispering:close-blocked')),
-	};
+/** A shell that grants this window a new empty directory. */
+async function granted() {
+	const directory = await grantedDirectory();
+	cleanups.push(() => rm(directory, { recursive: true, force: true }));
+	// The window runs Whispering on its own folder.
+	shell = createGrantedShell(directory, {
+		app: WHISPERING_FOLDER_ID,
+		folder: WHISPERING_FOLDER_ID,
+	});
+	// The recorder plugin beside the folder: no recording was ever cut off
+	// here, so there is nothing to repair.
+	const folderCommands = shell.invoke;
+	shell.invoke = async (cmd, body, options) =>
+		cmd === 'plugin:epicenter-recorder|recover'
+			? []
+			: folderCommands(cmd, body, options);
+	return shell;
 }
 
+/** The globals a page served by Epicenter has: its origin, and the origin's storage. */
+function setup(stored = new Map<string, string>()) {
+	Object.defineProperty(globalThis, 'location', {
+		configurable: true,
+		value: new URL(`${ORIGIN}/apps/so.epicenter.whispering/`),
+	});
+	Object.defineProperty(globalThis, 'localStorage', {
+		configurable: true,
+		value: {
+			getItem: (key: string) => stored.get(key) ?? null,
+			setItem: (key: string, value: string) => void stored.set(key, value),
+			removeItem: (key: string) => void stored.delete(key),
+		},
+	});
+	return stored;
+}
+
+const sent = (cmd: string) => calls.filter((call) => call.cmd === cmd);
+
+const unexpected = () => {
+	throw new Error('unexpected command');
+};
+/** Shell commands nobody should reach: local transcription is not under test. */
+const noCommands: LocalTranscriptionCommands = {
+	getLocalTranscriptionReadiness: unexpected,
+	listInferenceModels: unexpected,
+	transcribeAudioBytes: unexpected,
+	openHome: unexpected,
+};
+
+/** A provider's request, as the stubbed endpoint received it. */
+type ProviderCall = {
+	url: string;
+	authorization: string | null;
+	cookie: string | null;
+	body: Request;
+};
+
 /**
- * The real host over a real directory, reached through its own request
- * handler. `approvals` counts the line it would print to let the shell close.
+ * Epicenter as Whispering's connections reach it: a real `so.epicenter`
+ * folder on disk, and the AI commands answered by the code `epicenter send`
+ * and `epicenter auth key` run, over an in-memory keychain and an endpoint
+ * that answers every request. `keychain` is what the CLI would hold; the
+ * page is never handed it.
  */
-async function realHost(overrides: Partial<HostOptions> = {}) {
-	const directory = await realpath(
-		await mkdtemp(join(tmpdir(), 'whispering-desktop-')),
+async function epicenter() {
+	// Epicenter's own folder, named after it, where the CLI publishes.
+	const root = join(
+		await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-')),
+		CONNECTIONS_FOLDER_ID,
 	);
-	const root = join(directory, 'data');
 	await mkdir(root);
-	let approvals = 0;
-	const served = await createHost({
-		root,
-		token: CONNECTION.token,
-		uiDist: undefined,
-		debug: false,
-		fixturePath: undefined,
-		env: {},
-		log: () => {},
-		onCloseApproved: () => {
-			approvals += 1;
+	const keychain = createMemorySecrets();
+	const provider: ProviderCall[] = [];
+	/** Every line the page was sent. */
+	const lines: string[] = [];
+	let losing = false;
+	const endpoint = (async (
+		input: URL | string | Request,
+		init?: RequestInit,
+	) => {
+		const request = new Request(input, init);
+		provider.push({
+			url: request.url,
+			authorization: request.headers.get('authorization'),
+			cookie: request.headers.get('cookie'),
+			body: request,
+		});
+		if (request.url.endsWith('/audio/transcriptions'))
+			return Response.json({ text: 'a steady tone' });
+		return Response.json({
+			choices: [{ message: { role: 'assistant', content: 'A steady tone.' } }],
+		});
+	}) as typeof fetch;
+	const ai: ConnectionCommands = {
+		async authStatus() {
+			return {
+				status: 'ok',
+				data: { origin: 'https://api.example.test', grants: [] },
+				error: null,
+			};
 		},
-		...overrides,
-	});
-	served.listening(4999);
-	cleanups.push(async () => {
-		await served.close();
-		await rm(directory, { recursive: true, force: true });
-	});
+		async aiKeyState(connection) {
+			const { data, error } = await keyState(keychain, connection);
+			return error === null
+				? { status: 'ok', data, error: null }
+				: {
+						status: 'error',
+						data: null,
+						error: { name: 'Refused', message: error.message },
+					};
+		},
+		async aiKeySet(connection, url, key) {
+			const { data, error } = await saveKey(keychain, connection, {
+				endpoint: url,
+				key,
+			});
+			return error === null
+				? { status: 'ok', data, error: null }
+				: {
+						status: 'error',
+						data: null,
+						error: { name: 'Refused', message: error.message },
+					};
+		},
+		async aiSend(target, request, channel) {
+			const deliver = (line: string) => {
+				lines.push(line);
+				channel.onmessage(line);
+			};
+			const { data: response, error } = await sendRequest({
+				target,
+				request: {
+					...request,
+					body: request.body === null ? undefined : base64ToBytes(request.body),
+				},
+				secrets: keychain,
+				fetch: endpoint,
+			});
+			// The CLI sent it and got an answer; the answer is lost on its way back.
+			if (losing) throw new Error('Load failed');
+			if (error !== null)
+				deliver(
+					JSON.stringify({
+						type: 'error',
+						name: error.name,
+						message: error.message,
+					}),
+				);
+			else
+				for await (const event of responseEvents(response))
+					deliver(JSON.stringify(event));
+			const exit = { code: error === null ? 0 : 2, stderr: '' };
+			deliver(JSON.stringify({ type: 'exit', ...exit }));
+			return { status: 'ok', data: { ...exit, reply: null }, error: null };
+		},
+	} as ConnectionCommands;
+	cleanups.push(() => rm(dirname(root), { recursive: true, force: true }));
 	return {
 		root,
-		host: served,
-		fetch: (input: string, init?: RequestInit) =>
-			served.handle(new Request(input, init)),
-		get approvals() {
-			return approvals;
+		keychain,
+		provider,
+		lines,
+		ai,
+		open: () =>
+			openBunFolder({
+				root,
+				app: CONNECTIONS_FOLDER_ID,
+				definition: connectionsDefinition,
+				git: { author: { name: 'Test', email: 'test@localhost' } },
+			}),
+		lose(next: boolean) {
+			losing = next;
 		},
 	};
 }
 
-/** Wait for something another task does, without guessing how long it takes. */
-async function until(condition: () => boolean, what: string) {
-	for (let waited = 0; waited < 300; waited++) {
-		if (condition()) return;
-		await settle(10);
-	}
-	throw new Error(`timed out waiting for ${what}`);
-}
+type Epicenter = Awaited<ReturnType<typeof epicenter>>;
+
+/** The desktop workspace over `host`'s connections. */
+const openWith = (host: Epicenter) =>
+	openDesktopWorkspace({
+		commands: noCommands,
+		connectionCommands: host.ai,
+		openConnectionsFolder: host.open,
+	});
 
 // ============================================================================
-// Which storage is asked for
+// The browser workspace inside a desktop app
 // ============================================================================
-
-test('inside a desktop app with no Whispering host, nothing is opened: no folder, no host call, no browser storage', async () => {
-	setup({ bridge: undefined });
-	attachable();
-
-	const refused = expectErr(await openWorkspace());
-
-	expect(refused.name).toBe('HostMissing');
-	expect(refused.message).toContain('browser storage is not used');
-	// A folder the shell would have attached is not a reason to open half an app.
-	expect(calls).toEqual([]);
-	expect(listeners.size).toBe(0);
-});
-
-test('a host token does not make a browser tab the desktop app', async () => {
-	inShell = false;
-	setup({ bridge: { token: 'left-over-token' } });
-
-	const refused = expectErr(await openWorkspace());
-
-	// The tab asked for browser storage, which this process does not have, and
-	// never asked a shell for anything.
-	expect(refused.name).toBe('BrowserFolder');
-	if (refused.name === 'BrowserFolder')
-		expect(refused.refusal.name).toBe('NoFileSystem');
-	expect(calls).toEqual([]);
-});
 
 test('a browser folder that is refused is returned as that refusal', async () => {
 	setup();
@@ -312,70 +324,80 @@ test('a browser folder that is refused is returned as that refusal', async () =>
 // Opening
 // ============================================================================
 
-test('a host that does not answer is the refusal, and the shell is not asked for a folder', async () => {
+test("opening Whispering's own folder ignores audio before any recording can start", async () => {
 	setup();
-	attachable();
-	const requested: string[] = [];
-
-	const refused = expectErr(
-		await openDesktopWorkspace({
-			...CONNECTION,
-			fetch: async (input) => {
-				requested.push(new URL(input).pathname);
-				throw new TypeError('Load failed');
-			},
-		}),
+	const granting = await granted();
+	const { root } = granting;
+	/** Whether `.gitignore` named the audio when the shell was asked to record. */
+	const atStart: (string | undefined)[] = [];
+	const invoke = granting.invoke;
+	granting.invoke = async (cmd, body, options) => {
+		if (cmd === 'plugin:epicenter-recorder|start') {
+			atStart.push(
+				await readFile(join(root, '.gitignore'), 'utf8').catch(() => undefined),
+			);
+			throw { name: 'Failed', message: 'no microphone in a test' };
+		}
+		return invoke(cmd, body, options);
+	};
+	const workspace = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
 	);
-
-	expect(refused.name).toBe('HostUnreachable');
-	expect(refused.message).toContain('Load failed');
-	// One request to the host, nothing after it, and no attach.
-	expect(requested).toEqual(['/bridge/app']);
-	expect(calls).toEqual([]);
+	try {
+		await workspace.capture.start({
+			folder: { id: workspace.folderId, write: workspace.folder.write },
+			path: 'audio/first',
+		});
+		expect(atStart).toEqual(['audio/\n']);
+	} finally {
+		await workspace.close();
+	}
 });
 
-test('the page names the folder by its ID and nothing else, and shows the directory the owner reports', async () => {
+test('the page names the folder by its ID and nothing else, and opens the directory the shell grants', async () => {
 	setup();
-	attachable();
-	const served = host();
+	const { root } = await granted();
 
 	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+		await openDesktopWorkspace({ commands: noCommands }),
 	);
 
-	// No root, author, remote, or policy: the shell decided all of them.
-	expect(sent('attach')).toHaveLength(1);
-	expect(sent('attach')[0]?.args).toEqual({
-		scope: SCOPE,
-		protocol: expect.any(Number),
-	});
-	expect(workspace.kind).toBe('native');
-	expect(workspace.location).toBe(ROOT);
+	// The window's folder comes from the shell, and then no root, author, or
+	// branch: the shell decided all of them.
+	expect(calls.slice(0, 2)).toEqual([
+		{ cmd: 'window_folder', args: {} },
+		{ cmd: 'grant_directory', args: { scope: SCOPE } },
+	]);
+	expect(sent('grant_directory')).toHaveLength(1);
+	// Everything after the grant names the folder, never another.
+	for (const call of calls.slice(2)) expect(call.args.scope).toBe(SCOPE);
+	expect(workspace.location).toBe(root);
 	expect(workspace.folder.git.snapshot.branch).toBe('main');
+	// Opening made no repository, only the .gitignore lines that keep audio
+	// here; the first commit records them and makes it.
+	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(false);
+	expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('audio/\n');
+	expect((await workspace.folder.git.commit()).status).toBe('committed');
+	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
+	expect(workspace.capture.source).toBe('microphone');
 	await workspace.close();
-	expect(sent('detach')).toEqual([{ cmd: 'detach', args: { session: 7 } }]);
 });
 
-test('a refusal from the shell’s owner is returned, and nothing is opened in its place', async () => {
+test('a refusal from the shell is returned, and nothing is opened in its place', async () => {
 	setup();
 	for (const refusal of [
 		{ name: 'UnknownScope', scope: SCOPE },
 		{ name: 'WindowNotPermitted', scope: SCOPE, window: 'other' },
-		{ name: 'Busy', root: ROOT },
-		{ name: 'Incompatible', host: 9, page: 2 },
 		// What Tauri answers a window with no capability for the plugin.
-		'epicenter-folder.attach not allowed',
+		'epicenter-folder.grant_directory not allowed',
 	]) {
 		calls = [];
-		replies = {
-			attach: () => {
-				throw refusal;
-			},
+		(await granted()).control.grant = () => {
+			throw refusal;
 		};
-		const served = host();
 
 		const refused = expectErr(
-			await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+			await openDesktopWorkspace({ commands: noCommands }),
 		);
 
 		expect(refused.name).toBe('DesktopFolder');
@@ -383,851 +405,323 @@ test('a refusal from the shell’s owner is returned, and nothing is opened in i
 			expect<string>(refused.refusal.name).toBe(
 				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
 			);
-		// One attempt, no event stream, no later host call.
-		expect(calls.map((call) => call.cmd)).toEqual(['attach']);
-		expect(served.requested).toEqual(['/bridge/app']);
-		expect([...listeners.values()].every((set) => set.size === 0)).toBe(true);
+		expect(calls.map((call) => call.cmd)).toEqual([
+			'window_folder',
+			'grant_directory',
+		]);
 	}
-});
-
-test('a host that uses another directory than the owner’s is refused, and the window detaches', async () => {
-	setup();
-	attachable('/Users/someone/elsewhere');
-	const served = host();
-
-	const refused = expectErr(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-
-	expect(refused.name).toBe('FolderMismatch');
-	expect(refused.message).toContain('/Users/someone/elsewhere');
-	expect(refused.message).toContain(ROOT);
-	// Attaching publishes the folder's definition; nothing else reaches the owner.
-	expect(
-		calls.map((call) => call.cmd).filter((cmd) => cmd !== 'apply'),
-	).toEqual(['attach', 'detach']);
-	expect(served.requested).toEqual(['/bridge/app']);
 });
 
 // ============================================================================
 // The folder is the shell's
 // ============================================================================
 
-test('saves and history go to the shell’s owner and never to the host', async () => {
+test('opening repairs the recordings a quit cut off, and a repair that fails is the capture notice', async () => {
 	setup();
-	attachable();
-	Object.assign(replies, {
-		apply: () => null,
-		commit: () => ({ status: 'unchanged', head: null, indexWarning: null }),
-		read: () => {
-			throw { name: 'NotFound', path: 'notes.md' };
-		},
-	});
-	const served = host();
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	const audio = new Uint8Array([1, 2, 3]);
+	const granting = await granted();
+	const invoke = granting.invoke;
+	const asked: Record<string, unknown>[] = [];
+	let refuse = false;
+	granting.invoke = async (cmd, body, options) => {
+		if (cmd !== 'plugin:epicenter-recorder|recover')
+			return invoke(cmd, body, options);
+		asked.push(shellArguments(body, options));
+		if (refuse) throw { name: 'Failed', message: 'the disk is gone' };
+		return [];
+	};
 
-	// Each write is the shared adapter's own call: one `apply` apiece, in order.
-	expectOk(await workspace.folder.files.create('recordings/a.wav', audio));
-	expectOk(await workspace.folder.files.create('notes.md', 'hello'));
-	expect((await workspace.folder.git.commit()).status).toBe('unchanged');
-	const { error: readError } = await workspace.folder.files.read('notes.md');
+	const repaired = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
+	);
+	expect(asked).toEqual([{ scope: repaired.folderId, under: 'audio' }]);
+	expect(repaired.captureNotice).toBeUndefined();
+	await repaired.close();
+
+	refuse = true;
+	const unrepaired = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
+	);
+	expect(unrepaired.captureNotice).toContain('could not be checked');
+	expect(unrepaired.captureNotice).toContain('the disk is gone');
+	await unrepaired.close();
+});
+
+test('saves and history go through the shell', async () => {
+	setup();
+	const { root } = await granted();
+	const workspace = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
+	);
+	const audio = new Uint8Array([1, 2, 3, 0, 255]);
+
+	expectOk(await workspace.folder.write('audio/a.wav', null, audio));
+	expectOk(await workspace.folder.write('notes.md', null, 'hello'));
+	expect((await workspace.folder.git.commit()).status).toBe('committed');
+	const { error: readError } = await workspace.folder.files.read('missing.md');
 	expect(readError?.name).toBe('NotFound');
 
-	expect(
-		sent('apply')
-			.map((call) =>
-				(call.args.changes as { path: string }[]).map((change) => change.path),
-			)
-			// Attaching publishes the folder's definition first.
-			.filter((paths) => !paths.includes('epicenter.json')),
-	).toEqual([['recordings/a.wav'], ['notes.md']]);
-	expect(sent('commit')).toHaveLength(1);
-	// The host was asked who it is, and for its event stream. Nothing else.
-	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
-	expect(new Set(served.requested)).toEqual(
-		new Set(['/bridge/app', '/bridge/events']),
+	// The recording's bytes reach the shell as a raw body, in the one call
+	// that puts them at their path, and land exactly.
+	const put = sent('put_folder_file').find(
+		(call) => call.args.path === 'audio/a.wav',
 	);
+	expect(put?.args.bytes).toEqual(audio);
+	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
+		audio,
+	);
+	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await workspace.close();
 });
 
-test('a row save whose reply the shell never sent stays unknown, and later input starts another save', async () => {
+test('a version is recorded as the person Git’s configuration names, and as Epicenter only when none is set', async () => {
 	setup();
-	attachable();
-	const disk = new Map<string, Uint8Array>([
-		[
-			'transformations/clean.md',
-			new TextEncoder().encode(
-				'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
-			),
-		],
-	]);
-	const written: string[] = [];
-	let loseReplies = false;
-	Object.assign(replies, {
-		// While replies are lost, the owner cannot be asked what landed either.
-		read: ({ args }: Call) => {
-			if (loseReplies) throw 'the reply was lost';
-			const bytes = disk.get(String(args.path));
-			if (bytes === undefined) throw { name: 'NotFound', path: args.path };
-			return {
-				bytes: [...bytes],
-				sha256: createHash('sha256').update(bytes).digest('hex'),
-			};
-		},
-		// The owner writes, and the reply never reaches the page.
-		apply: ({ args }: Call) => {
-			for (const change of args.changes as {
-				path: string;
-				bytes: number[];
-			}[]) {
-				disk.set(change.path, Uint8Array.from(change.bytes));
-				written.push(new TextDecoder().decode(Uint8Array.from(change.bytes)));
-			}
-			if (loseReplies) throw 'the reply was lost';
-			return null;
-		},
-	});
-	const served = host();
+	const { root } = await granted();
+	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
+	expectOk(await first.folder.write('notes.md', null, 'first'));
+	expect((await first.folder.git.commit()).status).toBe('committed');
+	await first.close();
+	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
+		'Epicenter <epicenter@localhost>',
+	);
+
+	// The person sets who they are; the next opening records versions as them.
+	await git(root, 'config', 'user.name', 'Someone');
+	await git(root, 'config', 'user.email', 'someone@example.test');
+	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
+	expectOk(await second.folder.write('notes-2.md', null, 'second'));
+	expect((await second.folder.git.commit()).status).toBe('committed');
+	await second.close();
+	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
+		'Someone <someone@example.test>',
+	);
+});
+
+test('a row write whose reply the shell never sent is confirmed by what landed, and is unknown, not refused, when that cannot be read', async () => {
+	setup();
+	const granting = await granted();
+	const PATH = 'transformations/clean.md';
+	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
 	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+		await openDesktopWorkspace({ commands: noCommands }),
 	);
 	const table = workspace.folder.tables.transformations;
-	const session = createRowSession(table, expectOk(await table.get('clean'))!);
-	// From here the owner writes, and its replies never reach the page.
-	written.length = 0;
-	loseReplies = true;
-	const lost = async () => {
-		const state = await session.settled();
-		return state.status === 'error' ? state.error : undefined;
-	};
+	const stored = expectOk(await table.get('clean'))!;
 
-	session.edit((row) => {
-		row.body = 'Tidy it.\n';
-	});
-	expect(await lost()).toMatchObject({
-		name: 'Unconfirmed',
-		message: expect.stringContaining('the reply was lost'),
-	});
-	expect(written).toHaveLength(1);
-
-	// Later input starts another write, whose reply is lost too.
-	session.edit((row) => {
-		row.body = 'Tidy it more.\n';
-	});
-	expect(session.draft.body).toBe('Tidy it more.\n');
-	expect((await lost())?.name).toBe('Unconfirmed');
-	expect(written).toHaveLength(2);
-
-	// Saving again is the person's choice, and writes the latest input; its
-	// own reply confirms it.
-	loseReplies = false;
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(written).toHaveLength(3);
-	expect(written[2]).toContain('Tidy it more.');
-
-	session.release();
-	await workspace.close();
-});
-
-// ============================================================================
-// The close question
-// ============================================================================
-
-test('a close question reaches the page from the host’s stream, across a reconnect, and one that came early is not lost', async () => {
-	setup();
-	attachable();
-	const served = host({ close: () => ({ closing: false }) });
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	await settle();
-	expect(served.streams).toHaveLength(1);
-
-	// Asked before the session's guard was listening: kept for it.
-	served.say({ type: 'close-requested' });
-	await settle();
-	let asked = 0;
-	const stop = workspace.closing!.onRequest(() => {
-		asked += 1;
-	});
-	expect(asked).toBe(1);
-
-	served.say({ type: 'ping' });
-	served.say({ type: 'close-requested' });
-	await settle();
-	expect(asked).toBe(2);
-
-	// The stream drops. The workspace connects again by itself, and the host
-	// repeats an unanswered question on the new stream.
-	served.streams[0]?.close();
-	await settle(650);
-	expect(served.streams).toHaveLength(2);
-	served.say({ type: 'close-requested' });
-	await settle();
-	expect(asked).toBe(3);
-
-	// The answer is an ordinary authenticated call to the host.
-	await workspace.closing!.answer('cancel');
-	expect(served.operationsAsked.at(-1)).toMatchObject({
-		op: 'close',
-		payload: { decision: 'cancel' },
-	});
-
-	stop();
-	await workspace.close();
-	// Closed: no further stream is opened, and the window detached once.
-	await settle(650);
-	expect(served.streams).toHaveLength(2);
-	expect(sent('detach')).toHaveLength(1);
-});
-
-test('a close attempted with the host gone before anything listens is kept for the first listener, and closing stops hearing it', async () => {
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable();
-	const served = host();
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	expect(shell.listening).toBe(1);
-
-	// The session is still starting: no guard is listening yet. The attempt
-	// is not answered and not lost.
-	shell.closeBlocked();
-	expect(shell.navigations).toEqual([]);
-	let told = 0;
-	const stop = workspace.closing!.onRequestWithoutHost(() => {
-		told += 1;
-	});
-	expect(told).toBe(1);
-
-	shell.closeBlocked();
-	expect(told).toBe(2);
-	// Quitting is still only what the listener chooses to do.
-	expect(shell.navigations).toEqual([]);
-	workspace.closing!.quitWithoutHost();
-	expect(shell.navigations).toEqual([
-		`${CONNECTION.origin}/__whispering__/quit`,
-	]);
-
-	stop();
-	await workspace.close();
-	expect(shell.listening).toBe(0);
-	shell.closeBlocked();
-	expect(told).toBe(2);
-});
-
-test('a host that stops answering does not close the folder: the page keeps saving and keeps trying the stream', async () => {
-	setup();
-	attachable();
-	Object.assign(replies, { apply: () => null });
-	let hostUp = true;
-	const served = host();
-	const workspace = expectOk(
-		await openDesktopWorkspace({
-			...CONNECTION,
-			fetch: async (input, init) => {
-				if (!hostUp) throw new TypeError('Load failed');
-				return served.fetch(input, init);
-			},
+	// The shell writes, and its reply never reaches the page. The page reads
+	// the file back, finds exactly what it wrote, and the write is confirmed.
+	granting.control.loseReplies = 1;
+	const confirmed = expectOk(
+		await table.write('clean', stored.row, {
+			...stored.row,
+			body: 'Tidy it.\n',
 		}),
 	);
-	await settle();
+	if (!isStoredRow(confirmed)) throw new Error('Expected the row to be there');
+	expect(confirmed.row.body).toBe('Tidy it.\n');
+	expect(granting.kinds).toEqual(['write']);
 
-	hostUp = false;
-	served.streams[0]?.error(new Error('the host stopped'));
-	await settle(650);
-
-	// The owner is the shell's, so a save still lands with the host gone.
-	expectOk(await workspace.folder.files.create('note.md', 'still saved'));
-	// What needs the host answers as unavailable, as a Result.
-	const { error: transcribeError } = await workspace.transcribe({
-		audioPath: 'recordings/a.wav',
-		expectedBaseUrl: 'u',
-		model: 'm',
+	// Again, and now the file cannot be read back either: nothing says
+	// whether the write landed, so it is unknown, never refused.
+	granting.control.loseReplies = 1;
+	granting.control.beforeChange = async () => {
+		granting.control.beforeChange = undefined;
+		granting.control.failReads.add(PATH);
+	};
+	const lost = await table.write('clean', confirmed.row, {
+		...confirmed.row,
+		body: 'Tidy it again.\n',
 	});
-	expect(transcribeError?.name).toBe('HostUnavailable');
-	// An answer that cannot be delivered rejects, so the guard can say so; the
-	// window stays open.
-	await expect(workspace.closing!.answer('proceed')).rejects.toThrow(
-		'Load failed',
-	);
-	await workspace.close();
-	expect(sent('detach')).toHaveLength(1);
-});
-
-// ============================================================================
-// Host operations
-// ============================================================================
-
-test('a failed transcription call is a Result, and the next call still works', async () => {
-	setup();
-	attachable();
-	let transcribeCalls = 0;
-	const asked: unknown[] = [];
-	const served = host();
-	const opened = await openDesktopWorkspace({
-		...CONNECTION,
-		fetch: async (input, init) => {
-			const body = init?.body
-				? (JSON.parse(String(init.body)) as HostCall)
-				: undefined;
-			if (body?.op !== 'transcribe') return served.fetch(input, init);
-			transcribeCalls += 1;
-			asked.push(body.payload);
-			if (transcribeCalls === 1) throw new TypeError('Load failed');
-			if (transcribeCalls === 2)
-				return Response.json({ fault: 'host fault' }, { status: 500 });
-			return answer({ data: { text: 'ok' }, error: null });
+	expect(lost.error).toMatchObject({
+		name: 'Io',
+		cause: {
+			name: 'Unconfirmed',
+			message: expect.stringContaining('the reply never reached the window'),
 		},
 	});
-	const workspace = expectOk(opened);
-	const request = {
-		audioPath: 'recordings/a.wav',
-		expectedBaseUrl: 'u',
-		model: 'm',
-	};
+	expect(granting.kinds).toEqual(['write', 'write']);
 
-	const { error: unreachable } = await workspace.transcribe(request);
-	expect(unreachable?.name).toBe('HostUnavailable');
-	expect(unreachable?.message).toContain('Load failed');
-
-	const { error: faulted } = await workspace.transcribe(request);
-	expect(faulted?.name).toBe('HostUnavailable');
-	expect(faulted?.message).toContain('host fault');
-
-	const answered = expectOk(await workspace.transcribe(request));
-	expect(answered).toEqual({ text: 'ok' });
-	// The page sends the path the row names, and no audio: the host reads the
-	// file. It names the base URL it expects, and the host decides where to send.
-	expect(asked).toEqual(
-		Array(3).fill({
-			path: 'recordings/a.wav',
-			expectedBaseUrl: 'u',
-			model: 'm',
-		}),
-	);
-	expect(sent('read')).toEqual([]);
+	granting.control.failReads.delete(PATH);
+	const landed = expectOk(await table.get('clean'));
+	if (landed === undefined) throw new Error('Expected the row to be there');
+	expect(landed.row.body).toBe('Tidy it again.\n');
 	await workspace.close();
 });
 
-test('a failed transformation call is a Result, and the next call still works', async () => {
+// ============================================================================
+// Connections are rows of so.epicenter, and keys stay in the keychain
+// ============================================================================
+
+test('a connection is a row of so.epicenter with its endpoint and key in the keychain; the page is told whether a key is set and never the key', async () => {
 	setup();
-	attachable();
-	let transformCalls = 0;
-	const asked: unknown[] = [];
-	const served = host();
-	const opened = await openDesktopWorkspace({
-		...CONNECTION,
-		fetch: async (input, init) => {
-			const body = init?.body
-				? (JSON.parse(String(init.body)) as HostCall)
-				: undefined;
-			if (body?.op !== 'transform') return served.fetch(input, init);
-			transformCalls += 1;
-			asked.push(body.payload);
-			if (transformCalls === 1) throw new TypeError('Load failed');
-			if (transformCalls === 2)
-				return Response.json({ fault: 'host fault' }, { status: 500 });
-			return answer({ data: { text: 'ok' }, error: null });
-		},
+	await granted();
+	const host = await epicenter();
+	const first = expectOk(await openWith(host));
+	expect(await first.connections.read()).toEqual({
+		transcription: undefined,
+		text: undefined,
 	});
-	const workspace = expectOk(opened);
-	const request = {
-		expectedBaseUrl: 'u',
-		model: 'm',
-		prompt: 'p',
-		input: 'text',
-	};
 
-	const { error: unreachable } = await workspace.transform(request);
-	expect(unreachable?.name).toBe('HostUnavailable');
-	expect(unreachable?.message).toContain('Load failed');
-
-	const { error: faulted } = await workspace.transform(request);
-	expect(faulted?.name).toBe('HostUnavailable');
-	expect(faulted?.message).toContain('host fault');
-
-	const answered = expectOk(await workspace.transform(request));
-	expect(answered).toEqual({ text: 'ok' });
-	// The page sends what to transform and never a key: the host adds it.
-	expect(asked).toEqual([request, request, request]);
-	await workspace.close();
-});
-
-// ============================================================================
-// The chosen microphone
-// ============================================================================
-
-test('the chosen microphone is kept by the host beside the connections, survives a new window, and never brings a key back', async () => {
-	setup();
-	const served = await realHost();
-	attachable(served.root);
-	const usb = { deviceId: 'usb-id', label: 'USB Microphone' };
-	const replies: string[] = [];
-	const fetch = async (input: string, init?: RequestInit) => {
-		const response = await served.fetch(input, init);
-		if (!input.endsWith('/bridge/events'))
-			replies.push(await response.clone().text());
-		return response;
-	};
-	const first = expectOk(await openDesktopWorkspace({ ...CONNECTION, fetch }));
 	const saved = expectOk(
 		await first.connections.set('text', {
-			baseUrl: 'http://127.0.0.1:18080/v1',
+			baseUrl: `${ENDPOINT}/`,
 			model: 'chat-model',
 			key: { action: 'replace', key: 'device-secret-key' },
 		}),
 	);
 	expect(saved.text).toEqual({
-		baseUrl: 'http://127.0.0.1:18080/v1',
+		baseUrl: ENDPOINT,
 		model: 'chat-model',
 		keyPresent: true,
 		readOnlyReason: undefined,
 	});
+	// One row, named for what it is, holding no endpoint and no key.
+	const row = await readFile(
+		join(host.root, 'connections/whispering-text.md'),
+		'utf8',
+	);
+	expect(row).toContain('kind: openai-compatible');
+	expect(row).toContain('title: Whispering text');
+	expect(row).toContain('model: chat-model');
+	expect(row).not.toContain(ENDPOINT);
+	expect(row).not.toContain('device-secret-key');
+	expect(await host.keychain.get('whispering-text')).toBe(
+		JSON.stringify({ endpoint: ENDPOINT, key: 'device-secret-key' }),
+	);
 
-	expect(await first.preferences.microphone()).toBeUndefined();
-	expect(await first.preferences.setMicrophone(usb)).toBeUndefined();
+	// The key is never carried to another base URL.
+	const moved = await first.connections.set('text', {
+		baseUrl: 'http://127.0.0.1:18081/v1',
+		model: 'chat-model',
+		key: { action: 'keep' },
+	});
+	expect(moved.error).toContain('the saved key is not sent there');
+	expect(
+		JSON.parse((await host.keychain.get('whispering-text'))!).endpoint,
+	).toBe(ENDPOINT);
 	await first.close();
 
-	// The page's own storage would be gone: a new launch serves a new origin.
-	const second = expectOk(await openDesktopWorkspace({ ...CONNECTION, fetch }));
-	expect(await second.preferences.microphone()).toEqual(usb);
+	// Another window reads the same row; removing the key keeps the endpoint.
+	const second = expectOk(await openWith(host));
 	expect((await second.connections.read()).text?.keyPresent).toBe(true);
-	expect(await second.preferences.setMicrophone(undefined)).toBeUndefined();
-	expect(await second.preferences.microphone()).toBeUndefined();
-	expect((await second.connections.read()).text?.keyPresent).toBe(true);
-	expect(replies.join('\n')).not.toContain('device-secret-key');
+	const removed = expectOk(
+		await second.connections.set('text', {
+			baseUrl: ENDPOINT,
+			model: 'other-model',
+			key: { action: 'remove' },
+		}),
+	);
+	expect(removed.text).toMatchObject({
+		baseUrl: ENDPOINT,
+		model: 'other-model',
+		keyPresent: false,
+	});
+	expect(await host.keychain.get('whispering-text')).toBe(
+		JSON.stringify({ endpoint: ENDPOINT, key: '' }),
+	);
 	await second.close();
+
+	// A row synced from another computer is not set up here until this
+	// computer saves its endpoint.
+	await host.keychain.delete('whispering-text');
+	const third = expectOk(await openWith(host));
+	expect((await third.connections.read()).text).toBeUndefined();
+	await third.close();
 });
 
-test('a choice the host cannot save is returned as the reason, and one it cannot read rejects', async () => {
+test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {
 	setup();
-	attachable();
-	const served = host();
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-
-	expect(
-		await workspace.preferences.setMicrophone({ deviceId: 'x', label: 'X' }),
-	).toBe('unexpected call');
-	await expect(workspace.preferences.microphone()).rejects.toThrow(
-		'unexpected call',
-	);
-	await workspace.close();
-});
-
-test('with fixture audio the workspace has no microphone input to list, ask for, or test', async () => {
-	setup();
-	attachable();
-	const served = host(
-		{},
-		info({ debug: true, fixture: { name: 'tone.wav', size: 44 } }),
-	);
-
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-
-	expect(workspace.capture.source).toBe('fixture');
-	expect(workspace.capture.inputs).toBeUndefined();
-	await workspace.close();
-});
-
-// ============================================================================
-// Debug failure injection
-// ============================================================================
-
-test('a release shell offers no failure injection, and asks the host for none', async () => {
-	setup();
-	attachable();
-	const served = host();
-
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-
-	expect(workspace.injection).toBeUndefined();
-	expect(workspace.debugControls).toBe(false);
-	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
-	await workspace.close();
-});
-
-test('a debug shell tells the host the folder is open only after the owner attached it, and wraps each recording write in its own obstacle', async () => {
-	setup();
-	attachable();
-	const order: string[] = [];
-	const attach = replies.attach!;
-	replies.attach = (call) => {
-		order.push('attach');
-		return attach(call);
+	const granting = await granted();
+	await granting.write('audio/take.wav', toneWav());
+	const host = await epicenter();
+	const workspace = expectOk(await openWith(host));
+	const request = {
+		audioPath: 'audio/take.wav',
+		expectedBaseUrl: ENDPOINT,
+		model: 'whisper-1',
 	};
-	const served = host(
-		{
-			'injection-launch': () => {
-				order.push('injection-launch');
-				return { rowWrites: 0, audioWrites: 0, commitsBlocked: true };
-			},
-			obstruct: () => {
-				order.push('obstruct');
-				return { obstacle: 'obstacle-1' };
-			},
-			unobstruct: () => {
-				order.push('unobstruct');
-				return {};
-			},
-		},
-		info({ debug: true }),
-	);
 
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	// Git exists once the owner has opened the folder, and not before.
-	expect(order).toEqual(['attach', 'injection-launch']);
+	// Nothing set up: nothing is read or sent.
+	const { error: none } = await workspace.transcribe(request);
+	expect(none?.name).toBe('ConnectionUnavailable');
+	expect(host.provider).toEqual([]);
 
-	const around = workspace.injection!.aroundRecordingWrite;
-	const audio = await around(
-		{ step: 'audio', stem: 'take', path: 'recordings/take.wav' },
-		async () => {
-			order.push('audio');
-			return 'the folder’s own answer';
-		},
-	);
-	const row = await around({ step: 'row', stem: 'take' }, async () => {
-		order.push('row');
-		return 'the folder’s own answer';
-	});
-
-	expect([audio, row]).toEqual([
-		'the folder’s own answer',
-		'the folder’s own answer',
-	]);
-	// Each write is its own: obstructed, made, and cleared before the next.
-	expect(order.slice(2)).toEqual([
-		'obstruct',
-		'audio',
-		'unobstruct',
-		'obstruct',
-		'row',
-		'unobstruct',
-	]);
-	expect(served.operationsAsked.slice(-4)).toMatchObject([
-		{
-			op: 'obstruct',
-			payload: { step: 'audio', stem: 'take', path: 'recordings/take.wav' },
-		},
-		{ op: 'unobstruct', payload: { obstacle: 'obstacle-1' } },
-		{ op: 'obstruct', payload: { step: 'row', stem: 'take' } },
-		{ op: 'unobstruct', payload: { obstacle: 'obstacle-1' } },
-	]);
-	await workspace.close();
-});
-
-test('an obstacle that was not placed, or a host that cannot be asked, never keeps a recording write from being made', async () => {
-	setup();
-	attachable();
-	let obstructs: 'none' | 'fault' = 'none';
-	const removed: unknown[] = [];
-	const served = host(
-		{
-			'injection-launch': () => {
-				throw new Error('the branch is held by another Git process');
-			},
-			obstruct: () => {
-				if (obstructs === 'fault') throw new Error('the host faulted');
-				return { obstacle: null };
-			},
-			unobstruct: (payload) => {
-				removed.push(payload);
-				return {};
-			},
-		},
-		info({ debug: true }),
-	);
-	// A launch lock the host could not take does not keep the workspace from opening.
-	const workspace = expectOk(
-		await openDesktopWorkspace({
-			...CONNECTION,
-			fetch: async (input, init) => {
-				try {
-					return await served.fetch(input, init);
-				} catch (cause) {
-					return Response.json({ fault: String(cause) }, { status: 500 });
-				}
-			},
-		}),
-	);
-	const write = { step: 'row', stem: 'take' } as const;
-	let writes = 0;
-	const run = async () => {
-		writes += 1;
-		return 'written';
-	};
-	const around = workspace.injection!.aroundRecordingWrite;
-
-	expect(await around(write, run)).toBe('written');
-	obstructs = 'fault';
-	expect(await around(write, run)).toBe('written');
-	// A write that throws still has no obstacle to leave behind.
-	await expect(
-		around(write, async () => {
-			throw new Error('the write threw');
-		}),
-	).rejects.toThrow('the write threw');
-
-	expect(writes).toBe(2);
-	expect(removed).toEqual([]);
-	await workspace.close();
-});
-
-// ============================================================================
-// Closing a window whose folder could not be opened
-// ============================================================================
-
-test('after a refused attach there is no session, and the person’s close is answered with proceed by the real host', async () => {
-	const served = await realHost();
-	globalThis.fetch = served.fetch as typeof fetch;
-	setup({ bridge: { token: CONNECTION.token } });
-	const refusedAttach = Promise.withResolvers<never>();
-	replies = { attach: () => refusedAttach.promise };
-
-	const mounted = mountSession();
-	cleanups.push(() => mounted.release());
-	// The person asks to close while the folder is still being opened. Nothing
-	// answers for an opening that has not settled: it might yet hold work.
-	await until(() => sent('attach').length === 1, 'the attach to be sent');
-	served.host.closeRequested();
-	await settle(100);
-	expect(served.approvals).toBe(0);
-
-	// The owner refuses this window. No session exists and nothing is held.
-	refusedAttach.reject({
-		name: 'WindowNotPermitted',
-		scope: SCOPE,
-		window: 'main',
-	});
-	const refused = expectErr(await mounted.opening);
-	expect(refused.name).toBe('DesktopFolder');
-
-	// The close asked during opening was kept by the host and is now answered.
-	await until(() => served.approvals === 1, 'the pending close to be approved');
-	// And so is one asked afterward. Each approval answers a request.
-	served.host.closeRequested();
-	await until(() => served.approvals === 2, 'a later close to be approved');
-	// Nothing was opened to get there: one attach, refused, and no browser storage.
-	expect(calls.map((call) => call.cmd)).toEqual(['attach']);
-
-	// Released, it answers nothing more: a later opening would be its own judge.
-	mounted.release();
-	await settle(50);
-	served.host.closeRequested();
-	await settle(150);
-	expect(served.approvals).toBe(2);
-});
-
-test('nothing is approved unasked: a failed opening by itself closes nothing', async () => {
-	const served = await realHost();
-	globalThis.fetch = served.fetch as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable('/Users/someone/elsewhere');
-
-	const mounted = mountSession();
-	cleanups.push(() => mounted.release());
-	expect(expectErr(await mounted.opening).name).toBe('FolderMismatch');
-	await settle(200);
-
-	// The window stays until the person asks: no approval and no navigation.
-	expect(served.approvals).toBe(0);
-	expect(shell.navigations).toEqual([]);
-	// The mismatch detached the window it had attached.
-	expect(
-		calls.map((call) => call.cmd).filter((cmd) => cmd !== 'apply'),
-	).toEqual(['attach', 'detach']);
-});
-
-test('after a failed opening with the host gone, the shell’s close attempt is answered with the quit address', async () => {
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable();
-	const hostDown = Promise.withResolvers<never>();
-	globalThis.fetch = (() => hostDown.promise) as unknown as typeof fetch;
-
-	const mounted = mountSession();
-	cleanups.push(() => mounted.release());
-	// Still opening: a close attempt is not answered.
-	shell.closeBlocked();
-	await settle(20);
-	expect(shell.navigations).toEqual([]);
-
-	globalThis.fetch = (async () => {
-		throw new TypeError('Load failed');
-	}) as unknown as typeof fetch;
-	hostDown.reject(new TypeError('Load failed'));
-	expect(expectErr(await mounted.opening).name).toBe('HostUnreachable');
-	// The host was never reached, so the owner was never asked for a folder.
-	expect(calls).toEqual([]);
-	await settle(50);
-	expect(shell.navigations).toEqual([]);
-
-	// The person closes. The shell cannot ask a host that is gone, and says so.
-	shell.closeBlocked();
-	expect(shell.navigations).toEqual([
-		`${CONNECTION.origin}/__whispering__/quit`,
-	]);
-
-	mounted.release();
-	shell.closeBlocked();
-	expect(shell.navigations).toHaveLength(1);
-});
-
-test('after an opening that failed without proof, the real host approves only the person’s own Quit', async () => {
-	const served = await realHost();
-	globalThis.fetch = served.fetch as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	// The failure is not one that proves anything was released, as when the
-	// desktop workspace's own module cannot be loaded.
-	const mounted = mountSession(async () => {
-		throw new Error('Failed to fetch dynamically imported module');
-	});
-	cleanups.push(() => mounted.release());
-	await expect(mounted.opening).rejects.toThrow('dynamically imported');
-	served.host.closeRequested();
-	await settle(100);
-
-	// The shell's question is not answered for the person.
-	expect(served.approvals).toBe(0);
-	expect(shell.navigations).toEqual([]);
-
-	expect(await mounted.quit?.()).toBeUndefined();
-	expect(served.approvals).toBe(1);
-	expect(shell.navigations).toEqual([]);
-});
-
-test('a Quit the host cannot take also uses the quit address, and says it was not confirmed', async () => {
-	globalThis.fetch = (async () => {
-		throw new TypeError('Load failed');
-	}) as unknown as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	const mounted = mountSession(async () => {
-		throw new Error('Failed to fetch dynamically imported module');
-	});
-	cleanups.push(() => mounted.release());
-	await expect(mounted.opening).rejects.toThrow('dynamically imported');
-
-	const problem = await mounted.quit?.();
-
-	expect(problem).toContain('could not confirm the quit');
-	expect(shell.navigations).toEqual([
-		`${CONNECTION.origin}/__whispering__/quit`,
-	]);
-});
-
-test('a desktop app that is not Whispering’s shell, and a browser tab, are asked no close question and answer none', async () => {
-	const requested: string[] = [];
-	globalThis.fetch = (async (input: string) => {
-		requested.push(input);
-		throw new TypeError('Load failed');
-	}) as unknown as typeof fetch;
-
-	// Inside another desktop app: no host token was injected.
-	const embedded = setup({ bridge: undefined });
-	const inApp = mountSession();
-	expect(expectErr(await inApp.opening).name).toBe('HostMissing');
-	// Nothing to quit through, so no Quit is offered.
-	expect(inApp.quit).toBeUndefined();
-	embedded.closeBlocked();
-	await settle(50);
-	inApp.release();
-
-	// A browser tab that somehow carries a token: the browser owns leaving.
-	inShell = false;
-	const tab = setup({ bridge: { token: 'left-over-token' } });
-	const inTab = mountSession();
-	expect(expectErr(await inTab.opening).name).toBe('BrowserFolder');
-	expect(inTab.quit).toBeUndefined();
-	tab.closeBlocked();
-	await settle(50);
-	inTab.release();
-
-	expect(requested).toEqual([]);
-	expect(embedded.navigations).toEqual([]);
-	expect(tab.navigations).toEqual([]);
-});
-
-// ============================================================================
-// A reply the host never delivered
-// ============================================================================
-
-test('a lost host reply after the endpoint was called is reported as unknown, never as not sent, and nothing is sent again', async () => {
-	setup();
-	const provider = { transcriptions: 0, completions: 0 };
-	const served = await realHost({
-		env: {
-			WHISPERING_TRANSCRIPTION_API_KEY: 'local-test-key',
-			WHISPERING_TRANSCRIPTION_BASE_URL: 'http://127.0.0.1:18080/v1',
-		},
-		// A counted local stand-in for the endpoint. Nothing leaves this process.
-		fetch: async (input) => {
-			if (input.endsWith('/audio/transcriptions')) {
-				provider.transcriptions += 1;
-				return Response.json({ text: 'a steady tone' });
-			}
-			provider.completions += 1;
-			return Response.json({
-				choices: [
-					{ message: { role: 'assistant', content: 'A steady tone.' } },
-				],
-			});
-		},
-	});
-	await mkdir(join(served.root, 'recordings'));
-	await writeFile(join(served.root, 'recordings', 'take.wav'), toneWav());
-	attachable(served.root);
-	let losing = true;
-	const workspace = expectOk(
-		await openDesktopWorkspace({
-			...CONNECTION,
-			fetch: async (input, init) => {
-				const body = init?.body
-					? (JSON.parse(String(init.body)) as HostCall)
-					: undefined;
-				// The host handles the request in full. Its reply is then lost on
-				// the way back to the page.
-				const reply = await served.fetch(input, init);
-				if (losing && (body?.op === 'transcribe' || body?.op === 'transform'))
-					throw new TypeError('Load failed');
-				return reply;
-			},
-		}),
-	);
 	expectOk(
-		await workspace.connections.set('text', {
-			baseUrl: 'http://127.0.0.1:18080/v1',
-			model: 'chat-model',
-			key: { action: 'replace', key: 'text-test-key' },
+		await workspace.connections.set('transcription', {
+			baseUrl: ENDPOINT,
+			model: 'whisper-1',
+			key: { action: 'replace', key: 'transcription-key' },
 		}),
 	);
-	const transcription = {
-		audioPath: 'recordings/take.wav',
-		expectedBaseUrl: 'http://127.0.0.1:18080/v1',
-		model: 'verification-model',
-	};
+	expect(expectOk(await workspace.transcribe(request))).toEqual({
+		text: 'a steady tone',
+	});
+	expect(host.provider).toHaveLength(1);
+	const [call] = host.provider;
+	expect(call?.url).toBe(`${ENDPOINT}/audio/transcriptions`);
+	expect(call?.authorization).toBe('Bearer transcription-key');
+	expect(call?.cookie).toBeNull();
+	const form = await call!.body.formData();
+	const file = form.get('file') as File;
+	expect(file.name).toBe('take.wav');
+	expect(Array.from(new Uint8Array(await file.arrayBuffer()))).toEqual(
+		Array.from(toneWav()),
+	);
+	expect(form.get('model')).toBe('whisper-1');
+	// The page read the audio through the shell, and was never sent the key.
+	expect(
+		sent('read_folder_file').some((read) =>
+			String(read.args.path).endsWith('audio/take.wav'),
+		),
+	).toBe(true);
+	expect(host.lines.join('\n')).not.toContain('transcription-key');
+
+	// A request prepared for another base URL is not sent.
+	const { error: changed } = await workspace.transcribe({
+		...request,
+		expectedBaseUrl: 'http://127.0.0.1:18081/v1',
+	});
+	expect(changed?.name).toBe('ConnectionChanged');
+	// Audio that cannot be read is certain: nothing is sent.
+	const { error: unreadable } = await workspace.transcribe({
+		...request,
+		audioPath: 'audio/gone.wav',
+	});
+	expect(unreadable?.name).toBe('AudioUnreadable');
+	expect(host.provider).toHaveLength(1);
+	await workspace.close();
+});
+
+test('a reply Epicenter never delivered is reported as unknown, never as not sent, and nothing is sent again', async () => {
+	setup();
+	const granting = await granted();
+	await granting.write('audio/take.wav', toneWav());
+	const host = await epicenter();
+	const workspace = expectOk(await openWith(host));
+	for (const operation of ['transcription', 'text'] as const)
+		expectOk(
+			await workspace.connections.set(operation, {
+				baseUrl: ENDPOINT,
+				model: 'model',
+				key: { action: 'replace', key: 'test-key' },
+			}),
+		);
 	const transformation = {
-		expectedBaseUrl: 'http://127.0.0.1:18080/v1',
-		model: 'chat-model',
+		expectedBaseUrl: ENDPOINT,
+		model: 'model',
 		prompt: 'Fix the punctuation.',
 		input: 'um so a steady tone',
 	};
+	host.lose(true);
 
-	const transcribed = await workspace.transcribe(transcription);
+	const transcribed = await workspace.transcribe({
+		audioPath: 'audio/take.wav',
+		expectedBaseUrl: ENDPOINT,
+		model: 'model',
+	});
 	const transformed = await workspace.transform(transformation);
 
 	// The endpoint was called, once each, and the page was not told the answer.
-	expect(provider).toEqual({ transcriptions: 1, completions: 1 });
+	expect(host.provider).toHaveLength(2);
 	for (const { data: answer, error: lost } of [transcribed, transformed]) {
 		expect(answer).toBeNull();
 		expect(lost?.name).toBe('HostUnavailable');
@@ -1235,25 +729,185 @@ test('a lost host reply after the endpoint was called is reported as unknown, ne
 			'it is not known whether the request was sent',
 		);
 		expect(lost?.message).toContain('Load failed');
-		expect(lost?.message).not.toContain('nothing was sent');
 	}
-	// Nothing retried behind the page's back.
-	await settle(100);
-	expect(provider).toEqual({ transcriptions: 1, completions: 1 });
-
-	// Audio that cannot be read is the certain case: the host answers, says so,
-	// and the endpoint is not called, whether or not the reply then arrives.
-	losing = false;
-	const { error: unreadable } = await workspace.transcribe({
-		...transcription,
-		audioPath: 'recordings/gone.wav',
-	});
-	expect(unreadable?.name).toBe('AudioUnreadable');
-	expect(provider).toEqual({ transcriptions: 1, completions: 1 });
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	expect(host.provider).toHaveLength(2);
 
 	// Asking again is the person's choice, and it is one more request.
-	const retried = expectOk(await workspace.transcribe(transcription));
-	expect(retried).toEqual({ text: 'a steady tone' });
-	expect(provider).toEqual({ transcriptions: 2, completions: 1 });
+	host.lose(false);
+	expect(expectOk(await workspace.transform(transformation))).toEqual({
+		text: 'A steady tone.',
+	});
+	expect(host.provider).toHaveLength(3);
+	await workspace.close();
+});
+
+// ============================================================================
+// The chosen microphone
+// ============================================================================
+
+test('the chosen microphone is kept in the origin’s storage and survives a new window', async () => {
+	const stored = setup();
+	await granted();
+	const usb = { deviceId: 'usb-id', label: 'USB Microphone' };
+	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
+	expect(await first.preferences.microphone()).toBeUndefined();
+	expect(await first.preferences.setMicrophone(usb)).toBeUndefined();
+	await first.close();
+
+	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
+	expect(await second.preferences.microphone()).toEqual(usb);
+	expect(await second.preferences.setMicrophone(undefined)).toBeUndefined();
+	expect(stored.has('whispering.microphone')).toBe(false);
+	await second.close();
+});
+
+// ============================================================================
+// Transcription on this computer
+// ============================================================================
+
+type LocalOutcome =
+	| { outcome: 'transcribed'; text: string }
+	| { outcome: 'empty-audio' }
+	| { error: { name: string; message: string } };
+
+/** Scripted shell commands for the local model, recording what was asked. */
+function localModel({
+	active,
+	outcome = { outcome: 'transcribed', text: 'a local tone' },
+}: {
+	active: string | undefined;
+	outcome?: LocalOutcome;
+}) {
+	const asked: { modelId: string; bytes: number[] }[] = [];
+	const opened: unknown[] = [];
+	const commands = {
+		getLocalTranscriptionReadiness: async () =>
+			active === undefined
+				? {
+						status: 'unavailable',
+						reason: 'no-active-model',
+						message: 'No local transcription model is chosen on this device.',
+					}
+				: { status: 'ready', supportsPrompt: true, supportsLanguage: true },
+		listInferenceModels: async () => [
+			{ id: 'other-model', installed: true, active: false },
+			...(active === undefined
+				? []
+				: [{ id: active, installed: true, active: true }]),
+		],
+		transcribeAudioBytes: async (modelId: string, bytes: number[]) => {
+			asked.push({ modelId, bytes });
+			if ('error' in outcome) return { data: null, error: outcome.error };
+			return {
+				data:
+					outcome.outcome === 'empty-audio'
+						? outcome
+						: {
+								...outcome,
+								modelId,
+								applied: { language: null, initialPrompt: false },
+							},
+				error: null,
+			};
+		},
+		openHome: async (section: unknown) => {
+			opened.push(section);
+		},
+	} as unknown as LocalTranscriptionCommands;
+	return { commands, asked, opened };
+}
+
+test('a recording is transcribed on this computer with Epicenter’s active model, from the bytes its row names', async () => {
+	setup();
+	const granting = await granted();
+	await granting.write('audio/take.wav', toneWav());
+	const local = localModel({ active: 'parakeet-tdt-0.6b-v3' });
+	const workspace = expectOk(
+		await openDesktopWorkspace({ commands: local.commands }),
+	);
+	const transcriber = workspace.localTranscription!;
+
+	expect(await transcriber.readiness()).toEqual({ ready: true });
+	expect(expectOk(await transcriber.transcribe('audio/take.wav'))).toEqual({
+		text: 'a local tone',
+		model: 'parakeet-tdt-0.6b-v3',
+	});
+	// The active model, never another installed one, and exactly the file's bytes.
+	expect(local.asked).toEqual([
+		{ modelId: 'parakeet-tdt-0.6b-v3', bytes: Array.from(toneWav()) },
+	]);
+
+	// Audio that cannot be read is not handed to the model.
+	const { error: unreadable } = await transcriber.transcribe('audio/gone.wav');
+	expect(unreadable?.name).toBe('AudioUnreadable');
+	expect(local.asked).toHaveLength(1);
+
+	await transcriber.openSettings();
+	expect(local.opened).toEqual(['transcription']);
+	await workspace.close();
+});
+
+test('with no active local model nothing is transcribed, and the reason names Settings', async () => {
+	setup();
+	const granting = await granted();
+	await granting.write('audio/take.wav', toneWav());
+	const local = localModel({ active: undefined });
+	const workspace = expectOk(
+		await openDesktopWorkspace({ commands: local.commands }),
+	);
+	const transcriber = workspace.localTranscription!;
+
+	expect(await transcriber.readiness()).toEqual({
+		ready: false,
+		message: 'No local transcription model is chosen on this device.',
+	});
+	const { error } = await transcriber.transcribe('audio/take.wav');
+	expect(error?.name).toBe('ConnectionUnavailable');
+	expect(error?.message).toContain('Epicenter’s Settings');
+	expect(local.asked).toEqual([]);
+	await workspace.close();
+});
+
+test('a local model that fails is reported as that failure, and an empty recording is an empty transcript', async () => {
+	setup();
+	const granting = await granted();
+	await granting.write('audio/take.wav', toneWav());
+	for (const [outcome, expected] of [
+		[
+			{ error: { name: 'ModelLoadError', message: 'the model did not load' } },
+			'LocalFailed',
+		],
+		[
+			{
+				error: {
+					name: 'LocalRouteUnavailable',
+					message: 'The chosen model is not on this computer.',
+				},
+			},
+			'ConnectionUnavailable',
+		],
+	] as const) {
+		const local = localModel({ active: 'whisper-small', outcome });
+		const workspace = expectOk(
+			await openDesktopWorkspace({ commands: local.commands }),
+		);
+		const { error } =
+			await workspace.localTranscription!.transcribe('audio/take.wav');
+		expect(error?.name).toBe(expected);
+		expect(error?.message).toContain(outcome.error.message);
+		await workspace.close();
+	}
+
+	const empty = localModel({
+		active: 'whisper-small',
+		outcome: { outcome: 'empty-audio' },
+	});
+	const workspace = expectOk(
+		await openDesktopWorkspace({ commands: empty.commands }),
+	);
+	expect(
+		expectOk(await workspace.localTranscription!.transcribe('audio/take.wav')),
+	).toEqual({ text: '', model: 'whisper-small' });
 	await workspace.close();
 });

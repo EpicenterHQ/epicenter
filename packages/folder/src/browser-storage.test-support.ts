@@ -14,19 +14,21 @@
  * gives them fresh storage in one call.
  */
 import { createHash } from 'node:crypto';
-import type { FileBoundary } from './boundary.js';
+import type { LockingStorage } from './boundary.js';
 import type { BrowserFolderOptions } from './contract.js';
 import type { FolderLocation } from './folder.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
-import { createOpfsGitStore } from './git/opfs-git.js';
-import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
+import type { HttpFetch } from './git/http.js';
 import {
-	createOpfsFileBoundary,
+	type MemoryOpfs,
+	memoryOpfs,
+	presentFolder,
+} from './opfs.test-support.js';
+import {
+	createOpfsStorage,
 	ensureDirectory,
 	type OpfsLocks,
-	READY_MARKER,
-	writePrivateFile,
 } from './opfs-store.js';
 import { createWebLocks } from './web-locks.test-support.js';
 
@@ -79,17 +81,22 @@ export function testBrowserStorage(
 	return browserStorage(createTestStorage(options));
 }
 
-/** Where the opener keeps release Local folder `id`. */
+/** Where the opener keeps folder `id`. */
 export function locationOf(id: string): FolderLocation {
-	return { kind: 'opfs', directory: `Epicenter/local/${id}` };
+	return { kind: 'opfs', directory: id };
 }
 
 export type RawBrowserFolder = {
-	readonly boundary: FileBoundary;
+	readonly boundary: LockingStorage;
 	/** A Git backend on the same storage, with the locks the opener uses. */
+	/**
+	 * With `remote`, its URL is set in Git configuration first; `httpFetch`
+	 * carries its transfers.
+	 */
 	backend(options?: {
 		branch?: string;
 		remote?: GitRemote;
+		httpFetch?: HttpFetch;
 	}): Promise<GitBackend>;
 	/**
 	 * Every stored entry except Git objects, by kind and path, with values
@@ -105,7 +112,7 @@ const digest = (bytes: Uint8Array) =>
 const skipObjects = (key: string) => key.startsWith('/git/objects/');
 
 /**
- * Every stored entry of release Local folder `id`, values hashed, creating
+ * Every stored entry of folder `id`, values hashed, creating
  * nothing. `contents:` and `directories:` take folder paths, `git:` takes
  * `/git/...` paths. `skip` leaves out keys an operation may change without
  * writing the folder: by default Git objects.
@@ -117,13 +124,12 @@ export async function dumpStorage(
 ): Promise<Record<string, string>> {
 	const result: Record<string, string> = {};
 	const tree = storage.opfs;
-	const directory = `Epicenter/local/${id}`;
+	const directory = id;
 	for (const [path, bytes] of tree.files(directory)) {
 		const [kind, key] = path.startsWith('.git/')
 			? ['git', `/git/${path.slice(5)}`]
 			: ['contents', path];
-		// The marker is how the opener knows the directory; it is not data.
-		if (key === '/git/epicenter-folder.json' || skip(key)) continue;
+		if (skip(key)) continue;
 		result[`${kind}:${key}`] = digest(bytes);
 	}
 	for (const path of tree.directories(directory))
@@ -133,8 +139,8 @@ export async function dumpStorage(
 }
 
 /**
- * Raw storage for release Local folder `id`: the folder the opener opens for
- * that ID with the same storage.
+ * Raw storage for folder `id`: the folder the opener opens for that ID with
+ * the same storage. The directory is created; nothing else is.
  */
 export async function rawBrowserFolder({
 	id,
@@ -143,42 +149,44 @@ export async function rawBrowserFolder({
 	id: string;
 	storage?: TestStorage;
 }): Promise<RawBrowserFolder> {
-	const address = JSON.stringify(['release', 'local', null, id]);
 	const tree = storage.opfs;
-	const directory = `Epicenter/local/${id}`;
 	const { data: root, error: directoryError } = await ensureDirectory(
 		await tree.getDirectory(),
-		directory,
+		id,
 	);
 	if (directoryError !== null) throw new Error(directoryError.message);
-	await writePrivateFile(
-		root,
-		READY_MARKER,
-		new TextEncoder().encode(JSON.stringify({ address })),
-	);
-	const filesLock = `epicenter-folder-opfs-files:${address}`;
+	const filesLock = `epicenter-folder:${id}:files`;
 	return {
-		boundary: createOpfsFileBoundary({
-			root,
+		boundary: createOpfsStorage({
+			folder: presentFolder(root),
 			locks: testLocks,
 			filesLock,
-			landed: () => {},
 		}),
-		backend: ({ branch = 'main', remote } = {}) =>
-			createStoredGitBackend({
-				store: createOpfsGitStore({
-					root,
-					locks: testLocks,
-					filesLock,
-					branch,
-					landed: () => {},
-				}),
+		backend: async ({ branch = 'main', remote, httpFetch } = {}) => {
+			const backend = await createStoredGitBackend({
+				folder: presentFolder(root),
 				locks: testLocks,
-				lockName: `epicenter-folder-opfs-git:${address}`,
+				lockName: `epicenter-folder:${id}:git`,
 				branch,
-				remote,
-			}),
+				httpFetch,
+			});
+			if (remote !== undefined) await backend.setRemote(remote.url);
+			return backend;
+		},
 		dump: () => dumpStorage(storage, id),
 		opfs: tree,
 	};
+}
+
+/**
+ * Set folder `id`'s remote in its Git configuration, as `sync.connect` leaves
+ * it, without transferring anything: the folder opens with that remote.
+ */
+export async function configureRemote(
+	storage: TestStorage,
+	id: string,
+	url: string,
+): Promise<void> {
+	const raw = await rawBrowserFolder({ id, storage });
+	await raw.backend({ remote: { url, branch: 'main' } });
 }

@@ -51,8 +51,7 @@ http://localhost:5178/auth/callback/google
 ```
 
 Use `/auth/callback/github` or `/auth/callback/microsoft` for those providers.
-The application handoff at `/session/callback` is a separate step; do not use it
-as the provider callback. Keep credentials in Infisical's `dev` environment at
+Keep credentials in Infisical's `dev` environment at
 `/api`. Do not substitute production credentials or disable origin/state checks.
 
 ## Align Autumn sandbox

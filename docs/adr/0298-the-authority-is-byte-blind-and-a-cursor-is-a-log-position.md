@@ -1,6 +1,7 @@
 # 0298. The authority is byte-blind and a cursor is a log position
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-08-29
 - **Supersedes:** [ADR-0277](0277-the-authority-reads-the-bytes-and-sync-becomes-the-yjs-protocol.md) entirely.
 - **Restores:** [ADR-0217](0217-the-authority-appends-opaque-bytes-and-the-client-owns-every-merge.md) and [ADR-0218](0218-the-authority-reads-nothing-and-a-poison-entry-is-repaired-rather-than-prevented.md), whose model never actually left the tree.

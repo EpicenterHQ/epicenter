@@ -11,7 +11,8 @@
 - **Relates:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md)
   (the host still owns no application data), [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md)
   (Postgres is hosted-only).
-- **Implementation:** [Hosted store address book](../../specs/20260814T170000-hosted-store-address-book.md).
+<!-- doc-path-check: ignore-next-line -->
+- **Implementation:** Hosted store address book (`specs/20260814T170000-hosted-store-address-book.md`, deleted; recover via `git log --all --full-history`).
 
 ## Context
 

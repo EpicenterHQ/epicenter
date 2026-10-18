@@ -57,12 +57,6 @@
 	{#if draft.readOnlyReason}
 		<p class="text-xs text-muted-foreground">{draft.readOnlyReason}</p>
 	{/if}
-	{#if operation === 'transcription' && !draft.saved && library.legacySettings.transcriptionBaseUrl}
-		<p class="text-xs text-muted-foreground" data-testid="legacy-settings">
-			This folder’s kv.json names {library.legacySettings.transcriptionBaseUrl}{library.legacySettings.transcriptionModel ? ` and ${library.legacySettings.transcriptionModel}` : ''}, saved by an earlier
-			version. They fill in the form; nothing is sent there until you save.
-		</p>
-	{/if}
 	<label class="flex flex-col gap-1">
 		<span class="text-xs text-muted-foreground">API endpoint</span>
 		<Input bind:value={draft.baseUrl} autocomplete="off" spellcheck={false} disabled={readOnly} data-testid="{id}-base-url" />
@@ -103,6 +97,11 @@
 			<span class="text-xs text-muted-foreground">
 				Kept in {library.workspace.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
 			</span>
+			{#if library.workspace.kind === 'browser'}
+				<span class="text-xs text-warning" data-testid="{id}-key-warning">
+					This key is saved in this browser. Code running on this site can read it.
+				</span>
+			{/if}
 		</div>
 	{/if}
 	{#if draft.problem && !readOnly}

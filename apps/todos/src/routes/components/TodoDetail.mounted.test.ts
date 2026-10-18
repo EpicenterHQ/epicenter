@@ -1,63 +1,81 @@
 /**
  * Todo Detail Mounted Tests
  *
- * Mounts the real detail pane (`Detail`, which `TodosView` renders), with
- * its real `TodoDetail`, `FileView`, `SaveBar`, `FileNameBar`, and
- * `@epicenter/ui` controls, in jsdom over the real Todos owner
- * (`createTodos`) and a real browser folder on the in-memory OPFS stand-in.
- * Each view is keyed by the open item. Typing goes through the DOM, into the
- * shared `Input` and `Textarea` and their function bindings; another writer
- * changes the file through `folder.files`.
+ * Mounts the whole `TodosView` as the page does, with the real list, the real
+ * `TodoDetail` and its file name bar, and the real `@epicenter/ui` controls,
+ * in jsdom inside the query client the folder's scope provides, over the real
+ * Todos store (`createTodos`) and a real browser folder on the in-memory OPFS
+ * stand-in. The open todo is the page URL's `?todo=`, driven through the
+ * `$app/state` and `$app/navigation` stand-ins. jsdom matches no media query
+ * until a test crosses the breakpoint, so the view lays out as on a narrow
+ * screen: the list stays mounted, hidden, behind the open todo. Typing goes
+ * through the DOM, into the shared `Input` and `Textarea` and their function
+ * bindings; another writer changes the file through `folder.files`, or
+ * through a second page of the same origin, whose change the folder reports.
  *
  * Key behaviors:
- * - Typing a title or notes saves at once. Each todo gets its own view: A
- *   then B then A mounts new controls, A's left-over controls admit nothing,
- *   and each input saves at its own path
- * - Another writer's change is a conflict on the next edit: the prompt offers
- *   "Reload theirs", which shows their version in the same session, and
- *   "Keep mine", which saves the draft over it
- * - A file deleted elsewhere offers "Discard", which closes it and writes
- *   nothing, and "Keep mine", which creates it again from the draft
- * - Returning to the window shows another writer's change when nothing is
- *   unsaved, and keeps a draft that could not save
- * - Files opens a todo's complete text and the list opens its fields. A
- *   malformed row opened as a todo opens as text and says why; repaired
- *   there, Open as todo shows its fields in a new view
- * - A draft that could not save keeps the todo open, with its input, until
- *   it saves; then Files opens its text, and the todo view's detached
- *   controls admit nothing to the released session or a new one
- * - A title the file cannot hold is not saved and says why; a valid one saves
- * - Notes and Files' text show LF and keep the file's CRLF
- * - A view hidden while its todo stays open admits nothing from its detached
- *   fields, checkbox, file name bar, or save bar buttons
- * - List completion while Files shows the same todo changes nothing there;
- *   opened as a todo, completion keeps its notes and undeclared keys
+ * - A typed title or notes is held by the view and saved a second after the
+ *   last keystroke, or at once when the person leaves the field or the view
+ *   goes away; the list shows what the save wrote. Each todo gets its own
+ *   view, and each input saves at its own path
+ * - Typed text survives the cache being read again before it is sent
+ * - Opening another todo while a save is pending writes the pending text to
+ *   the todo it was typed into, and to no other
+ * - A failed save keeps the typed text, and Try again sends it
+ * - Notes typed into a todo deleted elsewhere are not written; they are
+ *   offered as text
+ * - The checkbox sends at once and never undoes a title typed meanwhile
+ * - A title saved over a change made elsewhere keeps the other fields; the
+ *   typed title wins where both changed
+ * - Another page's change shows without the person returning to the window
+ * - A malformed todo shows under "Needs repair"; shown, its issues and text
+ *   are read-only, and it reads as a todo once another editor fixes it
+ * - A file that cannot be read as text is labelled "Could not read", not
+ *   offered for repair
+ * - The open todo follows the URL, and opening one from the list sets it
+ * - A title input keeps its value well formed, so what is written is what
+ *   is shown
+ * - Notes show LF, and a body write writes the file in the standard form
+ * - Completion from the list and the detail keep notes and undeclared keys
  *
- * jsdom implements no layout, focus, selection, IME, or `inert`; a field
- * that left the document receiving input shows what a delivered event does,
- * not that a person can type there. Toasts, the clipboard, and the
- * confirmation dialog are not exercised.
+ * jsdom implements no layout, focus, selection, IME, or `inert`. Toasts,
+ * the clipboard, and the confirmation dialog are not exercised.
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
-import '../../lib/svelte-dom.test-support.js';
-import { afterEach, expect, test } from 'bun:test';
-import { parseRow } from '@epicenter/folder';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { afterEach, expect, mock, test } from 'bun:test';
+import { type Folder, parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
 	createTestStorage,
 	opfsOf,
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
+import {
+	blur,
+	click,
+	setWide,
+	type,
+} from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
-import { click, type } from '../../lib/svelte-dom.test-support.js';
+import { quiet } from '../../lib/query.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
-const { default: TodoDetailHost } = await import(
-	'./fixtures/TodoDetailHost.svelte'
+const state = await import('../../lib/app-state.test-support.svelte.ts');
+const navigation = await import('../../lib/app-navigation.test-support.ts');
+mock.module('$app/state', () => state);
+mock.module('$app/navigation', () => navigation);
+const { page } = state;
+const { goto, leave, resetUrl } = navigation;
+const { default: TodosViewHost } = await import(
+	'./fixtures/TodosViewHost.svelte'
 );
 
 const ROW = (title: string) => `---\ntitle: ${title}\ndone: false\n---\n`;
@@ -66,14 +84,22 @@ const cleanup: (() => Promise<unknown> | void)[] = [];
 
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	setWide(false);
+	resetUrl();
 });
 
-/** The real owner over a fresh browser folder, with the host mounted over it. */
+/** The todo the URL opens. */
+const opened = () => page.url.searchParams.get('todo') ?? undefined;
+const DETAIL = 'section[aria-label="Todo"]';
+const LIST = '[aria-label="Todo list"]';
+
+/** The real store over a fresh browser folder, with the whole view mounted over it. */
 async function setup() {
-	const storage = createTestStorage();
+	const storage = createTestStorage({ BroadcastChannel });
+	const id = `todo-detail-mounted-${count++}`;
 	const folder = expectOk(
 		await openFolder({
-			id: `todo-detail-mounted-${count++}`,
+			app: id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
@@ -81,43 +107,40 @@ async function setup() {
 			},
 		}),
 	);
-	const todos: Todos = createTodos(folder);
-	cleanup.push(() => todos.close());
-	await todos.check();
+	const failures: WriteFailure[] = [];
+	const opened = createFolderContext(folder, {
+		writeFailed: (failure) => failures.push(failure),
+	});
+	const todos: Todos = createTodos(opened);
+	cleanup.push(() => opened.close());
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(TodoDetailHost, { target, props: { todos } });
+	const view = mount(TodosViewHost, { target, props: { opened } });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);
 		target.remove();
 	});
+	await settle(todos);
 	async function text(path: string) {
 		const { data } = await folder.files.read(path);
 		return data === null ? undefined : new TextDecoder().decode(data.bytes);
 	}
+	const faults = opfsOf(storage).faults;
 	return {
 		todos,
-		opfs: opfsOf(storage),
+		failures,
+		/** The next write of `path` fails before it publishes. */
+		failNextWrite(path: string) {
+			faults.write = (file) => {
+				if (!file.endsWith(`/${path}`)) return undefined;
+				faults.write = undefined;
+				return 'fail';
+			};
+		},
 		target,
-		/** The open todo's session. */
-		selected() {
-			const item = todos.opened;
-			if (item?.kind !== 'todo')
-				throw new Error(`Expected an open todo, got ${item?.kind}`);
-			return item.session;
-		},
-		/** The open text file's session. */
-		selectedText() {
-			const item = todos.opened;
-			if (item?.kind !== 'text')
-				throw new Error(`Expected an open text file, got ${item?.kind}`);
-			return item.session;
-		},
-		/** The path the detail shows. */
-		shown() {
-			return todos.current!.path;
-		},
+		detail: () => target.querySelector(DETAIL)!,
+		list: () => target.querySelector(LIST)!,
 		find<T extends Element = HTMLTextAreaElement>(selector: string) {
 			return target.querySelector(selector) as T | null;
 		},
@@ -137,27 +160,58 @@ async function setup() {
 		},
 		/** Another writer replaces the file. */
 		async overwrite(path: string, content: string) {
-			expectOk(await folder.files.overwrite(path, content));
+			await put(folder, path, content);
 		},
-		/** Another writer deletes the file. */
-		async removeElsewhere(path: string) {
-			expectOk(
-				await folder.files.remove(expectOk(await folder.files.read(path))),
+		/** Another page of this origin replaces the file; the folder reports it. */
+		async overwriteElsewhere(path: string, content: string) {
+			const other = expectOk(
+				await openFolder({
+					app: id,
+					definition: todosDefinition,
+					browser: {
+						author: { name: 'Other', email: 'other@example.test' },
+						...browserStorage(storage),
+					},
+				}),
 			);
+			await put(other, path, content);
+			await other.close();
 		},
 	};
 }
 
-const TITLE = 'input[aria-label="Title"]';
-const NOTES = 'textarea[aria-label="Notes"]';
-const DONE = 'button[aria-label="Done"]';
-/** Files' complete-text editor, whatever the file. */
-const CONTENTS = 'textarea[aria-label^="Contents of"]';
-const ALERT = '[role="alert"]';
+/** Make `path` hold `content`, whatever is there. */
+async function put(
+	folder: Pick<Folder<typeof todosDefinition>, 'files' | 'write'>,
+	path: string,
+	content: string,
+) {
+	const current = await folder.files.read(path);
+	expectOk(
+		await folder.write(
+			path,
+			current.error === null ? current.data.bytes : null,
+			content,
+		),
+	);
+}
 
-/** Let replies and effects run, then render. */
-async function settle() {
-	for (let i = 0; i < 10; i++) await Bun.sleep(0);
+const TITLE = `${DETAIL} input[aria-label="Title"]`;
+const NOTES = `${DETAIL} textarea[aria-label="Notes"]`;
+const DONE = `${DETAIL} button[aria-label="Done"]`;
+/** A malformed todo's text, shown read-only. */
+const BROKEN = `${DETAIL} pre[aria-label^="Text of"]`;
+
+/**
+ * Let writes, reads, and effects run, then render. TanStack hands observers
+ * their results on a timer, so a few turns pass before the last render.
+ */
+async function settle(todos: Todos) {
+	await quiet(todos);
+	for (let turn = 0; turn < 3; turn++) {
+		flushSync();
+		await Bun.sleep(1);
+	}
 	flushSync();
 }
 
@@ -170,79 +224,77 @@ async function eventually(done: () => boolean) {
 	flushSync();
 }
 
-/** The next write of `path` fails before it publishes: a definite failure. */
-function failNextWrite(opfs: ReturnType<typeof opfsOf>, path: string) {
-	opfs.faults.write = (file) => {
-		if (!file.endsWith(`/${path}`)) return undefined;
-		opfs.faults.write = undefined;
-		return 'fail';
-	};
-}
-
 /** Deliver a click to an element, attached or not. */
 function press(element: Element) {
 	element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 
-/** The button among `root`'s descendants whose text is `text`. */
-function button(root: ParentNode, text: string) {
-	const found = [...root.querySelectorAll('button')].find(
-		(candidate) => candidate.textContent?.trim() === text,
+/** The list's labels, in order. */
+function listed(list: Element) {
+	return [...list.querySelectorAll('[data-todo]')].map((row) =>
+		row.textContent?.trim(),
 	);
-	if (found === undefined) throw new Error(`No button reads '${text}'`);
-	return found;
 }
 
-/** The labels of `root`'s buttons in the save bar. */
-function saveBarButtons(root: ParentNode) {
-	const bar = root.querySelector('[data-testid="save-bar"]');
-	if (bar === null) throw new Error('No save bar');
-	return [...bar.querySelectorAll('button')].map((b) => b.textContent?.trim());
+/** Open the todo at `path` from the list. */
+async function openTodo(todos: Todos, target: Element, path: string) {
+	const row = [...target.querySelectorAll(`${LIST} [data-todo]`)].find(
+		(candidate) => candidate.getAttribute('data-todo') === path,
+	);
+	if (row === undefined) throw new Error(`The list does not show ${path}`);
+	press(row);
+	await settle(todos);
 }
 
-test("typing saves at once, and each todo gets its own view: A then B then A mounts new controls, A's left-over controls admit nothing, and each input saves at its own path", async () => {
-	const { todos, target, get, selected, shown, reading } = await setup();
-	await todos.create('A');
-	const pathA = shown();
-	await todos.create('B');
-	const pathB = shown();
-
-	await todos.open(pathA, 'todos');
+/** Add a todo through the list and show it, as the list does; answers its path. */
+async function addTodo(todos: Todos, target: Element, title: string) {
+	const before = opened();
+	type(target.querySelector('[aria-label="New todo title"]'), title);
 	flushSync();
+	click(target.querySelector(LIST)!, 'Add');
+	await settle(todos);
+	await eventually(() => opened() !== undefined && opened() !== before);
+	return `todos/${opened()}.md`;
+}
+
+/** Read every listing again, as Check again does. */
+async function reread(todos: Todos) {
+	await todos.refresh();
+	await settle(todos);
+}
+
+test('typing is saved, the list shows what was saved, and each todo saves at its own path', async () => {
+	const { todos, target, get, list, reading } = await setup();
+	const pathA = await addTodo(todos, target, 'A');
+	const pathB = await addTodo(todos, target, 'B');
+
+	await openTodo(todos, target, pathA);
 	const title = get<HTMLInputElement>(TITLE);
-	const notes = get(NOTES);
-	const a = selected();
 	expect(title.value).toBe('A');
 	type(title, 'A typed');
-	expect(a.draft.fields.title).toBe('A typed');
-	await eventually(() => a.state.status === 'saved');
-	expect(target.textContent).toContain(`Saved to ${pathA}`);
+	// Nothing is sent while the person may still be typing.
+	await settle(todos);
+	expect(listed(list())).not.toContain('A typed');
+	// A second after the last keystroke, it is.
+	await Bun.sleep(1100);
+	await settle(todos);
+	// The save put the row it wrote in the cache the list reads.
+	expect(listed(list())).toContain('A typed');
+	expect(get('[data-testid="write-status"]').textContent).toContain(
+		`Saved to ${pathA}`,
+	);
 
-	// B's view is a new one, bound to B for its whole lifetime.
-	await todos.open(pathB, 'todos');
-	flushSync();
-	const b = selected();
-	expect(b).not.toBe(a);
+	// B's view is a new one.
+	await openTodo(todos, target, pathB);
 	expect(get<HTMLInputElement>(TITLE)).not.toBe(title);
-	expect(get(NOTES)).not.toBe(notes);
 	expect(get<HTMLInputElement>(TITLE).value).toBe('B');
-	// A's controls left the document; what still reaches them changes nothing.
-	type(title, 'from A, detached');
-	type(notes, 'from A, detached\n');
 	type(get<HTMLInputElement>(TITLE), 'B typed');
+	blur(get(TITLE));
 	type(get(NOTES), 'B notes\n');
-	expect(a.draft).toEqual({
-		fields: { title: 'A typed', done: false },
-		body: '',
-	});
-	expect(b.draft).toEqual({
-		fields: { title: 'B typed', done: false },
-		body: 'B notes\n',
-	});
-	expect((await b.settled()).status).toBe('saved');
+	blur(get(NOTES));
+	await settle(todos);
 
-	await todos.open(pathA, 'todos');
-	flushSync();
+	await openTodo(todos, target, pathA);
 	expect(get<HTMLInputElement>(TITLE).value).toBe('A typed');
 	expect(get(NOTES).value).toBe('');
 	expect(await reading(pathA)).toEqual({
@@ -255,498 +307,277 @@ test("typing saves at once, and each todo gets its own view: A then B then A mou
 	});
 });
 
-test('another writer\'s change is a conflict on the next edit, and "Reload theirs" shows their version in the same session', async () => {
-	const {
-		todos,
-		target,
-		get,
-		find,
-		selected,
-		shown,
-		text,
-		overwrite,
-		reading,
-	} = await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
-	const title = get<HTMLInputElement>(TITLE);
+test('a title saved over a change made elsewhere keeps the other fields, and wins where both changed', async () => {
+	const { todos, target, get, list, failures, overwrite, text } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	await overwrite(path, '---\ntitle: Milk from the shop\ndone: true\n---\n');
 
-	await overwrite(path, ROW('Theirs'));
-	await settle();
-	expect(title.value).toBe('Milk');
-	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	expect(find(ALERT)?.textContent).toContain('changed elsewhere');
-	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
-	expect(title.value).toBe('Mine');
-	expect(await text(path)).toBe(ROW('Theirs'));
-
-	click(target, 'Reload theirs');
-	await eventually(() => session.state.status === 'saved');
-	expect(selected()).toBe(session);
-	expect(get<HTMLInputElement>(TITLE)).toBe(title);
-	expect(title.value).toBe('Theirs');
-	expect(find(ALERT)).toBeNull();
-	expect(await text(path)).toBe(ROW('Theirs'));
-
-	// The next edit writes on top of their version.
-	type(title, 'After');
-	expect((await session.settled()).status).toBe('saved');
-	expect((await reading(path)).fields.title).toBe('After');
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	blur(get(TITLE));
+	await settle(todos);
+	expect(failures).toEqual([]);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect(listed(list())).toEqual(['Oat milk']);
+	expect(await text(path)).toBe('---\ntitle: Oat milk\ndone: true\n---\n');
 });
 
-test('another writer\'s change is a conflict on the next edit, and "Keep mine" saves the draft over it', async () => {
-	const { todos, target, get, find, selected, shown, overwrite, reading } =
-		await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
-	const title = get<HTMLInputElement>(TITLE);
-	type(get(NOTES), 'My notes\n');
-	await session.settled();
+test('typed text survives the cache being read again before it is sent', async () => {
+	const { todos, target, get, overwriteElsewhere, reading } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	type(get(NOTES), 'Two cartons.\n');
+	// Another page changes the file; the folder reports it and the cache
+	// reads it again while the typing is still held here.
+	await overwriteElsewhere(
+		path,
+		'---\ntitle: Milk\ndone: true\n---\nFrom the shop.\n',
+	);
+	await eventually(
+		() => get<HTMLButtonElement>(DONE).getAttribute('aria-checked') === 'true',
+	);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect(get(NOTES).value).toBe('Two cartons.\n');
 
-	await overwrite(path, ROW('Theirs'));
-	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
-
-	click(target, 'Keep mine');
-	await eventually(() => session.state.status === 'saved');
-	expect(selected()).toBe(session);
-	expect(title.value).toBe('Mine');
-	expect(find(ALERT)).toBeNull();
+	blur(get(TITLE));
+	blur(get(NOTES));
+	await settle(todos);
+	// The title wins its field; the notes merged by line with theirs.
 	expect(await reading(path)).toEqual({
-		fields: { title: 'Mine', done: false },
-		body: 'My notes\n',
+		fields: { title: 'Oat milk', done: true },
+		body: expect.stringContaining('Two cartons.\n'),
 	});
 });
 
-test('a file deleted elsewhere offers "Discard" and "Keep mine": Keep mine creates it again from the draft, and Discard closes it and writes nothing', async () => {
-	const {
-		todos,
-		target,
-		get,
-		find,
-		selected,
-		shown,
-		text,
-		removeElsewhere,
-		reading,
-	} = await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
-	const title = get<HTMLInputElement>(TITLE);
+test('opening another todo while a save is pending writes it to the todo it was typed into, and to no other', async () => {
+	const { todos, target, get, reading } = await setup();
+	const pathA = await addTodo(todos, target, 'A');
+	const pathB = await addTodo(todos, target, 'B');
+	await openTodo(todos, target, pathA);
+	type(get<HTMLInputElement>(TITLE), 'A typed');
+	type(get(NOTES), 'A notes\n');
 
-	await removeElsewhere(path);
-	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	expect(find(ALERT)?.textContent).toContain('deleted elsewhere');
-	expect(saveBarButtons(target)).toEqual(['Discard', 'Keep mine']);
-	expect(title.value).toBe('Mine');
-	expect(await text(path)).toBeUndefined();
-
-	click(target, 'Keep mine');
-	await eventually(() => session.state.status === 'saved');
-	expect(selected()).toBe(session);
-	expect(find(ALERT)).toBeNull();
-	expect(await reading(path)).toEqual({
-		fields: { title: 'Mine', done: false },
+	// No blur: the view goes away with the save still waiting for its pause.
+	await openTodo(todos, target, pathB);
+	await settle(todos);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('B');
+	expect(await reading(pathA)).toEqual({
+		fields: { title: 'A typed', done: false },
+		body: 'A notes\n',
+	});
+	expect(await reading(pathB)).toEqual({
+		fields: { title: 'B', done: false },
 		body: '',
 	});
-	// The recreated file is the session's to save over.
-	type(title, 'Mine again');
-	expect((await session.settled()).status).toBe('saved');
-	expect((await reading(path)).fields.title).toBe('Mine again');
+});
 
-	// Deleted again: Discard closes the todo and writes nothing.
-	await removeElsewhere(path);
-	type(title, 'Lost');
-	await eventually(() => session.state.status === 'error');
-	click(target, 'Discard');
-	await eventually(() => todos.opened === undefined);
-	expect(find(TITLE)).toBeNull();
-	expect(target.textContent).toContain('Select a todo');
-	expect(todos.unsaved).toBe(false);
+test('a failed save keeps the typed text, and Try again sends it', async () => {
+	const { todos, target, get, failNextWrite, reading, failures } =
+		await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	failNextWrite(path);
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	blur(get(TITLE));
+	await settle(todos);
+	expect(failures).toHaveLength(1);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect((await reading(path)).fields.title).toBe('Milk');
+	const status = get('[data-testid="write-status"]');
+	expect(status.textContent).toContain('Not saved');
+
+	click(status, 'Try again');
+	await settle(todos);
+	expect((await reading(path)).fields.title).toBe('Oat milk');
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect(get('[data-testid="write-status"]').textContent).toContain('Saved to');
+});
+
+test('notes typed into a todo deleted elsewhere are not written and are offered as text', async () => {
+	const { todos, target, get, failures, text } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get(NOTES), 'From the shop.\n');
+	// Another writer deletes the file before the notes are sent; the cache
+	// still holds the row.
+	expectOk(await todos.folder.write(path, null, null));
+	blur(get(NOTES));
+	await settle(todos);
 	expect(await text(path)).toBeUndefined();
+	expect(failures).toMatchObject([
+		{ path, unsaved: 'From the shop.\n', error: { name: 'NotFound' } },
+	]);
 });
 
-test("returning to the window shows another writer's change when nothing is unsaved, and keeps a draft that could not save", async () => {
-	const { todos, opfs, target, get, find, selected, shown, text, overwrite } =
-		await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
-	const title = get<HTMLInputElement>(TITLE);
+test('the checkbox sends at once and does not undo a title typed meanwhile', async () => {
+	const { todos, target, get, reading } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	press(get<HTMLButtonElement>(DONE));
+	await settle(todos);
+	expect(await reading(path)).toEqual({
+		fields: { title: 'Milk', done: true },
+		body: '',
+	});
+	// The title is still typed here, and its save keeps the checkbox's.
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	blur(get(TITLE));
+	await settle(todos);
+	expect(await reading(path)).toEqual({
+		fields: { title: 'Oat milk', done: true },
+		body: '',
+	});
+});
 
-	await overwrite(path, ROW('Theirs'));
-	await todos.check();
-	flushSync();
-	expect(selected()).toBe(session);
-	expect(title.value).toBe('Theirs');
-	expect(session.state.status).toBe('saved');
-
-	// A save that failed keeps its input; the next check replaces nothing.
-	failNextWrite(opfs, path);
-	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	expect(find(ALERT)?.textContent).toContain('Not saved');
-	expect(saveBarButtons(target)).toEqual(['Try again']);
-	await overwrite(path, ROW('Theirs again'));
-	await todos.check();
-	flushSync();
-	expect(title.value).toBe('Mine');
-	expect(await text(path)).toBe(ROW('Theirs again'));
-
-	// Try again meets their change: the conflict prompt asks.
-	click(target, 'Try again');
+test("another page's change shows without returning to the window", async () => {
+	const { todos, target, get, list, overwriteElsewhere } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	await overwriteElsewhere(path, ROW('Milk, edited elsewhere'));
 	await eventually(
-		() =>
-			session.state.status === 'error' &&
-			find(ALERT)?.textContent?.includes('changed elsewhere') === true,
+		() => get<HTMLInputElement>(TITLE).value === 'Milk, edited elsewhere',
 	);
-	expect(saveBarButtons(target)).toEqual(['Reload theirs', 'Keep mine']);
-	click(target, 'Reload theirs');
-	await eventually(() => session.state.status === 'saved');
-	expect(title.value).toBe('Theirs again');
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk, edited elsewhere');
+	expect(listed(list())).toEqual(['Milk, edited elsewhere']);
 });
 
-test('Files opens the complete text and the list opens fields; a malformed todo opens as text that says why, and repaired there, Open as todo shows its fields', async () => {
-	const { todos, target, get, find, selected, selectedText, text, reading } =
-		await setup();
-	expectOk(await todos.folder.files.create('todos/milk.md', ROW('Milk')));
-	const broken = '---\ntitle: *missing\n---\n';
-	expectOk(await todos.folder.files.create('todos/bad.md', broken));
-	await todos.check();
-	expect(todos.repairs.map((repair) => repair.path)).toEqual(['todos/bad.md']);
+test('a malformed todo shows under "Needs repair"; shown, its issues and text are read-only, and it reads as a todo once another editor fixes it', async () => {
+	const { todos, get, find, list, overwrite } = await setup();
+	const broken = '---\r\ntitle: *missing\r\n---\r\n';
+	expectOk(await todos.folder.write('todos/bad.md', null, broken));
+	await reread(todos);
+	const repairs = () => list().querySelector('[aria-label="Needs repair"]');
+	expect(repairs()?.textContent).toContain('todos/bad.md');
 
-	// The same file, from each surface.
-	await todos.open('todos/milk.md', 'files');
-	flushSync();
-	expect(get(CONTENTS).value).toBe(ROW('Milk'));
-	expect(find(TITLE)).toBeNull();
-	await todos.open('todos/milk.md', 'todos');
-	flushSync();
-	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
-	expect(find(CONTENTS)).toBeNull();
-
-	// A malformed row opened as a todo opens as its text, and says why.
-	await todos.open('todos/bad.md', 'todos');
-	flushSync();
-	const bad = selectedText();
-	expect(todos.current).toEqual({ path: 'todos/bad.md', workspace: 'todos' });
+	click(repairs()!, 'Show');
+	await settle(todos);
 	expect(find('[data-testid="needs-repair"]')?.textContent).toContain(
 		'Needs repair',
 	);
 	expect(find(TITLE)).toBeNull();
-	expect(find(DONE)).toBeNull();
-	const contents = get(CONTENTS);
-	expect(contents.value).toBe(broken);
-	expect(button(target, 'Open as todo').disabled).toBe(true);
+	expect(find(`${DETAIL} textarea`)).toBeNull();
+	// The repair view shows the file's exact text.
+	expect(get(BROKEN).textContent).toBe(broken);
+	expect(leave()).toBe(false);
 
-	// Repaired as text, it saves as typed and offers Open as todo.
-	type(contents, ROW('Fixed'));
-	await eventually(
-		() =>
-			bad.state.status === 'saved' &&
-			find('[data-testid="needs-repair"]') === null,
-	);
-	expect(await text('todos/bad.md')).toBe(ROW('Fixed'));
-	expect(button(target, 'Open as todo').disabled).toBe(false);
-	await todos.check();
-	flushSync();
-	expect(todos.repairs).toEqual([]);
-	expect(get(CONTENTS)).toBe(contents);
-
-	// Open as todo is a new view on a new session.
-	click(target, 'Open as todo');
-	await eventually(() => find(TITLE) !== null);
-	const fixed = selected();
+	// Another editor fixes it; reading again shows it.
+	await overwrite('todos/bad.md', ROW('Fixed'));
+	await reread(todos);
+	expect(repairs()).toBeNull();
+	expect(find(BROKEN)).toBeNull();
 	expect(get<HTMLInputElement>(TITLE).value).toBe('Fixed');
-	// Files' textarea left; what still reaches it writes nothing.
-	type(contents, 'junk from the departed text');
-	expect(bad.draft).toBe(ROW('Fixed'));
-	type(get<HTMLInputElement>(TITLE), 'Live');
-	type(get(NOTES), 'live notes\n');
-	press(get<HTMLButtonElement>(DONE));
-	expect((await fixed.settled()).status).toBe('saved');
-	expect(await reading('todos/bad.md')).toEqual({
-		fields: { title: 'Live', done: true },
-		body: 'live notes\n',
-	});
 });
 
-test("a draft that could not save keeps the todo open with its input until it saves; then Files opens its text, and the todo view's detached controls admit nothing", async () => {
-	const { todos, opfs, target, get, find, selected, shown, text } =
-		await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
+test('a title input keeps its value well formed, so what is written is what is shown', async () => {
+	const { todos, target, get, failures, reading } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
 	const title = get<HTMLInputElement>(TITLE);
-	const done = get<HTMLButtonElement>(DONE);
-	failNextWrite(opfs, path);
-	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-
-	// Opening another item asks first; nothing opens in its place meanwhile.
-	expect(await todos.open(path, 'files')).toMatchObject({ kind: 'unsaved' });
-	flushSync();
-	expect(selected()).toBe(session);
-	expect(get<HTMLInputElement>(TITLE)).toBe(title);
-	expect(title.value).toBe('Mine');
-	expect(find(CONTENTS)).toBeNull();
-	expect(todos.unsaved).toBe(true);
-
-	click(target, 'Try again');
-	await eventually(() => session.state.status === 'saved');
-	const saved = (await text(path))!;
-	expect(saved).toContain('title: Mine');
-	click(target, 'Open in Files');
-	await eventually(() => find(CONTENTS) !== null);
-	expect(get(CONTENTS).value).toBe(saved);
-
-	// The todo view's controls left the document; what reaches them changes nothing.
-	type(title, 'from the departed title');
-	press(done);
-	expect(session.draft).toEqual({
-		fields: { title: 'Mine', done: false },
-		body: '',
-	});
-
-	// The todo opens again in a new session at the same path; the first
-	// view's detached controls reach neither.
-	await todos.open(path, 'todos');
-	flushSync();
-	const reopened = selected();
-	expect(reopened).not.toBe(session);
-	type(title, 'from the first view');
-	press(done);
-	await settle();
-	expect(reopened.draft).toEqual({
-		fields: { title: 'Mine', done: false },
-		body: '',
-	});
-	expect(session.draft).toEqual({
-		fields: { title: 'Mine', done: false },
-		body: '',
-	});
-	expect(await text(path)).toBe(saved);
-});
-
-test('a title the file cannot hold is not saved and says why, and a valid title saves', async () => {
-	const { todos, target, get, find, selected, shown, reading } = await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
-	const title = get<HTMLInputElement>(TITLE);
-
 	title.value = 'Oat \uD800';
 	expect(title.value.isWellFormed()).toBe(false);
 	title.dispatchEvent(new window.Event('input', { bubbles: true }));
-	await settle();
-	expect(session.state).toMatchObject({
-		status: 'error',
-		error: { name: 'InvalidValues' },
-	});
-	expect(find(ALERT)?.textContent).toContain('Not saved');
-	expect(saveBarButtons(target)).toEqual([]);
-	expect(await reading(path)).toEqual({
-		fields: { title: 'Milk', done: false },
-		body: '',
-	});
-
-	type(title, 'Oat');
-	expect((await session.settled()).status).toBe('saved');
-	flushSync();
-	expect(find(ALERT)).toBeNull();
-	expect((await reading(path)).fields.title).toBe('Oat');
+	blur(title);
+	await settle(todos);
+	expect(failures).toEqual([]);
+	expect(title.value).toBe('Oat �');
+	expect((await reading(path)).fields.title).toBe('Oat �');
 });
 
-test("notes and Files' text show LF, and typing in them keeps the file's CRLF and undeclared keys", async () => {
-	const { todos, target, get, find, selected, selectedText, text, reading } =
-		await setup();
+test('notes from a CRLF file show LF; typing in them writes the file in the standard form with LF', async () => {
+	const { todos, target, get, reading } = await setup();
 	const crlf =
 		'---\r\ntitle: Milk\r\ndone: false\r\nowner: sam\r\n---\r\nOne\r\nTwo\r\n';
-	expectOk(await todos.folder.files.create('todos/crlf.md', crlf));
-	await todos.refresh();
-	await todos.open('todos/crlf.md', 'todos');
-	flushSync();
-	const session = selected();
+	expectOk(await todos.folder.write('todos/crlf.md', null, crlf));
+	await reread(todos);
+	await openTodo(todos, target, 'todos/crlf.md');
 	const notes = get(NOTES);
 	expect(notes.value).toBe('One\nTwo\n');
 
 	type(notes, 'One\nTwo\nThree\n');
-	expect((await session.settled()).status).toBe('saved');
-	// The body keeps the file's CRLF; the frontmatter is written canonically.
+	blur(notes);
+	await settle(todos);
+	// A body write writes the frontmatter in the standard form (ADR-0576)
+	// and the body with LF (ADR-0572).
 	expect(await reading('todos/crlf.md')).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'sam' },
-		body: 'One\r\nTwo\r\nThree\r\n',
+		body: 'One\nTwo\nThree\n',
 	});
-
-	click(target, 'Open in Files');
-	await eventually(() => find(CONTENTS) !== null);
-	const contents = get(CONTENTS);
-	const saved = (await text('todos/crlf.md'))!;
-	expect(contents.value).toBe(saved.replace(/\r\n/g, '\n'));
-	const typed = contents.value.replace('Three', 'Four');
-	type(contents, typed);
-	expect((await selectedText().settled()).status).toBe('saved');
-	expect(await text('todos/crlf.md')).toBe(typed.replace(/\n/g, '\r\n'));
-});
-
-test('a view hidden while its todo stays open admits nothing from its detached fields, checkbox, file name bar, or save bar buttons; shown again, the same todo takes input', async () => {
-	const { todos, opfs, target, get, find, selected, shown, reading } =
-		await setup();
-	await todos.create('Milk');
-	const path = shown();
-	flushSync();
-	const session = selected();
-	const title = get<HTMLInputElement>(TITLE);
-	const notes = get(NOTES);
-	const done = get<HTMLButtonElement>(DONE);
-	const form = get<HTMLFormElement>('form');
-	const name = get<HTMLInputElement>('form input');
-	const remove = button(form, 'Delete');
-	failNextWrite(opfs, path);
-	type(title, 'Mine');
-	await eventually(() => session.state.status === 'error');
-	const retry = button(target, 'Try again');
-
-	click(target, 'Hide detail');
-	flushSync();
-	expect(find(TITLE)).toBeNull();
-	expect(target.querySelector('[data-view="hidden"]')).not.toBeNull();
-	expect(selected()).toBe(session);
-
-	// Events still delivered to the view's detached nodes, one at a time.
-	type(title, 'from a detached title');
-	type(notes, 'from detached notes\n');
-	press(done);
-	expect(session.draft).toEqual({
-		fields: { title: 'Mine', done: false },
-		body: '',
-	});
-	type(name, 'renamed');
-	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-	press(remove);
-	press(retry);
-	await settle();
-	expect(session.state.status).toBe('error');
-	expect(session.draft.fields.title).toBe('Mine');
-	expect(await reading(path)).toEqual({
-		fields: { title: 'Milk', done: false },
-		body: '',
-	});
-	expect(todos.current?.path).toBe(path);
-
-	// Negative control: shown again, the same todo takes input and Try again.
-	click(target, 'Show detail');
-	flushSync();
-	expect(selected()).toBe(session);
-	click(target, 'Try again');
-	await eventually(() => session.state.status === 'saved');
-	type(get<HTMLInputElement>(TITLE), 'Live');
-	expect((await session.settled()).status).toBe('saved');
-	expect((await reading(path)).fields.title).toBe('Live');
-});
-
-test('a save bar button left from an earlier view answers nothing for the todo open now', async () => {
-	const { todos, target, get, selected, selectedText, overwrite } =
-		await setup();
-	const path = 'todos/milk.md';
-	expectOk(await todos.folder.files.create(path, ROW('Milk')));
-	await todos.refresh();
-	await todos.open(path, 'files');
-	flushSync();
-	const file = selectedText();
-	await overwrite(path, ROW('Theirs'));
-	type(get(CONTENTS), ROW('Mine'));
-	await eventually(() => file.state.status === 'error');
-	const retired = button(target, 'Reload theirs');
-	click(target, 'Keep mine');
-	await eventually(() => file.state.status === 'saved');
-
-	await todos.open(path, 'todos');
-	flushSync();
-	const session = selected();
-	await overwrite(path, ROW('Theirs again'));
-	type(get<HTMLInputElement>(TITLE), 'Newer');
-	await eventually(() => session.state.status === 'error');
-	press(retired);
-	await settle();
-	expect(selected()).toBe(session);
-	expect(session.draft.fields.title).toBe('Newer');
-	expect(session.state.status).toBe('error');
-});
-
-test('list completion while Files shows the same todo changes nothing there; opened as a todo, completion and reopening keep its notes and undeclared keys', async () => {
-	const { todos, target, get, selected, selectedText, reading, text } =
-		await setup();
-	const path = 'todos/milk.md';
-	const source =
-		'---\ntitle: Milk\ndone: false\nowner: keep-me\n---\nCurrent notes.';
-	expectOk(await todos.folder.files.create(path, source));
-	await todos.refresh();
-	await todos.open(path, 'files');
-	flushSync();
-	const contents = get(CONTENTS);
-	expect(contents.value).toBe(source);
-
-	const { default: TodoList } = await import('./TodoList.svelte');
-	const listTarget = document.createElement('div');
-	document.body.append(listTarget);
-	const list = mount(TodoList, { target: listTarget, props: { todos } });
-	cleanup.push(async () => {
-		await unmount(list);
-		listTarget.remove();
-	});
-	flushSync();
-	const completion =
-		listTarget.querySelector<HTMLButtonElement>('[role="checkbox"]');
-	if (completion === null) throw new Error('No list completion control');
-
-	// The text is the open file's one editor: completion from the list is
-	// refused, and the typing in Files stays as it was.
-	type(contents, `${source}\nTyped in Files.`);
-	const file = selectedText();
 	expect(
-		await todos.toggle(todos.entries.find((entry) => entry.path === path)!),
-	).toContain('open as text');
-	press(completion);
-	await settle();
-	expect(completion.getAttribute('aria-checked')).toBe('false');
-	expect(get(CONTENTS)).toBe(contents);
-	expect((await file.settled()).status).toBe('saved');
-	expect(contents.value).toBe(`${source}\nTyped in Files.`);
-	expect(await text(path)).toBe(`${source}\nTyped in Files.`);
-	expect(todos.current).toEqual({ workspace: 'files', path });
+		new TextDecoder().decode(
+			expectOk(await todos.folder.files.read('todos/crlf.md')).bytes,
+		),
+	).toBe('---\ntitle: Milk\ndone: false\nowner: sam\n---\nOne\nTwo\nThree\n');
+});
 
-	click(target, 'Open as todo');
-	await eventually(() => todos.opened?.kind === 'todo');
-	const session = selected();
-	press(completion);
-	await eventually(() => completion.getAttribute('aria-checked') === 'true');
-	expect(session.draft.fields.done).toBe(true);
+test('completion from the list and from the detail keeps notes and undeclared keys', async () => {
+	const { todos, target, get, list, reading } = await setup();
+	const path = 'todos/milk.md';
+	expectOk(
+		await todos.folder.write(
+			path,
+			null,
+			'---\ntitle: Milk\ndone: false\nowner: keep-me\n---\nCurrent notes.',
+		),
+	);
+	await reread(todos);
+	await openTodo(todos, target, path);
+	const completion = () =>
+		list().querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+
+	press(completion());
+	await settle(todos);
+	// Both show the file once the set lands.
+	expect(completion().getAttribute('aria-checked')).toBe('true');
 	expect(get<HTMLButtonElement>(DONE).getAttribute('aria-checked')).toBe(
 		'true',
 	);
-	expect((await session.settled()).status).toBe('saved');
 	expect(await reading(path)).toEqual({
 		fields: { title: 'Milk', done: true, owner: 'keep-me' },
-		body: 'Current notes.\nTyped in Files.',
+		body: 'Current notes.',
 	});
-	press(completion);
-	await eventually(() => completion.getAttribute('aria-checked') === 'false');
-	expect((await session.settled()).status).toBe('saved');
+	press(get<HTMLButtonElement>(DONE));
+	await settle(todos);
+	expect(completion().getAttribute('aria-checked')).toBe('false');
 	expect(await reading(path)).toEqual({
 		fields: { title: 'Milk', done: false, owner: 'keep-me' },
-		body: 'Current notes.\nTyped in Files.',
+		body: 'Current notes.',
 	});
+});
+
+test('a file that cannot be read as text is labelled "Could not read", with no repair', async () => {
+	const { todos, list } = await setup();
+	expectOk(
+		await todos.folder.write(
+			'todos/binary.md',
+			null,
+			new Uint8Array([0xff, 0xfe, 0x00]),
+		),
+	);
+	await reread(todos);
+	const unreadable = list().querySelector('[aria-label="Could not read"]');
+	expect(unreadable?.textContent).toContain('todos/binary.md');
+	expect(
+		[...(unreadable?.querySelectorAll('button') ?? [])].map((button) =>
+			button.textContent?.trim(),
+		),
+	).toEqual(['Try again']);
+	expect(list().querySelector('[aria-label="Needs repair"]')).toBeNull();
+});
+
+test('the open todo follows the URL, and opening one from the list sets it', async () => {
+	const { todos, target, get, detail } = await setup();
+	const milk = await addTodo(todos, target, 'Milk');
+	const bread = await addTodo(todos, target, 'Bread');
+	const stemOf = (path: string) => path.slice('todos/'.length, -'.md'.length);
+	expect(opened()).toBe(stemOf(bread));
+
+	await goto(`?todo=${encodeURIComponent(stemOf(milk))}`);
+	await settle(todos);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
+
+	await openTodo(todos, target, bread);
+	expect(opened()).toBe(stemOf(bread));
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Bread');
+
+	// A todo the folder does not hold says so.
+	await goto('?todo=missing');
+	await settle(todos);
+	expect(detail().textContent).toContain(
+		'This todo is no longer in the folder',
+	);
 });

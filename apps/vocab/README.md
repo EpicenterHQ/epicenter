@@ -16,15 +16,19 @@ Choose one to three saved expressions in Words and start a chat. Vocab saves the
 
 ### Editing a word
 
-One word is open at a time. A word's note is read-only until the learner focuses it, which opens the word; another word that is open is left first. Each note keystroke and each stage press of the open word is saved at once as the whole word. One write runs at a time and only the latest change waits, so fast typing writes the latest note. A stage pressed on a word that is not open, in Words or in a chat's focus list, saves that word as the list showed it; if the file changed since, nothing is saved and the list reads it again. A note is kept well formed: half of a surrogate pair becomes U+FFFD, so what is shown is what is saved.
+Every word's note and stage can be changed at once; there is no word to open first. A stage press, in Words or in a chat's focus list, is saved to the word's file right away. A note is held on its card while it is typed, apart from the list, and saved a second after the last keystroke, when the learner leaves it, and when the card goes away; quitting loses at most that last second. Each is a change to the file as it is now (ADR-0576): it sets the note or the stage and keeps whatever another writer changed in the other field. One word's saves run one at a time, in the order made. A note that did not save stays on its card with **Try again**. A note is saved as typed, except that the folder writes half of a surrogate pair as U+FFFD (ADR-0572); the card shows U+FFFD once that save lands.
 
-Every save is guarded by the version this page last saved or read. When the file changed elsewhere, the save is refused and the card asks "This changed elsewhere": **Reload theirs** shows the file as it is now, and **Keep mine** saves the learner's note over it. When the file was deleted elsewhere, the card asks the same: **Discard** closes the word, and **Keep mine** creates it again from what is on screen. When the file is no longer a valid word, **Reload theirs** opens its text for repair, or says why it cannot be shown. Any other failed save keeps the learner's text with **Try again**. Opening the word already open asks nothing. Opening another word while the open one holds a save that failed or conflicted asks "Discard unsaved changes?"; leaving the page then asks too.
+When the file changed elsewhere since the edit started, the save merges with it: what only the other writer changed stays, and your edit wins where you both changed the same field, with no notice. When the save fails, nothing is written and the edit stays on screen; a notice says what happened, with **Save again**, and the next change sends it too. A note or stage sent to a word deleted elsewhere writes nothing, since a delete beats an edit that never saw it (ADR-0576): a notice says so and offers the note to copy until you dismiss it.
 
-The list is read when the page opens, after the learner's own actions, and when they return to the window. Returning also takes a newer version of the open word when it holds nothing unsaved; a word with a failed save keeps the learner's text.
+The list is read when the page opens. After that, a change made outside this page is reported by the folder, here by other tabs of Vocab in this browser, and the list reads the files it reached. Returning to the window reads nothing. A read that lands while an edit is saving changes the list, never the edit. This page's own saves put what they wrote in the list themselves.
 
-A file in `entries/` that is not a valid word is named under the list with why, and is not offered as a word. **Repair as text** opens its exact text (a file that is gone or no longer text says so instead); each change is saved as typed, and the problems are shown as the learner types. Once the text is a valid word, **Show note and stage** opens it as a word again. A file that is not text at all is only named.
+A file in `entries/` that is not a valid word is named under the list with why, and is not offered as a word. **Repair as text** opens its exact text (a file that is gone or no longer text says so instead); what is typed is saved a second after the last keystroke and when the learner leaves it, one write at a time over the version the last write left, merging by line with a change made elsewhere, and the problems are shown as the learner types. Once the text is a valid word, **Show note and stage** waits for the last write, closes the repair, and the list reads the file again and shows it as a word. A file that is not text at all is only named.
 
-Delete asks first. Confirming waits for the open word's saves to land, then removes the file only if it is still what this page saved or, for a word that is not open, what the list showed; a file changed elsewhere since is refused, and the word opens again as the file holds it. A delete whose answer was lost is reported, and the list reads the folder again. Closing the page waits for changes already under way, and leaving it while one runs asks first.
+Delete asks first. Confirming waits for the word's save still running, then removes the file, whatever another tab or program changed in it since (ADR-0576).
+
+Leaving or closing the page waits for every save and action still running and never asks to discard anything. While one runs, the browser asks before a reload or a closed tab.
+
+Saves never record a version. Vocab has no "Save version", and its folder records history only through a sync, which Vocab does not run.
 
 ### Saving a phrase
 
@@ -34,7 +38,7 @@ The phrase becomes one entry with an empty note and the New stage. "Saved to you
 
 ### Chat history
 
-Below 768px, Words and Chat sit in a bottom navigation bar; desktop keeps them in the header. A selected practice action sits above the bar without covering words. Chat returns to the selected conversation without opening History. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers separate history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft. Focus text stays visible if its saved entry is deleted; its stage control then disappears. Earlier message-only chats remain readable, with their first learner question as the title.
+Below 768px, Words and Chat sit in a bottom navigation bar; desktop keeps them in the header. A selected practice action sits above the bar without covering words. Chat returns to the selected conversation without opening History. Desktop Chat shows history, conversation, and focus words side by side; narrow Chat offers separate history and focus controls above the conversation. Returning to Words keeps the selected chat's draft and stream, but closes dictation and discards speech not yet inserted. Switching chats disposes the previous loop and its unsent draft, and never asks first. Focus text stays visible if its saved entry is deleted; its stage control then disappears.
 
 ### Choosing a model
 
@@ -43,21 +47,21 @@ The model picker lists the endpoints saved in this browser and lets the learner 
 ## Data ownership
 
 ```text
-openFolder({ id, definition: vocabFolder }) One folder in this browser (OPFS), ID so.epicenter.vocab
+openFolder({ app, definition: vocabFolder }) One folder in this browser (OPFS), app so.epicenter.vocab
   entries/<SHA-256 of the text>.md          Exact text, note, stage, creation time
   chats/<id>.md                             Creation time, fixed focus snapshot
   messages/<chat id>.<message id>.md        Chat ID, one finished message
 ```
 
-`src/lib/data.ts` declares how the folder's files read and `src/lib/folder.ts` opens it as `VOCAB_FOLDER_ID` through `@epicenter/folder/browser`. The folder is one directory in this browser's origin private file system, `Epicenter/local/so.epicenter.vocab`, holding the files and their Git history. It is not a directory on disk: Vocab has no desktop build, and inside the desktop app the opener refuses instead of opening browser storage. No row has an account in it.
+`src/lib/data.ts` declares how the folder's files read, and `src/routes/+page.svelte` opens it with `<FolderApp>` from `@epicenter/svelte` under Vocab's app id, `APPS.VOCAB.id`. The folder is one directory in this browser's origin private file system, `so.epicenter.vocab`, holding the files and their Git history. It is not a directory on disk: Vocab has no desktop build, and inside the desktop app opening is refused (the shell runs no Vocab window), never answered with browser storage. No row has an account in it. A version the folder records names the author `Vocab <so.epicenter.vocab@localhost>` (before `<FolderApp>`, `vocab@localhost`).
 
 This version is a clean break from earlier ones. Vocab does not read, copy, or delete what an earlier version saved in IndexedDB, in an account's Personal store, or in a device chat store; it starts from the OPFS directory alone.
 
-A new word's file is named by the SHA-256 of its exact UTF-8 text and created exclusively. Adding one text twice, from one tab or two, or again after an answer that never arrived, reaches the same file: one add creates it and the others find it, with its note and stage as they are. A different file at that name is refused and left alone. A word file under another name, such as one written outside Vocab, is found by its text in the list.
+A new word's file is named by the SHA-256 of its exact UTF-8 text. An add creates that file, and a create is refused when a file is already there. Adding one text twice, from one tab or two, or again after an answer that never arrived, reaches the same file: the refused add reads it and finds the word with its note and stage as they are, so adds made at the same moment leave one file. A different file at that name is refused and left alone. A word file under another name, such as one written outside Vocab, is found by its text in the list.
 
-A chat's ID is the `chat` field of its messages and the first part of their file names, so a chat reads only its own message files and the chat list reads none of them. Message files saved before chat prefixes are named by message ID alone; every chat reads them, and the chat list reads them for earlier message-only chats, which have no `chats` file and are listed without a focus. A focus item holds the original text and its entry's ID.
+A chat's ID is the `chat` field of its messages and the first part of their file names, so a chat reads only its own message files and the chat list reads none of them. The chat list is read again when the folder reports a change to `chats/`; an open chat reads its messages when it opens and before each tutor request. A focus item holds the original text and its entry's ID.
 
-A file Vocab cannot read as a row, because its text does not parse or a field does not conform, is listed by path with the reason and left as it is. It is never dropped from view silently. A word file can be repaired as text in Words; a chat or message file is only named.
+A file Vocab reads that it cannot read as a row, because its text does not parse or a field does not conform, is listed by path with the reason and left as it is. Vocab reads `words/`, `chats/`, and the message files named for an open chat; any other file is left alone and not listed. It is never dropped from view silently. A word file can be repaired as text in Words; a chat or message file is only named.
 
 The app runs the UI-free `@epicenter/agent` loop over one chat's message files. An unsent draft and a partial response are not saved. The selected chat owns the only live loop.
 
@@ -65,28 +69,29 @@ A message is saved once the folder confirms its file, and nothing is shown as sa
 
 - The tutor is asked only over saved history. A learner message is a file before generation, and the opening and every retry read the chat's messages from the folder first. A draft stays in the input until its message is saved. A folder that cannot be read asks nothing and has its own "Read again".
 - A tutor answer is saved only after a clean finish. A stopped, failed, filtered, or cut-off answer is not saved. A complete answer that the folder refuses stays on screen and copyable; it is not a phrase source until it is saved.
-- A failed save has its own notice and its own "Save again", which writes the same file again and never asks the tutor. Tutor failures keep their separate retry. Leaving a chat that holds an unsaved message asks first. The inference picker saves one workflow choice in this browser; an unavailable model leaves Words and history usable.
+- A failed save has its own notice and its own "Save again", which writes the same file again and never asks the tutor, and a notice offers to copy the message's text. Tutor failures keep their separate retry. Leaving a chat that holds an unsaved message does not ask first; its text is lost unless it was copied or saved again. The inference picker saves one workflow choice in this browser; an unavailable model leaves Words and history usable.
 
-A message's file is named by its chat and its ID and created exclusively. Saving it again after an answer that never arrived finds the file, compares what it holds, and adds no second file; a different message at that name is refused. A chat shows what it last read together with every message it saved, so a read never hides a message saved here.
+Each message is saved by a write scoped to its chat, so one chat's messages are written one at a time and in order, and closing the page waits for them. A streaming answer lives only on screen until it finishes; the finished answer is then saved whole.
+
+A message's file is named by its chat and its ID, and a save creates it only when no file is there. Saving it again after an answer that never arrived finds the file, compares what it holds, and adds no second file; a different message at that name is refused. A chat shows what it last read together with every message it saved, so a read never hides a message saved here.
 
 ## Development
 
-Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real browser folder on an in-memory OPFS stand-in. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
+Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/vocab typecheck` and `bun test apps/vocab/src/lib` for focused checks. The tests run the real modules over the real browser folder on an in-memory OPFS stand-in. Words, chats, and every save and action go through the page's one TanStack Query cache (ADR-0528, ADR-0548), which `<FolderApp>` owns: it wires the folder's `onFilesChanged` to invalidate exactly the queries a change reached, shows each failed save as one toast that offers the unsaved text, and closes the folder when the page goes away. `src/lib/vocab.svelte.ts` builds Vocab over `getFolder()` and reads through its query layer (`queries`, `folderOptions` from `@epicenter/folder/query`); `src/lib/entries.svelte.ts` holds the words, a word's note draft and stage set, and the repair's text draft, each through the folder's edit layer (`edits`, `@epicenter/svelte/edits`), and `src/lib/chat/chats.ts` holds the chat list and message saves, each in its chat's turn. `bun run --cwd apps/vocab test` also runs `test:svelte`, which mounts the real word card in jsdom under the browser build of Svelte; it shows what delivered events do, not layout, focus, or IME.
 
 ## Changed promises
 
-This version is built on `@epicenter/folder`'s guarded autosave (`@epicenter/svelte/edit-session`) and dropped several promises of the version before it:
+This version saves a note or a stage as a change to the word's file as it is now (ADR-0576): a note is saved after a pause in typing rather than on every keystroke, and a save no longer names a note it replaced. Before that, it read files through the query cache (ADR-0528) and kept each word's edit as a draft that saved as it changed (ADR-0548), instead of an edit session that autosaved, and dropped several promises of the version before it:
 
-- A word's save no longer replaces a change made elsewhere. Every save is guarded, a change made elsewhere is a conflict, and there is no **Reload file** button: Reload theirs lives in the conflict prompt, and returning to the window takes a newer version of an open word that holds nothing unsaved.
-- One word is open at a time, opened by focusing its note. Every card no longer keeps its own editor and unsaved input; leaving a word whose save failed asks to discard it.
-- A word whose file was deleted elsewhere can be created again with Keep mine. Before, nothing saved could recreate it, and the card offered only "Let it go".
-- Change reports from other tabs no longer reread the lists while the learner works. The lists read again on open, after the learner's actions, and on return to the window.
+- A save that meets a change made elsewhere is no longer reviewed. It merges with the change (ADR-0548): what only the other writer changed stays, and your edit wins where you both changed the same field. There is no "This changed elsewhere" review, **Use this**, **Apply**, or **Try again**, and a word deleted elsewhere cannot be created again from the screen.
+- A delete no longer refuses a word file changed elsewhere since this page saved it: confirming removes the file as it is then (ADR-0576).
+- A failed save keeps the edit on screen with **Save again**, but only while the page is open: leaving or reloading drops an edit that was never saved.
+- Every word is editable at once. There is no open word, no read-only note until focus, and nothing asks "Discard unsaved changes?".
+- Returning to the window reads nothing. Changes made in another tab of Vocab arrive as the folder reports them; a file changed by another program in this browser's storage is read on the next reload.
+- Leaving a chat that holds an unsaved message no longer asks first.
+- Closing or leaving the page waits for every save and action and never asks to discard. The browser still asks before a reload or a closed tab while one runs.
+- Saves never record a version, and Vocab offers none to record (ADR-0529).
 - A note with half of a surrogate pair is saved with U+FFFD in its place, instead of being refused with a notice. A note's line endings are saved as typed (LF) rather than in the file's own convention.
 - The first save of a word written by an earlier version rewrites its file in the current plain YAML form. Comments in a hand-edited word file are lost.
-- A file that is not a valid word is repaired from a list under Words, not inside a word card. Closing it while its text is still not a valid word keeps it in that list.
-- Delete no longer has unconfirmed-delete states ("Check again", "Let it go"): a delete whose answer was lost is reported once, and the list reads the folder again. Delete is refused, and the word read again, when its file changed elsewhere since this page saved or listed it.
-- A refused delete of the open word opens it again from its file, and any draft it could not save is dropped. Before, a refused delete kept the word, its text, and a failed save exactly as they were.
-- Reload theirs of a word whose file is no longer text closes the draft and shows why the file cannot be shown, through the same read that opens a word. Before, the draft stayed open with Keep mine still offered.
-- One delete is no longer queued per word. Closing the page still waits for a delete already sent, and for any other change under way (a stage press, an added word, a new chat, or a message being saved); leaving the page while one runs asks first.
-- New message files are named `<chat id>.<message id>.md`, and a chat reads only its own. Message files from before this change are still read by every chat and by the chat list; there are as many of them as there will ever be.
-- Chats are listed newest first by when they started, not by their latest message. A chat with messages saved before this change also moves up to its latest such message, and an earlier message-only chat is placed by its latest message; messages saved after this change never move a chat.
+- Message files are named `<chat id>.<message id>.md`, and a chat reads only its own. A message file named otherwise belongs to no chat and is not shown.
+- Chats are listed newest first by when they started, not by their latest message.

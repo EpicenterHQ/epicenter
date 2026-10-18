@@ -39,11 +39,11 @@ Epicenter is a monorepo containing multiple applications. The main application r
 3. **Start development from the repository root**
 
    ```bash
-   # Run the Whispering desktop app (needs Rust)
-   bun dev:whispering
+   # Run the Epicenter desktop app (needs Rust)
+   bun dev:epicenter
 
-   # Or run its page alone in a browser tab
-   bun dev:whispering:ui
+   # Or run Whispering's page alone in a browser tab
+   bun dev:whispering
    ```
 
 That's it! You're ready to start contributing.
@@ -86,7 +86,7 @@ You can still contribute to the API schema without Infisical access. From `apps/
 
 Write the migration, push it locally, open a PR. A maintainer with Infisical prod access applies it via `bun run db:migrate:remote`.
 
-To run the repo's fresh-clone-safe smoke checks, run `bun run smoke:local` from the repo root. Today that boots the Bun API port with dev auth and fake local-only env values, runs the runtime-parity smoke, and skips the blob leg when no local S3 store is configured.
+To check the API without Infisical, run `bun run --cwd apps/api test` with PostgreSQL's `initdb` and `pg_ctl` on `PATH`. It boots both API entries against disposable Postgres clusters with fixture secrets and drives them with real access tokens.
 
 The convention in one line: `:local` works on a fresh clone, `:remote` wraps with `infisical run --env=prod` and is admin-only. See [`docs/articles/local-remote-script-convention.md`](docs/articles/local-remote-script-convention.md) for the full story.
 
@@ -127,7 +127,7 @@ The convention in one line: `:local` works on a fresh clone, `:remote` wraps wit
 
 ### Changelog Entries
 
-Every PR with a `feat:` or `fix:` prefix should include a `## Changelog` section in the PR description. These entries get aggregated into GitHub Releases automatically.
+Every PR with a `feat:` or `fix:` prefix should include a `## Changelog` section in the PR description. Release notes are written from these entries.
 
 Write one line per user-visible change, in imperative mood, for end users, not developers. The person who wrote the code is always best positioned to describe what it does.
 
@@ -175,54 +175,11 @@ git rebase upstream/main
 
 ## Releasing
 
-This section is for maintainers with npm publish access to the `@epicenter` scope.
-
-### Prerequisites
-
-- Bun installed (see above)
-- An npm account with publish access to the `@epicenter` scope
-- `npm login` completed in your terminal
-
-### How versioning works
-
-The published packages share a single version number and move together.
-
-**Apps are completely separate from changesets.** Changesets only touches packages that are (a) not marked `"private": true` and (b) listed under `packages/`. Every app in `apps/` is `"private": true` and has its own deploy mechanism. Changesets will never version or publish them. Web apps deploy on push to `main`; native packaging belongs to each Tauri host. See [App deployments](#app-deployments) below.
-
-We use [changesets](https://github.com/changesets/changesets) to track changes and publish. Never edit `version` fields in `package.json` by hand.
-
-### Adding a changeset
-
-After making changes to any package, run this before committing:
-
-```bash
-bunx changeset
-```
-
-Select the affected packages, pick the semver bump (patch for fixes, minor for new features), and write a short summary. Commit the generated `.changeset/*.md` file with your code.
-
-### Publishing a release
-
-```bash
-# 1. Consume all pending changesets, bump versions, write CHANGELOGs
-bunx changeset version
-
-# 2. Commit
-git add . && git commit -m "chore: release vX.Y.Z"
-
-# 3. Publish to npm and create git tags
-bunx changeset publish
-
-# 4. Push
-git push && git push --tags
-```
+No package is published to npm: every package and app is `private: true`.
 
 ### App deployments
 
-Apps deploy separately from npm packages:
-
-- **Whispering (desktop)**: A standalone Tauri app. `bun build:whispering` produces a local bundle; there is no release workflow for it yet.
-- **Epicenter (desktop)**: Epicenter owns native packaging for the trusted desktop apps it hosts.
+- **Epicenter (desktop)**: Epicenter owns native packaging. Apps, Whispering included, are installed into it from their folders (ADR-0552); there is no release workflow for it yet.
 - **Other web apps (Cloudflare Workers)**: Merge to `main`. `deploy.cloudflare.yml` deploys automatically.
 
 See [`.github/workflows/README.md`](.github/workflows/README.md) for the full workflow reference.

@@ -3,29 +3,31 @@
  * a real bare repository served by `git http-backend`.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DataSchema } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	rawBrowserFolder,
-	testBrowserStorage,
 } from './browser-storage.test-support.js';
-import {
-	type DirectoryFolderOptions,
-	defineFolder,
-	defineTable,
-	type Folder,
-	type FolderDefinition,
-	field,
-	openFolder,
-} from './bun.js';
-import { hashBytes } from './capture.js';
+import { defineFolder, defineTable, field, openFolder } from './bun.js';
+import { openNativeFolder } from './directory.test-support.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { createHistory } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
+import { createGitRunner } from './git/native-host.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -33,23 +35,19 @@ import {
 	gitHttpFetch,
 	scratch,
 } from './git-http.test-support.js';
-import { createNativeFileBoundary } from './native-store.js';
+import { hashBytes } from './hash.js';
+import { overwrite } from './put.test-support.js';
 import { parseRow } from './row-text.js';
+import { mustRow } from './row-write.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
-const openNativeFolder = async <const TDefinition extends FolderDefinition>(
-	options: DirectoryFolderOptions<TDefinition>,
-) => expectOk(await openFolder(options));
-
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
 		}),
 	},
 });
-type Todos = Folder<typeof definition>;
 
 const author = { name: 'App', email: 'app@example.test' };
 const originalFetch = globalThis.fetch;
@@ -69,16 +67,6 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 
-/** Wait for the commit attempt a save started, and its push, to settle. */
-async function settled(folder: Todos) {
-	for (let index = 0; index < 400; index++) {
-		const { activity } = folder.git.snapshot;
-		if (!activity.commit.active && !activity.push.active) return;
-		await Bun.sleep(10);
-	}
-	throw new Error('Git work did not settle');
-}
-
 describe('native folder', () => {
 	test('an existing non-main HEAD refuses history changes while file saves remain available', async () => {
 		const root = await scratch('native-legacy-branch-');
@@ -93,7 +81,7 @@ describe('native folder', () => {
 			git: { author },
 		});
 		try {
-			expectOk(await folder.files.create('saved.txt', 'saved'));
+			expectOk(await folder.write('saved.txt', null, 'saved'));
 			expect(await folder.git.commit()).toMatchObject({
 				status: 'blocked',
 				reason: 'HEAD is not on main',
@@ -108,14 +96,13 @@ describe('native folder', () => {
 		}
 	});
 
-	test('saves ordinary files, commits automatically, and keeps the native index consistent', async () => {
+	test('saves ordinary files without a commit; an explicit commit keeps the native index consistent', async () => {
 		const root = await scratch('native-folder-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
-		await settled(folder);
 		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Walk', done: false }, body: 'Around the block.\n' },
@@ -128,10 +115,14 @@ describe('native folder', () => {
 			fields: { title: 'Walk', done: false },
 			body: 'Around the block.\n',
 		});
-		await settled(folder);
-		expect(await git(root, 'log', '--format=%s')).toBe(
-			'Add todos/walk.md\nAdd epicenter.json',
-		);
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
+		// Opening and saving create no repository; the first commit does.
+		expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
+		expect(await folder.git.commit()).toMatchObject({
+			status: 'committed',
+			message: 'Update 2 files',
+		});
+		expect(await git(root, 'log', '--format=%s')).toBe('Update 2 files');
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 
 		// An external edit is preserved when a command updates current content.
@@ -141,13 +132,12 @@ describe('native folder', () => {
 		);
 		const current = expectOk(await folder.tables.todos.get('walk'))!;
 		expect(current.row.fields.title).toBe('Run');
-		current.row.fields.done = true;
-		const done = expectOk(
-			await folder.tables.todos.replace(current, current.row),
-		);
+		const done = mustRow(await folder.tables.todos.set('walk', { done: true }));
 
 		expect(done.row.fields).toEqual({ title: 'Run', done: true });
-		await settled(folder);
+		// The helper trims the leading space of the unstaged column.
+		expect(await git(root, 'status', '--porcelain')).toBe('M todos/walk.md');
+		expect((await folder.git.commit()).status).toBe('committed');
 		expect(await git(root, 'log', '-1', '--format=%s')).toBe(
 			'Update todos/walk.md',
 		);
@@ -164,7 +154,7 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('a complete file save checkpoints external bytes', async () => {
+	test('a complete file save makes no commit; the next commit checkpoints external bytes with it', async () => {
 		const root = await scratch('native-content-policy-');
 		const folder = await openNativeFolder({
 			root,
@@ -172,40 +162,17 @@ describe('native folder', () => {
 			git: { author },
 		});
 		try {
-			await settled(folder);
 			await writeFile(join(root, 'external.md'), 'external');
-			expect(folder.git.snapshot.lastCommit).toMatchObject({
-				status: 'committed',
-				message: 'Add epicenter.json',
-			});
+			expectOk(await folder.write('saved.md', null, 'saved'));
+			expect(folder.git.snapshot.lastCommit).toBeUndefined();
 			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
-			expectOk(await folder.files.create('saved.md', 'saved'));
-			await settled(folder);
+			expect((await folder.git.commit()).status).toBe('committed');
 			expect(await git(root, 'show', 'HEAD:external.md')).toBe('external');
 			expect(await git(root, 'show', 'HEAD:saved.md')).toBe('saved');
 			expect(await git(root, 'status', '--porcelain')).toBe('');
 		} finally {
 			await folder.close();
 		}
-	});
-
-	test('an unsupported definition is refused before a repository is initialized', async () => {
-		const root = await scratch('native-refused-');
-		const withCodec: DataSchema = {
-			kv: {},
-			tables: {
-				notes: defineTable({
-					fields: { title: field.string() },
-					body: { encode: () => '', decode: () => undefined },
-				}),
-			},
-		};
-		const refused = expectErr(
-			await openFolder({ root, definition: withCodec, git: { author } }),
-		);
-		expect(refused.name).toBe('InvalidDefinition');
-		expect(refused.message).toContain('body codec');
-		expect(await readdir(root)).toEqual([]);
 	});
 
 	test('a root that is not a directory is a returned refusal, and the handle says where it opened', async () => {
@@ -241,6 +208,67 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
+	test('a path through a differently cased directory is refused and reads nothing', async () => {
+		const root = await scratch('native-case-dir-');
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		expectOk(await folder.write('Docs/a.md', null, 'a'));
+		const oneDirectory = await readFile(join(root, 'docs/a.md')).then(
+			() => true,
+			() => false,
+		);
+		const created = await folder.write('docs/b.md', null, 'b');
+		if (oneDirectory) {
+			expect(expectErr(created).name).toBe('InvalidPath');
+			expect(await readdir(join(root, 'Docs'))).toEqual(['a.md']);
+			expect(expectErr(await folder.files.read('docs/a.md')).name).toBe(
+				'NotFound',
+			);
+		} else expectOk(created);
+		await folder.close();
+	});
+
+	test("Sync stops where a remote file's name is held here under another spelling", async () => {
+		const project = await scratch('native-case-sync-');
+		const bare = await createBareRemote(project);
+		const peer = join(project, 'peer');
+		await git(project, 'clone', '--quiet', bare, peer);
+		await writeFile(join(peer, 'keep.md'), 'keep\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Start');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const root = join(project, 'local');
+		await git(project, 'clone', '--quiet', bare, root);
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+		// An ignored local file, and the remote adding its other spelling.
+		await writeFile(join(root, '.gitignore'), 'notes.md\n');
+		expect((await folder.git.commit()).status).toBe('committed');
+		await writeFile(join(root, 'notes.md'), 'mine, ignored\n');
+		await writeFile(join(peer, 'Notes.md'), 'theirs\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Notes');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const head = await git(root, 'rev-parse', 'HEAD');
+		// Names compare folded on every disk, so a case-sensitive one stops
+		// too: the folder must open on a case-insensitive one.
+		const synced = await folder.sync.run();
+		expect(synced.error?.name).toBe('Blocked');
+		expect(synced.error?.message).toContain("'Notes.md'");
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+		expect(await readFile(join(root, 'notes.md'), 'utf8')).toBe(
+			'mine, ignored\n',
+		);
+		await folder.close();
+	});
+
 	test('literal lookup: a stem does not alias a differently cased file', async () => {
 		const root = await scratch('native-case-');
 		const folder = await openNativeFolder({
@@ -248,8 +276,9 @@ describe('native folder', () => {
 			definition,
 			git: { author },
 		});
-		await folder.files.create(
+		await folder.write(
 			'todos/Plan.md',
+			null,
 			'---\ntitle: P\ndone: false\n---\n',
 		);
 		expect((await folder.tables.todos.get('Plan')).data?.path).toBe(
@@ -267,15 +296,17 @@ describe('native folder', () => {
 			{ fields: { title: 'Q', done: false }, body: '' },
 			{ stem: 'plan' },
 		);
-		const plan = expectOk(await folder.tables.todos.get('Plan'))!;
-		const moved = await folder.tables.todos.rename(plan, 'PLAN');
+		const moved = await folder.tables.todos.rename('Plan', 'PLAN');
 		if (oneFile) {
 			expect(expectErr(other)).toMatchObject({
-				name: 'Exists',
+				name: 'InvalidPath',
 				path: 'todos/plan.md',
 			});
-			expect(expectErr(moved).name).toBe('Exists');
-			expect(await readdir(join(root, 'todos'))).toEqual(['Plan.md']);
+			expect(expectErr(moved).name).toBe('InvalidPath');
+			expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+				'.epicenter.json',
+				'Plan.md',
+			]);
 			expect(await readFile(join(root, 'todos/Plan.md'), 'utf8')).toBe(
 				'---\ntitle: P\ndone: false\n---\n',
 			);
@@ -283,6 +314,7 @@ describe('native folder', () => {
 			expectOk(other);
 			expectOk(moved);
 			expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+				'.epicenter.json',
 				'PLAN.md',
 				'plan.md',
 			]);
@@ -290,16 +322,25 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('literal stems are rows on disk: an empty stem, a leading dot, a trailing space, and punctuation', async () => {
+	test('literal stems are rows on disk, a trailing space included; an empty stem, a leading dot, and a name some disk reads as another are refused', async () => {
 		const root = await scratch('native-literal-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
-		const stems = ['', '.hidden', 'trailing ', 'a: b', 'q?*'];
+		for (const refused of ['a: b', 'q?*', 'con', '', '.hidden'])
+			expect(
+				(
+					await folder.tables.todos.create(
+						{ fields: { title: refused, done: false }, body: '' },
+						{ stem: refused },
+					)
+				).error,
+			).not.toBeNull();
+		const stems = ['trailing ', 'naïve 日本', 'a.b'];
 		for (const stem of stems) {
-			const created = expectOk(
+			const created = mustRow(
 				await folder.tables.todos.create(
 					{ fields: { title: stem, done: false }, body: '' },
 					{ stem },
@@ -309,14 +350,22 @@ describe('native folder', () => {
 			const bytes = await readFile(join(root, 'todos', `${stem}.md`));
 			expect(await hashBytes(bytes)).toBe(created.sha256);
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(created);
-			created.row.fields.done = true;
-			const updated = expectOk(
-				await folder.tables.todos.replace(created, created.row),
+			const updated = mustRow(
+				await folder.tables.todos.set(stem, { done: true }),
 			);
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(updated);
 		}
-		// An uppercase extension is an ordinary file, not a row.
+		// An uppercase extension, an empty id, and a dot name are ordinary
+		// files, not rows.
 		await writeFile(join(root, 'todos/Loud.MD'), 'not a row');
+		await writeFile(
+			join(root, 'todos/.md'),
+			'---\ntitle: x\ndone: false\n---\n',
+		);
+		await writeFile(
+			join(root, 'todos/.hidden.md'),
+			'---\ntitle: x\ndone: false\n---\n',
+		);
 		const listing = expectOk(await folder.tables.todos.list());
 		expect(listing.map((item) => item.stem).sort()).toEqual([...stems].sort());
 		expect(expectOk(await folder.tables.todos.get('Loud'))).toBeUndefined();
@@ -329,10 +378,10 @@ describe('native folder', () => {
 			expectErr(withBinary.find((item) => item.stem === 'binary')!.result).name,
 		).toBe('InvalidUtf8');
 
-		const empty = expectOk(await folder.tables.todos.get(''))!;
-		const named = expectOk(await folder.tables.todos.rename(empty, 'named'));
-		expectOk(await folder.tables.todos.delete(named));
-		expect(await readdir(join(root, 'todos'))).not.toContain('.md');
+		expectOk(await folder.tables.todos.rename('trailing ', 'named'));
+		expectOk(await folder.tables.todos.delete('named'));
+		expect(await readdir(join(root, 'todos'))).not.toContain('trailing .md');
+		expect(await readdir(join(root, 'todos'))).not.toContain('named.md');
 		await folder.close();
 	});
 
@@ -345,27 +394,29 @@ describe('native folder', () => {
 		});
 		// Audio recorded under the old model sits beside the row it was saved with.
 		const audio = new Uint8Array([1, 2, 3]);
-		expectOk(await folder.files.create('todos/take.opus', audio));
-		const created = expectOk(
+		expectOk(await folder.write('todos/take.opus', null, audio));
+		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Take', done: false }, body: '' },
 				{ stem: 'take' },
 			),
 		);
-		const take2 = expectOk(await folder.tables.todos.rename(created, 'take2'));
+		expectOk(await folder.tables.todos.rename('take', 'take2'));
 		expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+			'.epicenter.json',
 			'take.opus',
 			'take2.md',
 		]);
 
 		// The audio disappears outside the app. The row does not depend on it.
 		await rm(join(root, 'todos/take.opus'));
-		const take3 = expectOk(await folder.tables.todos.rename(take2, 'take3'));
+		expectOk(await folder.tables.todos.rename('take2', 'take3'));
 		await writeFile(join(root, 'todos/take3.opus'), audio);
 		await writeFile(join(root, 'todos/take3.wav'), audio);
 
-		expectOk(await folder.tables.todos.delete(take3));
+		expectOk(await folder.tables.todos.delete('take3'));
 		expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+			'.epicenter.json',
 			'take3.opus',
 			'take3.wav',
 		]);
@@ -375,15 +426,23 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('a competing native commit refuses the checkpoint; the branch is never forced', async () => {
+	test('a branch that moves again under the retry refuses the checkpoint; the branch is never forced', async () => {
 		const root = await scratch('native-cas-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
-		const boundary = createNativeFileBoundary(root);
+		// This process is the directory's only writer, so its save lock is
+		// no lock at all.
+		const boundary = createDirectoryStorage({
+			root,
+			primitives: nodeDirectoryPrimitives,
+			hold: {
+				lock: <T>(work: () => Promise<T>) => work(),
+				held: nodeDirectoryPrimitives,
+			},
+		});
 		const backend = await createNativeGitBackend({
 			root,
 			branch: 'main',
-			remote: undefined,
-			boundary,
+			host: { run: createGitRunner(root), files: nodeDirectoryPrimitives },
 		});
 		const history = createHistory({
 			backend: {
@@ -406,7 +465,10 @@ describe('native folder', () => {
 		await writeFile(join(root, 'a.txt'), 'a');
 		const outcome = await history.commit();
 		expect(outcome.status).toBe('branchMoved');
-		expect(await git(root, 'log', '--format=%s')).toBe('Competitor');
+		// The first move was retried once; the second is reported.
+		expect(await git(root, 'log', '--format=%s')).toBe(
+			'Competitor\nCompetitor',
+		);
 		if (outcome.status === 'branchMoved') {
 			// The candidate exists as an unreachable object; it was not published.
 			expect(await git(root, 'cat-file', '-t', outcome.candidate)).toBe(
@@ -417,175 +479,147 @@ describe('native folder', () => {
 		await history.close();
 	});
 
-	test('paths, diff, and log use real Git', async () => {
-		const root = await scratch('native-inspect-');
+	test('writes within one process take turns: two writes from one capture both land, the later winning the field both changed, and different rows both land', async () => {
+		const root = await scratch('native-turns-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
 		try {
-			await settled(folder);
-			expectOk(await folder.files.create('a.txt', 'a\n'));
-			await settled(folder);
-			await writeFile(join(root, 'a.txt'), 'changed\n');
-			expect((await folder.git.paths()).data).toEqual([
-				{ path: 'a.txt', index: ' ', worktree: 'M' },
+			for (const stem of ['a', 'b'])
+				expectOk(
+					await folder.tables.todos.create(
+						{ fields: { title: stem, done: false }, body: '' },
+						{ stem },
+					),
+				);
+			const a = expectOk(await folder.tables.todos.get('a'))!;
+			const results = await Promise.all(
+				['First', 'Second'].map((title) =>
+					folder.tables.todos.write('a', a.row, {
+						...a.row,
+						fields: { ...a.row.fields, title },
+					}),
+				),
+			);
+			// Both changed the title: each wins it as it lands, so the file
+			// holds the one that landed last.
+			const written = results.map(mustRow);
+			expect(written.map((row) => row.row.fields.title)).toEqual([
+				'First',
+				'Second',
 			]);
-			const diff = expectOk(await folder.git.diff(['a.txt']));
-			expect(diff).toContain('-a\n+changed');
-			expect(
-				expectOk(await folder.git.log(5)).map((commit) => commit.message),
-			).toEqual(['Add a.txt\n', 'Add epicenter.json\n']);
-			expect(await git(root, 'log', '-1', '--format=%an')).toBe('App');
+			const kept = expectOk(await folder.tables.todos.get('a'))!;
+			const last = written.find((row) => row.sha256 === kept.sha256);
+			expect(kept.row.fields.title).toBe(last!.row.fields.title);
+
+			const [one, two] = await Promise.all(
+				(['a', 'b'] as const).map(async (stem) => {
+					const current = expectOk(await folder.tables.todos.get(stem))!;
+					return folder.tables.todos.write(stem, current.row, {
+						...current.row,
+						fields: { ...current.row.fields, done: true },
+					});
+				}),
+			);
+			expectOk(one!);
+			expectOk(two!);
+			for (const stem of ['a', 'b'])
+				expect(
+					expectOk(await folder.tables.todos.get(stem))!.row.fields.done,
+				).toBe(true);
 		} finally {
 			await folder.close();
 		}
 	});
+
+	test('a merge another Git program began blocks commits and Sync until Git finishes it', async () => {
+		const root = await scratch('native-merge-head-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		await folder.write('a.md', null, 'one\n');
+		expect((await folder.git.commit()).status).toBe('committed');
+		const head = await git(root, 'rev-parse', 'main');
+		await writeFile(join(root, '.git/MERGE_HEAD'), `${head}\n`);
+		await writeFile(join(root, 'a.md'), 'two\n');
+
+		const commit = await folder.git.commit();
+		expect(commit).toMatchObject({ status: 'blocked' });
+		if (commit.status === 'blocked')
+			expect(commit.reason).toContain(
+				'a Git operation is in progress (MERGE_HEAD)',
+			);
+		await git(root, 'remote', 'add', 'origin', join(root, 'none.git'));
+		expect(expectErr(await folder.sync.run()).name).toBe('Checkpoint');
+		expect(await git(root, 'rev-parse', 'main')).toBe(head);
+		await folder.close();
+	});
 });
 
 describe('browser and native exchange through a real bare repository', () => {
-	test('attaching a remote branch preserves local main and exchanges that history', async () => {
-		const root = await scratch('exchange-other-branch-');
-		const bare = await createBareRemote(root);
-		globalThis.fetch = await gitHttpFetch(root);
-		const environment = createTestStorage();
-		const local = expectOk(
-			await openBrowserFolder({
-				id: 'attach-backup',
-				definition,
-				browser: {
-					author,
-					...browserStorage(environment),
-				},
-			}),
-		);
-		expectOk(await local.files.create('local.txt', 'local'));
-		await local.git.commit();
-		const first = expectOk(await local.git.log(10))[0]!.oid;
-		await local.close();
-
-		const browser = expectOk(
-			await openBrowserFolder({
-				id: 'attach-backup',
-				definition,
-				browser: {
-					author,
-					...browserStorage(environment),
-					remote: { url: 'http://git.test/remote.git', branch: 'backup' },
-				},
-			}),
-		);
-		try {
-			expect(expectOk(await browser.git.log(10))[0]!.oid).toBe(first);
-			expectOk(await browser.files.create('second.txt', 'second'));
-			await browser.git.commit();
-			expect((await browser.git.push()).status).toBe('pushed');
-			expect(await git(bare, 'rev-parse', 'backup^')).toBe(first);
-			expect(await git(bare, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
-			const second = await git(bare, 'rev-parse', 'backup');
-			// isomorphic-git 1.38.5 requires a resolvable advertised HEAD,
-			// even when fetching another branch explicitly.
-			expect(expectErr(await browser.git.fetch()).message).toContain(
-				'Could not find HEAD',
-			);
-			expect(expectOk(await browser.git.log(10))[0]!.oid).toBe(second);
-			await git(bare, 'update-ref', 'refs/heads/main', second);
-			expect(expectOk(await browser.git.fetch()).oid).toBe(second);
-
-			const nativeRoot = await scratch('native-other-branch-');
-			await git(root, 'clone', '--quiet', bare, nativeRoot);
-			let native = await openNativeFolder({
-				root: nativeRoot,
-				definition,
-				git: {
-					author,
-					remote: { url: bare, branch: 'backup' },
-				},
-			});
-			try {
-				expect(await git(nativeRoot, 'symbolic-ref', 'HEAD')).toBe(
-					'refs/heads/main',
-				);
-				expect(expectOk(await native.git.fetch()).oid).toBe(second);
-				expect(expectOk(await native.git.pullFastForward()).status).toBe(
-					'upToDate',
-				);
-				expect(
-					await git(nativeRoot, 'rev-parse', 'refs/remotes/origin/backup'),
-				).toBe(second);
-				expect(
-					await git(
-						nativeRoot,
-						'for-each-ref',
-						'--format=%(refname)',
-						'refs/heads',
-					),
-				).toBe('refs/heads/main');
-				await native.close();
-				native = await openNativeFolder({
-					root: nativeRoot,
-					definition,
-					git: { author },
-				});
-				expectOk(await native.files.create('third.txt', 'third'));
-				await native.git.commit();
-				const third = await git(nativeRoot, 'rev-parse', 'HEAD');
-				await native.close();
-				native = await openNativeFolder({
-					root: nativeRoot,
-					definition,
-					git: {
-						author,
-						remote: { url: bare, branch: 'backup' },
-					},
-				});
-				expect((await native.git.push()).status).toBe('pushed');
-				expect(await git(bare, 'rev-parse', 'backup^')).toBe(second);
-				expect(expectOk(await browser.git.fetch()).oid).toBe(third);
-				expect(expectOk(await browser.git.pullFastForward()).status).toBe(
-					'fastForwarded',
-				);
-				expect((await browser.terminal().exec('git status')).stdout).toContain(
-					'## main',
-				);
-			} finally {
-				await native.close();
-			}
-		} finally {
-			await browser.close();
-			globalThis.fetch = originalFetch;
-		}
+	test('a first sync onto a remote with history lands on its head with one parent, and Git sees a clean folder', async () => {
+		const project = await scratch('native-first-sync-');
+		const bare = await createBareRemote(project);
+		const peer = join(project, 'peer');
+		await git(project, 'clone', '--quiet', bare, peer);
+		await writeFile(join(peer, 'keep.md'), 'keep\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Start');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const theirs = await git(bare, 'rev-parse', 'main');
+		const root = join(project, 'local');
+		await mkdir(root);
+		await writeFile(join(root, 'mine.md'), 'mine\n');
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		const synced = expectOk(await folder.sync.connect(bare));
+		expect(synced.kind).toBe('synced');
+		const head = await git(bare, 'rev-parse', 'main');
+		expect(
+			(await git(bare, 'rev-list', '--parents', '-n', '1', 'main')).split(' '),
+		).toEqual([head, theirs]);
+		expect(await git(root, 'rev-parse', 'main')).toBe(head);
+		expect(await git(bare, 'show', 'main:mine.md')).toBe('mine');
+		expect(await readFile(join(root, 'keep.md'), 'utf8')).toBe('keep\n');
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await folder.close();
 	});
 
-	test('browser push, native pull, native push, browser fast-forward', async () => {
+	test('browser and native folders sync both ways, and merge when both moved', async () => {
 		const root = await scratch('exchange-');
 		const bare = await createBareRemote(root);
 		globalThis.fetch = await gitHttpFetch(root);
-		const browserRemote = { url: 'http://git.test/remote.git', branch: 'main' };
-
 		const environment = createTestStorage();
+		await configureRemote(
+			environment,
+			'exchange',
+			'http://git.test/remote.git',
+		);
 		const browser = expectOk(
 			await openBrowserFolder({
-				id: 'exchange',
+				app: 'exchange',
 				definition,
 				browser: {
 					author: { name: 'Browser', email: 'browser@example.test' },
-					remote: browserRemote,
 					...browserStorage(environment),
 				},
 			}),
 		);
-		await settled(browser);
 		await browser.tables.todos.create(
 			{ fields: { title: 'First', done: false }, body: '' },
 			{ stem: 'first' },
 		);
-		await settled(browser);
-		expect(browser.git.snapshot.lastPush).toBeUndefined();
-		expect((await browser.git.push()).status).toBe('pushed');
+		expect(expectOk(await browser.sync.run()).kind).toBe('synced');
 		expect(await git(bare, 'log', '--format=%s', 'main')).toBe(
-			'Add todos/first.md\nAdd epicenter.json',
+			'Update 2 files',
 		);
 
 		const nativeRoot = join(root, 'native');
@@ -593,116 +627,98 @@ describe('browser and native exchange through a real bare repository', () => {
 		const native = await openNativeFolder({
 			root: nativeRoot,
 			definition,
-			git: {
-				author: { name: 'Native', email: 'native@example.test' },
-				remote: { url: bare, branch: 'main' },
-			},
+			// The clone's `origin` is the remote.
+			git: { author: { name: 'Native', email: 'native@example.test' } },
 		});
-		expect((await native.git.fetch()).data?.oid).toBe(
-			await git(bare, 'rev-parse', 'main'),
-		);
-		const pulled = expectOk(await native.git.pullFastForward());
-
-		expect(pulled?.status).toBe('upToDate');
+		expect(expectOk(await native.sync.run())).toEqual({
+			kind: 'synced',
+			head: await git(bare, 'rev-parse', 'main'),
+		});
 		expect(await git(nativeRoot, 'status', '--porcelain')).toBe('');
 		const nativeEntry = expectOk(await native.tables.todos.get('first'))!;
 		expect(nativeEntry.row.fields.title).toBe('First');
 
-		nativeEntry.row.fields.done = true;
-		const nativeDone = expectOk(
-			await native.tables.todos.replace(nativeEntry, nativeEntry.row),
-		);
-		await settled(native);
-		expect(native.git.snapshot.lastPush).toBeUndefined();
-		expect((await native.git.push()).status).toBe('pushed');
+		expectOk(await native.tables.todos.set('first', { done: true }));
+		expect(expectOk(await native.sync.run()).kind).toBe('synced');
 		expect(await git(bare, 'log', '-1', '--format=%s', 'main')).toBe(
 			'Update todos/first.md',
 		);
 
-		expectOk(await browser.git.fetch());
-		const incoming = expectOk(await browser.git.pullFastForward());
-
-		expect(incoming?.status).toBe('fastForwarded');
+		expect(expectOk(await browser.sync.run()).kind).toBe('synced');
 		const browserEntry = expectOk(await browser.tables.todos.get('first'))!;
 		expect(browserEntry.row.fields.done).toBe(true);
 		expect((await browser.git.status()).data?.changes).toEqual([]);
-		expect((await browser.git.paths()).data).toEqual([]);
 
-		// A dirty folder refuses the next fast-forward before writing anything.
-		nativeDone.row.fields.title = 'Native edit';
-		expectOk(await native.tables.todos.replace(nativeDone, nativeDone.row));
-		await settled(native);
-		expect((await native.git.push()).status).toBe('pushed');
-		// Another writer publishes without a save request on this handle.
+		// Both move: the native folder edits the todo, and another writer
+		// adds a file to the browser folder without telling this handle.
+		expectOk(await native.tables.todos.set('first', { title: 'Native edit' }));
+		expect(expectOk(await native.sync.run()).kind).toBe('synced');
+		const theirs = await git(bare, 'rev-parse', 'main');
 		const external = await rawBrowserFolder({
 			id: 'exchange',
 			storage: environment,
 		});
-		const bytes = new TextEncoder().encode('local');
-		expectOk(
-			await external.boundary.apply([
-				{
-					kind: 'create',
-					path: 'scratch.txt',
-					bytes,
-					sha256: await hashBytes(bytes),
-				},
-			]),
+		await overwrite(external.boundary, 'scratch.txt', 'local');
+		const merged = expectOk(await browser.sync.run());
+		expect(merged.kind).toBe('synced');
+		const head = merged.head;
+		expect(
+			(await git(bare, 'rev-list', '--parents', '-n', '1', 'main')).split(' '),
+		).toEqual([head, expect.any(String), theirs]);
+		expect(
+			(await browser.tables.todos.get('first')).data!.row.fields.title,
+		).toBe('Native edit');
+		expect(await git(bare, 'show', 'main:scratch.txt')).toBe('local');
+
+		expect(expectOk(await native.sync.run()).kind).toBe('synced');
+		expect(await readFile(join(nativeRoot, 'scratch.txt'), 'utf8')).toBe(
+			'local',
 		);
-		await browser.git.fetch();
-		const { error: dirtyError } = await browser.git.pullFastForward();
-		expect(dirtyError?.name).toBe('Dirty');
-		expect(
-			(await browser.tables.todos.get('first')).data!.row.fields.title,
-		).toBe('First');
-
-		// Divergence: the browser commits locally; its push is rejected and pull refuses.
-		expect((await browser.git.commit()).status).toBe('committed');
-		const push = await browser.git.push();
-		expect(push.status).toBe('failed');
-		if (push.status === 'failed')
-			expect(push.error).toBe(
-				"The remote branch 'main' cannot be updated by a fast-forward",
-			);
-		const { error: divergedError } = await browser.git.pullFastForward();
-		expect(divergedError?.name).toBe('Diverged');
-		expect(
-			(await browser.tables.todos.get('first')).data!.row.fields.title,
-		).toBe('First');
-
 		await browser.close();
 		await native.close();
 		globalThis.fetch = originalFetch;
 	});
 
-	test('an unreachable remote leaves the local commit and reports the push failure', async () => {
+	test('an unreachable remote reports the failed fetch: a first sync records nothing, a later one keeps its checkpoint', async () => {
+		const environment = createTestStorage();
+		await configureRemote(
+			environment,
+			'offline',
+			'http://127.0.0.1:9/offline.git',
+		);
 		const browser = expectOk(
 			await openBrowserFolder({
-				id: 'offline',
+				app: 'offline',
 				definition,
 				browser: {
 					author,
-					remote: { url: 'http://127.0.0.1:9/offline.git', branch: 'main' },
-					...testBrowserStorage(),
+					...browserStorage(environment),
 				},
 			}),
 		);
-		expectOk(await browser.files.create('offline.txt', 'Offline'));
-		await settled(browser);
+		expectOk(await browser.write('offline.txt', null, 'Offline'));
+		expect(browser.git.snapshot.lastCommit).toBeUndefined();
+		// No commit yet: Sync fetches before it records anything.
+		expect(expectErr(await browser.sync.run()).name).toBe('Fetch');
+		expect(browser.git.snapshot.lastCommit).toBeUndefined();
+		expect(expectOk(await browser.git.status()).changes).toContainEqual({
+			path: 'offline.txt',
+			kind: 'add',
+		});
+		// With a commit, the checkpoint comes first and stays.
+		expect((await browser.git.commit()).status).toBe('committed');
+		expectOk(await browser.write('offline.txt', 'Offline', 'Still offline'));
+		expect(expectErr(await browser.sync.run()).name).toBe('Fetch');
 		expect(browser.git.snapshot.lastCommit?.status).toBe('committed');
-		expect(browser.git.snapshot.lastPush).toBeUndefined();
-		expect((await browser.git.push()).status).toBe('failed');
-		expect(browser.git.snapshot.lastPush?.status).toBe('failed');
-		const sync = browser.git.snapshot.sync;
-		expect(sync.state === 'observed' && sync.value.ahead).toBe(2);
+		expect(expectOk(await browser.git.status()).changes).toEqual([]);
 		expect(
 			new TextDecoder().decode(
 				expectOk(await browser.files.read('offline.txt')).bytes,
 			),
-		).toBe('Offline');
+		).toBe('Still offline');
 		await browser.close();
 	});
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

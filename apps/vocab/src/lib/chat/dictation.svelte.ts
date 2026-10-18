@@ -1,6 +1,6 @@
 /**
  * Vocab dictation: a continuous voice-activity-detection session over
- * `@epicenter/recorder`. The package owns the microphone and utterance
+ * `@epicenter/recorder/browser`. The package owns the microphone and utterance
  * segmentation (Silero VAD; assets served from `/vad/`, see vite.config.ts);
  * this controller owns the UI-facing cycle: it mirrors the session into a
  * reactive status and transcribes each spoken phrase through the shared
@@ -24,9 +24,9 @@ import { TranscribeError } from '@epicenter/client';
 import { HOSTED_TRANSCRIPTION_MODEL } from '@epicenter/constants/ai-providers';
 import {
 	createVadRecorder,
-	type DeviceStreamError,
+	type RecorderError,
 	type VadRecorderError,
-} from '@epicenter/recorder';
+} from '@epicenter/recorder/browser';
 import type OpenAI from 'openai';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { base } from '$app/paths';
@@ -59,9 +59,7 @@ export function createDictation(
 	// failures travel in the Result handed to onTranscript.
 	let deliveries: Promise<void> = Promise.resolve();
 	let starting:
-		| Promise<
-				Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
-		  >
+		| Promise<Result<void, VadRecorderError | RecorderError | TranscribeError>>
 		| undefined;
 	let stopping: Promise<Result<void, VadRecorderError>> | undefined;
 	let closing: Promise<void> | undefined;
@@ -116,7 +114,7 @@ export function createDictation(
 		}: {
 			onTranscript: (result: Result<string, TranscribeError>) => void;
 		}): Promise<
-			Result<void, VadRecorderError | DeviceStreamError | TranscribeError>
+			Result<void, VadRecorderError | RecorderError | TranscribeError>
 		> {
 			if (closed || stopping || status !== 'idle') return Ok(undefined);
 			const client = await getClient();
@@ -130,7 +128,7 @@ export function createDictation(
 			starting = (async () => {
 				const { error: startError } = await vad.startActiveListening({
 					// Default device: vocab has no device picker (the package reads no
-					// store; the caller passes a deviceId, and vocab refuses to have one).
+					// store; the caller passes an input, and vocab refuses to have one).
 					// Status writes are gated on an armed session so a callback that fires
 					// during the start or stop window cannot flip a closed session's state;
 					// the blob itself is still delivered (the user spoke it).

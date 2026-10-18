@@ -15,10 +15,7 @@
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
-		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
-		"@epicenter/app": "workspace:*",
-		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
@@ -27,10 +24,15 @@
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
+		"@tanstack/svelte-query": "catalog:",
 		"buffer": "^6.0.3",
 		"mode-watcher": "^1.1.0",
+		"openai": "^7.12.1",
+		"runed": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/definition": "workspace:*"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",
@@ -38,15 +40,16 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tanstack/query-core": "catalog:",
 		"@types/bun": "catalog:",
+		"@types/jsdom": "21.1.7",
+		"jsdom": "26.1.0",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
-		"vite-plugin-static-copy": "^4.1.1",
-		"jsdom": "26.1.0",
-		"@types/jsdom": "21.1.7"
+		"vite-plugin-static-copy": "^4.1.1"
 	},
 	"license": "AGPL-3.0-or-later"
 }

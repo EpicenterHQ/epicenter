@@ -1,282 +1,414 @@
-//! Scopes, window sessions, and the cross-process lock.
+//! Scopes, grants, and page work.
 //!
 //! Key behaviors:
-//! - A window attaches only to a scope the shell registered for it.
-//! - Detaching one window leaves the owner and every other window working,
-//!   and the commit the owner admitted for its save still finishes.
-//! - Shutdown drains admitted saves, starts no commit, then releases the lock.
-//! - The lock excludes another process, in both directions with the Bun
-//!   hosts' lock, and a killed process leaves nothing to recover.
+//! - A scope is granted only to the windows registered or later permitted
+//!   for it; a refused grant creates nothing.
+//! - The first grant initializes nothing; a reloaded page's grant, or
+//!   another window's, returns the same root.
+//! - A second scope on that root, as the Folders window's `data:<name>` and
+//!   an app's own scope are, and a second shell on it, are granted it too.
+//! - A linked `.git` or a linked folder directory is refused; a linked
+//!   parent is not.
+//! - An application folder's missing directory is created; a data folder's
+//!   is refused `Missing`, and nothing is created.
+//! - Shutdown refuses new work and waits for none already running.
+//! - Saves racing on one root with the same expected hash, from two windows,
+//!   two scopes, or two shells, publish one at a time: exactly one lands,
+//!   and the others are `Stale`, even when each pauses between its check
+//!   and its rename.
+//! - A shell save waits while a Bun process holds the folder's save lock,
+//!   then checks against what that process saved: `Stale`, and the other
+//!   save is kept.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::files::{ApplyError, FileError};
-use crate::history::OwnerEvent;
-use crate::lock::{LockError, RootLock};
-use crate::registry::{AttachError, Registry, ScopeConfig};
-use crate::testing::{config, create, eventually, git, TempDir};
+use crate::registry::{FolderConfig, GrantError, Registry, ScopeConfig};
+use crate::storage::{self, PutOutcome};
+use crate::testing::TempDir;
 
-fn registry(root: &Path, windows: &[&str]) -> Registry {
+fn scope(name: &str, root: &Path, window: &str) -> ScopeConfig {
+    ScopeConfig {
+        scope: name.to_string(),
+        folder: FolderConfig::new(root),
+        windows: vec![window.to_string()],
+    }
+}
+
+fn registry(root: &Path, window: &str) -> Registry {
     let registry = Registry::new();
-    registry
-        .register(ScopeConfig {
-            scope: "notes".to_string(),
-            folder: config(root),
-            windows: windows.iter().map(|window| window.to_string()).collect(),
-        })
-        .unwrap();
+    registry.register(scope("notes", root, window)).unwrap();
     registry
 }
 
 #[test]
-fn a_window_attaches_only_to_a_scope_registered_for_it() {
-    let temp = TempDir::new("scopes");
-    let root = temp.folder("notes");
-    let registry = registry(&root, &["main"]);
+fn a_scope_is_granted_and_initialized_by_nothing() {
+    let temp = TempDir::new("grant");
+    let root = temp.path().join("missing").join("notes");
+    let registry = registry(&root, "main");
     assert_eq!(
-        registry.attach("other", "main").err(),
-        Some(AttachError::UnknownScope {
-            scope: "other".into()
-        })
-    );
-    assert_eq!(
-        registry.attach("notes", "intruder").err(),
-        Some(AttachError::WindowNotPermitted {
+        registry.grant("notes", "intruder").err(),
+        Some(GrantError::WindowNotPermitted {
             scope: "notes".into(),
             window: "intruder".into()
         })
     );
-    assert!(
-        !root.join(".git").exists(),
-        "a refused attach opens nothing"
-    );
-
-    let session = registry.attach("notes", "main").unwrap();
-    assert!(root.join(".git/HEAD").is_file());
-    assert!(session.authorize("main").is_ok());
     assert_eq!(
-        session.authorize("intruder").err().as_deref(),
-        Some("this folder session belongs to the window 'main', not 'intruder'")
-    );
-    let duplicate = registry.register(ScopeConfig {
-        scope: "notes".to_string(),
-        folder: config(temp.path()),
-        windows: vec!["intruder".to_string()],
-    });
-    assert_eq!(
-        duplicate.err().as_deref(),
-        Some("the folder scope 'notes' is already registered")
-    );
-    assert!(
-        registry.attach("notes", "intruder").is_err(),
-        "a scope cannot be reconfigured"
-    );
-}
-
-#[test]
-fn detaching_one_window_leaves_the_other_and_the_admitted_commit() {
-    let temp = TempDir::new("detach");
-    let root = temp.folder("notes");
-    let registry = registry(&root, &["a", "b"]);
-    let a = registry.attach("notes", "a").unwrap();
-    let b = registry.attach("notes", "b").unwrap();
-    let heard: Arc<Mutex<Vec<String>>> = Arc::default();
-    let listener = Arc::clone(&heard);
-    let _b_events = b.authorize("b").unwrap().subscribe(move |event| {
-        if let OwnerEvent::FilesChanged { paths, .. } = event {
-            listener.lock().unwrap().extend(paths.clone());
-        }
-    });
-
-    // Window A's save is admitted for its commit, held before it publishes,
-    // and then window A detaches.
-    let owner = b.authorize("b").unwrap();
-    let (reached, at_capture) = mpsc::channel::<()>();
-    let (release, gate) = mpsc::channel::<()>();
-    let gate = Mutex::new(gate);
-    owner.hooks().after_capture = Some(Arc::new(move || {
-        reached.send(()).unwrap();
-        gate.lock().unwrap().recv().unwrap();
-    }));
-    a.authorize("a")
-        .unwrap()
-        .apply(&[create("from-a.md", "A")])
-        .unwrap();
-    at_capture.recv().unwrap();
-    owner.hooks().after_capture = None;
-    drop(a);
-
-    assert_eq!(
-        owner.read("from-a.md").unwrap().bytes,
-        b"A",
-        "both windows share one owner"
-    );
-    // The commit the owner admitted outlives the session that saved.
-    release.send(()).unwrap();
-    let idle = || {
-        eventually("the admitted commit to finish", || {
-            !owner.snapshot().activity.commit.active
+        registry.grant("other", "main").err(),
+        Some(GrantError::UnknownScope {
+            scope: "other".into()
         })
-    };
-    idle();
-    assert_eq!(
-        git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
-        "from-a.md"
     );
-
-    owner.apply(&[create("from-b.md", "B")]).unwrap();
-    assert_eq!(*heard.lock().unwrap(), vec!["from-a.md", "from-b.md"]);
-    idle();
-    assert_eq!(
-        git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
-        "from-a.md\nfrom-b.md"
-    );
-
-    // A window that comes back shares the same owner and snapshot again.
-    let again = registry.attach("notes", "a").unwrap();
-    assert_eq!(
-        again.authorize("a").unwrap().snapshot().last_commit,
-        owner.snapshot().last_commit
-    );
-}
-
-#[test]
-fn shutdown_drains_a_held_save_commits_nothing_and_releases_the_lock() {
-    let temp = TempDir::new("registry-shutdown");
-    let root = temp.folder("notes");
-    let registry = Arc::new(registry(&root, &["main"]));
-    let session = registry.attach("notes", "main").unwrap();
-    let owner = session.authorize("main").unwrap().clone();
-    assert_eq!(
-        RootLock::acquire(&root).err(),
-        Some(LockError::Busy { root: root.clone() }),
-        "the registry holds the lock while the owner is open"
-    );
-
-    let (admitted, at_admission) = mpsc::channel::<()>();
-    let (release, gate) = mpsc::channel::<()>();
-    let gate = Mutex::new(gate);
-    owner.hooks().before_apply = Some(Arc::new(move || {
-        admitted.send(()).unwrap();
-        gate.lock().unwrap().recv().unwrap();
-    }));
-    let saver = owner.clone();
-    let held = std::thread::spawn(move || saver.apply(&[create("held.md", "admitted")]));
-    at_admission.recv().unwrap();
-    // The page that asked is gone before its save lands.
-    drop(session);
-
-    let closing = Arc::clone(&registry);
-    let shutdown = std::thread::spawn(move || closing.shutdown());
-    eventually("the fence", || owner.snapshot().closed);
-    assert_eq!(
-        registry.attach("notes", "main").err(),
-        Some(AttachError::ShuttingDown)
-    );
-    assert!(
-        matches!(RootLock::acquire(&root), Err(LockError::Busy { .. })),
-        "still draining"
-    );
+    assert!(!root.exists(), "a refused grant creates nothing");
     assert!(matches!(
-        owner.apply(&[create("late.md", "x")]),
-        Err(ApplyError::Refused {
-            error: FileError::Closed
-        })
+        registry.admit_page_work("notes", "main"),
+        Err(GrantError::Unavailable { .. })
     ));
 
-    release.send(()).unwrap();
-    held.join().unwrap().unwrap();
-    shutdown.join().unwrap();
-    // The save landed. It finished after the fence, so it was not committed.
-    assert_eq!(
-        std::fs::read_to_string(root.join("held.md")).unwrap(),
-        "admitted"
+    let granted = registry.grant("notes", "main").unwrap();
+    let canonical = root.canonicalize().unwrap();
+    assert_eq!(granted.root, canonical.to_string_lossy());
+    assert!(
+        !root.join(".git").exists(),
+        "granting initializes nothing; the page engine does"
     );
-    assert_eq!(owner.snapshot().last_commit, None);
-    assert!(!root.join(".git/refs/heads/main").exists());
-    RootLock::acquire(&root).expect("shutdown released the lock");
-}
+    // The same window asks again, as a reloaded page does: same root.
+    assert_eq!(registry.grant("notes", "main").unwrap(), granted);
 
-/// A Bun process that takes the lock exactly as `root-lock.ts` does, reports
-/// the outcome on stdout, and holds it until it is killed.
-fn bun_locker(root: &Path) -> (Child, String) {
-    let script = r#"
-        import { Database } from 'bun:sqlite';
-        import { basename, dirname, join } from 'node:path';
-        const root = process.argv.at(-1);
-        const database = new Database(join(dirname(root), `.${basename(root)}.epicenter-lock`), { create: true });
-        try {
-            database.run('PRAGMA busy_timeout = 0');
-            database.run('BEGIN EXCLUSIVE');
-            console.log('locked');
-        } catch (cause) {
-            console.log(`refused ${cause.code}`);
-        }
-        setInterval(() => {}, 1000);
-    "#;
-    let mut child = Command::new("bun")
-        .args(["-e", script, "--"])
-        .arg(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        // This repository always has Bun. Without it the test would prove
-        // nothing about another process, so it fails instead of passing.
-        .expect("bun is required to hold the lock from another process");
-    let mut line = String::new();
-    BufReader::new(child.stdout.take().unwrap())
-        .read_line(&mut line)
-        .unwrap();
-    (child, line.trim().to_string())
+    registry.shutdown();
+    assert_eq!(
+        registry.grant("notes", "main").err(),
+        Some(GrantError::ShuttingDown)
+    );
 }
 
 #[test]
-fn another_process_is_excluded_and_a_killed_holder_leaves_the_folder_free() {
-    let temp = TempDir::new("processes");
-    let root = temp.folder("notes");
-
-    // A Bun host holds the folder: this process is refused, at once.
-    let (mut holder, outcome) = bun_locker(&root);
-    assert_eq!(outcome, "locked");
-    let registry = registry(&root, &["main"]);
+fn a_missing_data_folder_is_refused_and_not_created() {
+    let temp = TempDir::new("grant-missing");
+    let root = temp.path().join("absent").join("vault");
+    let registry = Registry::new();
+    registry
+        .register(ScopeConfig {
+            folder: FolderConfig::data(&root),
+            ..scope("vault", &root, "main")
+        })
+        .unwrap();
     assert_eq!(
-        registry.attach("notes", "main").err(),
-        Some(AttachError::Busy {
+        registry.grant("vault", "main").err(),
+        Some(GrantError::Missing {
             root: root.display().to_string()
         })
     );
-    assert!(
-        !root.join(".git").exists(),
-        "a busy folder is not initialized"
-    );
-
-    // Killing the holder is all it takes; there is no stale lock to clear.
-    holder.kill().unwrap();
-    holder.wait().unwrap();
-    let session = registry
-        .attach("notes", "main")
-        .expect("the folder is free after the kill");
-
-    // This process holds it: a Bun host is refused the same way.
-    let (mut contender, outcome) = bun_locker(&root);
-    contender.kill().unwrap();
-    contender.wait().unwrap();
-    assert!(outcome.starts_with("refused SQLITE_BUSY"), "{outcome}");
-
-    drop(session);
+    assert!(!temp.path().join("absent").exists(), "nothing was created");
+    // Once a person makes it, the same scope is granted.
+    std::fs::create_dir_all(&root).unwrap();
+    registry.grant("vault", "main").unwrap();
     registry.shutdown();
-    let (mut after, outcome) = bun_locker(&root);
-    after.kill().unwrap();
-    after.wait().unwrap();
+}
+
+#[test]
+fn every_window_of_a_scope_is_granted_one_root() {
+    let temp = TempDir::new("grant-windows");
+    let root = temp.folder("notes");
+    let registry = Registry::new();
+    assert!(registry
+        .register(ScopeConfig {
+            windows: Vec::new(),
+            ..scope("notes", &root, "main")
+        })
+        .is_err());
+    registry
+        .register(ScopeConfig {
+            windows: vec!["main".into(), "side".into()],
+            ..scope("notes", &root, "main")
+        })
+        .unwrap();
+    let granted = registry.grant("notes", "main").unwrap();
+    assert_eq!(registry.grant("notes", "side").unwrap(), granted);
+    let canonical = root.canonicalize().unwrap();
+    assert_eq!(registry.admit_page_work("notes", "side").unwrap().0, canonical);
     assert_eq!(
-        outcome, "locked",
-        "shutdown released the folder to other processes"
+        registry.grant("notes", "browser").err(),
+        Some(GrantError::WindowNotPermitted {
+            scope: "notes".into(),
+            window: "browser".into()
+        })
     );
-    std::io::stdout().flush().unwrap();
-    std::thread::sleep(Duration::from_millis(10));
+
+    // A window the shell lets in later shares the root.
+    registry.permit("notes", "browser").unwrap();
+    registry.permit("notes", "browser").unwrap();
+    assert_eq!(registry.grant("notes", "browser").unwrap(), granted);
+    assert_eq!(
+        registry.permit("other", "browser").err(),
+        Some(GrantError::UnknownScope {
+            scope: "other".into()
+        })
+    );
+
+    registry.shutdown();
+    assert_eq!(
+        registry.permit("notes", "late").err(),
+        Some(GrantError::ShuttingDown)
+    );
+}
+
+/// The Folders window lists a folder before its app is installed, under
+/// `data:<name>`; the app then opens it under its own scope. Both are
+/// granted the one root, and a second shell on it is granted it too.
+#[test]
+fn a_second_scope_and_a_second_shell_are_granted_the_same_root() {
+    let temp = TempDir::new("grant-twice");
+    let root = temp.folder("notes");
+    let shell = Registry::new();
+    shell
+        .register(ScopeConfig {
+            folder: FolderConfig::data(&root),
+            ..scope("data:notes", &root, "folders")
+        })
+        .unwrap();
+    shell.register(scope("notes", &root, "app")).unwrap();
+    let listed = shell.grant("data:notes", "folders").unwrap();
+    assert_eq!(shell.grant("notes", "app").unwrap(), listed);
+
+    let other_shell = registry(&root, "main");
+    assert_eq!(other_shell.grant("notes", "main").unwrap(), listed);
+    shell.shutdown();
+    other_shell.shutdown();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_git_directory_is_refused() {
+    let temp = TempDir::new("grant-linked-git");
+    let root = temp.folder("linked");
+    let elsewhere = temp.folder("elsewhere");
+    std::os::unix::fs::symlink(&elsewhere, root.join(".git")).unwrap();
+    assert!(matches!(
+        registry(&root, "main").grant("notes", "main"),
+        Err(GrantError::Unavailable { .. })
+    ));
+}
+
+/// Git state that would send `hash-object -w` or `update-ref` elsewhere is
+/// refused at the grant, as before every `git` run.
+#[cfg(unix)]
+#[test]
+fn git_state_linked_elsewhere_is_refused() {
+    let temp = TempDir::new("grant-linked-state");
+    let elsewhere = temp.folder("elsewhere");
+    for planted in ["objects", "refs", "logs", "commondir"] {
+        let root = temp.folder(&format!("notes-{planted}"));
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        let path = root.join(".git").join(planted);
+        if planted == "commondir" {
+            std::fs::write(&path, "../elsewhere\n").unwrap();
+        } else {
+            std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+        }
+        assert!(
+            matches!(
+                registry(&root, "main").grant("notes", "main"),
+                Err(GrantError::Unavailable { message }) if message.contains(&format!(".git/{planted}"))
+            ),
+            "{planted}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {
+    let temp = TempDir::new("grant-linked-root");
+    let elsewhere = temp.folder("elsewhere");
+    let leaf = temp.path().join("leaf");
+    std::os::unix::fs::symlink(&elsewhere, &leaf).unwrap();
+    assert!(matches!(
+        registry(&leaf, "main").grant("notes", "main"),
+        Err(GrantError::Unavailable { .. })
+    ));
+    assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none());
+
+    // The root's parent may be a link a person chose.
+    let real = temp.folder("real");
+    let alias = temp.path().join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let granted = registry(&alias.join("notes"), "main");
+    granted.grant("notes", "main").unwrap();
+    assert!(real.join("notes").is_dir());
+    granted.shutdown();
+}
+
+#[test]
+fn shutdown_refuses_new_work_without_waiting_for_running_work() {
+    let temp = TempDir::new("grant-work");
+    let root = temp.path().join("notes");
+    let registry = registry(&root, "main");
+    registry.permit("notes", "side").unwrap();
+    registry.grant("notes", "main").unwrap();
+    let (canonical, _work) = registry.admit_page_work("notes", "main").unwrap();
+    let (_, _side_work) = registry.admit_page_work("notes", "side").unwrap();
+    // Returns while both windows' work is still admitted.
+    registry.shutdown();
+    assert!(matches!(
+        registry.admit_page_work("notes", "main"),
+        Err(GrantError::ShuttingDown)
+    ));
+    assert_eq!(canonical, root.canonicalize().unwrap());
+}
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Every admitted change on a root shares its publishing mutex, whichever
+/// window or scope it came from, and its save lock, whichever shell, so
+/// saves that read the same version check and rename one at a time. Each
+/// save pauses between its check and its rename (`PAUSE_AFTER_CHECK`), so
+/// without the mutex and the lock every save would pass the check before
+/// any renamed, and more than one would land. The writers alternate between
+/// two windows of one scope, a second scope on the root, and a second
+/// shell's registry.
+#[test]
+fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
+    const SAVES: usize = 9;
+    let temp = TempDir::new("grant-race");
+    let root = temp.folder("notes");
+    let shell = Arc::new(registry(&root, "main"));
+    shell.permit("notes", "side").unwrap();
+    shell.register(scope("data:notes", &root, "folders")).unwrap();
+    shell.grant("notes", "main").unwrap();
+    shell.grant("data:notes", "folders").unwrap();
+    let other_shell = Arc::new(registry(&root, "main"));
+    other_shell.grant("notes", "main").unwrap();
+    std::fs::write(root.join("a.md"), b"old").unwrap();
+    let expected = hex_sha256(b"old");
+    let start = Arc::new(std::sync::Barrier::new(SAVES));
+    let saves: Vec<_> = (0..SAVES)
+        .map(|save| {
+            let (registry, scope, window) = match save % 4 {
+                0 => (Arc::clone(&shell), "notes", "main"),
+                1 => (Arc::clone(&shell), "notes", "side"),
+                2 => (Arc::clone(&shell), "data:notes", "folders"),
+                _ => (Arc::clone(&other_shell), "notes", "main"),
+            };
+            let start = Arc::clone(&start);
+            let expected = expected.clone();
+            std::thread::spawn(move || {
+                storage::PAUSE_AFTER_CHECK.with(|pause| pause.set(Duration::from_millis(50)));
+                let bytes = format!("save {save}");
+                let (root, work) = registry.admit_page_work(scope, window).unwrap();
+                start.wait();
+                let landed = storage::put(&root, "a.md", Some(bytes.as_bytes()), Some(&expected), || {
+                    work.publishing()
+                });
+                (bytes, landed)
+            })
+        })
+        .collect();
+    let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
+    let winners: Vec<_> = outcomes
+        .iter()
+        .filter(|(_, landed)| *landed == Ok(PutOutcome::Landed))
+        .collect();
+    assert_eq!(winners.len(), 1, "{outcomes:?}");
+    assert_eq!(std::fs::read(root.join("a.md")).unwrap(), winners[0].0.as_bytes());
+    assert!(
+        outcomes
+            .iter()
+            .filter(|(_, landed)| *landed != Ok(PutOutcome::Landed))
+            .all(|(_, landed)| *landed == Ok(PutOutcome::Stale)),
+        "{outcomes:?}"
+    );
+    assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
+        .unwrap()
+        .next()
+        .is_none());
+    shell.shutdown();
+    other_shell.shutdown();
+}
+
+/// Another process, in Bun, that takes the folder's save lock as the Bun host
+/// does (`@epicenter/folder/bun`), says `locked`, and on a line from stdin
+/// lands its own save of `theirs` at `target`, then lets go and says
+/// `released`.
+fn bun_saver(root: &Path, target: &Path, theirs: &str) -> Child {
+    let script = r#"
+        import { Database } from 'bun:sqlite';
+        import { writeFileSync } from 'node:fs';
+        import { basename, dirname, join } from 'node:path';
+        const [root, target, theirs] = process.argv.slice(-3);
+        const database = new Database(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), { create: true });
+        database.run('PRAGMA busy_timeout = 0');
+        database.run('BEGIN EXCLUSIVE');
+        console.log('locked');
+        for await (const _ of console) {
+            writeFileSync(target, theirs);
+            database.run('ROLLBACK');
+            database.close();
+            console.log('released');
+            process.exit(0);
+        }
+    "#;
+    Command::new("bun")
+        .args(["-e", script, "--"])
+        .arg(root)
+        .arg(target)
+        .arg(theirs)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("bun is required to save from another process")
+}
+
+/// A save from another process holds the folder's save lock across its own
+/// check and rename. A shell save that read the same version waits for it,
+/// then checks against what that save left, so it is `Stale` and the other
+/// process's save is kept, not overwritten.
+#[test]
+fn a_shell_save_waits_for_another_process_save_and_then_is_stale() {
+    let temp = TempDir::new("save-lock-process");
+    let root = temp.folder("notes");
+    let registry = Arc::new(registry(&root, "main"));
+    registry.grant("notes", "main").unwrap();
+    let target = root.join("a.md");
+    std::fs::write(&target, b"old").unwrap();
+
+    let mut other = bun_saver(&root, &target, "theirs");
+    let mut said = BufReader::new(other.stdout.take().unwrap());
+    let mut line = String::new();
+    said.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "locked");
+
+    let ours = {
+        let registry = Arc::clone(&registry);
+        std::thread::spawn(move || {
+            let (root, work) = registry.admit_page_work("notes", "main").unwrap();
+            storage::put(&root, "a.md", Some(b"ours"), Some(&hex_sha256(b"old")), || {
+                work.publishing()
+            })
+        })
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!ours.is_finished(), "the shell's save waits for the other process");
+    assert_eq!(std::fs::read(&target).unwrap(), b"old");
+
+    writeln!(other.stdin.as_mut().unwrap(), "go").unwrap();
+    line.clear();
+    said.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "released");
+    other.wait().unwrap();
+
+    assert_eq!(ours.join().unwrap(), Ok(PutOutcome::Stale));
+    assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
+    assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
+        .unwrap()
+        .next()
+        .is_none());
+    registry.shutdown();
 }

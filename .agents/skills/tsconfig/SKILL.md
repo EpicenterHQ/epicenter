@@ -71,7 +71,7 @@ its `lib`/`module` win where they must. Never hand-edit a generated config.
 The two canonical library shapes in full:
 
 ```jsonc
-// Bun library: packages/sqlite, packages/sync, packages/principal, ...
+// Bun library: packages/principal, packages/server, ...
 {
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
@@ -133,4 +133,5 @@ without `@types/bun` installed would then fail with `Cannot find type definition
 ## Background
 
 The full rationale, the migration that established this layout, and the baseline
-typecheck state are in `specs/20260522T190000-modernize-monorepo-tsconfig.md`.
+typecheck state were in a spec, now deleted; recover it with
+`git log --all --full-history -- specs/20260522T190000-modernize-monorepo-tsconfig.md`.

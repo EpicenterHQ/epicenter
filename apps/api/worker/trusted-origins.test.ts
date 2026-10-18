@@ -25,12 +25,16 @@ describe('buildEpicenterTrustedOrigins', () => {
 		expect(PROD.filter((o) => o.startsWith('chrome-extension://'))).toEqual([]);
 	});
 
+	test('trusts no desktop webview origin', () => {
+		// No `tauri://` page calls the API; the desktop host relays account
+		// traffic with its own bearer token.
+		expect(PROD.filter((o) => o.startsWith('tauri://'))).toEqual([]);
+	});
+
 	test('a production deployment does not trust localhost dev origins', () => {
 		expect(PROD).not.toContain(localUrl(APPS.HONEYCRISP));
 		expect(PROD).not.toContain(localUrl(APPS.API));
 		expect(PROD).not.toContain(`http://${new URL(APPS.API.url).host}`);
-		// `tauri://localhost` is a legitimate production origin, so the check is
-		// scoped to http(s) localhost dev servers rather than the substring.
 		expect(PROD.some((o) => o.startsWith('http://localhost'))).toBe(false);
 	});
 
@@ -38,12 +42,15 @@ describe('buildEpicenterTrustedOrigins', () => {
 		expect(LOCAL).toContain('http://localhost:5177');
 		expect(PROD).not.toContain('http://localhost:5177');
 		expect(LOCAL).toContain(localUrl(APPS.HONEYCRISP));
+		expect(LOCAL).toContain('http://127.0.0.1:5186');
+		expect(PROD).not.toContain('http://127.0.0.1:5186');
 		expect(LOCAL).toContain(localUrl(APPS.API));
 		expect(LOCAL).toContain(`http://${new URL(APPS.API.url).host}`);
 	});
 
 	test('both deployments trust the production app origins', () => {
 		expect(PROD).toContain(APPS.HONEYCRISP.url);
+		expect(PROD).toContain(APPS.TODOS.url);
 		expect(LOCAL).toContain(APPS.HONEYCRISP.url);
 		expect(PROD).toContain('https://zhongwen.bradenwong.com');
 		expect(LOCAL).toContain('https://zhongwen.bradenwong.com');

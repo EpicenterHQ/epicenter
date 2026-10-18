@@ -20,19 +20,18 @@
  *   model, and key on the device only, keeps the saved key when none is
  *   typed, refuses to keep a key for another endpoint, and asks no endpoint
  *   anything
- * - A key saved by an earlier build moves only into the connections chosen,
- *   at the base URL each form shows
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { folderOptions } from '@epicenter/folder/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
-import { transformationSession } from './drafts.test-support.js';
-import { resolvePostProcessing } from './post-processing.js';
+import { settle, transformationEditor } from './edits.test-support.js';
+import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
 import {
@@ -56,7 +55,7 @@ async function open(
 	const test = await openTestWorkspace(options);
 	const workspace = change(test.workspace);
 	const session: Session = expectOk(
-		await openSession(async () => Ok(workspace)),
+		await openSession(createQueryClient(), async () => Ok(workspace)),
 	);
 	cleanups.push(async () => {
 		await session.close();
@@ -70,8 +69,12 @@ async function open(
 	};
 }
 
+/** The names in a table's directory beside its `.epicenter.json` schema. */
 const names = (root: string, directory: string) =>
-	readdir(join(root, directory)).catch(() => [] as string[]);
+	readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
 
 /** Create the cleanup starter, optionally with the model a run needs. */
 async function cleanup(session: Session, model?: string) {
@@ -79,28 +82,21 @@ async function cleanup(session: Session, model?: string) {
 	expect(
 		await library.createTransformation(STARTER_TRANSFORMATIONS[0]!),
 	).toBeUndefined();
-	const draft = transformationSession(library);
+	const draft = transformationEditor(library);
 	if (model !== undefined) {
 		draft.edit((row) => {
 			row.fields.model = model;
 		});
-		expect((await draft.settled()).status).toBe('saved');
-		await library.refreshAll();
+		await settle(library);
 	}
 	return library.transformations[0]!;
 }
 
 test('a session starts with post-processing set to None and seeds no transformation', async () => {
-	const { library, view, root, transformed } = await open();
+	const { session, library, view, root, transformed } = await open();
 
 	expect(view.postProcessing).toBeUndefined();
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		),
-	).toEqual({ kind: 'none' });
+	expect(session.postProcessing).toEqual({ kind: 'none' });
 	expect(library.transformations).toEqual([]);
 	expect(await names(root, 'transformations')).toEqual([]);
 	expect(transformed).toEqual([]);
@@ -112,19 +108,13 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	const profile = await cleanup(session, 'chat-model');
 
 	view.postProcessing = profile.path;
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		).kind,
-	).toBe('ready');
+	expect(session.postProcessing.kind).toBe('ready');
 	await library.startRecording();
 	await library.stopRecording();
 	// Nothing is transcribed by recording either.
 	expect(transcribed).toEqual([]);
 	await library.transcribe(library.entries[0]!);
-	await library.refreshAll();
+	await settle(library);
 
 	expect(transformed).toEqual([]);
 	expect(await names(root, 'transformation_runs')).toEqual([]);
@@ -144,7 +134,7 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	});
 	expect(await names(root, 'transformation_runs')).toHaveLength(1);
 	expect(library.outputsFor(transcript.stem)).toHaveLength(1);
-	expect(library.transformationRuns).toEqual([]);
+	expect(library.recipeRuns).toEqual([]);
 	expect((await readFile(join(root, transcript.path))).equals(before)).toBe(
 		true,
 	);
@@ -158,13 +148,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	view.postProcessing = profile.path;
 
 	// A new transformation uses the text connection, and none is set up.
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		),
-	).toMatchObject({
+	expect(session.postProcessing).toMatchObject({
 		kind: 'repair',
 		reason: 'Set up the text connection in Settings to run this.',
 	});
@@ -173,15 +157,9 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	);
 
 	await rm(join(root, profile.path));
-	await library.refreshAll();
+	await settle(library);
 
-	expect(
-		resolvePostProcessing(
-			view.postProcessing,
-			library.transformations,
-			library.resolve,
-		),
-	).toEqual({
+	expect(session.postProcessing).toEqual({
 		kind: 'missing',
 		path: profile.path,
 	});
@@ -194,7 +172,10 @@ test('the folder being read is reported while it is read, and not after', async 
 	const { library } = await open();
 	expect(library.refreshing).toBe(false);
 
-	const reading = library.refresh();
+	// A change the folder reports, as its change channel reports one.
+	const reading = library.queryClient.invalidateQueries(
+		folderOptions(library.folder).pathFilter(['recordings/elsewhere.md']),
+	);
 	expect(library.refreshing).toBe(true);
 	await reading;
 
@@ -233,8 +214,11 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 	expect(await draft.save()).toBeUndefined();
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
 
-	// Nothing reached the folder or an endpoint.
-	expect(await readdir(root)).not.toContain('kv.json');
+	// Nothing reached the folder, beyond the .gitignore lines opening it
+	// writes, or an endpoint.
+	expect((await readdir(root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 	expect(transcribed).toEqual([]);
 	expect(transformed).toEqual([]);
 });
@@ -290,33 +274,6 @@ test('a connection the device refuses is reported, its typed key stays, and noth
 	expect(draft.key).toBe('typed-key');
 	expect(draft.saving).toBe(false);
 	expect(device.stored.transcription?.apiKey).toBeUndefined();
-});
-
-test('the earlier key moves only into the connections chosen, at the endpoint each form shows', async () => {
-	const { session, library, device, transformed } = await open(undefined, {
-		connections: {},
-		legacyKey: 'earlier-key',
-	});
-	expect(library.connections?.legacyKey).toBe(true);
-	const { settings } = session;
-	settings.text.baseUrl = 'http://127.0.0.1:11434/v1';
-	settings.text.model = 'local-chat';
-
-	expect(await settings.adoptLegacyKey(['text'])).toBeUndefined();
-
-	expect(device.stored.text).toEqual({
-		baseUrl: 'http://127.0.0.1:11434/v1',
-		model: 'local-chat',
-		apiKey: 'earlier-key',
-	});
-	// Moved, not copied: it is not offered again, and transcription did not get it.
-	expect(device.stored.transcription).toBeUndefined();
-	expect(device.device.legacyKey).toBe('');
-	expect(library.connections?.legacyKey).toBe(false);
-	expect(await settings.adoptLegacyKey(['transcription'])).toMatchObject({
-		description: 'No key from an earlier version is saved on this device.',
-	});
-	expect(transformed).toEqual([]);
 });
 
 test.each([

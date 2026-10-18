@@ -1,13 +1,22 @@
 /**
- * Which captured files are history source.
+ * Which files are history source: the one rule every host shares (ADR-0592).
  *
- * Status, automatic commits, and incoming fast-forwards share one rule: a file
- * tracked in the committed tree stays source; an untracked file is source
- * unless `.gitignore` excludes it. Private Git state and operating-system
- * scratch files are excluded earlier by `isPortablePath`. The browser evaluates
- * `.gitignore` files from the captured bytes; the native backend asks
- * `git check-ignore`, which also
- * honors `.git/info/exclude` and the user's excludes file.
+ * A file tracked in the committed tree stays source, whatever `.gitignore`
+ * says, as in Git; untracking one is an explicit act, and history keeps
+ * what it held. Any other file is source unless `.gitignore` excludes it,
+ * and an excluded one is never read, save an ignored `.gitattributes` the
+ * native checkpoint checks for a filter (`native-checkpoint.ts`), since one
+ * changes what a commit holds. Nothing else decides what stays on one
+ * machine: no definition, no app. Private Git state and operating-system
+ * scratch files are excluded earlier by `isPortablePath`.
+ *
+ * Every host decides from the same bytes: the `.gitignore` files a capture
+ * read, evaluated here. No host asks `git check-ignore`, which rereads the
+ * live rule files after the capture took its copy, so a rule edited between
+ * the two would choose a source the committed `.gitignore` does not. Nor does
+ * any host honor `.git/info/exclude` or `core.excludesFile`: each is a
+ * per-device policy a browser cannot see and a clone does not carry, and
+ * ADR-0592 makes the folder's `.gitignore` the one rule.
  */
 import ignore, { type Ignore } from 'ignore';
 
@@ -23,7 +32,7 @@ export function gitignoreMatcher(
 ): (path: string) => boolean {
 	const rules = new Map<string, Ignore>();
 	for (const [path, bytes] of files) {
-		if (path !== '.gitignore' && !path.endsWith('/.gitignore')) continue;
+		if (!isGitignorePath(path)) continue;
 		const directory = path.slice(0, -'.gitignore'.length);
 		rules.set(directory, ignore().add(decoder.decode(bytes)));
 	}
@@ -50,22 +59,68 @@ export function gitignoreMatcher(
 	};
 }
 
-/** Keep tracked files and untracked files that are not ignored. */
-export async function sourceFiles(
-	current: ReadonlyMap<string, Uint8Array>,
-	tracked: ReadonlyMap<string, unknown>,
-	ignoredPaths: (
-		candidates: readonly string[],
-		current: ReadonlyMap<string, Uint8Array>,
-	) => Promise<ReadonlySet<string>>,
+/**
+ * The bytes of every `.gitignore` among `paths` that is a rule: read from
+ * the root down, so a file `tracked` lacks under a directory a shallower
+ * rule excludes is passed over, as Git never reads one there. A rule file
+ * a pattern names itself, such as a line ignoring every `.gitignore`, still
+ * applies; whether it is source is the caller's question. A tracked rule
+ * file is a rule, and read, wherever it is. Rule files at one depth sit in
+ * different directories, so only shallower ones decide them. `read` returns
+ * the bytes of the paths it is given, leaving out one removed meanwhile.
+ */
+export async function readRules(
+	paths: readonly string[],
+	tracked: { has(path: string): boolean },
+	read: (paths: readonly string[]) => Promise<Map<string, Uint8Array>>,
 ): Promise<Map<string, Uint8Array>> {
-	const candidates = [...current.keys()].filter((path) => !tracked.has(path));
-	const ignored =
-		candidates.length === 0
-			? new Set<string>()
-			: await ignoredPaths(candidates, current);
-	const source = new Map<string, Uint8Array>();
-	for (const [path, bytes] of current)
-		if (!ignored.has(path)) source.set(path, bytes);
-	return source;
+	const depth = (path: string) => path.split('/').length;
+	const byDepth = new Map<number, string[]>();
+	for (const path of paths.filter(isGitignorePath))
+		byDepth.set(depth(path), [...(byDepth.get(depth(path)) ?? []), path]);
+	const rules = new Map<string, Uint8Array>();
+	for (const level of [...byDepth.keys()].sort((a, b) => a - b)) {
+		const ignored = gitignoreMatcher(rules);
+		const directoryOf = (path: string) =>
+			path.slice(0, path.lastIndexOf('/') + 1);
+		const candidates = byDepth
+			.get(level)!
+			.filter(
+				(path) =>
+					tracked.has(path) ||
+					!path.includes('/') ||
+					!ignored(directoryOf(path)),
+			);
+		for (const [path, bytes] of await read(candidates)) rules.set(path, bytes);
+	}
+	return rules;
+}
+
+/**
+ * Whether `path` is a `.gitignore` file, whose rules decide what is source:
+ * one named exactly `.gitignore`, the only name Git opens on every disk.
+ */
+export function isGitignorePath(path: string): boolean {
+	return path === '.gitignore' || path.endsWith('/.gitignore');
+}
+
+/**
+ * Why `paths` cannot be history source, when one is `.gitignore` spelled in
+ * another case, such as `.GITIGNORE`: a disk that folds case opens it as the
+ * folder's rules, one that does not never reads it, so no single rule
+ * decides what it would ignore. It is refused, naming it, before anything
+ * it might ignore is read.
+ */
+export function misnamedRulesProblem(
+	paths: readonly string[],
+): { paths: string[]; reason: string } | undefined {
+	const misnamed = paths.filter((path) => {
+		const name = path.slice(path.lastIndexOf('/') + 1);
+		return name !== '.gitignore' && name.toLowerCase() === '.gitignore';
+	});
+	if (misnamed.length === 0) return undefined;
+	return {
+		paths: misnamed,
+		reason: `${misnamed.join(', ')} ${misnamed.length === 1 ? 'is' : 'are'} not named exactly .gitignore, which is the only rule file every disk reads alike; rename ${misnamed.length === 1 ? 'it' : 'each'} to .gitignore`,
+	};
 }

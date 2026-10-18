@@ -9,19 +9,12 @@
  * - Ordinary text is followed by the section, with thoughts when given
  * - Text with its own Thoughts list, then an open fence, gets one visible
  *   heading before it: two headings, refused on reopening, bytes intact
- * - The legacy import writes the same file and reports it as source-only
  *
  * See `document.test.ts` for an open fence absorbing the appended section.
  */
-import { afterAll, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { expect, test } from 'bun:test';
 import { frameRowText } from '@epicenter/folder';
-import { openFolder } from '@epicenter/folder/bun';
-import { expectOk } from 'wellcrafted/testing';
-import { captureBody, captureDefinition, composeBody } from './index.js';
-import { runLegacyImport } from './legacy/index.js';
+import { captureBody, composeBody } from './index.js';
 
 const HEAD = '---\ncapturedAt: 2026-01-01T00:00:00.000Z\n---\n';
 const OWN_LIST_THEN_OPEN_FENCE =
@@ -38,11 +31,6 @@ function reopen(source: string) {
 		thoughts: data?.thoughts ?? [],
 	};
 }
-
-const roots: string[] = [];
-afterAll(async () => {
-	for (const root of roots) await rm(root, { recursive: true, force: true });
-});
 
 test('ordinary text is followed by the section and its thoughts', () => {
 	expect(composeBody('Text', ['one', 'two\nlines', '  '])).toEqual({
@@ -77,47 +65,4 @@ test('its own Thoughts list then an open fence: marked, refused on reopening, by
 		`${HEAD}\n${OWN_LIST_THEN_OPEN_FENCE}\n\n## Thoughts\n`,
 	);
 	expect(unmarked.thoughts).toEqual(['This belongs to the original article']);
-});
-
-test('the legacy import writes the marked file and reports it as source-only', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'capture-compose-'));
-	roots.push(root);
-	const folder = expectOk(
-		await openFolder({
-			root,
-			definition: captureDefinition,
-			git: { author: { name: 'Test', email: 'test@localhost' } },
-		}),
-	);
-	const report = await runLegacyImport(folder.files, {
-		format: 'epicenter.capture.legacy-bundle',
-		version: 1,
-		exportedAt: '2026-10-01T02:30:00.000Z',
-		source: {
-			storeId: 'so.epicenter.capture',
-			account: { authorityId: 'a', principalId: 'p' },
-			scope: 'local-replica',
-		},
-		captures: [
-			{
-				id: 'c1',
-				capturedAt: '2026-01-01T00:00:00.000Z',
-				text: OWN_LIST_THEN_OPEN_FENCE,
-			},
-		],
-		thoughts: [{ id: 't1', captureId: 'c1', position: 0, text: 'app thought' }],
-		entries: [],
-		unreadable: [],
-		promotionCount: 0,
-	});
-	const [document] = report.documents;
-	expect(document?.structured?.code).toBe('duplicate-heading');
-	const saved = await readFile(join(root, document?.path ?? ''), 'utf8');
-	expect(saved).toBe(
-		`---\ncapturedAt: "2026-01-01T00:00:00.000Z"\nimportedFrom: so.epicenter.capture/captures/c1\n---\n\n## Thoughts\n\n${OWN_LIST_THEN_OPEN_FENCE}\n\n## Thoughts\n\n- app thought\n`,
-	);
-	const reopened = reopen(saved);
-	expect(reopened.refusal?.code).toBe('duplicate-heading');
-	expect(reopened.thoughts).toEqual([]);
-	await folder.close();
 });

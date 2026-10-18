@@ -1,96 +1,135 @@
 <!--
-	One capture file as its exact Markdown, frontmatter included. It saves as
-	typed, valid or not, so a file that is not a valid capture is repaired
-	here. What keeps it from reading as a capture is read live from the text;
-	once nothing does, Open as capture shows its text and thoughts. The parent
-	keys this view by the open item.
+	One capture file as its exact Markdown, frontmatter included. Typing is
+	held over the file's text and written a second after the last keystroke,
+	when the person leaves the text, and when this view goes away, valid or
+	not, so a file that is not a valid capture is repaired here. What keeps it from
+	reading as a capture is read live from the text; once nothing does, Open
+	as capture shows its text and thoughts. The parent keys this view by the
+	capture.
 -->
 <script lang="ts">
-	import { captureBody, captureDefinition, fromTextarea, toTextarea } from '@epicenter/capture';
-	import { parseRow } from '@epicenter/folder';
+	import { captureBody, captureDefinition } from '@epicenter/capture';
+	import { parseRow, rowPath, wellFormed } from '@epicenter/folder';
+	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
+	import * as Empty from '@epicenter/ui/empty';
+	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { untrack } from 'svelte';
-	import type { Captures, Opened } from '$lib/captures.svelte.js';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { onDestroy, untrack } from 'svelte';
+	import type { Captures } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
-	import { backToTimeline, confirmDelete, openItem } from '$lib/item-actions.js';
-	import SaveBar from '@epicenter/svelte/save-bar';
+	import { confirmDelete } from '$lib/item-actions.js';
 
 	let {
 		captures,
-		item,
+		stem,
 	}: {
 		captures: Captures;
-		/** The open file. The parent keys this view by it. */
-		item: Extract<Opened, { kind: 'text' }>;
+		/** The capture shown. The parent keys this view by it. */
+		stem: string;
 	} = $props();
 
-	// The view is keyed by the item, so it never changes for this view.
-	const { session, stem } = untrack(() => item);
+	// The view is keyed by the capture, so its path never changes for this view.
+	const path = untrack(() => rowPath(captures.folder.tables.captures.name, stem));
+	const file = createQuery(() => captures.queries.files.text.queryOptions(path));
+	/** The file's text draft: what is typed and not written yet. */
+	const draft = untrack(() => captures.edits.text(path));
+	const typed = $derived(draft.typed);
+	const text = $derived(
+		file.data?.kind === 'text' ? (typed ?? file.data.text) : undefined,
+	);
+	const locked = $derived(captures.fenced || captures.isDeleting(path));
+	// The draft saves after a pause, and outlives the view; send it now.
+	onDestroy(() => void draft.save());
 
 	/** Why the text is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
-		const { data: row, error } = parseRow(captureDefinition.tables.captures, session.draft);
+		if (text === undefined) return [];
+		const { data: row, error } = parseRow(captureDefinition.tables.captures, text);
 		if (error !== null) return error;
 		const { error: refusal } = captureBody.decode(row.body);
 		return refusal === null ? [] : [{ message: refusal.message }];
 	});
 
 	async function copy() {
-		if (await copyText(session.draft)) toast.success('File text copied');
+		if (text !== undefined && (await copyText(text))) toast.success('File text copied');
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 </script>
 
 <div class="flex flex-col gap-4">
 	<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-		<Button variant="outline" size="sm" onclick={() => void backToTimeline(captures)}>Back to timeline</Button>
-		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{session.path}</h1>
-		<Button
-			size="sm"
-			variant="outline"
-			disabled={issues.length > 0}
-			onclick={() => void openItem(captures, stem, 'capture')}>Open as capture</Button
-		>
-		<Button size="sm" variant="ghost" onclick={copy}>Copy file text</Button>
-		<Button size="sm" variant="ghost" disabled={captures.fenced} onclick={() => confirmDelete(captures, '')}>Delete…</Button>
+		<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
+		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
+		{#if text !== undefined}
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={issues.length > 0}
+				onclick={() => captures.open(stem, 'capture')}>Open as capture</Button
+			>
+			<Button size="sm" variant="ghost" onclick={copy}>Copy file text</Button>
+			<Button size="sm" variant="ghost" disabled={locked} onclick={() => void confirmDelete(captures, stem)}>Delete…</Button>
+		{/if}
 	</div>
 
-	<SaveBar
-		save={session.state}
-		class="rounded-md border"
-		onRetry={() => session.retry()}
-		onKeepMine={() => captures.keepMine(session)}
-		onReloadTheirs={() => captures.reloadTheirs(session)}
-	/>
+	{#if text !== undefined}
+		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
+			{typed === undefined ? `Saved to ${path}` : draft.failed ? 'Not saved' : 'Saving…'}
+		</p>
 
-	{#if issues.length > 0}
-		<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
-			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
-				<Badge variant="destructive">Needs repair</Badge>
-				This text does not read as a capture yet. Fix it here; it saves as you type.
-			</p>
-			<ul class="space-y-0.5 text-muted-foreground">
-				{#each issues as issue, index (index)}
-					<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
-				{/each}
-			</ul>
-		</div>
+		{#if issues.length > 0}
+			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
+				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
+					<Badge variant="destructive">Needs repair</Badge>
+					This text does not read as a capture yet. Fix it here; it saves when you pause.
+				</p>
+				<ul class="space-y-0.5 text-muted-foreground">
+					{#each issues as issue, index (index)}
+						<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+
+		<Textarea
+			aria-label="Contents of {path}"
+			class="min-h-96 font-mono text-xs"
+			spellcheck={false}
+			readonly={locked}
+			bind:value={
+				() => (text ?? '').replace(/\r\n?/g, '\n'),
+				(typed) => {
+					if (text !== undefined) captures.editText(path, withFileNewlines(wellFormed(typed), text));
+				}
+			}
+			onblur={() => void draft.save()}
+		/>
+	{:else if file.data !== undefined}
+		<Empty.Root role="alert">
+			<Empty.Header>
+				<Empty.Title>This file cannot be edited here</Empty.Title>
+				<Empty.Description>
+					{file.data.kind === 'binary' ? 'It is not UTF-8 text.' : 'It is too large to edit here.'} Nothing in it was changed.
+				</Empty.Description>
+			</Empty.Header>
+		</Empty.Root>
+	{:else if file.isError}
+		<Empty.Root role="alert">
+			<Empty.Header>
+				<Empty.Title>
+					{file.error.name === 'NotFound' ? 'This capture is no longer in the folder' : 'This capture could not be opened'}
+				</Empty.Title>
+				<Empty.Description>{file.error.message}</Empty.Description>
+			</Empty.Header>
+			<Empty.Content>
+				<Button variant="outline" size="sm" onclick={() => void file.refetch()}>Try again</Button>
+			</Empty.Content>
+		</Empty.Root>
+	{:else}
+		<Loading label="Opening…" />
 	{/if}
-
-	<Textarea
-		aria-label="Contents of {session.path}"
-		class="min-h-96 font-mono text-xs"
-		spellcheck={false}
-		readonly={session.locked}
-		bind:value={
-			() => toTextarea(session.draft),
-			(text) =>
-				session.input(
-					fromTextarea(session.draft, text, session.draft.includes('\r\n') ? '\r\n' : '\n'),
-				)
-		}
-	/>
 </div>

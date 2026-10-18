@@ -15,25 +15,26 @@
  * for each row first, as a single deletion is, and removed only as captured.
  */
 import { audioPathIn } from './definition.js';
-import { recordingTitle, UNSAVED_DISCARDED } from './deletion.js';
+import { recordingTitle } from './deletion.js';
 import type {
 	Deletion,
 	Library,
 	RecordingEntry,
 	TranscriptionEntry,
 } from './library.svelte.js';
+import type { RecordingAudio } from './recording-audio.js';
 
 export type RecordingStatus =
 	| 'transcribing'
 	| 'failed'
-	| 'unsaved'
+	| 'unfinished'
 	| 'transcribed'
 	| 'untranscribed';
 
 /** What the table says for each status, and the order the Status column sorts in. */
 export const STATUS_LABELS: Record<RecordingStatus, string> = {
 	failed: 'Transcription failed',
-	unsaved: 'Transcript not saved',
+	unfinished: 'Transcription unfinished',
 	transcribing: 'Transcribing',
 	untranscribed: 'Not transcribed',
 	transcribed: 'Transcribed',
@@ -45,9 +46,11 @@ export type RecordingRow = {
 	readonly path: string;
 	readonly entry: RecordingEntry;
 	readonly title: string;
-	/** Saved transcripts, newest first. */
+	/** Transcripts with their answer, newest first. */
 	readonly transcripts: readonly TranscriptionEntry[];
 	readonly status: RecordingStatus;
+	/** Whether the audio its row names is in this device's folder. */
+	readonly audio: RecordingAudio;
 };
 
 export type RecordingSortKey = 'title' | 'recordedAt' | 'durationMs' | 'status';
@@ -62,30 +65,48 @@ export const DEFAULT_SORT: RecordingSort = {
 	direction: 'desc',
 };
 
-type Source = Pick<Library, 'entries' | 'resultsFor' | 'transcriptionRun'>;
+type Source = Pick<
+	Library,
+	'entries' | 'resultsFor' | 'transcriptionRun' | 'resultState' | 'audioOf'
+>;
 
-function statusOf(
-	transcripts: readonly TranscriptionEntry[],
-	run: ReturnType<Library['transcriptionRun']>,
-): RecordingStatus {
+/** What the newest transcript of a recording shows, or undefined when it has none. */
+function newestState(library: Source, id: string) {
+	const newest = library.resultsFor(id)[0];
+	return newest && library.resultState(newest.path, newest.row.body);
+}
+
+function statusOf(library: Source, id: string): RecordingStatus {
+	const run = library.transcriptionRun(id);
 	if (run?.kind === 'running') return 'transcribing';
-	if (run?.kind === 'unsaved') return 'unsaved';
 	if (run?.kind === 'failed') return 'failed';
-	return transcripts.length > 0 ? 'transcribed' : 'untranscribed';
+	switch (newestState(library, id)?.kind) {
+		case undefined:
+			return 'untranscribed';
+		case 'answered':
+			return 'transcribed';
+		case 'running':
+		case 'writing':
+			return 'transcribing';
+		case 'failed':
+			return 'failed';
+		case 'unfinished':
+			return 'unfinished';
+	}
 }
 
 /** One row for every recording the folder lists, in the folder's own order. */
 export function recordingRows(library: Source): RecordingRow[] {
-	return library.entries.map((entry) => {
-		const transcripts = library.resultsFor(entry.stem);
-		return {
-			path: entry.path,
-			entry,
-			title: recordingTitle(entry),
-			transcripts,
-			status: statusOf(transcripts, library.transcriptionRun(entry.stem)),
-		};
-	});
+	return library.entries.map((entry) => ({
+		path: entry.path,
+		entry,
+		title: recordingTitle(entry),
+		transcripts: library
+			.resultsFor(entry.stem)
+			.filter((transcript) => transcript.row.body !== ''),
+		status: statusOf(library, entry.stem),
+		audio: library.audioOf(entry),
+	}));
 }
 
 /** Whether the title, ID, notes, or any transcript of a row contains the search text. */
@@ -288,17 +309,15 @@ export type BulkTranscription = {
 /**
  * Transcribe the rows that have no transcript, one at a time in the order
  * given. Each is the library's own transcription of that row: only the audio
- * its file names is sent, once. A row that already has a transcript, names
- * no audio, or has a transcription under way or unsaved is not sent. Nothing
- * is sent again here after a failure: trying again is the person's choice.
- * Once the library is closing, the rows still waiting are not sent; the one
- * already sent ends as it would have and is reported as it ended.
+ * its file names is sent, once. A row that already has a transcript, finished
+ * or not, names no audio, names audio not on this device, or has a
+ * transcription under way is not sent.
+ * Nothing is sent again here after a failure: trying again is the person's
+ * choice. Once the library is closing, the rows still waiting are not sent;
+ * the one already sent ends as it would have and is reported as it ended.
  */
 export async function transcribeRows(
-	library: Pick<
-		Library,
-		'entries' | 'resultsFor' | 'transcriptionRun' | 'transcribe' | 'closing'
-	>,
+	library: Source & Pick<Library, 'transcribe' | 'closing'>,
 	paths: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -313,32 +332,43 @@ export async function transcribeRows(
 		const entry = library.entries.find((item) => item.path === path);
 		const title = entry ? recordingTitle(entry) : path;
 		const skip = (reason: string) => outcome.skipped.push({ title, reason });
-		const before = entry && library.transcriptionRun(entry.stem)?.kind;
+		const running = entry && library.transcriptionRun(entry.stem);
+		const before = entry && newestState(library, entry.stem)?.kind;
 		// Asked before every row: a row still waiting its turn when the app
 		// began closing is not sent, and says so.
 		if (library.closing) skip('The app was closing, so it was not sent.');
 		else if (entry === undefined) skip('It is no longer in the folder.');
-		else if (library.resultsFor(entry.stem).length > 0)
-			skip('It already has a transcript.');
+		else if (
+			running?.kind === 'running' ||
+			before === 'running' ||
+			before === 'writing'
+		)
+			skip('It is already being transcribed.');
+		else if (before === 'answered') skip('It already has a transcript.');
+		else if (before !== undefined)
+			skip('Its transcription did not finish. Open it to run it again.');
 		else if (audioPathIn(entry.row.fields) === undefined)
 			skip('Its file names no audio.');
-		else if (before === 'running') skip('It is already being transcribed.');
-		else if (before === 'unsaved')
-			skip('A transcript of it arrived and is not saved yet.');
+		else if (library.audioOf(entry).kind === 'absent')
+			skip('Its audio isn’t on this device.');
 		else {
 			await library.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:
 			// the library declines without a word when the recording is on its way out.
 			const run = library.transcriptionRun(entry.stem);
-			if (library.resultsFor(entry.stem).length > 0)
-				outcome.transcribed.push(title);
+			const state = newestState(library, entry.stem);
+			if (state?.kind === 'answered') outcome.transcribed.push(title);
 			else
 				outcome.failed.push({
 					title,
 					reason:
-						run !== undefined && run.kind !== 'running'
+						run?.kind === 'failed'
 							? run.message
-							: 'No transcript is listed for it. Open the recording to see why.',
+							: state?.kind === 'failed'
+								? state.message
+								: state?.kind === 'writing' && state.message !== undefined
+									? `Its answer arrived, but its file could not be written yet: ${state.message}`
+									: 'No transcript is listed for it. Open the recording to see why.',
 				});
 		}
 		onProgress?.(++done);
@@ -403,7 +433,11 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 			audio > 0
 				? `${audio === 1 ? 'The audio file is' : `The ${audio} audio files are`} not deleted: audio stays in the folder as ordinary files, and you can delete it from Files. `
 				: ''
-		}${UNSAVED_DISCARDED} Committed versions stay in Git history.${
+		}${
+			deletions.some((item) => item.unversioned)
+				? 'Some have changes that are in no saved version, and those are lost. Earlier saved versions stay in Git history.'
+				: 'Saved versions stay in Git history.'
+		}${
 			refused.length > 0
 				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${refused
 						.map(({ title, reason }) => `“${title}” (${reason})`)
@@ -414,20 +448,21 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 }
 
 /**
- * Remove exactly what was captured and confirmed, one recording at a time.
- * Each is the library's own removal, so a recording that changed since it
- * was captured is refused there and reported here; the rest still go.
+ * Delete exactly what was captured and confirmed, one recording at a time.
+ * Each is the library's own deletion, so a recording with work under way, or
+ * a result saved since it was captured, is refused there and reported here;
+ * the rest still go.
  */
-export async function removeCaptured(
-	library: Pick<Library, 'remove'>,
+export async function deleteCaptured(
+	library: Pick<Library, 'delete'>,
 	deletions: CapturedDeletions['deletions'],
-): Promise<{ removed: number; problems: { title: string; reason: string }[] }> {
-	let removed = 0;
+): Promise<{ deleted: number; problems: { title: string; reason: string }[] }> {
+	let deleted = 0;
 	const problems: { title: string; reason: string }[] = [];
 	for (const deletion of deletions) {
-		const problem = await library.remove(deletion);
-		if (problem === undefined) removed += 1;
+		const problem = await library.delete(deletion);
+		if (problem === undefined) deleted += 1;
 		else problems.push({ title: deletion.title, reason: problem });
 	}
-	return { removed, problems };
+	return { deleted, problems };
 }

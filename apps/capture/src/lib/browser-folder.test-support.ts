@@ -2,68 +2,28 @@
  * Test helper: a real browser folder over the folder package's in-memory OPFS
  * stand-in, with the controls a test of the Capture store needs: hold a
  * Markdown save while it runs, count Markdown saves, fail the next write of
- * a path, and change files as another program would.
+ * a path, change files as another program would, and report a change as the
+ * folder's change channel does. The store gets its own mounted query client,
+ * wired to that channel as the page wires it, with the capture listing
+ * observed as the timeline observes it, and records every write that failed.
  *
- * Import a runes-module loader first (`svelte-modules.test-support.js` or
- * `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
+ * Import a runes-module loader from `packages/svelte/src` first
+ * (`svelte-modules.test-support.js` or `svelte-dom.test-support.js`); this
+ * module loads `captures.svelte.ts`.
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';
+import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';
 import {
+	browserStorage,
 	createTestStorage,
 	opfsOf,
 	testLocks,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
-import type {
-	OpfsDirectoryHandle,
-	OpfsFileHandle,
-} from '../../../../packages/folder/src/opfs-store.js';
+import { holdCloses } from '../../../../packages/folder/src/opfs.test-support.js';
 import type { Captures } from './captures.svelte.js';
-
-/**
- * OPFS handles that call `beforeClose` with a file's own handle before a
- * stream to it publishes: the window in which a save is running.
- */
-function holdCloses(
-	directory: OpfsDirectoryHandle,
-	beforeClose: (file: OpfsFileHandle) => Promise<void>,
-): OpfsDirectoryHandle {
-	const holdFile = (file: OpfsFileHandle): OpfsFileHandle => ({
-		kind: 'file',
-		name: file.name,
-		getFile: () => file.getFile(),
-		async createWritable(options) {
-			const writable = await file.createWritable(options);
-			return {
-				write: (data) => writable.write(data),
-				abort: (reason) => writable.abort(reason),
-				async close() {
-					await beforeClose(file);
-					return writable.close();
-				},
-			};
-		},
-	});
-	return {
-		kind: 'directory',
-		name: directory.name,
-		getDirectoryHandle: async (name, options) =>
-			holdCloses(
-				await directory.getDirectoryHandle(name, options),
-				beforeClose,
-			),
-		getFileHandle: async (name, options) =>
-			holdFile(await directory.getFileHandle(name, options)),
-		removeEntry: (name, options) => directory.removeEntry(name, options),
-		async *values() {
-			for await (const entry of directory.values())
-				yield entry.kind === 'file'
-					? holdFile(entry)
-					: holdCloses(entry, beforeClose);
-		},
-	};
-}
+import { observe, quiet } from './query.test-support.js';
 
 let count = 0;
 
@@ -73,9 +33,10 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	let hold: PromiseWithResolvers<void> | undefined;
 	let held: PromiseWithResolvers<void> | undefined;
 	const counter = { mdWrites: 0 };
+	const app = `capture-test-${count++}`;
 	const folder = expectOk(
 		await openFolder({
-			id: `capture-test-${count++}`,
+			app,
 			definition: captureDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
@@ -96,33 +57,65 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		}),
 	);
 	for (const [path, text] of Object.entries(files))
-		expectOk(await folder.files.create(path, text));
+		expectOk(await folder.write(path, null, text));
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
-	const captures: Captures = createCaptures({
-		folder,
-		location: folder.location,
+	const { createFolderContext } = await import('@epicenter/svelte/folder');
+	const failures: WriteFailure[] = [];
+	// The folder's context as `<FolderApp>` builds it, change wiring included.
+	// One page per folder here, so it reports nothing; `reportChange` stands
+	// in for another page's report.
+	const opened = createFolderContext(folder, {
+		writeFailed: (failure) => failures.push(failure),
 	});
-	await captures.refresh();
+	const { queryClient } = opened;
+	const captures: Captures = createCaptures(opened);
+	const stopObserving = observe(captures);
+	await quiet(captures);
 	const faults = opfsOf(storage).faults;
 	return {
 		folder,
+		opened,
 		captures,
 		counter,
+		failures,
 		/** The file's text now, or `undefined` when it is gone. */
 		async text(path: string) {
 			const read = await folder.files.read(path);
 			return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
 		},
-		/** Another program writes the file. */
+		/** The file's text as another page reads it, as after this page closed. */
+		async textElsewhere(path: string) {
+			const other = expectOk(
+				await openFolder({
+					app,
+					definition: captureDefinition,
+					browser: browserStorage(storage),
+				}),
+			);
+			const read = await other.files.read(path);
+			await other.close();
+			return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
+		},
+		/** Another program writes the file over whatever is there. */
 		async writeElsewhere(path: string, text: string) {
-			expectOk(await folder.files.overwrite(path, text));
+			const current = await folder.files.read(path);
+			expectOk(
+				await folder.write(
+					path,
+					current.error === null ? current.data.bytes : null,
+					text,
+				),
+			);
+		},
+		/** The folder's change channel reports `paths`, as for another page's writes. */
+		async reportChange(...paths: string[]) {
+			await queryClient.invalidateQueries(captures.queries.pathFilter(paths));
+			await quiet(captures);
 		},
 		/** Another program deletes the file as it is now. */
 		async deleteElsewhere(path: string) {
-			expectOk(
-				await folder.files.remove(expectOk(await folder.files.read(path))),
-			);
+			expectOk(await folder.write(path, null, null));
 		},
 		/** Hold the next published `.md` write until `release` runs. */
 		holdNextMarkdownWrite() {
@@ -139,24 +132,8 @@ export async function openCaptures(files: Record<string, string> = {}) {
 			};
 		},
 		async close() {
-			await captures.close();
-			await folder.close();
+			stopObserving();
+			await opened.close();
 		},
 	};
-}
-
-/** The open capture's row session and form; throws when another kind is open. */
-export function openCapture(captures: Captures) {
-	const item = captures.opened;
-	if (item?.kind !== 'capture')
-		throw new Error(`Expected an open capture, got ${item?.kind}`);
-	return item;
-}
-
-/** The open text session; throws when another kind is open. */
-export function openText(captures: Captures) {
-	const item = captures.opened;
-	if (item?.kind !== 'text')
-		throw new Error(`Expected open text, got ${item?.kind}`);
-	return item.session;
 }

@@ -14,6 +14,7 @@ An agent is an immutable capability bundle: a model, a tool set (published actio
 
 The catalog has two sources, and the user sees their union. Epicenter publishes a curated set of managed agents, each a well-known `AgentId` backed by the metered hosted worker. The user authors their own agents in their coordination box's config, free to wire a local model and local-data tools under their own trust. Presence decorates each entry with live or offline; it is not routing truth (ADR-0025).
 
+<!-- doc-path-check: ignore-next-line -->
 Arbitrary code is bounded by the trust location, not by a flag. Authoring an agent that runs arbitrary TypeScript or shell is allowed only where trust already exists, which is the user's own box. Epicenter's hosted infrastructure runs only Epicenter-published bundles, with a fixed model and published-action tools and no arbitrary code, until the sandbox earns the right to run untrusted code on shared infrastructure (the Model 2 coding-worker lane, `specs/20260617T235900-v2-coding-worker-sandbox-and-harness.md`). So "bring your own agent" means run it on your box, not upload code to Epicenter's.
 
 ## Consequences

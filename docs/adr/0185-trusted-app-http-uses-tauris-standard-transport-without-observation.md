@@ -4,6 +4,7 @@
 - **Date:** 2026-07-28
 - **Amends:** [ADR-0183](0183-epicenter-mediates-the-effects-it-owns-and-names-the-rest-unmediated.md) by withdrawing its target for observed ordinary HTTP egress; and [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) by restoring its unrestricted Tauri HTTP grant
 - **Amended by:** [ADR-0187](0187-a-bound-handle-reports-staleness-tables-can-name-rows-values-cannot.md), which adds a host-owned WebSocket for Epicenter's own data invalidations and names it a capability carrier rather than an ordinary HTTP observer
+- **Note:** installed apps are parked (2026-10-15), so the unrestricted HTTP this record grants reaches only the compiled `whispering` window today.
 
 ## Context
 

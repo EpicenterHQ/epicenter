@@ -13,6 +13,7 @@
 > is `0e8f784591:packages/app/src/browser-sqlite.worker.ts`, whose OPFS synchronous access
 > handles are why that database lives in a worker (ADR-0308). Epicenter Data's
 > browser record has no SQLite, no worker, and no OPFS: it is IndexedDB in the
+<!-- doc-path-check: ignore-next-line -->
 > page (`packages/app/src/data/store/browser.ts`), keyed by the address
 > [ADR-0348](0348-the-local-address-carries-the-principal-and-a-database-needs-no-binding-to-know-whose-it-is.md)
 > spells.

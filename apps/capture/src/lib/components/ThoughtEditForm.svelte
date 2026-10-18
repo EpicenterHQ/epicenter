@@ -15,10 +15,13 @@
 	let {
 		form,
 		edit,
+		locked,
 		onSaved,
 		onCancelled,
 	}: {
 		form: CaptureForm;
+		/** Input is refused now: leaving, closing, or deleting. */
+		locked: boolean;
 		/** The edit open when this form was made. */
 		edit: ThoughtEdit;
 		onSaved: () => void;
@@ -57,7 +60,7 @@
 >
 	<Textarea
 		aria-label="Thought text"
-		readonly={form.session.locked}
+		readonly={locked}
 		bind:value={
 			() => text,
 			(value) => {
@@ -70,7 +73,7 @@
 		{@attach focusAtEnd}
 	/>
 	<div class="flex flex-wrap gap-2">
-		<Button type="submit" size="sm" disabled={form.session.locked}>Save thought</Button>
+		<Button type="submit" size="sm" disabled={locked}>Save thought</Button>
 		<Button
 			size="sm"
 			variant="outline"

@@ -1,6 +1,6 @@
 /**
- * A folder reads its tables and KV through the declaration's own lenses, and
- * every acquisition entry exports one opener signature and one contract.
+ * A folder reads its tables through the declaration's own lenses, and every
+ * acquisition entry exports one opener signature and one contract.
  */
 import { expectTypeOf } from 'bun:test';
 import { jsonValue } from '@epicenter/definition';
@@ -11,26 +11,22 @@ import * as bun from './bun.js';
 import type * as contract from './contract.js';
 import * as root from './index.js';
 import {
-	type CapturedFile,
 	type CreateRowOf,
+	type DefinedFolderOptions,
+	type Definition,
 	defineFolder,
 	defineTable,
-	type FileCapture,
+	type FileContent,
 	type FileError,
-	type FileKv,
+	type FileRead,
 	type FileTable,
 	type Folder,
+	type FolderGit,
 	type FolderLocation,
-	type FolderTerminal,
 	field,
 	formatRow,
 	type Issue,
 	type Issues,
-	type KvOf,
-	type KvReadError,
-	type KvReading,
-	type KvWriteError,
-	type MoveError,
 	type OpenFolder,
 	type OpenFolderError,
 	type OpenFolderOptions,
@@ -38,18 +34,16 @@ import {
 	parseRow,
 	type Row,
 	type RowReadError,
+	type RowWriteError,
 	type StoredRow,
-	type TableCreateError,
-	type TableDeleteError,
-	type TableEnumerationError,
 	type TableListing,
-	type TableRenameError,
-	type TableReplaceError,
+	type WriteError,
+	type Written,
+	type WrittenRow,
 } from './index.js';
 import * as tauri from './tauri.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: {
@@ -63,11 +57,6 @@ type Opened = Folder<typeof definition>;
 
 // Nested values: a list, a branded instant, a tuple, and free-form JSON.
 const nested = defineFolder({
-	kv: {
-		recent: field.tags(),
-		since: field.instant(),
-		layout: field.json(jsonValue),
-	},
 	tables: {
 		notes: defineTable({
 			fields: {
@@ -80,14 +69,19 @@ const nested = defineFolder({
 });
 type Note = CreateRowOf<typeof nested.tables.notes>;
 
-// A refinement's type says it holds a callback, which a folder setting cannot.
+// A refinement's type says it holds a callback, which a folder field cannot.
 declare const refined: ReturnType<typeof field.string> & {
 	readonly '~refine': readonly unknown[];
 };
 defineFolder({
-	// @ts-expect-error A refinement is not JSON Schema.
-	kv: { theme: refined },
-	tables: {},
+	tables: {
+		notes: defineTable({
+			fields: {
+				// @ts-expect-error A refinement is not JSON Schema.
+				theme: refined,
+			},
+		}),
+	},
 });
 
 // Only a table `defineFolder` prepared is read or formatted without a folder.
@@ -103,8 +97,8 @@ parseRow(rawTodos, '---\ntitle: Milk\n---\n');
 formatRow(rawTodos, { fields: { title: 'Milk', due: null }, body: '' });
 // An opener still takes a raw declaration and prepares it itself.
 void root.openFolder({
-	id: 'test.folder',
-	definition: { kv: {}, tables: { todos: rawTodos } },
+	app: 'test.folder',
+	definition: { tables: { todos: rawTodos } },
 });
 // Preparing changes no key or field type.
 expectTypeOf(definition.tables.todos).toExtend<PreparedFolderTable>();
@@ -153,14 +147,14 @@ async function nestedValues(
 	stored.sha256 = 'changed';
 	// @ts-expect-error Nor does the row it read.
 	stored.row = { fields: stored.row.fields, body: '' };
-	notes.replace(stored, stored.row);
+	notes.write('a', stored.row, stored.row);
 	notes.create({
 		fields: { tags: ['a'], at: instant, meta: { a: [1] } },
 		body: '',
 	});
 	// @ts-expect-error A row is complete: it names its body.
 	notes.create({ fields: { tags: ['a'], at: instant, meta: null } });
-	notes.replace(stored, {
+	notes.write('a', stored.row, {
 		...stored.row,
 		// @ts-expect-error An unvalidated string still does not carry the brand.
 		fields: { ...stored.row.fields, at: '2026-10-01T00:00:00.000Z' },
@@ -170,17 +164,6 @@ async function nestedValues(
 		parseRow(nested.tables.notes, '').data,
 	).toEqualTypeOf<Row<Note> | null>();
 	expectTypeOf(stored.row).toEqualTypeOf<Row<Note>>();
-
-	const { data: kv, error: kvError } = await folder.kv.get();
-	if (kvError !== null || kv === undefined) return;
-	expectTypeOf(kv.values.since).toEqualTypeOf<InstantString | undefined>();
-	expectTypeOf(kv.values.recent).toEqualTypeOf<string[] | undefined>();
-	// What was read goes back in, one key at a time.
-	folder.kv.set('recent', kv.values.recent);
-	folder.kv.set('since', instant);
-	folder.kv.set('layout', { panes: [1] });
-	// @ts-expect-error An unvalidated string still does not carry the brand.
-	folder.kv.set('since', '2026-10-01T00:00:00.000Z');
 }
 void nestedValues;
 
@@ -193,7 +176,6 @@ const headed = {
 	minItems: 1,
 } as const;
 const tuples = defineFolder({
-	kv: { span: headed },
 	tables: { rows: defineTable({ fields: { span: headed } }) },
 });
 type Span = CreateRowOf<typeof tuples.tables.rows>['span'];
@@ -209,95 +191,162 @@ async function tupleValues(folder: Folder<typeof tuples>) {
 	expectTypeOf(span[1]).toEqualTypeOf<number | undefined>();
 
 	// What was read goes back in, and input keeps the head it requires.
-	rows.replace(stored, { fields: { span }, body: '' });
-	rows.replace(stored, { fields: { span: ['a', 1, 2] }, body: '' });
+	rows.write('a', stored.row, { fields: { span }, body: '' });
+	rows.set('a', { span: ['a', 1, 2] });
 	rows.create({ fields: { span: ['a'] }, body: '' });
 	// @ts-expect-error The head is a string.
-	rows.replace(stored, { fields: { span: [1, 'a'] }, body: '' });
+	rows.set('a', { span: [1, 'a'] });
 	// @ts-expect-error The head is required.
-	rows.replace(stored, { fields: { span: [] }, body: '' });
+	rows.set('a', { span: [] });
 	// @ts-expect-error The rest are numbers.
 	rows.create({ fields: { span: ['a', 'b'] }, body: '' });
-
-	const { data: kv, error: kvError } = await folder.kv.get();
-	if (kvError !== null || kv === undefined) return;
-	expectTypeOf(kv.values.span).toEqualTypeOf<
-		[string, ...number[]] | undefined
-	>();
-	folder.kv.set('span', kv.values.span);
-	folder.kv.set('span', ['a', 1]);
-	// @ts-expect-error The head is a string.
-	folder.kv.set('span', [1, 'a']);
-	// @ts-expect-error The head is required.
-	folder.kv.set('span', []);
 }
 void tupleValues;
 
 expectTypeOf<Opened['tables']['todos']>().toEqualTypeOf<
 	FileTable<CreateRowOf<typeof definition.tables.todos>>
 >();
-expectTypeOf<Opened['kv']>().toEqualTypeOf<FileKv<KvOf<typeof definition>>>();
+// Settings are a table, `settings`; a folder has no handle of their own.
+// @ts-expect-error There is no `kv`.
+export type _NoKv = Opened['kv'];
+// Every handle exposes the declaration it reads with: the app's definition
+// only in the app's own folder, so it is typed as any definition.
+expectTypeOf<Opened['definition']>().toEqualTypeOf<Definition>();
+// And which folder it is, and whether it is the app's own.
+expectTypeOf<Opened['id']>().toEqualTypeOf<string>();
+expectTypeOf<Opened['own']>().toEqualTypeOf<boolean>();
 expectTypeOf<
 	CreateRowOf<typeof definition.tables.todos>['due']
 >().toEqualTypeOf<InstantString | null>();
 
-// One opener signature at the automatic entry and at both explicit entries.
+// One opener signature at every entry, with one Git surface.
 expectTypeOf(root.openFolder).toEqualTypeOf<OpenFolder>();
 expectTypeOf(browser.openFolder).toEqualTypeOf<OpenFolder>();
 expectTypeOf(tauri.openFolder).toEqualTypeOf<OpenFolder>();
-expectTypeOf(browser.openFolder).toEqualTypeOf(root.openFolder);
-expectTypeOf(tauri.openFolder).toEqualTypeOf(root.openFolder);
+expectTypeOf<keyof Opened['git']>().toEqualTypeOf<keyof FolderGit>();
 expectTypeOf(root.openFolder<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Opened, OpenFolderError>>
 >();
 expectTypeOf(root.openFolder<typeof definition>)
 	.parameter(0)
-	.toEqualTypeOf<OpenFolderOptions<typeof definition>>();
-// The opener names the folder; the definition does not.
+	.toEqualTypeOf<DefinedFolderOptions<typeof definition>>();
+// Without a definition the tables are the folder's own, whatever is claimed.
+// @ts-expect-error A definition-less open takes no definition type.
+void root.openFolder<typeof definition>({ id: 'empty' });
+// An app names itself; the definition names no folder.
 expectTypeOf<
-	OpenFolderOptions<typeof definition>['id']
+	Extract<OpenFolderOptions<typeof definition>, { app: string }>['app']
 >().toEqualTypeOf<string>();
-// @ts-expect-error A folder is opened by its ID.
+// @ts-expect-error A folder is opened for an app or by its ID.
 void root.openFolder({ definition });
+// @ts-expect-error An app opens its folder through its definition.
+void root.openFolder({ app: 'so.epicenter.todos' });
+// @ts-expect-error An app opener names no folder; the shell hands it one.
 void root.openFolder({
-	id: 'test.folder',
-	// @ts-expect-error A definition that names its data is not a folder definition.
-	definition: { id: 'test.folder', kv: {}, tables: {} },
+	app: 'so.epicenter.todos',
+	id: 'data:Groceries',
+	definition,
 });
+
+// Without a definition, a folder by ID reads with its own schema.
+expectTypeOf(root.openFolder({ id: 'data:Groceries' })).toEqualTypeOf<
+	Promise<Result<Folder<Definition>, OpenFolderError>>
+>();
+async function untypedRows(folder: Folder<Definition>) {
+	// A data folder's tables are whatever its schema files declare.
+	const table = folder.tables.anything;
+	expectTypeOf(folder.definition).toEqualTypeOf<Definition>();
+	void table;
+}
+void untypedRows;
+
+// A definition types the tables it reads; `definition` stays the folder's
+// own declaration, and a table may refuse to add rows.
+const board = defineFolder({
+	tables: {
+		todos: defineTable({
+			fields: { title: field.string(), status: field.select(['todo', 'done']) },
+		}),
+	},
+});
+type ReadThrough = Folder<typeof board, Definition>;
+expectTypeOf(root.openFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<ReadThrough, OpenFolderError>>
+>();
+expectTypeOf(browser.openFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<ReadThrough, OpenFolderError>>
+>();
+expectTypeOf(bun.openFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<ReadThrough, OpenFolderError>>
+>();
+async function readThroughRows() {
+	const { data: folder, error } = await root.openFolder({
+		app: 'so.epicenter.board',
+		definition: board,
+	});
+	if (error !== null) {
+		if (error.name === 'DefinitionMismatch')
+			expectTypeOf(error.problems[0]!.kind).toEqualTypeOf<
+				| 'missingTable'
+				| 'incompatibleTable'
+				| 'missingField'
+				| 'incompatibleField'
+			>();
+		return;
+	}
+	expectTypeOf(folder).toEqualTypeOf<ReadThrough>();
+	expectTypeOf(folder.definition).toEqualTypeOf<Definition>();
+	expectTypeOf(folder.tables.todos.canCreate).toEqualTypeOf<boolean>();
+	// @ts-expect-error The definition declares no such table.
+	void folder.tables.projects;
+	const created = await folder.tables.todos.create({
+		fields: { title: 'Milk', status: 'todo' },
+		body: '',
+	});
+	// A definition that cannot supply a field the folder requires adds nothing.
+	if (created.error?.name === 'InvalidValues')
+		expectTypeOf(created.error.issues).toEqualTypeOf<readonly Issue[]>();
+	folder.tables.todos.create({
+		// @ts-expect-error A definition's field keeps its declared type.
+		fields: { title: 'Milk', status: 'blocked' },
+		body: '',
+	});
+}
+void readThroughRows;
 
 // Every entry exports the same contract, so a build may resolve one for another.
 type Contract = typeof contract;
 type EntryPoint<T> = Omit<T, 'openFolder'>;
 expectTypeOf<EntryPoint<typeof root>>().toEqualTypeOf<Contract>();
-// Creating is the default; an opener can be told not to create.
-expectTypeOf<contract.BrowserFolderOptions['createIfMissing']>().toEqualTypeOf<
-	boolean | undefined
+// A browser folder takes an author, a transport, and test storage; its
+// remote is its Git configuration, which `sync.connect` sets.
+expectTypeOf<keyof contract.BrowserFolderOptions>().toEqualTypeOf<
+	'author' | 'httpFetch' | 'opfs'
 >();
-expectTypeOf<Extract<contract.OpenFolderError, { name: 'Absent' }>>()
-	.toHaveProperty('directory')
-	.toEqualTypeOf<string>();
 
-// The browser entry adds only its download, which no other entry has.
-expectTypeOf<Pick<typeof browser, keyof Contract>>().toEqualTypeOf<Contract>();
-expectTypeOf<
-	Exclude<keyof typeof browser, keyof Contract | 'openFolder'>
->().toEqualTypeOf<'downloadFolder' | 'DownloadFolderError'>();
+// The browser entry is the contract and its opener, and nothing else.
+expectTypeOf<EntryPoint<typeof browser>>().toEqualTypeOf<Contract>();
+// So is the desktop entry.
 expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 
 // The directory opener is its own contract: an explicit root and history.
+const git = { author: { name: 'Tool', email: 'tool@example.test' } };
+expectTypeOf(bun.openFolder({ root: '/vault', git })).toEqualTypeOf<
+	Promise<Result<Folder<Definition>, OpenFolderError>>
+>();
+// @ts-expect-error A definition-less open takes no definition type.
+void bun.openFolder<typeof definition>({ root: '/vault', git });
+// @ts-expect-error An app opens its directory through its definition.
+void bun.openFolder({ root: '/vault', app: 'so.epicenter.todos', git });
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
-	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();
+	.toEqualTypeOf<bun.DefinedDirectoryOptions<typeof definition>>();
 expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Opened, OpenFolderError>>
 >();
 
-async function typedValues(
-	folder: Opened,
-	reading: KvReading<KvOf<typeof definition>>,
-	instant: InstantString,
-) {
+async function typedValues(folder: Opened, instant: InstantString) {
 	folder.tables.todos.create({
 		fields: { title: 'Milk', due: null },
 		body: '',
@@ -323,78 +372,43 @@ async function typedValues(
 	});
 	// @ts-expect-error Only declared tables exist.
 	folder.tables.lists;
-	folder.kv.set('theme', 'dark');
-	// Removing a key lets the app's default apply.
-	folder.kv.set('theme', undefined);
-	// @ts-expect-error Only declared settings exist.
-	folder.kv.set('language', 'en');
-	// @ts-expect-error Typed settings retain validation.
-	folder.kv.set('theme', 12);
-	// @ts-expect-error A set names one key, not a values object.
-	folder.kv.set({ theme: 'dark' });
-	// @ts-expect-error Complete source is saved as an ordinary file.
-	folder.kv.replace(reading, '{}');
-	// A reading names the bytes it read; absence is `undefined`.
-	// @ts-expect-error A reading keeps its version.
-	reading.sha256 = 'changed';
-	// @ts-expect-error A reading carries no text.
-	reading.text;
-	expectTypeOf(reading.path).toEqualTypeOf<'kv.json'>();
-	// Stored values are sparse and sit apart from the reading's own keys.
-	expectTypeOf(reading.values).toEqualTypeOf<
-		Partial<KvOf<typeof definition>>
-	>();
-	expectTypeOf(reading.values.theme).toEqualTypeOf<string | undefined>();
-	expectTypeOf(reading.issues).toEqualTypeOf<readonly Issue[]>();
-	// @ts-expect-error A reading carries no defaults.
-	reading.defaults;
-	// @ts-expect-error Values are not flattened beside the reading.
-	reading.theme;
-	const observed = await folder.kv.get();
-	if (observed.error === null)
-		expectTypeOf(observed.data).toEqualTypeOf<
-			KvReading<KvOf<typeof definition>> | undefined
-		>();
-	else expectTypeOf(observed.error).toEqualTypeOf<KvReadError>();
-	const { data: written, error: setError } = await folder.kv.set(
-		'theme',
-		'dark',
-	);
-	if (setError === null)
-		expectTypeOf(written).toEqualTypeOf<KvReading<KvOf<typeof definition>>>();
-	else {
-		expectTypeOf(setError).toEqualTypeOf<KvWriteError>();
-		// Text that is not one strict JSON object is repaired as text.
-		if (setError.name === 'InvalidKv')
-			expectTypeOf(setError.text).toEqualTypeOf<string>();
-		if (setError.name === 'InvalidValues')
-			expectTypeOf(setError.issues).toEqualTypeOf<readonly Issue[]>();
-	}
-	folder.files.replace(reading, '{}');
 
-	// Captures are plain values; a read also carries detached bytes.
+	// A read is the file's detached bytes and the SHA-256 that names them.
 	const { data: file, error: readError } = await folder.files.read('a.md');
 	if (readError !== null) return;
-	expectTypeOf(file).toEqualTypeOf<CapturedFile>();
-	const { data: replaced, error: replaceError } = await folder.files.replace(
-		file,
+	expectTypeOf(file).toEqualTypeOf<FileRead>();
+	// A file's content changes through the one write, from the content it
+	// started from, and a file moves through the one move; each answers the
+	// file as it left it, and fails as one `WriteError`.
+	const { data: saved, error: writeFileError } = await folder.write(
+		'a.md',
+		file.bytes,
 		'next',
 	);
-	if (replaceError !== null) return;
-	expectTypeOf(replaced).toEqualTypeOf<FileCapture>();
-	expectTypeOf(await folder.files.remove(replaced)).toEqualTypeOf<
-		Awaited<ReturnType<Opened['files']['remove']>>
+	if (writeFileError !== null) {
+		expectTypeOf(writeFileError).toEqualTypeOf<WriteError>();
+		expectTypeOf(writeFileError.name).toEqualTypeOf<
+			'InvalidPath' | 'Occupied' | 'KeptChanging' | 'Io' | 'Closed'
+		>();
+		// @ts-expect-error Only a table checks values; a file write takes any content.
+		writeFileError.name === 'InvalidValues';
+		return;
+	}
+	expectTypeOf(saved).toEqualTypeOf<Written>();
+	expectTypeOf(saved.file).toEqualTypeOf<FileRead | null>();
+	expectTypeOf(folder.write).parameter(1).toEqualTypeOf<FileContent | null>();
+	expectTypeOf(await folder.move('a.md', 'b.md')).toEqualTypeOf<
+		Result<Written, WriteError>
 	>();
-	// A stored row is a capture of its row file with the row it holds.
+	// A stored row is its row file's path, hash, and text, with the row it holds.
 	const entry = await folder.tables.todos.get('milk');
 	type Fields = CreateRowOf<typeof definition.tables.todos>;
 	if (entry.error === null) {
 		expectTypeOf(entry.data).toEqualTypeOf<StoredRow<Fields> | undefined>();
 	} else expectTypeOf(entry.error).toEqualTypeOf<RowReadError>();
 	if (entry.data) {
-		expectTypeOf(entry.data).toExtend<FileCapture>();
 		expectTypeOf<keyof StoredRow<Fields>>().toEqualTypeOf<
-			'path' | 'sha256' | 'row'
+			'path' | 'sha256' | 'text' | 'row'
 		>();
 		// A valid row is complete: every declared field, and the body.
 		expectTypeOf(entry.data.row.fields).toEqualTypeOf<{
@@ -402,22 +416,22 @@ async function typedValues(
 			due: InstantString | null;
 		}>();
 		expectTypeOf(entry.data.row.body).toEqualTypeOf<string>();
-		// @ts-expect-error A capture keeps its path.
+		// @ts-expect-error A stored row keeps its path.
 		entry.data.path = '';
 		// @ts-expect-error A valid row carries no diagnostics.
 		entry.data.issues;
 	}
-	// Text that is not a valid row is an error that keeps the text and its capture.
+	// Text that is not a valid row is an error that keeps the text and its hash.
 	if (entry.error?.name === 'InvalidRow') {
-		expectTypeOf(entry.error).toExtend<FileCapture>();
+		expectTypeOf(entry.error.sha256).toEqualTypeOf<string>();
 		expectTypeOf(entry.error.text).toEqualTypeOf<string>();
 		expectTypeOf(entry.error.issues).toEqualTypeOf<Issues>();
 		expectTypeOf<keyof Issue>().toEqualTypeOf<'message' | 'line' | 'field'>();
 		// @ts-expect-error Issues cannot be changed in place.
 		entry.error.issues.push({ message: '' });
-		// A repair is a guarded raw save, or a guarded delete.
-		folder.files.replace(entry.error, entry.error.text);
-		folder.tables.todos.delete(entry.error);
+		// A repair is a write of its text, or a delete.
+		folder.write(entry.error.path, entry.error.text, '---\n---\n');
+		folder.tables.todos.delete('milk');
 	}
 	// One synchronous reader and one writer for saved text and for drafts, on
 	// the definition rather than an open table.
@@ -442,7 +456,7 @@ async function typedValues(
 	// A listing is one array of per-file Results under one enumeration Result.
 	const listing = await folder.tables.todos.list();
 	expectTypeOf(listing).toEqualTypeOf<
-		Result<TableListing<Fields>, TableEnumerationError>
+		Result<TableListing<Fields>, FileError>
 	>();
 	if (listing.error === null) {
 		expectTypeOf(listing.data[0]!.stem).toEqualTypeOf<string>();
@@ -457,12 +471,9 @@ async function typedValues(
 		body: '',
 	});
 	if (createError !== null) {
-		expectTypeOf(createError).toEqualTypeOf<TableCreateError>();
-		// An occupied destination is the files' error, with the files' shape.
-		if (createError.name === 'Exists')
-			expectTypeOf(createError).toEqualTypeOf<
-				Extract<FileError, { name: 'Exists' }>
-			>();
+		expectTypeOf(createError).toEqualTypeOf<RowWriteError>();
+		// @ts-expect-error An occupied stem is `Occupied`; nothing else names it.
+		createError.name === 'Exists';
 		if (createError.name === 'InvalidValues')
 			expectTypeOf(createError.issues).toEqualTypeOf<readonly Issue[]>();
 		// @ts-expect-error A table has no naming rule of its own.
@@ -472,82 +483,64 @@ async function typedValues(
 		// @ts-expect-error Text is decoded only by reads.
 		createError.name === 'InvalidUtf8';
 	}
-	// @ts-expect-error There is no structured update: replace a row that was read.
-	folder.tables.todos.update;
-	// @ts-expect-error Nor an unguarded write: every change after create names a capture.
+	// A set sets declared fields of the row as it is now, each to its declared type.
+	void folder.tables.todos.set('milk', { title: 'Milk' });
+	// @ts-expect-error A field holds its declared type.
+	void folder.tables.todos.set('milk', { title: 1 });
+	// A delete names only the stem: the deleter wins.
 	folder.tables.todos.delete('milk');
-	// @ts-expect-error The options-object guard is gone.
+	// @ts-expect-error There is no guard to pass.
 	folder.tables.todos.delete('milk', { expectedSha256: 'a'.repeat(64) });
 	if (entry.data) {
-		// Every change after create names the bytes it replaces.
-		const { data: saved, error: saveError } = await folder.tables.todos.replace(
-			entry.data,
-			entry.data.row,
-		);
-		if (saveError === null)
-			expectTypeOf(saved).toEqualTypeOf<StoredRow<Fields>>();
+		// A write names the row the change started from and the row it ends at.
+		const { data: written, error: writeError } =
+			await folder.tables.todos.write('milk', entry.data.row, entry.data.row);
+		if (writeError === null)
+			expectTypeOf(written).toEqualTypeOf<WrittenRow<Fields>>();
 		else {
-			expectTypeOf(saveError).toEqualTypeOf<TableReplaceError>();
-			// @ts-expect-error A table never saves text it cannot read back.
-			saveError.name === 'Unparsed';
+			expectTypeOf(writeError).toEqualTypeOf<RowWriteError>();
+			// @ts-expect-error A row write fails in seven ways, and this is none.
+			writeError.name === 'Conflict';
 		}
-		// @ts-expect-error A table saves a row; complete text is an ordinary file.
-		folder.tables.todos.replace(entry.data, '---\n---\n');
-		folder.files.replace(entry.data, '---\n---\n');
-		// @ts-expect-error A stem is not a capture.
-		folder.tables.todos.replace('milk', entry.data.row);
+		// @ts-expect-error A table writes a row; complete text is the folder's write.
+		folder.tables.todos.write('milk', entry.data.row, '---\n---\n');
+		folder.write(entry.data.path, entry.data.text, '---\n---\n');
 		expectTypeOf(
-			await folder.tables.todos.rename(entry.data, 'next'),
-		).toEqualTypeOf<Result<FileCapture, TableRenameError>>();
-		expectTypeOf(await folder.tables.todos.delete(entry.data)).toEqualTypeOf<
-			Result<undefined, TableDeleteError>
+			await folder.tables.todos.rename('milk', 'next'),
+		).toEqualTypeOf<Result<WrittenRow<Fields>, WriteError>>();
+		expectTypeOf(await folder.tables.todos.delete('milk')).toEqualTypeOf<
+			Result<undefined, WriteError>
 		>();
 	}
-	// @ts-expect-error A captured hash is required for removal.
-	folder.files.remove({ path: 'a.md' });
-	folder.files.replace(
-		// @ts-expect-error Captures carry a flat hash, not a version wrapper.
-		{ path: 'a.md', version: { sha256: 'a'.repeat(64) } },
-		'next',
-	);
-	// @ts-expect-error A path alone is not a capture: `overwrite` says that.
-	folder.files.replace('a.md', 'next');
-	// @ts-expect-error The old single write verb is gone.
-	folder.files.write('a.md', 'next', { expected: 'any' });
-
-	// Each write is one file change: a failure is that file's, and only a
-	// move names the two paths it touched.
-	const { error: fileCreateError } = await folder.files.create('a.md', 'a');
-	if (fileCreateError !== null)
-		expectTypeOf(fileCreateError).toEqualTypeOf<FileError>();
-	const { error: moveError } = await folder.files.move(replaced, 'b.md');
-	// A file move is always guarded, so a kept source names the moved capture.
-	if (moveError !== null) {
-		expectTypeOf(moveError).toEqualTypeOf<FileError | MoveError>();
-		if (moveError.name === 'SourceNotRemoved')
-			expectTypeOf(moveError.moved).toEqualTypeOf<FileCapture>();
-	}
-	// Every move is guarded, so a kept source always names the moved capture.
-	expectTypeOf<TableRenameError>().toEqualTypeOf<FileError | MoveError>();
-	expectTypeOf<
-		Extract<MoveError, { name: 'SourceNotRemoved' }>['moved']
-	>().toEqualTypeOf<FileCapture>();
+	// @ts-expect-error The file verbs are gone: every change is the one write.
+	folder.files.save;
+	// @ts-expect-error A delete is a write to no file, never `remove`.
+	folder.files.remove;
+	// @ts-expect-error A file moves through the one move.
+	folder.files.move;
+	// @ts-expect-error A create is a write from no file.
+	folder.files.create;
+	// @ts-expect-error There is no unguarded write.
+	folder.files.overwrite('a.md', 'next');
 	// @ts-expect-error Several changes are several calls; there is no batch.
 	folder.batch;
 
 	expectTypeOf(folder.location).toEqualTypeOf<FolderLocation>();
-	expectTypeOf(folder.terminal()).toEqualTypeOf<FolderTerminal>();
 	expectTypeOf(folder.onFilesChanged(() => {})).toEqualTypeOf<() => void>();
+	// A change names its paths, or everything when the reporter cannot say.
+	expectTypeOf(folder.onFilesChanged)
+		.parameter(0)
+		.parameter(0)
+		.toEqualTypeOf<readonly string[] | 'everything'>();
 }
 void typedValues;
 
-// A table with a body conversion is not a folder table.
+// A table declares fields, not a body conversion: a row's body is the file's Markdown text.
 defineFolder({
-	kv: {},
 	tables: {
-		// @ts-expect-error A folder stores the body as the file's Markdown text.
 		notes: defineTable({
 			fields: { title: field.string() },
+			// @ts-expect-error A table has no body option.
 			body: { encode: () => '', decode: () => undefined },
 		}),
 	},
@@ -555,13 +548,41 @@ defineFolder({
 defineFolder({
 	// @ts-expect-error A folder definition names no folder; the opener does.
 	id: 'test.named',
-	kv: {},
 	tables: {},
 });
 defineFolder({
-	kv: {},
 	tables: {
 		// @ts-expect-error A table is authored with `defineTable`.
 		notes: { fields: { title: field.string() } },
 	},
 });
+
+// The settings table's fields may all be unset; a required one is refused.
+defineFolder({
+	tables: {
+		settings: defineTable({
+			fields: {
+				theme: field.optional(field.select(['light', 'dark'])),
+				width: field.optional(field.integer()),
+			},
+		}),
+	},
+});
+defineFolder({
+	tables: {
+		// @ts-expect-error A setting may be unset, so it is field.optional.
+		settings: defineTable({
+			fields: {
+				theme: field.string(),
+				width: field.optional(field.integer()),
+			},
+		}),
+		// The same fields in another table stay required.
+		display: defineTable({ fields: { theme: field.string() } }),
+	},
+});
+
+// A set takes any declared fields, each at its declared type.
+type Errand = { title: string; note?: string; due?: string | null };
+expectTypeOf<{ due: null; note: 'x' }>().toExtend<Partial<Errand>>();
+expectTypeOf<{ title: 1 }>().not.toExtend<Partial<Errand>>();

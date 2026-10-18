@@ -34,7 +34,7 @@ The monorepo uses consistent script naming conventions.
 
 Start apps from the repo root, not by cd-ing into the app. Root
 `bun dev:<app>` runs every process the app needs; for apps that talk to the
-hosted API (honeycrisp, vocab, and the
+hosted API (todos, vocab, and the
 api dashboard), it also starts `@epicenter/api` on `localhost:8787` via
 `bun run --filter`. Root `bun dev:<app>:ui` runs the app's frontend
 alone when that split exists; for Tauri apps, it maps to the package's
@@ -46,7 +46,7 @@ Inside a single package, the conventions are:
 
 Non-Tauri apps use a single `dev` script that runs the underlying tool
 directly (`vite dev`, `astro dev`, `wrangler dev`). Tauri desktop apps
-(honeycrisp, matter) have two dev surfaces and name them
+with their own shell have two dev surfaces and name them
 explicitly: `dev` launches the desktop shell (aliasing `dev:desktop`), and
 `dev:web` runs Vite alone, which each app's `tauri.conf.json` invokes as its
 `beforeDevCommand`. The suffix convention applies primarily to database

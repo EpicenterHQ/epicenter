@@ -11,25 +11,25 @@
  *
  * Key behaviors:
  * - A file removed after its handle was taken, before its stream opened, is
- *   not created again: the replacement is `NotFound`, or `Conflict` with no
- *   actual sha256 when one was expected
+ *   not created again: the replacement is `stale`
  * - A replacement never creates a directory on the way to its path, and does
  *   not fill a directory another writer removed and made again
  * - Removing the file, or recursively a directory above it, while the
  *   replacement's stream is open is refused before anything is removed, and
  *   the replacement lands
- * - An overwrite still creates a file removed before its stream opened
+ * - A new file is moved into place whole, and its scratch file is gone
  *
  * See also:
  * - `browser-opfs.test.ts` for the folder over the same store
  */
 import { beforeEach, expect, test } from 'bun:test';
-import { hashBytes } from './capture.js';
-import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
+import { hashBytes } from './hash.js';
 import {
-	createOpfsFileBoundary,
-	type OpfsDirectoryHandle,
-} from './opfs-store.js';
+	type MemoryOpfs,
+	memoryOpfs,
+	presentFolder,
+} from './opfs.test-support.js';
+import { createOpfsStorage, type OpfsDirectoryHandle } from './opfs-store.js';
 import { createWebLocks } from './web-locks.test-support.js';
 
 const encoder = new TextEncoder();
@@ -44,30 +44,21 @@ beforeEach(async () => {
 	opfs.put('todos/x.md', encoder.encode('read'));
 });
 
-function boundary() {
-	return createOpfsFileBoundary({
-		root,
+function storage() {
+	return createOpfsStorage({
+		folder: presentFolder(root),
 		locks: createWebLocks(),
 		filesLock: 'files',
-		landed: () => {},
 	});
 }
 
-async function write(
-	kind: 'replace' | 'overwrite',
-	text: string,
-	expectedText?: string,
-) {
-	const bytes = encoder.encode(text);
-	return {
-		kind,
-		path: 'todos/x.md',
-		bytes,
-		sha256: await hashBytes(bytes),
-		...(expectedText === undefined
-			? {}
-			: { expectedSha256: await hashBytes(encoder.encode(expectedText)) }),
-	} as const;
+/** Replace `todos/x.md`, which holds `read`, with `text`. */
+async function replace(text: string) {
+	return storage().put(
+		'todos/x.md',
+		encoder.encode(text),
+		await hashBytes(encoder.encode('read')),
+	);
 }
 
 /** A removal by code that does not hold the folder's files lock. */
@@ -94,31 +85,14 @@ test('the model reproduces the hazard: a stream for a removed file creates it ag
 test('a file removed before the stream opens is not created again', async () => {
 	opfs.faults.open = (path) => removeOutside(path);
 
-	const { error } = await boundary().apply([await write('replace', 'mine')]);
-
-	expect(error?.name).toBe('NotFound');
-	expect(opfs.files().has('todos/x.md')).toBe(false);
-});
-
-test('a guarded replacement whose file is removed before the stream opens is a conflict with no actual sha256', async () => {
-	opfs.faults.open = (path) => removeOutside(path);
-
-	const { error } = await boundary().apply([
-		await write('replace', 'mine', 'read'),
-	]);
-
-	expect(error?.name).toBe('Conflict');
-	if (error?.name !== 'Conflict') return;
-	expect(error.actualSha256).toBeUndefined();
+	expect((await replace('mine')).data).toBe('stale');
 	expect(opfs.files().has('todos/x.md')).toBe(false);
 });
 
 test('a replacement never creates a directory on the way to its path', async () => {
 	opfs.faults.open = () => removeOutside('todos', { recursive: true });
 
-	const { error } = await boundary().apply([await write('replace', 'mine')]);
-
-	expect(error?.name).toBe('NotFound');
+	expect((await replace('mine')).data).toBe('stale');
 	expect(opfs.files()).toEqual(new Map());
 	expect(opfs.directories()).toEqual([]);
 });
@@ -131,11 +105,7 @@ test('removing the file while the stream is open is refused, and the replacement
 		return undefined;
 	};
 
-	const { error } = await boundary().apply([
-		await write('replace', 'mine', 'read'),
-	]);
-
-	expect(error).toBeNull();
+	expect((await replace('mine')).data).toBe('landed');
 	expect(removal).toBeDefined();
 	expect(
 		await removal!.then(
@@ -157,11 +127,7 @@ test('removing a directory above the file while the stream is open is refused be
 		return undefined;
 	};
 
-	const { error } = await boundary().apply([
-		await write('replace', 'mine', 'read'),
-	]);
-
-	expect(error).toBeNull();
+	expect((await replace('mine')).data).toBe('landed');
 	expect(
 		await removal!.then(
 			() => 'removed',
@@ -183,21 +149,25 @@ test('a directory removed and made again before the stream opens is not filled',
 		});
 	};
 
-	const { error } = await boundary().apply([
-		await write('replace', 'mine', 'read'),
-	]);
-
-	expect(error?.name).toBe('Conflict');
+	expect((await replace('mine')).data).toBe('stale');
 	expect(opfs.files()).toEqual(new Map());
 	// The other writer's empty directory stays.
 	expect(opfs.directories()).toEqual(['todos']);
 });
 
-test('an overwrite still creates a file removed before its stream opens', async () => {
-	opfs.faults.open = (path) => removeOutside(path);
-
-	const { error } = await boundary().apply([await write('overwrite', 'mine')]);
-
-	expect(error).toBeNull();
-	expect(decoder.decode(opfs.files().get('todos/x.md'))).toBe('mine');
+test('a new file is moved into place whole, and its scratch file is gone', async () => {
+	let during: Uint8Array | undefined | 'absent';
+	opfs.faults.close = (path) => {
+		// While the staged bytes close, nothing is at the new path yet.
+		if (path.includes('.git/epicenter/scratch/'))
+			during = opfs.files().get('todos/new.md') ?? 'absent';
+		return undefined;
+	};
+	const put = await storage().put('todos/new.md', encoder.encode('new'), null);
+	expect(put.data).toBe('landed');
+	expect(during).toBe('absent');
+	expect(decoder.decode(opfs.files().get('todos/new.md'))).toBe('new');
+	expect(
+		[...opfs.files().keys()].filter((path) => path.startsWith('.git/')),
+	).toEqual([]);
 });

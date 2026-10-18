@@ -1,50 +1,41 @@
 /**
  * Read a data folder on disk without opening it (ADR-0517).
  *
- * A data folder is a directory holding `epicenter.json`. `readFolder` reads
- * and prepares that declaration, then reads every declared table and
- * `kv.json` through the same tables, settings, and native file boundary an
- * opened folder uses, so a tool and an application reach the same verdict
- * on every file: path policy, symbolic links, names, UTF-8, and row
- * validity included.
+ * A data folder is a directory with at least one table: a top-level
+ * directory holding a `.epicenter.json`, its schema. `readFolder` discovers
+ * and prepares those tables, then reads every one through the same tables and
+ * directory file storage an opened folder uses, so a tool and an application
+ * reach the same verdict on every file: path policy, symbolic links, names,
+ * UTF-8, and row validity included.
  *
  * It writes nothing. It takes no lock, leaves no marker, initializes no Git
- * repository, publishes no declaration, and loads no native addon, so it can
- * read a folder an application has open, or one nested in any repository.
+ * repository, and publishes no definition, so it can read a folder an
+ * application has open, or one nested in any repository.
  */
 
 import { lstat, realpath } from 'node:fs/promises';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { parseDeclaration } from './declaration.js';
-import {
-	type FolderDefinition,
-	type PreparedFolderTable,
-	prepareFolderDefinition,
-} from './definition.js';
-import {
-	FileError,
-	type KvReadError,
-	type TableEnumerationError,
-} from './errors.js';
-import { createKv, type KvReading } from './kv.js';
-import { createNativeFileBoundary } from './native-store.js';
-import { DECLARATION_PATH } from './paths.js';
+import { readDefinition, type SchemaProblem } from './declaration.js';
+import type { Definition, PreparedFolderTable } from './definition.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
+import { FileError } from './errors.js';
+import { ROW_EXTENSION, rowStemOfName, SCHEMA_FILE } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
 export const ReadFolderError = defineErrors({
-	/** The directory has no `epicenter.json`, so it is not a data folder. */
+	/**
+	 * No top-level directory holds a `.epicenter.json`, so it is not a data
+	 * folder.
+	 */
 	NotDataFolder: ({ root }: { root: string }) => ({
-		message: `'${root}' is not a data folder: it has no ${DECLARATION_PATH}`,
+		message: `'${root}' is not a data folder: no top-level directory holds a ${SCHEMA_FILE}`,
 		root,
 	}),
-	/**
-	 * `epicenter.json` is not a readable file, is not UTF-8 JSON, is not the
-	 * declaration grammar `parseDeclaration` reads, or declares a field a
-	 * folder cannot keep.
-	 */
-	InvalidDeclaration: ({ root, reason }: { root: string; reason: string }) => ({
-		message: `'${root}/${DECLARATION_PATH}' cannot be used: ${reason}`,
+	/** The folder's root could not be listed to find its tables. */
+	InvalidDefinition: ({ root, reason }: { root: string; reason: string }) => ({
+		message: `'${root}' cannot be read for its tables: ${reason}`,
 		root,
 		reason,
 	}),
@@ -55,31 +46,34 @@ export type ReadFolderError = InferErrors<typeof ReadFolderError>;
 export type FolderReading = {
 	/** The directory read, as the caller named it. */
 	readonly root: string;
-	/** The prepared declaration from `epicenter.json`. */
-	readonly definition: FolderDefinition;
+	/** The prepared definition of every table whose schema file can be used. */
+	readonly definition: Definition;
+	/**
+	 * Each schema file that cannot make its directory a table: one that is
+	 * not the schema grammar or declares a field a folder cannot keep, or
+	 * that sits in a directory whose name is no table name. The other tables
+	 * still read.
+	 */
+	readonly problems: readonly SchemaProblem[];
+	/**
+	 * Each file directly in a table's directory that is named like a row but
+	 * is not one (`rowStemOfName`), such as `.md`, `.b.md`, or `a.MD`, so a
+	 * reader can say why it is not in the table.
+	 */
+	readonly notRows: readonly string[];
 	/** Exactly what each declared table's `list()` returns. */
 	readonly tables: Readonly<
-		Record<
-			string,
-			Result<TableListing<Record<string, unknown>>, TableEnumerationError>
-		>
-	>;
-	/** Exactly what `kv.get()` returns. */
-	readonly kv: Result<
-		KvReading<Record<string, unknown>> | undefined,
-		KvReadError
+		Record<string, Result<TableListing<Record<string, unknown>>, FileError>>
 	>;
 };
 
-const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-
 /**
- * Read the data folder at `root`. A directory with no `epicenter.json` is
- * `NotDataFolder`; one whose declaration cannot be used is
- * `InvalidDeclaration`; a missing root is `NotFound`, and a root that is not a directory is
- * `NotADirectory`. A
- * table or `kv.json` that cannot be read is that entry's error, beside the
- * others.
+ * Read the data folder at `root`. A directory with no table, and no schema
+ * file that tried to be one, is `NotDataFolder`; a schema file that cannot
+ * be used is one of `problems`; a root that cannot be listed is
+ * `InvalidDefinition`, a missing root `NotFound`, and a root that is not a
+ * directory `NotADirectory`. A table that cannot be read is that
+ * entry's error, beside the others.
  */
 export async function readFolder(
 	root: string,
@@ -94,61 +88,48 @@ export async function readFolder(
 			? FileError.NotFound({ path: root })
 			: FileError.Io({ path: root, operation: 'open', cause });
 	}
-	const storage = createNativeFileBoundary(resolved);
+	const storage = createDirectoryStorage({
+		root: resolved,
+		primitives: nodeDirectoryPrimitives,
+	});
 
-	const { data: read, error: readError } = await storage.read(DECLARATION_PATH);
-	if (readError !== null)
-		return readError.name === 'NotFound'
-			? ReadFolderError.NotDataFolder({ root })
-			: ReadFolderError.InvalidDeclaration({
-					root,
-					reason: readError.message,
-				});
-	let text: string;
-	try {
-		text = utf8.decode(read.bytes);
-	} catch {
-		return ReadFolderError.InvalidDeclaration({
+	const { data: declared, error: declarationError } =
+		await readDefinition(storage);
+	if (declarationError !== null)
+		return ReadFolderError.InvalidDefinition({
 			root,
-			reason: 'it is not UTF-8 text',
+			reason: declarationError.reason,
 		});
-	}
-	const { data: declared, error: parseError } = parseDeclaration(text);
-	if (parseError !== null)
-		return ReadFolderError.InvalidDeclaration({
-			root,
-			reason: parseError.reason,
-		});
-	const { data: definition, error: definitionError } =
-		prepareFolderDefinition(declared);
-	if (definitionError !== null)
-		return ReadFolderError.InvalidDeclaration({
-			root,
-			reason: definitionError.reason,
-		});
+	const { definition, problems } = declared;
+	if (Object.keys(definition.tables).length === 0 && problems.length === 0)
+		return ReadFolderError.NotDataFolder({ root });
 
 	const tables: Record<
 		string,
-		Result<TableListing<Record<string, unknown>>, TableEnumerationError>
+		Result<TableListing<Record<string, unknown>>, FileError>
 	> = {};
-	// prepareFolderDefinition refused body conversions, which JSON cannot carry.
-	for (const [name, table] of Object.entries(definition.tables))
+	const notRows: string[] = [];
+	for (const [name, table] of Object.entries(definition.tables)) {
 		tables[name] = await createTable<Record<string, unknown>>(
 			{ storage },
 			name,
 			table as PreparedFolderTable,
 		).list();
-	const kv = await createKv<Record<string, unknown>>(
-		{ storage },
-		definition.kv,
-	).get();
-
+		const { data: children } = await storage.children(name);
+		for (const file of children?.files ?? [])
+			if (
+				file.toLowerCase().endsWith(ROW_EXTENSION) &&
+				rowStemOfName(file) === undefined
+			)
+				notRows.push(`${name}/${file}`);
+	}
 	return Ok(
 		Object.freeze({
 			root,
 			definition,
+			problems,
+			notRows: Object.freeze(notRows.sort()),
 			tables: Object.freeze(tables),
-			kv,
 		}),
 	);
 }

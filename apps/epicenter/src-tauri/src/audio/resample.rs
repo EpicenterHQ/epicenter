@@ -1,9 +1,8 @@
-//! Mono sample-rate conversion via rubato.
-//!
-//! Used by both the decoder (any rate -> 16 kHz for local transcription) and
-//! the encoder (any rate -> 48 kHz for libopus). The resampler is fixed-input
-//! sinc with BlackmanHarris2 windowing; identical configuration to the old
-//! Tier 2 path so transcription quality stays consistent.
+//! Mono sample-rate conversion via rubato, for the decoder: any rate to
+//! 16 kHz for local transcription. The resampler is fixed-input sinc with
+//! BlackmanHarris2 windowing, the configuration the recorder plugin's writer
+//! also uses (`tauri-plugin-epicenter-recorder/src/rate.rs`), so a recording
+//! and an uploaded file reach the transcriber converted the same way.
 
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,

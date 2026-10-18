@@ -70,6 +70,5 @@ proof that all tombstone overhead vanished. The store’s acknowledged-history
 fold replays updates into a fresh GC-enabled document; owed updates use
 `mergeUpdatesV2` so they remain safe to resend. Preserve that distinction.
 
-See the [data contract](../../../../packages/app/src/data/README.md) and
-[ADR-0431](../../../../docs/adr/0431-rows-return-values-and-own-a-separate-body.md)
+See [ADR-0431](../../../../docs/adr/0431-rows-return-values-and-own-a-separate-body.md)
 for the current API and its row/body decision.

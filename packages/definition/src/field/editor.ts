@@ -18,7 +18,7 @@
 
 import type { TSchema } from 'typebox';
 import { Memory } from 'typebox/system';
-import { DATA_ADDRESS_CEILINGS, isTableName } from '../addresses.js';
+import { isTableName } from '../table-name.js';
 
 /** The annotation keyword. TypeBox ignores it; editors read it. */
 export const FIELD_KEYWORD = 'x-field';
@@ -244,7 +244,7 @@ function hinted(hint: unknown, subject: Keywords): FieldEditor | undefined {
 			const target = own(hint, 'target');
 			return type === 'string' &&
 				typeof target === 'string' &&
-				isTableName(target, DATA_ADDRESS_CEILINGS)
+				isTableName(target)
 				? { kind, target }
 				: undefined;
 		}

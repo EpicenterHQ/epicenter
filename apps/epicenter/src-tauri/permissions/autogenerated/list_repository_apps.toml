@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-repository-apps"
+description = "Enables the list_repository_apps command without any pre-configured scope."
+commands.allow = ["list_repository_apps"]
+
+[[permission]]
+identifier = "deny-list-repository-apps"
+description = "Denies the list_repository_apps command without any pre-configured scope."
+commands.deny = ["list_repository_apps"]

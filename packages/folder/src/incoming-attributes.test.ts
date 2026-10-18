@@ -1,17 +1,19 @@
 /**
- * Incoming Attribute Refusal Tests
+ * Incoming Attribute Tests
  *
- * A fast-forward writes each incoming blob's bytes as they are stored. A
- * commit that declares a Git filter or a byte conversion means something else
- * by those bytes, so the pull is refused before a file, the index, or the
- * branch changes. The desktop owner makes the same refusal in Rust; these run
- * the same cases against a browser folder and a directory folder.
+ * Sync writes each incoming blob's bytes as they are stored. A commit whose
+ * attribute files name a Git filter means something else by those bytes
+ * (under `filter=lfs` a blob is a pointer), so Sync refuses it before a file,
+ * the index, or the branch changes (ADR-0592). Line-ending attributes change
+ * nothing Sync writes, so a commit declaring them syncs. These run the same
+ * cases against a browser folder and a directory folder, which is what the
+ * desktop app opens.
  *
  * Key behaviors:
- * - An LFS filter at the root or in a nested attribute file is refused, with
- *   the audio in the folder still the audio
- * - A commit that only adds an attribute, over files it does not change, is
- *   refused
+ * - An LFS filter at the root or in a nested attribute file is refused,
+ *   naming the attribute file, with the audio in the folder still the audio
+ * - A commit that declares `text` and `eol` syncs, and each file keeps the
+ *   bytes the commit stores
  * - Attributes of the files currently in the folder do not mask the incoming
  *   commit's
  * - Nothing is published on refusal: working bytes, index, and HEAD are equal
@@ -20,7 +22,7 @@
  *   fast-forwards exactly. This is refusal of filters, not LFS support
  *
  * See also:
- * - `git/attributes.test.ts` for the browser evaluation against real Git
+ * - `git/attributes.test.ts` for which attribute lines name a filter
  */
 import {
 	afterAll,
@@ -34,25 +36,25 @@ import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { downloadFolder, openFolder as openBrowserFolder } from './browser.js';
+import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	dumpStorage,
 } from './browser-storage.test-support.js';
 import { defineFolder, type Folder } from './contract.js';
-import { formatDeclaration } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
 	createBareRemote,
 	GIT_ENV,
 	git,
 	gitHttpFetch,
+	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {},
 });
 type Opened = Folder<typeof definition>;
@@ -124,12 +126,8 @@ async function incoming(kind: 'browser' | 'directory') {
 	await writeFile(join(upstream, 'notes.md'), 'line one\nline two\n');
 	// Lets the folder keep a local, ignored attribute file of its own.
 	await writeFile(join(upstream, '.gitignore'), '.gitattributes\n');
-	// The folder's own declaration, so opening over this history changes
-	// nothing and commits nothing of its own.
-	await writeFile(
-		join(upstream, 'epicenter.json'),
-		formatDeclaration(definition),
-	);
+	// A definition with no tables publishes no schema file before its first
+	// write, so that write leaves the folder clean.
 	await git(upstream, 'add', '--all');
 	await git(upstream, 'commit', '--quiet', '-m', 'audio');
 	await git(upstream, 'push', '--quiet', 'origin', 'main');
@@ -139,28 +137,23 @@ async function incoming(kind: 'browser' | 'directory') {
 	if (kind === 'browser') {
 		globalThis.fetch = await gitHttpFetch(root);
 		const environment = createTestStorage();
-		const remote = { url: 'http://git.test/remote.git', branch: 'main' };
-		expectOk(
-			await downloadFolder({
-				id: 'so.epicenter.incomingtest',
-				scope: { channel: 'release' },
-				remote,
-				...browserStorage(environment),
-			}),
+		await configureRemote(
+			environment,
+			'so.epicenter.incomingtest',
+			'http://git.test/remote.git',
 		);
 		folder = expectOk(
 			await openBrowserFolder({
-				id: 'so.epicenter.incomingtest',
+				app: 'so.epicenter.incomingtest',
 				definition,
 				browser: {
 					author,
-					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
 			}),
 		);
 		// The fetch itself records the remote head and its objects; a refused
-		// pull must change nothing else.
+		// Sync must change nothing else.
 		untouched = () =>
 			dumpStorage(
 				environment,
@@ -172,23 +165,18 @@ async function incoming(kind: 'browser' | 'directory') {
 			);
 	} else {
 		const local = join(root, 'local');
-		await git(root, 'clone', '--quiet', bare, local);
+		await mkdir(local);
+		await initWithOrigin(local, bare);
 		folder = await openNativeFolder({
 			root: local,
 			definition,
-			git: {
-				author,
-				remote: { url: bare, branch: 'main' },
-			},
+			git: { author },
 		});
 		untouched = () => dumpDirectory(local);
 	}
 	opened.push(folder);
-	// The folder starts at the upstream commit.
-	await folder.git.commit();
-	expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(
-		await git(upstream, 'rev-parse', 'HEAD'),
-	);
+	// Seed the initial remote tree before testing later incoming attributes.
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 
 	const text = async (path: string) =>
 		decoder.decode(expectOk(await folder.files.read(path)).bytes);
@@ -196,41 +184,38 @@ async function incoming(kind: 'browser' | 'directory') {
 		folder,
 		upstream,
 		text,
-		/** Commit the upstream working tree and make it the fetched head. */
+		/** Commit the upstream working tree and push it. */
 		async publish(message: string) {
 			// `--force`: the attribute file is ignored by the fixture's own rule.
 			await git(upstream, 'add', '--all', '--force');
 			await git(upstream, 'commit', '--quiet', '-m', message);
 			await git(upstream, 'push', '--quiet', 'origin', 'main');
-			return expectOk(await folder.git.fetch()).oid;
+			return git(upstream, 'rev-parse', 'HEAD');
 		},
 		/**
-		 * The fast-forward is refused for `path` and nothing at all changed: no
-		 * working file, no index entry, no ref.
+		 * Sync is refused for `path` and nothing at all changed: no working
+		 * file, no index entry, no ref.
 		 */
 		async refusedUntouched(path: string, reasonHolds: string) {
 			const head = expectOk(await folder.git.log(1))[0]?.oid;
 			// Looking at a browser folder's status refreshes the index's stat
 			// cache, as `git status` does. Look once first, so the comparison
-			// below sees only what the refused pull itself wrote: nothing.
-			expect(expectOk(await folder.git.paths())).toEqual([]);
+			// below sees only what the refused Sync itself wrote: nothing.
+			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			const before = await untouched();
 			const heard: string[] = [];
 			const stop = folder.onFilesChanged((paths) => heard.push(...paths));
 
-			const refused = expectErr(await folder.git.pullFastForward());
+			const refused = expectErr(await folder.sync.run());
 
 			stop();
 			expect(refused.name).toBe('Unrepresentable');
 			if (refused.name !== 'Unrepresentable') return;
 			expect(refused.paths).toEqual([path]);
 			expect(refused.reason).toContain(reasonHolds);
-			expect(refused.reason).toContain(
-				'this folder does not apply attribute filters or conversion',
-			);
+			expect(refused.reason).toContain('names a Git filter');
 			expect(await untouched()).toEqual(before);
 			expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(head);
-			expect(expectOk(await folder.git.paths())).toEqual([]);
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			expect(heard).toEqual([]);
 			expect(await text('rec/take.wav')).toBe('RIFF real audio bytes');
@@ -253,7 +238,7 @@ describe.each([
 		);
 		await writeFile(join(rooted.upstream, 'rec/take.wav'), LFS_POINTER);
 		await rooted.publish('track audio with lfs');
-		await rooted.refusedUntouched('rec/nested/deep.wav', 'filter=lfs');
+		await rooted.refusedUntouched('.gitattributes', 'filter=lfs');
 		expect(
 			expectErr(await rooted.folder.files.read('.gitattributes')).name,
 		).toBe('NotFound');
@@ -266,27 +251,36 @@ describe.each([
 		);
 		await writeFile(join(nested.upstream, 'rec/nested/deep.wav'), LFS_POINTER);
 		await nested.publish('track one nested file with lfs');
-		await nested.refusedUntouched('rec/nested/deep.wav', 'filter=lfs');
+		await nested.refusedUntouched('rec/nested/.gitattributes', 'filter=lfs');
 	});
 
-	test('an incoming normalizing attribute is refused even when it only selects unchanged files', async () => {
-		// Line-ending conversion declared for a file the commit does not touch.
+	test('an incoming commit that declares line endings syncs, and each file keeps the bytes the commit stores', async () => {
 		const converting = await incoming(kind);
 		await writeFile(
 			join(converting.upstream, '.gitattributes'),
-			'*.md text eol=crlf\n',
+			'* text=auto\n*.md text eol=crlf\n',
 		);
-		await converting.publish('normalize markdown line endings');
-		await converting.refusedUntouched('notes.md', 'text');
+		const head = await converting.publish('normalize markdown line endings');
+
+		expect(expectOk(await converting.folder.sync.run())).toEqual({
+			kind: 'synced',
+			head,
+		});
+		expect(await converting.text('notes.md')).toBe('line one\nline two\n');
+		expect(await converting.text('.gitattributes')).toBe(
+			'* text=auto\n*.md text eol=crlf\n',
+		);
+		expect(expectOk(await converting.folder.git.status()).changes).toEqual([]);
 	});
 
 	test("the folder's own attribute file does not mask the incoming commit's", async () => {
 		// In the folder the audio is declared plain; upstream declares a filter.
 		const masked = await incoming(kind);
 		expectOk(
-			await masked.folder.files.create('.gitattributes', '*.wav -filter\n'),
+			await masked.folder.write('.gitattributes', null, '*.wav -filter\n'),
 		);
-		// Ignored by the committed `.gitignore`, so the folder is still clean.
+		// Ignored by the committed `.gitignore`, and the declaration this first
+		// write published matches the committed one, so the folder is still clean.
 		expect(expectOk(await masked.folder.git.status()).changes).toEqual([]);
 		await writeFile(
 			join(masked.upstream, '.gitattributes'),
@@ -294,7 +288,7 @@ describe.each([
 		);
 		await masked.publish('filter audio');
 
-		const refused = expectErr(await masked.folder.git.pullFastForward());
+		const refused = expectErr(await masked.folder.sync.run());
 		expect(refused.name).toBe('Unrepresentable');
 		if (refused.name === 'Unrepresentable')
 			expect(refused.reason).toContain('filter=lfs');
@@ -302,7 +296,7 @@ describe.each([
 		expect(await masked.text('.gitattributes')).toBe('*.wav -filter\n');
 	});
 
-	test('pointer-shaped text with no declared filter fast-forwards byte for byte', async () => {
+	test('pointer-shaped text with no declared filter syncs byte for byte', async () => {
 		const plain = await incoming(kind);
 		// Someone keeps an LFS pointer as an ordinary file, and declares
 		// attributes that change no bytes.
@@ -316,14 +310,10 @@ describe.each([
 		const heard: string[] = [];
 		plain.folder.onFilesChanged((paths) => heard.push(...paths));
 
-		const pulled = expectOk(await plain.folder.git.pullFastForward());
-		expect(pulled).toMatchObject({ status: 'fastForwarded', to: head });
-		if (pulled.status !== 'fastForwarded') return;
-		expect([...pulled.changedPaths].sort()).toEqual([
-			'.gitattributes',
-			'example-pointer.txt',
-			'rec/take.wav',
-		]);
+		expect(expectOk(await plain.folder.sync.run())).toEqual({
+			kind: 'synced',
+			head,
+		});
 		// An update that landed is announced, with the paths it reached.
 		expect(heard.sort()).toEqual([
 			'.gitattributes',
@@ -334,6 +324,5 @@ describe.each([
 			expect(await plain.text(path)).toBe(LFS_POINTER);
 		expect(expectOk(await plain.folder.git.log(1))[0]?.oid).toBe(head);
 		expect(expectOk(await plain.folder.git.status()).changes).toEqual([]);
-		expect(expectOk(await plain.folder.git.paths())).toEqual([]);
 	});
 });

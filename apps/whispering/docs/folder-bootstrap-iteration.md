@@ -1,5 +1,11 @@
 # Folder bootstrap iteration
 
+> **Historical record.** This pass ran under the shell's Rust folder owner, a
+> design retired on 2026-10-15 by
+> [ADR-0531](../../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md).
+> The page now runs the folder engine over a directory the shell grants. Read
+> this file as what was checked then, not as current behavior.
+
 ## Outcome
 
 Whispering saves before account or remote setup. Later setup preserves the

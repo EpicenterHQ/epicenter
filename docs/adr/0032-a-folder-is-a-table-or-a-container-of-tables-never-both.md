@@ -1,6 +1,7 @@
 # 0032. A folder is a table or a container of tables, never both
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which deletes Matter.
 - **Date:** 2026-06-19
 
 ## Context
@@ -35,7 +36,9 @@ A folder is a table **or** a container of tables, never both:
 Depth is reached by **re-opening the deeper folder**, never by loading two levels
 into one scope. The loader and watcher return exactly one of these two sets:
 `isMarked(path) ? [path] : [path's marked children]` (`loadPath` in
+<!-- doc-path-check: ignore-next-line -->
 `packages/matter-core/src/load/fs.ts`, `scan_vault` in
+<!-- doc-path-check: ignore-next-line -->
 `apps/matter/src-tauri/src/watch.rs`).
 
 The vault view renders that scope as a **flat tab bar** of peer tables. There is

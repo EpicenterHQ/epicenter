@@ -29,7 +29,7 @@
 import { describe, expect, test } from 'bun:test';
 import { type TSchema, Type } from 'typebox';
 import { Compile } from 'typebox/compile';
-import { isJsonObject, isJsonSafe, isJsonValue } from '../json.js';
+import { isJsonSafe } from '../json.js';
 import { field, jsonValue } from './builders.js';
 import { FIELD_KEYWORD, fieldEditorOf, type Kind } from './editor.js';
 
@@ -852,10 +852,6 @@ describe('being JSON has no size', () => {
 		expect(isJsonSafe(deep)).toBe(true);
 		expect(isJsonSafe(dag)).toBe(true);
 		expect(isJsonSafe(top)).toBe(false);
-		// The bounded guards keep the storage budget.
-		expect(isJsonValue(wide)).toBe(false);
-		expect(isJsonObject(wide)).toBe(false);
-		expect(isJsonValue([[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]])).toBe(false);
 	});
 });
 

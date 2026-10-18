@@ -1,6 +1,7 @@
 # 0295. A database is one Yjs document and a row holds its rich content
 
-- **Status:** Accepted, amended 2026-08-30 at where a rich field surfaces
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Amended by:** [ADR-0431](0431-rows-return-values-and-own-a-separate-body.md) moves the body from a row attribute to its sole sequence child. The one-document decision remains unchanged; current code calls the shared type `Y.Node` in RC26.
 - **Date:** 2026-08-29
 - **Supersedes:** [ADR-0248](0248-a-row-owns-an-independent-yjs-document-at-a-derived-address.md) entirely, [ADR-0278](0278-a-replica-syncs-the-application-document-and-fetches-row-documents-on-demand.md) entirely, [ADR-0284](0284-the-application-document-is-an-index-and-a-rows-remaining-fields-live-in-its-own-document.md) entirely.

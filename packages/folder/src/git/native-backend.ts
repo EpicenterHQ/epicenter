@@ -1,37 +1,38 @@
 /**
  * Native Git storage: a real repository in `<root>/.git`.
  *
- * isomorphic-git writes immutable objects for checkpoints (atomically, via a
- * scratch file and rename). Everything that mutates shared state uses the
- * real `git` CLI, whose `index.lock` and ref locks other Git processes
- * respect: `update-ref` with an expected old value is the branch
- * compare-and-swap, and `reset` and `update-index` update index entries.
- * isomorphic-git never writes the native index.
+ * isomorphic-git builds checkpoint trees and commits, and every object it
+ * writes is stored by `git hash-object -w`, so nothing writes an object file
+ * by hand. Everything that mutates shared state uses the real `git` CLI,
+ * whose `index.lock` and ref locks other Git processes respect: `update-ref`
+ * with an expected old value is the branch compare-and-swap, and `reset`
+ * updates index entries. isomorphic-git never writes the native index.
  *
  * A merge with conflicts is never left in the folder: the folder never
  * writes `MERGE_HEAD`, and one another Git program began blocks commits and
- * incoming updates until it is finished or abandoned with Git.
+ * Sync's publishing until it is finished or abandoned with Git.
+ *
+ * A commit pins its parent first, the branch head, writes its tree and
+ * itself as objects, and moves the branch from that parent by
+ * compare-and-swap; `git commit` would take whatever `HEAD` names when it
+ * runs. A commit runs no commit hooks and is not signed.
+ *
+ * The backend reaches the machine only through its host: a `git` runner and
+ * directory primitives, which `native-host.ts` supplies in Bun and Node. A
+ * desktop page runs none of this: the `epicenter` CLI runs it for the page
+ * (ADR-0559, `tauri-history.ts`).
  */
-import { spawn } from 'node:child_process';
-import * as nodeFs from 'node:fs';
-import { readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import type * as git from 'isomorphic-git';
-import type { FileBoundary } from '../boundary.js';
-import { byCodePoint, NORMALIZING } from './attributes.js';
-import type {
-	GitBackend,
-	GitRemote,
-	PathStatus,
-	PublishResult,
-	StatusCode,
-} from './backend.js';
-import { capturedIndexMatchesHead } from './captured-index.js';
+import type { DirectoryPrimitives } from '../directory-primitives.js';
+import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
+import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
-import { type CommitSummary, type ObjectAccess } from './objects.js';
+import { neutralizeAttributes } from './neutral-attributes.js';
+import type { CommitSummary, ObjectAccess } from './objects.js';
+import { primitiveFs } from './primitive-fs.js';
 
 const ZERO = '0000000000000000000000000000000000000000';
+const PUBLISHING_REF = 'refs/epicenter/publishing';
 const REMOTE_NAME = 'origin';
 
 export class GitCommandError extends Error {
@@ -56,110 +57,182 @@ export type GitRun = (
 		signal?: AbortSignal;
 		allowFailure?: boolean;
 		env?: Readonly<Record<string, string>>;
+		/**
+		 * An `Authorization` header for a push or fetch, sent only to `url`,
+		 * which is the remote the command names. The host passes it to Git
+		 * outside its arguments.
+		 */
+		credential?: GitAuthorization;
 	},
 ) => Promise<{ code: number | null; stdout: Uint8Array; stderr: string }>;
 
+/** One `Authorization` header value, for exactly one URL. */
+type GitAuthorization = {
+	readonly url: string;
+	readonly authorization: string;
+};
+
 /**
- * Inherited variables that would point Git at another repository, index, or
- * object store: the names `git rev-parse --local-env-vars` lists, plus the
- * ref namespace. Each command addresses the repository in its working
- * directory, whatever the parent process had set. The ceiling stops discovery
- * at the root, so a root whose `.git` is missing never resolves to a
- * repository in a directory above it. `GIT_OPTIONAL_LOCKS=0` keeps read-only
- * commands such as `status` and `diff` from taking `index.lock` to refresh
- * the index, so observing the folder never looks like a change to it.
+ * The Git configuration that sends `credential`'s header to its URL alone,
+ * follows no redirect, and asks no credential helper, as environment
+ * variables, so the header never appears in a process list. Redirects are
+ * refused for the URL too: Git prefers a URL-specific
+ * `http.<url>.followRedirects` from any other configuration over a plain
+ * `http.followRedirects`.
  */
-const REPOSITORY_ENV =
-	/^GIT_(DIR|WORK_TREE|IMPLICIT_WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE|PREFIX|GRAFT_FILE|SHALLOW_FILE|NO_REPLACE_OBJECTS|REPLACE_REF_BASE|CONFIG|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+)$/;
-
-function gitEnvironment(root: string): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = {};
-	for (const [name, value] of Object.entries(process.env))
-		if (!REPOSITORY_ENV.test(name)) env[name] = value;
+export function credentialEnvironment({
+	url,
+	authorization,
+}: GitAuthorization): Record<string, string> {
+	if (!/^(Basic|Bearer) [\x21-\x7e]+$/.test(authorization))
+		throw new Error('A Git credential must be one Basic or Bearer header');
 	return {
-		...env,
-		GIT_CEILING_DIRECTORIES: dirname(root),
-		GIT_OPTIONAL_LOCKS: '0',
-		GIT_TERMINAL_PROMPT: '0',
-		LC_ALL: 'C',
+		GIT_CONFIG_COUNT: '4',
+		GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
+		GIT_CONFIG_VALUE_0: `Authorization: ${authorization}`,
+		GIT_CONFIG_KEY_1: 'http.followRedirects',
+		GIT_CONFIG_VALUE_1: 'false',
+		GIT_CONFIG_KEY_2: `http.${url}.followRedirects`,
+		GIT_CONFIG_VALUE_2: 'false',
+		GIT_CONFIG_KEY_3: 'credential.helper',
+		GIT_CONFIG_VALUE_3: '',
 	};
 }
 
-export function createGitRunner(root: string): GitRun {
-	return (args, options = {}) =>
-		new Promise((resolve, reject) => {
-			const child = spawn('git', [...args], {
-				cwd: root,
-				env: { ...gitEnvironment(root), ...options.env },
-				stdio: ['pipe', 'pipe', 'pipe'],
-				signal: options.signal,
-			});
-			const stdout: Uint8Array[] = [];
-			const stderr: Uint8Array[] = [];
-			child.stdout.on('data', (chunk: Uint8Array) => stdout.push(chunk));
-			child.stderr.on('data', (chunk: Uint8Array) => stderr.push(chunk));
-			child.on('error', reject);
-			child.on('close', (code) => {
-				const out = Buffer.concat(stdout);
-				const err = Buffer.concat(stderr).toString('utf8');
-				if (code !== 0 && !options.allowFailure)
-					reject(new GitCommandError(args, code, err));
-				else resolve({ code, stdout: new Uint8Array(out), stderr: err });
-			});
-			child.stdin.on('error', () => {});
-			if (options.input !== undefined) child.stdin.end(options.input);
-			else child.stdin.end();
-		});
-}
+/** How the backend reaches the machine. */
+export type NativeGitHost = {
+	/** Runs `git` in the folder's root, with the repository-pinning environment. */
+	readonly run: GitRun;
+	/** The file system, with absolute paths. */
+	readonly files: DirectoryPrimitives;
+};
 
-const text = (bytes: Uint8Array) => Buffer.from(bytes).toString('utf8');
-
-/** A node filesystem whose writes land atomically, for isomorphic-git object writes. */
-function atomicObjectFs(): git.PromiseFsClient {
-	const promises = {
-		...nodeFs.promises,
-		async writeFile(
-			path: string,
-			data: Uint8Array | string,
-			options?: unknown,
-		) {
-			const temporary = `${path}.tmp-${crypto.randomUUID()}`;
-			await writeFile(temporary, data, options as never);
-			await rename(temporary, path);
-		},
-	};
-	return { promises } as unknown as git.PromiseFsClient;
-}
+const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
 export async function createNativeGitBackend({
 	root,
 	branch,
-	remote,
-	boundary,
+	host,
+	credentials,
+	initialized,
+	initProblem,
 }: {
 	root: string;
 	branch: string;
-	remote: GitRemote | undefined;
-	boundary: FileBoundary;
+	host: NativeGitHost;
+	/**
+	 * Runs once `git init` has created the repository. A folder with no
+	 * repository gets one with its first commit (`createRepository`), or
+	 * when a remote is set, never when it opens;
+	 * until then it reads as an empty history with every file uncommitted,
+	 * and no `git` runs.
+	 */
+	initialized?: () => Promise<void>;
+	/**
+	 * Why `git init` must not run here, such as a root inside
+	 * another repository's working tree. `createRepository` answers it, and
+	 * setting a remote throws it.
+	 */
+	initProblem?: () => Promise<string | undefined>;
+	/** Asked before each push and fetch; see `GitCredentials`. */
+	credentials?: GitCredentials;
 }): Promise<GitBackend> {
-	const run = createGitRunner(root);
-	const gitdir = join(root, '.git');
-	const access: ObjectAccess = { fs: atomicObjectFs(), gitdir };
+	const { run, files } = host;
+	const gitdir = `${root}/.git`;
+	// Objects are stored by `git hash-object -w`, which names and checks
+	// each one; nothing writes an object file by hand. Hashing from standard
+	// input with no `--path` applies no attribute and no line-ending
+	// conversion, which is what commits each file with the bytes it has on
+	// disk, whatever the repository's or the person's attributes say.
+	const access: ObjectAccess = {
+		fs: primitiveFs(files, {
+			gitdir,
+			async write(type, content) {
+				const { stdout } = await run(
+					['hash-object', '-w', '-t', type, '--stdin'],
+					{ input: content },
+				);
+				return text(stdout).trim();
+			},
+		}),
+		gitdir,
+	};
 	const branchRef = `refs/heads/${branch}`;
-	const trackingRef = `refs/remotes/${REMOTE_NAME}/${remote?.branch ?? branch}`;
+	/** The credential for `url`, asked for each transfer. */
+	async function authorize(
+		url: string,
+		signal: AbortSignal,
+	): Promise<GitAuthorization | undefined> {
+		const credential = await credentials?.(url, signal);
+		signal.throwIfAborted();
+		return credential === undefined
+			? undefined
+			: { url, authorization: basicAuthorization(credential) };
+	}
+	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
 
-	const isRepository = await stat(join(gitdir, 'HEAD')).then(
-		() => true,
-		() => false,
-	);
-	if (!isRepository)
-		await run(['init', '--quiet', `--initial-branch=${branch}`]);
+	// Only `git init` writes `HEAD`. Writes stage their bytes under
+	// `.git/epicenter`, so `.git` alone does not mean a repository.
+	const head = `${gitdir}/HEAD`;
+	// Two openers that create one repository at once race Git's copy of its
+	// templates, and the one that loses fails on a file the other just made.
+	// Running `git init` again finds the repository and skips what exists.
+	const init = async () => {
+		const args = ['init', '--quiet', `--initial-branch=${branch}`];
+		try {
+			await run(args);
+		} catch {
+			await run(args);
+		}
+	};
+	let present = (await files.lstat(head)) !== undefined;
+	/** Whether the repository exists. Another program may have created it. */
+	async function exists(): Promise<boolean> {
+		present ||= (await files.lstat(head)) !== undefined;
+		return present;
+	}
+	/**
+	 * Create the repository if there is none, with attributes that change no
+	 * bytes (`neutralizeAttributes`); see `initialized`. Answers why it may
+	 * not be created here, having run nothing.
+	 */
+	async function createRepository(): Promise<string | undefined> {
+		if (await exists()) return undefined;
+		const problem = await initProblem?.();
+		if (problem !== undefined) return problem;
+		// First, since `git init` keeps it: a repository is never there
+		// without it, even when this process stops between the two.
+		await neutralizeAttributes(files, gitdir);
+		await init();
+		present = true;
+		await initialized?.();
+		return undefined;
+	}
+	/** Create the repository for a write that needs one, or throw why not. */
+	async function repository() {
+		const problem = await createRepository();
+		if (problem !== undefined) throw new Error(problem);
+	}
 
-	// This handle's own work only. Another process is met at Git's lock
-	// files, where a held lock fails the command instead of delaying it.
-	const queue = createMutex();
+	/** The remote Git configuration names: `remote.origin.url`, on this branch. */
+	async function configuredRemote(): Promise<GitRemote | undefined> {
+		if (!(await exists())) return undefined;
+		const { code, stdout } = await run(
+			['config', '--get', `remote.${REMOTE_NAME}.url`],
+			{ allowFailure: true },
+		);
+		const url = text(stdout).trim();
+		return code === 0 && url !== '' ? { url, branch } : undefined;
+	}
+	let remote = await configuredRemote();
+
+	// This handle's own work only. Another handle or process is met at Git's
+	// lock files, where a held lock fails the command instead of delaying it,
+	// and at the branch's compare-and-swap (ADR-0541).
+	const serialized: GitBackend['exclusive'] = createMutex().run;
 
 	async function resolve(ref: string): Promise<string | undefined> {
+		if (!(await exists())) return undefined;
 		const result = await run(
 			['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
 			{
@@ -170,14 +243,12 @@ export async function createNativeGitBackend({
 		return text(result.stdout).trim();
 	}
 
-	const literal = ['--literal-pathspecs'];
-
 	/** Reset the named index entries without changing working files. */
 	async function syncIndex(commit: string, paths: readonly string[]) {
 		if (paths.length === 0) return;
 		await run(
 			[
-				...literal,
+				'--literal-pathspecs',
 				'reset',
 				'--quiet',
 				commit,
@@ -188,40 +259,36 @@ export async function createNativeGitBackend({
 		);
 	}
 
-	/** A private Git file's bytes, or `undefined` when there is none. */
-	async function readPrivate(name: string): Promise<Uint8Array | undefined> {
-		try {
-			return new Uint8Array(await readFile(join(gitdir, name)));
-		} catch (cause) {
-			if ((cause as { code?: string }).code === 'ENOENT') return undefined;
-			throw cause;
-		}
-	}
-
-	function parsePorcelain(output: Uint8Array): PathStatus[] {
-		const tokens = text(output).split('\0');
-		const result: PathStatus[] = [];
-		for (let index = 0; index < tokens.length; index++) {
-			const token = tokens[index]!;
-			if (token.length < 4) continue;
-			const indexCode = token[0] as StatusCode;
-			const worktreeCode = token[1] as StatusCode;
-			const path = token.slice(3);
-			if (indexCode === 'R' || indexCode === 'C') index++;
-			result.push({ path, index: indexCode, worktree: worktreeCode });
-		}
-		return result;
-	}
-
 	const backend: GitBackend = {
+		createRepository,
 		branch,
-		remote,
-		async withObjects(work) {
-			return work(access);
+		get remote() {
+			return remote;
 		},
-		exclusive: queue.run,
+		async refreshRemote() {
+			remote = await configuredRemote();
+			return remote;
+		},
+		async setRemote(url) {
+			await repository();
+			await run(['config', `remote.${REMOTE_NAME}.url`, url]);
+			remote = { url, branch };
+			return remote;
+		},
+		async withObjects(work, cache = {}) {
+			return work({ ...access, cache });
+		},
+		exclusive: serialized,
 		readBranch: () => resolve(branchRef),
 		readRemoteTracking: () => resolve(trackingRef),
+		readPublishing: () => resolve(PUBLISHING_REF),
+		async writePublishing(oid) {
+			await run(
+				oid === undefined
+					? ['update-ref', '-d', PUBLISHING_REF]
+					: ['update-ref', '-m', 'epicenter: publishing', PUBLISHING_REF, oid],
+			);
+		},
 		async casBranch(expected, next) {
 			const result = await run(
 				[
@@ -239,59 +306,40 @@ export async function createNativeGitBackend({
 			if (actual !== expected) return { ok: false, actual };
 			throw new GitCommandError(['update-ref'], result.code, result.stderr);
 		},
-		async blocked() {
-			const head = await run(['symbolic-ref', '--quiet', 'HEAD'], {
-				allowFailure: true,
-			});
-			if (head.code !== 0) return 'HEAD is detached';
-			if (text(head.stdout).trim() !== branchRef)
-				return `HEAD is not on ${branch}`;
-			// The folder never begins a merge; one another Git program began is
-			// finished or abandoned with Git.
-			for (const marker of [
-				'MERGE_HEAD',
-				'CHERRY_PICK_HEAD',
-				'REVERT_HEAD',
-				'rebase-merge',
-				'rebase-apply',
-				'BISECT_LOG',
-			]) {
-				const present = await stat(join(gitdir, marker)).then(
-					() => true,
-					() => false,
-				);
-				if (present) return `a Git operation is in progress (${marker})`;
+		async blocked(rules) {
+			// No repository has no operation in progress.
+			if (await exists()) {
+				const head = await run(['symbolic-ref', '--quiet', 'HEAD'], {
+					allowFailure: true,
+				});
+				if (head.code !== 0) return 'HEAD is detached';
+				if (text(head.stdout).trim() !== branchRef)
+					return `HEAD is not on ${branch}`;
+				// The folder never begins a merge; one another Git program began
+				// is finished or abandoned with Git.
+				for (const marker of [
+					'MERGE_HEAD',
+					'CHERRY_PICK_HEAD',
+					'REVERT_HEAD',
+					'rebase-merge',
+					'rebase-apply',
+					'BISECT_LOG',
+				]) {
+					const present =
+						(await files.lstat(`${gitdir}/${marker}`)) !== undefined;
+					if (present) return `a Git operation is in progress (${marker})`;
+				}
 			}
-			return undefined;
-		},
-		async checkpointProblem() {
 			return nativeCheckpointProblem({
 				root,
 				run,
+				files,
 				head: await resolve(branchRef),
-				ignored: (paths) => backend.ignoredPaths(paths, new Map()),
+				rules,
 			});
 		},
-		async incomingAttribute(commit, files) {
-			if (files.size === 0) return undefined;
-			// Git's own attribute matching, against the commit's tree alone. A
-			// Git too old for `--source` fails here, before anything is written.
-			const result = await run(
-				['check-attr', `--source=${commit}`, '--stdin', '-z', ...NORMALIZING],
-				{ input: `${[...files.keys()].sort(byCodePoint).join('\0')}\0` },
-			);
-			const records = text(result.stdout).split('\0');
-			for (let index = 0; index + 2 < records.length; index += 3) {
-				const [path, attribute, value] = records.slice(index, index + 3);
-				if (value !== 'unspecified' && value !== 'unset')
-					return {
-						path: path!,
-						attribute: value === 'set' ? attribute! : `${attribute}=${value}`,
-					};
-			}
-			return undefined;
-		},
 		async reconcileIndex(commit) {
+			if (!(await exists())) return;
 			// `diff-index --cached` lists every index entry that differs from the
 			// tree, including staged-only additions and deletions.
 			const differing = await run([
@@ -304,42 +352,6 @@ export async function createNativeGitBackend({
 			]);
 			const paths = text(differing.stdout).split('\0').filter(Boolean);
 			await syncIndex(commit, paths);
-		},
-		async ignoredPaths(candidates) {
-			// `--no-index` evaluates the rules alone; the caller keeps tracked files.
-			const result = await run(
-				['check-ignore', '--no-index', '--stdin', '-z'],
-				{ input: `${candidates.join('\0')}\0`, allowFailure: true },
-			);
-			if (result.code !== 0 && result.code !== 1)
-				throw new GitCommandError(['check-ignore'], result.code, result.stderr);
-			return new Set(text(result.stdout).split('\0').filter(Boolean));
-		},
-		async indexMatchesHead(captured) {
-			return backend.withObjects((access) =>
-				capturedIndexMatchesHead(access, captured),
-			);
-		},
-		readIndex: () => readPrivate('index'),
-		async pathStatus() {
-			const result = await run([
-				'status',
-				'--porcelain=v1',
-				'-z',
-				'--untracked-files=all',
-			]);
-			return parsePorcelain(result.stdout);
-		},
-		async diff(paths) {
-			const result = await run([
-				...literal,
-				'diff',
-				'--no-color',
-				'--no-ext-diff',
-				'--',
-				...paths,
-			]);
-			return text(result.stdout);
 		},
 		async log(depth): Promise<CommitSummary[]> {
 			if ((await resolve(branchRef)) === undefined) return [];
@@ -370,19 +382,40 @@ export async function createNativeGitBackend({
 		},
 		async push(oid, signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
-			await run(
+			const credential = await authorize(remote.url, signal);
+			const pushed = await run(
 				[
 					'push',
 					'--porcelain',
 					remote.url,
 					`${oid}:refs/heads/${remote.branch}`,
 				],
-				{ signal },
+				{ signal, credential, allowFailure: true },
 			);
+			if (pushed.code !== 0) {
+				// `--porcelain` marks a ref the remote refused to move by a
+				// fast-forward with `!` and `[rejected]`, and one that moved after
+				// the remote advertised it with `[remote rejected]` and the
+				// remote's reason.
+				const refused = text(pushed.stdout)
+					.split('\n')
+					.filter((line) => line.startsWith('!\t'));
+				if (
+					refused.some(
+						(line) =>
+							line.includes('\t[rejected]') ||
+							(line.includes('[remote rejected]') && REMOTE_MOVED.test(line)),
+					)
+				)
+					return 'rejected';
+				throw new GitCommandError(['push'], pushed.code, pushed.stderr);
+			}
 			await run(['update-ref', trackingRef, oid]);
+			return 'pushed';
 		},
 		async fetch(signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
+			const credential = await authorize(remote.url, signal);
 			const result = await run(
 				[
 					'fetch',
@@ -391,43 +424,13 @@ export async function createNativeGitBackend({
 					remote.url,
 					`+refs/heads/${remote.branch}:${trackingRef}`,
 				],
-				{ signal, allowFailure: true },
+				{ signal, allowFailure: true, credential },
 			);
 			if (result.code !== 0) {
 				if (/couldn't find remote ref/i.test(result.stderr)) return undefined;
 				throw new GitCommandError(['fetch'], result.code, result.stderr);
 			}
 			return resolve(trackingRef);
-		},
-		// The baseline is not checked here: each step carries its own file
-		// condition, and other programs are met only at Git's lock files.
-		async publishIncoming(plan): Promise<PublishResult> {
-			const { error: applyError } = await boundary.apply(plan.changes);
-			if (applyError !== null) {
-				if (applyError.name === 'Partial')
-					return {
-						status: 'partial',
-						applied: applyError.applied,
-						error: applyError.error,
-					};
-				return { status: 'refused', error: applyError };
-			}
-			try {
-				await syncIndex(plan.nextHead, plan.paths);
-			} catch (cause) {
-				return {
-					status: 'indexFailed',
-					error: cause instanceof Error ? cause.message : String(cause),
-				};
-			}
-			const moved = await backend.casBranch(plan.expectedHead, plan.nextHead);
-			if (!moved.ok)
-				return {
-					status: 'branchMoved',
-					actual: moved.actual,
-					filesApplied: true,
-				};
-			return { status: 'published' };
 		},
 	};
 	return backend;

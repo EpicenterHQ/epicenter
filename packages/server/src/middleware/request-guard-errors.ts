@@ -1,16 +1,22 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
- * Structured error variants for request-boundary refusals.
+ * Structured error variants for the guards' own refusals, emitted before a
+ * handler runs. An access token's refusal is the RFC 6750 answer
+ * `resource-access.ts` builds; these are the rest:
  *
- * Emitted before the resource handler runs domain logic. Two flavors,
- * grouped because they share the property "request was malformed at the
- * boundary, not by the domain":
+ *   - `TokenCheckUnavailable` (503): `requireAccessToken` could not read the
+ *     database, so the client keeps its token and retries.
  *
- *   - `ForbiddenOrigin` (403): middleware-level CSRF refusal: origin
- *     missing or not in the trusted-origin allowlist.
- *   - `MissingNodeId` (400): route-level input refusal: WebSocket
- *     upgrade is missing the required `nodeId` query parameter.
+ * and the session-cookie guard's (`requireSessionCookie`):
+ *
+ *   - `ForbiddenOrigin` (403): the request came from another origin, or
+ *     changes state without naming its origin.
+ *   - `SessionRequired` (401): no live session cookie.
+ *   - `SessionUnavailable` (503): the session could not be read, so the
+ *     client should retry rather than sign in again.
+ *   - `PrincipalMismatch` (403): the cookie is another account's than the
+ *     one the page was opened for.
  *
  * Owned by the server middleware that emits them. The server calls the
  * factories at runtime; client SDKs only narrow branches on `body.error.name`
@@ -29,13 +35,25 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
  */
 export const RequestGuardError = defineErrors({
 	ForbiddenOrigin: () => ({
-		message: 'Origin header is missing or not in the trusted-origin allowlist.',
+		message:
+			"The request did not come from the authorization server's own origin.",
 		status: 403 as const,
 	}),
-	MissingNodeId: () => ({
-		message:
-			'WebSocket upgrade is missing the required nodeId query parameter.',
-		status: 400 as const,
+	SessionRequired: () => ({
+		message: 'Sign in to the authorization server first.',
+		status: 401 as const,
+	}),
+	TokenCheckUnavailable: () => ({
+		message: 'The access token could not be checked. Try again.',
+		status: 503 as const,
+	}),
+	SessionUnavailable: () => ({
+		message: 'The session could not be checked. Try again.',
+		status: 503 as const,
+	}),
+	PrincipalMismatch: () => ({
+		message: 'The signed-in account is not the one this page was opened for.',
+		status: 403 as const,
 	}),
 });
 

@@ -1,3 +1,4 @@
-# Local runtime state for the Bun server (server.ts DATA_DIR) and the
-# `docker compose` blob store volume (compose.yaml). Never committed.
+# Local runtime state for the Bun server, such as a `GIT_STORE_ROOT`.
+# Never committed.
 .data/
+wrangler.dev.generated.json

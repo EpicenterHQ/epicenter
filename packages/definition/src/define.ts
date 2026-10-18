@@ -1,8 +1,7 @@
-/** Table declarations keep field schemas separate from the body conversion. */
+/** The one authoring door for a table declaration. */
 import type {
 	DeclaredMark,
 	FieldMap,
-	TableBody,
 	TableDeclaration,
 } from './declaration.js';
 
@@ -18,8 +17,8 @@ type CallbackSchema =
 	| { readonly '~guard': unknown };
 
 /**
- * Field validation shared with KV: identity remains reserved, and a field is
- * a schema JSON can hold.
+ * Field validation: identity remains reserved, and a field is a schema JSON
+ * can hold.
  */
 export type ValidateFields<T extends FieldMap> = {
 	[K in keyof T]: K extends string
@@ -31,17 +30,12 @@ export type ValidateFields<T extends FieldMap> = {
 		: T[K];
 };
 
-/**
- * The one authoring door for a table, typed for a storage's body conversion.
- * A storage binds `TBody` to what it keeps; the implementation is shared.
- */
-export type DefineTable<TBody extends TableBody> = <
-	const TTable extends TableDeclaration<TBody>,
->(
+/** The one authoring door for a table. */
+export type DefineTable = <const TTable extends TableDeclaration>(
 	table: TTable & {
 		fields: ValidateFields<TTable['fields']>;
 	} & Record<Exclude<keyof TTable, keyof TableDeclaration>, never>,
 ) => DeclaredMark & TTable;
 
-/** Declare value fields and, optionally, how the row's body becomes file text. */
-export const defineTable: DefineTable<TableBody> = (table) => table as never;
+/** Declare a table's value fields, and optionally close it. */
+export const defineTable: DefineTable = (table) => table as never;

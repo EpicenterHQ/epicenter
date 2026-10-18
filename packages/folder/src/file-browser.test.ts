@@ -3,7 +3,7 @@
  *
  * Tree ordering, expanded directories, and text classification belong to the
  * folder package. Apps supply their editing limit; failed reads keep their
- * refusal, and editable text keeps its captured bytes and hash.
+ * refusal, and editable text is the exact text of the file's bytes.
  *
  * Key behaviors:
  * - Folders precede files, only expanded descendants appear, and Git is hidden
@@ -14,14 +14,13 @@
 import { expect, test } from 'bun:test';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { submittedText } from './capture.js';
 import { FileError } from './errors.js';
 import { readTextFile, visibleRows } from './file-browser.js';
 
 test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF', async () => {
 	const bytes = new TextEncoder().encode('\ufeffhi\r\n');
 	const files = {
-		read: async (path: string) => Ok({ path, bytes, sha256: 'captured' }),
+		read: async () => Ok({ bytes, sha256: 'read' }),
 	};
 	expect(
 		expectOk(await readTextFile(files, 'note.txt', bytes.byteLength - 1)),
@@ -31,22 +30,13 @@ test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF
 	});
 	expect(
 		expectOk(await readTextFile(files, 'note.txt', bytes.byteLength)),
-	).toEqual({
-		kind: 'text',
-		file: { path: 'note.txt', text: '\ufeffhi\r\n', sha256: 'captured' },
-	});
+	).toEqual({ kind: 'text', text: '\ufeffhi\r\n' });
 });
 
 test('a failed read preserves its refusal instead of classifying an absent file', async () => {
 	const { error } = FileError.NotFound({ path: 'missing.txt' });
 	const files = { read: async () => Err(error) };
 	expect(await readTextFile(files, 'missing.txt', 10)).toEqual(Err(error));
-});
-
-test('submitted bytes preserve BOM and CRLF and replace an unpaired surrogate', () => {
-	const { bytes, text } = submittedText('\ufeffnote\ud800\r\n');
-	expect(text).toBe('\ufeffnote\ufffd\r\n');
-	expect(bytes).toEqual(new TextEncoder().encode(text));
 });
 
 const listing = {
@@ -89,7 +79,7 @@ test('NUL bytes and invalid UTF-8 open as binary details', async () => {
 		new Uint8Array([0xff, 0xfe, 0x41]),
 	]) {
 		const files = {
-			read: async (path: string) => Ok({ path, bytes, sha256: 'captured' }),
+			read: async () => Ok({ bytes, sha256: 'read' }),
 		};
 		expect(expectOk(await readTextFile(files, 'a.bin', 10))).toEqual({
 			kind: 'binary',

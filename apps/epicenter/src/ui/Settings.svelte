@@ -1,151 +1,145 @@
 <script lang="ts">
-	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
-	import {
-		ACCOUNT_CANCEL_CONNECTION_ROUTE,
-		ACCOUNT_SIGN_IN_ROUTE,
-		ACCOUNT_SIGN_OUT_ROUTE,
-	} from '../routes.ts';
-	import { auth, bootstrap } from './auth.js';
+	import { Channel } from '@tauri-apps/api/core';
+	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+	import { onMount } from 'svelte';
+	import { type AuthGrant, commands, events, type HomeSection } from './bindings.gen';
+	import { failureText } from './connections/connections';
+	import { followHomeSections, keepInView } from './home-section';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
-	import * as Item from '@epicenter/ui/item';
-	import { WHISPERING_APPLICATION } from '../applications.ts';
-	import { createLaunch } from './launch.svelte.ts';
+	import AiConnections from './connections/AiConnections.svelte';
 	import LocalModelAdministration from './LocalModelAdministration.svelte';
 	import { localModels } from './local-models.svelte';
 
 	/**
-	 * Host-level administration (ADR-0189) includes the cloud connection and local
-	 * transcription model (ADR-0180), which lives here rather than in the shell
+	 * Host-level administration (ADR-0189) includes the app's sign-in, the AI
+	 * connections every app may use (ADR-0557), and the local transcription
+	 * model (ADR-0180), which lives here rather than in the shell
 	 * header: choosing what every application on this device transcribes with is
 	 * a settings act, not a conversation control.
+	 *
+	 * The sign-in is the `epicenter` CLI's desktop grant (ADR-0558): Sign in
+	 * runs its loopback sign-in through the shell, which opens the browser, and
+	 * no token reaches this page. A terminal's `epicenter auth login` is a
+	 * separate sign-in this section neither shows nor ends.
 	 *
 	 * The choice names files and an accelerator on this machine, so a browser or
 	 * remote Home says where it lives instead of offering controls that would
 	 * reach the wrong device.
+	 *
+	 * An app that cannot transcribe locally sends the person here with
+	 * `open_home('transcription')`, and the page scrolls to the model and keeps
+	 * it there while the sections above it load.
 	 */
 
-	const launcher = createLaunch();
-	let connecting = $state(false);
-	let signingIn = $state(false);
-	let connectionError = $state('');
-	let operation = 0;
-	async function connect(path: string, body: object = {}) {
-		if (path !== ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern) {
-			if (connecting) return;
-			connecting = true;
-			const confirmed = await new Promise<boolean>((resolve) => {
-				confirmationDialog.open({
-					// Keep copy aligned with app-shell/boot-screens/confirm-account-change.ts.
-					title: 'Change account?',
-					description: 'Epicenter will restart when this account change completes. Active recordings and unsaved work, including work started while sign-in is pending, will be discarded.',
-					confirm: { text: 'Continue', variant: 'destructive' },
-					onConfirm: () => resolve(true),
-					onCancel: () => resolve(false),
-				});
-			});
-			if (!confirmed) {
-				connecting = false;
-				return;
-			}
+	let origin = $state('');
+	let grant = $state<AuthGrant | null>(null);
+	let busy = $state<'reading' | 'signing-in' | 'signing-out' | null>('reading');
+	let waitingForBrowser = $state(false);
+	let accountError = $state('');
+
+	async function readStatus() {
+		const { data, error } = await commands.authStatus();
+		if (error !== null) {
+			accountError = failureText(error);
+			return;
 		}
-		const current = ++operation;
-		connecting = true;
-		signingIn = path === ACCOUNT_SIGN_IN_ROUTE.pattern;
-		connectionError = '';
-		try {
-			const response = await fetch(path, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(body),
-			});
-			if (current !== operation) return;
-			if (!response.ok) throw new Error(await response.text());
-			if (path === ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern || path === ACCOUNT_SIGN_IN_ROUTE.pattern) {
-				connecting = false;
-				signingIn = false;
-			}
-			// Sign-out stays pending until native replaces this process.
-		} catch (cause) {
-			if (current !== operation) return;
-			connectionError =
-				cause instanceof Error ? cause.message : 'Could not connect.';
-			connecting = false;
-			signingIn = false;
-		}
+		origin = data.origin;
+		grant = data.grants.find((each) => each.grant === 'desktop') ?? null;
 	}
 
-	/**
-	 * Whether local transcription can actually run now: a model is chosen and its
-	 * files are on this device.
-	 *
-	 * This is the condition for the shortcut below, and it is deliberately a
-	 * statement about the host rather than about who is reading it. Nothing
-	 * records that the user arrived from Whispering (ADR-0189), so the shortcut
-	 * is offered on the same terms to someone who set a model up on their own.
-	 */
-	const isLocalTranscriptionReady = $derived(
-		localModels.active !== null && localModels.active.installed,
+	/** Where each section an app may ask for starts. */
+	const sections = $state<Record<HomeSection, HTMLElement | undefined>>({
+		transcription: undefined,
+	});
+
+	onMount(() => {
+		if (!isDesktopHost()) return;
+		void readStatus().finally(() => (busy = null));
+		let stopScrolling: (() => void) | undefined;
+		const stopFollowing = followHomeSections({
+			claim: commands.takePendingHomeSection,
+			// The window's own listener: the shell nudges this window alone.
+			onNudge: (nudged) =>
+				events.homeSectionPending(getCurrentWebviewWindow()).listen(nudged),
+			show: (section) => {
+				const target = sections[section];
+				if (target === undefined) return;
+				stopScrolling?.();
+				// The account and the connections above it fill in after this.
+				stopScrolling = keepInView(target);
+			},
+		});
+		return () => {
+			stopFollowing();
+			stopScrolling?.();
+		};
+	});
+
+	async function signIn() {
+		busy = 'signing-in';
+		accountError = '';
+		const lines = new Channel<string>();
+		lines.onmessage = (line) => {
+			const value = JSON.parse(line) as { open?: string; error?: string };
+			if (value.open) waitingForBrowser = true;
+			if (value.error) accountError = value.error;
+		};
+		const { error } = await commands.authLogin(lines);
+		if (error !== null) accountError = failureText(error);
+		waitingForBrowser = false;
+		await readStatus();
+		busy = null;
+	}
+
+	async function signOut() {
+		busy = 'signing-out';
+		accountError = '';
+		const { data, error } = await commands.authLogout();
+		if (error !== null) accountError = failureText(error);
+		else if (data.signedOut && !data.revoked)
+			accountError = `${new URL(origin).host} could not be reached, so this computer's sign-in was removed but not revoked there.`;
+		await readStatus();
+		busy = null;
+	}
+
+	const signedInAs = $derived(
+		grant?.signedIn
+			? (grant.account?.name ?? grant.account?.id ?? 'your account')
+			: null,
 	);
 </script>
 
 {#if isDesktopHost()}
 	<div class="grid gap-3 border-b p-3">
 		<h2 class="font-medium">Account</h2>
-		{#if bootstrap.credentialUnreadable}
-			<p role="alert">Your saved sign-in could not be used. Sign in again. Your local data is still on this device.</p>
-		{:else}
-			<p>{new URL(bootstrap.server.baseURL).host}: {auth.getState().status === 'signed-out' ? 'Signed out' : 'Signed in'}</p>
+		{#if busy === 'reading'}
+			<p class="text-muted-foreground">Reading this computer's sign-in…</p>
+		{:else if signedInAs}
+			<p>Signed in to {new URL(origin).host} as {signedInAs}.</p>
+		{:else if origin}
+			<p>{new URL(origin).host}: signed out</p>
 		{/if}
-		<p class="text-muted-foreground">Changing accounts closes your applications and restarts Epicenter. Your existing local data stays with its original server.</p>
-		<Button disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_IN_ROUTE.pattern)}>
-			Sign in
-		</Button>
-		{#if signingIn}
+		<div class="flex gap-2">
+			<Button disabled={busy !== null} onclick={() => void signIn()}>
+				{signedInAs ? 'Sign in again' : 'Sign in'}
+			</Button>
+			{#if signedInAs}
+				<Button variant="outline" disabled={busy !== null} onclick={() => void signOut()}>Sign out</Button>
+			{/if}
+		</div>
+		{#if waitingForBrowser}
 			<p role="status">Finish signing in in your browser, then return here.</p>
-			<Button variant="outline" onclick={() => void connect(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern)}>Cancel sign-in</Button>
 		{/if}
-		{#if auth.getState().status !== 'signed-out'}
-			<Button variant="outline" disabled={connecting} onclick={() => void connect(ACCOUNT_SIGN_OUT_ROUTE.pattern)}>Sign out</Button>
-		{/if}
-		{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
+		{#if accountError}<p role="alert" class="text-destructive">{accountError}</p>{/if}
 	</div>
+	<AiConnections />
 {/if}
 
 {#if localModels.available}
-	<div class="grid gap-3 p-3">
+	<div class="grid gap-3 p-3" bind:this={sections.transcription}>
 		<LocalModelAdministration />
-
-		{#if isLocalTranscriptionReady}
-			<!-- The ordinary launch action, not a return path: it states what is
-			     true of the host, and the user chooses. Same row shape as the Apps
-			     pane, because it is the same act. -->
-			<Item.Root variant="outline">
-				<Item.Content>
-					<Item.Description>
-						Local transcription is ready on this device.
-					</Item.Description>
-				</Item.Content>
-				<Item.Actions>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => void launcher.launch(WHISPERING_APPLICATION)}
-					>
-						Open {WHISPERING_APPLICATION.title}
-					</Button>
-				</Item.Actions>
-			</Item.Root>
-		{/if}
-
-		{#if launcher.failure}
-			<Alert.Root variant="destructive">
-				<Alert.Title>Could not open</Alert.Title>
-				<Alert.Description>{launcher.failure}</Alert.Description>
-			</Alert.Root>
-		{/if}
 	</div>
 {:else}
 	<Empty.Root class="h-full border-0">
@@ -159,4 +153,3 @@
 	</Empty.Root>
 {/if}
 
-<ConfirmationDialog />

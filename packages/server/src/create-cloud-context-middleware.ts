@@ -13,7 +13,12 @@ import type { CloudEnv } from './types.js';
 export function createCloudContextMiddleware(opts: {
 	/** Auth secrets stay in the deployment's bindings, outside ServerBindings. */
 	resolveAuthSecrets: (c: Context<CloudEnv>) => CloudAuthBindings;
-	resolveSessionCallbacks: (c: Context<CloudEnv>) => readonly string[];
+	/**
+	 * True for the context that serves `/auth/*`: it composes the
+	 * authorization server for the request's `c.var.audiences`. Omit it for a
+	 * context that only resolves sessions.
+	 */
+	oauthServer?: boolean;
 	/**
 	 * Acquire a per-request database handle and how to close it. The returned
 	 * `close` runs after the after-response queue drains. The library depends on
@@ -43,7 +48,7 @@ export function createCloudContextMiddleware(opts: {
 					env: opts.resolveAuthSecrets(c),
 					baseURL: c.var.authBaseURL,
 					trustedOrigins: c.var.trustedOrigins,
-					sessionCallbacks: opts.resolveSessionCallbacks(c),
+					oauth: opts.oauthServer ? { audiences: c.var.audiences } : undefined,
 				}),
 			);
 			await next();

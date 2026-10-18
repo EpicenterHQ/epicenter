@@ -6,7 +6,7 @@
 	"description": "Framework-agnostic auth core for Epicenter.",
 	"exports": {
 		".": "./src/index.ts",
-		"./desktop": "./src/desktop-broker-auth.ts",
+		"./desktop": "./src/desktop-account-auth.ts",
 		"./svelte": "./src/svelte/auth.svelte.ts"
 	},
 	"scripts": {
@@ -16,7 +16,6 @@
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
-		"@epicenter/sync": "workspace:*",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
 	},

@@ -5,23 +5,6 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 
-export const CompleteError = defineErrors({
-	TransportFailed: ({ cause }: { cause: unknown }) => ({
-		message: `Could not reach the completion endpoint: ${extractErrorMessage(cause)}`,
-		cause,
-	}),
-	RequestFailed: ({ status, detail }: { status: number; detail?: string }) => ({
-		message: `Completion failed (${status})${detail ? `: ${detail}` : ''}`,
-		status,
-		detail,
-	}),
-	Malformed: () => ({
-		message:
-			'The completion response had no OpenAI { choices: [{ message: { content } }] } text.',
-	}),
-});
-export type CompleteError = InferErrors<typeof CompleteError>;
-
 export const TranscribeError = defineErrors({
 	TransportFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Could not reach the transcription endpoint: ${extractErrorMessage(cause)}`,

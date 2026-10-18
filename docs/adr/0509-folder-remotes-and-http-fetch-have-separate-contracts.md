@@ -5,7 +5,7 @@
 
 ## Context
 
-Browser folders synchronize ordinary Git repositories through isomorphic-git.
+Browser folders synchronize ordinary Git repositories over Git's smart HTTP.
 A remote names a canonical repository URL and a branch. An injected HTTP
 function can route requests through a relay while retaining that canonical URL
 in Git configuration. Native folders reach the same remote through the Git CLI
@@ -57,7 +57,6 @@ implementation work.
 ## References
 
 - [Git smart HTTP](https://git-scm.com/docs/gitprotocol-http).
-- [isomorphic-git HTTP client](https://isomorphic-git.org/docs/en/http).
 - [Git credential helpers](https://git-scm.com/docs/gitcredentials).
 - [Folder contract](../../packages/folder/src/contract.ts) and
   [HTTP adapter](../../packages/folder/src/git/http.ts).

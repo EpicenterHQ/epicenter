@@ -1,7 +1,7 @@
 [package]
 name = "tauri-plugin-epicenter-folder"
 version = "0.0.1"
-description = "One native owner per Epicenter folder, shared by every window of a shell"
+description = "The desktop shell's grant of an Epicenter folder to the one window that edits it"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -17,20 +17,25 @@ tauri-plugin = { version = "2", features = ["build"] }
 
 [dependencies]
 epicenter-folder-core = { path = "core" }
+log = "0.4"
+# The folder watcher (`watcher.rs`): the operating system's recommended
+# watcher, FSEvents on macOS. The full debouncer passes a rescan through,
+# which the mini debouncer drops with every event that names no path.
+notify = "8"
+notify-debouncer-full = "0.5"
 serde = { version = "1", features = ["derive"] }
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
-tauri = "2.11"
+percent-encoding = "2"
+serde_json = "1"
+tauri = "2.12"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 
 [dev-dependencies]
-serde_json = "1"
+# Hashes as the page does, to state the expectations a test sends.
+sha2 = "0.10"
 # The mock runtime drives the real invoke handler in tests. Test builds only.
-tauri = { version = "2.11", features = ["test"] }
-
-# Tests hash and commit 64 MiB of audio; an unoptimized digest dominates them.
-[profile.dev.package.sha2]
-opt-level = 3
+tauri = { version = "2.12", features = ["test"] }
 
 # The same pins as apps/epicenter/src-tauri/Cargo.toml. They apply when this
 # crate is built on its own; a shell that depends on it carries its own copy.

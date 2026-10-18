@@ -5,24 +5,28 @@
  *   bun apps/todos/scripts/native.ts <checkout> list
  *   bun apps/todos/scripts/native.ts <checkout> create "<title>"
  *   bun apps/todos/scripts/native.ts <checkout> complete <stem>
- *   bun apps/todos/scripts/native.ts <checkout> commit-and-push
- *   bun apps/todos/scripts/native.ts <checkout> fetch
- *   bun apps/todos/scripts/native.ts <checkout> pull
+ *   bun apps/todos/scripts/native.ts <checkout> sync
  *
- * Every save commits, as it does in the apps. `create` and `complete` then
- * commit anything their save's own commit has not reached yet and push, as
- * `commit-and-push` does on its own. `pull` applies only a fast-forward;
- * diverged history is refused with the folder's pointer to Sync, and nothing
- * is written. A checkout that cannot be opened prints the refusal and exits 1.
+ * A command saves files, then `create` and `complete` run one Sync; saves
+ * never commit on their own (ADR-0529). Sync records the files, fetches,
+ * and merges what both sides changed into one commit, this checkout's
+ * version winning, then pushes (ADR-0576). A checkout that cannot be opened
+ * prints the refusal and exits 1.
+ *
+ * The checkout must hold Todos's tables, each `<table>/.epicenter.json`, as
+ * a checkout of a folder Todos synced does, or be a directory named
+ * `so.epicenter.todos`, Todos's
+ * own folder, where this script publishes `todosDefinition` on the first
+ * write. Any other checkout is read through the definition and never
+ * written over (ADR-0583), so an empty one is refused with how to fix it.
  */
-import { CONFLICTS_NEED_SYNC } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/bun';
-import { todosDefinition } from '../src/lib/definition.js';
+import { TODOS_FOLDER_ID, todosDefinition } from '../src/lib/definition.js';
 
 const [root, command, ...args] = process.argv.slice(2);
 if (root === undefined || command === undefined) {
 	console.error(
-		'Usage: bun apps/todos/scripts/native.ts <checkout> <status|list|create|complete|commit-and-push|fetch|pull> [args]',
+		"Usage: bun apps/todos/scripts/native.ts <checkout> <status|list|create|complete|sync> [args]\n<checkout> holds Todos's tables (todos/.epicenter.json), or is a directory named so.epicenter.todos.",
 	);
 	process.exit(2);
 }
@@ -45,18 +49,22 @@ async function output(checkout: string, ...gitArgs: string[]) {
 const remoteUrl = await output(root, 'remote', 'get-url', 'origin');
 const { data: openedFolder, error: openedError } = await openFolder({
 	root,
+	app: TODOS_FOLDER_ID,
 	definition: todosDefinition,
 	git: {
 		author: {
 			name: (await output(root, 'config', 'user.name')) ?? 'Native Todos',
 			email: (await output(root, 'config', 'user.email')) ?? 'native@localhost',
 		},
-		remote:
-			remoteUrl === undefined ? undefined : { url: remoteUrl, branch: 'main' },
 	},
 });
 if (openedError) {
-	print({ error: openedError.message });
+	print({
+		error:
+			openedError.name === 'DefinitionMismatch'
+				? `${openedError.message} Use a checkout of a folder Todos synced, which holds its tables' .epicenter.json files, or a directory named ${TODOS_FOLDER_ID}, which Todos publishes its declaration into.`
+				: openedError.message,
+	});
 	process.exit(1);
 }
 
@@ -124,54 +132,35 @@ try {
 				break;
 			}
 			print({
-				created: created.data.path,
-				history: await folder.git.commitAndPush(),
+				created: created.data?.path ?? null,
+				sync: await folder.sync.run(),
 			});
 			break;
 		}
 		case 'complete': {
 			const stem = args[0];
 			if (stem === undefined) throw new Error('complete needs a stem');
-			// Marked done over the row as it is read now, guarded by that read.
-			const { data: current, error: readError } =
-				await folder.tables.todos.get(stem);
-			if (readError || current === undefined) {
+			// Marked done on the row as it is now: a field set keeps every other
+			// field and the body another writer changed, and writes nothing
+			// when no todo is there (ADR-0576).
+			const { data: updated, error } = await folder.tables.todos.set(stem, {
+				done: true,
+			});
+			if (error || updated === null) {
 				exitCode = 1;
-				print({ error: readError?.message ?? `No todo named ${stem}` });
-				break;
-			}
-			const { data: updated, error: updatedError } =
-				await folder.tables.todos.replace(current, {
-					...current.row,
-					fields: { ...current.row.fields, done: true },
-				});
-			if (updatedError) {
-				exitCode = 1;
-				print({ error: updatedError.message });
+				print({ error: error?.message ?? `No todo named ${stem}` });
 				break;
 			}
 			print({
 				updated: updated.path,
-				history: await folder.git.commitAndPush(),
+				sync: await folder.sync.run(),
 			});
 			break;
 		}
-		case 'commit-and-push':
-			print(await folder.git.commitAndPush());
-			break;
-		case 'fetch':
-			print(await folder.git.fetch());
-			break;
-		case 'pull': {
-			// A fast-forward only. Diverged history is not merged here: the folder
-			// never leaves a conflict in its files, and Sync settles one.
-			const fetched = await folder.git.fetch();
-			const pulled = fetched.error
-				? fetched
-				: await folder.git.pullFastForward();
-			if (pulled.error) exitCode = 1;
-			if (pulled.error?.name === 'Diverged') console.error(CONFLICTS_NEED_SYNC);
-			print({ fetched, pulled });
+		case 'sync': {
+			const synced = await folder.sync.run();
+			if (synced.error) exitCode = 1;
+			print(synced);
 			break;
 		}
 		default:

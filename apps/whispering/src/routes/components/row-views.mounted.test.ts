@@ -2,19 +2,22 @@
  * Row views, mounted.
  *
  * The real library over a real directory (the Bun opener), and the real
- * FileDraftView, RecordingDetail, and TransformationDetail components mounted in
+ * FileView, RecordingDetail, and TransformationDetail components mounted in
  * jsdom inside a fixture that renders them as the recordings and
- * transformations pages do.
+ * transformations pages do, under the library's query client.
  *
  * Key behaviors:
- * - typing in a view edits the draft of the path it shows, and saves it
- * - a change made elsewhere shows the conflict prompt: Reload theirs and
- *   Keep mine; a recording deleted elsewhere offers only Discard
+ * - typing in a view edits the path it shows, and writes it once the person
+ *   leaves the field
+ * - a change made elsewhere shows once the folder reports it
+ * - typing over a change made elsewhere merges with it, and the typing wins
+ *   where both changed and says so; a recording deleted elsewhere stays
+ *   deleted, the lost text is reported, and its view closes
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
- * - controls are disabled while the app decides whether to close
- * - bodies show in LF and save in the file's line endings; a title and a
- *   model save from their own controls, an emptied model as none
+ * - a body from a CRLF file shows in LF, and any save writes the file in LF
+ *   (ADR-0572); a title and a model save from their own controls, an emptied
+ *   model as none
  *
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
  */
@@ -22,8 +25,10 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Library } from '../../lib/library.svelte.js';
-import { click, type } from '../svelte-dom.test-support.js';
+import { folderOptions } from '@epicenter/folder/query';
+import type { Library, WriteNotice } from '../../lib/library.svelte.js';
+import { createQueryClient, quiet } from '../../lib/query.test-support.js';
+import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the workspace after the mounted loader registered its plugin.
 const { openTestWorkspace } = await import(
@@ -46,7 +51,7 @@ const A = 'transcriptions/a.md';
 const RECIPE = 'transformations/clean.md';
 const RECORDING = 'recordings/take.md';
 const recording = (title: string, body: string) =>
-	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: recordings/take.wav\n---\n${body}`;
+	`---\ntitle: ${title}\nrecordedAt: 2026-10-01T00:00:00.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: audio/take.wav\n---\n${body}`;
 
 /** A library over files on disk, mounted in the fixture with `tab` showing. */
 async function open(
@@ -56,8 +61,10 @@ async function open(
 	const stubs = await openTestWorkspace();
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(stubs.root, path), text);
-	const library = createLibrary(stubs.workspace);
+	const library = createLibrary(stubs.workspace, createQueryClient());
 	await library.start();
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
 	const page = pageState({ shown: true, tab });
 	const target = document.createElement('main');
 	document.body.append(target);
@@ -67,34 +74,42 @@ async function open(
 		await library.close();
 		await stubs.remove();
 	});
-	return { library, page, target, root: stubs.root };
+	return { library, page, target, notices, root: stubs.root };
 }
 
-/** Select a file and let the views render it. */
+/** Select a file and let the views render it, with any text they read. */
 async function show(library: Library, path: string) {
 	expect(await library.open(path)).toBeUndefined();
 	flushSync();
+	await quiet(library);
+	flushSync();
 }
 
-/** Let saves and the views settle. */
+/** Let writes and the views settle. */
 async function settle(library: Library) {
-	await library.prepareToLeave();
+	await quiet(library);
 	flushSync();
+}
+
+/** Report that `path` changed, as the folder's change channel does, and let the views read it. */
+async function reportChanged(library: Library, path: string) {
+	await library.queryClient.invalidateQueries(
+		folderOptions(library.folder).pathFilter([path]),
+	);
+	await settle(library);
 }
 
 const field = <T extends Element>(target: ParentNode, selector: string) =>
 	target.querySelector<T>(selector);
 
-/** The save bar's state as the person reads it: a problem, saving, or saved. */
-function saveState(target: ParentNode) {
-	const bar = target.querySelector('[data-testid="save-bar"]');
-	if (bar === null) return undefined;
-	if (bar.querySelector('[role="alert"]') !== null) return 'error';
-	return bar.textContent?.includes('Saving') ? 'saving' : 'saved';
-}
+/** What the write status line says: Saving… or Saved. */
+const writeStatus = (target: ParentNode) =>
+	target.querySelector('[data-testid="write-status"]')?.textContent?.trim();
 
-test('typing in a transcript’s view edits the draft of the path it shows, and saves it', async () => {
-	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
+test('typing in a transcript’s view edits the path it shows, and writes it', async () => {
+	const { library, target, notices, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
 	await show(library, A);
 	const body = field<HTMLTextAreaElement>(
 		target,
@@ -103,16 +118,41 @@ test('typing in a transcript’s view edits the draft of the path it shows, and 
 	expect(body?.value).toBe('Alpha.\n');
 
 	type(body, 'Alpha, typed.\n');
+	flushSync();
+	expect(writeStatus(target)).toBe('Saving…');
+	leave(body);
 	await settle(library);
 
+	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith(
 		'---\nAlpha, typed.\n',
 	);
-	expect(saveState(target)).toBe('saved');
+	expect(writeStatus(target)).toBe('Saved');
 });
 
-test('a change made elsewhere shows the conflict prompt; Keep mine saves the draft, Reload theirs shows theirs', async () => {
-	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
+test('a change made elsewhere shows once the folder reports it', async () => {
+	const { library, target, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
+	await show(library, A);
+	const body = () =>
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of a.md"]',
+		);
+
+	await writeFile(join(root, A), transcript('Theirs.\n'));
+	// Nothing reads it until the folder says it changed.
+	await settle(library);
+	expect(body()?.value).toBe('Alpha.\n');
+	await reportChanged(library, A);
+	expect(body()?.value).toBe('Theirs.\n');
+});
+
+test('typing over a change made elsewhere merges with it, and the typing wins where both changed, with no notice', async () => {
+	const { library, target, notices, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
 	await show(library, A);
 	const body = () =>
 		field<HTMLTextAreaElement>(
@@ -122,43 +162,30 @@ test('a change made elsewhere shows the conflict prompt; Keep mine saves the dra
 
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	type(body(), 'Mine.\n');
+	leave(body());
 	await settle(library);
-	expect(saveState(target)).toBe('error');
-	expect(target.textContent).toContain('This changed elsewhere');
-
-	click(target, 'Keep mine');
-	await settle(library);
+	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
-	expect(saveState(target)).toBe('saved');
-
-	await writeFile(join(root, A), transcript('Theirs again.\n'));
-	type(body(), 'Mine again.\n');
-	await settle(library);
-	click(target, 'Reload theirs');
-	await settle(library);
-	expect(body()?.value).toBe('Theirs again.\n');
-	expect(await readFile(join(root, A), 'utf8')).toBe(
-		transcript('Theirs again.\n'),
-	);
+	expect(body()?.value).toBe('Mine.\n');
 });
 
-test('a recording deleted elsewhere offers only Discard, which closes it', async () => {
-	const { library, target, root } = await open({
+test('a recording deleted elsewhere stays deleted: typing in it is refused, reported, and its view closes', async () => {
+	const { library, target, notices, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
 	await show(library, RECORDING);
 	await rm(join(root, RECORDING));
-	type(field(target, 'input[aria-label="Recording title"]'), 'Mine');
+	const notes = field(target, 'textarea[aria-label="Notes"]');
+	type(notes, 'Mine.\n');
+	leave(notes);
 	await settle(library);
 
-	expect(target.textContent).toContain('This was deleted elsewhere');
-	const labels = [
-		...target.querySelectorAll('[data-testid="save-bar"] button'),
-	].map((button) => button.textContent?.trim());
-	expect(labels).toEqual(['Discard']);
-
-	click(target, 'Discard');
-	await settle(library);
+	expect(notices).toHaveLength(1);
+	expect(
+		notices[0]?.kind === 'failed' &&
+			notices[0].retry === undefined &&
+			notices[0].unsaved,
+	).toContain('Mine.');
 	expect(library.selection).toBeUndefined();
 	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
 	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);
@@ -181,10 +208,8 @@ test('a transformation that does not read opens as its text with its issues, and
 	).toContain('model');
 	expect(instructions()?.disabled).toBe(true);
 
-	type(
-		source(),
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
-	);
+	type(source(), '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
+	leave(source());
 	await settle(library);
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
@@ -198,31 +223,8 @@ test('a transformation that does not read opens as its text with its issues, and
 	expect(await readFile(join(root, RECIPE), 'utf8')).toContain('model: null');
 });
 
-test('a recording’s controls are disabled while the app decides whether to close', async () => {
-	const { library, target } = await open({
-		[RECORDING]: recording('Take', 'Notes.\n'),
-	});
-	await show(library, RECORDING);
-	const title = () =>
-		field<HTMLInputElement>(target, 'input[aria-label="Recording title"]');
-	expect(title()?.disabled).toBe(false);
-
-	library.pauseAdmission();
-	flushSync();
-	expect(title()?.disabled).toBe(true);
-	expect(
-		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Notes"]')
-			?.disabled,
-	).toBe(true);
-
-	library.resumeAdmission();
-	flushSync();
-	expect(title()?.disabled).toBe(false);
-});
-
-test('a transformation’s title, model, and instructions save from their own controls, in the file’s line endings', async () => {
-	const seed =
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\r\n';
+test('a transformation’s title, model, and instructions save from their own controls, and a CRLF file is written in LF (ADR-0572)', async () => {
+	const seed = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\r\n';
 	const { library, target, root } = await open(
 		{ [RECIPE]: seed },
 		'transformations',
@@ -242,19 +244,74 @@ test('a transformation’s title, model, and instructions save from their own co
 	flushSync();
 	expect(model()?.value).toBe('');
 	type(model(), 'chat-model');
+	leave(model());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
-		'---\ntitle: Clean up\nmodel: chat-model\nendpoint: null\n---\nTidy.\r\n',
+		'---\ntitle: Clean up\nmodel: chat-model\n---\nTidy.\n',
 	);
 
 	// An emptied model is no model: the text connection's is used.
 	type(model(), ' ');
+	leave(model());
 	type(title(), 'Tidied');
+	leave(title());
 	type(prompt(), 'Tidy.\nThen check.\n');
+	leave(prompt());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
-		'---\ntitle: Tidied\nmodel: null\nendpoint: null\n---\nTidy.\r\nThen check.\r\n',
+		'---\ntitle: Tidied\nmodel: null\n---\nTidy.\nThen check.\n',
 	);
 	expect(prompt()?.value).toBe('Tidy.\nThen check.\n');
 	expect(model()?.value).toBe('');
+});
+
+test('a recording whose audio is not in the folder says it is not on this device, and offers no player, transcription, or run again until the audio arrives', async () => {
+	const { library, target, root } = await open({
+		[RECORDING]: recording('Take', ''),
+		// A transcription that never got its answer: running it again needs the audio.
+		'transcriptions/unfinished.md':
+			'---\nrecordingId: take\ncreatedAt: 2026-10-01T00:00:00.000Z\nmodel: m\nendpoint: http://127.0.0.1:18080/v1\n---\n',
+	});
+	const runAgain = () =>
+		target.querySelector<HTMLButtonElement>('[data-testid="run-again"]');
+	await show(library, RECORDING);
+	const absent = () => target.querySelector('[data-testid="audio-absent"]');
+	const transcribe = () =>
+		target.querySelector<HTMLButtonElement>('[data-testid="transcribe"]');
+	expect(absent()?.textContent).toContain(
+		'This recording’s audio isn’t on this device.',
+	);
+	expect(target.querySelector('[data-testid="audio-player"]')).toBeNull();
+	expect(transcribe()?.disabled).toBe(true);
+	expect(runAgain()?.disabled).toBe(true);
+
+	// The audio is copied in: it is this device's to play and transcribe now.
+	await Bun.write(join(root, 'audio/take.wav'), 'RIFF');
+	await reportChanged(library, 'audio/take.wav');
+	expect(absent()).toBeNull();
+	expect(transcribe()?.disabled).toBe(false);
+	expect(runAgain()?.disabled).toBe(false);
+});
+
+test('a recording just stopped never reads as missing its audio while the folder has not listed it yet', async () => {
+	const { library, target } = await open({});
+	const seen: string[] = [];
+	const look = () => {
+		flushSync();
+		const entry = library.entries[0];
+		if (entry !== undefined) seen.push(library.audioOf(entry).kind);
+		if (target.querySelector('[data-testid="audio-absent"]') !== null)
+			seen.push('shown absent');
+	};
+	await library.startRecording();
+	look();
+	const stopping = library.stopRecording();
+	look();
+	await stopping;
+	look();
+	await settle(library);
+	look();
+	expect(seen).not.toContain('absent');
+	expect(seen).not.toContain('shown absent');
+	expect(library.audioOf(library.entries[0]!).kind).toBe('here');
 });

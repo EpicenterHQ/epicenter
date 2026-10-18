@@ -24,14 +24,80 @@
  * did not cover that. `drop` acts below the API and takes no lock.
  */
 
+import { SCRATCH_DIRECTORY } from './boundary.js';
 import type {
 	OpfsDirectoryHandle,
 	OpfsEnvironment,
 	OpfsFile,
 	OpfsFileHandle,
+	OpfsFolder,
 	OpfsLocks,
 	OpfsWritable,
 } from './opfs-store.js';
+import { basename } from './paths.js';
+
+/** A folder whose directory is `handle`, already there. */
+export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
+	existing: async () => handle,
+	made: async () => handle,
+});
+
+/**
+ * OPFS handles over `directory` that call `beforePublish` with a file's
+ * handle just before its new bytes publish: the window in which a save is
+ * running, which a test can hold open. An existing file publishes when its
+ * stream closes. A new file publishes when its staged copy moves into place,
+ * and is reported under the name it moves to; its staged stream is not.
+ */
+export function holdCloses(
+	directory: OpfsDirectoryHandle,
+	beforePublish: (file: OpfsFileHandle) => Promise<void>,
+): OpfsDirectoryHandle {
+	const staging = directory.name === basename(SCRATCH_DIRECTORY);
+	const holdFile = (file: OpfsFileHandle): OpfsFileHandle => ({
+		kind: 'file',
+		name: file.name,
+		getFile: () => file.getFile(),
+		async move(destination, name) {
+			await beforePublish({ ...holdFile(file), name });
+			return file.move(heldOver.get(destination) ?? destination, name);
+		},
+		async createWritable(options) {
+			const writable = await file.createWritable(options);
+			return {
+				write: (data) => writable.write(data),
+				abort: (reason) => writable.abort(reason),
+				async close() {
+					if (!staging) await beforePublish(file);
+					return writable.close();
+				},
+			};
+		},
+	});
+	const held: OpfsDirectoryHandle = {
+		kind: 'directory',
+		name: directory.name,
+		getDirectoryHandle: async (name, options) =>
+			holdCloses(
+				await directory.getDirectoryHandle(name, options),
+				beforePublish,
+			),
+		getFileHandle: async (name, options) =>
+			holdFile(await directory.getFileHandle(name, options)),
+		removeEntry: (name, options) => directory.removeEntry(name, options),
+		async *values() {
+			for await (const entry of directory.values())
+				yield entry.kind === 'file'
+					? holdFile(entry)
+					: holdCloses(entry, beforePublish);
+		},
+	};
+	heldOver.set(held, directory);
+	return held;
+}
+
+/** The directory each `holdCloses` handle wraps, which a move is given. */
+const heldOver = new WeakMap<OpfsDirectoryHandle, OpfsDirectoryHandle>();
 
 type FileNode = {
 	kind: 'file';
@@ -60,9 +126,14 @@ export type Faults = {
 	remove?: (path: string) => 'fail' | undefined;
 	/** Runs when a stream is asked for, before it opens. */
 	open?: (path: string) => Promise<void> | void;
+	/** Asked before every move, with the destination's path; `'fail'` refuses it. */
+	move?: (path: string) => 'fail' | undefined;
 };
 
 const fail = (name: string, message: string) => new DOMException(message, name);
+
+/** Where a directory handle of the stand-in points, which a move reads. */
+const AT = Symbol('path');
 
 function checkName(name: string) {
 	if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name))
@@ -122,6 +193,25 @@ export function memoryOpfs(): MemoryOpfs {
 		return {
 			kind: 'file',
 			name: path.at(-1)!,
+			async move(destination, name) {
+				checkName(name);
+				const node = fileAt(path);
+				const to = (destination as { [AT]?: readonly string[] })[AT];
+				if (to === undefined)
+					throw fail('NotFoundError', 'The destination is not of this origin');
+				const target = [...to, name];
+				if (faults.move?.(target.join('/')) === 'fail')
+					throw fail('InvalidStateError', 'Injected move failure');
+				const into = directoryAt(to);
+				if (into.children.get(name)?.kind === 'directory')
+					throw fail('TypeMismatchError', `${name} is a directory`);
+				directoryAt(path.slice(0, -1)).children.delete(path.at(-1)!);
+				into.children.set(name, {
+					...node,
+					version: node.version + 1,
+					lastModified: Math.max(Date.now(), ++clock),
+				});
+			},
 			async getFile(): Promise<OpfsFile & { lastModified: number }> {
 				const node = fileAt(path);
 				const { version, bytes, lastModified } = node;
@@ -210,6 +300,10 @@ export function memoryOpfs(): MemoryOpfs {
 	}
 
 	function directoryHandle(path: readonly string[]): OpfsDirectoryHandle {
+		return Object.assign(directoryHandleAt(path), { [AT]: path });
+	}
+
+	function directoryHandleAt(path: readonly string[]): OpfsDirectoryHandle {
 		return {
 			kind: 'directory',
 			name: path.at(-1) ?? '',

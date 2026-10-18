@@ -60,6 +60,7 @@ data document; the store opener produces it from its own closure and the App
 forwards it, so the App simply does not forward it for a local open.
 
 `Application` is the composition root, `defineApplication` in
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/index.ts`: one per app, opened as many times as a product
 needs, each open owning one library. A page may hold a local App and a
 personal App at once from one Application, which [ADR-0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) already permits as a separately captured non-primary library. Moving data between them is an explicit import over two handles, as [ADR-0143](0143-account-open-never-consumes-device-data.md) and ADR-0355 require, never a handle feature.

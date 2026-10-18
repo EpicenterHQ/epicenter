@@ -96,4 +96,5 @@ work. Recheck network SDK streaming and authentication independently. Unit tests
 with injected IPC do not establish installed-host or physical-microphone behavior.
 
 Implementation evidence and remaining environment limits are recorded in the
-[clean-break report](../reports/20260922-runtime-transcriber-clean-break.md).
+<!-- doc-path-check: ignore-next-line -->
+clean-break report (`docs/reports/20260922-runtime-transcriber-clean-break.md`, deleted; recover via `git log --all --full-history`).

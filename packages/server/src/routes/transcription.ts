@@ -15,7 +15,7 @@
  * Library-side and billing-agnostic, exactly like the chat gateway. Auth and
  * any metering policy are supplied by the deployment through
  * {@link mountTranscriptionApp}: apps/api passes its per-audio-minute Autumn
- * policy, a self-hosted instance deployment passes none. The gateway is
+ * policy on the Worker and none on its Bun entry. The gateway is
  * house-key-only (ADR-0054): it never reads a provider key from the request, so
  * it provably never receives a user's key. BYOK is a custom client Connection
  * (the user's own URL and key), never the Epicenter gateway.
@@ -69,8 +69,7 @@ function clampStatus(status: number): ContentfulStatusCode {
  * Mount the OpenAI-compatible speech-to-text gateway on a deployment's server
  * app. Mirrors {@link mountInferenceApp}: it bundles the deployment's auth and
  * any deployment policies (apps/api passes its
- * per-audio-minute Autumn policy; a self-hosted instance deployment passes
- * none). The library stays billing-agnostic; policies are opaque middleware that
+ * per-audio-minute Autumn policy on the Worker and none on its Bun entry). The library stays billing-agnostic; policies are opaque middleware that
  * run after auth and may short-circuit (e.g. 402) before the gateway proxies.
  */
 export function mountTranscriptionApp<E extends Env = Env>(

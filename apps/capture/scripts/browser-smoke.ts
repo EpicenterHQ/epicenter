@@ -10,7 +10,7 @@
  *
  * It needs to bind a local port and launch Chromium (`bun x playwright
  * install chromium` once). It does not cover the desktop build: see
- * `src/lib/platform/folder.epicenter-host.test.ts` and the desktop shell.
+ * the desktop shell, and the folder package's desktop tests.
  */
 import assert from 'node:assert/strict';
 import { type ChildProcess, spawn } from 'node:child_process';
@@ -19,7 +19,6 @@ import { dirname, join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 
 const root = join(import.meta.dir, '../../..');
-const fixture = join(import.meta.dir, '../fixtures/legacy-bundle.json');
 const artifacts = process.env.CAPTURE_SMOKE_ARTIFACT_DIR;
 if (artifacts) mkdirSync(artifacts, { recursive: true });
 
@@ -238,8 +237,9 @@ try {
 	await openFromTimeline(first, 'Dinner with Sebastian');
 	assert.equal(await source(first), edited);
 
-	// 6. Another page edits the file. The first page's next save asks, and
-	// Reload theirs shows the other page's text.
+	// 6. Another page edits the file. Its save is reported to the first page,
+	// and the first page's next save merges with whatever it has not read
+	// yet: where both changed the text, the first page's text wins (ADR-0548).
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);
@@ -247,25 +247,20 @@ try {
 	await second.getByLabel('Capture text').fill('Changed in the other window');
 	await saved(second);
 	await first.getByLabel('Capture text').fill('Mine');
-	await first.getByText('This capture changed elsewhere').waitFor();
-	await first.getByRole('button', { name: 'Reload theirs' }).click();
-	await first.waitForFunction(
-		() =>
-			(document.querySelector('#capture-text') as HTMLTextAreaElement)
-				?.value === 'Changed in the other window',
-	);
+	await saved(first);
 
-	// 7. Keep mine saves over a change made elsewhere.
+	// 7. The next edit writes on top of the file as it is now.
 	await first.getByLabel('Capture text').fill('Saved over it');
 	await saved(first);
-	await second.getByLabel('Capture text').fill('Second again');
-	await second.getByText('This capture changed elsewhere').waitFor();
-	await second.getByRole('button', { name: 'Keep mine' }).click();
-	await saved(second);
 	await first
 		.getByRole('button', { name: 'Edit as text', exact: true })
 		.click();
-	assert((await fileText(first).inputValue()).includes('\n\nSecond again\n\n'));
+	assert(
+		(await fileText(first).inputValue()).includes('\n\nSaved over it\n\n'),
+	);
+	// Save version records what is saved; nothing was committed before.
+	await first.getByRole('button', { name: 'Save version' }).click();
+	await first.getByText('Version saved').waitFor();
 	await first.getByRole('button', { name: 'Back to timeline' }).click();
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
@@ -307,33 +302,7 @@ try {
 		1,
 	);
 
-	// 11. Old captures come in from a bundle file, and a second import adds nothing.
-	await second
-		.getByRole('button', {
-			name: 'Bring in captures from before this version…',
-		})
-		.click();
-	await second.getByLabel('From an export file').setInputFiles(fixture);
-	await second
-		.getByRole('button', { name: 'Import as Markdown files' })
-		.click();
-	const result = second.getByRole('region', { name: 'Import result' });
-	await result.getByText('Import finished').waitFor();
-	await result.getByText('6 files created').waitFor();
-	await second
-		.getByRole('button', { name: 'Import as Markdown files' })
-		.click();
-	await result.getByText('0 files created').waitFor();
-	await result.getByText('6 imported before and left as they are').waitFor();
-	await second.getByRole('button', { name: 'Capture', exact: true }).click();
-	await second
-		.getByLabel('Timeline captures')
-		.getByRole('button')
-		.filter({ hasText: 'Dinner with Sebastian' })
-		.getByText('2 thoughts')
-		.waitFor();
-
-	// 12. A narrow screen does not scroll sideways.
+	// 11. A narrow screen does not scroll sideways.
 	await second.setViewportSize({ width: 390, height: 844 });
 	assert(
 		await second.evaluate(
@@ -349,7 +318,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, the conflict prompt across two pages, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a write merged with a change from another page, Save version, a leave warning for unadded text, an ambiguous capture opened as text, and deletion.',
 	);
 } catch (cause) {
 	console.error(cause);

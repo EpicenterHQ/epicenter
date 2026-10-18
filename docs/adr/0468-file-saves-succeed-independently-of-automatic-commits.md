@@ -2,8 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-30
-- **Amended by:** [ADR-0505](0505-automatic-commits-carry-one-coalesced-request-until-the-folder-is-free.md), proposed: a save that finds the folder's Git work busy leaves one pending request that commits the latest files when the work ends. It withdraws skipping the attempt "with no pending pass" and retaining "no automatic request for execution afterward"; save independence, local-only automatic history, no timer, no retry of a failed commit, and no final commit at close remain.
-- **Amended by:** [ADR-0528](0528-folder-history-commits-every-save-and-has-no-manual-mode.md), proposed: every save asks for an automatic commit and no option turns it off. It withdraws `commitOnEdit` as the enablement, explicit controls "when automatic history is disabled", and staged manual authoring; save independence and best-effort local automatic history remain.
+- **Amended by:** [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md): saves no longer request automatic commits; a commit happens only when sync checkpoints or a person saves a version. Save independence and separate outcome reporting remain.
 
 ## Context
 

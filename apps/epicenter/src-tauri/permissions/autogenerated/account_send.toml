@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-send"
+description = "Enables the account_send command without any pre-configured scope."
+commands.allow = ["account_send"]
+
+[[permission]]
+identifier = "deny-account-send"
+description = "Denies the account_send command without any pre-configured scope."
+commands.deny = ["account_send"]

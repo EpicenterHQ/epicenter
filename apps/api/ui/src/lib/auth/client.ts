@@ -1,5 +1,6 @@
-/** Hosted sign-in uses cookies; dashboard management captures one Account. */
+/** This origin's pages use its session cookie; dashboard management captures one Account. */
 
+import { oauthProviderClient } from '@better-auth/oauth-provider/client';
 import { passkeyClient } from '@better-auth/passkey/client';
 import type { Account } from '@epicenter/auth';
 import { createAuthClient } from 'better-auth/client';
@@ -7,10 +8,17 @@ import { createAuthClient } from 'better-auth/client';
 export const authClient = createAuthClient({
 	baseURL: typeof window === 'undefined' ? undefined : window.location.origin,
 	basePath: '/auth',
-	plugins: [passkeyClient()],
+	// The provider's client hands a signed authorization request on the page's
+	// query back with each sign-in, so the server resumes it (ADR-0549).
+	plugins: [passkeyClient(), oauthProviderClient()],
 });
 
-/** Every management request stays bound to the Account that opened this client. */
+/**
+ * Every management request goes through the Account that opened this client.
+ * The Account sends this origin's session cookie (ADR-0549); the principal
+ * header lets the server refuse the request once that cookie names someone
+ * else.
+ */
 export function createAccountManagementClient(account: Account) {
 	return createAuthClient({
 		baseURL: account.baseURL,
@@ -19,7 +27,7 @@ export function createAccountManagementClient(account: Account) {
 		disableDefaultFetchPlugins: true,
 		plugins: [passkeyClient()],
 		fetchOptions: {
-			credentials: 'omit',
+			credentials: 'include',
 			customFetchImpl: (input, init) => {
 				const headers = new Headers(
 					input instanceof Request ? input.headers : undefined,
@@ -27,9 +35,12 @@ export function createAccountManagementClient(account: Account) {
 				new Headers(init?.headers).forEach((value, key) => {
 					headers.set(key, value);
 				});
-				headers.delete('cookie');
 				headers.set('x-epicenter-principal', account.principalId);
-				return account.fetch(input, { ...init, headers, credentials: 'omit' });
+				return account.fetch(input, {
+					...init,
+					headers,
+					credentials: 'include',
+				});
 			},
 		},
 	});

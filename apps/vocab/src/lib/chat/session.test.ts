@@ -17,20 +17,27 @@
  * - A closed or unreadable folder asks the tutor nothing
  * - A finished chat is there when the folder is opened again
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
+import type { VocabFolder, vocabFolder } from '../data.js';
 import {
 	createBrowser,
 	gatedMessages,
 	tableFiles,
 } from '../folder.test-support.js';
-import { createChatMessageStore, startChat } from './messages.js';
+import {
+	createChatMessageStore,
+	type MessageWrite,
+	startChat,
+} from './messages.js';
+
+const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 const { createVocabChat } = await import('./session.svelte.js');
+const { createVocab } = await import('../vocab.svelte.ts');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
 
@@ -112,9 +119,13 @@ async function setup() {
 			);
 		},
 	});
-	const open = (target: Pick<VocabFolder, 'tables' | 'files'> = gatedFolder) =>
+	const open = (
+		target: Pick<VocabFolder, 'tables' | 'files'> = gatedFolder,
+		write?: MessageWrite,
+	) =>
 		createVocabChat({
 			folder: target,
+			write,
 			chatId,
 			focus: [{ text: 'lucid' }],
 			catalog: {
@@ -131,6 +142,7 @@ async function setup() {
 	return {
 		browser,
 		folder,
+		gatedFolder,
 		chatId,
 		gate,
 		tutor,
@@ -538,4 +550,38 @@ test('the tutor is asked over the transcript the folder holds now, not the one f
 		'user',
 		'assistant',
 	]);
+});
+
+test('a tutor reply is written by a mutation scoped to its chat, and close waits for it', async () => {
+	await using context = await setup();
+	const opened = createFolderContext<typeof vocabFolder>({
+		...context.folder,
+		...context.gatedFolder,
+	} as VocabFolder);
+	const vocab = createVocab(opened);
+	using chat = await ready(
+		context.open(
+			context.gatedFolder,
+			vocab.chats.messageWriter(context.chatId),
+		),
+	);
+	const writing = Promise.withResolvers<void>();
+	context.gate.heldCreate = writing.promise;
+	const asking = chat.retry();
+	while (context.gate.creates === 0 && vocab.queryClient.isMutating() === 0)
+		await nextTurn();
+	await asking;
+	// The finished reply is on screen while its file is being written.
+	expect(roles(chat)).toEqual(['assistant']);
+	expect(vocab.busy).toBe(true);
+	let closed = false;
+	const closing = opened.close().then(() => {
+		closed = true;
+	});
+	await Bun.sleep(5);
+	expect(closed).toBe(false);
+	writing.resolve();
+	await closing;
+	expect(chat.unsaved).toEqual([]);
+	expect(await context.savedRoles()).toEqual(['assistant']);
 });

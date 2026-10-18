@@ -42,8 +42,8 @@ that only exposes an action. If you need to pass an action through a component
 or compose it with other DOM behavior, check `fromAction` in `svelte/attachments`
 before writing adapter code yourself.
 
-This repo already uses `{@attach (node) => node.select()}` for focused edit
-fields in Matter. Follow that shape for small one-off element behavior; extract
+This repo already uses `{@attach (node) => node.focus()}` for focused fields
+in Todos and Honeycrisp. Follow that shape for small one-off element behavior; extract
 an attachment factory only when several call sites share the behavior or the
 setup owns cleanup.
 
@@ -143,8 +143,8 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [ADR-0523](../../../../docs/adr/0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md)
-for draft ownership and [the input patterns](input-ownership.md) for the
+Use [ADR-0528](../../../../docs/adr/0528-applications-edit-files-through-the-query-cache.md)
+for how an app edits files and [the input patterns](input-ownership.md) for the
 choice between immediate editing and explicit submission.
 
 A product list opens structured controls. An invalid file shows its reason and
@@ -152,23 +152,16 @@ opens as text, as below; repairing text does not switch a mounted editor's
 interpretation. Do not add per-record Source/Fields tabs, raw mode, or automatic
 Source fallback.
 
-The app owns each open file's draft in an edit session from
-`@epicenter/svelte/edit-session`: `createRowSession` for a valid row,
-`createTextSession` for text. Read `session.draft` and `session.state`; change
-the draft only through `session.edit((row) => { row.fields.title = input; })`
-or `session.input(text)`, which save at once. Do not mirror the draft, fields,
-validity, or save state into component runes, and preserve file newlines. Add a
-codec when controls represent the body differently, such as text and thoughts.
-
-Keep the open item in `@epicenter/svelte/open-item` and key the detail by the
-item, so another item mounts another view. A row whose text is not valid opens
-as text with its issues, and opens as a row again once repaired. Disable
-inputs while `session.locked`. Leaving an item settles and releases its
-session; a failed save answers `unsaved` and the view asks before discarding
-that session. Show the save state and conflict prompt with
-`@epicenter/svelte/save-bar`. A rich widget keeps its document, selection, and
-history; saves never assign the draft, and only a read that replaces it
-(`session.generation`) remounts the widget. An unfinished Add, Send, or Save
+The query cache holds the files. An edit is one immutable change to the cached
+row or text, written by a mutation keyed and scoped by the file's path as the
+change from the version the edit started from, which the folder merges into the
+file as it is now (ADR-0576). A failed write reads the file again, which rolls
+the row back, and a toast says what happened. Do not keep a
+draft, an edit session, an open-item slot, or a save bar beside the cache.
+`$state` holds only input that is not committed yet: a new-item box, a search,
+or a typed field that does not parse yet. A row whose text is not valid opens as
+text with its issues and is repaired through `folder.write`. A rich widget
+keeps its document, selection, and history; an unfinished Add, Send, or Save
 form owns a separate explicit-submission draft.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
@@ -182,11 +175,10 @@ controls and delayed commands retain their own lifetime and current-data checks.
 Inline components that only forward bindings; keep substantial UI, resources,
 format rules and real editing lifetimes.
 
-For a hunt, trace `createRowSession`, `createTextSession`, and `createOpenItem`
-callers. Classify state by its actual owner before removing it. Use the
+For a hunt, trace each app's write mutations and the queries they update.
+Classify state by its actual owner before removing it. Use the
 [search recipes](input-ownership.md#search-recipes), then verify repair
-navigation, the conflict prompt, failed-save discard, and that a released
-session changes nothing.
+navigation and that a failed write rolls back with a visible notice.
 
 ## Inline Simple Props Types
 

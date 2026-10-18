@@ -21,7 +21,8 @@ machinery protects a capability we no longer require. It does not protect an
 arbitrary server wipe: deleting the generation metadata permits initialization
 to reuse generation 1.
 
-The [caller audit and design review](../reports/20260921-generation-removal.md)
+<!-- doc-path-check: ignore-next-line -->
+The caller audit and design review (`docs/reports/20260921-generation-removal.md`, deleted; recover via `git log --all --full-history`)
 identify the removable owners and the guarantees independent of replacement.
 
 ## Decision

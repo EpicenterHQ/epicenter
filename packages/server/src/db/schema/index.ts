@@ -1,2 +1,4 @@
 export * from './auth';
-export * from './storage';
+export * from './namespace';
+export * from './oauth';
+export * from './repository';

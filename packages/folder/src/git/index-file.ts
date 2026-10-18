@@ -1,16 +1,14 @@
 /**
- * Git's version 2 index file, read and written whole.
+ * Git's version 2 index file, read whole.
  *
- * isomorphic-git keeps unmerged stages when it reads an index, but its public
- * API cannot write one, and its status walk sees only one stage of an
- * unmerged path. A merge left for a person needs the stages themselves, so
- * the browser reads and writes them here. Only version 2, the version
- * isomorphic-git writes, is understood; other bytes read as `undefined`.
+ * isomorphic-git's status walk sees only one stage of an unmerged path, so the
+ * entries themselves are read here: to find unmerged stages and to tell
+ * whether two indexes differ in more than cached file stats. Nothing here
+ * writes an index. Only version 2, the version isomorphic-git writes, is
+ * understood; other bytes read as `undefined`.
  */
 
-export type IndexEntry = {
-	/** The ten cached stat words, in file order: ctime, mtime, dev, ino, mode, uid, gid, size. */
-	readonly stats: readonly number[];
+type IndexEntry = {
 	readonly mode: number;
 	readonly oid: string;
 	/** 0 for a merged entry; 1, 2, 3 for an unmerged path's base, ours, and theirs. */
@@ -19,9 +17,8 @@ export type IndexEntry = {
 };
 
 const decoder = new TextDecoder();
-const encoder = new TextEncoder();
-/** Byte offset of the mode word in an entry; the stats before and after it are kept. */
-const MODE_WORD = 6;
+/** Byte offset of the mode word in an entry, after the cached ctime, mtime, dev, and ino. */
+const MODE_OFFSET = 24;
 
 /** Every entry, in file order, or `undefined` for anything but a version 2 index. */
 export function parseIndex(bytes: Uint8Array): IndexEntry[] | undefined {
@@ -33,9 +30,6 @@ export function parseIndex(bytes: Uint8Array): IndexEntry[] | undefined {
 	let offset = 12;
 	for (let count = view.getUint32(8); count > 0; count--) {
 		if (offset + 62 > bytes.byteLength) return undefined;
-		const stats: number[] = [];
-		for (let word = 0; word < 10; word++)
-			stats.push(view.getUint32(offset + word * 4));
 		const oid = [...bytes.subarray(offset + 40, offset + 60)]
 			.map((byte) => byte.toString(16).padStart(2, '0'))
 			.join('');
@@ -44,8 +38,7 @@ export function parseIndex(bytes: Uint8Array): IndexEntry[] | undefined {
 		const end = bytes.indexOf(0, start);
 		if (end < 0) return undefined;
 		entries.push({
-			stats,
-			mode: stats[MODE_WORD]!,
+			mode: view.getUint32(offset + MODE_OFFSET),
 			oid,
 			stage: ((flags >> 12) & 0b11) as IndexEntry['stage'],
 			path: decoder.decode(bytes.subarray(start, end)),
@@ -54,69 +47,6 @@ export function parseIndex(bytes: Uint8Array): IndexEntry[] | undefined {
 		offset += Math.ceil((end - offset + 1) / 8) * 8;
 	}
 	return entries;
-}
-
-/** Git's index order: path bytes, then stage. */
-function compareEntries(left: IndexEntry, right: IndexEntry): number {
-	const [a, b] = [encoder.encode(left.path), encoder.encode(right.path)];
-	for (let index = 0; index < Math.min(a.length, b.length); index++)
-		if (a[index] !== b[index]) return a[index]! - b[index]!;
-	return a.length - b.length || left.stage - right.stage;
-}
-
-/** A version 2 index holding exactly `entries`, sorted as Git requires. */
-export async function renderIndex(
-	entries: readonly IndexEntry[],
-): Promise<Uint8Array> {
-	const sorted = [...entries].sort(compareEntries);
-	const parts: Uint8Array[] = [];
-	const header = new Uint8Array(12);
-	header.set(encoder.encode('DIRC'));
-	new DataView(header.buffer).setUint32(4, 2);
-	new DataView(header.buffer).setUint32(8, sorted.length);
-	parts.push(header);
-	for (const entry of sorted) {
-		const path = encoder.encode(entry.path);
-		const bytes = new Uint8Array(Math.ceil((62 + path.length + 1) / 8) * 8);
-		const view = new DataView(bytes.buffer);
-		for (let word = 0; word < 10; word++)
-			view.setUint32(
-				word * 4,
-				word === MODE_WORD ? entry.mode : (entry.stats[word] ?? 0),
-			);
-		for (let byte = 0; byte < 20; byte++)
-			bytes[40 + byte] = Number.parseInt(
-				entry.oid.slice(byte * 2, byte * 2 + 2),
-				16,
-			);
-		view.setUint16(60, (entry.stage << 12) | Math.min(path.length, 0xfff));
-		bytes.set(path, 62);
-		parts.push(bytes);
-	}
-	const body = new Uint8Array(
-		parts.reduce((sum, part) => sum + part.length, 0),
-	);
-	let at = 0;
-	for (const part of parts) {
-		body.set(part, at);
-		at += part.length;
-	}
-	const checksum = new Uint8Array(
-		await crypto.subtle.digest('SHA-1', body as Uint8Array<ArrayBuffer>),
-	);
-	const bytes = new Uint8Array(body.length + checksum.length);
-	bytes.set(body);
-	bytes.set(checksum, body.length);
-	return bytes;
-}
-
-/** An entry with no cached stats, so the next status look reads the file. */
-export function plainEntry(
-	path: string,
-	oid: string,
-	stage: IndexEntry['stage'],
-): IndexEntry {
-	return { stats: [], mode: 0o100644, oid, stage, path };
 }
 
 /** What an entry says apart from cached stats: mode, object, stage, and path. */

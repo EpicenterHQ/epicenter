@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-close-meter"
+description = "Enables the close_meter command without any pre-configured scope."
+commands.allow = ["close_meter"]
+
+[[permission]]
+identifier = "deny-close-meter"
+description = "Denies the close_meter command without any pre-configured scope."
+commands.deny = ["close_meter"]

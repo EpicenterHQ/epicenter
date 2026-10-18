@@ -1,11 +1,13 @@
 /**
  * Test helper: Vocab's real browser folder over the in-memory OPFS stand-in.
  *
- * `open` opens the folder the way the page does, under `VOCAB_FOLDER_ID`, so
+ * `open` opens the folder the way the page does, under `APPS.VOCAB.id`, so
  * opening again in the same browser is a reload or another tab. A
  * gated table is the real table with one refusal or delay put in front of it,
  * the way a full or slow browser store answers.
  */
+
+import { APPS } from '@epicenter/constants/apps';
 import { FileError, type FolderFiles } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
@@ -15,7 +17,6 @@ import {
 	opfsOf,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { type VocabFolder, type VocabTables, vocabFolder } from './data.js';
-import { VOCAB_FOLDER_ID } from './folder.js';
 
 /** Let the folder answer until `done` holds. */
 export async function until(done: () => boolean, what: string) {
@@ -55,8 +56,11 @@ export const entriesOf = (folder: VocabFolder) => ({
  * `put` and `drop` change a file the way another program would, with no
  * change hint.
  */
-export function createBrowser() {
-	const tree = createTestStorage();
+export function createBrowser(
+	/** The channel the folder handles relay their changes on, as tabs of one origin do. */
+	options: { BroadcastChannel?: typeof BroadcastChannel } = {},
+) {
+	const tree = createTestStorage(options);
 	const storage = browserStorage(tree);
 	const opened: VocabFolder[] = [];
 	const opfs = opfsOf(tree);
@@ -87,9 +91,9 @@ export function createBrowser() {
 		async open(): Promise<VocabFolder> {
 			const folder = expectOk(
 				await openFolder({
-					id: VOCAB_FOLDER_ID,
+					app: APPS.VOCAB.id,
 					definition: vocabFolder,
-					browser: storage,
+					browser: { ...storage },
 				}),
 			);
 			opened.push(folder);
@@ -110,7 +114,7 @@ export async function fileText(
 	return readError === null ? new TextDecoder().decode(file.bytes) : undefined;
 }
 
-/** The paths of every file in one table's directory, sorted. */
+/** The paths of every file in one table's directory but its schema, sorted. */
 export async function tableFiles(
 	folder: VocabFolder,
 	table: keyof VocabTables,
@@ -118,7 +122,10 @@ export async function tableFiles(
 	const listed = expectOk(await folder.files.list());
 	return listed.files
 		.map((file) => file.path)
-		.filter((path) => path.startsWith(`${table}/`))
+		.filter(
+			(path) =>
+				path.startsWith(`${table}/`) && path !== `${table}/.epicenter.json`,
+		)
 		.sort();
 }
 

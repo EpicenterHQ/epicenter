@@ -1,6 +1,9 @@
 /**
- * Real Better Auth session validation through the mounted Hono resource route.
- * Proves renewal, revocation, credential isolation, and infrastructure failures.
+ * The session-cookie guard for account management (ADR-0549) through a mounted
+ * route over a real Better Auth instance: the cookie selects the account, an
+ * access token or session token in `Authorization` does not, another origin
+ * and a state change that names no origin are refused, and an unreadable
+ * database is a retryable 503. No refusal carries a bearer challenge.
  */
 import { expect, test } from 'bun:test';
 import { betterAuth } from 'better-auth';
@@ -9,15 +12,12 @@ import { makeSignature } from 'better-auth/crypto';
 import { Hono } from 'hono';
 import { BASE_AUTH_CONFIG } from '../auth/base-config.js';
 import { authPlugins } from '../auth/plugins.js';
-import { mountSessionApp } from '../routes/session.js';
 import type { CloudEnv } from '../types.js';
-import {
-	requireBearerPrincipal,
-	resolveRequestSessionPrincipal,
-} from './require-auth.js';
+import { requireSessionCookie } from './require-auth.js';
 
 const baseURL = 'http://localhost:8787';
-const secret = 'session-resource-test-secret-1234567890';
+const secret = 'session-cookie-test-secret-1234567890';
+
 async function setup() {
 	const db: MemoryDB = {
 		user: [],
@@ -35,11 +35,10 @@ async function setup() {
 	});
 	const ctx = await auth.$context;
 	async function issue(email: string) {
-		const user = await ctx.internalAdapter.createUser({
-			name: email,
-			email,
-			emailVerified: true,
-		});
+		const user = await ctx.internalAdapter.createUser(
+			{ name: email, email, emailVerified: true },
+			{ method: 'admin' },
+		);
 		const session = await ctx.internalAdapter.createSession(user.id);
 		const token = `${session.token}.${await makeSignature(session.token, secret)}`;
 		return {
@@ -53,108 +52,108 @@ async function setup() {
 	const bob = await issue('bob@example.com');
 	const app = new Hono<CloudEnv>();
 	app.use('*', async (c, next) => {
+		c.set('authBaseURL', baseURL);
 		c.set('auth', auth as unknown as CloudEnv['Variables']['auth']);
 		await next();
 	});
-	mountSessionApp(app, {
-		auth: requireBearerPrincipal(resolveRequestSessionPrincipal),
-	});
-	const request = (headers: HeadersInit = {}) =>
-		app.request('/api/session', { headers });
-	return { db, auth, alice, bob, request, ctx };
+	app.on(
+		['GET', 'POST'],
+		'/api/billing/overview',
+		requireSessionCookie(),
+		(c) => c.json(c.var.principal),
+	);
+	const request = (headers: HeadersInit = {}, method = 'GET') =>
+		app.request('/api/billing/overview', { headers, method });
+	return { alice, bob, request, ctx };
 }
 
-test('the explicit bearer selects Alice even with Bob cookies and returns no credential', async () => {
+test('the cookie selects its account, whatever Authorization carries', async () => {
 	const { alice, bob, request } = await setup();
 	const response = await request({
-		authorization: `Bearer ${alice.token}`,
-		cookie: bob.cookie,
+		cookie: alice.cookie,
+		authorization: `Bearer ${bob.token}`,
 	});
 	expect(response.status).toBe(200);
 	expect((await response.json()) as unknown).toEqual({
-		principalId: alice.user.id,
+		id: alice.user.id,
 		email: alice.user.email,
 	});
-	expect(response.headers.get('set-cookie')).toBeNull();
-	expect(response.headers.get('set-auth-token')).toBeNull();
 });
 
-test('cookies cannot rescue missing malformed unsigned or invalid bearers', async () => {
-	const { alice, bob, request } = await setup();
+test('a session token or access token without the cookie is refused', async () => {
+	const { alice, request } = await setup();
 	for (const authorization of [
+		`Bearer ${alice.token}`,
+		'Bearer ep_at_access-token',
 		'',
-		'Basic nope',
-		'Bearer bogus',
-		`Bearer ${alice.session.token}`,
-		`Bearer ${alice.token}x`,
 	]) {
-		const response = await request({ authorization, cookie: bob.cookie });
+		const response = await request({ authorization });
 		expect(response.status).toBe(401);
-		expect(response.headers.get('www-authenticate')).toBe(
-			'Bearer error="invalid_token"',
-		);
+		expect(response.headers.get('www-authenticate')).toBeNull();
+		expect(await response.json()).toMatchObject({
+			error: { name: 'SessionRequired' },
+		});
 	}
 });
 
-test('ordinary resource traffic extends expiry without changing session age or token', async () => {
-	const { db, alice, request } = await setup();
-	const row = db.session!.find((row) => row.id === alice.session.id)!;
-	const createdAt = new Date(Date.now() - 5 * 86400_000);
-	row.createdAt = createdAt;
-	row.expiresAt = new Date(Date.now() + 28 * 86400_000);
-	const previousExpiry = row.expiresAt.getTime();
+test('another origin is refused even when the browser sends the cookie', async () => {
+	const { alice, request } = await setup();
 	expect(
-		(await request({ authorization: `Bearer ${alice.token}` })).status,
+		(await request({ cookie: alice.cookie, origin: 'http://localhost:5173' }))
+			.status,
+	).toBe(403);
+	expect(
+		(await request({ cookie: alice.cookie, origin: baseURL })).status,
 	).toBe(200);
-	const renewed = db.session!.find((row) => row.id === alice.session.id)!;
-	expect(renewed.expiresAt.getTime()).toBeGreaterThan(
-		previousExpiry + 86400_000,
-	);
-	expect(renewed.createdAt).toEqual(createdAt);
-	expect(renewed.token).toBe(alice.session.token);
 });
 
-test('revocation refuses the selected session while another client remains usable', async () => {
+test('a state change must name this origin; a read need not', async () => {
+	const { alice, request } = await setup();
+	const cookie = alice.cookie;
+	// A bearer beside the cookie does not excuse a missing origin.
+	const originless: Record<string, string>[] = [
+		{ cookie },
+		{ cookie, authorization: 'Bearer ep_at_access-token' },
+	];
+	for (const headers of originless)
+		expect((await request(headers, 'POST')).status).toBe(403);
+	expect((await request({ cookie, origin: baseURL }, 'POST')).status).toBe(200);
+	expect((await request({ cookie })).status).toBe(200);
+});
+
+test('a revoked session is refused while another stays usable', async () => {
 	const { alice, bob, request, ctx } = await setup();
 	await ctx.internalAdapter.deleteSession(alice.session.token);
-	expect(
-		(await request({ authorization: `Bearer ${alice.token}` })).status,
-	).toBe(401);
-	expect((await request({ authorization: `Bearer ${bob.token}` })).status).toBe(
-		200,
-	);
+	expect((await request({ cookie: alice.cookie })).status).toBe(401);
+	expect((await request({ cookie: bob.cookie })).status).toBe(200);
 });
 
-test('database read failures are 503 instead of invalid credentials', async () => {
+test('a database read failure is a 503, not a refused credential', async () => {
 	const { alice, request, ctx } = await setup();
 	ctx.internalAdapter.findSession = async () => {
 		throw new Error('database unavailable');
 	};
-	const response = await request({ authorization: `Bearer ${alice.token}` });
+	const response = await request({ cookie: alice.cookie });
 	expect(response.status).toBe(503);
 	expect(response.headers.get('www-authenticate')).toBeNull();
 });
 
-test('a concurrent deletion during renewal remains an authentication refusal', async () => {
-	const { db, alice, request, ctx } = await setup();
-	db.session!.find((row) => row.id === alice.session.id)!.expiresAt = new Date(
-		Date.now() + 28 * 86400_000,
-	);
-	ctx.internalAdapter.updateSession = async () => null;
+test('a page that names another account than the cookie is refused', async () => {
+	const { alice, bob, request } = await setup();
 	expect(
-		(await request({ authorization: `Bearer ${alice.token}` })).status,
-	).toBe(401);
-});
-
-test('database renewal failures remain retryable without rejecting the credential', async () => {
-	const { db, alice, request, ctx } = await setup();
-	db.session!.find((row) => row.id === alice.session.id)!.expiresAt = new Date(
-		Date.now() + 28 * 86400_000,
-	);
-	ctx.internalAdapter.updateSession = async () => {
-		throw new Error('database unavailable');
-	};
-	const response = await request({ authorization: `Bearer ${alice.token}` });
-	expect(response.status).toBe(503);
-	expect(response.headers.get('www-authenticate')).toBeNull();
+		(
+			await request({
+				cookie: alice.cookie,
+				'x-epicenter-principal': bob.user.id,
+			})
+		).status,
+	).toBe(403);
+	expect(
+		(
+			await request({
+				cookie: alice.cookie,
+				'x-epicenter-principal': alice.user.id,
+			})
+		).status,
+	).toBe(200);
 });

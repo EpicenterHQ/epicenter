@@ -1,22 +1,27 @@
 /**
- * File-backed tables: Markdown rows at `<table>/<stem>.md` (ADR-0457, ADR-0518).
+ * File-backed tables: Markdown rows at `<table>/<stem>.md` (ADR-0457,
+ * ADR-0518), as typed views over the one write (ADR-0576).
  *
- * Every read goes through `parseRow` and every write through `formatRow`
- * (`row-text.ts`), so what a table writes it always reads back as the same
- * row. A read that found text is a `StoredRow`: the path and SHA-256 of the
- * bytes read, and the row they hold. Text that is not a valid row is
- * `InvalidRow`, which keeps the exact text and its hash for raw repair.
+ * Every read goes through `parseRow`. A read that found text is a
+ * `StoredRow`: the path and SHA-256 of the bytes read, their exact text,
+ * and the row they hold. Text that is not a valid row is `InvalidRow`, which
+ * keeps the exact text and its hash for raw repair.
  *
- * Every write after `create` names the bytes it replaces. `replace`,
- * `rename`, and `delete` take a capture, `{ path, sha256 }`: a `StoredRow`,
- * an `InvalidRow`, or a listed row passes as it is. The change is refused as
- * `Conflict` when the file no longer holds those bytes, and nothing retries
- * (ADR-0464). `create` alone is unconditional, and refuses an occupied stem.
- * An editing session saves through `autosave`: the caller owns the row,
- * each request is prepared before it returns, one write runs at a time with
- * only the latest request waiting, and each write is guarded by the bytes
- * the previous one saved.
- * The hash is a condition on bytes, not an identity or a revision.
+ * Every change of a row's content is `write(stem, from, to)`: the change
+ * from the row `from` to the row `to`, merged into the file as it is now by
+ * field and the body by line, the writer winning a unit both changed, and
+ * written in canonical form. The helpers build the change and call it:
+ *
+ * | Helper | `from` |
+ * | --- | --- |
+ * | `set(stem, fields)` | the row as it is now |
+ * | `create(row)` | no file: placed only where none is |
+ * | `delete(stem)` | none: the deleter wins |
+ *
+ * `rename(stem, next)` changes where a file is, not what it holds, so it is
+ * not a write: it is `folder.move` between the two row paths, which puts the
+ * bytes at `next` only where nothing is and removes `stem` only while it
+ * holds them.
  *
  * A table reads and writes exactly one Markdown file per row (ADR-0480). A
  * sibling that shares a row's stem is an ordinary file: it is not part of the
@@ -26,108 +31,126 @@
 
 import { customAlphabet } from 'nanoid';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type Autosave, createAutosave, type SaveState } from './autosave.js';
 import type { FolderStorage } from './boundary.js';
-import {
-	type FileCapture,
-	fileCapture,
-	hashBytes,
-	ownCapture,
-	submittedText,
-} from './capture.js';
 import type { PreparedFolderTable } from './definition.js';
 import {
 	FileError,
-	type RowReadError,
-	type RowSaveError,
-	type TableCreateError,
-	type TableDeleteError,
-	type TableEnumerationError,
-	TableError,
-	type TableRenameError,
-	type TableReplaceError,
+	RowReadError,
+	RowWriteError,
+	type WriteError,
 } from './errors.js';
-import {
-	ROW_EXTENSION,
-	rowAddressProblem,
-	rowPath,
-	rowStemOf,
-} from './paths.js';
+import type { FileContent } from './merge-file.js';
+import { rowAddressProblem, rowPath, rowStemOfName } from './paths.js';
+import { sameValue } from './row-merge.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import { applyOne, replaceCaptured } from './storage.js';
+import { movePath, writeFailure, writeFile } from './write.js';
 
 /**
- * One read of a row file: which bytes were read, and the row they hold. The
- * capture never changes; `row` is the caller's own to edit and save.
+ * One read or write of a row file: which bytes, their exact text, and the
+ * row they hold. `row` is the caller's to edit; the capture never changes.
  */
 export type StoredRow<TFields> = {
 	readonly path: string;
 	readonly sha256: string;
+	readonly text: string;
 	readonly row: Row<TFields>;
 };
 
 /**
- * One item for every `.md` name directly in the table's directory, in no
- * promised order, each read through the same pipeline as `get`. A symbolic
- * link is that item's `InvalidPath` and a directory its `NotAFile`. A file
- * that went away after it was enumerated is that item's `NotFound`.
+ * One item for every row file directly in the table's directory
+ * (`rowStemOfName`), in no promised order, each read through the same
+ * pipeline as `get`. A directory is never a row, whatever its name. A
+ * symbolic link or special entry under a row's name is that item's
+ * `InvalidPath`, and a file that went away after it was enumerated is that
+ * item's `NotFound`.
  */
 export type TableListing<TFields> = readonly {
 	readonly stem: string;
 	readonly result: Result<StoredRow<TFields>, RowReadError>;
 }[];
 
+/**
+ * A file at a row's path that does not read as a row: what `get` answers
+ * for it, held as a value.
+ */
+export type UnreadableRow = Extract<
+	RowReadError,
+	{ name: 'InvalidRow' | 'InvalidUtf8' }
+>;
+
+/**
+ * What a row write leaves at its stem: the row; the file, when the write
+ * merged into a file that does not read as a row and left it to repair
+ * (ADR-0503); or `null` when no file is there, because the write deleted it
+ * or found it deleted.
+ */
+export type WrittenRow<TFields> = StoredRow<TFields> | UnreadableRow | null;
+
+/** Whether a row write left a row that reads as one. */
+export const isStoredRow = <TFields>(
+	written: WrittenRow<TFields>,
+): written is StoredRow<TFields> => written !== null && 'row' in written;
+
 export type FileTable<TFields> = {
 	readonly name: string;
+	/**
+	 * Whether `create` can add a row. False only for a table read through a
+	 * definition that does not declare every field the folder requires
+	 * (ADR-0538):
+	 * its rows can be read and written, and `create` is `InvalidValues`.
+	 */
+	readonly canCreate: boolean;
 	/** An outer error means the listing itself failed; no partial listing is returned. */
-	list(): Promise<Result<TableListing<TFields>, TableEnumerationError>>;
+	list(): Promise<Result<TableListing<TFields>, FileError>>;
 	/** `undefined` only when no file is at the stem. */
 	get(
 		stem: string,
 	): Promise<Result<StoredRow<TFields> | undefined, RowReadError>>;
 	/**
-	 * Save a new row at `stem`, or a generated stem. The row must be valid:
-	 * a value that does not conform or cannot be written is `InvalidValues`,
-	 * and nothing is published. Unknown keys are kept. Refused as `Exists`
-	 * when a file is at the path.
+	 * Write the change from `from` to `to` into the row at `stem` as it is
+	 * now (`folder.write`, ADR-0576): `null` for no row on either side.
+	 * Fields and body lines only one side changed survive; where both
+	 * changed one, this write wins. A row that cannot be written is
+	 * `InvalidValues`, and nothing is written.
+	 */
+	write(
+		stem: string,
+		from: Row<TFields> | null,
+		to: Row<TFields> | null,
+	): Promise<Result<WrittenRow<TFields>, RowWriteError>>;
+	/**
+	 * Set fields of the row at `stem` as it is now: every field it does not
+	 * name keeps its value, and a field set to `undefined` is removed. A row
+	 * that is not there is not made: `null`, and nothing is written. A file
+	 * that does not read as a row has no fields to set: `InvalidValues`.
+	 */
+	set(
+		stem: string,
+		fields: Partial<TFields>,
+	): Promise<Result<WrittenRow<TFields>, RowWriteError>>;
+	/**
+	 * Add `row` at `stem`, or a generated stem. A file already at `stem` is
+	 * `Occupied`, unless it holds this row's exact text, which is this
+	 * create landed before. A row that cannot be written is `InvalidValues`.
 	 */
 	create(
 		row: Row<TFields>,
 		options?: { readonly stem?: string },
-	): Promise<Result<StoredRow<TFields>, TableCreateError>>;
+	): Promise<Result<WrittenRow<TFields>, RowWriteError>>;
+	/** Delete the row at `stem`, whatever it holds now. */
+	delete(stem: string): Promise<Result<undefined, WriteError>>;
 	/**
-	 * Save a valid row over the captured row file, guarded by its bytes. A
-	 * missing file or different bytes is `Conflict`; a row that does not
-	 * conform or cannot be written is `InvalidValues`.
-	 */
-	replace(
-		file: FileCapture,
-		row: Row<TFields>,
-	): Promise<Result<StoredRow<TFields>, TableReplaceError>>;
-	/**
-	 * Move the captured row file to a vacant stem, guarded by its bytes. The
-	 * returned capture is those bytes at the new path, not a read of it.
+	 * Move the row file at `stem` to `next`, as it is: its bytes land at
+	 * `next` only where nothing is, then `stem` is removed only while it
+	 * holds them. A write that lands at `stem` meanwhile is carried to `next`
+	 * first. No file at `stem` is `InvalidPath`, and one already at `next`
+	 * `Occupied`; either stem changing on every attempt is `KeptChanging`, and both stems
+	 * then hold the row, as they do when the removal fails.
 	 */
 	rename(
-		file: FileCapture,
-		nextStem: string,
-	): Promise<Result<FileCapture, TableRenameError>>;
-	/** Remove the captured row file, guarded by its bytes. */
-	delete(file: FileCapture): Promise<Result<undefined, TableDeleteError>>;
-	/**
-	 * Save one editing session's row over the captured row file. Each
-	 * `request(row)` is prepared before it returns: a row that is not valid,
-	 * or that cannot be written, is that request's `InvalidValues` at once and
-	 * is never written, so the session's draft stays the caller's to fix. Each
-	 * write is guarded by the bytes the previous one saved, starting from the
-	 * capture; a change made elsewhere, or a deleted row, is `Conflict`.
-	 * `saved` carries the capture of the bytes now in the file. Construction
-	 * reads, writes, and reports nothing.
-	 */
-	autosave(
-		file: FileCapture,
-		options: { onState(state: SaveState<RowSaveError>): void },
-	): Autosave<Row<TFields>, RowSaveError>;
+		stem: string,
+		next: string,
+	): Promise<Result<WrittenRow<TFields>, WriteError>>;
 };
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -143,12 +166,16 @@ function decode(bytes: Uint8Array): string | undefined {
 
 /**
  * The file table for one declared table. `name` is its key in the prepared
- * definition and its directory; `table` is its prepared definition.
+ * definition and its directory; `table` is its prepared definition, which
+ * every read and write is checked against. `unsupplied` lists the fields
+ * `table` requires that the definition the caller reads through does not
+ * declare; when there are any, `create` refuses.
  */
 export function createTable<TFields>(
 	{ storage }: { storage: FolderStorage },
 	name: string,
 	table: PreparedFolderTable,
+	unsupplied: readonly string[] = [],
 ): FileTable<TFields> {
 	/** The row path a literal stem addresses, or why it is not one filename segment here. */
 	function rowAddress(
@@ -163,20 +190,6 @@ export function createTable<TFields>(
 		return Ok(rowPath(name, stem));
 	}
 
-	/** The caller's capture, owned before anything is awaited, if it is a row file of this table. */
-	function ownRowCapture(
-		file: FileCapture,
-	): Result<FileCapture, Extract<FileError, { name: 'InvalidPath' }>> {
-		const { data: captured, error } = ownCapture(file);
-		if (error !== null) return Err(error);
-		if (rowStemOf(name, captured.path) === undefined)
-			return FileError.InvalidPath({
-				path: captured.path,
-				reason: `not a row file of the '${name}' table`,
-			});
-		return Ok(captured);
-	}
-
 	/** Read the text of one read's bytes as a row. */
 	function storedRow(
 		path: string,
@@ -184,82 +197,104 @@ export function createTable<TFields>(
 	): Result<StoredRow<TFields>, RowReadError> {
 		const { sha256 } = read;
 		const text = decode(read.bytes);
-		if (text === undefined) return TableError.InvalidUtf8({ path, sha256 });
+		if (text === undefined) return RowReadError.InvalidUtf8({ path, sha256 });
 		const { data: row, error: issues } = parseRow(table, text);
 		if (issues !== null)
-			return TableError.InvalidRow({ path, sha256, text, issues });
-		return Ok(Object.freeze({ path, sha256, row: row as Row<TFields> }));
+			return RowReadError.InvalidRow({ path, sha256, text, issues });
+		return Ok(Object.freeze({ path, sha256, text, row: row as Row<TFields> }));
 	}
 
-	/**
-	 * The exact bytes a valid row is saved as, and the row they read back
-	 * as, prepared synchronously so later changes to the row change nothing.
-	 */
-	function prepare(
-		row: Row<TFields>,
-	): Result<
-		{ bytes: Uint8Array; row: Row<TFields> },
-		Extract<TableError, { name: 'InvalidValues' }>
-	> {
+	/** What a write left at `path`, read as a row. */
+	function readBack(
+		path: string,
+		file: { bytes: Uint8Array; sha256: string },
+	): StoredRow<TFields> | UnreadableRow {
+		const stored = storedRow(path, file);
+		if (stored.error === null) return stored.data;
+		// A written file was read, so its failure is about its text.
+		return stored.error as UnreadableRow;
+	}
+
+	/** The canonical text of a valid row, or why it cannot be written. */
+	function textOf(row: Row<TFields>): Result<string, RowWriteError> {
 		const { data: written, error: issues } = writeRow(
 			table,
 			row as Parameters<typeof writeRow>[1],
 		);
-		if (issues !== null) return TableError.InvalidValues({ issues });
-		return Ok({
-			bytes: submittedText(written.text).bytes,
-			row: written.row as Row<TFields>,
-		});
+		if (issues !== null) return RowWriteError.InvalidValues({ issues });
+		return Ok(written.text);
 	}
 
 	/**
-	 * Every name directly in the table's directory; none when it does not exist
-	 * yet. A directory named like a row is included so reading reports it.
+	 * What `write`'s change starts from: the file as it is now when it holds
+	 * the row `from` names, in whatever spelling, so the file's own spelling
+	 * is the base and not an edit the merge would keep (ADR-0572: a row
+	 * written from an app is in standard form); otherwise `from` as written.
 	 */
-	async function filenamesOf(): Promise<
-		Result<string[], TableEnumerationError>
-	> {
-		const { data: children, error } = await storage.children(name);
-		if (error !== null) return error.name === 'NotFound' ? Ok([]) : Err(error);
-		return Ok([...children.files, ...children.directories].sort());
+	async function baseOf(path: string, from: string): Promise<FileContent> {
+		const { data: read, error } = await storage.read(path);
+		if (error !== null) return from;
+		let text: string;
+		try {
+			text = utf8.decode(read.bytes);
+		} catch {
+			return from;
+		}
+		const [now, was] = [parseRow(table, text), parseRow(table, from)];
+		return now.error === null &&
+			was.error === null &&
+			now.data.body === was.data.body &&
+			sameValue(now.data.fields, was.data.fields)
+			? read.bytes
+			: from;
 	}
 
-	return {
+	/** The one write of the file at `path`, and the row it left there. */
+	async function written(
+		path: string,
+		from: FileContent | null,
+		to: FileContent | null,
+	): Promise<Result<WrittenRow<TFields>, WriteError>> {
+		const { data, error } = await writeFile(storage, path, from, to);
+		if (error !== null) return Err(error);
+		if (data.file === null) return Ok(null);
+		return Ok(readBack(path, data.file));
+	}
+
+	/**
+	 * The name of every entry directly in the table's directory that is not
+	 * a directory; none when the directory does not exist yet.
+	 */
+	async function filenamesOf(): Promise<Result<string[], FileError>> {
+		const { data: children, error } = await storage.children(name);
+		if (error !== null) return error.name === 'NotFound' ? Ok([]) : Err(error);
+		return Ok([...children.files].sort());
+	}
+
+	const fileTable: FileTable<TFields> = {
 		name,
+		canCreate: unsupplied.length === 0,
 		async list() {
 			const { data: filenames, error: listError } = await filenamesOf();
 			if (listError !== null) return Err(listError);
-			// Only the exact lowercase extension is a row; `a.MD` is an ordinary file.
-			const rows = filenames.filter((file) => file.endsWith(ROW_EXTENSION));
-			const { data: reads, error: readsError } = await storage.readMany(
-				rows.map((file) => `${name}/${file}`),
-			);
-			if (readsError !== null) return Err(readsError);
-			return Ok(
-				Object.freeze(
-					rows.map((file) => {
-						const path = `${name}/${file}`;
-						const stem = file.slice(0, -ROW_EXTENSION.length);
-						const outcome = reads.get(path);
-						if (outcome === undefined)
-							return Object.freeze({
-								stem,
-								result: FileError.Io({
-									path,
-									operation: 'read',
-									cause: 'The storage response omitted this requested file',
-								}),
-							});
-						return Object.freeze({
-							stem,
-							result:
-								outcome.error !== null
-									? Err(outcome.error)
-									: storedRow(path, outcome.data),
-						});
+			const rows: TableListing<TFields>[number][] = [];
+			for (const file of filenames) {
+				// The one row predicate: `a.MD`, `.md`, and `.hidden.md` are ordinary files.
+				const stem = rowStemOfName(file);
+				if (stem === undefined) continue;
+				const path = rowPath(name, stem);
+				const read = await storage.read(path);
+				rows.push(
+					Object.freeze({
+						stem,
+						result:
+							read.error !== null
+								? Err(read.error)
+								: storedRow(path, read.data),
 					}),
-				),
-			);
+				);
+			}
+			return Ok(Object.freeze(rows));
 		},
 		async get(stem) {
 			const { data: path, error: addressError } = rowAddress(stem);
@@ -269,77 +304,72 @@ export function createTable<TFields>(
 				return readError.name === 'NotFound' ? Ok(undefined) : Err(readError);
 			return storedRow(path, read);
 		},
-		async create(row, options) {
-			const { data: path, error: addressError } = rowAddress(
-				options?.stem ?? generateStem(),
-			);
+		async write(stem, from, to) {
+			const { data: path, error: addressError } = rowAddress(stem);
 			if (addressError !== null) return Err(addressError);
-			const { data: prepared, error: prepareError } = prepare(row);
-			if (prepareError !== null) return Err(prepareError);
-			const sha256 = await hashBytes(prepared.bytes);
-			const { error: applyError } = await applyOne(storage, {
-				kind: 'create',
+			// Both owned before anything is awaited.
+			const base = from === null ? Ok(null) : textOf(from);
+			if (base.error !== null) return Err(base.error);
+			const next = to === null ? Ok(null) : textOf(to);
+			if (next.error !== null) return Err(next.error);
+			// A write that changes nothing leaves the file as it is.
+			return written(
 				path,
-				bytes: prepared.bytes,
-				sha256,
-			});
-			if (applyError !== null) return Err(applyError);
-			return Ok(Object.freeze({ path, sha256, row: prepared.row }));
-		},
-		async replace(file, row) {
-			const { data: captured, error: captureError } = ownRowCapture(file);
-			if (captureError !== null) return Err(captureError);
-			const { data: prepared, error: prepareError } = prepare(row);
-			if (prepareError !== null) return Err(prepareError);
-			const { data: saved, error: saveError } = await replaceCaptured(
-				storage,
-				captured,
-				prepared.bytes,
+				base.data === null || base.data === next.data
+					? base.data
+					: await baseOf(path, base.data),
+				next.data,
 			);
-			if (saveError !== null) return Err(saveError);
-			return Ok(Object.freeze({ ...saved, row: prepared.row }));
 		},
-		async rename(file, nextStem) {
-			const { data: captured, error: captureError } = ownRowCapture(file);
-			if (captureError !== null) return Err(captureError);
-			const { data: to, error: toError } = rowAddress(nextStem);
-			if (toError !== null) return Err(toError);
-			// A move to its own path would check neither the row nor its bytes,
-			// so success would claim what nothing verified.
-			if (to === captured.path)
-				return FileError.InvalidPath({
-					path: to,
-					reason: 'A row cannot be renamed to the stem it already has',
+		async set(stem, fields) {
+			const { data: current, error: readError } = await fileTable.get(stem);
+			if (readError !== null)
+				return readError.name === 'InvalidRow'
+					? RowWriteError.InvalidValues({ issues: readError.issues })
+					: readError.name === 'InvalidUtf8'
+						? RowWriteError.InvalidValues({
+								issues: [{ message: readError.message }],
+							})
+						: Err(writeFailure(rowPath(name, stem), readError));
+			if (current === undefined) return Ok(null);
+			const merged: Record<string, unknown> = {
+				...current.row.fields,
+				...fields,
+			};
+			for (const [field, value] of Object.entries(fields))
+				if (value === undefined) delete merged[field];
+			const next = textOf({
+				fields: merged as Row<TFields>['fields'],
+				body: current.row.body,
+			});
+			if (next.error !== null) return Err(next.error);
+			return written(rowPath(name, stem), current.text, next.data);
+		},
+		async create(row, options) {
+			if (unsupplied.length > 0)
+				return RowWriteError.InvalidValues({
+					issues: unsupplied.map((field) => ({
+						message: `The folder requires '${name}.${field}' in every row, which this app's definition does not declare, so it cannot add rows`,
+						field,
+					})),
 				});
-			const { error: moveError } = await applyOne(storage, {
-				kind: 'move',
-				from: captured.path,
-				to,
-				expectedSha256: captured.sha256,
-			});
-			if (moveError !== null) return Err(moveError);
-			return Ok(fileCapture(to, captured.sha256));
+			return fileTable.write(options?.stem ?? generateStem(), null, row);
 		},
-		async delete(file) {
-			const { data: captured, error: captureError } = ownRowCapture(file);
-			if (captureError !== null) return Err(captureError);
-			return applyOne(storage, {
-				kind: 'remove',
-				path: captured.path,
-				expectedSha256: captured.sha256,
-			});
+		async delete(stem) {
+			const { data: path, error: addressError } = rowAddress(stem);
+			if (addressError !== null) return Err(addressError);
+			const { error } = await writeFile(storage, path, null, null);
+			return error === null ? Ok(undefined) : Err(error);
 		},
-		autosave(file, { onState }) {
-			const owned = ownRowCapture(file);
-			return createAutosave({
-				file: owned.data ?? file,
-				prepare(row: Row<TFields>) {
-					if (owned.error !== null) return Err(owned.error);
-					return prepare(row);
-				},
-				write: ({ bytes }, over) => replaceCaptured(storage, over, bytes),
-				onState,
-			});
+		async rename(stem, next) {
+			const { data: from, error: fromError } = rowAddress(stem);
+			if (fromError !== null) return Err(fromError);
+			const { data: to, error: toError } = rowAddress(next);
+			if (toError !== null) return Err(toError);
+			const { data: moved, error } = await movePath(storage, from, to);
+			if (error !== null) return Err(error);
+			return Ok(moved.file === null ? null : readBack(to, moved.file));
 		},
 	};
+	return fileTable;
 }

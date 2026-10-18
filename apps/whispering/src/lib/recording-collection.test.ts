@@ -19,18 +19,20 @@
  * - Copying takes the newest transcript of each selected row in table order
  * - Transcribing several sends the audio each row names, once each, one at a
  *   time, and reports what was sent, skipped, and failed without retrying
+ * - A recording whose audio the folder does not hold says so on its row, and
+ *   it is skipped rather than sent
  * - Deleting several captures each deletion first, leaves out what the
  *   library refuses, removes only what was captured, and keeps the audio
  * - A transcript is edited in its own draft beside its recording, which stays
- *   selected, and saves as it is typed; an outside change is a conflict on
- *   the next save; closing the details or changing page discards nothing
+ *   selected, and saves as it is typed; an outside change merges with the
+ *   next save; closing the details or changing page discards nothing
  * - A recording that left the folder is unticked when a listing confirms it,
  *   so a file made later at its path is not ticked; a search and a failed
  *   listing untick nothing
  * - Once the session is closing, nothing new is opened, and a recording still
  *   waiting its turn to be transcribed is not sent
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -38,13 +40,15 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
-import { transcriptSession } from './drafts.test-support.js';
+import { settle, transcriptEditor } from './edits.test-support.js';
+import type { WriteNotice } from './library.svelte.js';
+import { createQueryClient } from './query.test-support.js';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
+	deleteCaptured,
 	describeDeletions,
 	nextSort,
-	removeCaptured,
 	selectionIn,
 	shownRows,
 	toggleAllShown,
@@ -55,7 +59,26 @@ import {
 } from './recording-collection.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
-import { deferred, openTestWorkspace } from './workspace.test-support.js';
+import {
+	deferred,
+	eventually,
+	openTestWorkspace,
+} from './workspace.test-support.js';
+
+/** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
+const recordingFiles = async (root: string) =>
+	[
+		...(await entriesOf(root, 'recordings')),
+		...(await entriesOf(root, 'audio')),
+	].sort();
+
+/** The names in a directory beside a table's `.epicenter.json` schema. */
+function entriesOf(root: string, directory: string) {
+	return readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
+}
 
 const { openSession } = await import('./session.svelte.ts');
 
@@ -94,8 +117,8 @@ async function history(
 		durationMs: number,
 		body = '',
 	) => {
-		const audioPath = `recordings/${stem}.wav`;
-		expectOk(await folder.files.create(audioPath, toneWav()));
+		const audioPath = `audio/${stem}.wav`;
+		expectOk(await folder.write(audioPath, null, toneWav()));
 		expectOk(
 			await folder.tables.recordings.create(
 				{
@@ -144,13 +167,14 @@ async function history(
 	await recording('walk', 'Walk ideas', '04', 300_000);
 	await recording('lecture', 'Lecture notes', '01', 3_000_000);
 	expectOk(
-		await folder.files.create(
+		await folder.write(
 			'recordings/orphan.md',
+			null,
 			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\ncapture: microphone\n---\n',
 		),
 	);
 	expectOk(
-		await folder.files.create('recordings/broken.md', 'no frontmatter here\n'),
+		await folder.write('recordings/broken.md', null, 'no frontmatter here\n'),
 	);
 	await transcript(
 		'standup-t1',
@@ -172,7 +196,7 @@ async function history(
 	);
 
 	const session: Session = expectOk(
-		await openSession(async () =>
+		await openSession(createQueryClient(), async () =>
 			Ok({
 				...test.workspace,
 				folder: folderOf(test.workspace.folder),
@@ -367,7 +391,7 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 	// A new order and a refresh change nothing about what is selected.
 	view.recordingQuery = '';
 	view.recordingSort = nextSort(view.recordingSort, 'title');
-	await library.refreshAll();
+	await settle(library);
 	const sorted = shownRows(library, view.recordingQuery, view.recordingSort);
 	expect(
 		stems(selectionIn(view.recordingSelected, sorted, library).rows),
@@ -375,7 +399,7 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 
 	// A selected recording deleted from the folder is no longer selected, or counted as hidden.
 	const deletion = expectOk(await library.deletionFor(path('lecture')));
-	expect(await library.remove(deletion)).toBeUndefined();
+	expect(await library.delete(deletion)).toBeUndefined();
 	const after = shownRows(library, 'standup', view.recordingSort);
 	expect(selectionIn(view.recordingSelected, after, library)).toMatchObject({
 		hidden: 2,
@@ -437,8 +461,8 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	);
 
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
-		'recordings/lecture.wav',
+		'audio/dentist.wav',
+		'audio/lecture.wav',
 	]);
 	expect(outcome.transcribed).toEqual(['Dentist reminder', 'Lecture notes']);
 	expect(outcome.failed).toEqual([]);
@@ -448,9 +472,9 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	]);
 	expect(progress).toEqual([1, 2, 3, 4]);
 	expect(library.resultsFor('dentist')[0]!.row.body).toBe(
-		'words from recordings/dentist.wav\n',
+		'words from audio/dentist.wav\n',
 	);
-	expect((await readdir(join(root, 'transcriptions'))).length).toBe(5);
+	expect((await entriesOf(root, 'transcriptions')).length).toBe(5);
 
 	// Asked again, everything now has a transcript: nothing more is sent.
 	await transcribeRows(
@@ -460,9 +484,37 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	expect(sent).toHaveLength(2);
 });
 
+test('a recording whose audio is not in the folder says so on its row and is not sent', async () => {
+	const { library, sent, root } = await history();
+	await rm(join(root, 'audio', 'lecture.wav'));
+	await settle(library);
+	expect(rowOf(library, 'lecture').audio).toEqual({
+		kind: 'absent',
+		path: 'audio/lecture.wav',
+	});
+	expect(rowOf(library, 'dentist').audio).toEqual({
+		kind: 'here',
+		path: 'audio/dentist.wav',
+	});
+
+	const outcome = await transcribeRows(library, [
+		path('dentist'),
+		path('lecture'),
+	]);
+	expect(sent.map((request) => request.audioPath)).toEqual([
+		'audio/dentist.wav',
+	]);
+	expect(outcome.skipped).toEqual([
+		{
+			title: 'Lecture notes',
+			reason: 'Its audio isn’t on this device.',
+		},
+	]);
+});
+
 test('a transcription that fails is reported, is not sent again, and does not stop the ones after it', async () => {
 	const { library, sent } = await history(async ({ audioPath }) => {
-		if (audioPath === 'recordings/dentist.wav')
+		if (audioPath === 'audio/dentist.wav')
 			throw new Error('the endpoint hung up');
 		return Ok({ text: 'arrived' });
 	});
@@ -474,8 +526,8 @@ test('a transcription that fails is reported, is not sent again, and does not st
 	]);
 
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
-		'recordings/lecture.wav',
+		'audio/dentist.wav',
+		'audio/lecture.wav',
 	]);
 	expect(outcome.transcribed).toEqual(['Lecture notes']);
 	expect(outcome.failed).toHaveLength(1);
@@ -484,23 +536,27 @@ test('a transcription that fails is reported, is not sent again, and does not st
 	expect(outcome.skipped).toEqual([
 		{ title: path('gone'), reason: 'It is no longer in the folder.' },
 	]);
-	// The failure is the library's own failed run, there to be tried again by the person.
-	expect(library.transcriptionRun('dentist')?.kind).toBe('failed');
+	// The failure is on the transcript's row, which stays without a body, there
+	// to be run again by the person.
 	expect(rowOf(library, 'dentist').status).toBe('failed');
+	expect(library.resultsFor('dentist').map((item) => item.row.body)).toEqual([
+		'',
+	]);
 });
 
 test('several are transcribed one at a time: the next is not sent until the one before it has answered', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
 	const { library, sent } = await history(({ audioPath }) =>
-		audioPath === 'recordings/dentist.wav'
+		audioPath === 'audio/dentist.wav'
 			? first.promise
 			: Promise.resolve(Ok({ text: 'arrived' })),
 	);
 
 	const running = transcribeRows(library, [path('dentist'), path('lecture')]);
+	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
+		'audio/dentist.wav',
 	]);
 	expect(rowOf(library, 'dentist').status).toBe('transcribing');
 
@@ -537,12 +593,12 @@ test('deleting several captures each deletion first, removes exactly those with 
 	expect(told.description).toContain('“Walk ideas”, “Monday standup”');
 	expect(told.description).toContain('The 2 audio files are not deleted');
 
-	expect(await removeCaptured(library, captured.deletions)).toEqual({
-		removed: 2,
+	expect(await deleteCaptured(library, captured.deletions)).toEqual({
+		deleted: 2,
 		problems: [],
 	});
 
-	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
+	expect(await recordingFiles(root)).toEqual([
 		'broken.md',
 		'dentist.md',
 		'dentist.wav',
@@ -552,7 +608,7 @@ test('deleting several captures each deletion first, removes exactly those with 
 		'standup.wav',
 		'walk.wav',
 	]);
-	expect(await readdir(join(root, 'transcriptions'))).toEqual([]);
+	expect(await entriesOf(root, 'transcriptions')).toEqual([]);
 });
 
 test('a recording with a transcription under way is left out with the library’s reason, and the rest are still captured', async () => {
@@ -585,17 +641,17 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 	]);
 	// Something else writes a result that cannot say whose it is.
 	await writeFile(join(root, 'transcriptions', 'stray.md'), 'not a row\n');
-	await library.refreshAll();
+	await settle(library);
 
 	expect(
 		(await captureDeletions(library, [path('standup')])).deletions,
 	).toEqual([]);
-	const { removed, problems } = await removeCaptured(
+	const { deleted, problems } = await deleteCaptured(
 		library,
 		captured.deletions,
 	);
 
-	expect(removed).toBe(0);
+	expect(deleted).toBe(0);
 	expect(problems.map((problem) => problem.title)).toEqual([
 		'Monday standup',
 		'Walk ideas',
@@ -610,74 +666,62 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 
 const TRANSCRIPT = 'transcriptions/standup-t1.md';
 
-test('a transcript is edited in its own draft beside its recording, which stays selected', async () => {
+test('a transcript is edited beside its recording, which stays selected, and is written at once', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
 
-	await library.openTranscript(TRANSCRIPT);
-
-	expect(library.selectedPath).toBe(path('standup'));
-	expect(library.selection?.kind).toBe('recording');
-	const session = transcriptSession(library, TRANSCRIPT);
-	session.edit((row) => {
+	const editor = transcriptEditor(library, TRANSCRIPT);
+	editor.edit((row) => {
 		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
 	});
-	// Saving from the moment it is typed: leaving now would wait for it.
-	expect(session.state.status).toBe('saving');
-	expect(library.holdsUnsavedWork).toBe(true);
-	expect((await session.settled()).status).toBe('saved');
+	// Written from the moment it is typed.
+	expect(library.isSaving(TRANSCRIPT)).toBe(true);
+	expect(library.saving).toBe(true);
+	await settle(library);
+	// The list shows the saved text: the save put it in the listing.
+	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
+		'Yesterday I finished the importer. Today: the exporter.',
+	);
 
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	// The fields as they were, the new text.
 	expect(saved.split('---')[1]).toBe(before.split('---')[1]);
 	expect(saved).toContain('Today: the exporter.');
-	expect(library.holdsUnsavedWork).toBe(false);
-	await library.refreshAll();
-	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
-		'Yesterday I finished the importer. Today: the exporter.',
-	);
+	expect(library.saving).toBe(false);
+	expect(library.selectedPath).toBe(path('standup'));
+	expect(library.selection?.kind).toBe('recording');
 
-	// Asking again, and opening the file from Files, reach the same draft.
-	await library.openTranscript(TRANSCRIPT);
-	expect(transcriptSession(library, TRANSCRIPT)).toBe(session);
+	// Opening the file from Files edits the same row.
 	expect(await library.open(TRANSCRIPT)).toBeUndefined();
 	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(transcriptSession(library, TRANSCRIPT)).toBe(session);
-	// The recording's draft was left when another item opened.
-	expect(library.draftAt(path('standup'))).toBeUndefined();
-	// A path that is not a transcript is not opened by this.
-	await library.openTranscript('notes.md');
-	expect(library.draftAt('notes.md')).toBeUndefined();
+	expect(library.rowAt('transcriptions', TRANSCRIPT)?.body).toBe(
+		'Yesterday I finished the importer. Today: the exporter.\n',
+	);
 });
 
-test('a transcript changed outside is listed, and its open draft reports the change as a conflict on the next save', async () => {
+test('typing over a transcript changed outside, before the window read it again, merges with the change', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
-	await library.openTranscript(TRANSCRIPT);
-	const session = transcriptSession(library, TRANSCRIPT);
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
+	const editor = transcriptEditor(library, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',
 		'migration',
 	);
 	await writeFile(join(root, TRANSCRIPT), outside);
 
-	await library.refreshAll();
-	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toContain(
-		'migration',
-	);
-	expect(session.draft.body).toContain('importer');
-
-	session.edit((row) => {
+	// Typing before the window read it again: both replaced the same line,
+	// so the typing wins there, and nothing is told.
+	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
-	expect(await library.keepMine(session)).toBeUndefined();
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
-		'What I typed.',
-	);
+	await settle(library);
+	expect(notices).toEqual([]);
+	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
+	expect(saved).toContain('What I typed.');
+	expect(saved).not.toContain('migration');
 	expect(library.selectedPath).toBe(path('standup'));
 });
 
@@ -685,8 +729,7 @@ test('closing the details and changing page lose no typing: the draft is the ses
 	const { session, library, view, root } = await history();
 	await library.open(path('standup'));
 	view.showingDetail = true;
-	await library.openTranscript(TRANSCRIPT);
-	const draft = transcriptSession(library, TRANSCRIPT);
+	const draft = transcriptEditor(library, TRANSCRIPT);
 	draft.edit((row) => {
 		row.body = 'Typed just before closing the details.\n';
 	});
@@ -695,12 +738,11 @@ test('closing the details and changing page lose no typing: the draft is the ses
 	// Closing the pane, then a change of page: neither unloads the document.
 	view.showingDetail = false;
 	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(transcriptSession(library, TRANSCRIPT)).toBe(draft);
 	expect(library.selectedPath).toBe(path('standup'));
 	// Leaving the app is what is held back while the save runs.
 	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
 
-	expect(await library.prepareToLeave()).toBe(true);
+	await settle(library);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before closing the details.',
 	);
@@ -739,19 +781,19 @@ test('a selected recording that left the folder is unticked once a listing confi
 
 	// A search that hides a selected row unticks nothing, however often the folder is read.
 	view.recordingQuery = 'garden';
-	await library.refreshAll();
+	await settle(library);
 	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
 
 	// The file goes, but the listing that would say so fails: nothing is taken as gone.
 	await rm(join(root, path('standup')));
 	listing.fails = true;
-	await library.refreshAll();
+	await settle(library);
 	expect(library.listError).toContain('the disk did not answer');
 	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
 
 	// A listing that is read confirms it gone, and it is unticked then.
 	listing.fails = false;
-	await library.refreshAll();
+	await settle(library);
 	expect(view.recordingSelected).toEqual([path('walk')]);
 
 	// Another file made at that path later is another recording: it arrives unticked.
@@ -760,7 +802,7 @@ test('a selected recording that left the folder is unticked once a listing confi
 		row.replace('Monday standup', 'A different recording'),
 	);
 	view.recordingQuery = '';
-	await library.refreshAll();
+	await settle(library);
 	expect(rowOf(library, 'standup').title).toBe('A different recording');
 	const shown = shownRows(library, '', DEFAULT_SORT);
 	expect(
@@ -789,19 +831,15 @@ test('nothing is opened or read after closing', async () => {
 	await session.close();
 	expect(library.closing).toBe(true);
 	const before = reads.length;
-	await library.openTranscript('transcriptions/walk-t1.md');
 	await library.open('transcriptions/walk-t2.md');
 	await library.open(path('walk'));
-	expect(library.draftAt('transcriptions/walk-t1.md')).toBeUndefined();
-	expect(library.draftAt('transcriptions/walk-t2.md')).toBeUndefined();
 	expect(library.selectedPath).toBe(path('standup'));
 	expect(reads).toHaveLength(before);
 });
 
 test('typing in a transcript that was opened before closing is saved before the folder closes', async () => {
 	const { session, library, root } = await history();
-	await library.openTranscript(TRANSCRIPT);
-	transcriptSession(library, TRANSCRIPT).edit((row) => {
+	transcriptEditor(library, TRANSCRIPT).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
 	});
 
@@ -821,9 +859,10 @@ test('closing while several are being transcribed sends nothing more: the one un
 		path('lecture'),
 		path('standup'),
 	]);
+	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
+		'audio/dentist.wav',
 	]);
 
 	await session.close();
@@ -832,7 +871,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 
 	// One request, ever: the queued row was not sent, and nothing was sent twice.
 	expect(sent.map((request) => request.audioPath)).toEqual([
-		'recordings/dentist.wav',
+		'audio/dentist.wav',
 	]);
 	expect(outcome.skipped).toEqual([
 		{
@@ -846,15 +885,17 @@ test('closing while several are being transcribed sends nothing more: the one un
 	]);
 	// The one that was sent is reported as it ended: its answer arrived, and
 	// with the folder closed its file could not be written. It is not called
-	// transcribed, and the library holds the text as a transcript not saved.
+	// transcribed; its row stays without a body, unfinished on the next open.
 	expect(outcome.transcribed).toEqual([]);
 	expect(outcome.failed).toEqual([
-		{ title: 'Dentist reminder', reason: 'The folder is closed' },
+		{
+			title: 'Dentist reminder',
+			reason: expect.stringContaining('The folder is closed'),
+		},
 	]);
-	expect(library.transcriptionRun('dentist')).toMatchObject({
-		kind: 'unsaved',
-		text: 'arrived after the close',
-	});
+	expect(library.resultsFor('dentist').map((item) => item.row.body)).toEqual([
+		'',
+	]);
 	// Asked again after closing, the library sends nothing.
 	await library.transcribe(
 		library.entries.find((entry) => entry.stem === 'lecture')!,

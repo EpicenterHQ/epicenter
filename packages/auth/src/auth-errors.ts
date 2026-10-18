@@ -1,4 +1,3 @@
-import type { SyncRefusal } from '@epicenter/sync/transport';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -41,17 +40,16 @@ export const AuthError = defineErrors({
 
 export type AuthError = InferErrors<typeof AuthError>;
 
-/** A socket dial refused before it could receive a usable credential. */
-export const OpenWebSocketDenied = defineErrors({
-	OpenWebSocketDenied: ({ code }: { code: SyncRefusal }) => ({
-		message: `No usable bearer for the WebSocket upgrade (${code}).`,
-		code,
-	}),
-}).OpenWebSocketDenied;
+/**
+ * Why an account cannot authorize a request right now: the server refused its
+ * credential and only a sign-in makes a new one, or the credential could not
+ * be checked and a later try may succeed.
+ */
+export type AccountRefusal = 'reauth-required' | 'auth-unavailable';
 
 /** HTTP authorization failed before a request could be dispatched. */
 export const AccountUnavailable = defineErrors({
-	AccountUnavailable: ({ code }: { code: SyncRefusal }) => ({
+	AccountUnavailable: ({ code }: { code: AccountRefusal }) => ({
 		message: `Account network access is unavailable (${code}).`,
 		code,
 	}),
