@@ -60,8 +60,18 @@ export type GitBackend = {
 	 * repository if the folder has none yet. Transfers nothing.
 	 */
 	setRemote(url: string): Promise<GitRemote>;
-	/** Run object work. The browser flushes new objects durably before returning. */
-	withObjects<T>(work: (access: ObjectAccess) => Promise<T>): Promise<T>;
+	/**
+	 * Run object work. The browser flushes new objects durably before
+	 * returning. `cache` is isomorphic-git's in-memory cache, which holds each
+	 * pack's index and bytes once they are read and checked: every call of
+	 * one logical operation passes the same object, so a pack is loaded once
+	 * per operation instead of once per object read. Omitted, the work has a
+	 * cache of its own.
+	 */
+	withObjects<T>(
+		work: (access: ObjectAccess) => Promise<T>,
+		cache?: object,
+	): Promise<T>;
 	/**
 	 * Serialize this folder's index and branch work. Network work never runs
 	 * inside. A `signal` that aborts while `work` is still waiting rejects with
@@ -99,10 +109,16 @@ export type GitBackend = {
 	 * additions and deletions. Working files are not touched.
 	 */
 	reconcileIndex(commit: string): Promise<void>;
-	/** Which untracked candidates `.gitignore` (and native excludes) ignore. */
+	/**
+	 * Which untracked candidates `.gitignore` (and native excludes) ignore,
+	 * decided by path alone. `gitignores` is the folder's `.gitignore` files
+	 * by path, which a backend that evaluates the rules itself reads; no other
+	 * file's bytes are needed, so an ignored file is never read to learn that
+	 * it is ignored.
+	 */
 	ignoredPaths(
 		candidates: readonly string[],
-		current: ReadonlyMap<string, Uint8Array>,
+		gitignores: ReadonlyMap<string, Uint8Array>,
 	): Promise<ReadonlySet<string>>;
 	log(depth: number): Promise<CommitSummary[]>;
 	/**

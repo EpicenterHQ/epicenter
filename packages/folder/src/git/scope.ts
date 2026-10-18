@@ -1,5 +1,5 @@
 /**
- * Which captured files are history source.
+ * Which listed files are history source.
  *
  * Status, commits, and incoming fast-forwards share one rule: a path the
  * folder definition's `local` patterns match is never source, tracked or
@@ -7,8 +7,10 @@
  * tree stays source, and an untracked file is source unless `.gitignore`
  * excludes it. So a commit leaves a local file out, and one committed before
  * is untracked by the next commit while its bytes stay on disk. Private Git state and operating-system
- * scratch files are excluded earlier by `isPortablePath`. The browser evaluates
- * `.gitignore` files from the captured bytes; the native backend asks
+ * scratch files are excluded earlier by `isPortablePath`. Which paths are
+ * source is decided before any file is read, and only source files are read:
+ * the browser evaluates the `.gitignore` files' bytes, the only others it
+ * reads; the native backend asks
  * `git check-ignore`, which also
  * honors `.git/info/exclude` and the user's excludes file.
  */
@@ -26,7 +28,7 @@ export function gitignoreMatcher(
 ): (path: string) => boolean {
 	const rules = new Map<string, Ignore>();
 	for (const [path, bytes] of files) {
-		if (path !== '.gitignore' && !path.endsWith('/.gitignore')) continue;
+		if (!isGitignorePath(path)) continue;
 		const directory = path.slice(0, -'.gitignore'.length);
 		rules.set(directory, ignore().add(decoder.decode(bytes)));
 	}
@@ -76,37 +78,40 @@ export function localMatcher(
 	};
 }
 
+/** Whether `path` is a `.gitignore` file, whose rules `gitignoreMatcher` reads. */
+export function isGitignorePath(path: string): boolean {
+	return path === '.gitignore' || path.endsWith('/.gitignore');
+}
+
 /**
- * Keep tracked files and untracked files that are not ignored, never a file
- * `isLocal` matches. `isAppLocal`, the `local` patterns of an app that reads
- * a folder it is not the owner of, leaves out only untracked files: what the
- * app keeps on this machine never enters that folder's history, and what the
- * folder already tracks stays tracked, since its own definition says so.
+ * Of `paths`, the tracked files and the untracked files that are not
+ * ignored, never a file `isLocal` matches, in their order. `isAppLocal`, the
+ * `local` patterns of an app that reads a folder it is not the owner of,
+ * leaves out only untracked files: what the app keeps on this machine never
+ * enters that folder's history, and what the folder already tracks stays
+ * tracked, since its own definition says so.
+ *
+ * Decided by path alone, so a caller reads only the bytes of what this keeps
+ * and an ignored file is never read.
  */
-export async function sourceFiles(
-	current: ReadonlyMap<string, Uint8Array>,
+export async function sourcePaths(
+	paths: readonly string[],
 	tracked: ReadonlyMap<string, unknown>,
-	ignoredPaths: (
-		candidates: readonly string[],
-		current: ReadonlyMap<string, Uint8Array>,
-	) => Promise<ReadonlySet<string>>,
+	ignoredPaths: (candidates: readonly string[]) => Promise<ReadonlySet<string>>,
 	isLocal: (path: string) => boolean = () => false,
 	isAppLocal: (path: string) => boolean = () => false,
-): Promise<Map<string, Uint8Array>> {
-	const candidates = [...current.keys()].filter(
+): Promise<string[]> {
+	const candidates = paths.filter(
 		(path) => !tracked.has(path) && !isLocal(path) && !isAppLocal(path),
 	);
 	const ignored =
 		candidates.length === 0
 			? new Set<string>()
-			: await ignoredPaths(candidates, current);
-	const source = new Map<string, Uint8Array>();
-	for (const [path, bytes] of current)
-		if (
+			: await ignoredPaths(candidates);
+	return paths.filter(
+		(path) =>
 			!ignored.has(path) &&
 			!isLocal(path) &&
-			(tracked.has(path) || !isAppLocal(path))
-		)
-			source.set(path, bytes);
-	return source;
+			(tracked.has(path) || !isAppLocal(path)),
+	);
 }

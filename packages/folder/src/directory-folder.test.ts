@@ -223,6 +223,74 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
+	test('an ignored file is never read by status, a commit, or Sync', async () => {
+		const project = await scratch('directory-folder-unread-');
+		const bare = await createBareRemote(project);
+		const root = join(project, 'desktop');
+		await mkdir(root);
+		const recording = join(root, 'recordings/take.wav');
+		// Any read of the ignored recording fails the operation that made it.
+		const guarded: DirectoryPrimitives = {
+			...nodeDirectoryPrimitives,
+			async readFile(path) {
+				if (path === recording) throw new Error(`read ${path}`);
+				return nodeDirectoryPrimitives.readFile(path);
+			},
+		};
+		await writeFile(join(root, '.gitignore'), '*.wav\n');
+		await mkdir(join(root, 'recordings'));
+		await writeFile(recording, 'audio bytes');
+		const folder = expectOk(await open(root, { primitives: guarded }));
+		await addTodo(folder, 'Beside a recording');
+		// Before the repository exists the folder's `.gitignore` decides;
+		// after its first commit, `git check-ignore` does.
+		const before = expectOk(await folder.git.status());
+		expect(before.changes.map((change) => change.path)).not.toContain(
+			'recordings/take.wav',
+		);
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(expectOk(await folder.git.status()).changes).toEqual([]);
+		expect(expectOk(await folder.sync.connect(bare)).kind).toBe('synced');
+		expect(await git(root, 'ls-files')).not.toContain('take.wav');
+		await folder.close();
+	});
+
+	test('one status or commit loads each pack once, however many objects it reads', async () => {
+		const root = await scratch('directory-folder-pack-loads-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		for (let index = 0; index < 20; index++) {
+			await mkdir(join(root, `notes-${index}`));
+			await writeFile(join(root, `notes-${index}/a.txt`), `${index}\n`);
+		}
+		await git(root, 'add', '.');
+		await git(root, 'commit', '--quiet', '-m', 'Many trees');
+		await git(root, 'gc', '--quiet');
+		const packs = (await readdir(join(root, '.git/objects/pack'))).filter(
+			(name) => name.endsWith('.idx'),
+		);
+		expect(packs).toHaveLength(1);
+		let loads = 0;
+		const counting: DirectoryPrimitives = {
+			...nodeDirectoryPrimitives,
+			async readFile(path) {
+				if (path.endsWith('.idx')) loads++;
+				return nodeDirectoryPrimitives.readFile(path);
+			},
+		};
+		const folder = expectOk(await open(root, { primitives: counting }));
+		loads = 0;
+		// The scan reads the commit and its 21 trees, then counts history.
+		expect(expectOk(await folder.git.status()).changes).toEqual([]);
+		expect(loads).toBe(1);
+		await writeFile(join(root, 'notes-0/a.txt'), 'changed\n');
+		loads = 0;
+		const commit = await folder.git.commit();
+		expect(commit).toMatchObject({ status: 'committed', changedPaths: 1 });
+		// The commit, then the remote count that settles it.
+		expect(loads).toBe(2);
+		await folder.close();
+	});
+
 	test('a commit native Git makes while the folder is open is the next parent', async () => {
 		const { root } = await nativeRepository('directory-folder-concurrent-');
 		const folder = expectOk(await open(root));

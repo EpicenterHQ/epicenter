@@ -276,8 +276,8 @@ export async function createNativeGitBackend({
 			remote = { url, branch };
 			return remote;
 		},
-		async withObjects(work) {
-			return work(access);
+		async withObjects(work, cache = {}) {
+			return work({ ...access, cache });
 		},
 		exclusive: serialized,
 		readBranch: () => resolve(branchRef),
@@ -354,12 +354,12 @@ export async function createNativeGitBackend({
 			const paths = text(differing.stdout).split('\0').filter(Boolean);
 			await syncIndex(commit, paths);
 		},
-		async ignoredPaths(candidates, current) {
+		async ignoredPaths(candidates, gitignores) {
 			// With no repository there is no `git` to ask: the folder's own
 			// `.gitignore` files decide, as in a browser folder. Its first
 			// commit creates the repository and asks `git` first.
 			if (!(await exists())) {
-				const ignored = gitignoreMatcher(current);
+				const ignored = gitignoreMatcher(gitignores);
 				return new Set(candidates.filter((path) => ignored(path)));
 			}
 			// `--no-index` evaluates the rules alone; the caller keeps tracked files.

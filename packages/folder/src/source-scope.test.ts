@@ -10,6 +10,7 @@
  * - A tracked file stays tracked after a rule starts matching it
  * - Browser and native folders agree with `git status` about what is dirty
  * - A fast-forward preserves ignored files and refuses to overwrite one
+ * - Status and commits decide ignored files by path and never read them
  *
  * See also:
  * - `index-reconcile.test.ts` for staged-only intent after a checkpoint
@@ -18,10 +19,15 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import type { LockingStorage } from './boundary.js';
 import { type Folder, openFolder as openBrowserFolder } from './browser.js';
-import { testBrowserStorage } from './browser-storage.test-support.js';
+import {
+	rawBrowserFolder,
+	testBrowserStorage,
+} from './browser-storage.test-support.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
+import { createHistory } from './git/history.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
 	GIT_ENV,
@@ -29,7 +35,7 @@ import {
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
-import { put } from './put.test-support.js';
+import { overwrite, put } from './put.test-support.js';
 
 const definition = defineFolder({
 	tables: {
@@ -119,6 +125,36 @@ describe('browser folder scope', () => {
 		expect(outcome.status).toBe('committed');
 		expect((await folder.git.status()).data?.changes).toEqual([]);
 		await folder.close();
+	});
+});
+
+describe('ignored files are never read', () => {
+	test('status and a commit leave an ignored recording out without reading its bytes', async () => {
+		const raw = await rawBrowserFolder({ id: 'scope-unread' });
+		const backend = await raw.backend();
+		// Any read of an ignored file fails the status or the commit that made it.
+		const boundary: LockingStorage = {
+			...raw.boundary,
+			read(path) {
+				if (path.endsWith('.wav'))
+					throw new Error(`read the ignored file ${path}`);
+				return raw.boundary.read(path);
+			},
+		};
+		const history = createHistory({ backend, boundary, author });
+		await overwrite(raw.boundary, '.gitignore', '*.wav\n');
+		await overwrite(raw.boundary, 'notes.md', 'kept\n');
+		await overwrite(raw.boundary, 'recordings/take.wav', 'audio bytes');
+
+		const status = expectOk(await history.status());
+		expect(status.changes.map((change) => change.path)).toEqual([
+			'.gitignore',
+			'notes.md',
+		]);
+		const commit = await history.commit();
+		expect(commit).toMatchObject({ status: 'committed', changedPaths: 2 });
+		expect(expectOk(await history.status()).changes).toEqual([]);
+		await history.close();
 	});
 });
 
