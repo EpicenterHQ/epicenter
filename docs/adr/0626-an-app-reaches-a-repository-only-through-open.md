@@ -40,7 +40,7 @@ Repository
   name               the label as of the last fetch                         later
   status             'synced' | 'pending' | 'disconnected' | 'stuck'        v1
   subscribe(listener)  the event carries status and the changed rows,
-                       each by table and id                                 v1
+                       each by table and id; returns an unsubscribe         v1
   close()                                                                   v1
   tables.<t>         one Table per name in tables                           v1
 
