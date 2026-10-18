@@ -5,12 +5,6 @@
 
 import type { CommandSpec } from './parse.ts';
 
-/**
- * The `local` patterns of an app reading a folder that is not its own, as a
- * JSON array, which the desktop shell passes (ADR-0583): an untracked file
- * they match is never committed.
- */
-
 export const COMMANDS: readonly CommandSpec[] = [
 	{
 		path: ['check'],

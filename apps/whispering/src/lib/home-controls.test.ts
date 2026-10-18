@@ -214,8 +214,11 @@ test('the settings draft saves a connection on the device only, keeps the saved 
 	expect(await draft.save()).toBeUndefined();
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
 
-	// Nothing reached the folder or an endpoint.
-	expect(await readdir(root)).toEqual([]);
+	// Nothing reached the folder, beyond the .gitignore lines opening it
+	// writes, or an endpoint.
+	expect((await readdir(root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 	expect(transcribed).toEqual([]);
 	expect(transformed).toEqual([]);
 });

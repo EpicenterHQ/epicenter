@@ -255,8 +255,11 @@ test('a layout released while its session is starting leaves nothing open', asyn
 	finish();
 
 	await expect(mounted.opening).rejects.toThrow('released');
-	// The admitted read settled before the folder closed; nothing was written.
-	expect(await readdir(test.root)).toEqual([]);
+	// The admitted read settled before the folder closed; nothing but the
+	// .gitignore lines opening writes was written.
+	expect((await readdir(test.root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 	expect(test.closes).toBe(1);
 });
 

@@ -324,6 +324,22 @@ export const OpenFolderError = defineErrors({
 		message: `There is no folder at ${root}; it may have been moved or removed.`,
 		root,
 	}),
+	/**
+	 * The app's own folder's `.gitignore` could not be made to name the
+	 * `local` patterns that keep the app's files on this machine (ADR-0592),
+	 * so nothing was opened: a file written before them could be committed.
+	 */
+	IgnoreUnwritten: ({
+		patterns,
+		cause,
+	}: {
+		patterns: readonly string[];
+		cause: unknown;
+	}) => ({
+		message: `The folder's .gitignore could not be made to name ${patterns.map((pattern) => `'${pattern}'`).join(', ')}, which keep this app's files on this machine, so the folder was not opened: ${describe(cause)}`,
+		patterns,
+		cause,
+	}),
 	/** The folder's storage could not be reached or made ready. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({
 		message: `The folder could not be opened: ${describe(cause)}`,

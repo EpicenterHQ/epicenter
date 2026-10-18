@@ -219,9 +219,13 @@ test('the first launch creates no files or history, and saving a connection writ
 	const { library, root, device } = await open({
 		connections: { connections: {} },
 	});
-	// Opening writes nothing: not the definition, which waits for a write,
-	// and no repository, which the first commit creates.
-	expect(await readdir(root)).toEqual([]);
+	// Opening writes the .gitignore lines that keep audio here, and nothing
+	// else: not the definition, which waits for a write, and no repository,
+	// which the first commit creates.
+	expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('audio/\n');
+	expect((await readdir(root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
@@ -242,7 +246,9 @@ test('the first launch creates no files or history, and saving a connection writ
 		readOnlyReason: undefined,
 	});
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
-	expect(await readdir(root)).toEqual([]);
+	expect((await readdir(root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 });
 
 test('with no transcription connection, transcribing sends nothing and says to set one up', async () => {

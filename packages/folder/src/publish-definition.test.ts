@@ -10,6 +10,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
+import { expectErr } from 'wellcrafted/testing';
 import { defineFolder, defineTable, field } from './contract.js';
 import { formatDefinition } from './declaration.js';
 import { FileError } from './errors.js';
@@ -19,7 +20,9 @@ import { events } from './publication-log.test-support.js';
 afterEach(() => {
 	events.length = 0;
 });
-const { publishDefinition } = await import('./publish-definition.js');
+const { gitignoreNaming, nameLocalPatterns, publishDefinition } = await import(
+	'./publish-definition.js'
+);
 
 const definition = defineFolder({
 	tables: { todos: defineTable({ fields: { title: field.string() } }) },
@@ -248,18 +251,23 @@ test('a thrown write retains its cause without claiming whether the save landed'
 	});
 });
 
-test('a .gitignore that cannot be read writes nothing, names .gitignore in the log, and leaves the publication unconfirmed', async () => {
+test('a .gitignore that cannot be read writes nothing and is the answer, never an empty file', async () => {
 	const storage = {
 		read: async (path: string) => FileError.NotAFile({ path }),
 		put: async () => {
 			throw new Error('nothing is written');
 		},
-	} as unknown as Parameters<typeof publishDefinition>[1];
-	const local = defineFolder({ tables: {}, local: ['audio/'] });
-	expect(await publishDefinition(local, storage)).toBe(false);
-	expect(events).toHaveLength(1);
-	expect(events[0]?.data).toMatchObject({
-		name: 'LocalPatternsUnconfirmed',
-		cause: { path: '.gitignore' },
-	});
+	} as unknown as Parameters<typeof nameLocalPatterns>[1];
+	expect(expectErr(await nameLocalPatterns(['audio/'], storage))).toMatchObject(
+		{ path: '.gitignore' },
+	);
+	expect(events).toEqual([]);
+});
+
+test('a line with surrounding whitespace is another pattern, so the pattern is still added', () => {
+	expect(gitignoreNaming(' audio/\n', ['audio/'])).toBe(' audio/\naudio/\n');
+	expect(gitignoreNaming('audio/ \r\n', ['audio/'])).toBe(
+		'audio/ \r\naudio/\n',
+	);
+	expect(gitignoreNaming('x\r\naudio/\r\n', ['audio/'])).toBeUndefined();
 });

@@ -23,6 +23,7 @@ import {
 	type FolderLocation,
 } from './folder.js';
 import type { Opening } from './opening.js';
+import { nameLocalPatterns } from './publish-definition.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -95,8 +96,18 @@ export async function openAtRoot<TDefinition extends Definition>(
 		const { boundary } = started;
 		const { definition } = target;
 		let prepared: Definition;
-		if (target.own) prepared = target.definition;
-		else {
+		if (target.own) {
+			prepared = target.definition;
+			// The app's own folder ignores what the app keeps on this machine
+			// before the handle exists, so nothing the app starts, a native
+			// recording included, writes such a file unignored (ADR-0592).
+			const patterns = prepared.local ?? [];
+			const { error } = await nameLocalPatterns(patterns, boundary);
+			if (error !== null) {
+				release();
+				return OpenFolderError.IgnoreUnwritten({ patterns, cause: error });
+			}
+		} else {
 			// Read through the folder's own file boundary, after the grant, as
 			// every later read is.
 			const { data: declared, error } = await readDefinition(boundary);

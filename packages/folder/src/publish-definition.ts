@@ -8,11 +8,14 @@
  * is. A table directory the definition does not name is left as it is too:
  * a publication writes only its own tables' schemas.
  *
- * With the schemas, the handle makes the root `.gitignore` name every
+ * Before any of it, the app's own folder's root `.gitignore` names every
  * `local` pattern of its definition, so files that stay on the machine that
  * wrote them never enter a commit, plain `git add -A` included (ADR-0592).
- * It only adds lines: a person's own lines stay as they are, and so does a
- * pattern a Sync brought from another device.
+ * That is no best-effort step: opening the folder writes the lines, and the
+ * open fails when it cannot, so nothing such as a recording starts before
+ * them; a handle's change checks them again first and is refused while they
+ * are missing. It only adds lines: a person's own lines stay as they are,
+ * and so does a pattern a Sync brought from another device.
  *
  * Both go through the host's storage rather than the handle's writes, so a
  * publication never waits on itself: each schema as a put guarded by the
@@ -41,7 +44,7 @@ const log = createLogger('folder/definition');
 /** What a publication reads and writes: the storage port's read and put, not a handle's writes. */
 type Publisher = Pick<FolderStorage, 'read' | 'put'>;
 /** The folder's root `.gitignore`, where `local` patterns are written. */
-const GITIGNORE_PATH = '.gitignore';
+export const GITIGNORE_PATH = '.gitignore';
 const PublicationError = defineErrors({
 	DefinitionPublicationUnconfirmed: ({
 		path,
@@ -54,20 +57,15 @@ const PublicationError = defineErrors({
 		path,
 		cause,
 	}),
-	LocalPatternsUnconfirmed: ({ cause }: { cause: unknown }) => ({
-		message: `Adding the folder's local patterns to ${GITIGNORE_PATH} did not confirm a complete save.`,
-		path: GITIGNORE_PATH,
-		cause,
-	}),
 });
 
 /**
- * Await one publication of `prepared`: each table's schema at its
- * `<table>/.epicenter.json` (`writeSchemaFile`), then its `local` patterns
- * into the root `.gitignore` (`nameLocalPatterns`). A failure is logged per
+ * Await one publication of `prepared`'s schemas, each table's at its
+ * `<table>/.epicenter.json` (`writeSchemaFile`). A failure is logged per
  * file and never refuses the write it precedes, nor the other files'
  * publications. Answers whether every file is confirmed, so a handle whose
- * publication failed tries again before its next write.
+ * publication failed tries again before its next write. The `local` lines
+ * are not this best-effort step: they are a prerequisite (`nameLocalPatterns`).
  */
 export async function publishDefinition(
 	prepared: Definition,
@@ -81,11 +79,6 @@ export async function publishDefinition(
 		log.error(
 			PublicationError.DefinitionPublicationUnconfirmed({ path, cause: error }),
 		);
-	}
-	const { error } = await nameLocalPatterns(prepared.local ?? [], storage);
-	if (error !== null) {
-		confirmed = false;
-		log.error(PublicationError.LocalPatternsUnconfirmed({ cause: error }));
 	}
 	return confirmed;
 }
@@ -186,7 +179,8 @@ export function gitignoreNaming(
 	text: string,
 	local: readonly string[],
 ): string | undefined {
-	const lines = new Set(text.split(/\r?\n/).map((line) => line.trim()));
+	// Literal lines: ` audio/` is another pattern than `audio/`, as Git reads it.
+	const lines = new Set(text.split(/\r?\n/));
 	const missing = local.filter((pattern) => !lines.has(pattern));
 	if (missing.length === 0) return undefined;
 	const separator = text === '' || text.endsWith('\n') ? '' : '\n';

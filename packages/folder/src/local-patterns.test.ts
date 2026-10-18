@@ -2,8 +2,9 @@
  * Local Pattern Tests
  *
  * A definition's `local` patterns are lines its own folder's `.gitignore`
- * gets: before its first write a handle adds each one the root `.gitignore`
- * lacks. From then on `.gitignore` alone decides, read as Git reads it, and
+ * gets, as a prerequisite: opening the folder adds each one the root
+ * `.gitignore` lacks, or fails, and a change through the handle is refused
+ * while they cannot be written. From then on `.gitignore` alone decides, read as Git reads it, and
  * both Git backends leave what it ignores out of what Sync commits and sends
  * (ADR-0592).
  *
@@ -22,12 +23,13 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
+import { openFolder as openBunFolder } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
@@ -164,6 +166,68 @@ for (const [name, local] of [
 	test(`${name} is refused at the declaration`, () => {
 		expect(() => defineFolder({ tables: {}, local: [...local] })).toThrow();
 	});
+
+test("opening the app's own folder writes its .gitignore lines before the handle exists, and fails visibly when it cannot", async () => {
+	const root = await scratch('local-open-');
+	roots.push(root);
+	const own = join(root, 'recorder');
+	await mkdir(own);
+	const opened = expectOk(
+		await openBunFolder({
+			app: 'recorder',
+			root: own,
+			definition,
+			git: { author },
+		}),
+	);
+	// Nothing written through the handle yet, and the lines are there.
+	expect(await readFile(join(own, '.gitignore'), 'utf8')).toBe('audio/\n');
+	await opened.close();
+
+	const blocked = join(root, 'blocked');
+	await mkdir(join(blocked, '.gitignore'), { recursive: true });
+	const refused = expectErr(
+		await openBunFolder({
+			app: 'blocked',
+			root: blocked,
+			definition,
+			git: { author },
+		}),
+	);
+	expect(refused).toMatchObject({
+		name: 'IgnoreUnwritten',
+		patterns: ['audio/'],
+	});
+});
+
+test('a change is refused while the .gitignore lines cannot be written, so no local file lands unignored', async () => {
+	const root = join(await scratch('local-first-write-'), 'recorder');
+	roots.push(dirname(root));
+	await mkdir(root);
+	const folder = expectOk(
+		await openBunFolder({ app: 'recorder', root, definition, git: { author } }),
+	);
+	try {
+		// Something replaced the file with what cannot hold the lines.
+		await rm(join(root, '.gitignore'));
+		await mkdir(join(root, '.gitignore'));
+		const refused = expectErr(
+			await folder.write('audio/take.wav', null, 'RIFF'),
+		);
+		expect(refused.message).toContain(
+			"Could not name the files this app keeps on this machine in '.gitignore'",
+		);
+		expect(await readFile(join(root, 'audio/take.wav')).catch(() => null)).toBe(
+			null,
+		);
+		// Once the lines can be written, the change lands behind them.
+		await rm(join(root, '.gitignore'), { recursive: true });
+		expectOk(await folder.write('audio/take.wav', null, 'RIFF'));
+		expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('audio/\n');
+	} finally {
+		await folder.close();
+	}
+});
 
 type Opened = {
 	/** The folder, opened with `withDefinition`. */

@@ -324,6 +324,36 @@ test('a browser folder that is refused is returned as that refusal', async () =>
 // Opening
 // ============================================================================
 
+test("opening Whispering's own folder ignores audio before any recording can start", async () => {
+	setup();
+	const granting = await granted();
+	const { root } = granting;
+	/** Whether `.gitignore` named the audio when the shell was asked to record. */
+	const atStart: (string | undefined)[] = [];
+	const invoke = granting.invoke;
+	granting.invoke = async (cmd, body, options) => {
+		if (cmd === 'plugin:epicenter-recorder|start') {
+			atStart.push(
+				await readFile(join(root, '.gitignore'), 'utf8').catch(() => undefined),
+			);
+			throw { name: 'Failed', message: 'no microphone in a test' };
+		}
+		return invoke(cmd, body, options);
+	};
+	const workspace = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
+	);
+	try {
+		await workspace.capture.start({
+			folder: { id: workspace.folderId, write: workspace.folder.write },
+			path: 'audio/first',
+		});
+		expect(atStart).toEqual(['audio/\n']);
+	} finally {
+		await workspace.close();
+	}
+});
+
 test('the page names the folder by its ID and nothing else, and opens the directory the shell grants', async () => {
 	setup();
 	const { root } = await granted();
@@ -343,9 +373,11 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 	for (const call of calls.slice(2)) expect(call.args.scope).toBe(SCOPE);
 	expect(workspace.location).toBe(root);
 	expect(workspace.folder.git.snapshot.branch).toBe('main');
-	// Opening made no repository; the first commit does.
+	// Opening made no repository, only the .gitignore lines that keep audio
+	// here; the first commit records them and makes it.
 	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(false);
-	expect((await workspace.folder.git.commit()).status).toBe('unchanged');
+	expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('audio/\n');
+	expect((await workspace.folder.git.commit()).status).toBe('committed');
 	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
 	expect(workspace.capture.source).toBe('microphone');
 	await workspace.close();

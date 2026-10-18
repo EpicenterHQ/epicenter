@@ -16,7 +16,7 @@
  * outcome. Closing makes no last commit.
  */
 import { type CreateRowOf, requiredOutside } from '@epicenter/definition';
-import type { Result } from 'wellcrafted/result';
+import { Err, type Result } from 'wellcrafted/result';
 import { type FolderStorage, mayHaveChanged } from './boundary.js';
 import type { Definition, PreparedFolderTable } from './definition.js';
 import { FileError, type WriteError } from './errors.js';
@@ -33,7 +33,11 @@ import type { Author, CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import type { FileContent } from './merge-file.js';
 import { callObserver } from './observer.js';
-import { publishDefinition } from './publish-definition.js';
+import {
+	GITIGNORE_PATH,
+	nameLocalPatterns,
+	publishDefinition,
+} from './publish-definition.js';
 import { createTable, type FileTable } from './table.js';
 import { movePath, type Written, writeFile } from './write.js';
 
@@ -309,15 +313,27 @@ function handleStorage(
 	};
 	// One publication runs at a time, and every change waits for it. Only a
 	// confirmed one is kept: after a failure the next change tries again.
+	// The `.gitignore` lines come first and are a prerequisite: a change that
+	// could put a file they keep on this machine is refused until they land.
+	// The schemas are best effort, and never refuse a change.
 	let confirmed = false;
-	let publishing: Promise<void> | undefined;
-	const publish = async () => {
-		if (published === undefined || confirmed) return;
-		publishing ??= publishDefinition(published, noting).then((done) => {
-			confirmed = done;
+	let publishing: Promise<FileError | undefined> | undefined;
+	const publish = async (): Promise<FileError | undefined> => {
+		if (published === undefined || confirmed) return undefined;
+		publishing ??= (async () => {
+			const { error } = await nameLocalPatterns(published.local ?? [], noting);
+			if (error !== null)
+				return FileError.Io({
+					path: GITIGNORE_PATH,
+					operation: 'name the files this app keeps on this machine in',
+					cause: error,
+				}).error;
+			confirmed = await publishDefinition(published, noting);
+			return undefined;
+		})().finally(() => {
 			publishing = undefined;
 		});
-		await publishing;
+		return publishing;
 	};
 	return {
 		list: () => (signal.aborted ? closed() : storage.list()),
@@ -326,12 +342,14 @@ function handleStorage(
 		read: (path) => (signal.aborted ? closed() : storage.read(path)),
 		async put(path, bytes, ifMatch) {
 			if (signal.aborted) return closed();
-			await publish();
+			const refused = await publish();
+			if (refused !== undefined) return Err(refused);
 			return noting.put(path, bytes, ifMatch);
 		},
 		async mkdir(path) {
 			if (signal.aborted) return closed();
-			await publish();
+			const refused = await publish();
+			if (refused !== undefined) return Err(refused);
 			return storage.mkdir(path);
 		},
 		rmdir: (path) => (signal.aborted ? closed() : storage.rmdir(path)),
