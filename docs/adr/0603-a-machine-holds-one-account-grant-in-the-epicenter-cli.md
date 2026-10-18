@@ -57,8 +57,9 @@ command takes a `grant` argument.
 grant.** The `epicenter` CLI keeps it in one keychain entry per deployment,
 named by the deployment's origin, under `so.epicenter.auth`. Settings, the
 commands Rust runs for a page, a terminal, `git` through `epicenter auth
-git-credential`, and an agent all read it through the CLI; nothing else reads
-the entry.
+git-credential`, and an agent all read it through the CLI; no other Epicenter
+code reads the entry. An installed app's build is not kept from it: the build
+runs as the person inside the CLI's binary (ADR-0605).
 
 **The grant is obtained two ways, as one client, `so.epicenter`.**
 
