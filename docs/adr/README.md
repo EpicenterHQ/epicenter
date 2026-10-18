@@ -830,3 +830,4 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Accepted (amends 0585, 0589, 0590, and 0598) |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Accepted (amends 0607) |
+| [0611](0611-epicenter-v1-is-a-git-service-a-cli-and-a-library-over-namespaces-of-typed-markdown.md) | Epicenter v1 is a Git service, a CLI, and a library over namespaces of typed Markdown | Proposed (supersedes 0527; amends 0526, 0529, 0546, 0547, 0558, 0584, 0585, 0590, 0591, 0594, 0605, 0607, 0608, and 0609) |
