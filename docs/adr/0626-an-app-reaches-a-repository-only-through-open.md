@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
-- **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "`openFolder({ definition })` (ADR-0586) validates every table read and write against `definition`" and "`openFolder({ id })` and `openFolder({ root, git })`": an app opens a repository with `open({ id?, tables })`, and its schemas check what it reads and refuse no write; [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) at "The library resolves paths and lists folders" and "`openFolder` refuses an `id` that names no directory": the library has no `resolve` or `listFolders`, and `open` returns `undefined` when this origin holds no grant.
+- **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "`openFolder({ definition })` (ADR-0586) validates every table read and write against `definition`" and "`openFolder({ id })` and `openFolder({ root, git })`": an app opens a repository with `open({ id?, tables })`, and its schemas check what it reads and refuse no write; [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) at "The library resolves paths and lists folders" and "`openFolder` refuses an `id` that names no directory": the library has no `resolve` or `listFolders`, and `open` returns `undefined` when this origin holds no grant; [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) at "One opened data folder exposes `tables`, `kv`, `files`, and `git`": a repository exposes `tables` and `files`, `files` writes only text, and `kv` and `git` leave the app API.
 - **Relates:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (tables and rows), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (grants and consent), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text only), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge, and every save), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the clone behind `open`), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the four words).
-- **Unbuilt:** all of it: `open`, `connect`, `newId`, `subscribe`, the table methods, a row's `version`, and `files` in `@epicenter/data`.
+- **Unbuilt:** all of it: `open`, `connect`, `newId`, `subscribe`, the table methods, a row's `version`, and the repository's and each table's `files` in `@epicenter/data`.
 
 ## Context
 
@@ -39,10 +39,16 @@ Repository
   id                                                                        v1
   name               the label as of the last fetch                         later
   status             'synced' | 'pending' | 'disconnected' | 'stuck'        v1
-  subscribe(listener)  the event carries status and the changed rows,
-                       each by table and id; returns an unsubscribe         v1
+  subscribe(listener)  the event carries status, the changed rows, each
+                       by table and id, and the changed paths; returns
+                       an unsubscribe                                       v1
   close()                                                                   v1
   tables.<t>         one Table per name in tables                           v1
+  files              list(prefix?) · read(path): Blob | undefined ·
+                     write(path, text) · delete(path)                       v1
+                     text only; path is relative to the repository's root,
+                     may contain '/', and may name any file, a table's rows
+                     and its table.json included
 
 Table
   list()             every row, sorted by id                                v1
@@ -51,9 +57,7 @@ Table
                      creates a missing row; a field set to undefined is removed;
                      one merge of the whole file, with version as its base
   delete(id)         removes the row and its folder <id>/                   v1
-  files(id)          list() · read(path): Blob | undefined ·
-                     write(path, text) · delete(path)                       v1
-                     text only; path is relative to <id>/ and may contain '/'
+  files(id)          the repository's files with <t>/<id>/ as their root   v1
   rename(id, next)                                                          later
 
 Row  { id, version, ok: true,  fields, body }    fields typed by the app's schema
@@ -80,7 +84,9 @@ unit they change.
 **Only these throw:**
 
 ```txt
-an id that is not one filename segment, or differs from an existing id only by case
+an id that is not one filename segment
+a path with an empty, '.', '..', or '.git' segment, or a leading '/'
+a new id or path that differs from an existing one only by case
 content that is not text (ADR-0621)
 a storage failure, or a call on a closed repository
 ```
@@ -90,16 +96,27 @@ for not fitting a schema: the only refusals are a non-text write from the
 library, a push that would rewrite history, and what Git cannot represent
 ([ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md)).
 The case rule keeps a disk clone on a file system that folds case from
-holding two rows as one file.
+holding two paths as one file.
 
-**One subscription per repository.** `subscribe` reports the status and the
-rows that changed, by table and id; no table has a subscription of its own.
+**`files` reaches every path, and a row is a file.** A write through
+`files` is one merge of the whole file with the file's current blob as its
+base, as a `set` without `version` is
+([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
+Writing `<t>/<id>.md` saves that row, and a row whose frontmatter does not
+parse comes back `ok: false`. `open` and `set` never write a `table.json`;
+an app that writes one through `files` authors it, as a person or an agent
+does
+([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
+
+**One subscription per repository.** `subscribe` reports the status, the
+rows that changed, by table and id, and the paths that changed; no table
+has a subscription of its own.
 
 **The app API has no `create`, no sync, commit, or history, no list of
-issues, no write of a `table.json`, and no revoking of a grant.** A table
-named in `tables` that the repository lacks lists no rows; the first `set`
-in it writes `<t>/<id>.md`, and the directory is a table to `check` and
-`query` once a person or an agent writes its `table.json`. A grant is
+issues, and no revoking of a grant.** A table named in `tables` that the
+repository lacks lists no rows; the first `set` in it writes
+`<t>/<id>.md`, and the directory is a table to `check` and `query` once
+someone writes its `table.json`. A grant is
 revoked on the consent page
 ([ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md)).
 
@@ -115,8 +132,13 @@ revoked on the consent page
   apps setting different fields of one row never undo each other.
 - Opening a repository writes no file into it, so two clones that open
   one repository never race to describe a table.
-- A row folder's file reads as a `Blob`, so Git LFS files later need no
-  change to `read`.
+- An app reads and writes any path of a repository it holds a grant for,
+  such as `docs/` or another app's table, as an agent can.
+- A malformed row an app writes through `files` is an `ok: false` row and
+  a `check` line; a `table.json` it overwrites is a commit in history that
+  a revert repairs.
+- A file reads as a `Blob`, so Git LFS files later need no change to
+  `read`.
 
 ## Considered alternatives
 
@@ -133,3 +155,9 @@ revoked on the consent page
   listeners for one sync's changes.
 - **A save whose body always replaces.** Two tabs editing different
   paragraphs of one row lose one tab's edit.
+- **Files only inside a row's folder.** An app cannot read or write the
+  documents people and agents keep beside tables, and an app whose notes
+  nest in directories cannot exist.
+- **`files` refusing a table's directory or its `table.json`.** One path
+  then has two rules, and the list of refusals grows to stop a mistake that
+  history shows and a revert repairs.

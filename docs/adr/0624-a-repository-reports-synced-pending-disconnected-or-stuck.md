@@ -56,7 +56,7 @@ fetch
 ([ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md)),
 a push that would rewrite history
 ([ADR-0620](0620-history-in-a-repository-only-grows.md)), what Git cannot
-represent, and a new row id that differs from an existing one only by case
+represent, and a new id or path that differs from an existing one only by case
 ([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md));
 everything else is accepted.** Nothing about a file's
 content, a table's description, or an app's schema is a refusal. A browser
@@ -65,7 +65,7 @@ symlink, an executable, or a submodule, anywhere in the tree (ADR-0623).
 On a disk clone, what its file system cannot represent, such as two names
 that differ only by case where the file system folds case, is a cause of
 `stuck`; the library never writes such a pair, because it refuses a new id
-that differs from an existing one only by case
+or path that differs from an existing one only by case
 ([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)).
 
 ## Consequences

@@ -35,7 +35,7 @@ governs where the two differ.
    and its unsent edits, and nothing else (ADR-0619, ADR-0623).
 3. The access list is the only guard on who. The only refusals on what are
    a non-text write from the library, a push that would rewrite history,
-   what Git cannot represent, and a new row id that differs from an
+   what Git cannot represent, and a new id or path that differs from an
    existing one only by case, which a disk clone on a case-insensitive file
    system could not hold apart; everything else is accepted, and a
    browser clone carries untouched any tree entry it cannot represent.

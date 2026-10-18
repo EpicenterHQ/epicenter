@@ -24,9 +24,9 @@ once costs every clone.
 ## Decision
 
 **In v1 the library writes only text: UTF-8 with no NUL byte.** A row's
-body and fields, and every file in a row's folder, are text; the library
-writes no `table.json`
-([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
+body and fields, and every file written through `files`, are text, a
+`table.json` included
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)).
 The library offers no binary write.
 
 **The Git service still accepts any Git content, and `check` does not list
