@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Supersedes:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (a data folder keeps `epicenter.ts`, and `epicenter generate <dir>` writes the `epicenter.json` it declares): a table's description is the literal JSON Schema in its `table.json`, and nothing generates it.
-- **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the root `epicenter.json`, its `app` and `title`, and "A data folder is every real, non-dot directory directly in the Epicenter folder": each table carries `<table>/table.json`, and the unit a person owns is a repository; [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) at `field.optional` as the declaration of optionality: a field is optional when its table's `required` list omits it; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`; [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "`epicenter.json` included" and "keys in ours' order, then keys only theirs added": a `table.json` merges as any `.json` file does, and a written row's keys follow its `table.json`.
+- **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the root `epicenter.json`, its `app` and `title`, and "A data folder is every real, non-dot directory directly in the Epicenter folder": each table carries `<table>/table.json`, and the unit a person owns is a repository; [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) at `field.optional` as the declaration of optionality: a field is optional when its table's `required` list omits it; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`; [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "`epicenter.json` included": a `table.json` is text and merges as any text file does ([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`check` and `query`), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository a table lives in), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (the app API over tables and rows).
 - **Unbuilt:** all of it: `<table>/table.json` discovery and the deletion of the root `epicenter.json`; the one row predicate; the `id` name; readers that describe and never refuse; an app writing `table.json` with a table's first row; and key order from `table.json`.
 
@@ -67,10 +67,13 @@ row, only after its clone has fetched once, and never overwrites one.**
 Changing a table's description is an edit a person or an agent makes.
 Deleted: `publishDefinition`.
 
-**A row's frontmatter keys are written in `table.json` order, then
-alphabetically, without comments.** Every writer that formats a row
-(`formatRowSource` in `packages/folder/src/canonical.ts`) takes that order;
-a row a person wrote by hand keeps its bytes until something rewrites its
+**When the library saves a row, its frontmatter keys are written in
+`table.json` order, then alphabetically, without comments.** The save
+formats the row (`formatRowSource` in `packages/folder/src/canonical.ts`)
+with that order. A merge reads no description: it keeps the change's key
+order and adds keys only the other side has
+([ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md)).
+A row a person wrote by hand keeps its bytes until something rewrites its
 frontmatter.
 
 ## Consequences
