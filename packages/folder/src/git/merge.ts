@@ -119,7 +119,8 @@ function followRenames(
 
 /**
  * Merge `ours` and `theirs` over `base` into a tree, with `ours` the writer
- * acting.
+ * acting. `base` is `undefined` only when a person agreed to combine
+ * histories that share no commit.
  */
 export async function mergeHistories(
 	access: ObjectAccess,
@@ -133,9 +134,55 @@ export async function mergeHistories(
 		readonly theirs: string;
 	},
 ): Promise<HistoryMerge> {
-	const b = await filesOf(access, base);
-	const o = await filesOf(access, ours);
-	const t = await filesOf(access, theirs);
+	return mergeFiles(access, {
+		base: await filesOf(access, base),
+		ours: await filesOf(access, ours),
+		theirs: await filesOf(access, theirs),
+		oursCommit: ours,
+		theirsCommit: theirs,
+	});
+}
+
+/**
+ * The tree of a folder's first commit: `tree`, its files, which no commit
+ * holds yet, merged with the remote head `theirs` over an empty base, this
+ * folder the writer acting. With no base nothing is deleted, so only the
+ * remote's version of a path both added can lose, and the trailers name
+ * `theirs`, the first commit's one parent.
+ */
+export async function mergeFirstCommit(
+	access: ObjectAccess,
+	{ tree, theirs }: { readonly tree: string; readonly theirs: string },
+): Promise<HistoryMerge> {
+	return mergeFiles(access, {
+		base: new Map(),
+		ours:
+			tree === EMPTY_TREE
+				? new Map<string, TreeFile>()
+				: await readTreeFiles(access, tree),
+		theirs: await filesOf(access, theirs),
+		oursCommit: undefined,
+		theirsCommit: theirs,
+	});
+}
+
+async function mergeFiles(
+	access: ObjectAccess,
+	{
+		base: b,
+		ours: o,
+		theirs: t,
+		oursCommit,
+		theirsCommit,
+	}: {
+		readonly base: Map<string, TreeFile>;
+		readonly ours: Map<string, TreeFile>;
+		readonly theirs: Map<string, TreeFile>;
+		/** `undefined` for files no commit holds, which only a delete could make lose. */
+		readonly oursCommit: string | undefined;
+		readonly theirsCommit: string;
+	},
+): Promise<HistoryMerge> {
 	followRenames(b, o, t);
 	followRenames(b, t, o);
 	const result = new Map<string, TreeFile>();
@@ -157,12 +204,15 @@ export async function mergeHistories(
 				(entry) => entry === undefined || entry.mode === PLAIN,
 			);
 			const merged = !plain ? wholeFile(versions) : await merge(path, versions);
-			for (const unit of merged.overridden)
-				overrides.push({
-					path,
-					unit,
-					losing: unit.kind === 'file' && unit.lost === 'ours' ? ours : theirs,
-				});
+			for (const unit of merged.overridden) {
+				const losing =
+					unit.kind === 'file' && unit.lost === 'ours'
+						? oursCommit
+						: theirsCommit;
+				if (losing === undefined)
+					throw new Error(`no commit holds the ${path} that lost`);
+				overrides.push({ path, unit, losing });
+			}
 			if (merged.content === null) settled = undefined;
 			else if (merged.content === versions.ours && mine !== undefined)
 				settled = mine;

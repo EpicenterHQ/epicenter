@@ -799,7 +799,7 @@ When you add an ADR, add its row here.
 | [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
 | [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
 | [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |
-| [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Accepted (supersedes 0554; amends 0548 and 0551; amended by 0591 and 0592) |
+| [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Accepted (supersedes 0554; amends 0548 and 0551; amended by 0591, 0592, and 0615) |
 | [0577](0577-audio-stays-on-the-machine-that-recorded-it.md) | Audio stays on the machine that recorded it | Accepted (amends 0543 and 0544; withdraws 0438; amended by 0592) |
 | [0578](0578-epicenter-hosts-no-mcp-server.md) | Epicenter hosts no MCP server | Accepted (supersedes 0550; amends 0549 and 0565; amended by 0594 and 0606) |
 | [0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md) | Epicenter never deletes a model from the shared Hugging Face cache | Accepted (amends 0180 and 0539) |
@@ -830,3 +830,4 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Accepted (amends 0585, 0589, 0590, and 0598) |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Accepted (amends 0607) |
+| [0615](0615-a-folder-with-no-commit-fetches-first-and-its-first-commit-descends-from-the-remote-head.md) | A folder with no commit fetches first, and its first commit descends from the remote head | Proposed (amends 0576) |

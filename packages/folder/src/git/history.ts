@@ -18,7 +18,10 @@
  * `sync.run()` never stops because changes compete. It checkpoints saved
  * files, fetches, and then fast-forwards, pushes, or makes one merge commit
  * of the local head and the remote's (`mergeHistories`), with this device as
- * the writer acting. A merge commit is pushed before anything here changes,
+ * the writer acting. A folder with no commit fetches before it records
+ * anything, so its first commit is a root only on a remote with no branch;
+ * otherwise it puts the folder's files on the remote's head (ADR-0615). A
+ * merge commit is pushed before anything here changes,
  * so a push that lost a race leaves nothing to undo: Sync fetches and merges
  * again from the same local head. A tree that lands is published over the
  * files by the one write, holding the folder's save lock, the live file as
@@ -46,7 +49,12 @@ import { confirmedPut, writeFile } from '../write.js';
 import { declaredFilter, isAttributesPath } from './attributes.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
-import { chooseBase, mergeHistories, mergeMessage } from './merge.js';
+import {
+	chooseBase,
+	mergeFirstCommit,
+	mergeHistories,
+	mergeMessage,
+} from './merge.js';
 import { commitSubject, messageProblem, type PathChange } from './messages.js';
 import {
 	type Author,
@@ -732,14 +740,26 @@ export function createHistory({
 		return Ok(undefined);
 	}
 
-	/** The files `from` and `to` hold, and the paths Sync changes between them. */
+	/** The files a tree holds, which no commit may hold yet. */
+	async function treeFiles(objects: Objects, tree: string) {
+		if (tree === EMPTY_TREE) return new Map<string, TreeFile>();
+		return objects((access) => readTreeFiles(access, tree));
+	}
+
+	/**
+	 * The files `from` holds, or `began` when given, the tree the files were
+	 * at, and the files `to` holds, and the paths Sync changes between them.
+	 */
 	async function between(
 		objects: Objects,
 		from: string | undefined,
 		to: string,
+		began?: string,
 	) {
 		const [before, after] = await Promise.all([
-			headFiles(objects, from),
+			began === undefined
+				? headFiles(objects, from)
+				: treeFiles(objects, began),
 			headFiles(objects, to),
 		]);
 		const changes = diffFileMaps(before, after);
@@ -849,16 +869,20 @@ export function createHistory({
 	 * Mark the publish of `to` over the files the branch left at `from` as
 	 * begun: `refs/epicenter/publishing` names a commit whose parents are
 	 * `from`, when there is one, then `to`, which also keeps both from being
-	 * collected while the publish is unfinished.
+	 * collected while the publish is unfinished. Its tree is the tree the
+	 * files were at: `began`, or `from`'s.
 	 */
 	async function beginPublishing(
 		objects: Objects,
 		from: string | undefined,
 		to: string,
+		began: string | undefined,
 	) {
 		const marker = await objects(async (access) =>
 			writeCommitObject(access, {
-				tree: await commitTree(access, to),
+				tree:
+					began ??
+					(from === undefined ? EMPTY_TREE : await commitTree(access, from)),
 				parents: from === undefined ? [to] : [from, to],
 				message: 'Epicenter Sync is publishing this commit',
 				author,
@@ -882,7 +906,9 @@ export function createHistory({
 	): Promise<string | undefined> {
 		const marker = await backend.readPublishing();
 		if (marker === undefined) return undefined;
-		const parents = await objects((access) => commitParents(access, marker));
+		const [parents, began] = await objects((access) =>
+			Promise.all([commitParents(access, marker), commitTree(access, marker)]),
+		);
 		const [from, to] = parents.length === 2 ? parents : [undefined, parents[0]];
 		if (to === undefined || (await backend.readBranch()) !== from) {
 			await backend.writePublishing(undefined);
@@ -890,6 +916,7 @@ export function createHistory({
 		}
 		const { error } = await publishWithin(objects, from, to, {
 			resuming: true,
+			began,
 		});
 		if (error === null) return undefined;
 		return `a Sync stopped while it wrote this folder's files and cannot finish them: ${error.message}`;
@@ -897,11 +924,17 @@ export function createHistory({
 
 	/**
 	 * Write the tree of `to` over the files, which the branch left at `from`,
-	 * then move the branch and set the index to it.
+	 * then move the branch and set the index to it. `began` is the tree the
+	 * files were captured as when no commit holds them.
 	 */
-	function publish(objects: Objects, from: string | undefined, to: string) {
+	function publish(
+		objects: Objects,
+		from: string | undefined,
+		to: string,
+		began?: string,
+	) {
 		return exclusive(() =>
-			publishWithin(objects, from, to, { resuming: false }),
+			publishWithin(objects, from, to, { resuming: false, began }),
 		);
 	}
 
@@ -909,7 +942,8 @@ export function createHistory({
 	 * Inside the protection: write the tree of `to` over the files, which the
 	 * branch left at `from`, then move the branch and set the index to it.
 	 * `moved` when a commit moved the branch since `from`, so Sync merges from
-	 * there instead.
+	 * there instead. `began`, when given, stands for `from`'s files: the tree
+	 * a folder with no commit was captured as, which its first commit merged.
 	 *
 	 * Each path that differs between the two goes once, by the one write
 	 * (ADR-0576), the live file as the writer acting: one still at `from`'s
@@ -938,7 +972,10 @@ export function createHistory({
 		objects: Objects,
 		from: string | undefined,
 		to: string,
-		{ resuming }: { readonly resuming: boolean },
+		{
+			resuming,
+			began,
+		}: { readonly resuming: boolean; readonly began?: string },
 	): Promise<
 		Result<
 			| { readonly kind: 'published' }
@@ -951,7 +988,7 @@ export function createHistory({
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
-		const plan = await between(objects, from, to);
+		const plan = await between(objects, from, to, began);
 		const way = await inTheWay(objects, boundary, plan);
 		const { made, ignored } = way;
 		const refused = wayProblem(way.failed, [...way.occupied, ...ignored]);
@@ -982,7 +1019,7 @@ export function createHistory({
 		// A publish that changes no file has nothing to finish, and one
 		// resuming is already named.
 		const marked = resuming || plan.changes.length > 0;
-		if (marked && !resuming) await beginPublishing(objects, from, to);
+		if (marked && !resuming) await beginPublishing(objects, from, to, began);
 		const unmark = () =>
 			marked ? backend.writePublishing(undefined) : Promise.resolve();
 		const { data: listed } = await boundary.list();
@@ -1135,14 +1172,59 @@ export function createHistory({
 	const SYNC_ATTEMPTS = 5;
 
 	/**
-	 * Checkpoint saved files, fetch, and bring the folder and the remote
-	 * together: a fast-forward, a push, or one merge commit of both heads
-	 * with this device as the writer acting, pushed before it is published
-	 * here. A push that lost a race merges again from the same local head
-	 * against the new remote, at most `SYNC_ATTEMPTS` times. A push that
-	 * failed otherwise still publishes the merge here, so the folder keeps
-	 * receiving, and answers `saved`. Histories that share no commit merge
-	 * only on this folder's first commit, or with `allowUnrelatedHistories`.
+	 * Inside the protection, for a folder whose branch has no commit: the
+	 * tree its files make, which no commit holds, for its first commit to
+	 * merge with the remote's head. `moved` when a commit gave the branch one
+	 * meanwhile. A capture refused here is the checkpoint's refusal.
+	 */
+	function captureFirst(objects: Objects): Promise<
+		Result<
+			| {
+					readonly kind: 'captured';
+					readonly tree: string;
+					readonly capturedAt: number;
+			  }
+			| { readonly kind: 'moved'; readonly head: string },
+			SyncError
+		>
+	> {
+		const refuse = (reason: string) =>
+			SyncError.Checkpoint({ outcome: { status: 'blocked', reason } });
+		return exclusive(async () => {
+			const blocked = await backend.blocked();
+			if (blocked !== undefined) return refuse(blocked);
+			const unfinished = await finishPublishing(objects);
+			if (unfinished !== undefined) return refuse(unfinished);
+			const head = await backend.readBranch();
+			if (head !== undefined) return Ok({ kind: 'moved', head } as const);
+			const capturedAt = ++clock;
+			const captured = await captureSource(new Map());
+			if (captured.refused !== undefined) return refuse(captured.refused);
+			const unrepresentable = await backend.blocked(captured.rules);
+			if (unrepresentable !== undefined) return refuse(unrepresentable);
+			const tree = await objects((access) =>
+				writeFilesTree(access, captured.source),
+			);
+			return Ok({ kind: 'captured', tree, capturedAt } as const);
+		});
+	}
+
+	/**
+	 * Fetch and bring the folder and the remote together: a fast-forward, a
+	 * push, or one merge commit of both heads with this device as the writer
+	 * acting, pushed before it is published here. A folder with a commit
+	 * checkpoints its saved files first. A folder with none fetches first:
+	 * against a remote branch, its files merge with the remote's tree over an
+	 * empty base into a first commit whose one parent is the remote head, or,
+	 * when they add nothing, it takes the remote head as it is; against no
+	 * branch, its first commit is its own, and is pushed. So a merge base
+	 * exists for every later Sync, and histories that share no commit merge
+	 * only with `allowUnrelatedHistories`.
+	 *
+	 * A push that lost a race merges again from the same local head against
+	 * the new remote, at most `SYNC_ATTEMPTS` times. A push that failed
+	 * otherwise still publishes the merge here, so the folder keeps
+	 * receiving, and answers `saved`.
 	 */
 	function runSync({
 		allowUnrelatedHistories = false,
@@ -1151,25 +1233,30 @@ export function createHistory({
 			const remote = await backend.refreshRemote();
 			if (remote === undefined) return SyncError.NoRemote();
 			let capturedAt = 0;
-			const checkpoint = await commitNow((at) => {
-				capturedAt = at;
-			});
-			switch (checkpoint.status) {
-				case 'committed':
-				case 'unchanged':
-					break;
-				case 'closed':
-					return SyncError.Closed();
-				default:
-					return SyncError.Checkpoint({ outcome: checkpoint });
+			/** Record the saved files, and answer the local head. */
+			const checkpoint = async (): Promise<
+				Result<string | undefined, SyncError>
+			> => {
+				const outcome = await commitNow((at) => {
+					capturedAt = at;
+				});
+				switch (outcome.status) {
+					case 'committed':
+						return Ok(outcome.oid);
+					case 'unchanged':
+						return Ok(outcome.head);
+					case 'closed':
+						return SyncError.Closed();
+					default:
+						return SyncError.Checkpoint({ outcome });
+				}
+			};
+			let local = await backend.readBranch();
+			if (local !== undefined) {
+				const { data, error } = await checkpoint();
+				if (error !== null) return Err(error);
+				local = data;
 			}
-			let local =
-				checkpoint.status === 'committed' ? checkpoint.oid : checkpoint.head;
-			// A folder this run gave its first commit has no history of its own
-			// yet: it joins the remote's over an empty base.
-			const unrelated =
-				allowUnrelatedHistories ||
-				(checkpoint.status === 'committed' && checkpoint.parent === undefined);
 			const done = (
 				head: string | undefined,
 				push: PushOutcome | undefined,
@@ -1219,17 +1306,97 @@ export function createHistory({
 						),
 					});
 				rejectedAt = null;
+				if (local === undefined && theirs === undefined) {
+					// Neither side has a commit: the first one is this folder's.
+					const { data, error } = await checkpoint();
+					if (error !== null) return Err(error);
+					local = data;
+					if (local === undefined) return done(undefined, undefined);
+				} else if (local === undefined) {
+					// No commit here, and the remote has one: this folder's
+					// files go on top of it.
+					const remoteHead: string = theirs!;
+					const refused = await representable(objects, remoteHead, 'remote');
+					if (refused.error !== null) return refused;
+					const { data: first, error } = await captureFirst(objects);
+					if (error !== null) return Err(error);
+					if (first.kind === 'moved') {
+						local = first.head;
+						continue;
+					}
+					capturedAt = first.capturedAt;
+					const combined = await objects(async (access) => {
+						const result = await mergeFirstCommit(access, {
+							tree: first.tree,
+							theirs: remoteHead,
+						});
+						const remoteTree = await commitTree(access, remoteHead);
+						if (result.tree === remoteTree) return undefined;
+						const changes = diffFileMaps(
+							remoteTree === EMPTY_TREE
+								? new Map()
+								: await readTreeFiles(access, remoteTree),
+							await readTreeFiles(access, result.tree),
+						);
+						return writeCommitObject(access, {
+							tree: result.tree,
+							parents: [remoteHead],
+							message: mergeMessage(commitSubject(changes)!, result.overrides),
+							author,
+						});
+					});
+					let pushed: PushOutcome | undefined;
+					if (combined !== undefined) {
+						const unsendable = await representable(objects, combined, 'folder');
+						if (unsendable.error !== null) return unsendable;
+						const way = await inTheWay(
+							objects,
+							boundary,
+							await between(objects, undefined, combined, first.tree),
+						);
+						const inWay = wayProblem(way.failed, [
+							...way.occupied,
+							...way.ignored,
+						]);
+						if (inWay !== undefined)
+							return SyncError.Blocked({ reason: inWay });
+						// A file made since the capture: captured again.
+						if (way.made.length > 0) continue;
+						const outcome = await pushCommit(combined);
+						if (outcome === 'rejected') {
+							rejectedAt = remoteHead;
+							continue;
+						}
+						pushed = outcome;
+					}
+					const to = combined ?? remoteHead;
+					const { data: published, error: publishError } = await publish(
+						objects,
+						undefined,
+						to,
+						first.tree,
+					);
+					if (publishError !== null) return Err(publishError);
+					if (published.kind === 'moved') {
+						if (pushed !== undefined) return done(published.head, pushed);
+						local = published.head;
+						continue;
+					}
+					// An edit the publish found: captured again, and merged
+					// with what the remote now holds.
+					if (published.kind === 'edited') continue;
+					return done(to, pushed);
+				}
 				if (theirs === local) return done(local, undefined);
 				if (
 					theirs === undefined ||
-					(local !== undefined &&
-						(await objects((access) => isAncestor(access, theirs, local!))))
+					(await objects((access) => isAncestor(access, theirs, local!)))
 				) {
 					// The remote is behind: send ours, if another device could
 					// hold it.
-					const unsendable = await representable(objects, local!, 'folder');
+					const unsendable = await representable(objects, local, 'folder');
 					if (unsendable.error !== null) return unsendable;
-					const pushed = await pushCommit(local!);
+					const pushed = await pushCommit(local);
 					if (pushed === 'rejected') {
 						rejectedAt = theirs;
 						continue;
@@ -1238,10 +1405,7 @@ export function createHistory({
 				}
 				const refused = await representable(objects, theirs, 'remote');
 				if (refused.error !== null) return refused;
-				if (
-					local === undefined ||
-					(await objects((access) => isAncestor(access, local!, theirs)))
-				) {
+				if (await objects((access) => isAncestor(access, local!, theirs))) {
 					// This folder is behind: take theirs.
 					const { data: published, error } = await publish(
 						objects,
@@ -1262,7 +1426,7 @@ export function createHistory({
 				const base = await objects((access) =>
 					chooseBase(access, local!, theirs),
 				);
-				if (base === undefined && !unrelated)
+				if (base === undefined && !allowUnrelatedHistories)
 					return SyncError.Unrelated({ head: local });
 				const mine = local;
 				const merged = await objects(async (access) => {

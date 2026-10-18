@@ -94,9 +94,9 @@ export type FolderSync = {
 	 * Make `url` the folder's remote (`remote.origin.url` in its Git
 	 * configuration), then sync. This is how a folder gets a remote, or
 	 * changes it. An empty folder takes the remote's history; a folder with
-	 * files and no history of its own merges them with it; a remote with no
-	 * branch receives this folder's. Separate histories are `Unrelated` until
-	 * `allowUnrelatedHistories` combines them. The remote stays set whatever
+	 * files and no commit puts them on the remote's head, merged over an
+	 * empty base; a remote with no branch receives this folder's. Separate
+	 * histories are `Unrelated` until `allowUnrelatedHistories` combines them. The remote stays set whatever
 	 * the sync answers, and a later `run` continues.
 	 */
 	connect(

@@ -380,7 +380,7 @@ if (error?.name === 'Unrelated') {
 | --- | --- | --- |
 | files, no history | no branch | commits and pushes |
 | empty | history | takes it |
-| files, no history | history | merges them over an empty base; where a path differs, this folder's version wins and history keeps the remote's |
+| files, no history | history | merges them with the remote's over an empty base into one commit on the remote head; where a path differs, this folder's version wins and history keeps the remote's |
 | its own history | related | syncs |
 | its own history | unrelated | `Unrelated`, writing nothing, until `allowUnrelatedHistories` |
 
@@ -1317,7 +1317,8 @@ attempt held, over the new head. A second move is reported as `branchMoved`.
 Commit and push failures never undo a save.
 
 A save never asks for a commit (ADR-0529). A commit happens only when a caller
-asks for one: `commit()`, or sync's checkpoint before it fetches. A commit that fails otherwise is reported
+asks for one: `commit()`, or sync's checkpoint before it fetches, which a
+folder with no commit yet skips. A commit that fails otherwise is reported
 in `git.snapshot.lastCommit` and is not retried. `git.snapshot.files` turns
 `stale` when a save lands after the last capture, and `git.status()` lists what
 is uncommitted.
@@ -1381,7 +1382,7 @@ if (error !== null) return show(error.message); // it stopped, and says why
 ```
 
 `run()` records the saved files in a checkpoint commit `L` and fetches the
-remote head `R`. When `R` descends from `L` it fast-forwards; when `L`
+remote head `R` (a folder with no commit fetches first; see below). When `R` descends from `L` it fast-forwards; when `L`
 descends from `R` it pushes. Otherwise it makes one merge commit `M` with
 the parents `[L, R]`, computed by Epicenter's own code on every host
 (`git/merge.ts`), and pushes it before any file here changes. Each path
@@ -1428,9 +1429,14 @@ so a publish cut off partway leaves each file at its old bytes or its new
 ones (ADR-0545). `refs/epicenter/publishing` names the publish, as a commit
 whose parents are where the branch was and what it publishes, until the
 branch moves; the next commit finishes that publish before it records the
-files, so what arrived is never recorded as this device's edit. A folder that had no history before
-the run adopts the remote's by merging over an empty base; one with a
-history of its own meets an unrelated remote as `Unrelated`, and
+files, so what arrived is never recorded as this device's edit. A folder
+with no commit fetches before it records anything (ADR-0615). Against a
+remote branch, its files merge with the remote's tree over an empty base
+into a first commit whose one parent is the remote head, or, when they add
+nothing, it takes the remote head as it is; against none, its first commit
+is its own root and is pushed. A fetch that fails leaves nothing recorded,
+so the next Sync starts the same way. A folder with a history of its own
+meets an unrelated remote as `Unrelated`, and
 `run({ allowUnrelatedHistories: true })` combines them. `connect(url)` sets
 the remote, then runs ([above](#the-folder-opened-lazily-and-its-remote)).
 

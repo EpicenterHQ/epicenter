@@ -26,8 +26,10 @@
  *   the new remote; it never merges its own merge, and gives up after five
  * - A push whose reply is lost still publishes, and the next Sync finds the
  *   remote already there
- * - Unrelated histories are refused unless asked for, and a folder with no
- *   history adopts the remote on its first sync
+ * - Unrelated histories are refused unless asked for. A folder with no
+ *   commit fetches before it records anything: its first commit is a root
+ *   only on an empty remote, and otherwise merges its files with the
+ *   remote's over an empty base onto the remote head, its one parent
  *
  * See also:
  * - `merge-file.test.ts` and `write.test.ts` for the unit merges
@@ -158,6 +160,8 @@ async function setup() {
 		remoteFile: (path: string, ref = 'main') =>
 			git(bare, 'show', `${ref}:${path}`),
 		remoteMessage: () => git(bare, 'log', '-1', '--format=%B', 'main'),
+		/** The commits of the remote branch with no parent. */
+		roots: () => git(bare, 'rev-list', '--max-parents=0', 'main'),
 		/** The peer writes `files` (`null` removes one), commits, and pushes. */
 		async incoming(files: Record<string, string | Uint8Array | null>) {
 			await git(peer, 'pull', '--quiet', '--ff-only');
@@ -577,7 +581,7 @@ test('only the remote changed: a fast-forward; only this device: a push', async 
 	expect(await context.remoteFile('notes.txt')).toBe('From here');
 });
 
-test('unrelated histories are refused unless asked for', async () => {
+test('a folder with a commit of its own meets an unrelated remote as Unrelated until asked to combine', async () => {
 	const context = await setup();
 	const other = expectOk(
 		await openFolder({
@@ -603,25 +607,125 @@ test('unrelated histories are refused unless asked for', async () => {
 	expect(await context.remoteFile('notes.txt')).toBe('Other');
 });
 
-test('a folder with no history adopts the remote on its first sync, merging over an empty base', async () => {
-	const context = await setup();
+/** A folder with no commit, syncing with the setup's remote. */
+async function freshFolder(
+	context: Awaited<ReturnType<typeof setup>>,
+	httpFetch = context.httpFetch,
+) {
 	const fresh = expectOk(
 		await openFolder({
-			app: 'so.epicenter.synctest.fresh',
+			app: `so.epicenter.synctest.fresh${opened.length}`,
 			definition,
 			browser: {
 				author: { name: 'Fresh', email: 'fresh@example.test' },
-				httpFetch: context.httpFetch,
+				httpFetch,
 				...browserStorage(createTestStorage()),
 			},
 		}),
 	);
 	opened.push(fresh);
+	return fresh;
+}
+
+test('a first sync to an empty remote commits the folder as a root and pushes it', async () => {
+	const { local, remoteParents, remoteFile } = await setup();
+	const [head, ...parents] = await remoteParents();
+	expect(parents).toEqual([]);
+	expect(local.git.snapshot.lastCommit).toMatchObject({
+		status: 'committed',
+		oid: head,
+		parent: undefined,
+	});
+	expect(await remoteFile(TODO)).toBe(SEED.trimEnd());
+});
+
+test("a first sync onto a remote's history merges the folder's files over an empty base into one commit on the remote head", async () => {
+	const context = await setup();
+	const before = await context.remoteHead();
+	const fresh = await freshFolder(context);
 	expectOk(await fresh.write('notes.txt', null, 'Fresh\n'));
+	expectOk(
+		await fresh.write(
+			TODO,
+			null,
+			row(['title: Run', 'done: false'], 'Left at dawn.\n'),
+		),
+	);
 
 	const head = synced(expectOk(await fresh.sync.connect(REMOTE)));
 	expect(await context.remoteHead()).toBe(head);
-	expect((await context.remoteParents()).length).toBe(3);
-	expect(await text(fresh, TODO)).toBe(SEED);
+	// One parent, the remote head: no second root enters the history.
+	expect(await context.remoteParents()).toEqual([head, before]);
+	expect((await context.roots()).split('\n')).toHaveLength(1);
 	expect(await context.remoteFile('notes.txt')).toBe('Fresh');
+	// Both added the todo: the field both set differently is this folder's,
+	// and the trailer names the remote head that lost it.
+	expect(await text(fresh, TODO)).toBe(
+		row(['title: Run', 'done: false'], 'Left at dawn.\n'),
+	);
+	expect(await context.remoteMessage()).toContain(
+		`Overrode: ${before} field="title" "${TODO}"`,
+	);
+	expect(await settingsOf(fresh)).toEqual({ theme: 'light', size: 1 });
+
+	// The histories now share a commit, so the next sync is an ordinary one.
+	const theirs = await context.incoming({ 'peer.txt': 'Peer\n' });
+	expectOk(await put(fresh, 'notes.txt', 'Fresh again\n'));
+	const next = synced(expectOk(await fresh.sync.run()));
+	const [, ...parents] = await context.remoteParents();
+	expect(parents).toHaveLength(2);
+	expect(parents).toContain(theirs);
+	expect(await context.remoteHead()).toBe(next);
+	expect(await text(fresh, 'peer.txt')).toBe('Peer\n');
+});
+
+test('a first sync whose files the remote already holds takes the remote head as it is', async () => {
+	const context = await setup();
+	const before = await context.remoteHead();
+	const fresh = await freshFolder(context);
+	expectOk(await fresh.write(TODO, null, SEED));
+
+	expect(synced(expectOk(await fresh.sync.connect(REMOTE)))).toBe(before);
+	expect(await context.remoteHead()).toBe(before);
+	expect(fresh.git.snapshot.lastCommit).toBeUndefined();
+	expect(expectOk(await fresh.git.status())).toMatchObject({
+		head: before,
+		changes: [],
+	});
+});
+
+test('a first sync whose fetch failed records nothing, so the retry still lands on the remote head', async () => {
+	const context = await setup();
+	const before = await context.remoteHead();
+	let offline = true;
+	const fresh = await freshFolder(context, (async (input, init) => {
+		if (offline) throw new TypeError('Failed to fetch');
+		return context.httpFetch(input, init);
+	}) as typeof fetch);
+	expectOk(await fresh.write('notes.txt', null, 'Fresh\n'));
+
+	expect(expectErr(await fresh.sync.connect(REMOTE)).name).toBe('Fetch');
+	expect(fresh.git.snapshot.lastCommit).toBeUndefined();
+	expect(expectOk(await fresh.git.status()).head).toBeUndefined();
+
+	offline = false;
+	const head = synced(expectOk(await fresh.sync.run()));
+	expect(await context.remoteParents()).toEqual([head, before]);
+	expect(await context.remoteFile('notes.txt')).toBe('Fresh');
+	expect(await text(fresh, TODO)).toBe(SEED);
+});
+
+test('a first sync stops where the remote adds a file this folder ignores, sending nothing', async () => {
+	const context = await setup();
+	const before = await context.incoming({ 'secret.txt': 'Theirs\n' });
+	const fresh = await freshFolder(context);
+	expectOk(await fresh.write('.gitignore', null, 'secret.txt\n'));
+	expectOk(await fresh.write('secret.txt', null, 'Mine\n'));
+
+	const { name, message } = expectErr(await fresh.sync.connect(REMOTE));
+	expect(name).toBe('Blocked');
+	expect(message).toContain("'secret.txt'");
+	expect(await context.remoteHead()).toBe(before);
+	expect(await text(fresh, 'secret.txt')).toBe('Mine\n');
+	expect(expectOk(await fresh.git.status()).head).toBeUndefined();
 });

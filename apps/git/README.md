@@ -36,7 +36,8 @@ the copy saved, fetches, merges, and pushes, and asks nothing. Edits to
 different lines combine on their own. Where both copies changed the same
 lines, the copy that syncs wins, and the merge commit's `Overrode:` lines
 name what lost, which the history still holds (ADR-0576). A copy with no
-history of its own adopts the remote's on its first Sync.
+commit fetches before it records anything, and its files land as one commit
+on the remote's head (ADR-0615).
 
 Nothing commits on its own. **Save version** records one by hand, and
 **Status** reads what changed since it. The changes list shows each path
