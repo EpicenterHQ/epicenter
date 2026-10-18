@@ -3,9 +3,8 @@
  *
  * A definition's `local` patterns are lines its own folder's `.gitignore`
  * gets, as a prerequisite: opening the folder adds each one the root
- * `.gitignore` lacks, or fails, and the handle's first change is refused
- * while they cannot be written. From then on `.gitignore` alone decides,
- * read as Git reads it, and
+ * `.gitignore` lacks, or fails, and a change through the handle is refused
+ * while they cannot be written. From then on `.gitignore` alone decides, read as Git reads it, and
  * both Git backends leave what it ignores out of what Sync commits and sends
  * (ADR-0592).
  *
@@ -225,88 +224,6 @@ test('a change is refused while the .gitignore lines cannot be written, so no lo
 		await rm(join(root, '.gitignore'), { recursive: true });
 		expectOk(await folder.write('audio/take.wav', null, 'RIFF'));
 		expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('audio/\n');
-	} finally {
-		await folder.close();
-	}
-});
-
-/** A bare remote at `root/<name>.git` holding one commit of `files` from another device. */
-async function remoteWith(
-	root: string,
-	name: string,
-	files: Record<string, string>,
-) {
-	const bare = join(root, `${name}.git`);
-	await git(root, 'init', '--quiet', '--bare', '--initial-branch=main', bare);
-	const seed = join(root, `${name}-seed`);
-	await git(root, 'clone', '--quiet', bare, seed);
-	await git(seed, 'checkout', '--quiet', '-b', 'main');
-	for (const [path, text] of Object.entries(files)) {
-		await mkdir(dirname(join(seed, path)), { recursive: true });
-		await writeFile(join(seed, path), text);
-	}
-	await git(seed, 'add', '--all');
-	await git(seed, 'commit', '--quiet', '-m', 'Other device');
-	await git(seed, 'push', '--quiet', 'origin', 'main');
-	return bare;
-}
-
-test('a fresh folder whose first fetch failed joins the remote on the next Sync, though opening committed its .gitignore', async () => {
-	const root = await scratch('local-first-fetch-');
-	roots.push(root);
-	const bare = await remoteWith(root, 'remote', {
-		'recordings/a.md': '---\ntitle: A\n---\n',
-	});
-	const own = join(root, 'recorder');
-	await initWithOrigin(own, join(root, 'missing.git'));
-	const folder = expectOk(
-		await openBunFolder({
-			app: 'recorder',
-			root: own,
-			definition,
-			git: { author },
-		}),
-	);
-	try {
-		// The checkpoint records the .gitignore opening wrote, then the fetch fails.
-		expect(expectErr(await folder.sync.run()).name).toBe('Fetch');
-		expect(expectOk(await folder.git.log(5))).toHaveLength(1);
-		await git(own, 'remote', 'set-url', 'origin', bare);
-		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
-		expect(await readFile(join(own, 'recordings/a.md'), 'utf8')).toContain(
-			'title: A',
-		);
-	} finally {
-		await folder.close();
-	}
-});
-
-test('a folder that has fetched from its remote refuses an unrelated history unless asked', async () => {
-	const root = await scratch('local-established-');
-	roots.push(root);
-	const first = await remoteWith(root, 'first', {
-		'recordings/a.md': '---\ntitle: A\n---\n',
-	});
-	const unrelated = await remoteWith(root, 'unrelated', {
-		'recordings/b.md': '---\ntitle: B\n---\n',
-	});
-	const own = join(root, 'recorder');
-	await initWithOrigin(own, first);
-	const folder = expectOk(
-		await openBunFolder({
-			app: 'recorder',
-			root: own,
-			definition,
-			git: { author },
-		}),
-	);
-	try {
-		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
-		await git(own, 'remote', 'set-url', 'origin', unrelated);
-		expect(expectErr(await folder.sync.run()).name).toBe('Unrelated');
-		expect(
-			expectOk(await folder.sync.run({ allowUnrelatedHistories: true })).kind,
-		).toBe('synced');
 	} finally {
 		await folder.close();
 	}

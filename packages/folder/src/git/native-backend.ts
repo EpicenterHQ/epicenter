@@ -34,7 +34,6 @@ import { gitignoreMatcher } from './scope.js';
 
 const ZERO = '0000000000000000000000000000000000000000';
 const PUBLISHING_REF = 'refs/epicenter/publishing';
-const JOINING_REF = 'refs/epicenter/joining';
 const REMOTE_NAME = 'origin';
 
 export class GitCommandError extends Error {
@@ -289,14 +288,6 @@ export async function createNativeGitBackend({
 				oid === undefined
 					? ['update-ref', '-d', PUBLISHING_REF]
 					: ['update-ref', '-m', 'epicenter: publishing', PUBLISHING_REF, oid],
-			);
-		},
-		readJoining: () => resolve(JOINING_REF),
-		async writeJoining(oid) {
-			await run(
-				oid === undefined
-					? ['update-ref', '-d', JOINING_REF]
-					: ['update-ref', '-m', 'epicenter: joining', JOINING_REF, oid],
 			);
 		},
 		async casBranch(expected, next) {

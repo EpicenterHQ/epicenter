@@ -1103,8 +1103,7 @@ export function createHistory({
 	 * against the new remote, at most `SYNC_ATTEMPTS` times. A push that
 	 * failed otherwise still publishes the merge here, so the folder keeps
 	 * receiving, and answers `saved`. Histories that share no commit merge
-	 * only while a folder whose first commit a Sync made has never fetched
-	 * from its remote (`readJoining`), or with `allowUnrelatedHistories`.
+	 * only on this folder's first commit, or with `allowUnrelatedHistories`.
 	 */
 	function runSync({
 		allowUnrelatedHistories = false,
@@ -1112,9 +1111,6 @@ export function createHistory({
 		return syncing<SyncOutcome>(async () => {
 			const remote = await backend.refreshRemote();
 			if (remote === undefined) return SyncError.NoRemote();
-			// Whether this folder has ever fetched from its remote, read before
-			// this run's fetch.
-			const neverFetched = (await backend.readRemoteTracking()) === undefined;
 			let capturedAt = 0;
 			const checkpoint = await commitNow((at) => {
 				capturedAt = at;
@@ -1130,19 +1126,11 @@ export function createHistory({
 			}
 			let local =
 				checkpoint.status === 'committed' ? checkpoint.oid : checkpoint.head;
-			// A folder whose first commit a Sync made, and that has never
-			// fetched since, has no history of its own to keep apart: it joins
-			// the remote's over an empty base. The mark outlives a fetch that
-			// failed, so a retry joins too; a folder whose history a person
-			// made, or that has fetched, never joins an unrelated one unasked.
-			if (
-				neverFetched &&
-				checkpoint.status === 'committed' &&
-				checkpoint.parent === undefined
-			)
-				await backend.writeJoining(checkpoint.oid);
-			let joining = neverFetched && (await backend.readJoining()) !== undefined;
-			const unrelated = allowUnrelatedHistories || joining;
+			// A folder this run gave its first commit has no history of its own
+			// yet: it joins the remote's over an empty base.
+			const unrelated =
+				allowUnrelatedHistories ||
+				(checkpoint.status === 'committed' && checkpoint.parent === undefined);
 			const done = (
 				head: string | undefined,
 				push: PushOutcome | undefined,
@@ -1182,12 +1170,6 @@ export function createHistory({
 					return fetchError.name === 'Closed' || closing.signal.aborted
 						? SyncError.Closed()
 						: SyncError.Fetch({ error: fetchError });
-				// Fetched: the folder now shares its remote's history, or
-				// joins it below, and no later Sync needs the mark.
-				if (joining && theirs !== undefined) {
-					await backend.writeJoining(undefined);
-					joining = false;
-				}
 				if (rejectedAt !== null && theirs === rejectedAt)
 					return SyncError.Failed({
 						cause: new Error(

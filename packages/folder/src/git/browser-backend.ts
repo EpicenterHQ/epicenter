@@ -36,7 +36,6 @@ import { webLockExclusive } from './web-lock-exclusive.js';
 const decoder = new TextDecoder();
 const REMOTE_NAME = 'origin';
 const PUBLISHING_REF = 'refs/epicenter/publishing';
-const JOINING_REF = 'refs/epicenter/joining';
 
 /** The commit a stored ref names, or `undefined` for anything else. */
 function refValue(value: Uint8Array | undefined): string | undefined {
@@ -228,21 +227,6 @@ export async function createStoredGitBackend({
 							fs,
 							gitdir,
 							ref: PUBLISHING_REF,
-							value: oid,
-							force: true,
-						}),
-			);
-		},
-		readJoining: () => readRef(`${GITDIR}/${JOINING_REF}`),
-		async writeJoining(oid) {
-			await ensureCreated();
-			await withObjects(({ fs, gitdir }) =>
-				oid === undefined
-					? git.deleteRef({ fs, gitdir, ref: JOINING_REF })
-					: git.writeRef({
-							fs,
-							gitdir,
-							ref: JOINING_REF,
 							value: oid,
 							force: true,
 						}),
