@@ -267,4 +267,55 @@ describe('an ignored file that is not tracked is never read', () => {
 			'notes.md',
 		]);
 	});
+
+	test('a rule file a pattern names itself still applies: what it ignores is never read nor committed', async () => {
+		const files = {
+			'.gitignore': '**/.gitignore\n',
+			'private/.gitignore': '*.key\n',
+			'private/secret.key': 'secret',
+			'notes.md': 'kept\n',
+		};
+		// In a browser folder, by the bytes read.
+		const raw = await rawBrowserFolder({ id: 'scope-self-ignored' });
+		for (const [path, text] of Object.entries(files))
+			await overwrite(raw.boundary, path, text);
+		const read: string[] = [];
+		const boundary = {
+			...raw.boundary,
+			read(path: string) {
+				read.push(path);
+				return raw.boundary.read(path);
+			},
+		};
+		const history = createHistory({
+			backend: await raw.backend(),
+			boundary,
+			author,
+		});
+		try {
+			expect((await history.commit()).status).toBe('committed');
+			expect(
+				expectOk(await history.status()).changes.map(({ path }) => path),
+			).toEqual([]);
+			expect(read).not.toContain('private/secret.key');
+			expect(read).toContain('private/.gitignore');
+		} finally {
+			await history.close();
+		}
+		// Through the CLI: a key it would refuse to read stops nothing.
+		const root = await scratch('scope-self-ignored-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await mkdir(join(root, 'private'));
+		for (const [path, text] of Object.entries(files))
+			if (path !== 'private/secret.key')
+				await writeFile(join(root, path), text);
+		await symlink(join(root, 'notes.md'), join(root, 'private/secret.key'));
+		const saved = await runHistory(
+			root,
+			{ op: 'saveVersion', message: 'Notes' },
+			{ author, application: true },
+		);
+		expect(saved.result).toMatchObject({ status: 'committed' });
+		expect(await git(root, 'ls-files')).toBe('notes.md');
+	});
 });

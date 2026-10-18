@@ -309,7 +309,9 @@ export function createHistory({
 	/**
 	 * The bytes of every `.gitignore` among `paths` that is a rule: read from
 	 * the root down, so a file `tracked` lacks under a directory a shallower
-	 * rule excludes is passed over, as Git never reads one there. A tracked
+	 * rule excludes is passed over, as Git never reads one there. A rule file
+	 * a pattern names itself still applies; whether it is source is the
+	 * caller's question. A tracked
 	 * rule file is source, and read, wherever it is. Rule files at one depth
 	 * sit in different directories, so only shallower ones decide them.
 	 */
@@ -324,13 +326,26 @@ export function createHistory({
 		const rules = new Map<string, Uint8Array>();
 		for (const level of [...byDepth.keys()].sort((a, b) => a - b)) {
 			const candidates = byDepth.get(level)!;
-			const untracked = candidates.filter((path) => !tracked.has(path));
-			const ignored =
-				untracked.length === 0
+			// A rule file is passed over only when its directory, or one above
+			// it, is excluded; one that a pattern names itself, such as
+			// `**/.gitignore`, still applies, though it is no source.
+			const directories = [
+				...new Set(
+					candidates
+						.filter((path) => !tracked.has(path) && path.includes('/'))
+						.map((path) => path.slice(0, path.lastIndexOf('/') + 1)),
+				),
+			];
+			const excluded =
+				directories.length === 0
 					? new Set<string>()
-					: await backend.ignoredPaths(untracked, rules);
+					: await backend.ignoredPaths(directories, rules);
 			const read = await readFiles(
-				candidates.filter((path) => !ignored.has(path)),
+				candidates.filter(
+					(path) =>
+						tracked.has(path) ||
+						!excluded.has(path.slice(0, path.lastIndexOf('/') + 1)),
+				),
 			);
 			for (const [path, bytes] of read) rules.set(path, bytes);
 		}
