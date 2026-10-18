@@ -4,7 +4,14 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
@@ -555,6 +562,37 @@ describe('native folder', () => {
 });
 
 describe('browser and native exchange through a real bare repository', () => {
+	test('a first sync onto a remote with history lands on its head with one parent, and Git sees a clean folder', async () => {
+		const project = await scratch('native-first-sync-');
+		const bare = await createBareRemote(project);
+		const peer = join(project, 'peer');
+		await git(project, 'clone', '--quiet', bare, peer);
+		await writeFile(join(peer, 'keep.md'), 'keep\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Start');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const theirs = await git(bare, 'rev-parse', 'main');
+		const root = join(project, 'local');
+		await mkdir(root);
+		await writeFile(join(root, 'mine.md'), 'mine\n');
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		const synced = expectOk(await folder.sync.connect(bare));
+		expect(synced.kind).toBe('synced');
+		const head = await git(bare, 'rev-parse', 'main');
+		expect(
+			(await git(bare, 'rev-list', '--parents', '-n', '1', 'main')).split(' '),
+		).toEqual([head, theirs]);
+		expect(await git(root, 'rev-parse', 'main')).toBe(head);
+		expect(await git(bare, 'show', 'main:mine.md')).toBe('mine');
+		expect(await readFile(join(root, 'keep.md'), 'utf8')).toBe('keep\n');
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await folder.close();
+	});
+
 	test('browser and native folders sync both ways, and merge when both moved', async () => {
 		const root = await scratch('exchange-');
 		const bare = await createBareRemote(root);
@@ -641,7 +679,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		globalThis.fetch = originalFetch;
 	});
 
-	test('an unreachable remote leaves the local commit and reports the failed fetch', async () => {
+	test('an unreachable remote reports the failed fetch: a first sync records nothing, a later one keeps its checkpoint', async () => {
 		const environment = createTestStorage();
 		await configureRemote(
 			environment,
@@ -660,6 +698,16 @@ describe('browser and native exchange through a real bare repository', () => {
 		);
 		expectOk(await browser.write('offline.txt', null, 'Offline'));
 		expect(browser.git.snapshot.lastCommit).toBeUndefined();
+		// No commit yet: Sync fetches before it records anything.
+		expect(expectErr(await browser.sync.run()).name).toBe('Fetch');
+		expect(browser.git.snapshot.lastCommit).toBeUndefined();
+		expect(expectOk(await browser.git.status()).changes).toContainEqual({
+			path: 'offline.txt',
+			kind: 'add',
+		});
+		// With a commit, the checkpoint comes first and stays.
+		expect((await browser.git.commit()).status).toBe('committed');
+		expectOk(await browser.write('offline.txt', 'Offline', 'Still offline'));
 		expect(expectErr(await browser.sync.run()).name).toBe('Fetch');
 		expect(browser.git.snapshot.lastCommit?.status).toBe('committed');
 		expect(expectOk(await browser.git.status()).changes).toEqual([]);
@@ -667,7 +715,7 @@ describe('browser and native exchange through a real bare repository', () => {
 			new TextDecoder().decode(
 				expectOk(await browser.files.read('offline.txt')).bytes,
 			),
-		).toBe('Offline');
+		).toBe('Still offline');
 		await browser.close();
 	});
 });

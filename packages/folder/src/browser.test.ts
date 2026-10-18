@@ -27,6 +27,7 @@ import {
 	testBrowserStorage,
 } from './browser-storage.test-support.js';
 import { createHistory } from './git/history.js';
+import { commitParents } from './git/objects.js';
 import { overwrite } from './put.test-support.js';
 import { parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
@@ -599,9 +600,15 @@ describe('browser folder persistence and history', () => {
 		await overwrite(boundary, 'a.txt', 'a');
 		const outcome = await history.commit();
 		// The retry captured again and committed on top of the competitor.
-		expect(outcome).toMatchObject({ status: 'committed', parent: competitor });
-		if (outcome.status === 'committed')
+		expect(outcome.status).toBe('committed');
+		if (outcome.status === 'committed') {
 			expect(await backend.readBranch()).toBe(outcome.oid);
+			expect(
+				await backend.withObjects((access) =>
+					commitParents(access, outcome.oid),
+				),
+			).toEqual([competitor!]);
+		}
 		await history.close();
 	});
 });

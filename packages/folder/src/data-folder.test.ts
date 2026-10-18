@@ -195,7 +195,7 @@ test('opening creates no repository; status is every file uncommitted, and the f
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 
 	const committed = await folder.git.commit();
-	expect(committed).toMatchObject({ status: 'committed', parent: undefined });
+	expect(committed.status).toBe('committed');
 	expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('1');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	expect(await git(root, 'ls-files')).not.toContain('ignored.txt');

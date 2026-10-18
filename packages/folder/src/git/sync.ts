@@ -29,8 +29,8 @@ export type SyncOptions = {
 	/**
 	 * Merge a remote history that shares no commit with this folder's, over
 	 * an empty base: both roots stay in history. Without it, such a run is
-	 * `Unrelated` and writes nothing. A folder's first commit merges this way
-	 * on its own.
+	 * `Unrelated` and writes nothing. A folder with no commit never meets
+	 * this: its first commit descends from the remote's head (ADR-0615).
 	 */
 	readonly allowUnrelatedHistories?: boolean;
 };

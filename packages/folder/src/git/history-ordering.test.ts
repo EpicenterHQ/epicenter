@@ -28,7 +28,7 @@ import { rawBrowserFolder } from '../browser-storage.test-support.js';
 import { overwrite } from '../put.test-support.js';
 import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
-import { writeCommitObject, writeFilesTree } from './objects.js';
+import { commitParents, writeCommitObject, writeFilesTree } from './objects.js';
 
 const author = { name: 'History', email: 'history@example.test' };
 const encoder = new TextEncoder();
@@ -144,9 +144,13 @@ test('an external branch move after the parent is pinned is retried onto it, not
 	arm = true;
 	const outcome = await history.commit();
 	// The retry captured the folder again and committed it on the competitor.
-	expect(outcome).toMatchObject({ status: 'committed', parent: competitor });
-	if (outcome.status === 'committed')
+	expect(outcome.status).toBe('committed');
+	if (outcome.status === 'committed') {
 		expect(await real.readBranch()).toBe(outcome.oid);
+		expect(
+			await real.withObjects((access) => commitParents(access, outcome.oid)),
+		).toEqual([competitor!]);
+	}
 	await history.close();
 });
 
