@@ -175,12 +175,12 @@ async function open({
 		},
 		transform: async ({ input }) => Ok({ text: input }),
 		transformNote: 'test',
-		closing: undefined,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
+		window: undefined,
 		debugControls: true,
 		// A debug shell's injection: the row write fails after the audio landed.
 		injection: testInjection(directory, { audio: 0, row: failRowWrites }),
@@ -1001,30 +1001,6 @@ test('recording and transformation files keep their names, and a transcript keep
 // ============================================================================
 // Leaving and closing
 // ============================================================================
-
-test('quit preparation awaits a file command through publication before approving', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const { library, root } = await open({
-		beforeFileCreate: async () => {
-			reached.resolve();
-			await release.promise;
-		},
-	});
-	const creating = library.createFile('', 'created.txt');
-	await reached.promise;
-	let approved = false;
-	const preparing = library.prepareToLeave().then((safe) => {
-		approved = safe;
-		return safe;
-	});
-	await Bun.sleep(10);
-	expect(approved).toBe(false);
-	release.resolve();
-	expect(await creating).toBeUndefined();
-	expect(await preparing).toBe(true);
-	expect(await readFile(join(root, 'created.txt'), 'utf8')).toBe('');
-});
 
 test('close drains accepted commands and refuses a new command', async () => {
 	const reached = Promise.withResolvers<void>();

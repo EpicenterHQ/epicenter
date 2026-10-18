@@ -9,36 +9,36 @@
 //!   reads the person's Git identity under its lock and owns the files,
 //!   change detection, and Git history. The
 //!   page names the scope and nothing else.
-//! - Honeycrisp's own commands (`commands.rs`): close consent, the terminal,
-//!   per-file history, and reveal.
+//! - Honeycrisp's own commands (`commands.rs`): the terminal, per-file
+//!   history, and reveal.
 //!
-//! Drafts exist only in the page, so every way out asks it first: the
-//! window's close button, an exit request from the runtime, the macOS Quit
-//! menu item, and on macOS a quit from the system: the Dock, a logout, an
-//! Apple Event (`quit.rs`). `close.rs` decides; nothing here approves a close
-//! for a page that holds its folder.
+//! Closing the window is the page's: its close handler awaits the notes'
+//! `close()`, which lets the saves in flight land, and then Tauri destroys
+//! the window. The app exits when its one window is gone. The macOS Quit menu
+//! item closes that window the same way. Nothing here waits on the page or
+//! sets a timer; a slow close shows "Still saving…" in the page, with Close
+//! anyway.
+//!
+//! A quit from the system on macOS (the Dock, a logout, a shutdown, an Apple
+//! Event) is AppKit's `terminate:`. Tao's application delegate implements
+//! `applicationWillTerminate:` and not `applicationShouldTerminate:`, so that
+//! quit reaches the run loop as `RunEvent::Exit` with no window closed first.
+//! The page is not asked then. The folder plugin drains the writes it already
+//! accepted on `RunEvent::Exit`; a save the page still held in that instant is
+//! lost. The shell never cancels a logout or a shutdown.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{
-    App, AppHandle, Manager, RunEvent, Runtime, Url, WebviewUrl, WebviewWindowBuilder,
-    WindowEvent, Wry,
-};
+use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
-
-/// Public for `examples/harness.rs`, which drives the gate for the page
-/// client's tests.
-pub mod close;
 
 mod command_names;
 mod commands;
 mod history;
 mod process;
-#[cfg(target_os = "macos")]
-mod quit;
 mod reveal;
 mod root;
 mod terminal;
@@ -50,22 +50,17 @@ mod tests;
 
 pub use command_names::COMMANDS;
 
-use close::CloseGate;
-use commands::{hold, Shell, WINDOW};
+use commands::{Shell, WINDOW};
 use terminal::Terminal;
 
 const QUIT_MENU_ITEM: &str = "quit-notes";
 
-/// The plugin, the commands, and the close routing of the notes window. The
+/// The plugin, the commands, and Quit, which closes the notes window. The
 /// folder and the window are added in setup, once paths can be resolved.
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .plugin(tauri_plugin_epicenter_folder::init())
         .invoke_handler(tauri::generate_handler![
-            commands::close_register,
-            commands::close_opened,
-            commands::close_approve,
-            commands::close_decline,
             commands::shell_info,
             commands::terminal_run,
             commands::file_log,
@@ -73,17 +68,23 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             commands::reveal_folder,
         ])
         .on_menu_event(|app, event| {
-            if event.id().as_ref() == QUIT_MENU_ITEM && !hold(app) {
+            if event.id().as_ref() == QUIT_MENU_ITEM {
+                quit(app);
+            }
+        })
+}
+
+/// Close the notes window, which runs its page's close handler; the app exits
+/// once it is gone. With no window open, exit now.
+fn quit<R: Runtime>(app: &AppHandle<R>) {
+    match app.get_webview_window(WINDOW) {
+        Some(window) => {
+            if window.close().is_err() {
                 app.exit(0);
             }
-        })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == WINDOW && hold(window.app_handle()) {
-                    api.prevent_close();
-                }
-            }
-        })
+        }
+        None => app.exit(0),
+    }
 }
 
 /// Local history, using the repository's author after the owner takes its lock.
@@ -115,7 +116,6 @@ fn install<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> 
         windows: vec![WINDOW.to_string()],
     })?;
     app.manage(Shell {
-        gate: CloseGate::new(),
         terminal: Arc::new(Terminal::new(root)),
     });
     Ok(())
@@ -143,8 +143,9 @@ fn is_app_page(target: &Url) -> bool {
         && target.password().is_none()
 }
 
-/// The predefined macOS Quit item calls Cocoa's `terminate:` directly,
-/// bypassing the preventable exit request, so Quit is an item of our own.
+/// The predefined macOS Quit item calls Cocoa's `terminate:` directly, which
+/// ends the app without closing its window, so the page would not finish its
+/// saves. Quit (Cmd+Q) is an item of our own, which closes the window.
 #[cfg(target_os = "macos")]
 fn quit_menu(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::default(app)?;
@@ -176,25 +177,11 @@ fn quit_menu(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// The notes window's builder, before it is built.
-pub type NotesWindow<'a> = WebviewWindowBuilder<'a, Wry, App<Wry>>;
-
-/// The app `run` starts, built and not yet running. `window` receives the
-/// notes window's builder last, just before the window is built; `run` adds
-/// nothing. Public for `examples/quit`, which runs this same app on a
-/// fixture page; nothing else should call it.
-#[doc(hidden)]
-pub fn build<W>(window: W) -> tauri::Result<App<Wry>>
-where
-    W: for<'a> FnOnce(NotesWindow<'a>) -> NotesWindow<'a> + Send + 'static,
-{
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
     shell(tauri::Builder::default())
-        .setup(move |app| {
+        .setup(|app| {
             let handle = app.handle();
-            // First: a system quit must reach the gate before anything can
-            // hold a draft, and the app does not start without that.
-            #[cfg(target_os = "macos")]
-            quit::install(handle)?;
             #[cfg(target_os = "macos")]
             quit_menu(handle)?;
             let root = root::choose(std::env::var_os("HONEYCRISP_ROOT"), || {
@@ -204,36 +191,16 @@ where
                     .map_err(|cause| format!("resolve the home directory: {cause}"))
             })?;
             install(handle, root)?;
-            let notes = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("index.html".into()))
+            WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("index.html".into()))
                 .title("Honeycrisp")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 560.0)
-                .on_navigation(is_app_page);
-            window(notes).build()?;
+                .on_navigation(is_app_page)
+                .build()?;
             Ok(())
         })
         .build(context())
-}
-
-/// Hold an exit request back while the page holds its folder; whether it was
-/// held. The folder plugin drains and unlocks the folder on exit itself.
-/// Public for `examples/quit`, like `build`.
-#[doc(hidden)]
-pub fn hold_exit(handle: &AppHandle, event: &RunEvent) -> bool {
-    match event {
-        RunEvent::ExitRequested { api, .. } if hold(handle) => {
-            api.prevent_exit();
-            true
-        }
-        _ => false,
-    }
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    build(|window| window)
         .expect("error while building the Honeycrisp application")
-        .run(|handle, event| {
-            hold_exit(handle, &event);
-        });
+        // The folder plugin drains and unlocks the folder on exit itself.
+        .run(|_, _| {});
 }

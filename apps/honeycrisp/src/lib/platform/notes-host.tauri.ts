@@ -15,14 +15,14 @@
 import { openFolder } from '@epicenter/folder/tauri';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
-import { openGuarded, openShellServices } from './shell.tauri.js';
+import { openShellServices } from './shell.tauri.js';
 import {
 	HONEYCRISP_FOLDER_ID,
 	type NotesHost,
-	type OpenNotes,
+	type OpenHost,
 } from './types.js';
 
-async function acquire(): Promise<NotesHost> {
+export const openHost: OpenHost = async (): Promise<NotesHost> => {
 	const { data: folder, error } = await openFolder({
 		id: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
@@ -40,7 +40,4 @@ async function acquire(): Promise<NotesHost> {
 		await folder.close();
 		throw cause;
 	}
-}
-
-export const openNotes: OpenNotes = (options) =>
-	openGuarded({ ...options, acquire });
+};

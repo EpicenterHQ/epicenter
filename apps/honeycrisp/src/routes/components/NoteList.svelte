@@ -118,14 +118,10 @@
 						</button>
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
-						<ContextMenu.Item disabled={notes.fenced} onSelect={() => void openItem(notes, repair.path)}>
+						<ContextMenu.Item onSelect={() => void openItem(notes, repair.path)}>
 							Open to repair
 						</ContextMenu.Item>
-						<ContextMenu.Item
-							variant="destructive"
-							disabled={notes.fenced}
-							onSelect={() => void confirmDelete(notes, repair.path)}
-						>
+						<ContextMenu.Item variant="destructive" onSelect={() => void confirmDelete(notes, repair.path)}>
 							Delete file…
 						</ContextMenu.Item>
 					</ContextMenu.Content>
@@ -165,10 +161,7 @@
 						</button>
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
-						{#if notes.fenced}
-							<!-- An open menu is outside the app's inert root. -->
-							<ContextMenu.Item disabled>The app is closing</ContextMenu.Item>
-						{:else if isDeleted(note)}
+						{#if isDeleted(note)}
 							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(note.path))}>
 								Restore
 							</ContextMenu.Item>

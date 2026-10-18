@@ -6,12 +6,12 @@
  * what the page itself decides: which storage it asks for, that it names a
  * folder and never a path, that a refusal from either side is returned and
  * nothing else is opened in its place, that the folder's calls go to the
- * shell and not to the host, and how the close question reaches the page.
+ * shell and not to the host.
  * Nothing here runs the Rust owner or a WebView; `packages/folder` tests the
  * adapter against the real owner.
  *
- * Where a test is about what the host really does (answering a close, calling
- * an endpoint before its reply is lost), the host is the real one over its
+ * Where a test is about what the host really does (calling an endpoint before
+ * its reply is lost), the host is the real one over its
  * real request handler and a real directory, with a stubbed endpoint.
  */
 import '../svelte-modules.test-support.js';
@@ -53,10 +53,28 @@ mock.module('@tauri-apps/api/event', () => ({
 	},
 }));
 
+/** What the page asked of its Tauri window, in order, and its close handlers. */
+const windowAsked: string[] = [];
+const closeHandlers = new Set<
+	(event: { preventDefault(): void }) => void | Promise<void>
+>();
+mock.module('@tauri-apps/api/window', () => ({
+	getCurrentWindow: () => ({
+		async onCloseRequested(
+			handler: (event: { preventDefault(): void }) => void | Promise<void>,
+		) {
+			closeHandlers.add(handler);
+			return () => closeHandlers.delete(handler);
+		},
+		unminimize: async () => void windowAsked.push('unminimize'),
+		show: async () => void windowAsked.push('show'),
+		setFocus: async () => void windowAsked.push('setFocus'),
+	}),
+}));
+
 const { openWorkspace } = await import('./index.js');
 const { openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace } = await import('./desktop.js');
-const { mountSession } = await import('../session.svelte.ts');
 const { createRowSession } = await import('@epicenter/svelte/edit-session');
 
 const ROOT = '/Users/someone/Epicenter/local/so.epicenter.whispering';
@@ -111,28 +129,16 @@ const info = (overrides: Record<string, unknown> = {}) => ({
 
 type HostCall = { op: string; payload: unknown };
 
-/**
- * A host whose operations are scripted. Its event streams stay open until
- * ended by the test, and each one is handed over so a test can write to it.
- */
+/** A host whose operations are scripted. */
 function host(
 	operations: Record<string, (payload: unknown) => unknown> = {},
 	hostInfo = info(),
 ) {
 	const requested: string[] = [];
 	const operationsAsked: HostCall[] = [];
-	const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
 	const fetch = async (input: string, init?: RequestInit) => {
 		const path = new URL(input).pathname;
 		requested.push(path);
-		if (path === '/bridge/events')
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					start(controller) {
-						streams.push(controller);
-					},
-				}),
-			);
 		const body = JSON.parse(String(init?.body)) as HostCall;
 		operationsAsked.push(body);
 		if (body.op === 'info') return answer(hostInfo);
@@ -145,10 +151,6 @@ function host(
 		fetch,
 		requested,
 		operationsAsked,
-		streams,
-		say(event: unknown, stream = streams.at(-1)) {
-			stream?.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
-		},
 	};
 }
 
@@ -171,8 +173,7 @@ afterEach(async () => {
 
 /**
  * The globals the page has when a shell did, or did not, inject the host's
- * token: the token, the page's origin, the shell's page events, and where the
- * page was told to navigate.
+ * token: the token and the page's origin.
  */
 function setup(
 	{ bridge }: { bridge: { token: string } | undefined } = {
@@ -180,45 +181,17 @@ function setup(
 	},
 ) {
 	const scope = globalThis as { window?: unknown; location?: unknown };
-	const events = new EventTarget();
-	const navigations: string[] = [];
-	const listening = new Set<EventListener>();
-	scope.window = {
-		__WHISPERING_BRIDGE__: bridge,
-		addEventListener(type: string, listener: EventListener) {
-			listening.add(listener);
-			events.addEventListener(type, listener);
-		},
-		removeEventListener(type: string, listener: EventListener) {
-			listening.delete(listener);
-			events.removeEventListener(type, listener);
-		},
-		location: { assign: (url: string) => navigations.push(url) },
-	};
+	scope.window = { __WHISPERING_BRIDGE__: bridge };
 	scope.location = { origin: CONNECTION.origin };
-	return {
-		navigations,
-		/** How many page-event listeners are attached now. */
-		get listening() {
-			return listening.size;
-		},
-		/** What the shell does when a close is attempted and its host is gone. */
-		closeBlocked: () =>
-			events.dispatchEvent(new Event('whispering:close-blocked')),
-	};
 }
 
-/**
- * The real host over a real directory, reached through its own request
- * handler. `approvals` counts the line it would print to let the shell close.
- */
+/** The real host over a real directory, reached through its own request handler. */
 async function realHost(overrides: Partial<HostOptions> = {}) {
 	const directory = await realpath(
 		await mkdtemp(join(tmpdir(), 'whispering-desktop-')),
 	);
 	const root = join(directory, 'data');
 	await mkdir(root);
-	let approvals = 0;
 	const served = await createHost({
 		root,
 		token: CONNECTION.token,
@@ -227,9 +200,6 @@ async function realHost(overrides: Partial<HostOptions> = {}) {
 		fixturePath: undefined,
 		env: {},
 		log: () => {},
-		onCloseApproved: () => {
-			approvals += 1;
-		},
 		...overrides,
 	});
 	served.listening(4999);
@@ -242,9 +212,6 @@ async function realHost(overrides: Partial<HostOptions> = {}) {
 		host: served,
 		fetch: (input: string, init?: RequestInit) =>
 			served.handle(new Request(input, init)),
-		get approvals() {
-			return approvals;
-		},
 	};
 }
 
@@ -445,11 +412,9 @@ test('saves and history go to the shell’s owner and never to the host', async 
 			.filter((paths) => !paths.includes('epicenter.json')),
 	).toEqual([['recordings/a.wav'], ['notes.md']]);
 	expect(sent('commit')).toHaveLength(1);
-	// The host was asked who it is, and for its event stream. Nothing else.
+	// The host was asked who it is. Nothing else.
 	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
-	expect(new Set(served.requested)).toEqual(
-		new Set(['/bridge/app', '/bridge/events']),
-	);
+	expect(new Set(served.requested)).toEqual(new Set(['/bridge/app']));
 	await workspace.close();
 });
 
@@ -534,93 +499,38 @@ test('a row save whose reply the shell never sent stays unknown, and later input
 });
 
 // ============================================================================
-// The close question
+// The window
 // ============================================================================
 
-test('a close question reaches the page from the host’s stream, across a reconnect, and one that came early is not lost', async () => {
+test('the desktop workspace hears its window asked to close, and reveals it to ask', async () => {
 	setup();
-	attachable();
-	const served = host({ close: () => ({ closing: false }) });
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	await settle();
-	expect(served.streams).toHaveLength(1);
-
-	// Asked before the session's guard was listening: kept for it.
-	served.say({ type: 'close-requested' });
-	await settle();
-	let asked = 0;
-	const stop = workspace.closing!.onRequest(() => {
-		asked += 1;
-	});
-	expect(asked).toBe(1);
-
-	served.say({ type: 'ping' });
-	served.say({ type: 'close-requested' });
-	await settle();
-	expect(asked).toBe(2);
-
-	// The stream drops. The workspace connects again by itself, and the host
-	// repeats an unanswered question on the new stream.
-	served.streams[0]?.close();
-	await settle(650);
-	expect(served.streams).toHaveLength(2);
-	served.say({ type: 'close-requested' });
-	await settle();
-	expect(asked).toBe(3);
-
-	// The answer is an ordinary authenticated call to the host.
-	await workspace.closing!.answer('cancel');
-	expect(served.operationsAsked.at(-1)).toMatchObject({
-		op: 'close',
-		payload: { decision: 'cancel' },
-	});
-
-	stop();
-	await workspace.close();
-	// Closed: no further stream is opened, and the window detached once.
-	await settle(650);
-	expect(served.streams).toHaveLength(2);
-	expect(sent('detach')).toHaveLength(1);
-});
-
-test('a close attempted with the host gone before anything listens is kept for the first listener, and closing stops hearing it', async () => {
-	const shell = setup({ bridge: { token: CONNECTION.token } });
 	attachable();
 	const served = host();
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
-	expect(shell.listening).toBe(1);
-
-	// The session is still starting: no guard is listening yet. The attempt
-	// is not answered and not lost.
-	shell.closeBlocked();
-	expect(shell.navigations).toEqual([]);
-	let told = 0;
-	const stop = workspace.closing!.onRequestWithoutHost(() => {
-		told += 1;
+	windowAsked.length = 0;
+	let heard = 0;
+	const stop = await workspace.window!.onCloseRequested(() => {
+		heard += 1;
 	});
-	expect(told).toBe(1);
-
-	shell.closeBlocked();
-	expect(told).toBe(2);
-	// Quitting is still only what the listener chooses to do.
-	expect(shell.navigations).toEqual([]);
-	workspace.closing!.quitWithoutHost();
-	expect(shell.navigations).toEqual([
-		`${CONNECTION.origin}/__whispering__/quit`,
-	]);
-
+	for (const handler of closeHandlers) await handler({ preventDefault() {} });
+	expect(heard).toBe(1);
 	stop();
+	expect(closeHandlers.size).toBe(0);
+
+	await workspace.window!.reveal();
+	expect(windowAsked).toEqual(['unminimize', 'show', 'setFocus']);
+	// Closing goes through Tauri's window, not the host.
+	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
 	await workspace.close();
-	expect(shell.listening).toBe(0);
-	shell.closeBlocked();
-	expect(told).toBe(2);
 });
 
-test('a host that stops answering does not close the folder: the page keeps saving and keeps trying the stream', async () => {
+// ============================================================================
+// When the host stops
+// ============================================================================
+
+test('a host that stops answering does not close the folder: the page keeps saving', async () => {
 	setup();
 	attachable();
 	Object.assign(replies, { apply: () => null });
@@ -635,11 +545,7 @@ test('a host that stops answering does not close the folder: the page keeps savi
 			},
 		}),
 	);
-	await settle();
-
 	hostUp = false;
-	served.streams[0]?.error(new Error('the host stopped'));
-	await settle(650);
 
 	// The owner is the shell's, so a save still lands with the host gone.
 	expectOk(await workspace.folder.files.create('note.md', 'still saved'));
@@ -650,11 +556,6 @@ test('a host that stops answering does not close the folder: the page keeps savi
 		model: 'm',
 	});
 	expect(transcribeError?.name).toBe('HostUnavailable');
-	// An answer that cannot be delivered rejects, so the guard can say so; the
-	// window stays open.
-	await expect(workspace.closing!.answer('proceed')).rejects.toThrow(
-		'Load failed',
-	);
 	await workspace.close();
 	expect(sent('detach')).toHaveLength(1);
 });
@@ -770,8 +671,7 @@ test('the chosen microphone is kept by the host beside the connections, survives
 	const replies: string[] = [];
 	const fetch = async (input: string, init?: RequestInit) => {
 		const response = await served.fetch(input, init);
-		if (!input.endsWith('/bridge/events'))
-			replies.push(await response.clone().text());
+		replies.push(await response.clone().text());
 		return response;
 	};
 	const first = expectOk(await openDesktopWorkspace({ ...CONNECTION, fetch }));
@@ -983,179 +883,6 @@ test('an obstacle that was not placed, or a host that cannot be asked, never kee
 	expect(writes).toBe(2);
 	expect(removed).toEqual([]);
 	await workspace.close();
-});
-
-// ============================================================================
-// Closing a window whose folder could not be opened
-// ============================================================================
-
-test('after a refused attach there is no session, and the person’s close is answered with proceed by the real host', async () => {
-	const served = await realHost();
-	globalThis.fetch = served.fetch as typeof fetch;
-	setup({ bridge: { token: CONNECTION.token } });
-	const refusedAttach = Promise.withResolvers<never>();
-	replies = { attach: () => refusedAttach.promise };
-
-	const mounted = mountSession();
-	cleanups.push(() => mounted.release());
-	// The person asks to close while the folder is still being opened. Nothing
-	// answers for an opening that has not settled: it might yet hold work.
-	await until(() => sent('attach').length === 1, 'the attach to be sent');
-	served.host.closeRequested();
-	await settle(100);
-	expect(served.approvals).toBe(0);
-
-	// The owner refuses this window. No session exists and nothing is held.
-	refusedAttach.reject({
-		name: 'WindowNotPermitted',
-		scope: SCOPE,
-		window: 'main',
-	});
-	const refused = expectErr(await mounted.opening);
-	expect(refused.name).toBe('DesktopFolder');
-
-	// The close asked during opening was kept by the host and is now answered.
-	await until(() => served.approvals === 1, 'the pending close to be approved');
-	// And so is one asked afterward. Each approval answers a request.
-	served.host.closeRequested();
-	await until(() => served.approvals === 2, 'a later close to be approved');
-	// Nothing was opened to get there: one attach, refused, and no browser storage.
-	expect(calls.map((call) => call.cmd)).toEqual(['attach']);
-
-	// Released, it answers nothing more: a later opening would be its own judge.
-	mounted.release();
-	await settle(50);
-	served.host.closeRequested();
-	await settle(150);
-	expect(served.approvals).toBe(2);
-});
-
-test('nothing is approved unasked: a failed opening by itself closes nothing', async () => {
-	const served = await realHost();
-	globalThis.fetch = served.fetch as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable('/Users/someone/elsewhere');
-
-	const mounted = mountSession();
-	cleanups.push(() => mounted.release());
-	expect(expectErr(await mounted.opening).name).toBe('FolderMismatch');
-	await settle(200);
-
-	// The window stays until the person asks: no approval and no navigation.
-	expect(served.approvals).toBe(0);
-	expect(shell.navigations).toEqual([]);
-	// The mismatch detached the window it had attached.
-	expect(
-		calls.map((call) => call.cmd).filter((cmd) => cmd !== 'apply'),
-	).toEqual(['attach', 'detach']);
-});
-
-test('after a failed opening with the host gone, the shell’s close attempt is answered with the quit address', async () => {
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable();
-	const hostDown = Promise.withResolvers<never>();
-	globalThis.fetch = (() => hostDown.promise) as unknown as typeof fetch;
-
-	const mounted = mountSession();
-	cleanups.push(() => mounted.release());
-	// Still opening: a close attempt is not answered.
-	shell.closeBlocked();
-	await settle(20);
-	expect(shell.navigations).toEqual([]);
-
-	globalThis.fetch = (async () => {
-		throw new TypeError('Load failed');
-	}) as unknown as typeof fetch;
-	hostDown.reject(new TypeError('Load failed'));
-	expect(expectErr(await mounted.opening).name).toBe('HostUnreachable');
-	// The host was never reached, so the owner was never asked for a folder.
-	expect(calls).toEqual([]);
-	await settle(50);
-	expect(shell.navigations).toEqual([]);
-
-	// The person closes. The shell cannot ask a host that is gone, and says so.
-	shell.closeBlocked();
-	expect(shell.navigations).toEqual([
-		`${CONNECTION.origin}/__whispering__/quit`,
-	]);
-
-	mounted.release();
-	shell.closeBlocked();
-	expect(shell.navigations).toHaveLength(1);
-});
-
-test('after an opening that failed without proof, the real host approves only the person’s own Quit', async () => {
-	const served = await realHost();
-	globalThis.fetch = served.fetch as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	// The failure is not one that proves anything was released, as when the
-	// desktop workspace's own module cannot be loaded.
-	const mounted = mountSession(async () => {
-		throw new Error('Failed to fetch dynamically imported module');
-	});
-	cleanups.push(() => mounted.release());
-	await expect(mounted.opening).rejects.toThrow('dynamically imported');
-	served.host.closeRequested();
-	await settle(100);
-
-	// The shell's question is not answered for the person.
-	expect(served.approvals).toBe(0);
-	expect(shell.navigations).toEqual([]);
-
-	expect(await mounted.quit?.()).toBeUndefined();
-	expect(served.approvals).toBe(1);
-	expect(shell.navigations).toEqual([]);
-});
-
-test('a Quit the host cannot take also uses the quit address, and says it was not confirmed', async () => {
-	globalThis.fetch = (async () => {
-		throw new TypeError('Load failed');
-	}) as unknown as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	const mounted = mountSession(async () => {
-		throw new Error('Failed to fetch dynamically imported module');
-	});
-	cleanups.push(() => mounted.release());
-	await expect(mounted.opening).rejects.toThrow('dynamically imported');
-
-	const problem = await mounted.quit?.();
-
-	expect(problem).toContain('could not confirm the quit');
-	expect(shell.navigations).toEqual([
-		`${CONNECTION.origin}/__whispering__/quit`,
-	]);
-});
-
-test('a desktop app that is not Whispering’s shell, and a browser tab, are asked no close question and answer none', async () => {
-	const requested: string[] = [];
-	globalThis.fetch = (async (input: string) => {
-		requested.push(input);
-		throw new TypeError('Load failed');
-	}) as unknown as typeof fetch;
-
-	// Inside another desktop app: no host token was injected.
-	const embedded = setup({ bridge: undefined });
-	const inApp = mountSession();
-	expect(expectErr(await inApp.opening).name).toBe('HostMissing');
-	// Nothing to quit through, so no Quit is offered.
-	expect(inApp.quit).toBeUndefined();
-	embedded.closeBlocked();
-	await settle(50);
-	inApp.release();
-
-	// A browser tab that somehow carries a token: the browser owns leaving.
-	inShell = false;
-	const tab = setup({ bridge: { token: 'left-over-token' } });
-	const inTab = mountSession();
-	expect(expectErr(await inTab.opening).name).toBe('BrowserFolder');
-	expect(inTab.quit).toBeUndefined();
-	tab.closeBlocked();
-	await settle(50);
-	inTab.release();
-
-	expect(requested).toEqual([]);
-	expect(embedded.navigations).toEqual([]);
-	expect(tab.navigations).toEqual([]);
 });
 
 // ============================================================================

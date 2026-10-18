@@ -65,6 +65,16 @@ describe('bundles', () => {
 			expect(
 				modules.some((path) => path.endsWith('platform/shell.tauri.ts')),
 			).toBe(true);
+			// The window leaf hears this window asked to close, through Tauri.
+			expect(
+				modules.some((path) => path.endsWith('platform/window.tauri.ts')),
+			).toBe(true);
+			expect(
+				modules.some((path) => /@tauri-apps\/api\/window\.js$/.test(path)),
+			).toBe(true);
+			expect(
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(false);
 			// One set of bindings: the ones the folder package generated.
 			expect(
 				modules
@@ -107,6 +117,17 @@ describe('bundles', () => {
 			expect(
 				modules.filter((path) =>
 					/folder\/src\/browser-(store|migration)\.ts$|fake-indexeddb/.test(
+						path,
+					),
+				),
+			).toEqual([]);
+			// A tab has no close handler: the browser leaf, and no Tauri window.
+			expect(
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(true);
+			expect(
+				modules.filter((path) =>
+					/platform\/window\.tauri\.ts$|@tauri-apps\/api\/window\.js$/.test(
 						path,
 					),
 				),

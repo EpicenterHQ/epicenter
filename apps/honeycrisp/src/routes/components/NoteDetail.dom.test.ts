@@ -16,7 +16,6 @@
  * - A change made elsewhere asks Reload theirs or Keep mine; Reload theirs
  *   remounts the rich-text view on their text, Keep mine saves the draft
  * - A note deleted elsewhere asks Discard or Keep mine
- * - While the app answers a close, the controls take no input
  */
 import '../../lib/dom.test-support.ts';
 import { afterEach, expect, test } from 'bun:test';
@@ -208,17 +207,4 @@ test('a note deleted elsewhere asks Discard or Keep mine', async () => {
 		() => text('notes/a.md')?.includes('title: Kept') === true,
 		'the file to be created again',
 	);
-});
-
-test('while the app answers a close, the controls take no input', async () => {
-	const { notes, session, target } = await view();
-	const release = notes.fenceInput();
-	flushSync();
-	expect(titleOf(target).disabled).toBe(true);
-	type(titleOf(target), 'Typed while closing');
-	await tick();
-	expect(session.draft.fields.title).toBe('Alpha');
-	release();
-	flushSync();
-	expect(titleOf(target).disabled).toBe(false);
 });

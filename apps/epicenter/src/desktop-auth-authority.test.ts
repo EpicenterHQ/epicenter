@@ -42,7 +42,7 @@ function setup({
 	fetch?: AuthFetch;
 	respond?: (request: Request) => Promise<Response | undefined>;
 	store?: (serialized: string | null) => Promise<void>;
-	/** Rust's departure round. Resolves to grant; rejects to refuse. */
+	/** Rust's restart preparation. Resolves to grant; rejects to refuse. */
 	prepare?: (signal: AbortSignal | undefined) => Promise<void>;
 } = {}) {
 	const writes: Array<string | null> = [];

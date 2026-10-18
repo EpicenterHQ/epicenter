@@ -266,17 +266,15 @@ export function createNotes(host: NotesHost) {
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>([NOTES]);
 	let refreshSequence = 0;
-	/** Set while a close is answered: no input and no action is taken. */
-	let fenced = $state(false);
-	/** Set once `close` begins. Nothing opens after it, and the fence stays. */
+	/** Set once `close` begins. Nothing opens or changes after it. */
 	let closing: Promise<void> | undefined;
 	/** Set once the folder is being released: nothing reads it after. */
 	let released = false;
-	/** Actions admitted and not finished; a close waits for them. */
+	/** Actions admitted and not finished; `close` waits for them. */
 	const admissions = createAdmissions();
 
 	/** Whether the open item refuses input now. */
-	const locked = () => fenced || closing !== undefined;
+	const locked = () => closing !== undefined;
 
 	/** Why no action starts now, if one does not. */
 	const refused = () => (locked() ? CLOSING : undefined);
@@ -315,7 +313,7 @@ export function createNotes(host: NotesHost) {
 	const terminal = createTerminalSession({
 		terminal: host.terminal,
 		afterRun: check,
-		fenced: locked,
+		locked,
 	});
 
 	/**
@@ -630,31 +628,6 @@ export function createNotes(host: NotesHost) {
 		get unconfirmed() {
 			return saveError()?.name === 'Unconfirmed' ? 1 : 0;
 		},
-		/** Whether input and actions are held back while a close is answered. */
-		get fenced() {
-			return fenced;
-		},
-		/**
-		 * Stop taking input and actions, before drafts are settled for a close.
-		 * Returns the release, for a close that was declined or refused.
-		 */
-		fenceInput(): () => void {
-			fenced = true;
-			return () => {
-				// A close keeps its fence for good.
-				if (closing === undefined) fenced = false;
-			};
-		},
-		/**
-		 * Wait for running actions and the open item's saves. The caller fences
-		 * input first. Resolves how many drafts closing now would lose: the open
-		 * item's, when its save failed, conflicted, or was not confirmed.
-		 */
-		async settleAll(): Promise<number> {
-			await admissions.quiet();
-			const settled = await slot.session?.settled();
-			return settled?.status === 'error' ? 1 : 0;
-		},
 		refresh,
 		check,
 		open,
@@ -916,13 +889,12 @@ export function createNotes(host: NotesHost) {
 				? Promise.resolve({ status: 'blocked', reason: CLOSING })
 				: admissions.admit(() => folder.git.commit()),
 		/**
-		 * Fence input for good, let running actions and the open item's saves
+		 * Refuse input for good, let running actions and the open item's saves
 		 * finish, and release the folder. A draft that could not save ends with
 		 * the page. A second call returns the same promise.
 		 */
 		close(): Promise<void> {
 			closing ??= (async () => {
-				fenced = true;
 				await admissions.quiet();
 				const unsaved = await slot.close();
 				if (unsaved !== undefined)

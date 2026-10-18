@@ -45,7 +45,6 @@
 						noun: 'todo',
 						onOpenAsRow: () => void openItem(todos, path, 'todos'),
 					}}
-			disabled={todos.departing}
 			backLabel="Back to todos"
 			{onBack}
 			onRetry={() => void todos.reload()}

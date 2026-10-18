@@ -22,7 +22,9 @@
  *   holds nothing unsaved
  * - A list toggle on a closed todo is guarded by the version the list read
  * - Renaming or deleting a todo moves or removes only its Markdown file
- * - Close waits for running work, and every close call shares one completion
+ * - Close waits for running work and for the snapshot held behind a running
+ *   write, every close call shares one completion, and a draft whose save
+ *   failed does not hold it
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -865,6 +867,43 @@ test('close waits for running saves, and every close call shares one completion'
 	expect(session.state.status).toBe('saved');
 });
 
+test('close sends the snapshot held behind a running write and waits for it to land', async () => {
+	const { todos, counter, holdNextMarkdownWrite } = await open();
+	const session = await addTodo(todos, 'Milk');
+	const before = counter.mdWrites;
+	const { held, release } = holdNextMarkdownWrite();
+	session.edit((row) => {
+		row.fields.title = 'M';
+	});
+	await held;
+	// Held behind the running write: only a close that waits sends it.
+	session.edit((row) => {
+		row.fields.title = 'Milk!!';
+	});
+	let closed = false;
+	const closing = todos.close().then(() => {
+		closed = true;
+	});
+	await Bun.sleep(10);
+	expect(closed).toBe(false);
+	release();
+	await closing;
+	expect(counter.mdWrites - before).toBe(2);
+	expect(session.state.status).toBe('saved');
+	expect(session.draft.fields.title).toBe('Milk!!');
+});
+
+test('a draft whose save failed does not hold close, and close names it', async () => {
+	const { todos, failNextWrite } = await open();
+	const session = await addTodo(todos, 'Milk');
+	failNextWrite(session.path);
+	session.edit((row) => {
+		row.fields.title = 'Bread';
+	});
+	expect((await session.settled()).status).toBe('error');
+	expect(await todos.close()).toEqual({ unsettled: [session.path] });
+});
+
 test('a refused delete after renaming the open todo reopens it at its new path', async () => {
 	const { todos } = await open();
 	const session = await addTodo(todos, 'Milk');
@@ -927,7 +966,6 @@ test('close waits for a closed-file rename whose read is still running', async (
 	const release = hold.resolve;
 	const renaming = todos.rename('notes.txt', 'renamed.txt');
 	await reading.promise;
-	expect(todos.departure.holdsUnsaved).toBe(true);
 	let closed = false;
 	const closing = todos.close().then(() => {
 		closed = true;

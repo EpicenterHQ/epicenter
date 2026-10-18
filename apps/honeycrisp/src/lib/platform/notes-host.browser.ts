@@ -4,15 +4,16 @@
  * emulated over those files. Nothing native is imported here, and this entry
  * refuses inside the desktop app.
  */
+
 import { openFolder } from '@epicenter/folder/browser';
 import { honeycrispDefinition } from '../data.js';
 import {
 	HONEYCRISP_FOLDER_ID,
 	type NotesHost,
-	type OpenNotes,
+	type OpenHost,
 } from './types.js';
 
-async function acquire(): Promise<NotesHost> {
+export const openHost: OpenHost = async (): Promise<NotesHost> => {
 	const { data: folder, error } = await openFolder({
 		id: HONEYCRISP_FOLDER_ID,
 		definition: honeycrispDefinition,
@@ -35,15 +36,4 @@ async function acquire(): Promise<NotesHost> {
 		history: undefined,
 		close: () => folder.close(),
 	};
-}
-
-// A tab has no shell to ask before it closes; the page's leave guards apply.
-export const openNotes: OpenNotes = async ({ create }) => {
-	const host = await acquire();
-	try {
-		return await create(host);
-	} catch (cause) {
-		await host.close();
-		throw cause;
-	}
 };

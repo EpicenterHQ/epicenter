@@ -121,7 +121,7 @@
 				<DropdownMenu.Item onclick={() => copy(form.text, 'Capture text')}>Copy capture text</DropdownMenu.Item>
 				<DropdownMenu.Item onclick={download}>Download file</DropdownMenu.Item>
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item variant="destructive" disabled={captures.fenced} onclick={() => confirmDelete(captures, form.text.trim().slice(0, 60))}>Delete capture…</DropdownMenu.Item>
+				<DropdownMenu.Item variant="destructive" disabled={captures.locked} onclick={() => confirmDelete(captures, form.text.trim().slice(0, 60))}>Delete capture…</DropdownMenu.Item>
 			</DropdownMenu.Content>
 		</DropdownMenu.Root>
 	</div>

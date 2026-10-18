@@ -154,19 +154,15 @@
 							</Button>
 						{/snippet}
 					</DropdownMenu.Trigger>
-					<!-- An open menu is outside the app's inert root. -->
 					<DropdownMenu.Content align="start" class="w-40">
-						<DropdownMenu.Item
-							disabled={notes.fenced}
-							onSelect={() => (naming = { path: folder.path, value: nameOf(folder) })}
-						>
+						<DropdownMenu.Item onSelect={() => (naming = { path: folder.path, value: nameOf(folder) })}>
 							Rename
 						</DropdownMenu.Item>
-						<DropdownMenu.Item disabled={notes.fenced} onSelect={() => void openItem(notes, folder.path)}>
+						<DropdownMenu.Item onSelect={() => void openItem(notes, folder.path)}>
 							Open file
 						</DropdownMenu.Item>
 						<DropdownMenu.Separator />
-						<DropdownMenu.Item variant="destructive" disabled={notes.fenced} onSelect={() => confirmDeleteFolder(folder)}>
+						<DropdownMenu.Item variant="destructive" onSelect={() => confirmDeleteFolder(folder)}>
 							Delete…
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>

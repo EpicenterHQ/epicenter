@@ -33,7 +33,11 @@
 		 * Throw an error to keep the dialog open (e.g., on failure).
 		 */
 		onConfirm: () => void | Promise<unknown>;
-		/** Called when the user cancels */
+		/**
+		 * Called when the dialog ends without a confirmation: Cancel, Escape, a
+		 * newer dialog opened in its place, or `close()`. Every opening ends in
+		 * exactly one of `onConfirm` succeeding or this.
+		 */
 		onCancel?: () => void;
 	};
 
@@ -71,12 +75,25 @@
 		let hasFailed = $state(false);
 		let inputText = $state('');
 		let options = $state.raw<ConfirmationDialogOptions | null>(null);
+		/** Whether the current opening was confirmed or cancelled. */
+		let answered = false;
+
+		/**
+		 * End the current opening as cancelled unless it was answered or a
+		 * confirmation is running, so whoever waits on it is never left waiting.
+		 */
+		function dismiss() {
+			if (options === null || answered || isPending) return;
+			answered = true;
+			options.onCancel?.();
+		}
 
 		return {
 			get isOpen() {
 				return isOpen;
 			},
 			set isOpen(value) {
+				if (!value && isOpen) dismiss();
 				isOpen = value;
 			},
 			get isPending() {
@@ -99,8 +116,11 @@
 			 * Opens the confirmation dialog with the given options.
 			 */
 			open(opts: ConfirmationDialogOptions) {
+				// A dialog replaced before it was answered is cancelled.
+				if (isOpen) dismiss();
 				// Every opening owns a distinct completion, even if opts is reused.
 				options = { ...opts };
+				answered = false;
 				isPending = false;
 				hasFailed = false;
 				inputText = '';
@@ -111,6 +131,7 @@
 			 * Closes the dialog and resets state.
 			 */
 			close() {
+				if (isOpen) dismiss();
 				isOpen = false;
 				isPending = false;
 				hasFailed = false;
@@ -141,7 +162,10 @@
 				hasFailed = false;
 				try {
 					await current.onConfirm();
-					if (options === current) isOpen = false;
+					if (options === current) {
+						answered = true;
+						isOpen = false;
+					}
 				} catch (error) {
 					if (options === current) hasFailed = true;
 					throw error;
@@ -156,6 +180,7 @@
 			cancel() {
 				if (!isOpen || isPending) return;
 				const current = options;
+				answered = true;
 				current?.onCancel?.();
 				if (options === current) isOpen = false;
 			},

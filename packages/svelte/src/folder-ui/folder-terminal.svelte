@@ -77,7 +77,7 @@
 				autocomplete="off"
 				autocapitalize="off"
 				spellcheck={false}
-				disabled={session.running || session.isFenced}
+				disabled={session.running || session.locked}
 				{@attach (node: HTMLInputElement) => node.focus()}
 				onkeydown={(event) => {
 					if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;

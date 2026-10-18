@@ -17,7 +17,6 @@
  *   reloads to a layout the form cannot show
  * - A file that is not a valid capture shows its issues as text is typed,
  *   and opens as a capture once they are fixed
- * - While Epicenter asks to quit, the text boxes take nothing
  *
  * jsdom has no layout, focus, selection, or IME; these tests say what a
  * delivered event does, not that a person can type there.
@@ -188,19 +187,4 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	await Bun.sleep(20);
 	expect(openCapture(harness.captures).form.text).toBe('Repaired');
 	expect(await harness.text(PATH)).toBe(fixed);
-});
-
-test('while Epicenter asks to quit, the text boxes take nothing', async () => {
-	const harness = await setup({ [PATH]: FILE }, 'capture');
-	harness.captures.departure.fence();
-	flushSync();
-	expect(field('capture-text')?.readOnly).toBe(true);
-	type(field('capture-text'), 'refused');
-	type(field('new-thought'), 'refused');
-	const { form } = openCapture(harness.captures);
-	expect(form.text).toBe('Text');
-	expect(form.newThought).toBe('');
-	harness.captures.departure.resume();
-	await settle(harness);
-	expect(await harness.text(PATH)).toBe(FILE);
 });

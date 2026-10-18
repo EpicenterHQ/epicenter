@@ -24,7 +24,7 @@
 	/**
 	 * Results on pasted text that arrived and are held here. They are saved,
 	 * copied, or discarded on their transformation's page; this only says they
-	 * are held, from every page, so nothing that keeps the app open is hidden.
+	 * are held, from every page, so nothing that quitting would lose is hidden.
 	 */
 	const heldText = $derived(library.textRuns.filter((run) => run.state.kind === 'unsaved'));
 

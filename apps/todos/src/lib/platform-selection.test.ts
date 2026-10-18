@@ -71,29 +71,21 @@ describe('#platform/folder', () => {
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/bindings.gen.ts'))).toBe(true);
-			// The departure leaf reaches the host's published wire, its window
-			// port, and this window's Tauri API, never the host's Bun entry.
+			// The window leaf hears this window asked to close, through Tauri.
 			expect(
 				modules.some((path) =>
-					path.endsWith('platform/departure.epicenter-host.ts'),
+					path.endsWith('platform/window.epicenter-host.ts'),
 				),
 			).toBe(true);
-			for (const published of ['departure-wire.ts', 'departure-window.ts'])
-				expect(
-					modules.some((path) =>
-						path.endsWith(`apps/epicenter/src/${published}`),
-					),
-				).toBe(true);
 			expect(
-				modules.some((path) => /@tauri-apps\/api\/.*webviewWindow/.test(path)),
+				modules.some((path) => /@tauri-apps\/api\/window\.js$/.test(path)),
 			).toBe(true);
 			expect(
-				modules.filter(
-					(path) =>
-						/apps\/epicenter\/src\/(?!departure-(wire|window)\.ts$)/.test(
-							path,
-						) || /platform\/departure\.browser\.ts$/.test(path),
-				),
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(false);
+			// Nothing of the host package: the page never reaches its Bun entry.
+			expect(
+				modules.filter((path) => /apps\/epicenter\/src\//.test(path)),
 			).toEqual([]);
 			expect(
 				modules.filter(
@@ -122,15 +114,21 @@ describe('#platform/folder', () => {
 			expect(modules.some((path) => path.includes('isomorphic-git'))).toBe(
 				true,
 			);
-			// The browser has no departure port and reaches nothing of the host's.
+			// A tab has no close handler: the browser leaf, and no Tauri window.
 			expect(
-				modules.some((path) => path.endsWith('platform/departure.browser.ts')),
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
 			).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/apps\/epicenter\/|platform\/departure\.epicenter-host\.ts$|@tauri-apps\/api\/.*webviewWindow/.test(
+					/platform\/window\.epicenter-host\.ts$|@tauri-apps\/api\/window\.js$/.test(
 						path,
 					),
+				),
+			).toEqual([]);
+			// The browser reaches nothing of the host's.
+			expect(
+				modules.filter((path) =>
+					/apps\/epicenter\/|@tauri-apps\/api\/.*webviewWindow/.test(path),
 				),
 			).toEqual([]);
 			expect(

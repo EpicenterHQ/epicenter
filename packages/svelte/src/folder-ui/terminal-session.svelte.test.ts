@@ -10,7 +10,7 @@
  * - `clear` empties the output without running anything
  * - A shell that throws reads as a failed command, not a lost one
  * - Up and Down step through earlier commands, each once, newest last
- * - While fenced, typing, recall, and Enter change nothing
+ * - While locked, typing, recall, and Enter change nothing
  */
 import '../svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
@@ -21,7 +21,7 @@ const { createTerminalSession } = await import('./terminal-session.svelte.ts');
 function setup(
 	options: {
 		exec?: (command: string) => Promise<TerminalResult>;
-		fenced?: () => boolean;
+		locked?: () => boolean;
 	} = {},
 ) {
 	const ran: string[] = [];
@@ -41,7 +41,7 @@ function setup(
 		afterRun: async () => {
 			afterRuns++;
 		},
-		fenced: options.fenced,
+		locked: options.locked,
 	});
 	return { session, ran, afterRuns: () => afterRuns };
 }
@@ -113,15 +113,15 @@ test('up and down step through earlier commands, each once, newest last', async 
 	expect(session.command).toBe('');
 });
 
-test('while fenced, typing, recall, and Enter change nothing', async () => {
-	let fenced = false;
-	const { session, ran } = setup({ fenced: () => fenced });
+test('while locked, typing, recall, and Enter change nothing', async () => {
+	let locked = false;
+	const { session, ran } = setup({ locked: () => locked });
 	session.command = 'ls';
 	await session.run();
 	session.command = 'pwd';
 
-	fenced = true;
-	expect(session.isFenced).toBe(true);
+	locked = true;
+	expect(session.locked).toBe(true);
 	session.command = 'rm -r todos';
 	expect(session.command).toBe('pwd');
 	expect(session.recall('previous')).toBe(false);
@@ -129,7 +129,7 @@ test('while fenced, typing, recall, and Enter change nothing', async () => {
 	expect(ran).toEqual(['ls']);
 	expect(session.command).toBe('pwd');
 
-	fenced = false;
+	locked = false;
 	await session.run();
 	expect(ran).toEqual(['ls', 'pwd']);
 });

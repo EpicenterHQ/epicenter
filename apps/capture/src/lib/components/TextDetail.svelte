@@ -55,7 +55,7 @@
 			onclick={() => void openItem(captures, stem, 'capture')}>Open as capture</Button
 		>
 		<Button size="sm" variant="ghost" onclick={copy}>Copy file text</Button>
-		<Button size="sm" variant="ghost" disabled={captures.fenced} onclick={() => confirmDelete(captures, '')}>Delete…</Button>
+		<Button size="sm" variant="ghost" disabled={captures.locked} onclick={() => confirmDelete(captures, '')}>Delete…</Button>
 	</div>
 
 	<SaveBar

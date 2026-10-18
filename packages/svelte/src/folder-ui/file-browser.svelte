@@ -37,7 +37,6 @@
 		icon,
 		emptyDescription,
 		location,
-		disabled = false,
 		onRefresh,
 		onReveal,
 		onOpen,
@@ -59,8 +58,6 @@
 		emptyDescription: string;
 		/** Where the files are, in words a person can act on, shown under the heading. */
 		location?: string;
-		/** Changing files waits, as while the app asks to quit or restart; a typed name stays. */
-		disabled?: boolean;
 		onRefresh: () => void;
 		/** Show the folder in the system file manager. Returns a problem to show. */
 		onReveal?: () => Promise<string | undefined>;
@@ -116,23 +113,23 @@
 		if (row.kind === 'directory')
 			return [
 				[
-					{ label: 'New file', disabled, run: () => startCreate(row.path, 'file') },
-					{ label: 'New folder', disabled, run: () => startCreate(row.path, 'folder') },
+					{ label: 'New file', run: () => startCreate(row.path, 'file') },
+					{ label: 'New folder', run: () => startCreate(row.path, 'folder') },
 				],
 				[copy],
 				[
 					row.children > 0
 						? { label: 'Delete (folder not empty)', destructive: true, disabled: true, run: remove }
-						: { label: 'Delete…', shortcut: 'Del', destructive: true, disabled, run: remove },
+						: { label: 'Delete…', shortcut: 'Del', destructive: true, run: remove },
 				],
 			];
 		return [
 			[
 				{ label: 'Open', shortcut: 'Enter', run: () => activate(row) },
-				{ label: 'Rename…', shortcut: 'F2', disabled, run: () => (editing = { kind: 'rename', path: row.path }) },
+				{ label: 'Rename…', shortcut: 'F2', run: () => (editing = { kind: 'rename', path: row.path }) },
 				copy,
 			],
-			[{ label: 'Delete…', shortcut: 'Del', destructive: true, disabled, run: remove }],
+			[{ label: 'Delete…', shortcut: 'Del', destructive: true, run: remove }],
 		];
 	}
 
@@ -172,12 +169,11 @@
 				else focusRow(dirname(row.path) || undefined);
 				break;
 			case 'F2':
-				if (row.kind !== 'file' || disabled) return;
+				if (row.kind !== 'file') return;
 				editing = { kind: 'rename', path: row.path };
 				break;
 			case 'Delete':
 			case 'Backspace':
-				if (disabled) return;
 				onDelete(row.path);
 				break;
 			case 'ContextMenu':
@@ -196,9 +192,7 @@
 	/** Enter or leaving the field applies the name; Escape or an unchanged name cancels. */
 	async function commit(value: string) {
 		const current = editing;
-		// While changes wait, the field and its typed name stay as they are;
-		// disabling it blurs it, which commits nothing.
-		if (current === undefined || committing || disabled) return;
+		if (current === undefined || committing) return;
 		const name = value;
 		const directory = current.kind === 'rename' ? dirname(current.path) : current.directory;
 		if (name === '' || (current.kind === 'rename' && name === basename(current.path))) {
@@ -260,7 +254,6 @@
 			aria-label={label}
 			autocomplete="off"
 			spellcheck={false}
-			{disabled}
 			{@attach (node: HTMLInputElement) => {
 				node.focus();
 				// Select the name before its extension, as file managers do.
@@ -322,10 +315,10 @@
 					<FolderSearchIcon />
 				</Button>
 			{/if}
-			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" {disabled} onclick={() => startCreate('', 'file')}>
+			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('', 'file')}>
 				<FilePlusIcon />
 			</Button>
-			<Button variant="ghost" size="icon-sm" tooltip="New folder" aria-label="New folder" {disabled} onclick={() => startCreate('', 'folder')}>
+			<Button variant="ghost" size="icon-sm" tooltip="New folder" aria-label="New folder" onclick={() => startCreate('', 'folder')}>
 				<FolderPlusIcon />
 			</Button>
 		</div>

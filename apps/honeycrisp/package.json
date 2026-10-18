@@ -8,6 +8,10 @@
 		"#platform/notes-host": {
 			"tauri": "./src/lib/platform/notes-host.tauri.ts",
 			"default": "./src/lib/platform/notes-host.browser.ts"
+		},
+		"#platform/window": {
+			"tauri": "./src/lib/platform/window.tauri.ts",
+			"default": "./src/lib/platform/window.browser.ts"
 		}
 	},
 	"scripts": {
@@ -22,8 +26,7 @@
 		"tauri": "tauri",
 		"test": "bun run --filter @epicenter/folder build:addon && bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
 		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte ./src/routes/components/NoteDetail.dom.test.ts",
-		"test:native": "bun run build:desktop-ui && cargo test --locked --manifest-path src-tauri/Cargo.toml && cargo build --locked --manifest-path src-tauri/Cargo.toml --example harness && bun test --isolate --conditions=browser ./native-tests",
-		"test:quit": "bun run build:desktop-ui && cargo run --locked --manifest-path src-tauri/Cargo.toml --example quit --",
+		"test:native": "bun run build:desktop-ui && cargo test --locked --manifest-path src-tauri/Cargo.toml",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {

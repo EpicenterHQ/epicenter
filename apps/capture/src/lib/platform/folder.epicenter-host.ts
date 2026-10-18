@@ -11,19 +11,17 @@
  * A refused or missing plugin fails the open with its reason. There is no
  * browser folder to fall back to in this build.
  *
- * Quitting or restarting Epicenter asks this window first, through the
- * shared departure client over this window's Tauri port: its events are
- * heard only when sent to this window, and the host knows the caller by its
- * window.
+ * When the Bun host that served the page stops, the shell keeps this window
+ * and tells it (`@epicenter/epicenter/host-stopped`). The event is heard only
+ * when sent to this window.
  */
 import { captureDefinition } from '@epicenter/capture';
-import { createDeparture } from '@epicenter/epicenter/departure/page';
-import { createWindowDeparturePort } from '@epicenter/epicenter/departure/window';
+import { onHostStopped as hearHostStopped } from '@epicenter/epicenter/host-stopped';
 import { openFolder } from '@epicenter/folder/tauri';
 import {
 	CAPTURE_FOLDER_ID,
+	type OnHostStopped,
 	type OpenCaptureHost,
-	type OpenDeparture,
 } from './types.js';
 
 /** Called from a mounted component; importing this module opens nothing. */
@@ -40,6 +38,5 @@ export const openCaptureHost: OpenCaptureHost = async () => {
 	};
 };
 
-/** Called from a mounted component, before the folder opens. */
-export const openDeparture: OpenDeparture = () =>
-	createDeparture(createWindowDeparturePort());
+/** Registered by the mounted page once the captures exist. */
+export const onHostStopped: OnHostStopped | undefined = hearHostStopped;

@@ -18,7 +18,7 @@ export type TerminalSession = ReturnType<typeof createTerminalSession>;
 export function createTerminalSession({
 	terminal,
 	afterRun,
-	fenced = () => false,
+	locked = () => false,
 }: {
 	/** The shell, such as `folder.terminal()` or an app's wrapper around it. */
 	terminal: Pick<FolderTerminal, 'cwd' | 'exec'>;
@@ -26,10 +26,9 @@ export function createTerminalSession({
 	afterRun: () => Promise<void>;
 	/**
 	 * While true, typing, recall, and Enter change nothing: the command,
-	 * history, and output stay exactly as they are, as while the app asks to
-	 * quit or restart.
+	 * history, and output stay exactly as they are, as while the app closes.
 	 */
-	fenced?: () => boolean;
+	locked?: () => boolean;
 }) {
 	let runs = $state<TerminalRun[]>([]);
 	let command = $state('');
@@ -54,17 +53,17 @@ export function createTerminalSession({
 			return command;
 		},
 		set command(value: string) {
-			if (fenced()) return;
+			if (locked()) return;
 			command = value;
 		},
 		/** Typing, recall, and Enter are refused. */
-		get isFenced() {
-			return fenced();
+		get locked() {
+			return locked();
 		},
 		/** Run the typed command. `clear` empties the output without running. */
 		async run() {
 			const line = command.trim();
-			if (line === '' || running || fenced()) return;
+			if (line === '' || running || locked()) return;
 			command = '';
 			cursor = -1;
 			if (line === 'clear') {
@@ -91,7 +90,7 @@ export function createTerminalSession({
 		},
 		/** Step through earlier commands. Returns false when there is none to recall. */
 		recall(direction: 'previous' | 'next'): boolean {
-			if (history.length === 0 || fenced()) return false;
+			if (history.length === 0 || locked()) return false;
 			if (direction === 'previous')
 				cursor = cursor < 0 ? history.length - 1 : Math.max(0, cursor - 1);
 			else

@@ -15,7 +15,6 @@
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import LeavePrompt from './LeavePrompt.svelte';
 	import RecoveryNotices from './RecoveryNotices.svelte';
 	import VerticalNav from './VerticalNav.svelte';
 	import { confirmDelete, openItem } from './file-actions.js';
@@ -29,16 +28,16 @@
 
 	// One session per mounted layout: the layout opens it once and never swaps it.
 	// svelte-ignore state_referenced_locally
-	const { library, view, leave } = session;
+	const { library, view } = session;
 	// svelte-ignore state_referenced_locally
 	setSession(session);
 
 	// Typing, captured audio, and received text that have not reached the folder
 	// live only in this window. Moving between this app's pages keeps all of it,
 	// so that is never held back. Leaving the document is: in a browser tab the
-	// cancel becomes the browser's leave warning. The desktop shell does not
-	// raise that warning, so it asks before closing or quitting and the leave
-	// guard answers, showing a confirmation when something is held.
+	// cancel becomes the browser's leave warning. Closing the desktop window is
+	// the layout's: it waits for the session to close, asking first only while
+	// a recording is in progress.
 	beforeNavigate((navigation) => {
 		// svelte-ignore state_referenced_locally
 		if (session.blocksNavigation(navigation)) navigation.cancel();
@@ -145,8 +144,6 @@
 {#snippet terminalPane()}
 	<FolderTerminal session={library.terminal} description={library.workspace.terminalNote} onClose={() => void toggleTerminal()} />
 {/snippet}
-
-<LeavePrompt guard={leave} />
 
 {#if wide.current}
 	<Sidebar.Provider bind:open={view.sidebarOpen} class="h-dvh min-h-0 overflow-hidden">

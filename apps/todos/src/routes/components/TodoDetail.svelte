@@ -83,7 +83,6 @@
 		prefix="todos/"
 		name={rowStemOf(todos.folder.tables.todos.name, session.path) ?? ''}
 		suffix=".md"
-		disabled={todos.departing}
 		onRename={(next) => todos.rename(session.path, `${next}.md`)}
 		onDelete={() => void confirmDelete(todos, session.path)}
 	/>

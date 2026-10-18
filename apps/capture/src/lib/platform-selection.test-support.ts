@@ -2,4 +2,5 @@
  * The seam import alone, as the page writes it. `platform-selection.test.ts`
  * bundles this under each build condition to see which leaf it resolves.
  */
-export { openCaptureHost, openDeparture } from '#platform/folder';
+export { onHostStopped, openCaptureHost } from '#platform/folder';
+export { onCloseRequested } from '#platform/window';

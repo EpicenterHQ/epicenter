@@ -2,66 +2,70 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
-	import { openForDeparture } from '@epicenter/epicenter/departure/page';
+	import { createClosing } from '@epicenter/svelte/closing';
+	import ClosingNotice from '@epicenter/svelte/closing-notice';
 	import { onDestroy } from 'svelte';
-	import { openCaptureHost, openDeparture } from '#platform/folder';
-	import { createCaptures } from '$lib/captures.svelte.js';
+	import { createLogger } from 'wellcrafted/logger';
+	import { onHostStopped, openCaptureHost } from '#platform/folder';
+	import { onCloseRequested } from '#platform/window';
+	import { type Captures, createCaptures } from '$lib/captures.svelte.js';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
+
+	const log = createLogger('capture/page');
 
 	// The mounted page acquires the folder; importing modules opens nothing.
 	// Which folder is the build's choice: a browser folder, or the desktop
 	// shell's directory. There is no sign-in on this path.
 	//
-	// On the desktop, the host's departure question is heard before the folder
-	// opens, and the folder opens only once a status is known, so nothing is
-	// editable while a quit or restart may be running. The captures are
-	// attached before anything else is awaited; a folder that did not open
-	// has nothing to settle. A browser tab has none.
-	const departure = openDeparture();
-	void departure?.start();
-	const opening = openForDeparture(
-		departure,
-		async () => {
-			const host = await openCaptureHost();
-			return { host, captures: createCaptures(host) };
-		},
-		({ captures }) => captures.departure,
-	).then(async (opened) => {
-		await opened.captures.refresh();
-		return opened;
+	// Ending the page is `close`, however it ends: it refuses new work, lets
+	// running actions and saves finish, and lets go of the folder. The
+	// window's close handler awaits it before the window goes, and unmounting
+	// calls it too. Before the captures exist there is nothing to wait for, so
+	// a close while opening, or after opening failed, goes ahead at once.
+	let captures: Captures | undefined;
+	async function close() {
+		await captures?.close();
+	}
+	// The handler waits with no timeout. A close still running after a moment
+	// shows "Still saving…" with Close anyway, which lets the window go.
+	const closing = createClosing({ close });
+	const listening = onCloseRequested?.(closing.request).catch((cause: unknown) => {
+		log.warn(new Error('Listening for the window to close failed.', { cause }));
+		return undefined;
 	});
+	const stops: (() => void)[] = [];
+	const opening = (async () => {
+		// The handler is registered before anything can be edited.
+		await listening;
+		const opened = createCaptures(await openCaptureHost());
+		captures = opened;
+		void onHostStopped?.(() => opened.markServiceStopped()).then(
+			(stop) => stops.push(stop),
+			() => {},
+		);
+		await opened.refresh();
+		return opened;
+	})();
 
 	onDestroy(() => {
-		departure?.destroy();
-		void opening
-			.then(async ({ host, captures }) => {
-				await captures.close();
-				return host.close();
-			})
-			.catch(() => {});
+		for (const stop of stops.splice(0)) stop();
+		void listening?.then((stop) => stop?.());
+		void opening.then(close).catch(() => {});
 	});
 </script>
 
 {#await opening}
-	{#if departure !== undefined && !departure.known && departure.problem !== undefined}
-		<Empty.Root class="h-dvh">
-			<Empty.Header>
-				<Empty.Title>Capture cannot hear Epicenter</Empty.Title>
-				<Empty.Description role="alert">Capture opens once it can tell whether Epicenter is quitting or restarting, so no text is lost to one: {departure.problem}</Empty.Description>
-			</Empty.Header>
-			<Empty.Content><Button variant="outline" size="sm" onclick={() => void departure.start()}>Try again</Button></Empty.Content>
-		</Empty.Root>
-	{:else}
-		<Loading class="h-dvh" label="Opening your captures…" />
-	{/if}
-{:then { captures }}
-	<CaptureApp {captures} {departure} />
+	<Loading class="h-dvh" label="Opening your captures…" />
+{:then captures}
+	<CaptureApp {captures} />
 {:catch error}
 	<Empty.Root class="h-dvh">
 		<Empty.Header>
 			<Empty.Title>Could not open the captures folder</Empty.Title>
 			<Empty.Description role="alert">{error instanceof Error ? error.message : String(error)}</Empty.Description>
 		</Empty.Header>
-		<Empty.Content><Button variant="outline" size="sm" disabled={departure?.fenced} onclick={() => location.reload()}>Try again</Button></Empty.Content>
+		<Empty.Content><Button variant="outline" size="sm" onclick={() => location.reload()}>Try again</Button></Empty.Content>
 	</Empty.Root>
 {/await}
+
+<ClosingNotice {closing} />
