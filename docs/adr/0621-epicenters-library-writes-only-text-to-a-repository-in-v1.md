@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) and [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md), a blob as a file in its folder and audio kept in the folder but off Git: the library writes no binary file in v1, and Whispering's audio stays outside the repository.
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Audio stays on this machine while the folder's `.gitignore` ignores it" and "Whispering's template ships `.gitignore` with `audio/`": Whispering keeps audio in the app's own storage, outside the repository; `.gitignore` deciding what a commit leaves out stands.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`check`), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (rows and row folders).
-- **Unbuilt:** all of it: the library refusing a write that is not text; `check` listing binary files; Whispering keeping audio in its own storage. Git LFS pointers with their bytes in an object store come later and are not designed.
+- **Unbuilt:** all of it: the library refusing a write that is not text; Whispering keeping audio in its own storage. Git LFS pointers with their bytes in an object store come later and are not designed.
 
 ## Context
 
@@ -27,8 +27,9 @@ writes no `table.json`
 ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
 The library offers no binary write.
 
-**The Git service still accepts any Git content.** A binary committed with
-plain Git is accepted, and `check` lists it.
+**The Git service still accepts any Git content, and `check` does not list
+a binary file.** Text only is a rule for what the library writes, not a
+defect in what plain Git committed.
 
 **Binary files come later as Git LFS pointers, with their bytes in an object
 store.** Nothing of that is built in v1.
@@ -40,8 +41,8 @@ storage on the machine that recorded it.
 ## Consequences
 
 - Every byte an app writes through the library merges as text.
-- An image or a PDF a person adds with plain Git syncs as an ordinary blob
-  and shows up in `check`.
+- An image or a PDF a person adds with plain Git syncs as an ordinary blob,
+  and `check` says nothing of it.
 - A recording's audio is on one machine only, and the repository never
   holds it.
 
