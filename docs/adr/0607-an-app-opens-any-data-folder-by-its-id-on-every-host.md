@@ -87,9 +87,10 @@ epicenter-app://<app host>/?folder=todos      the Folders window opening ~/Epice
 - "Show files" still opens any folder in the generic editor (ADR-0586).
 
 **A browser origin holds several folders.** In a tab with no `folder`
-parameter, the app opens its default folder, named by the last segment of
-its address as installing names the first folder (ADR-0586), or makes it
-from its template.
+parameter, the app opens its default folder, named by the app's name (the
+last segment of its address with a leading `app-` removed, ADR-0605) as
+installing names the first folder (ADR-0586), or makes it from its
+template: `github.com/alice/app-kanban` opens `kanban`.
 
 Deleted: `admit_installed_window`'s one folder, the Folders-window-only
 registrations, `permitted`'s `WindowNotPermitted` for an app window,

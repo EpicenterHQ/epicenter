@@ -23,8 +23,8 @@ can delete another app's files, and it states that loss as its cost.
 
 ## Decision
 
-**On macOS, Epicenter never removes a file permanently: deleting a file
-moves it to the person's Trash.**
+**On macOS, Epicenter never permanently removes a file it deletes from a
+data folder: deleting one moves it to the person's Trash.**
 
 ```txt
 deletion through                                 today               decided
@@ -42,9 +42,10 @@ removeEntry in a browser tab (OPFS)              permanent           unchanged: 
 - When the move fails, the deletion fails and the file stays where it was.
   Nothing falls back to removing it.
 
-**So on the desktop every deletion is repairable: a committed file from
-Git, any other file from the Trash.** That is what makes removing the fence
-between apps (ADR-0607) safe against a mistake.
+**So on the desktop every deletion, though not every overwrite, is
+repairable: a committed file from Git, any other file from the Trash.**
+That is what makes removing the fence between apps (ADR-0607) safe against
+a mistaken deletion.
 
 **In a browser tab a deletion stays permanent.** OPFS has no Trash; a tab
 recovers only what its folder had committed.
