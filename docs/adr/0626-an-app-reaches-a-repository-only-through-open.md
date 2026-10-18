@@ -41,7 +41,14 @@ repo.status                               'synced' | 'pending' | 'disconnected' 
 
 `tables` maps each table name to the app's schema for it. A row that fits
 comes back `ok` with typed fields; one that does not comes back with its raw
-fields, never dropped.
+fields, never dropped. The app's schema is the only one it reads rows with;
+a table's `table.json` only orders the keys a save writes
+([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
+
+**`open` creates no table, and nothing in the app API writes a
+`table.json`.** A table named in `tables` that the repository lacks lists no
+rows. The first `set` in it writes `<t>/<id>.md`, and the table stays
+untyped until a person or an agent writes its `table.json`.
 
 **`set` and `delete` are always accepted.** Neither checks a schema. A save
 sets the named fields on the row as it is now; merging two versions happens
@@ -63,6 +70,8 @@ the four words of
   those rows raw and can still set fields on them.
 - A field the app does not name in `set` keeps what the file holds, so two
   apps setting different fields of one row never undo each other.
+- Opening a repository writes no file into it, so two clones that open
+  one repository never race to describe a table.
 
 ## Considered alternatives
 
@@ -70,5 +79,8 @@ the four words of
   wanted to know whether it is connected would leave itself.
 - **Writes validated against the app's schema.** An app one field behind
   another refuses rows the repository already holds.
+- **`open` creating each table it names, with the app's schema as its
+  `table.json`.** An app becomes an author of the description people and
+  agents own, and two clones that open at once each write one.
 - **A `sync()` in the app API.** Every app then schedules sync, and two
   apps on one origin race each other's schedule.

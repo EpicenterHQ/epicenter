@@ -22,7 +22,9 @@ history, so a binary committed once costs every clone forever.
 ## Decision
 
 **In v1 the library writes only text: UTF-8 with no NUL byte.** A row's
-body and fields, `table.json`, and every file in a row's folder are text.
+body and fields, and every file in a row's folder, are text; the library
+writes no `table.json`
+([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
 The library offers no binary write.
 
 **The Git service still accepts any Git content.** A binary committed with
