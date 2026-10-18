@@ -252,13 +252,14 @@ export function createHistory({
 	}
 
 	/**
-	 * Object work for one logical operation: a status scan, a commit, or a
-	 * Sync. Its calls share one isomorphic-git cache, so each pack's index
-	 * and bytes are loaded and checksummed once per operation, not once per
-	 * object read. Sharing it within an operation is safe: the cache holds
-	 * only pack data, which Git names by its contents and never rewrites in
-	 * place, and every read lists the pack directory again, so a pack a fetch
-	 * adds partway through is found. It lives no longer than the operation,
+	 * Object work for one logical operation: a status scan, a commit, or one
+	 * Sync attempt. Its calls share one isomorphic-git cache, so each pack's
+	 * index and bytes are loaded and checksummed once per operation, not once
+	 * per object read. Sharing it within an operation is safe: the cache holds
+	 * pack data, with some decoded objects at the end of deep delta chains,
+	 * all of which Git names by their contents and never rewrites in place,
+	 * and every read lists the pack directory again, so a pack a fetch adds
+	 * partway through is found. It lives no longer than the operation,
 	 * so it never holds packs a repack has since deleted, and a pack read
 	 * while another tab was still writing it fails that one operation rather
 	 * than every later one.
@@ -375,7 +376,10 @@ export function createHistory({
 	 * The bytes of the listed files that are history source under the shared
 	 * scope rule, read now, for a commit or a status. Which files are source
 	 * is decided by path and the `.gitignore` files first, and only those are
-	 * read: an ignored file, such as a recording of any size, never is.
+	 * read: an ignored file, such as a recording of any size, never is. A
+	 * `.gitignore` is source with the bytes the decision used, and is never
+	 * read again: one that appears after that read is left for the next
+	 * capture, so no rules are committed that did not choose what else is.
 	 */
 	async function capture(
 		listed: readonly string[],
@@ -390,10 +394,12 @@ export function createHistory({
 			isLocal,
 			isAppLocal,
 		);
-		const read = await readFiles(kept.filter((path) => !gitignores.has(path)));
+		const read = await readFiles(kept.filter((path) => !isGitignorePath(path)));
 		const source = new Map<string, Uint8Array>();
 		for (const path of kept) {
-			const bytes = gitignores.get(path) ?? read.get(path);
+			const bytes = isGitignorePath(path)
+				? gitignores.get(path)
+				: read.get(path);
 			if (bytes !== undefined) source.set(path, bytes);
 		}
 		return source;
@@ -1188,7 +1194,6 @@ export function createHistory({
 			}
 			let local =
 				checkpoint.status === 'committed' ? checkpoint.oid : checkpoint.head;
-			const objects = operationObjects();
 			// A folder this run gave its first commit has no history of its own
 			// yet: it joins the remote's over an empty base.
 			const unrelated =
@@ -1228,6 +1233,9 @@ export function createHistory({
 			// `null` before any rejection; `undefined` names a remote with no branch.
 			let rejectedAt: string | null | undefined = null;
 			for (let attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
+				// Each attempt its own: a pack another tab was still writing
+				// when one attempt read it fails that attempt, never the retries.
+				const objects = operationObjects();
 				const { data: theirs, error: fetchError } = await fetchRunner.request();
 				if (fetchError !== null)
 					return fetchError.name === 'Closed' || closing.signal.aborted

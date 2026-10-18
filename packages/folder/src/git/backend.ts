@@ -63,7 +63,8 @@ export type GitBackend = {
 	/**
 	 * Run object work. The browser flushes new objects durably before
 	 * returning. `cache` is isomorphic-git's in-memory cache, which holds each
-	 * pack's index and bytes once they are read and checked: every call of
+	 * pack's index and bytes once they are read and checked, and some decoded
+	 * objects at the end of deep delta chains: every call of
 	 * one logical operation passes the same object, so a pack is loaded once
 	 * per operation instead of once per object read. Omitted, the work has a
 	 * cache of its own.

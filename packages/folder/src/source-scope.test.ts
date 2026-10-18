@@ -27,7 +27,9 @@ import {
 } from './browser-storage.test-support.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
+import type { GitBackend } from './git/backend.js';
 import { createHistory } from './git/history.js';
+import { commitTree, readTreeFiles } from './git/objects.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
 	GIT_ENV,
@@ -157,6 +159,49 @@ describe('ignored files are never read', () => {
 		await history.close();
 	});
 });
+
+describe('a .gitignore read once', () => {
+	test('one missing when selection reads it is not committed when it reappears', async () => {
+		const raw = await rawBrowserFolder({ id: 'scope-late-gitignore' });
+		const backend = await raw.backend();
+		// `.gitignore` reads as missing once, as during a replace, then is back.
+		let hidden = true;
+		const boundary: LockingStorage = {
+			...raw.boundary,
+			read(path) {
+				if (path === '.gitignore' && hidden) {
+					hidden = false;
+					return raw.boundary.read('no-such-file');
+				}
+				return raw.boundary.read(path);
+			},
+		};
+		const history = createHistory({ backend, boundary, author });
+		await overwrite(raw.boundary, '.gitignore', 'secret.txt\n');
+		await overwrite(raw.boundary, 'notes.md', 'kept\n');
+		await overwrite(raw.boundary, 'secret.txt', 'chosen without rules\n');
+
+		const commit = await history.commit();
+		expect(commit.status).toBe('committed');
+		const files = await headPaths(backend);
+		// Selection ran without the rules, so the commit holds no rules either:
+		// the late bytes never pair with a file they would have ignored.
+		expect(files).not.toContain('.gitignore');
+		expect(files).toEqual(['notes.md', 'secret.txt']);
+		await history.close();
+	});
+});
+
+/** The paths of the branch head's tree. */
+async function headPaths(backend: GitBackend) {
+	const head = await backend.readBranch();
+	if (head === undefined) return [];
+	return backend.withObjects(async (access) =>
+		[
+			...(await readTreeFiles(access, await commitTree(access, head))).keys(),
+		].sort(),
+	);
+}
 
 describe('native folder scope', () => {
 	test('agrees with git status and never commits ignored files', async () => {
