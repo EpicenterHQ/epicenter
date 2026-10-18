@@ -45,9 +45,9 @@ governs where the two differ.
    with one writer at a time. On disk, the person, their agents, and the
    data browser write files with last-write-wins between them, and commits
    happen at `epicenter sync` (ADR-0611, ADR-0623).
-6. Wherever Epicenter's merge runs, in a browser sync, a save's body, and
-   Git's merge through the `epicenter` driver, the edit that reaches `main`
-   last wins each unit both sides changed, an edit beats a delete it never
+6. One TypeScript merge runs wherever Epicenter merges, in a sync on every
+   host and in a save, and the edit that reaches `main` last wins each unit
+   both sides changed, an edit beats a delete it never
    saw, Epicenter writes no conflict marker, and the losing version of a
    sync stays a parent of the merge commit (ADR-0622, ADR-0626).
 7. The library writes text; binary files come later, through Git LFS

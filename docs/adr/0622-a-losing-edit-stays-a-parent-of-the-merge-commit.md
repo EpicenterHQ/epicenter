@@ -3,9 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Supersedes:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) (a folder has one write, a merge by unit where the writer acting wins): the edit that reaches `main` last wins each unit both sides changed, an edit beats a delete it never saw, and Epicenter writes no conflict marker or conflict file.
-- **Amends:** [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", "binary, or a side absent | the whole file" for a side absent, and "the plain-Git merge driver is deleted": all text, `.json` included, merges by diff3 region, an edit beats a delete it never saw, and Epicenter's merge runs in plain Git as the `epicenter` merge driver.
-- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter sync`, and `epicenter login` registering the driver), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`set` and a row's `version`).
-- **Unbuilt:** all of it: `merge(path, { base, current, change })`; diff3 regions in place of `mergeLines`; an edit beating a delete; the change winning a path where a file and a directory collide; the `epicenter` merge driver; a save merging its body against `version`; and `check` listing conflict markers.
+- **Amends:** [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", "binary, or a side absent | the whole file" for a side absent: all text, `.json` included, merges by diff3 region, and an edit beats a delete it never saw.
+- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter sync`), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`set` and a row's `version`).
+- **Unbuilt:** all of it: `merge(path, { base, current, change })`; diff3 regions in place of `mergeLines`; an edit beating a delete; the change winning a path where a file and a directory collide; `epicenter sync` running the merge over the local `.git` and writing its own merge commits; a save merging its body against `version`; and `check` listing conflict markers.
 
 ## Context
 
@@ -32,20 +32,15 @@ sentences of one paragraph, which is one line, keep only one.
 ## Decision
 
 **Wherever Epicenter's merge runs, the edit that reaches `main` last wins
-each unit both sides changed.** It runs in three places, each giving the
+each unit both sides changed.** It runs in two places, each giving the
 merge named roles, where `change` wins:
 
 ```txt
-                    base                       current                       change
-browser sync        the merge base             what main holds               this clone's commits
-git merge, driver   the merge base (%O)        the fetched side (%B)         Git's current side (%A), the local work
-a save's body       the row at the version     the row on disk               the body set is given
-                    the app read
+              base                           current                  change
+sync          the merge base                 what main holds          this clone's commits
+a save        the file at the version the    the file the clone       the file the save writes
+              app read, or current           holds now
 ```
-
-In a `git pull`, Git's current side is the local work, which reaches `main`
-last, so it is the change, as in a browser sync. `git pull --rebase` swaps
-the sides, as Git documents, so there the fetched side wins.
 
 | File | Unit |
 | --- | --- |
@@ -55,8 +50,7 @@ the sides, as Git documents, so there the fetched side wins.
 
 - Units only one side changed all survive.
 - **An edit beats a delete it never saw.** A file one side deleted and the
-  other changed is kept, with the change. Git calls no driver for such a
-  file, so `epicenter sync` settles it the same way.
+  other changed is kept, with the change.
 - **Epicenter never writes a conflict marker or a conflict file.** Where a
   file and a directory collide at one path, the change wins the path.
 - **The losing version stays a parent of the merge commit**, and an
@@ -67,14 +61,15 @@ the sides, as Git documents, so there the fetched side wins.
 Deleted: `ours`, `theirs`, and `winner`, and `mergeLines` with its union of
 insertions.
 
-**Epicenter's merge runs in plain Git as the `epicenter` merge driver.**
-`epicenter login` registers `merge.epicenter.driver` in the global Git
-config, and a repository opts in with a committed `.gitattributes` line,
-`* merge=epicenter`
-([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
-A machine without the driver merges with Git's text merge; the conflict
-markers it leaves are `check` lines, and `epicenter sync` never commits
-them.
+**One merge implementation runs on every host.** A browser sync and
+`epicenter sync` on disk run the same TypeScript `merge`, `epicenter sync`
+over the local `.git`
+([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)),
+and each writes its own merge commit, so every host writes `Overrode:`
+trailers. Epicenter registers no Git merge driver: no
+`merge.epicenter.driver` config and no committed `.gitattributes` line.
+Plain `git pull` stays plain Git; the conflict markers it leaves are
+`check` lines, and `epicenter sync` refuses to commit a file holding them.
 
 **A save merges its body and sets its fields.** `set` given a row's
 `version`, the blob id the app read it at, merges the body it is given
@@ -93,8 +88,8 @@ the row's. Fields are set as named, never merged
   lists it as a row folder that has no row.
 - Two different insertions at one place in a body compete: the change's
   stands, and the other is in the losing parent.
-- A machine with the driver and a browser sync merge the same two commits
-  the same way; only a machine without the driver leaves conflict markers.
+- `epicenter sync` and a browser sync merge the same two commits the same
+  way; only plain `git pull` leaves conflict markers.
 - Two tabs that edit different paragraphs of one row both keep their
   edits. Two that edit one line keep the later save's line, and the earlier
   one survives only if a sync committed it first.
@@ -117,8 +112,12 @@ the row's. Fields are set as named, never merged
   records.
 - **The person decides each conflict.** Sync then stops until someone
   answers.
-- **Git's own rules on disk, with no driver.** `git pull` and a browser sync
-  merge the same two commits differently, and every overlap on disk is a
-  conflict marker.
+- **Git's own merge in `epicenter sync`.** `epicenter sync` and a browser
+  sync merge the same two commits differently, and every overlap on disk is
+  a conflict marker.
+- **A Git merge driver, `merge.epicenter.driver`.** Each machine registers
+  it and each repository opts in with a `.gitattributes` line; Git calls
+  no driver for a file one side deleted, and Git writes the merge commit,
+  so it carries no `Overrode:` trailer.
 - **A save whose body always replaces the row's.** Two tabs editing
   different paragraphs of one row lose one tab's edit.
