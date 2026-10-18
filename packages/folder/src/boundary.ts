@@ -39,9 +39,30 @@ export type FileListing = {
 	 * scope, symbolic links, and special entries, none of them followed. A
 	 * read refuses what is not a regular file.
 	 */
-	readonly files: readonly { readonly path: string; readonly size: number }[];
+	readonly files: readonly ListedFile[];
 	/** Every directory, including empty ones kept for the shell. */
 	readonly directories: readonly string[];
+	/**
+	 * The host's clock, in milliseconds, just before it began listing: the
+	 * clock its files' `modified` times are on. A host that gives no
+	 * `modified` times gives none.
+	 */
+	readonly listedAt?: number;
+};
+
+/**
+ * One entry of a listing. `modified` and `stamp` are what the host's file
+ * system says of it, where it can say. They let a capture skip reading a
+ * file whose stat has not changed (`git/capture-cache.ts`), and nothing else
+ * reads them: a file's identity is still the bytes read from it.
+ */
+export type ListedFile = {
+	readonly path: string;
+	readonly size: number;
+	/** When its bytes last changed, in milliseconds on the host's clock. */
+	readonly modified?: number;
+	/** What else the host's stat says that changes with the file: its inode and change time. */
+	readonly stamp?: string;
 };
 
 /** A folder's files, as each host stores them. */
@@ -184,6 +205,7 @@ export function hostStorage(
 			return Ok({
 				files: [...listed.files].sort(byPath),
 				directories: [...listed.directories].sort(),
+				listedAt: listed.listedAt,
 			});
 		},
 		async children(directory) {

@@ -67,6 +67,23 @@ above are from the run before this change.
 expects it; the file checks read with `files.read`, since `files.open` is
 gone. Not yet run in a browser.
 
+2026-10-18, headless through Playwright 1.62 with a persistent context, with
+a new check that a listing times each write on the page's clock, which the
+capture cache's racy rule relies on (`src/git/capture-cache.ts`, ADR-0617):
+
+- Chromium 151 (macOS arm64): 22 passed, 0 failed. `lastModified` is in
+  milliseconds: a save 35 ms after the create, and a raw write 36 ms after
+  that, each got a later time, one or two milliseconds after the clock read
+  before it.
+- WebKit 26.5: the check passed. `lastModified` is in whole seconds: the
+  create, a save 628 ms into the second, and a raw write after it were all
+  timed at the second's start, up to 666 ms before the clock read before
+  them, so a write lands with a time up to a second older than its listing.
+  `RACY_MS` (3,000) covers it. The case check failed as before
+  (`Occupied` at `names/case.md`), and the run stopped at the two-context
+  stage again.
+- Firefox: not run; Playwright 1.62's build was not installed.
+
 ### Chrome 142 behavior the replacement relies on
 
 The coordinator's probes in Chrome 142 on macOS observed what the stream

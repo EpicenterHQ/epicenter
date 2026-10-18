@@ -46,6 +46,7 @@ import {
 	openFolder,
 	schemaPath,
 } from '../../src/browser.js';
+import { RACY_MS } from '../../src/git/capture-cache.js';
 import type { PeerReply, PeerRequest } from './peer.js';
 
 type Status = 'pass' | 'fail' | 'note';
@@ -542,6 +543,45 @@ async function filesAndLayout(id: string) {
 				rawOutcome,
 			);
 			return 'the bytes read kept 4 MiB';
+		},
+	);
+
+	await check(
+		"a listing times each write on the page's clock (the capture cache's racy rule)",
+		async () => {
+			const folder = await open(id);
+			const timed = async () =>
+				ok(await folder.files.list()).files.find(
+					(file) => file.path === 'stat/kept.md',
+				)?.modified;
+			const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
+			ok(await folder.write('stat/kept.md', null, 'aaaa'));
+			const created = await timed();
+			await pause();
+			const before = Date.now();
+			ok(await folder.write('stat/kept.md', 'aaaa', 'bbbb'));
+			const replaced = await timed();
+			await pause();
+			const beforeRaw = Date.now();
+			await rawWrite(id, 'stat/kept.md', encoder.encode('cccc'));
+			const raw = await timed();
+			assert(
+				created !== undefined && replaced !== undefined && raw !== undefined,
+				'the listing gives no modification time',
+			);
+			// A write after a listing must be timed later than any time the
+			// cache trusts: older than that listing by `RACY_MS`. An engine
+			// that keeps whole seconds times two writes a second apart alike,
+			// which that margin is for.
+			assert(
+				replaced >= created && replaced > before - RACY_MS,
+				`a save after ${before} is timed ${replaced}, after ${created}`,
+			);
+			assert(
+				raw >= replaced && raw > beforeRaw - RACY_MS,
+				`a raw write after ${beforeRaw} is timed ${raw}, after ${replaced}`,
+			);
+			return `created ${created}; saved at ${before}, timed ${replaced}; written raw at ${beforeRaw}, timed ${raw}`;
 		},
 	);
 

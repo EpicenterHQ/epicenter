@@ -32,6 +32,7 @@ import {
 	type HostFiles,
 	hostStorage,
 	isStaleScratch,
+	type ListedFile,
 	type LockingStorage,
 	lockingStorage,
 	PRIVATE_DIRECTORY,
@@ -245,8 +246,9 @@ export function createDirectoryStorage({
 
 		return {
 			async list() {
-				const entries: { path: string; size: number }[] = [];
+				const entries: ListedFile[] = [];
 				const directories: string[] = [];
+				const listedAt = Date.now();
 				async function visit(directory: string, prefix: string) {
 					for (const entry of await files.readDir(directory)) {
 						if (prefix === '' && entry.name === PRIVATE_DIRECTORY) continue;
@@ -258,7 +260,13 @@ export function createDirectoryStorage({
 							continue;
 						}
 						const found = await files.lstat(at);
-						if (found !== undefined) entries.push({ path, size: found.size });
+						if (found !== undefined)
+							entries.push({
+								path,
+								size: found.size,
+								modified: found.modified,
+								stamp: found.stamp,
+							});
 					}
 				}
 				try {
@@ -266,7 +274,7 @@ export function createDirectoryStorage({
 				} catch (cause) {
 					return FileError.Io({ path: '', operation: 'list', cause });
 				}
-				return Ok({ files: entries, directories });
+				return Ok({ files: entries, directories, listedAt });
 			},
 			async children(directory) {
 				try {

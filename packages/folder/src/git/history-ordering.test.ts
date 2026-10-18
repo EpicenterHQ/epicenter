@@ -28,7 +28,12 @@ import { rawBrowserFolder } from '../browser-storage.test-support.js';
 import { overwrite } from '../put.test-support.js';
 import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
-import { commitParents, writeCommitObject, writeFilesTree } from './objects.js';
+import {
+	capturedBytes,
+	commitParents,
+	writeCommitObject,
+	writeFilesTree,
+} from './objects.js';
 
 const author = { name: 'History', email: 'history@example.test' };
 const encoder = new TextEncoder();
@@ -70,11 +75,13 @@ async function setup(
 			writeCommitObject(access, {
 				tree: await writeFilesTree(
 					access,
-					new Map(
-						Object.entries(files).map(([path, text]) => [
-							path,
-							encoder.encode(text),
-						]),
+					await capturedBytes(
+						new Map(
+							Object.entries(files).map(([path, text]) => [
+								path,
+								encoder.encode(text),
+							]),
+						),
 					),
 				),
 				parents: parent === undefined ? [] : [parent],

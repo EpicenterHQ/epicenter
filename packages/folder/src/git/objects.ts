@@ -32,21 +32,61 @@ export type CommitSummary = {
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 /**
- * Write every file as a blob and the directories as trees. Returns the root
- * tree. A blob `stored` already names is hashed here and never written
- * again: on a native folder each write is one `git hash-object -w`, and a
- * packed object is not found as a loose one, so it would be written anew.
+ * A captured file: the blob ID of its bytes, and the bytes when the capture
+ * read them. A file the capture's stat cache vouched for was not read, and
+ * its blob is already stored.
+ */
+export type CapturedFile = {
+	readonly oid: string;
+	readonly bytes?: Uint8Array;
+};
+
+/** The Git blob ID of `bytes`, writing nothing. */
+export async function hashBlob(bytes: Uint8Array): Promise<string> {
+	return (await git.hashBlob({ object: bytes })).oid;
+}
+
+/** `files` as captured files, each hashed. */
+export async function capturedBytes(
+	files: ReadonlyMap<string, Uint8Array>,
+): Promise<Map<string, CapturedFile>> {
+	const result = new Map<string, CapturedFile>();
+	for (const [path, bytes] of files)
+		result.set(path, { oid: await hashBlob(bytes), bytes });
+	return result;
+}
+
+/** Whether the object `oid` is stored and reads. */
+export async function hasObject(
+	access: ObjectAccess,
+	oid: string,
+): Promise<boolean> {
+	try {
+		await git.readObject({ ...access, oid, format: 'content' });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Write every captured file's blob, unless `stored` already names it, and
+ * the directories as trees. Returns the root tree. A blob `stored` names is
+ * never written again: on a native folder each write is one
+ * `git hash-object -w`, and a packed object is not found as a loose one, so
+ * it would be written anew. A file the capture did not read has no bytes,
+ * and its blob is already stored.
  */
 export async function writeFilesTree(
 	access: ObjectAccess,
-	files: ReadonlyMap<string, Uint8Array>,
+	files: ReadonlyMap<string, CapturedFile>,
 	stored: ReadonlyMap<string, TreeFile> = new Map(),
 ): Promise<string> {
 	const present = new Set([...stored.values()].map((file) => file.oid));
 	const entries = new Map<string, TreeFile>();
-	for (const [path, bytes] of files) {
-		const { oid } = await git.hashBlob({ object: bytes });
-		if (!present.has(oid)) await git.writeBlob({ ...access, blob: bytes });
+	for (const [path, { oid, bytes }] of files) {
+		if (bytes !== undefined && !present.has(oid))
+			await git.writeBlob({ ...access, blob: bytes });
 		entries.set(path, { mode: '100644', oid });
 	}
 	return writeTreeFiles(access, entries);
@@ -97,16 +137,6 @@ export async function writeTreeFiles(
 		return git.writeTree({ ...access, tree: entries });
 	}
 	return write(root);
-}
-
-/** Git blob IDs for captured bytes, without writing objects. */
-export async function hashFiles(
-	files: ReadonlyMap<string, Uint8Array>,
-): Promise<Map<string, string>> {
-	const result = new Map<string, string>();
-	for (const [path, bytes] of files)
-		result.set(path, (await git.hashBlob({ object: bytes })).oid);
-	return result;
 }
 
 export async function commitTree(

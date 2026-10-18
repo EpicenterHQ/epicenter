@@ -1,11 +1,13 @@
 /**
- * Git's version 2 index file, read whole.
+ * Git's version 2 index file, read and written whole.
  *
  * isomorphic-git's status walk sees only one stage of an unmerged path, so the
  * entries themselves are read here: to find unmerged stages and to tell
- * whether two indexes differ in more than cached file stats. Nothing here
- * writes an index. Only version 2, the version isomorphic-git writes, is
- * understood; other bytes read as `undefined`.
+ * whether two indexes differ in more than cached file stats. A browser
+ * folder's index is written here too, from a tree in one pass
+ * (`treeIndex`): isomorphic-git resets one path per call, reading and
+ * writing the whole index each time. Only version 2, the version
+ * isomorphic-git writes, is understood; other bytes read as `undefined`.
  */
 
 type IndexEntry = {
@@ -64,4 +66,56 @@ export function orphanStagesProblem(
 ): string | undefined {
 	if (paths.length === 0) return undefined;
 	return `${paths.join(', ')} ${paths.length === 1 ? 'has' : 'have'} unmerged index stages from a merge begun outside this folder; finish or abandon that merge with Git, then Sync`;
+}
+
+const encoder = new TextEncoder();
+
+/** Git orders index entries by the bytes of their paths. */
+function compareBytes(a: Uint8Array, b: Uint8Array): number {
+	const length = Math.min(a.byteLength, b.byteLength);
+	for (let index = 0; index < length; index++)
+		if (a[index] !== b[index]) return a[index]! - b[index]!;
+	return a.byteLength - b.byteLength;
+}
+
+/**
+ * A version 2 index whose merged entries are exactly `files`, a tree's
+ * leaves by path, with no cached stats: every stat is zero, which no file
+ * matches, so whoever reads it hashes the file rather than trusting it. A
+ * browser folder's stats are never trusted anyway (`statsFor` in
+ * `opfs-git.ts`).
+ */
+export async function treeIndex(
+	files: ReadonlyMap<string, { readonly oid: string; readonly mode: string }>,
+): Promise<Uint8Array> {
+	const entries = [...files]
+		.map(([path, file]) => ({ name: encoder.encode(path), ...file }))
+		.sort((a, b) => compareBytes(a.name, b.name));
+	const sizes = entries.map(
+		({ name }) => Math.ceil((62 + name.byteLength + 1) / 8) * 8,
+	);
+	const length = 12 + sizes.reduce((sum, size) => sum + size, 0);
+	const bytes = new Uint8Array(length + 20);
+	const view = new DataView(bytes.buffer);
+	bytes.set(encoder.encode('DIRC'), 0);
+	view.setUint32(4, 2);
+	view.setUint32(8, entries.length);
+	let offset = 12;
+	entries.forEach(({ name, oid, mode }, index) => {
+		view.setUint32(offset + MODE_OFFSET, Number.parseInt(mode, 8));
+		for (let byte = 0; byte < 20; byte++)
+			bytes[offset + 40 + byte] = Number.parseInt(
+				oid.slice(byte * 2, byte * 2 + 2),
+				16,
+			);
+		view.setUint16(offset + 60, Math.min(name.byteLength, 0xfff));
+		bytes.set(name, offset + 62);
+		offset += sizes[index]!;
+	});
+	const checksum = await crypto.subtle.digest(
+		'SHA-1',
+		bytes.subarray(0, length) as Uint8Array<ArrayBuffer>,
+	);
+	bytes.set(new Uint8Array(checksum), length);
+	return bytes;
 }

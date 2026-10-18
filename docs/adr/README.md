@@ -832,3 +832,4 @@ When you add an ADR, add its row here.
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Accepted (amends 0607) |
 | [0615](0615-a-folder-with-no-commit-fetches-first-and-its-first-commit-descends-from-the-remote-head.md) | A folder with no commit fetches first, and its first commit descends from the remote head | Proposed (amends 0576) |
 | [0616](0616-a-browser-folders-transfer-sends-only-what-the-other-side-lacks.md) | A browser folder's transfer sends only what the other side lacks | Proposed |
+| [0617](0617-a-capture-reads-only-the-files-whose-stat-changed.md) | A capture reads only the files whose stat changed | Proposed |

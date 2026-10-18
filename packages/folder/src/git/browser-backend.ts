@@ -14,16 +14,26 @@
  */
 
 import * as git from 'isomorphic-git';
-import type { OpfsFolder, OpfsLocks } from '../opfs-store.js';
+import {
+	type OpfsFolder,
+	type OpfsLocks,
+	writePrivateFile,
+} from '../opfs-store.js';
 import type { CasResult, GitBackend, GitRemote } from './backend.js';
+import { CAPTURE_CACHE_PATH } from './capture-cache.js';
 import {
 	abortableHttp,
 	basicAuthorization,
 	type GitCredentials,
 	type HttpFetch,
 } from './http.js';
-import { orphanStagesProblem, parseIndex } from './index-file.js';
-import { logCommits, type ObjectAccess } from './objects.js';
+import { orphanStagesProblem, parseIndex, treeIndex } from './index-file.js';
+import {
+	commitTree,
+	logCommits,
+	type ObjectAccess,
+	readTreeFiles,
+} from './objects.js';
 import { createOpfsGitStore, GITDIR, WORKDIR } from './opfs-git.js';
 import { pushRef } from './push.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
@@ -252,33 +262,23 @@ export async function createStoredGitBackend({
 		},
 		async reconcileIndex(commit) {
 			await ensureCreated();
+			// The whole index, written once: its stats are never trusted, so
+			// an index of the tree's entries alone is every entry reset. The
+			// session leaves the stored index alone when no entry differs.
 			return withObjects(async (access) => {
-				const mismatched: string[] = [];
-				await git.walk({
-					...access,
-					dir: WORKDIR,
-					trees: [git.TREE({ ref: commit }), git.STAGE()],
-					map: async (filepath, [tree, stage]) => {
-						if (filepath === '.') return undefined;
-						const [treeType, stageType] = await Promise.all([
-							tree?.type(),
-							stage?.type(),
-						]);
-						const treeOid = treeType === 'blob' ? await tree?.oid() : undefined;
-						const stageOid =
-							stageType === 'blob' ? await stage?.oid() : undefined;
-						if (treeOid !== stageOid) mismatched.push(filepath);
-						return undefined;
-					},
-				});
-				for (const filepath of mismatched)
-					await git.resetIndex({
-						...access,
-						dir: WORKDIR,
-						filepath,
-						ref: commit,
-					});
+				const files = await readTreeFiles(
+					access,
+					await commitTree(access, commit),
+				);
+				await access.fs.promises.writeFile(indexKey, await treeIndex(files));
 			});
+		},
+		captureCache: {
+			read: () => store.readPrivate(`${GITDIR}/${CAPTURE_CACHE_PATH}`),
+			async write(bytes) {
+				if (!(await created())) return;
+				await writePrivateFile(await folder.made(), CAPTURE_CACHE_PATH, bytes);
+			},
 		},
 		async log(depth) {
 			const head = await readRef(branchKey);

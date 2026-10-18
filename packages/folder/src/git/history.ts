@@ -3,6 +3,7 @@
  * ADR-0576).
  *
  * File saves never wait here. A commit captures the whole portable folder,
+ * reading only the files whose stat changed (`capture-cache.ts`, ADR-0617),
  * writes blobs and trees, writes a commit on the pinned branch head, and
  * moves the branch with a compare-and-swap. It never reads or writes the
  * shared index to build that commit. A moved branch leaves the candidate
@@ -48,6 +49,15 @@ import {
 import { confirmedPut, writeFile } from '../write.js';
 import { declaredFilter, isAttributesPath } from './attributes.js';
 import type { GitBackend, GitRemote } from './backend.js';
+import {
+	cachedOid,
+	entryFor,
+	parseCache,
+	type StatCache,
+	type StatEntry,
+	sameCache,
+	serializeCache,
+} from './capture-cache.js';
 import { GitError, SyncError } from './errors.js';
 import {
 	chooseBase,
@@ -58,13 +68,15 @@ import {
 import { commitSubject, messageProblem, type PathChange } from './messages.js';
 import {
 	type Author,
+	type CapturedFile,
 	type CommitSummary,
 	commitParents,
 	commitTree,
 	countOnly,
 	diffFileMaps,
 	EMPTY_TREE,
-	hashFiles,
+	hashBlob,
+	hasObject,
 	isAncestor,
 	type ObjectAccess,
 	readBlob,
@@ -315,7 +327,7 @@ export function createHistory({
 	}
 
 	/**
-	 * The history source now, read for a commit or a status: every file
+	 * The history source now, captured for a commit or a status: every file
 	 * `tracked` holds, and every other portable file `.gitignore` does not
 	 * exclude (ADR-0592). The `.gitignore` files are read first, since they
 	 * decide what else is read; an ignored file that is not tracked is never
@@ -327,13 +339,27 @@ export function createHistory({
 	 * the rule bytes that chose `source`. A `.gitignore` spelled in another
 	 * case that would be source is `refused` before anything but the rules
 	 * is read (`misnamedRulesProblem`).
+	 *
+	 * A file the stat cache vouches for (`capture-cache.ts`) is not read: it
+	 * is captured as the blob ID its unchanged stat last hashed to, with no
+	 * bytes. A commit passes `stored`, whether that blob is in the object
+	 * store, since its tree needs it; one that is not is read. Every other
+	 * file is read and hashed, and remembered for the next capture: by this
+	 * handle, and, for a commit, in the backend's cache, so a status writes
+	 * nothing.
 	 */
-	async function captureSource(tracked: ReadonlyMap<string, unknown>) {
+	async function captureSource(
+		tracked: ReadonlyMap<string, { readonly oid: string }>,
+		stored?: (oid: string) => Promise<boolean>,
+	) {
 		const { data: listed, error } = await boundary.list();
 		if (error !== null) throw new Error(error.message);
-		const paths = listed.files
-			.map(({ path }) => path)
-			.filter((path) => isPortablePath(path));
+		const files = new Map(
+			listed.files
+				.filter(({ path }) => isPortablePath(path))
+				.map((file) => [file.path, file]),
+		);
+		const paths = [...files.keys()];
 		const rules = await readRules(paths, tracked, readFiles);
 		// Decided from the captured bytes alone, on every host: the rules
 		// committed are exactly the rules that chose the rest.
@@ -343,20 +369,83 @@ export function createHistory({
 		// one inside an ignored directory.
 		const misnamed = misnamedRulesProblem(kept);
 		if (misnamed !== undefined) return { refused: misnamed.reason } as const;
+		const cache = await statCache();
+		const source = new Map<string, CapturedFile>();
+		const unread: string[] = [];
+		for (const path of kept) {
+			if (isGitignorePath(path)) continue;
+			const oid = cachedOid(cache, path, files.get(path)!);
+			if (
+				oid !== undefined &&
+				(stored === undefined ||
+					tracked.get(path)?.oid === oid ||
+					(await stored(oid)))
+			)
+				source.set(path, { oid });
+			else unread.push(path);
+		}
+		for (const [path, bytes] of await readFiles(unread))
+			source.set(path, { oid: await hashBlob(bytes), bytes });
+		// The next capture's cache: every file captured now whose stat can
+		// vouch for it later. A rule file is read every time.
+		const next = new Map<string, StatEntry>();
+		for (const [path, { oid }] of source) {
+			const entry = entryFor(files.get(path)!, listed.listedAt, oid);
+			if (entry !== undefined) next.set(path, entry);
+		}
+		await rememberStats(next, { store: stored !== undefined });
 		// A rule file is source with the bytes that chose the rest, and never
 		// read again: one missing then is left for the next capture.
-		const source = await readFiles(
-			kept.filter((path) => !isGitignorePath(path)),
-		);
 		for (const path of kept) {
 			const bytes = rules.get(path);
-			if (bytes !== undefined) source.set(path, bytes);
+			if (bytes !== undefined)
+				source.set(path, { oid: await hashBlob(bytes), bytes });
 		}
 		return {
 			refused: undefined,
 			source: new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1))),
 			rules,
 		} as const;
+	}
+
+	/**
+	 * The stat cache: the backend's, read once, and then as this handle's
+	 * last capture left it. Every entry is a fact about a file's bytes,
+	 * whoever recorded it, so two captures that replace it one after the
+	 * other each leave a true cache.
+	 */
+	let loaded: Promise<StatCache> | undefined;
+	let latest: StatCache | undefined;
+	/** What the backend holds, as this handle last read or wrote it. */
+	let onBackend: StatCache | undefined;
+	const storedCache = () => {
+		loaded ??= (backend.captureCache?.read() ?? Promise.resolve(undefined))
+			.catch(() => undefined)
+			.then(parseCache);
+		return loaded;
+	};
+	async function statCache(): Promise<StatCache> {
+		return latest ?? (await storedCache());
+	}
+
+	/**
+	 * Keep `next` as the stat cache, and with `store`, store it when it
+	 * differs from what the backend holds. A cache that cannot be stored
+	 * costs reads later, never a capture.
+	 */
+	async function rememberStats(
+		next: StatCache,
+		{ store }: { readonly store: boolean },
+	) {
+		latest = next;
+		if (!store || backend.captureCache === undefined) return;
+		if (sameCache(onBackend ?? (await storedCache()), next)) return;
+		try {
+			await backend.captureCache.write(await serializeCache(next));
+			onBackend = next;
+		} catch {
+			// The next commit stores it again.
+		}
 	}
 
 	/** The rule files now, for a question about untracked paths. */
@@ -445,10 +534,9 @@ export function createHistory({
 				// A refused capture fails the status, naming the file to fix.
 				const captured = await captureSource(committed);
 				if (captured.refused !== undefined) throw new Error(captured.refused);
-				const hashes = await hashFiles(captured.source);
 				const value: FilesObservation = {
 					head,
-					changes: diffFileMaps(committed, hashes),
+					changes: diffFileMaps(committed, captured.source),
 				};
 				observeFiles(capturedAt, value);
 				await refreshSync({ head }, objects);
@@ -512,7 +600,9 @@ export function createHistory({
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
 		const committed = await headFiles(objects, parent);
-		const captured = await captureSource(committed);
+		const captured = await captureSource(committed, (oid) =>
+			objects((access) => hasObject(access, oid)),
+		);
 		if (captured.refused !== undefined)
 			return { status: 'blocked', reason: captured.refused };
 		const { source: included, rules } = captured;
@@ -1205,7 +1295,9 @@ export function createHistory({
 			const head = await backend.readBranch();
 			if (head !== undefined) return Ok({ kind: 'moved', head } as const);
 			const capturedAt = ++clock;
-			const captured = await captureSource(new Map());
+			const captured = await captureSource(new Map(), (oid) =>
+				objects((access) => hasObject(access, oid)),
+			);
 			if (captured.refused !== undefined) return refuse(captured.refused);
 			const unrepresentable = await backend.blocked(captured.rules);
 			if (unrepresentable !== undefined) return refuse(unrepresentable);
