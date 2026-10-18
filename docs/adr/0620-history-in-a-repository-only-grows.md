@@ -1,6 +1,6 @@
 # 0620. History in a repository only grows
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-19
 - **Supersedes:** [ADR-0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) (the self-hosted Git store accepts a push that is not a fast-forward): no store accepts a force push.
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "unrelated history is refused as not a fast-forward, so a second folder cannot land in a repository by taking its name", as ADR-0595 amended it: the Git service refuses every push that is not a fast-forward, forced or not; [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "repairing it means rewriting history in Git, by a person or an agent": a repair is a revert, and a rewritten history is a new repository.

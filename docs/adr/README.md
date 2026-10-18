@@ -827,16 +827,16 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593; amended by 0612 and 0626) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Superseded by 0611 |
-| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is only the data layer its apps reach over Git | Proposed (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586) |
-| [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Proposed (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
-| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Proposed (supersedes 0527; amends 0526, 0584, 0585, and 0591) |
-| [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Proposed (amends 0594 and 0606) |
-| [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Proposed (supersedes 0049, 0050, 0054, 0100, 0104, 0557, 0579, and 0580; amends 0398, 0549, 0564, and 0565) |
-| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache | Proposed (amends 0592) |
-| [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Proposed (supersedes 0595; amends 0546 and 0592) |
-| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Proposed (supersedes 0544 and 0577; amends 0592) |
-| [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Proposed (supersedes 0576; amends 0591) |
-| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Every browser app keeps its own Git clone of a repository | Proposed (amends 0529) |
-| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Proposed (amends 0592) |
-| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Proposed (amends 0585 and 0608) |
-| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Proposed (supersedes 0590) |
+| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is only the data layer its apps reach over Git | Accepted (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586) |
+| [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Accepted (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
+| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Accepted (supersedes 0527; amends 0526, 0584, 0585, and 0591) |
+| [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Accepted (amends 0594 and 0606) |
+| [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Accepted (supersedes 0049, 0050, 0054, 0100, 0104, 0557, 0579, and 0580; amends 0398, 0549, 0564, and 0565) |
+| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache | Accepted (amends 0592) |
+| [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592) |
+| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592) |
+| [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Accepted (supersedes 0576; amends 0591) |
+| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Every browser app keeps its own Git clone of a repository | Accepted (amends 0529) |
+| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Accepted (amends 0592) |
+| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Accepted (amends 0585 and 0608) |
+| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590) |

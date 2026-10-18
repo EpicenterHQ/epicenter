@@ -1,6 +1,6 @@
 # 0623. Every browser app keeps its own Git clone of a repository
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) at "only": a browser clone commits at each sync, and sync runs on its own once edits settle.
 - **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (a client's unsent changes are working files), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows, so a shallow clone's merge base is its last fetch), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge sync makes), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the causes of `stuck`).
