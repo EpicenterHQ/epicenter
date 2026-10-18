@@ -814,7 +814,7 @@ When you add an ADR, add its row here.
 | [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576) |
 | [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | The hosted Git service stores data repositories and offers no rename or move | Accepted (amends 0546 and 0547; amended by 0594, 0608, and 0612) |
-| [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | A hosted repository is reached only by the person who owns it | Accepted (amends 0547, 0549, 0565, 0578, and 0593; amended by 0612) |
+| [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | A hosted repository is reached only by the person who owns it | Accepted (amends 0547, 0549, 0565, 0578, and 0593; amended by 0612 and 0614) |
 | [0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) | The self-hosted Git store accepts a force push | Accepted (amends 0546) |
 | [0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md) | Native dictation code no page can reach compiles only behind an off-by-default Cargo feature | Superseded by 0611 |
 | [0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) | An installed app's approved commit is its bare clone's detached HEAD | Superseded by 0605 |
@@ -823,7 +823,7 @@ When you add an ADR, add its row here.
 | [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | The generic editor edits a file's text, so a row is repaired there | Accepted |
 | [0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) | `<FolderApp>` names its app by the last segment of its address | Superseded by 0611 |
 | [0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) | An app is an ordinary single-page app in a forkable Git repository | Superseded by 0611 |
-| [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | A third-party browser app signs in by a client metadata document on its own origin | Accepted (amends 0578 and 0589) |
+| [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | A third-party browser app signs in by a client metadata document on its own origin | Accepted (amends 0578 and 0589; amended by 0614) |
 | [0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) | An app opens any data folder by its id, on every host | Superseded by 0611 |
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593; amended by 0612) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
