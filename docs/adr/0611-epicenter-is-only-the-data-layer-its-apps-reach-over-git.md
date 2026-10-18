@@ -58,6 +58,15 @@ THE LIBRARY        @epicenter/data, imported by any website
 THE DATA BROWSER   apps/epicenter, over the clones on disk, through the CLI
 ```
 
+**An agent's commit and an app's save edit the same repository, and Git is
+the only record and the only sync format.** An agent commits with `git`; an
+app saves through `@epicenter/data` into its own clone, which commits at
+sync
+([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md));
+both reach every other client only as commits on `main`. Epicenter keeps no
+CRDT store. A live co-editing channel for one row's body may come later as a
+transport that starts and ends at a commit and stores nothing.
+
 **The desktop app is a data browser, never an app host.** It lets a person
 clone, inspect, browse, and manage repositories from `git.epicenter.so` or
 another Epicenter-compatible Git service, and shows each table as a typed
@@ -190,6 +199,9 @@ stages only what is inside tables.**
 - **`epicenter mv`, renaming a row and its folder in one commit.** It saves
   one `git mv`, and `check` already lists a row folder left behind and the
   links a rename breaks.
+- **A CRDT store beside Git.** Each row then has two records, and an
+  agent's commit reaches an app only through a translation between them that
+  plain `git` cannot read.
 - **First-party apps with access an outside site lacks.** Two classes of
   client, and a compromised first-party origin reaches more than one
   grant.

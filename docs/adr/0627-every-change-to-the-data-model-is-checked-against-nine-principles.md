@@ -27,7 +27,9 @@ governs where the two differ.
 **Every change to the data model is checked against these principles:**
 
 1. Your data is Git repositories, and Epicenter is a path convention on Git
-   plus an access list (ADR-0611, ADR-0612, ADR-0613).
+   plus an access list. An agent's commit and an app's save edit the same
+   repository; Git is the only record and the only sync format, and no CRDT
+   store exists beside it (ADR-0611, ADR-0612, ADR-0613).
 2. Every byte Epicenter keeps is a Git object, a working file, an
    access-list row, or a cache (ADR-0619).
 3. The access list is the only guard on who. The only refusals on what are
