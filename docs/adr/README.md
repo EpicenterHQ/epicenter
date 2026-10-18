@@ -786,7 +786,7 @@ When you add an ADR, add its row here.
 | [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Superseded by 0611 |
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Superseded by 0611 |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Superseded by 0611 |
-| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Superseded by 0618 |
+| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557; amended by 0570, 0587, and 0618) |
 | [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Accepted (amends 0549 and 0558; amended by 0578, 0594, and 0618) |
 | [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Superseded by 0611 |
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Superseded by 0611 |
@@ -831,8 +831,8 @@ When you add an ADR, add its row here.
 | [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Proposed (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
 | [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Proposed (supersedes 0527; amends 0526, 0584, 0585, and 0591) |
 | [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Proposed (amends 0594 and 0606) |
-| [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Proposed (supersedes 0049, 0050, 0054, 0100, 0104, 0557, 0564, 0579, and 0580; amends 0398, 0549, and 0565) |
-| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache | Proposed (amends 0576 and 0592) |
+| [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Proposed (supersedes 0049, 0050, 0054, 0100, 0104, 0557, 0579, and 0580; amends 0398, 0549, 0564, and 0565) |
+| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache | Proposed (amends 0592) |
 | [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Proposed (supersedes 0595; amends 0546 and 0592) |
 | [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Proposed (supersedes 0544 and 0577; amends 0592) |
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Proposed (supersedes 0576; amends 0591) |

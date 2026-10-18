@@ -31,20 +31,23 @@ governs where the two differ.
 2. Every byte Epicenter keeps is a Git object, a working file, an
    access-list row, or a cache (ADR-0619).
 3. The access list is the only guard on who. The only refusals on what are
-   what Git or a client cannot represent, and everything inside is accepted.
+   a non-text write from the library, a push that would rewrite history,
+   and what Git or a client cannot represent; everything else is accepted.
    Rules are files, breaks are `check` lines, repairs are edits or reverts,
-   and history only grows (ADR-0612, ADR-0613, ADR-0620, ADR-0624).
+   and history only grows (ADR-0612, ADR-0613, ADR-0620, ADR-0621,
+   ADR-0624).
 4. Git's nouns win, and Epicenter names only types: its own words say what
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613).
-5. Every place that edits is its own clone, with one writer at a time:
-   each app origin keeps its own, and on disk the person, their agents, and
-   the data browser share one as one writer, the person (ADR-0611,
-   ADR-0623).
-6. Wherever Epicenter merges, the edit that reaches `main` last wins each
-   unit both sides changed, an edit beats a delete it never saw, no conflict
-   marker is written, and the losing version stays a parent of the merge
-   commit (ADR-0622).
+5. Every place that edits is its own clone: each app origin keeps its own,
+   with one writer at a time. On disk, the person, their agents, and the
+   data browser write files with last-write-wins between them, and commits
+   happen at `epicenter sync` (ADR-0611, ADR-0623).
+6. Wherever Epicenter's merge runs, in a browser sync, a save's body, and
+   Git's merge through the `epicenter` driver, the edit that reaches `main`
+   last wins each unit both sides changed, an edit beats a delete it never
+   saw, Epicenter writes no conflict marker, and the losing version of a
+   sync stays a parent of the merge commit (ADR-0622, ADR-0626).
 7. The library writes text; binary files come later, through Git LFS
    (ADR-0621).
 8. An app is a program you let into a repository, and a website is

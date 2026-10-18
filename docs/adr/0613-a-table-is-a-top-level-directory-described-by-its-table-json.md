@@ -51,13 +51,18 @@ A row's id is its file name without `.md`. `<table>/<id>/` holds that row's
 own files and is never a table. There is no nesting: a directory below a
 table is never a table, and an id never contains `/`. Outside tables no rule
 applies. One row predicate, beside `rowStemOf` in
-`packages/folder/src/paths.ts`, decides rowhood for the library, `check`,
-`query`, and sync, and the name `stem` becomes `id`. Deleted: the root
+`packages/folder/src/paths.ts`, decides rows for `check`, `query`, and the
+data browser, and the name `stem` becomes `id`. An app reads and writes the
+directories it names
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)). Deleted: the root
 `epicenter.json` with its `app` and `title`, `epicenter.ts`, and
 `packages/folder/src/generate-declaration.ts`. Cost: rows have no folder
 hierarchy, so a category is a field.
 
-**`table.json` describes and never refuses.** Every write is accepted.
+**`table.json` describes and never refuses.** No write is refused for not
+fitting it: the only refusals are a non-text write from the library, a push
+that would rewrite history, and what Git or a client cannot represent
+([ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md)).
 `check` lists what does not fit, `query` shows every row with `NULL` for a
 value that does not fit its column, and an app that reads a row that does
 not fit its own schema gets the row's raw fields. Optionality is the

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-19
-- **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out": Epicenter writes no `info/attributes`; [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at "it points `refs/epicenter/publishing` at a commit whose parents are `L` and `T`" and "A commit ... first finishes a publish the ref still names": no ref records an unfinished publish.
+- **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out": Epicenter writes no `info/attributes`.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the Git service, the CLI, and the library), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the access list).
 - **Unbuilt:** all of it: the deletion of `refs/epicenter/publishing`, `refs/epicenter/builds`, and `neutralizeAttributes`; and a sync that recovers an interrupted checkout from the working files and Git alone.
 
@@ -36,10 +36,18 @@ access-list row   accounts, repositories, members, grants, and token rows on the
 cache             anything rebuilt from the three above, and lost without loss of data
 ```
 
+The four kinds cover what Epicenter keeps for a repository. Credentials
+held on a device, such as an access token or a bring-your-own provider key
+in the keychain
+([ADR-0618](0618-epicenter-hosts-no-ai-service.md)), are caches of
+access-list rows or the person's own secrets, outside any repository.
+
 **Nothing records history Git cannot read.** A client's unsent changes are
 working files awaiting commit, never a second record of edits. Deleted:
-`refs/epicenter/publishing`, `refs/epicenter/builds`, and
-`neutralizeAttributes` with the `info/attributes` line it writes.
+`refs/epicenter/publishing`, which sync points at an unfinished publish, and
+the rule that the next commit finishes that publish first;
+`refs/epicenter/builds`; and `neutralizeAttributes` with the
+`info/attributes` line it writes.
 
 ## Consequences
 
