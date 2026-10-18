@@ -4,7 +4,7 @@
 - **Date:** 2026-10-15
 - **Amended by:** [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at "Sharing a folder is moving it into a group" and the `manage` role's rename and move: neither is offered; share-by-move is reopened only if it becomes product work.
 - **Amended by:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at `namespace_member`, the role table, groups, "Sharing a folder is moving it into a group", and membership as the access rule: every namespace is one person's, and access is that person's account.
-- **Amended by:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at "A repository belongs to exactly one namespace", the personal namespace, and "People never see the word namespace": no namespace exists, and a repository has owners and members.
+- **Amended by:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at "A repository belongs to exactly one namespace", the personal namespace, and "People never see the word namespace": the `namespace` and `namespace_member` tables are renamed `repository` and `repository_member`, a repository has owners and members, and no code or schema says namespace.
 - **Unbuilt:** groups with invitations, and the "Share…" move into a group in an app (the `manage` role's move exists as a server function). Membership checks on Git requests are built.
 
 ## Context
