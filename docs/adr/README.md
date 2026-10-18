@@ -805,7 +805,7 @@ When you add an ADR, add its row here.
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
 | [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612 and 0613) |
 | [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626) |
-| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Superseded by 0611 |
+| [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597, 0605, 0607, and 0611) |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Superseded by 0611 |
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Superseded by 0611 |
@@ -827,7 +827,7 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593; amended by 0612 and 0626) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Superseded by 0611 |
-| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is only the data layer its apps reach over Git | Proposed (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0586, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558) |
+| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is only the data layer its apps reach over Git | Proposed (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586) |
 | [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Proposed (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
 | [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Proposed (supersedes 0527; amends 0526, 0584, 0585, and 0591) |
 | [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Proposed (amends 0594 and 0606) |

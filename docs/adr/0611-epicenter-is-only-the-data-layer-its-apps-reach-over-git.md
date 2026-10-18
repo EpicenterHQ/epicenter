@@ -2,10 +2,10 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-18
-- **Supersedes:** [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md), [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md), [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md), [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md), [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md), [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md), [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md), [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md), [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md), [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md), [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md), [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md), [ADR-0586](0586-you-open-a-folder-never-an-app.md), [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md), [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md), [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md), [ADR-0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md), [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md), [ADR-0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md), [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md), [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md), [ADR-0609](0609-a-new-data-folder-copies-its-apps-template-once.md), and [ADR-0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md), the desktop app host: the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and what survives of ADR-0586's Folders window and "Show files" is the data browser over clones on disk.
-- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command set, the `app` group, and "`sync --to` is Connect": the CLI is `login`, `sync`, `check`, and `query` over plain Git, with `auth key` and `send` kept for bring-your-own-key AI ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)).
-- **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (the table), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app's identity and grants).
-- **Unbuilt:** almost all of it: the `@epicenter/data` package; `epicenter login` installing Git's credential helper; `epicenter sync` over plain Git; Epicenter Captures on `@epicenter/data`; `apps/epicenter` reduced to the data browser; one reader and writer of a clone on disk, plain files with no Git engine, that `check`, `query`, and the data browser share; the deletion of the CLI's `app` group; and Whispering as its own Tauri app. How the data browser signs in, and which platforms it ships for, are not decided.
+- **Supersedes:** [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md), [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md), [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md), [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md), [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md), [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md), [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md), [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md), [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md), [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md), [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md), [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md), [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md), [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md), [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md), [ADR-0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md), [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md), [ADR-0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md), [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md), [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md), [ADR-0609](0609-a-new-data-folder-copies-its-apps-template-once.md), and [ADR-0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md), the desktop app host: the desktop app hosts, installs, builds, and approves no app and gives a website no native capability.
+- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command set, the `app` group, and "`sync --to` is Connect": the CLI is `login`, `logout`, `repos`, `clone`, `sync`, `status`, `check`, and `query` over plain Git, with `auth key` and `send` kept for bring-your-own-key AI ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)); [ADR-0586](0586-you-open-a-folder-never-an-app.md) at everything but its Folders window and "Show files": no folder opens in an app, and no app is installed or handed a folder; the window that lists the clones on disk and shows a repository's files survives as the data browser.
+- **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (the table), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app's identity and grants), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge driver), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the sync schedule), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (`epicenter status`).
+- **Unbuilt:** almost all of it: the `@epicenter/data` package; `epicenter login` installing Git's credential helper and registering the `epicenter` merge driver; `epicenter sync` over plain Git, staging only tables and adding the `.gitattributes` line; `epicenter status`; `repos` and `clone` over the one listing route; Epicenter Captures on `@epicenter/data`; `apps/epicenter` reduced to the data browser over the CLI; one reader and writer of a clone on disk, plain files with no Git engine, that `check`, `query`, and the data browser share; the deletion of the CLI's `app` group; and Whispering as its own Tauri app. Which platforms the data browser ships for is not decided.
 
 ## Context
 
@@ -36,7 +36,8 @@ Twenty-six records decide that host.
 On 2026-10-18 the owner chose to build only what every client of a person's
 data shares: the place the data is kept, the access list in front of it, a
 command line for agents, and a library for websites. On 2026-10-19 the owner
-kept the desktop app as a browser of that data, without the host.
+kept the desktop app as a browser of that data, without the host, and
+chose to run Epicenter's merge inside plain Git as a merge driver.
 
 ## Decision
 
@@ -51,9 +52,10 @@ THE GIT SERVICE    git.epicenter.so, the front door to every repository
   Git smart HTTP                authorized on every request, then served from
                                 Cloudflare Artifacts (apps/api/worker/git-repositories.ts)
                                 or a disk store when self-hosted (packages/server/src/git-disk-store.ts)
-THE CLI            epicenter login · sync · check · query, plus auth key · send (ADR-0618)
+THE CLI            epicenter login · logout · repos · clone · sync · status · check · query,
+                   plus auth key · send (ADR-0618)
 THE LIBRARY        @epicenter/data, imported by any website
-THE DATA BROWSER   apps/epicenter, over the clones on disk
+THE DATA BROWSER   apps/epicenter, over the clones on disk, through the CLI
 ```
 
 **The desktop app is a data browser, never an app host.** It lets a person
@@ -61,14 +63,24 @@ clone, inspect, browse, and manage repositories from `git.epicenter.so` or
 another Epicenter-compatible Git service, and shows each table as a typed
 table from its `table.json`
 ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
-It is a visual companion to the CLI, which stays primary and agent-first.
-It works on the same clones on disk as the person and their agents,
-and writes as the person does, like an editor: what it writes is a working
-file until `epicenter sync` commits it. Kept from
-[ADR-0586](0586-you-open-a-folder-never-an-app.md): a window that lists the
-clones on disk and shows a repository's files and rows. Withdrawn: opening a
-folder in the app its `epicenter.json` names, installing an app, handing a
-window a folder, and the generic editor as an installed app.
+It is a visual companion to the CLI, which stays primary and agent-first,
+and it works through the CLI: it has no sign-in of its own and reaches the
+Git service through the CLI's credential helper, lists and clones with
+`epicenter repos` and `epicenter clone`, and syncs each clone by running
+`epicenter sync` on the schedule a browser clone keeps
+([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)).
+
+```txt
+the clones it lists    every clone under ~/Epicenter, and every directory the person adds
+each one known by      its remote URL
+what it writes         working files, as an editor writes them; epicenter sync commits them
+```
+
+Kept from [ADR-0586](0586-you-open-a-folder-never-an-app.md): a window that
+lists the clones on disk and shows a repository's files and rows.
+Withdrawn: opening a folder in the app its `epicenter.json` names,
+installing an app, handing a window a folder, and the generic editor as an
+installed app.
 
 **Epicenter hosts, installs, builds, and approves no app, and gives a
 website no native capability.** The data browser downloads no app source,
@@ -85,41 +97,65 @@ site lacks. Epicenter Captures (`apps/capture`) is the first. Whispering
 later becomes its own Tauri app that links transcribe-cpp itself and reaches
 the Git service as a client.
 
-**The CLI is `login`, `sync`, `check`, and `query`, over plain Git.**
+**The CLI is these ten commands, over plain Git.**
 
 ```txt
-epicenter login    signs in and installs Git's credential helper for the Git service,
-                   so plain git clone, fetch, and push work
-epicenter sync     in a clone: git add -A, git commit, git pull --no-rebase, git push
-epicenter check    lists every file that does not fit its table, every conflict marker,
-                   every broken link, and every row folder that has no row
-epicenter query    one read-only SQL statement over the tables
+epicenter login     signs in, installs Git's credential helper for the Git service, and registers
+                    merge.epicenter.driver, with its command line, in the global Git config
+epicenter logout    signs out
+epicenter repos     lists the repositories the person is on, each by id and name
+epicenter clone     clones a repository by name or id; a name several repositories share asks for the id
+epicenter sync      in a clone: stages the changes inside tables, commits, git pull --no-rebase, git push
+epicenter status    says why a clone is not synced: its stuck causes, its unsynced changes,
+                    and the age of its last fetch (ADR-0624)
+epicenter check     lists every file that does not fit its table, every conflict marker,
+                    every broken link, and every row folder that has no row
+epicenter query     one read-only SQL statement over the tables
+epicenter auth key  keeps a bring-your-own-key endpoint and its key in this machine's keychain (ADR-0618)
+epicenter send      sends one request to that endpoint with that key (ADR-0618)
 ```
 
-`git pull --no-rebase` merges with Git's own rules. A merge driver that
-applies Epicenter's merge to plain Git is deferred until conflict markers
-are a problem in practice; until then `check` lists the markers Git leaves.
-`auth key` and `send` stay for bring-your-own-key AI, without their hosted
-path
-([ADR-0618](0618-epicenter-hosts-no-ai-service.md)).
-Withdrawn: `generate`, `status`, `history`, `save-version`, `clone`,
-`repos`, `sync --to`, the `app` group, and `declare-epicenter-folder`.
-Whether `auth logout`, `auth status`,
-`auth token`, and `install-command` remain beside `login` is not decided.
+Withdrawn: `generate`, `history`, `save-version`, `sync --to`, the `app`
+group, and `declare-epicenter-folder`. Whether `auth status`, `auth token`,
+and `install-command` remain is not decided.
+
+**`epicenter sync` is the only Epicenter command that commits, and it
+stages only what is inside tables.**
+
+- It stages rows, row folders, and each `table.json`
+  ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
+  Outside tables it stages nothing: a file there is the person's to stage
+  with `git add`, and the next commit carries what they staged.
+- It runs `git pull --no-rebase`. Where both sides changed a file, Git
+  calls the `epicenter` merge driver, which runs Epicenter's merge with the
+  local work winning
+  ([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
+- A repository opts into the driver with one committed `.gitattributes`
+  line, `* merge=epicenter`. When the line is missing, `epicenter sync`
+  adds it as a commit of its own.
+- Git calls no merge driver for a file one side deleted and the other
+  edited; `epicenter sync` settles it by keeping the edit.
+- While any path is unresolved, `epicenter sync` commits nothing: it names
+  the files and stops.
+- A machine without the driver merges with Git's text merge. The conflict
+  markers it leaves are `check` lines, and `epicenter sync` never commits a
+  file holding them.
 
 ## Consequences
 
-- An agent on a Mac works on a clone with plain `git` and four commands,
-  and renames a row with `git mv` on its `.md` and its folder; a
-  website works on its own clone through the library; both read the same
-  files.
-- The person, their agents, and the data browser write one clone on disk as
-  one writer, the person. A file two of them write at once keeps the last
-  write, as with two editors, and none of them commits outside
-  `epicenter sync`.
+- An agent on a Mac works on a clone with plain `git` and these commands,
+  and renames a row with `git mv` on its `.md` and its folder; a website
+  works on its own clone through the library; both read the same files.
+- On disk, the person, their agents, and the data browser write files with
+  last-write-wins between them, and commits happen at `epicenter sync`.
+- A file outside tables, such as one in `docs/`, reaches `main` only when
+  the person stages it, and so do rows an agent writes into a directory
+  before its `table.json` exists.
+- A machine with the driver and a browser clone merge the same two commits
+  the same way.
 - `check`, `query`, and the data browser read and write a clone through one
   reader and writer of plain files, with no Git engine; Git runs only in
-  `git` and `epicenter sync`.
+  `git` and the CLI's Git commands.
 - The CLI needs a system `git`, as the desktop host did.
 - Recording into a repository from Rust, local transcription, hidden
   windows, and the Trash leave Epicenter. Whispering takes back what it
@@ -130,8 +166,8 @@ Whether `auth logout`, `auth status`,
 - `apps/local-books` and `apps/vocab` are kept, and each is ported to
   `@epicenter/data` later; Vocab's chat also needs a connection of its own
   ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)).
-- The twenty-six desktop records stay as history, superseded; ADR-0586's
-  Folders window lives on as the data browser.
+- Twenty-five desktop records stay as history, superseded; ADR-0586 stays,
+  amended, for its Folders window, which lives on as the data browser.
 
 ## Considered alternatives
 
@@ -144,6 +180,13 @@ Whether `auth logout`, `auth status`,
   ([ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md)).**
   Epicenter then fetches, builds, approves, and serves other people's code,
   which no rule about the data needs.
+- **A data browser with a sign-in of its own.** A second credential on one
+  machine for the repositories the CLI already reaches.
+- **Git's text merge on disk, with the merge driver deferred.** `git pull`
+  and a browser sync then merge the same two commits differently, and every
+  overlap on disk is a conflict marker.
+- **`git add -A` in `epicenter sync`.** Sync then commits every file in the
+  clone, including files outside tables the person never staged.
 - **`epicenter mv`, renaming a row and its folder in one commit.** It saves
   one `git mv`, and `check` already lists a row folder left behind and the
   links a rename breaks.
