@@ -838,6 +838,5 @@ When you add an ADR, add its row here.
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Proposed (supersedes 0576; amends 0591) |
 | [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Every browser app keeps its own Git clone of a repository | Proposed (amends 0529) |
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Proposed (amends 0592) |
-| [0625](0625-epicenter-mv-renames-a-row-in-one-commit.md) | `epicenter mv` renames a row in one commit | Proposed |
 | [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Proposed (amends 0585 and 0608) |
 | [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Proposed (supersedes 0590) |

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-19
 - **Supersedes:** [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (every change to the folder model is checked against ten principles): the folder model and its desktop host are replaced by repositories, tables, and browser clones, and nine principles summarize them.
-- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md), [ADR-0618](0618-epicenter-hosts-no-ai-service.md), [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md), [ADR-0620](0620-history-in-a-repository-only-grows.md), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md), [ADR-0625](0625-epicenter-mv-renames-a-row-in-one-commit.md), and [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) decide the principles.
+- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md), [ADR-0618](0618-epicenter-hosts-no-ai-service.md), [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md), [ADR-0620](0620-history-in-a-repository-only-grows.md), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md), and [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) decide the principles.
 - **Unbuilt:** every record the principles cite is unbuilt in whole or in part; the principles describe the model they build.
 
 ## Context
@@ -36,7 +36,7 @@ governs where the two differ.
    and history only grows (ADR-0612, ADR-0613, ADR-0620, ADR-0624).
 4. Git's nouns win, and Epicenter names only types: its own words say what
    a file is (a table, a row), never a second name for what Git already
-   names (ADR-0612, ADR-0613, ADR-0625).
+   names (ADR-0612, ADR-0613).
 5. Every place that edits is its own clone, with one writer at a time:
    each app origin keeps its own, and on disk the person, their agents, and
    the data browser share one as one writer, the person (ADR-0611,
