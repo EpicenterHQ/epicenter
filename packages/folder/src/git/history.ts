@@ -32,7 +32,6 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage, LockingStorage } from '../boundary.js';
-import { localPatterns } from '../declaration.js';
 import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import type { FolderHistory } from '../folder.js';
@@ -41,7 +40,6 @@ import { callObserver } from '../observer.js';
 import {
 	ancestors,
 	collisionKey,
-	DEFINITION_PATH,
 	isPortablePath,
 	pathProblem,
 } from '../paths.js';
@@ -315,26 +313,11 @@ export function createHistory({
 	type IsLocal = (path: string) => boolean;
 
 	/**
-	 * Files kept on this machine now: what the definition keeps and what
-	 * `epicenter.json` lists, which a Sync can change (ADR-0577; ADR-0592
-	 * replaces both with `.gitignore`). No commit carries one, whether or not
-	 * `.gitignore` names it. A definition that cannot be read is the reason, since a
-	 * commit made without it could carry those files.
+	 * Files kept on this machine: what the definition keeps (ADR-0577;
+	 * ADR-0592 replaces it with `.gitignore`). No commit carries one, whether
+	 * or not `.gitignore` names it.
 	 */
-	async function localNow(): Promise<Result<IsLocal, string>> {
-		const own = definition?.local ?? [];
-		const { data: read, error } = await boundary.read(DEFINITION_PATH);
-		if (error !== null)
-			return error.name === 'NotFound'
-				? Ok(localMatcher(own))
-				: Err(`${DEFINITION_PATH} cannot be read: ${error.message}`);
-		const declared = localPatterns(read.bytes);
-		if (declared === undefined)
-			return Err(
-				`${DEFINITION_PATH} does not list its local patterns as strings; fix the file before recording`,
-			);
-		return Ok(localMatcher([...own, ...declared]));
-	}
+	const isLocal: IsLocal = localMatcher(definition?.local ?? []);
 
 	const isAppLocal = localMatcher(appLocal);
 
@@ -406,10 +389,7 @@ export function createHistory({
 				const captured = await capture();
 				const head = await backend.readBranch();
 				const committed = await headFiles(head);
-				// Status shows what a commit would record; with a definition
-				// that cannot be read, by what the definition keeps.
-				const isLocal =
-					(await localNow()).data ?? localMatcher(definition?.local);
+				// Status shows what a commit would record.
 				const hashes = await hashFiles(
 					await source(captured, committed, isLocal),
 				);
@@ -467,9 +447,6 @@ export function createHistory({
 		const unfinished = await finishPublishing();
 		if (unfinished !== undefined)
 			return { status: 'blocked', reason: unfinished };
-		const { data: isLocal, error: localProblem } = await localNow();
-		if (localProblem !== null)
-			return { status: 'blocked', reason: localProblem };
 		// Pin the parent, then capture, both inside the backend's
 		// protection. A publish of this handle that changed files and the
 		// branch while this pass waited is part of the capture, so an older
@@ -902,9 +879,6 @@ export function createHistory({
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
-		const { data: isLocal, error: localProblem } = await localNow();
-		if (localProblem !== null)
-			return SyncError.Blocked({ reason: localProblem });
 		const plan = await between(from, to, isLocal);
 		const way = await inTheWay(boundary, plan);
 		const { made, ignored } = await madeHere(way.untracked);
@@ -1216,9 +1190,6 @@ export function createHistory({
 				if (base === undefined && !unrelated)
 					return SyncError.Unrelated({ head: local });
 				const mine = local;
-				const { data: isLocal, error: localProblem } = await localNow();
-				if (localProblem !== null)
-					return SyncError.Blocked({ reason: localProblem });
 				const merged = await backend.withObjects(async (access) => {
 					const result = await mergeHistories(access, {
 						base,

@@ -6,13 +6,13 @@
 
 import {
 	checkFolder,
-	DEFINITION_PATH,
 	DEFINITION_SOURCE_PATH,
 	describeTables,
 	type Finding,
 	generateDefinition,
 	hasDefinitionSource,
 	queryFolder,
+	SCHEMA_FILE,
 } from '@epicenter/folder/bun';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
@@ -35,7 +35,7 @@ async function checked(dir: string, json: boolean) {
 	if (error === null) return data;
 	fail(
 		error.name === 'NotDataFolder' && hasDefinitionSource(dir)
-			? `${error.message}; run \`epicenter generate ${dir}\` to write it from ${DEFINITION_SOURCE_PATH}`
+			? `${error.message}; run \`epicenter generate ${dir}\` to write its tables' schemas from ${DEFINITION_SOURCE_PATH}`
 			: error.message,
 		json,
 	);
@@ -63,7 +63,7 @@ export async function check(dir: string, json: boolean) {
 	}
 	if (hasSource)
 		writeErr(
-			`${DEFINITION_PATH} is generated from ${DEFINITION_SOURCE_PATH}; edit the .ts and run \`epicenter generate ${dir}\`, not the .json.`,
+			`Each <table>/${SCHEMA_FILE} is generated from ${DEFINITION_SOURCE_PATH}; edit the .ts and run \`epicenter generate ${dir}\`, not the .json.`,
 		);
 	writeOut(
 		[
@@ -134,14 +134,12 @@ export async function generate(dir: string, json: boolean) {
 	const { data, error } = await generateDefinition(dir);
 	if (error !== null) return fail(error.message, json);
 	if (json)
-		writeJson({
-			written: data.written,
-			path: DEFINITION_PATH,
-			source: DEFINITION_SOURCE_PATH,
-		});
+		writeJson({ written: data.written, source: DEFINITION_SOURCE_PATH });
 	else
 		writeOut(
-			`${data.written ? 'wrote' : 'unchanged'} ${DEFINITION_PATH} from ${DEFINITION_SOURCE_PATH}`,
+			data.written.length === 0
+				? `unchanged: every <table>/${SCHEMA_FILE} already matches ${DEFINITION_SOURCE_PATH}`
+				: `wrote ${data.written.join(', ')} from ${DEFINITION_SOURCE_PATH}`,
 		);
 	return EXIT.ok;
 }

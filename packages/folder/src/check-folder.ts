@@ -11,6 +11,7 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileError } from './errors.js';
+import { rowPath } from './paths.js';
 import type { ProjectedTable } from './projection.js';
 import { type ReadFolderError, readFolder } from './read-folder.js';
 
@@ -50,7 +51,7 @@ export type FolderCheck = {
 	invalid: Finding[];
 	/** Files that could not be read at all. */
 	unreadable: Finding[];
-	/** Whether `epicenter.ts` sits beside `epicenter.json`. */
+	/** Whether the folder keeps the `epicenter.ts` its schemas are generated from. */
 	hasSource: boolean;
 };
 
@@ -73,9 +74,9 @@ export function hasDefinitionSource(dir: string) {
 }
 
 /**
- * Read the data folder at `dir` and sort what it reports. A folder or
- * definition that cannot be used is the error; a file that does not conform
- * or cannot be read is a finding beside the others.
+ * Read the data folder at `dir` and sort what it reports. A folder with no
+ * table, or a table schema that cannot be used, is the error; a file that
+ * does not conform or cannot be read is a finding beside the others.
  */
 export async function checkFolder(
 	dir: string,
@@ -117,7 +118,7 @@ export async function checkFolder(
 		for (const { stem, result } of [...listed.data].sort((a, b) =>
 			a.stem < b.stem ? -1 : a.stem > b.stem ? 1 : 0,
 		)) {
-			if (result.error !== null) report(`${name}/${stem}.md`, result.error);
+			if (result.error !== null) report(rowPath(name, stem), result.error);
 			else
 				table.rows.push({
 					id: stem,

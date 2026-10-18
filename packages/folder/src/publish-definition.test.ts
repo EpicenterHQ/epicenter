@@ -1,10 +1,10 @@
 /**
- * Publication attempt contract: the formatted definition put over the file
- * as it was read, guarded by its hash. An awaited put where no file is when the
- * file is missing; a put guarded by the bytes read, the definition replacing
- * the file whole, when it holds other bytes; `local` the union of the
- * file's patterns and the definition's; no write when it holds the
- * declaration's bytes; another read when another writer got there first, up
+ * Publication attempt contract: each table's formatted schema put over its
+ * `<table>/.epicenter.json` as it was read, guarded by its hash. An awaited
+ * put where no file is when the file is missing; a put guarded by the bytes
+ * read, the schema replacing the file whole, when it holds other bytes; no
+ * write when it holds the schema's bytes; no root `epicenter.json` and no
+ * `local` in any file; another read when another writer got there first, up
  * to the write's attempts; and failure diagnostics retaining uncertain
  * outcomes.
  */
@@ -23,10 +23,16 @@ const { publishDefinition, publishLocalPatterns } = await import(
 	'./publish-definition.js'
 );
 
-const definition = defineFolder({ tables: {} });
+const definition = defineFolder({
+	tables: { todos: defineTable({ fields: { title: field.string() } }) },
+});
+/** The one table's schema file. */
+const SCHEMA = 'todos/.epicenter.json';
+/** The text `definition` publishes at `SCHEMA`. */
+const schema = formatDefinition(definition)[SCHEMA]!;
 const encode = (text: string) => new TextEncoder().encode(text);
 const missing = async (path: string) => FileError.NotFound({ path });
-/** A file at `epicenter.json` holding `text`. */
+/** A file holding `text`. */
 const holding = (text: string) => async () => {
 	const bytes = encode(text);
 	return Ok({ bytes, sha256: await hashBytes(bytes) });
@@ -39,6 +45,7 @@ function recording(
 	answer: () => Promise<unknown> = async () => Ok('landed'),
 ) {
 	const writes: { text: string; ifMatch: string | null }[] = [];
+	const paths: string[] = [];
 	let read = 0;
 	const storage = {
 		read: (path: string) => reads[Math.min(read++, reads.length - 1)]!(path),
@@ -47,7 +54,7 @@ function recording(
 			bytes: Uint8Array | null,
 			ifMatch: string | null,
 		) => {
-			expect(path).toBe('epicenter.json');
+			paths.push(path);
 			writes.push({
 				text: new TextDecoder().decode(bytes ?? undefined),
 				ifMatch,
@@ -55,7 +62,7 @@ function recording(
 			return answer();
 		},
 	} as unknown as Parameters<typeof publishDefinition>[1];
-	return { storage, writes };
+	return { storage, writes, paths };
 }
 
 test('a missing declaration is created, and the attempt waits for the file outcome', async () => {
@@ -69,46 +76,73 @@ test('a missing declaration is created, and the attempt waits for the file outco
 		returned = true;
 	});
 	while (writes.length === 0) await Bun.sleep(1);
-	expect(writes).toEqual([
-		{ text: formatDefinition(definition), ifMatch: null },
-	]);
+	expect(writes).toEqual([{ text: schema, ifMatch: null }]);
 	expect(returned).toBe(false);
 	done.resolve();
 	await opening;
 	expect(returned).toBe(true);
 });
 
-test('a file already holding the declaration bytes is not rewritten', async () => {
-	const { storage, writes } = recording([
-		holding(formatDefinition(definition)),
-	]);
+test('a file already holding the schema bytes is not rewritten', async () => {
+	const { storage, writes } = recording([holding(schema)]);
 	await publishDefinition(definition, storage);
 	expect(writes).toEqual([]);
 	expect(events).toEqual([]);
 });
 
 test('the same JSON spelled otherwise is put over once, guarded by what was read, with nothing overridden', async () => {
-	const there = formatDefinition(definition).trimEnd();
+	const there = schema.trimEnd();
 	const { storage, writes } = recording([holding(there)]);
 	await publishDefinition(definition, storage);
-	expect(writes).toEqual([
-		{ text: formatDefinition(definition), ifMatch: await shaOf(there) },
-	]);
+	expect(writes).toEqual([{ text: schema, ifMatch: await shaOf(there) }]);
 	expect(events).toEqual([]);
 });
 
-test('the definition replaces the file it read whole, keys only the file held included', async () => {
-	const titled = defineFolder({ title: 'Mine', tables: {} });
-	const there = '{"title":"Another app","note":"x"}\n';
-	const { storage, writes } = recording([holding(there)]);
-	await publishDefinition(titled, storage);
-	expect(writes).toEqual([
-		{ text: formatDefinition(titled), ifMatch: await shaOf(there) },
-	]);
+test('the schema replaces the file it read whole, keys only the file held included', async () => {
+	const titled = defineFolder({
+		title: 'Mine',
+		tables: definition.tables,
+		local: ['audio/'],
+	});
+	const there = '{"type":"object","properties":{},"note":"x"}\n';
+	const { storage, writes, paths } = recording([holding(there)]);
+	// The definition's `local` is answered for `.gitignore`, and its title
+	// and `local` are in no file: the schema is the table's alone.
+	expect(await publishDefinition(titled, storage)).toEqual(['audio/']);
+	expect(paths).toEqual([SCHEMA]);
+	expect(writes).toEqual([{ text: schema, ifMatch: await shaOf(there) }]);
 	expect(events).toEqual([]);
 });
 
-test('a newer definition that drops a table and a field and reopens a table is the whole file', async () => {
+test('each table publishes its own file, and one that fails stops neither the others nor the write', async () => {
+	const two = defineFolder({
+		tables: {
+			todos: definition.tables.todos,
+			notes: defineTable({ fields: { body: field.string() } }),
+		},
+	});
+	const { storage, writes, paths } = recording([missing], async () =>
+		paths.at(-1) === 'notes/.epicenter.json'
+			? FileError.Unconfirmed({
+					operation: 'create',
+					path: 'notes/.epicenter.json',
+					cause: 'lost',
+				})
+			: Ok('landed'),
+	);
+	await publishDefinition(two, storage);
+	expect(paths).toEqual(['todos/.epicenter.json', 'notes/.epicenter.json']);
+	expect(writes.map((write) => write.text)).toEqual(
+		Object.values(formatDefinition(two)),
+	);
+	expect(events).toHaveLength(1);
+	expect(events[0]?.data).toMatchObject({
+		name: 'DefinitionPublicationUnconfirmed',
+		path: 'notes/.epicenter.json',
+	});
+});
+
+test('a newer definition that drops a table and a field and reopens a table rewrites its own tables alone', async () => {
 	const v1 = defineFolder({
 		tables: {
 			todos: defineTable({
@@ -121,32 +155,20 @@ test('a newer definition that drops a table and a field and reopens a table is t
 	const v2 = defineFolder({
 		tables: { todos: defineTable({ fields: { title: field.string() } }) },
 	});
-	const { storage, writes } = recording([holding(formatDefinition(v1))]);
-	await publishDefinition(v2, storage);
-	expect(writes.map((write) => write.text)).toEqual([formatDefinition(v2)]);
-});
-
-test("the published local is the sorted union of the file's patterns and the definition's", async () => {
-	const own = defineFolder({ tables: {}, local: ['audio/'] });
-	const theirs = defineFolder({ tables: {}, local: ['drafts/'] });
-	const both = defineFolder({ tables: {}, local: ['audio/', 'drafts/'] });
-	const { storage, writes } = recording([holding(formatDefinition(theirs))]);
-	expect(await publishDefinition(own, storage)).toEqual(['audio/', 'drafts/']);
-	expect(writes).toEqual([
-		{
-			text: formatDefinition(both),
-			ifMatch: await shaOf(formatDefinition(theirs)),
-		},
+	const { storage, writes, paths } = recording([
+		holding(formatDefinition(v1)[SCHEMA]!),
 	]);
-	// A file already listing them all, and this definition's, is left alone.
-	const again = recording([holding(formatDefinition(both))]);
-	await publishDefinition(own, again.storage);
-	expect(again.writes).toEqual([]);
+	await publishDefinition(v2, storage);
+	// The dropped table's schema is not the newer definition's to remove.
+	expect(paths).toEqual([SCHEMA]);
+	expect(writes.map((write) => write.text)).toEqual([
+		formatDefinition(v2)[SCHEMA]!,
+	]);
 });
 
 test('a file another writer lands between the read and the put is read again and replaced, never merged', async () => {
-	const first = formatDefinition(definition).trimEnd();
-	const landed = '{"tables":{},"note":"landed meanwhile"}\n';
+	const first = schema.trimEnd();
+	const landed = '{"type":"object","note":"landed meanwhile"}\n';
 	let puts = 0;
 	const { storage, writes } = recording(
 		[holding(first), holding(landed)],
@@ -154,14 +176,14 @@ test('a file another writer lands between the read and the put is read again and
 	);
 	await publishDefinition(definition, storage);
 	expect(writes).toEqual([
-		{ text: formatDefinition(definition), ifMatch: await shaOf(first) },
-		{ text: formatDefinition(definition), ifMatch: await shaOf(landed) },
+		{ text: schema, ifMatch: await shaOf(first) },
+		{ text: schema, ifMatch: await shaOf(landed) },
 	]);
 	expect(events).toEqual([]);
 });
 
 test('another writer getting there first is read again, as many times as a write tries', async () => {
-	const theirs = '{"title":"Another app"}\n';
+	const theirs = '{"type":"object"}\n';
 	const { storage, writes } = recording([missing, holding(theirs)], async () =>
 		Ok('stale'),
 	);
@@ -202,7 +224,7 @@ test('a lost write reply preserves Unconfirmed and its actual cause in the diagn
 	const lost = new Error('Lost native reply after sending create');
 	const refusal = FileError.Unconfirmed({
 		operation: 'create',
-		path: 'epicenter.json',
+		path: SCHEMA,
 		cause: lost,
 	});
 	const { storage } = recording([missing], async () => refusal);
@@ -213,7 +235,7 @@ test('a lost write reply preserves Unconfirmed and its actual cause in the diagn
 		level: 'error',
 		data: {
 			name: 'DefinitionPublicationUnconfirmed',
-			path: 'epicenter.json',
+			path: SCHEMA,
 			cause: { name: 'Io', cause: refusal.error },
 		},
 	});
@@ -228,7 +250,7 @@ test('a thrown write retains its cause without claiming whether the save landed'
 	expect(events).toHaveLength(1);
 	expect(events[0]?.data).toMatchObject({
 		name: 'DefinitionPublicationUnconfirmed',
-		path: 'epicenter.json',
+		path: SCHEMA,
 		cause,
 	});
 });

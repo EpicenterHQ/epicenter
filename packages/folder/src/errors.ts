@@ -205,11 +205,12 @@ export const RowWriteError = { ...WriteError, ...RowValuesError };
 export const OpenFolderError = defineErrors({
 	/**
 	 * A definition declares something a file folder cannot keep. Without
-	 * `path`, it is the definition the opener was handed. With `path`
-	 * (`epicenter.json`), it is the folder's own, which a folder that is not
-	 * the opening app's own is read with: the file is not readable, is not
-	 * UTF-8 JSON, is not the definition grammar, or declares a field a folder
-	 * cannot keep. Nothing was opened.
+	 * `path`, it is the definition the opener was handed. With `path`, a
+	 * table's `<table>/.epicenter.json`, it is the folder's own, which a
+	 * folder that is not the opening app's own is read with: the file is not
+	 * readable, is not UTF-8 JSON, is not the schema grammar, or declares a
+	 * field a folder cannot keep. A `path` of `''` is the folder's root,
+	 * which could not be listed to find its tables. Nothing was opened.
 	 */
 	InvalidDefinition: ({ reason, path }: { reason: string; path?: string }) =>
 		path === undefined
@@ -218,12 +219,15 @@ export const OpenFolderError = defineErrors({
 					reason,
 				}
 			: {
-					message: `The folder's ${path} cannot be used: ${reason}`,
+					message:
+						path === ''
+							? `The folder's tables cannot be read: ${reason}`
+							: `The folder's ${path} cannot be used: ${reason}`,
 					reason,
 					path,
 				},
 	/**
-	 * The folder's own `epicenter.json` does not contain the definition it
+	 * The folder's own table schemas do not contain the definition it
 	 * was read through (ADR-0538): a table or field the definition reads is
 	 * missing, or the folder admits values there the definition does not.
 	 * The message names the folder by its directory's name and, when an app

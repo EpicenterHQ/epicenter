@@ -149,7 +149,7 @@ describe('native folder scope', () => {
 
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual(
-			[...SOURCE, 'epicenter.json', 'tracked.log'].sort(),
+			[...SOURCE, 'todos/.epicenter.json', 'tracked.log'].sort(),
 		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await folder.close();

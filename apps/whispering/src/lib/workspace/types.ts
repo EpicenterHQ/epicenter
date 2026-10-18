@@ -32,7 +32,7 @@ import type { LocalTranscription } from './local-transcription.js';
 /**
  * A folder read through Whispering's definition: Whispering's own, whose
  * declaration is that definition, or another folder read through it, whose
- * declaration is its own `epicenter.json`.
+ * declaration is its own table schemas.
  */
 export type WhisperingFolder = Folder<typeof whisperingDefinition, Definition>;
 

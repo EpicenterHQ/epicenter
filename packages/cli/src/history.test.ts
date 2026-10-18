@@ -113,13 +113,9 @@ async function reply<K extends keyof HistoryResults>(
 }
 
 const DECLARATION = JSON.stringify({
-	tables: {
-		posts: {
-			type: 'object',
-			properties: { title: { type: 'string' }, done: { type: 'boolean' } },
-			required: ['title', 'done'],
-		},
-	},
+	type: 'object',
+	properties: { title: { type: 'string' }, done: { type: 'boolean' } },
+	required: ['title', 'done'],
 });
 
 async function write(root: string, path: string, content: string | Uint8Array) {
@@ -202,7 +198,7 @@ test('status, save-version, and history read and record the folder', async () =>
 
 test('a sync of competing changes merges them into one commit this folder wins, asking nothing', async () => {
 	const { folder, other } = await synced({
-		'epicenter.json': DECLARATION,
+		'posts/.epicenter.json': DECLARATION,
 		'posts/x.md': '---\ntitle: Base\ndone: false\n---\n',
 		'notes.txt': 'one\ntwo\nthree\n',
 		'doc.md': 'kept\n',

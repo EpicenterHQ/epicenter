@@ -2,7 +2,9 @@
 //! opens them (ADR-0535).
 //!
 //! A data folder is a direct child of `folder_dir` that is a real directory,
-//! not a link or a dot entry, holding a regular file `epicenter.json`. The
+//! not a link or a dot entry, holding at least one table: a real directory
+//! directly in it, not `.git`, holding a regular file `.epicenter.json`, the
+//! table's schema (ADR-0611). The
 //! Folders window opens one with `openFolder({ id })`, so each listed
 //! folder needs a scope that window may be granted:
 //!
@@ -60,8 +62,9 @@ pub const EPICENTER_FOLDER: &str = "so.epicenter";
 /// The windows that hold Epicenter's own folder.
 const EPICENTER_FOLDER_WINDOWS: [BuiltInApp; 2] = [BuiltInApp::Folders, BuiltInApp::Home];
 
-/// The file that makes a directory a data folder (ADR-0517).
-const DECLARATION: &str = "epicenter.json";
+/// The file that makes a directory of a data folder a table, and so the
+/// folder a data folder: the table's schema (ADR-0611).
+const SCHEMA_FILE: &str = ".epicenter.json";
 
 /// Register Epicenter's own folder for the Folders window and Settings. Each
 /// page runs `@epicenter/folder`'s own engine over its directory; the shell
@@ -115,7 +118,7 @@ pub fn admit_installed_window(
 pub struct DataFolder {
     /// The scope to pass to `openFolder({ id })`.
     pub id: String,
-    /// `epicenter.json`'s `title` when it is a string, else the directory name.
+    /// The folder's directory name: a folder declares no title.
     pub title: String,
 }
 
@@ -211,15 +214,10 @@ fn list_in(
             continue;
         }
         let root = entry.path();
-        let declaration = root.join(DECLARATION);
-        if !fs::symlink_metadata(&declaration).is_ok_and(|stats| stats.is_file()) {
+        if !holds_a_table(&root) {
             continue;
         }
-        let title = fs::read_to_string(&declaration)
-            .ok()
-            .as_deref()
-            .and_then(declared_title)
-            .unwrap_or_else(|| name.clone());
+        let title = name.clone();
 
         if name == EPICENTER_FOLDER {
             // Registered at setup for this window already.
@@ -283,9 +281,9 @@ pub struct DataFoldersWatch {
 
 /// Watch `folder_dir` and send `DATA_FOLDERS_CHANGED` to the Folders window
 /// when what `list_in` reads may have changed: an entry directly under the
-/// root, or a folder's `epicenter.json`. The watch is recursive because a
-/// declaration is one level down; every deeper change, such as a row saved
-/// in a folder, is ignored. A rescan or a watch error is reported too. A
+/// root, an entry directly in a folder, or a table's `.epicenter.json`. The
+/// watch is recursive because a schema is two levels down; every other
+/// deeper change, such as a row saved in a table, is ignored. A rescan or a watch error is reported too. A
 /// root that cannot be watched leaves the listing as the window last read it.
 pub fn watch_data_folders<R: Runtime>(
     app: &AppHandle<R>,
@@ -326,8 +324,9 @@ pub fn watch_data_folders<R: Runtime>(
 }
 
 /// Whether a change at `path` can change the listing of `root`: the root
-/// itself, an entry directly in it, or `epicenter.json` directly in one,
-/// leaving out dot entries, which are never listed.
+/// itself, an entry directly in it, an entry directly in one of those (a
+/// table's directory appearing or going), or a table's `.epicenter.json`,
+/// leaving out dot entries under the root, which are never listed.
 fn changes_listing(root: &Path, path: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return false;
@@ -337,17 +336,28 @@ fn changes_listing(root: &Path, path: &Path) -> bool {
     match names.as_slice() {
         [] => true,
         [Component::Normal(entry)] => listed(entry),
-        [Component::Normal(entry), Component::Normal(file)] => {
-            listed(entry) && *file == DECLARATION
+        [Component::Normal(entry), Component::Normal(table)] => {
+            listed(entry) && *table != ".git"
+        }
+        [Component::Normal(entry), Component::Normal(table), Component::Normal(file)] => {
+            listed(entry) && *table != ".git" && *file == SCHEMA_FILE
         }
         _ => false,
     }
 }
 
-/// `epicenter.json`'s `title`, when the text parses and it is a string.
-fn declared_title(text: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(text).ok()?;
-    value.get("title")?.as_str().map(str::to_string)
+/// Whether the directory `root` holds a table: a real directory directly in
+/// it, not a link and not `.git`, holding a regular file `.epicenter.json`.
+fn holds_a_table(root: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(root) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry.file_name() != ".git"
+            && entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && fs::symlink_metadata(entry.path().join(SCHEMA_FILE))
+                .is_ok_and(|stats| stats.is_file())
+    })
 }
 
 #[cfg(test)]
@@ -438,12 +448,16 @@ mod tests {
         }
     }
 
-    /// A data folder: a directory holding `epicenter.json`.
-    fn data_folder(fixture: &Fixture, name: &str, declaration: &str) {
-        let root = fixture.folder_dir.join(name);
-        fs::create_dir_all(&root).unwrap();
-        fs::write(root.join(DECLARATION), declaration).unwrap();
+    /// A data folder: a directory holding one table, `notes`, whose
+    /// `.epicenter.json` is `schema`.
+    fn data_folder(fixture: &Fixture, name: &str, schema: &str) {
+        let table = fixture.folder_dir.join(name).join(TABLE);
+        fs::create_dir_all(&table).unwrap();
+        fs::write(table.join(SCHEMA_FILE), schema).unwrap();
     }
+
+    /// The one table each fixture's data folder holds.
+    const TABLE: &str = "notes";
 
     fn invoke(
         window: &WebviewWindow<MockRuntime>,
@@ -511,17 +525,25 @@ mod tests {
     }
 
     #[test]
-    fn only_entries_under_the_root_and_their_declarations_change_the_listing() {
+    fn only_entries_under_the_root_their_tables_and_schemas_change_the_listing() {
         let root = PathBuf::from("/home/Epicenter");
-        for path in ["", "books", "books/epicenter.json", "loose.json"] {
+        for path in [
+            "",
+            "books",
+            "books/novels",
+            "books/novels/.epicenter.json",
+            "loose.json",
+        ] {
             assert!(changes_listing(&root, &root.join(path)), "{path}");
         }
         for path in [
-            "books/b1.md",
+            "books/novels/b1.md",
+            "books/.git",
             "books/.git/HEAD",
-            "books/nested/epicenter.json",
+            "books/.git/.epicenter.json",
+            "books/novels/nested/.epicenter.json",
             ".books.epicenter-save-lock",
-            ".hidden/epicenter.json",
+            ".hidden/novels/.epicenter.json",
         ] {
             assert!(!changes_listing(&root, &root.join(path)), "{path}");
         }
@@ -529,17 +551,29 @@ mod tests {
     }
 
     #[test]
-    fn lists_only_real_directories_holding_epicenter_json() {
+    fn lists_only_real_directories_holding_a_table() {
         let fixture = fixture("listing");
         data_folder(&fixture, "vault", "{}");
-        // A directory without the declaration is not a data folder.
-        fs::create_dir_all(fixture.folder_dir.join("plain")).unwrap();
-        // Nor is a dot directory, a file, a lock file, or a declaration
-        // that is itself a directory.
+        // A directory without a table is not a data folder, a root
+        // epicenter.json of the earlier model included.
+        fs::create_dir_all(fixture.folder_dir.join("plain").join("loose")).unwrap();
+        fs::write(fixture.folder_dir.join("plain").join("epicenter.json"), "{}").unwrap();
+        fs::write(fixture.folder_dir.join("plain").join(SCHEMA_FILE), "{}").unwrap();
+        // Nor is a dot directory, a file, a lock file, a schema that is
+        // itself a directory, one nested deeper, or one inside `.git`.
         data_folder(&fixture, ".hidden", "{}");
         fs::write(fixture.folder_dir.join("loose.json"), "{}").unwrap();
         fs::write(fixture.folder_dir.join(".vault.epicenter-save-lock"), "").unwrap();
-        fs::create_dir_all(fixture.folder_dir.join("odd").join(DECLARATION)).unwrap();
+        fs::create_dir_all(fixture.folder_dir.join("odd").join(TABLE).join(SCHEMA_FILE))
+            .unwrap();
+        fs::create_dir_all(fixture.folder_dir.join("deep").join("a").join("b")).unwrap();
+        fs::write(
+            fixture.folder_dir.join("deep").join("a").join("b").join(SCHEMA_FILE),
+            "{}",
+        )
+        .unwrap();
+        fs::create_dir_all(fixture.folder_dir.join("git").join(".git")).unwrap();
+        fs::write(fixture.folder_dir.join("git").join(".git").join(SCHEMA_FILE), "{}").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(
             fixture.folder_dir.join("vault"),
@@ -564,14 +598,18 @@ mod tests {
     }
 
     #[test]
-    fn titles_come_from_epicenter_json_when_it_names_one() {
+    fn a_folders_title_is_its_directory_name() {
         let fixture = fixture("titles");
-        data_folder(
-            &fixture,
-            "reading",
+        data_folder(&fixture, "reading", "{}");
+        // The earlier model's root title names nothing.
+        fs::write(
+            fixture.folder_dir.join("reading").join("epicenter.json"),
             r#"{ "title": "Reading list", "tables": {} }"#,
-        );
-        data_folder(&fixture, "numbered", r#"{ "title": 7 }"#);
+        )
+        .unwrap();
+        data_folder(&fixture, "numbered", "{}");
+        // A schema the shell cannot parse still makes a table: the page
+        // that opens the folder says what is wrong with it.
         data_folder(&fixture, "broken", "not json");
 
         let titles: Vec<(String, String)> = fixture
@@ -584,7 +622,7 @@ mod tests {
             [
                 ("data:broken".into(), "broken".into()),
                 ("data:numbered".into(), "numbered".into()),
-                ("data:reading".into(), "Reading list".into()),
+                ("data:reading".into(), "reading".into()),
             ]
         );
     }
@@ -592,18 +630,18 @@ mod tests {
     #[test]
     fn an_installed_apps_folder_is_listed_under_its_id() {
         let fixture = fixture("application");
-        data_folder(&fixture, "so.epicenter.todos", r#"{ "title": "Todos" }"#);
+        data_folder(&fixture, "so.epicenter.todos", "{}");
         // Not installed: a data folder like any other.
         assert_eq!(fixture.list()[0].id, "data:so.epicenter.todos");
 
         let fixture = self::fixture("installed");
-        data_folder(&fixture, "so.epicenter.todos", r#"{ "title": "Todos" }"#);
+        data_folder(&fixture, "so.epicenter.todos", "{}");
         fs::create_dir_all(fixture.apps_dir.join("so.epicenter.todos")).unwrap();
         assert_eq!(
             fixture.list(),
             [DataFolder {
                 id: "so.epicenter.todos".into(),
-                title: "Todos".into(),
+                title: "so.epicenter.todos".into(),
             }]
         );
         // Listing again, and opening the app without a folder, keep the scope.
@@ -614,20 +652,20 @@ mod tests {
     #[test]
     fn epicenters_own_folder_is_listed_under_its_scope_for_both_windows() {
         let fixture = fixture("epicenter");
-        data_folder(&fixture, EPICENTER_FOLDER, r#"{ "title": "Epicenter" }"#);
+        data_folder(&fixture, EPICENTER_FOLDER, "{}");
         fs::write(fixture.folder_dir.join("so.epicenter/notes.md"), "").unwrap();
 
         assert_eq!(
             fixture.list(),
             [DataFolder {
                 id: EPICENTER_FOLDER.into(),
-                title: "Epicenter".into(),
+                title: EPICENTER_FOLDER.into(),
             }]
         );
         for label in ["folders", "home"] {
             assert_eq!(
                 granted_names(&fixture.window(label), EPICENTER_FOLDER),
-                ["epicenter.json", "notes.md"]
+                ["notes", "notes.md"]
             );
         }
         assert!(invoke(
@@ -668,7 +706,7 @@ mod tests {
             invoke(&todos, "window_folder", json!({})).unwrap(),
             json!({ "app": "so.epicenter.todos", "folder": "data:groceries" })
         );
-        assert_eq!(granted_names(&todos, &id), ["epicenter.json"]);
+        assert_eq!(granted_names(&todos, &id), [TABLE]);
         fs::create_dir_all(fixture.folder_dir.join(EPICENTER_FOLDER)).unwrap();
         assert!(invoke(&todos, "grant_directory", json!({ "scope": EPICENTER_FOLDER })).is_ok());
         assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");
@@ -748,14 +786,15 @@ mod tests {
         assert!(!fixture.folder_dir.join(&id).exists());
         assert_eq!(granted_names(&todos, &id), Vec::<String>::new());
         assert!(fixture.folder_dir.join(&id).is_dir(), "the grant created it");
-        fs::write(fixture.folder_dir.join(&id).join(DECLARATION), "{}").unwrap();
+        fs::create_dir_all(fixture.folder_dir.join(&id).join(TABLE)).unwrap();
+        fs::write(fixture.folder_dir.join(&id).join(TABLE).join(SCHEMA_FILE), "{}").unwrap();
         fs::write(fixture.folder_dir.join(&id).join("one.md"), "one").unwrap();
 
         let listed = fixture.list();
         assert_eq!(listed[0].id, id);
-        assert_eq!(granted_names(&folders, &id), ["epicenter.json", "one.md"]);
+        assert_eq!(granted_names(&folders, &id), [TABLE, "one.md"]);
         // The app's window keeps its grant beside the Folders window's.
-        assert_eq!(granted_names(&todos, &id), ["epicenter.json", "one.md"]);
+        assert_eq!(granted_names(&todos, &id), [TABLE, "one.md"]);
     }
 
     /// The Folders window opens a folder under its data scope before the
@@ -770,7 +809,7 @@ mod tests {
         let folders = fixture.window("folders");
         assert_eq!(
             granted_names(&folders, "data:so.epicenter.todos"),
-            ["epicenter.json"]
+            [TABLE]
         );
 
         assert_eq!(fixture.own_folder("so.epicenter.todos"), "so.epicenter.todos");
@@ -781,11 +820,11 @@ mod tests {
             .permit("so.epicenter.todos", label)
             .unwrap();
         let todos = fixture.window(label);
-        assert_eq!(granted_names(&todos, "so.epicenter.todos"), ["epicenter.json"]);
+        assert_eq!(granted_names(&todos, "so.epicenter.todos"), [TABLE]);
         assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
         assert_eq!(
             granted_names(&folders, "so.epicenter.todos"),
-            ["epicenter.json"]
+            [TABLE]
         );
     }
 
@@ -805,7 +844,7 @@ mod tests {
         let folders = fixture.window("folders");
         assert_eq!(
             granted_names(&folders, "so.epicenter.todos"),
-            ["epicenter.json"]
+            [TABLE]
         );
     }
 
@@ -817,7 +856,7 @@ mod tests {
         let todos = fixture.window("todos");
 
         let id = fixture.list().remove(0).id;
-        assert_eq!(granted_names(&folders, &id), ["epicenter.json"]);
+        assert_eq!(granted_names(&folders, &id), [TABLE]);
         assert!(invoke(&todos, "grant_directory", json!({ "scope": id })).is_err());
     }
 

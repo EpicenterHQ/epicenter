@@ -1,11 +1,12 @@
 /**
  * Read a data folder on disk without opening it (ADR-0517).
  *
- * A data folder is a directory holding `epicenter.json`. `readFolder` reads
- * and prepares that definition, then reads every defined table through the
- * same tables and directory file storage an opened folder uses, so a tool and an application reach the same verdict
- * on every file: path policy, symbolic links, names, UTF-8, and row
- * validity included.
+ * A data folder is a directory with at least one table: a top-level
+ * directory holding a `.epicenter.json`, its schema. `readFolder` discovers
+ * and prepares those tables, then reads every one through the same tables and
+ * directory file storage an opened folder uses, so a tool and an application
+ * reach the same verdict on every file: path policy, symbolic links, names,
+ * UTF-8, and row validity included.
  *
  * It writes nothing. It takes no lock, leaves no marker, initializes no Git
  * repository, and publishes no definition, so it can read a folder an
@@ -20,25 +21,36 @@ import type { Definition, PreparedFolderTable } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { FileError } from './errors.js';
-import { DEFINITION_PATH } from './paths.js';
+import { SCHEMA_FILE } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
 export const ReadFolderError = defineErrors({
-	/** The directory has no `epicenter.json`, so it is not a data folder. */
+	/** No top-level directory holds a `.epicenter.json`, so it is not a data folder. */
 	NotDataFolder: ({ root }: { root: string }) => ({
-		message: `'${root}' is not a data folder: it has no ${DEFINITION_PATH}`,
+		message: `'${root}' is not a data folder: no top-level directory holds a ${SCHEMA_FILE}`,
 		root,
 	}),
 	/**
-	 * `epicenter.json` (`path`) is not a readable file, is not UTF-8 JSON, is
-	 * not the definition grammar `parseDefinition` reads, or declares a field
-	 * a folder cannot keep.
+	 * A table's schema file (`path`; `''` when the root could not be listed) is not a
+	 * readable file, is not UTF-8 JSON, is not the schema grammar
+	 * `parseTableSchema` reads, or declares a field a folder cannot keep.
 	 */
-	InvalidDefinition: ({ root, reason }: { root: string; reason: string }) => ({
-		message: `'${root}/${DEFINITION_PATH}' cannot be used: ${reason}`,
+	InvalidDefinition: ({
 		root,
 		reason,
-		path: DEFINITION_PATH,
+		path,
+	}: {
+		root: string;
+		reason: string;
+		path: string;
+	}) => ({
+		message:
+			path === ''
+				? `'${root}' cannot be read for its tables: ${reason}`
+				: `'${root}/${path}' cannot be used: ${reason}`,
+		root,
+		reason,
+		path,
 	}),
 });
 export type ReadFolderError = InferErrors<typeof ReadFolderError>;
@@ -47,7 +59,7 @@ export type ReadFolderError = InferErrors<typeof ReadFolderError>;
 export type FolderReading = {
 	/** The directory read, as the caller named it. */
 	readonly root: string;
-	/** The prepared definition from `epicenter.json`. */
+	/** The prepared definition its tables' schema files declare. */
 	readonly definition: Definition;
 	/** Exactly what each declared table's `list()` returns. */
 	readonly tables: Readonly<
@@ -56,8 +68,8 @@ export type FolderReading = {
 };
 
 /**
- * Read the data folder at `root`. A directory with no `epicenter.json` is
- * `NotDataFolder`; one whose definition cannot be used is
+ * Read the data folder at `root`. A directory with no table is
+ * `NotDataFolder`; one with a schema file that cannot be used is
  * `InvalidDefinition`; a missing root is `NotFound`, and a root that is not
  * a directory is `NotADirectory`. A table that cannot be read is that
  * entry's error, beside the others.
@@ -86,8 +98,10 @@ export async function readFolder(
 		return ReadFolderError.InvalidDefinition({
 			root,
 			reason: declarationError.reason,
+			path: declarationError.path,
 		});
-	if (definition === undefined) return ReadFolderError.NotDataFolder({ root });
+	if (Object.keys(definition.tables).length === 0)
+		return ReadFolderError.NotDataFolder({ root });
 
 	const tables: Record<
 		string,

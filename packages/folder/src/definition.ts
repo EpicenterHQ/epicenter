@@ -67,10 +67,9 @@ type PreparedDefinition<TDefinition extends Definition> = {
  *
  * Its `local` patterns name files that stay on the machine that wrote them.
  * Every commit leaves out a path they match, and untracks one already
- * committed, whatever `.gitignore` says (`git/scope.ts`). `epicenter.json`
- * carries them, so every host that reads the folder's own definition, the
- * `epicenter` CLI included, excludes the same paths. Before its first write
- * a handle also adds each pattern the root `.gitignore` lacks, so plain `git`
+ * committed, whatever `.gitignore` says (`git/scope.ts`). No schema file
+ * carries them: before its first write a handle adds each pattern the root
+ * `.gitignore` lacks, so every host, the `epicenter` CLI and plain `git`
  * agrees (`publish-definition.ts`).
  */
 export type { Definition };
@@ -113,7 +112,7 @@ const NO_BASE = 'http://unknown/';
 
 /**
  * Why one table's fields, published together as one object schema in
- * `epicenter.json` (ADR-0517), would resolve their references differently
+ * `<table>/.epicenter.json` (ADR-0517), would resolve their references differently
  * there than each field does alone, or `undefined` when they agree.
  *
  * Each field is validated on its own, but the file holds the table as one
@@ -149,9 +148,9 @@ function publicationProblem(
 				scope = resolved(schema.$id, base);
 				const owner = owners.get(scope);
 				if (owner === name)
-					return `Field ${where} defines the $id '${schema.$id}' twice. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
+					return `Field ${where} defines the $id '${schema.$id}' twice. A table's .epicenter.json is one JSON Schema, where an $id names one schema; rename one of them.`;
 				if (owner !== undefined)
-					return `Fields '${table}.${owner}' and ${where} both define the $id '${schema.$id}'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
+					return `Fields '${table}.${owner}' and ${where} both define the $id '${schema.$id}'. A table's .epicenter.json is one JSON Schema, where an $id names one schema; rename one of them.`;
 				owners.set(scope, name);
 			}
 			if (
@@ -159,7 +158,7 @@ function publicationProblem(
 				schema.$ref.startsWith('#') &&
 				scope === undefined
 			)
-				return `Field ${where} refers to '${schema.$ref}' outside any $id. In epicenter.json '#' is the whole table, not the field; give the field an $id.`;
+				return `Field ${where} refers to '${schema.$ref}' outside any $id. In a table's .epicenter.json '#' is the whole table, not the field; give the field an $id.`;
 			for (const [key, value] of Object.entries(schema)) {
 				if (DATA_KEYWORDS.has(key)) continue;
 				const children =

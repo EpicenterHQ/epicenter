@@ -86,7 +86,8 @@ export type DeclaredTable = TableDeclaration & DeclaredMark;
  * it have this one type. The prepared one is an owned, frozen snapshot whose
  * fields `check` reads; a field of a definition that was never prepared is
  * refused by it. A storage selects its dataset when it opens, so
- * `prepareDefinition` refuses an `id`. `epicenter.json` holds one.
+ * `prepareDefinition` refuses an `id`. A folder holds one as its tables'
+ * schema files, each `<table>/.epicenter.json`.
  */
 export type Definition = {
 	readonly title?: string;

@@ -13,8 +13,9 @@
  * version winning, then pushes (ADR-0576). A checkout that cannot be opened
  * prints the refusal and exits 1.
  *
- * The checkout must hold Todos's `epicenter.json`, as a checkout of a folder
- * Todos synced does, or be a directory named `so.epicenter.todos`, Todos's
+ * The checkout must hold Todos's tables, each `<table>/.epicenter.json`, as
+ * a checkout of a folder Todos synced does, or be a directory named
+ * `so.epicenter.todos`, Todos's
  * own folder, where this script publishes `todosDefinition` on the first
  * write. Any other checkout is read through the definition and never
  * written over (ADR-0583), so an empty one is refused with how to fix it.
@@ -25,7 +26,7 @@ import { TODOS_FOLDER_ID, todosDefinition } from '../src/lib/definition.js';
 const [root, command, ...args] = process.argv.slice(2);
 if (root === undefined || command === undefined) {
 	console.error(
-		"Usage: bun apps/todos/scripts/native.ts <checkout> <status|list|create|complete|sync> [args]\n<checkout> holds Todos's epicenter.json, or is a directory named so.epicenter.todos.",
+		"Usage: bun apps/todos/scripts/native.ts <checkout> <status|list|create|complete|sync> [args]\n<checkout> holds Todos's tables (todos/.epicenter.json), or is a directory named so.epicenter.todos.",
 	);
 	process.exit(2);
 }
@@ -61,7 +62,7 @@ if (openedError) {
 	print({
 		error:
 			openedError.name === 'DefinitionMismatch'
-				? `${openedError.message} Use a checkout of a folder Todos synced, which holds its epicenter.json, or a directory named ${TODOS_FOLDER_ID}, which Todos publishes its declaration into.`
+				? `${openedError.message} Use a checkout of a folder Todos synced, which holds its tables' .epicenter.json files, or a directory named ${TODOS_FOLDER_ID}, which Todos publishes its declaration into.`
 				: openedError.message,
 	});
 	process.exit(1);

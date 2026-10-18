@@ -4,10 +4,11 @@
 	 * every data folder under the Epicenter folder, the apps that open each,
 	 * every other app, and the one folder opened. The shell lists the folders
 	 * (`list_data_folders`) and permits this window into each, so
-	 * `openFolder({ id })` opens one with its own `epicenter.json`, which
-	 * it never writes. One folder is open at a time; choosing another closes
-	 * it first. A folder whose `epicenter.json` changes while it is open is
-	 * opened again, so its grid follows the new declaration.
+	 * `openFolder({ id })` opens one with its own table schemas, each
+	 * `<table>/.epicenter.json`, which it never writes. One folder is open at
+	 * a time; choosing another closes it first. A folder whose schemas change
+	 * while it is open is opened again, so its grid follows the new
+	 * declaration.
 	 *
 	 * The open folder is read through TanStack Query (`folderOptions`), and
 	 * this root wires the folder's one channel of change to the cache
@@ -15,7 +16,7 @@
 	 * queries it names. The subscription lives exactly as long as the folder
 	 * is open. The folder's options turn focus refetch off: the channel is
 	 * the one detector of outside changes. The list of folders is read again when the shell
-	 * reports that one appeared, went, or changed its `epicenter.json`
+	 * reports that one appeared, went, or changed a table's `.epicenter.json`
 	 * (`DATA_FOLDERS_CHANGED`).
 	 *
 	 * "Open in" opens an installed app on that folder through the same verb
@@ -286,7 +287,7 @@
 			<p class="px-4 text-sm text-muted-foreground">Reading…</p>
 		{:else if folders.length === 0}
 			<p class="px-4 text-sm text-muted-foreground">
-				No data folders yet. A folder in your Epicenter folder that has an epicenter.json shows up here.
+				No data folders yet. A folder in your Epicenter folder with a table, a directory holding a .epicenter.json, shows up here.
 			</p>
 		{:else}
 			<ul class="flex flex-col gap-0.5 px-2 pb-3">

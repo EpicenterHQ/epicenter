@@ -99,8 +99,12 @@ async function open(options: TestWorkspaceOptions = {}) {
 	return { session, library: session.library, hooks, ...test };
 }
 
+/** The names in a table's directory beside its `.epicenter.json` schema. */
 const names = (root: string, directory: string) =>
-	readdir(join(root, directory)).catch(() => [] as string[]);
+	readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
 
 /** Create a recipe from a starter, as a person would, and return its path. */
 async function recipe(library: Library, starter = CLEANUP) {
@@ -242,7 +246,7 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 test('a result file and a recipe written by an earlier build still read and list', async () => {
 	const { library, root } = await open();
 	const path = await recipeFile(root, 'old', { model: 'old-model' });
-	await mkdir(join(root, 'transformation_runs'));
+	await mkdir(join(root, 'transformation_runs'), { recursive: true });
 	const old =
 		'---\nrecordingId: 20250101-000000-abcd\ntranscriptionId: 20250101-000001-abcd\ntransformationId: old\ntransformationTitle: Earlier\ncreatedAt: 2025-01-01T00:00:02.000Z\nmodel: old-model\nendpoint: https://api.openai.com/v1\nprompt: Fix it.\ninput: some text\n---\nFixed text.\n';
 	await writeFile(join(root, 'transformation_runs', 'earlier.md'), old);

@@ -17,7 +17,7 @@
  * - A handed folder whose declaration does not contain the definition is
  *   `DefinitionMismatch`, naming the app and the folder's directory, and opens
  *   nothing
- * - A folder opened by ID, with no definition, reads its own `epicenter.json`,
+ * - A folder opened by ID, with no definition, reads its own table schemas,
  *   and with one reads through it, whatever the window was handed
  * - The window's URL decides nothing: a page that navigated, or names
  *   another folder in its query, still opens the folder the shell handed it
@@ -41,6 +41,7 @@ import {
 	type GrantedShell,
 	type WindowFolder,
 } from './granted-shell.test-support.js';
+import { readTables } from './schema-files.test-support.js';
 
 /** The shell; each test grants it the directory it opens. */
 let shell: GrantedShell;
@@ -77,12 +78,17 @@ const definition = defineFolder({
 
 const STRING = { type: 'string', 'x-field': { kind: 'string' } };
 const BOOLEAN = { type: 'boolean', 'x-field': { kind: 'boolean' } };
-/** A folder's `epicenter.json` with `tables`, as Epicenter writes one. */
-const declaration = (title: string, tables: Record<string, unknown>) =>
-	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
+/** A folder's tables, each its `<table>/.epicenter.json`, by path. */
+const declaration = (tables: Record<string, unknown>) =>
+	Object.fromEntries(
+		Object.entries(tables).map(([name, schema]) => [
+			`${name}/.epicenter.json`,
+			`${JSON.stringify(schema, null, '\t')}\n`,
+		]),
+	);
 
 /** Groceries declares Todos's table, a field more, and a table more. */
-const GROCERIES = declaration('Groceries', {
+const GROCERIES = declaration({
 	todos: {
 		type: 'object',
 		properties: { title: STRING, done: BOOLEAN, aisle: STRING },
@@ -154,15 +160,16 @@ test("a window handed the app's own folder opens it and publishes its definition
 		),
 	);
 	expect(
-		JSON.parse(await readFile(join(root, 'epicenter.json'), 'utf8')),
-	).toMatchObject({ title: 'Todos', tables: { todos: {} } });
+		JSON.parse(await readFile(join(root, 'todos/.epicenter.json'), 'utf8')),
+	).toMatchObject({ type: 'object', required: ['title', 'done'] });
+	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
 	await folder.close();
 });
 
 test('a window handed another folder reads and writes it through the definition, and never publishes there', async () => {
 	openWindow('data:Groceries');
 	const root = await grant('Groceries', {
-		'epicenter.json': GROCERIES,
+		...GROCERIES,
 		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
 	});
 
@@ -185,20 +192,20 @@ test('a window handed another folder reads and writes it through the definition,
 		'---\ntitle: Milk\ndone: true\naisle: dairy\n---\n',
 	);
 	// The folder's own declaration stays; the app's is never published over it.
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
+	expect(await readTables(root)).toEqual(GROCERIES);
 	await folder.close();
 });
 
 test("a handed folder that does not contain the definition is refused by the app's and the folder's names", async () => {
 	openWindow('data:Recipes');
-	const recipes = declaration('Recipes', {
+	const recipes = declaration({
 		recipes: {
 			type: 'object',
 			properties: { title: STRING },
 			required: ['title'],
 		},
 	});
-	const root = await grant('Recipes', { 'epicenter.json': recipes });
+	const root = await grant('Recipes', recipes);
 
 	const refused = expectErr(await openFolder({ app: TODOS, definition }));
 
@@ -206,7 +213,7 @@ test("a handed folder that does not contain the definition is refused by the app
 	expect(refused.message).toBe(
 		"Todos cannot open the folder 'Recipes': The folder declares no 'todos' table.",
 	);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(recipes);
+	expect(await readTables(root)).toEqual(recipes);
 	expect(existsSync(join(root, '.git'))).toBe(false);
 });
 
@@ -214,7 +221,7 @@ test('a page that navigated, or names another folder in its URL, still opens the
 	openWindow('data:Groceries');
 	navigate('recordings');
 	await grant('Groceries', {
-		'epicenter.json': GROCERIES,
+		...GROCERIES,
 		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
 	});
 
@@ -255,7 +262,7 @@ test('a page that names an app its window does not run is refused, and asks for 
 test('a folder opened by ID with a definition reads through it, whatever the window was handed', async () => {
 	openWindow(TODOS);
 	const root = await grant('Groceries', {
-		'epicenter.json': GROCERIES,
+		...GROCERIES,
 		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
 	});
 
@@ -267,14 +274,14 @@ test('a folder opened by ID with a definition reads through it, whatever the win
 	expect(folder.own).toBe(false);
 	expect(Object.keys(folder.tables)).toEqual(['todos']);
 	expectOk(await folder.tables.todos.set('milk', { done: true }));
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
+	expect(await readTables(root)).toEqual(GROCERIES);
 	await folder.close();
 });
 
-test('a folder opened by ID with no definition reads its own epicenter.json, whatever the window was handed', async () => {
+test('a folder opened by ID with no definition reads its own table schemas, whatever the window was handed', async () => {
 	openWindow(TODOS);
 	const root = await grant('Groceries', {
-		'epicenter.json': GROCERIES,
+		...GROCERIES,
 		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
 	});
 
@@ -283,7 +290,7 @@ test('a folder opened by ID with no definition reads its own epicenter.json, wha
 	expect(granted()).toEqual(['data:Groceries']);
 	expect(folder.id).toBe('data:Groceries');
 	expect(folder.own).toBe(false);
-	expect(folder.definition.title).toBe('Groceries');
+	expect(folder.definition).not.toHaveProperty('title');
 	expect(Object.keys(folder.tables).sort()).toEqual(['stores', 'todos']);
 	const { stores } = folder.tables;
 	if (stores === undefined) throw new Error('Groceries declares stores');
@@ -293,14 +300,14 @@ test('a folder opened by ID with no definition reads its own epicenter.json, wha
 			{ stem: 'corner' },
 		),
 	);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
+	expect(await readTables(root)).toEqual(GROCERIES);
 	await folder.close();
 });
 
 test("a handed folder's history never takes the app's local files, and its declaration is not changed", async () => {
 	openWindow('data:Groceries');
 	const root = await grant('Groceries', {
-		'epicenter.json': GROCERIES,
+		...GROCERIES,
 		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
 	});
 	const recorder = defineFolder({
@@ -320,9 +327,10 @@ test("a handed folder's history never takes the app's local files, and its decla
 	expect(asked.map(({ args }) => args.appLocal)).toEqual([['audio/']]);
 	const committed = await git(root, 'ls-files');
 	expect(committed.split('\n').sort()).toEqual([
-		'epicenter.json',
+		'stores/.epicenter.json',
+		'todos/.epicenter.json',
 		'todos/milk.md',
 	]);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(GROCERIES);
+	expect(await readTables(root)).toEqual(GROCERIES);
 	await folder.close();
 });

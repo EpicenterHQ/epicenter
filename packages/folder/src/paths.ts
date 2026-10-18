@@ -180,6 +180,29 @@ export function rowStemOf(table: string, path: string): string | undefined {
 }
 
 /**
+ * The file in a table's directory that holds its schema, and makes the
+ * directory a table: `<table>/.epicenter.json`. A folder's tables are its
+ * top-level directories that hold one; nothing else declares a table.
+ */
+export const SCHEMA_FILE = '.epicenter.json';
+
+/** Where the table `table` keeps its schema. */
+export function schemaPath(table: string): string {
+	return `${table}/${SCHEMA_FILE}`;
+}
+
+/**
+ * The table whose schema `path` is, `<table>/.epicenter.json` with `<table>`
+ * one top-level directory, or `undefined` for any other path.
+ */
+export function tableOfSchemaPath(path: string): string | undefined {
+	const slash = path.indexOf('/');
+	if (slash <= 0) return undefined;
+	const table = path.slice(0, slash);
+	return path === schemaPath(table) ? table : undefined;
+}
+
+/**
  * Case- and Unicode-folded spelling Sync compares names by, to refuse a tree
  * whose paths some filesystem could not hold apart and a file that stands
  * under another spelling (ADR-0474, ADR-0576). Never used for lookup, and
@@ -199,6 +222,3 @@ export function collisionKey(path: string): string {
 		.toLowerCase()
 		.normalize('NFC');
 }
-
-/** Where an opened folder publishes its declaration (ADR-0517). */
-export const DEFINITION_PATH = 'epicenter.json';

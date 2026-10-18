@@ -1,10 +1,11 @@
 <script lang="ts">
 	import {
 		type Definition,
-		DEFINITION_PATH,
 		type Folder,
 		type PreparedFolderTable,
+		tableOfSchemaPath,
 	} from '@epicenter/folder';
+	import { Ok } from 'wellcrafted/result';
 	import { visibleRows } from '@epicenter/folder/file-browser';
 	import type {
 		FolderOptions,
@@ -34,8 +35,9 @@
 	 * Each field editor sets its own field, and a row's body is saved as a
 	 * change from the row it started from (`TableGrid`, ADR-0576).
 	 *
-	 * `declarationChanged` is called once the folder's `epicenter.json` reads
-	 * as other bytes than when this view first read it, after every write to
+	 * `declarationChanged` is called once the folder's table schemas, each
+	 * `<table>/.epicenter.json`, read as other bytes than when this view first
+	 * read them, a table appearing or going included, after every write to
 	 * the folder settled: the folder must be opened again to use the new
 	 * declaration.
 	 */
@@ -101,19 +103,38 @@
 	}));
 	let versionLine = $state<VersionLine | undefined>(undefined);
 
-	/** The declaration's version: its SHA-256, `null` for no file. */
-	const declaration = createQuery(() =>
-		folder$.files.read.queryOptions(DEFINITION_PATH),
+	/** Every file in the folder, to find its tables' schema files. */
+	const listing = createQuery(() => folder$.files.list.queryOptions());
+	/** The schema files the folder holds now, sorted. */
+	const schemaPaths = $derived(
+		listing.data?.files
+			.map(({ path }) => path)
+			.filter((path) => tableOfSchemaPath(path) !== undefined),
 	);
-	/** The declaration's SHA-256 when this view first read it, `null` for no file. */
-	let declaredAs: string | null | undefined;
+	/** The declaration's version: each schema file's path and SHA-256. */
+	const declaration = createQuery(() => {
+		const paths = schemaPaths ?? [];
+		return {
+			...folder$.query({
+				paths,
+				key: ['schemas'],
+				queryFn: async () => {
+					const versions: string[] = [];
+					for (const path of paths) {
+						const { data, error } = await folder.files.read(path);
+						versions.push(`${path}:${error === null ? data.sha256 : error.name}`);
+					}
+					return Ok(versions.join('\n'));
+				},
+			}),
+			enabled: schemaPaths !== undefined,
+		};
+	});
+	/** The declaration's version when this view first read it. */
+	let declaredAs: string | undefined;
 	let reopening = false;
 	$effect(() => {
-		const now = declaration.isSuccess
-			? declaration.data.sha256
-			: declaration.error?.name === 'NotFound'
-				? null
-				: undefined;
+		const now = declaration.isSuccess ? declaration.data : undefined;
 		if (now === undefined) return;
 		if (declaredAs === undefined) {
 			declaredAs = now;

@@ -14,8 +14,8 @@
  *   the `.gitignore` in place, not without it, not past a person's `!`
  *   exception, and one committed before the rule is untracked, its bytes
  *   kept on disk and out of the pushed tree
- * - A pattern another device's declaration brings in by Sync reaches
- *   `.gitignore` with the next publication
+ * - A pattern another device's `.gitignore` brings in by Sync stays there
+ *   through the next publication, which only adds lines
  */
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -27,12 +27,7 @@ import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import {
-	defineFolder,
-	defineTable,
-	field,
-	formatDefinition,
-} from './contract.js';
+import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
 import {
@@ -317,7 +312,7 @@ for (const [name, fixture] of [
 			await at.sync(opened.folder);
 			expect(await at.remoteTree()).toEqual([
 				'.gitignore',
-				'epicenter.json',
+				'recordings/.epicenter.json',
 				'recordings/walk.md',
 			]);
 			expect(await opened.read('audio/walk.wav')).toBe('RIFF');
@@ -343,7 +338,7 @@ for (const [name, fixture] of [
 			await at.sync(after.folder);
 			expect(await at.remoteTree()).toEqual([
 				'.gitignore',
-				'epicenter.json',
+				'recordings/.epicenter.json',
 				'recordings/run.md',
 				'recordings/walk.md',
 			]);
@@ -354,7 +349,7 @@ for (const [name, fixture] of [
 		}
 	});
 
-	test(`${name}: a pattern Sync brings in reaches .gitignore on the next publication`, async () => {
+	test(`${name}: a pattern Sync brings into .gitignore stays through the next publication`, async () => {
 		const at = await fixture();
 		const first = await at.open();
 		try {
@@ -363,24 +358,16 @@ for (const [name, fixture] of [
 		} finally {
 			await first.folder.close();
 		}
-		// Another device's declaration keeps drafts local too; nothing it
-		// pushes adds the pattern to `.gitignore`.
-		await at.push({
-			'epicenter.json': formatDefinition(
-				defineFolder({ tables, local: ['audio/', 'drafts/'] }),
-			),
-		});
+		// Another device keeps drafts local too, in the one place that says so.
+		await at.push({ '.gitignore': 'audio/\ndrafts/\n' });
 		const second = await at.open();
 		try {
 			await at.sync(second.folder);
-			expect(await second.read('.gitignore')).toBe('audio/\n');
-			// The first write publishes again: `epicenter.json` keeps both
-			// patterns, and `.gitignore` names both.
-			await recordTake(second.folder, 'run');
-			expect(
-				JSON.parse((await second.read('epicenter.json')) ?? '{}').local,
-			).toEqual(['audio/', 'drafts/']);
 			expect(await second.read('.gitignore')).toBe('audio/\ndrafts/\n');
+			// The first write publishes again, and only adds lines.
+			await recordTake(second.folder, 'run');
+			expect(await second.read('.gitignore')).toBe('audio/\ndrafts/\n');
+			expect(await second.read('epicenter.json')).toBeUndefined();
 		} finally {
 			await second.folder.close();
 		}
@@ -395,7 +382,7 @@ for (const [name, fixture] of [
 			expect(await opened.read('.gitignore')).toBeUndefined();
 			await at.sync(opened.folder);
 			expect(await at.remoteTree()).toEqual([
-				'epicenter.json',
+				'recordings/.epicenter.json',
 				'recordings/walk.md',
 			]);
 		} finally {
@@ -413,7 +400,7 @@ for (const [name, fixture] of [
 			await at.sync(opened.folder);
 			expect(await at.remoteTree()).toEqual([
 				'.gitignore',
-				'epicenter.json',
+				'recordings/.epicenter.json',
 				'recordings/x.md',
 			]);
 		} finally {

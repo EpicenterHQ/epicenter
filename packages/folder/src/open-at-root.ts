@@ -12,7 +12,7 @@ import { mismatches } from '@epicenter/definition';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import { readDefinition } from './declaration.js';
-import { type Definition, prepareFolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import {
 	assembleFolder,
@@ -23,7 +23,6 @@ import {
 	type FolderLocation,
 } from './folder.js';
 import type { Opening } from './opening.js';
-import { DEFINITION_PATH } from './paths.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -43,13 +42,6 @@ function folderName(location: FolderLocation): string {
 	if (location.kind === 'opfs') return location.directory;
 	return location.root.split(/[\\/]/).filter(Boolean).pop() ?? location.root;
 }
-
-/** What a folder with no `epicenter.json` declares: no tables. */
-const UNDECLARED = (() => {
-	const { data, error } = prepareFolderDefinition({ tables: {} });
-	if (error !== null) throw new Error(error.reason);
-	return data;
-})();
 
 /**
  * Make the folder's storage, and its history once the definition is known.
@@ -74,9 +66,9 @@ type StartFolder = (wiring: {
 
 /**
  * Open the folder `target` names over the storage `captured.start` makes:
- * with the app's definition in the app's own folder, and with the folder's
- * own `epicenter.json` anywhere else, which must contain the definition the
- * folder is read through, if any.
+ * with the app's definition in the app's own folder, and with the tables the
+ * folder's own schema files declare anywhere else (`readDefinition`), which
+ * must contain the definition the folder is read through, if any.
  */
 export async function openAtRoot<TDefinition extends Definition>(
 	target: Opening,
@@ -117,12 +109,9 @@ export async function openAtRoot<TDefinition extends Definition>(
 			const { data: declared, error } = await readDefinition(boundary);
 			if (error !== null) {
 				release();
-				return OpenFolderError.InvalidDefinition({
-					reason: error.reason,
-					path: DEFINITION_PATH,
-				});
+				return OpenFolderError.InvalidDefinition(error);
 			}
-			prepared = declared ?? UNDECLARED;
+			prepared = declared;
 			if (definition !== undefined) {
 				const problems = mismatches(prepared, definition);
 				if (problems.length > 0) {

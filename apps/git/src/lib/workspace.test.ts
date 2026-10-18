@@ -122,16 +122,17 @@ function holdNextWrite(opfs: ReturnType<typeof memoryOpfs>) {
 	};
 }
 
-test('a copy keeps its own epicenter.json: saves and commits never write it, and reopening reads its tables', async () => {
+test('a copy keeps its own table schema: saves and commits never write it, and reopening reads its tables', async () => {
 	const { workspace } = await setup();
 	// Hand-formatted, as no publication would write it.
-	const declared =
-		'{"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"}}}}}';
+	const declared = '{"type":"object","properties":{"title":{"type":"string"}}}';
 	const read = async (folder: typeof workspace.folder) =>
 		new TextDecoder().decode(
-			expectOk(await folder.files.read('epicenter.json')).bytes,
+			expectOk(await folder.files.read('notes/.epicenter.json')).bytes,
 		);
-	expectOk(await workspace.folder.write('epicenter.json', null, declared));
+	expectOk(
+		await workspace.folder.write('notes/.epicenter.json', null, declared),
+	);
 	workspace.input('edited\n');
 	await workspace.flush();
 	await workspace.commit();

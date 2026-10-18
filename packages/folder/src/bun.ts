@@ -3,13 +3,14 @@
  *
  * For command-line tools, recovery scripts, and tests that are given a
  * directory. `openFolder` opens it by the same rule as every entry: the
- * folder's `epicenter.json` is published by the app the folder is named
- * after, and every other opener reads through its definition. Here a folder
- * is named by its directory's name. `readFolder` reads one without opening
- * it; `runHistory` runs one history operation, as the `epicenter` CLI does
- * for a desktop page. A page in the desktop app opens its folder through
- * `@epicenter/folder/tauri` instead, where the shell grants the page its
- * directory, changes its files, and runs `git` for it.
+ * folder's table schemas, each `<table>/.epicenter.json`, are published by
+ * the app the folder is named after, and every other opener reads through
+ * its definition. Here a folder is named by its directory's name.
+ * `readFolder` reads one without opening it; `runHistory` runs one history
+ * operation, as the `epicenter` CLI does for a desktop page. A page in the
+ * desktop app opens its folder through `@epicenter/folder/tauri` instead,
+ * where the shell grants the page its directory, changes its files, and
+ * runs `git` for it.
  *
  * `openFolder` opens a directory folder (`openDirectoryFolder`): files through
  * the browser folder's file storage over the directory, replaced by renaming a
@@ -38,7 +39,6 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { LockingStorage } from './boundary.js';
-import { readDefinition } from './declaration.js';
 import type { Definition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
@@ -117,11 +117,12 @@ export {
  *
  * - `{ root, app, definition }`: `app`'s folder. When the directory is
  *   named after `app`, it is the app's own: the handle publishes
- *   `definition` to `epicenter.json`, and the folder may get a repository
+ *   `definition`'s table schemas, and the folder may get a repository
  *   of its own inside another repository's working tree. Any other
  *   directory is read through `definition`.
- * - `{ root }`: the directory with its own `epicenter.json`, which the
- *   handle never writes (ADR-0535). None means no tables.
+ * - `{ root }`: the directory with the tables its own schema files
+ *   declare, which the handle never writes (ADR-0535). None means no
+ *   tables.
  * - `{ root, definition }`: the directory read through `definition`, never
  *   published.
  *
@@ -150,7 +151,7 @@ export type DefinedDirectoryOptions<TDefinition extends Definition> =
 			| { readonly app?: never; readonly definition: TDefinition }
 		);
 
-/** `{ root, git }` alone: the directory read with its own `epicenter.json`. */
+/** `{ root, git }` alone: the directory read with its own table schemas. */
 export type DeclaredDirectoryOptions = DirectoryRoot & {
 	readonly app?: never;
 	readonly definition?: undefined;
@@ -160,8 +161,8 @@ export type DeclaredDirectoryOptions = DirectoryRoot & {
  * Open the directory at `root`, named by its directory's name (`folder.id`).
  * Refusals are returned, not thrown: a definition a folder cannot keep, a
  * root that is not a directory, one whose `.git` is not a directory of its
- * own (a `gitdir:` file or a link points its history somewhere else), an
- * `epicenter.json` that cannot be used, or one that does not contain the
+ * own (a `gitdir:` file or a link points its history somewhere else), a
+ * table schema that cannot be used, or tables that do not contain the
  * definition.
  *
  * Opening creates nothing. A directory with no repository reads as an empty
@@ -218,7 +219,7 @@ export type HistoryOptions = {
 	/**
 	 * The `local` patterns of an app reading a folder that is not its own
 	 * (ADR-0583): an untracked file they match is never committed, and the
-	 * folder's `epicenter.json` is not changed.
+	 * folder's schema files are not changed.
 	 */
 	readonly appLocal?: readonly string[];
 	/**
@@ -236,12 +237,10 @@ export type HistoryOptions = {
  * state that would write elsewhere, a remote that is not a network URL, or
  * no `git` on this computer (`GitMissingError`).
  *
- * The folder is opened for its history alone: its file storage, its own
- * `epicenter.json` (rows merge as text when it has none), and history over
- * this process's `git` (`systemHistory`). An `epicenter.json` that is there
- * but cannot be read or prepared refuses a save version and a sync, which
- * could otherwise commit files its `local` keeps on this machine; status and
- * the log still read. A save version and a sync hold the folder's history
+ * The folder is opened for its history alone: its file storage and history
+ * over this process's `git` (`systemHistory`). No schema is read: history
+ * reads none, and what stays on one machine is the folder's `.gitignore`
+ * and `appLocal`. A save version and a sync hold the folder's history
  * lock (`holdingHistoryLock`), so two processes never interleave them.
  * Reading status or the log takes no lock.
  */
@@ -269,20 +268,6 @@ export async function runHistory(
 	locateGit();
 
 	const { storage: boundary } = directory(resolved);
-	const { data: declared, error: declarationError } =
-		await readDefinition(boundary);
-	// What stays local is read from `epicenter.json`, so a commit made without
-	// it could carry those files (ADR-0577). Reading status and the log
-	// commits nothing and proceeds; anything that commits is refused.
-	if (
-		declarationError !== null &&
-		request.op !== 'status' &&
-		request.op !== 'log'
-	)
-		throw new Error(
-			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, or open the folder in its app to write it again.`,
-		);
-	const definition: Definition | undefined = declared ?? undefined;
 	const landed: string[] = [];
 	const open = await systemHistory(
 		resolved,
@@ -298,7 +283,9 @@ export async function runHistory(
 	)({
 		landed: (paths) => landed.push(...paths),
 	});
-	const history = open(definition, appLocal);
+	// A folder's own schema files keep nothing local: what stays on one
+	// machine is its `.gitignore`, and `appLocal` (ADR-0592).
+	const history = open(undefined, appLocal);
 	try {
 		const result = await (async (): Promise<unknown> => {
 			switch (request.op) {

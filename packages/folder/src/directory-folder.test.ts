@@ -146,8 +146,8 @@ describe('a folder over an ordinary directory', () => {
 		// Opening and reading wrote nothing, and created no repository.
 		expect(existsSync(join(root, '.git'))).toBe(false);
 		const created = await addTodo(folder, 'Buy milk');
-		// The first write published the declaration before its own file.
-		expect(existsSync(join(root, 'epicenter.json'))).toBe(true);
+		// The first write published the table's schema before its own file.
+		expect(existsSync(join(root, 'todos/.epicenter.json'))).toBe(true);
 		expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 		expect(existsSync(join(root, 'todos'))).toBe(true);
 		expect(await readFile(join(root, created.path), 'utf8')).toContain(

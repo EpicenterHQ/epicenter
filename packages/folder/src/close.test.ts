@@ -22,17 +22,13 @@ import {
 	locationOf,
 	rawBrowserFolder,
 } from './browser-storage.test-support.js';
-import {
-	DEFINITION_PATH,
-	defineFolder,
-	defineTable,
-	field,
-} from './contract.js';
+import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { assembleFolder, createFileHints } from './folder.js';
 import type { GitBackend } from './git/backend.js';
 import { createHistory } from './git/history.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
+import { tableOfSchemaPath } from './paths.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
@@ -101,11 +97,7 @@ test('a directory helper still hashing at close is refused; the caller must awai
 	expectOk(await reopened.write('saved.md', null, 'awaited by caller'));
 	await reopened.close();
 	// Saves stage their bytes inside `.git`; no repository is made there.
-	expect((await readdir(root)).sort()).toEqual([
-		'.git',
-		'epicenter.json',
-		'saved.md',
-	]);
+	expect((await readdir(root)).sort()).toEqual(['.git', 'saved.md', 'todos']);
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 });
 
@@ -119,7 +111,8 @@ async function held() {
 	const boundary: LockingStorage = {
 		...base,
 		async put(path, bytes, ifMatch) {
-			if (path === DEFINITION_PATH) return base.put(path, bytes, ifMatch);
+			if (tableOfSchemaPath(path) !== undefined)
+				return base.put(path, bytes, ifMatch);
 			const putting = base.put(path, bytes, ifMatch);
 			reach();
 			await released;

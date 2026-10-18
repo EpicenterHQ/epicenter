@@ -280,6 +280,7 @@ describe('browser folder tables', () => {
 
 		expectOk(await folder.tables.todos.rename('rec', 'rec2'));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
+			'.epicenter.json',
 			'rec.flac',
 			'rec.opus',
 			'rec.wav',
@@ -296,6 +297,7 @@ describe('browser folder tables', () => {
 		);
 		expectOk(await folder.tables.todos.delete('rec2'));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
+			'.epicenter.json',
 			'rec.flac',
 			'rec.wav',
 			'rec2.opus',

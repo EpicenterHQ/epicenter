@@ -193,7 +193,7 @@ describe.each(Object.keys(openers))('%s folder files', (kind) => {
 		expectOk(await folder.write('note.md', null, null));
 		expect(
 			expectOk(await folder.files.list()).files.map((file) => file.path),
-		).toEqual(['epicenter.json']);
+		).toEqual(['todos/.epicenter.json']);
 	});
 
 	test('a move carries the bytes to a vacant path and refuses an occupied one', async () => {
@@ -376,13 +376,13 @@ describe('a write reads the file it merges into, and never reads back what it wr
 		);
 		expectOk(await folder.tables.todos.rename('r', 's'));
 		expectOk(await folder.tables.todos.delete('s'));
-		// Each write reads the file it merges into, and the declaration is read
-		// before the first put (ADR-0508); a table write reads its row once more to
-		// start from the file's own spelling; a move reads the bytes it
-		// carries; nothing reads back what it wrote.
+		// Each write reads the file it merges into, and each table's schema
+		// file is read before the first put (ADR-0508); a table write reads
+		// its row once more to start from the file's own spelling; a move
+		// reads the bytes it carries; nothing reads back what it wrote.
 		expect(reads).toEqual([
 			'a.md',
-			'epicenter.json',
+			'todos/.epicenter.json',
 			'a.md',
 			'a.md',
 			'b.md',

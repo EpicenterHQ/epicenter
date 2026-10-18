@@ -231,9 +231,9 @@ describe('browser pages', () => {
 			expectOk(await writer.tables.notes.set('a', { title: 'B' }));
 			expectOk(await writer.tables.notes.delete('a'));
 		});
-		// The first save publishes the declaration before its own file.
+		// The first save publishes the table's schema before its own file.
 		expect(heard.flat()).toEqual([
-			'epicenter.json',
+			'notes/.epicenter.json',
 			'note.txt',
 			'notes/a.md',
 			'notes/a.md',

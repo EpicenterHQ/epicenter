@@ -109,12 +109,12 @@ describe('one path is one stored file', () => {
 		expect(listing.files.map((file) => file.path)).toEqual([
 			'bytes.bin',
 			'empty.txt',
-			'epicenter.json',
+			'notes/.epicenter.json',
 			'notes/a.md',
 		]);
 		expect(listing.directories).toEqual(['drafts', 'drafts/later', 'notes']);
 		expect(expectOk(await folder.files.children(''))).toEqual({
-			files: ['bytes.bin', 'empty.txt', 'epicenter.json'],
+			files: ['bytes.bin', 'empty.txt'],
 			directories: ['drafts', 'notes'],
 		});
 		expect(expectErr(await folder.write('.git/HEAD', null, 'x')).name).toBe(
@@ -492,9 +492,8 @@ describe('address and history', () => {
 		expectOk(await folder.git.status());
 		expectOk(await folder.git.log(10));
 		expect(stored()).toEqual(before);
-		expect(decoder.decode(opfs.files('test').get('epicenter.json'))).toBe(
-			formatDefinition(definition),
-		);
+		for (const [path, text] of Object.entries(formatDefinition(definition)))
+			expect(decoder.decode(opfs.files('test').get(path))).toBe(text);
 		const other = await open({ app: 'other' });
 		expectOk(await other.write('who.md', null, 'other'));
 		expect(decoder.decode(opfs.files('other').get('who.md'))).toBe('other');

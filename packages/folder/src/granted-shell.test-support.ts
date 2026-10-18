@@ -29,7 +29,8 @@
  * directory removal is no data change: it can lose its reply after it
  * landed (`loseDirectoryReplies`), and nothing else. Reads of a path can
  * fail (`failReads`). What a handle publishes before its
- * first write, `epicenter.json` and `.gitignore`, is outside every control.
+ * first write, its tables' `.epicenter.json` files and `.gitignore`, is
+ * outside every control.
  * `packages/tauri-plugin-epicenter-folder` tests the plugin's own checks.
  */
 import * as nodeFs from 'node:fs/promises';
@@ -42,6 +43,7 @@ import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { describe, type FileError } from './errors.js';
 import type { StorageError } from './native/bindings.gen.js';
+import { tableOfSchemaPath } from './paths.js';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
@@ -71,7 +73,8 @@ export type DataChange =
 	| { kind: 'remove'; path: string };
 
 /** What a handle publishes before its first write: outside every control. */
-const PUBLISHED = new Set(['epicenter.json', '.gitignore']);
+const isPublished = (path: string) =>
+	path === '.gitignore' || tableOfSchemaPath(path) !== undefined;
 
 /** A storage failure as the plugin answers it. */
 function storageError(error: FileError): StorageError {
@@ -163,7 +166,7 @@ export function createGrantedShell(
 
 	/** One data change, under the test's controls. */
 	async function change(described: DataChange, make: () => Promise<void>) {
-		if (PUBLISHED.has(described.path)) return make();
+		if (isPublished(described.path)) return make();
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;

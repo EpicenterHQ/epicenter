@@ -69,8 +69,12 @@ async function open(
 	};
 }
 
+/** The names in a table's directory beside its `.epicenter.json` schema. */
 const names = (root: string, directory: string) =>
-	readdir(join(root, directory)).catch(() => [] as string[]);
+	readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
 
 /** Create the cleanup starter, optionally with the model a run needs. */
 async function cleanup(session: Session, model?: string) {

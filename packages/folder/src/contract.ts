@@ -19,7 +19,12 @@ import type { OpfsEnvironment } from './opfs-store.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export type { FileListing, FileRead } from './boundary.js';
-export { formatDefinition, parseDefinition } from './declaration.js';
+export {
+	formatDefinition,
+	formatTableSchema,
+	parseDefinition,
+	parseTableSchema,
+} from './declaration.js';
 export {
 	type Definition,
 	defineFolder,
@@ -66,10 +71,13 @@ export { hashBytes } from './hash.js';
 export { frameRowText } from './markdown.js';
 export type { FileContent, Overridden } from './merge-file.js';
 export {
-	DEFINITION_PATH,
 	pathProblem,
 	rowPath,
 	rowStemOf,
+	rowStemOfName,
+	SCHEMA_FILE,
+	schemaPath,
+	tableOfSchemaPath,
 } from './paths.js';
 export { describeTables } from './projection.js';
 export {
@@ -137,12 +145,13 @@ type HostOptions = {
  * Which folder to open, and the definition to read it through.
  *
  * One rule decides what the handle does with the definition: a folder's
- * `epicenter.json` is published by the app the folder is named after, and
- * every other opener reads through its definition. A folder read through a
+ * table schemas, each `<table>/.epicenter.json`, are published by the app
+ * the folder is named after, and every other opener reads through its
+ * definition. A folder read through a
  * definition must declare everything the definition does (ADR-0538), or it
  * is `DefinitionMismatch`; the handle has the definition's tables, every
- * write is still checked against the folder's own definition, and
- * `epicenter.json` is never written.
+ * write is still checked against the folder's own definition, and no
+ * schema file is ever written.
  *
  * - `{ app, definition }`: an app opening its folder. `app` is the app's
  *   id, as its manifest names it, such as `so.epicenter.todos`. On the
@@ -151,8 +160,8 @@ type HostOptions = {
  *   for another app, or for none, is refused (`AppMismatch`); in a browser
  *   it opens its own. Its own folder is the one named after `app`, and only
  *   there is `definition` published.
- * - `{ id }`: the folder named `id`, read with its own `epicenter.json`
- *   (none means no tables; its tables are then keyed by any name and checked
+ * - `{ id }`: the folder named `id`, read with the tables its own schema
+ *   files declare (none means no tables; its tables are then keyed by any name and checked
  *   at run time). For the Folders window, the CLI, and tools.
  * - `{ id, definition }`: the folder named `id`, read through `definition`
  *   and never published, such as an app reading Epicenter's own folder.
@@ -179,7 +188,7 @@ export type DefinedFolderOptions<TDefinition extends Definition> = HostOptions &
 		  }
 	);
 
-/** `{ id }` alone: the folder read with its own `epicenter.json`. */
+/** `{ id }` alone: the folder read with its own table schemas. */
 export type DeclaredFolderOptions = HostOptions & {
 	readonly id: string;
 	readonly definition?: undefined;

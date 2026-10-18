@@ -29,7 +29,7 @@ const command = binary
 	: [process.execPath, '--no-install', resolve(import.meta.dir, 'bin.ts')];
 const temporaryFolders: string[] = [];
 
-/** A table as `epicenter.json` holds it, every field required. */
+/** A table as its `.epicenter.json` holds it, every field required. */
 const objectSchema = (properties: Record<string, object>) => ({
 	type: 'object',
 	properties,
@@ -73,7 +73,12 @@ async function setup() {
 		await mkdir(dirname(join(folder, path)), { recursive: true });
 		await writeFile(join(folder, path), value);
 	}
-	await write('epicenter.json', JSON.stringify(declaration));
+	/** Write each table's `<table>/.epicenter.json`. */
+	async function declare(tables: Record<string, object>) {
+		for (const [name, schema] of Object.entries(tables))
+			await write(`${name}/.epicenter.json`, JSON.stringify(schema));
+	}
+	await declare(declaration.tables);
 	await write(
 		'posts/reel.md',
 		'---\ntitle: Reel\nstatus: drafting\ndue: 2026-10-11\norder: 1\npinned: true\ntags: [a, b]\naccount: instagram\n---\nCut done.\n',
@@ -90,7 +95,7 @@ async function setup() {
 			stderr: result.stderr.toString(),
 		};
 	}
-	return { folder, write, run };
+	return { folder, write, declare, run };
 }
 
 // ============================================================================
@@ -136,20 +141,10 @@ test('check reports invalid rows compiler style and exits 1', async () => {
 });
 
 test('a closed table reports an undeclared key, and query leaves its file out', async () => {
-	const { folder, write, run } = await setup();
-	await write(
-		'epicenter.json',
-		JSON.stringify({
-			...declaration,
-			tables: {
-				...declaration.tables,
-				accounts: {
-					...declaration.tables.accounts,
-					additionalProperties: false,
-				},
-			},
-		}),
-	);
+	const { folder, write, declare, run } = await setup();
+	await declare({
+		accounts: { ...declaration.tables.accounts, additionalProperties: false },
+	});
 	await write('accounts/instagram.md', '---\nkind: social\nhandle: x\n---\n');
 	await write('accounts/threads.md', '---\nkind: social\n---\n');
 
@@ -165,48 +160,48 @@ test('a closed table reports an undeclared key, and query leaves its file out', 
 	});
 });
 
-test('a missing or unusable epicenter.json is a tool failure with exit 2', async () => {
-	const { folder, write, run } = await setup();
+test('a folder with no table, or a schema that cannot be used, is a tool failure with exit 2', async () => {
+	const { folder, write, declare, run } = await setup();
 	const empty = await mkdtemp(join(tmpdir(), 'epicenter-cli-test-'));
 	temporaryFolders.push(empty);
 	const missing = run('check', empty);
 	expect(missing.exitCode).toBe(2);
-	expect(missing.stderr).toContain('has no epicenter.json');
+	expect(missing.stderr).toContain(
+		'is not a data folder: no top-level directory holds a .epicenter.json',
+	);
 	expect(JSON.parse(run('check', empty, '--json').stdout).error).toContain(
-		'has no epicenter.json',
+		'is not a data folder',
 	);
+	// A root epicenter.json declares nothing.
+	await writeFile(
+		join(empty, 'epicenter.json'),
+		JSON.stringify({ tables: declaration.tables }),
+	);
+	expect(run('check', empty).stderr).toContain('is not a data folder');
 
-	await write(
-		'epicenter.json',
-		JSON.stringify({
-			tables: { 'bad name': objectSchema({}) },
-		}),
-	);
-	expect(run('check', folder).exitCode).toBe(2);
+	await declare({ 'bad name': objectSchema({}) });
+	const badName = run('check', folder);
+	expect(badName.exitCode).toBe(2);
+	expect(badName.stderr).toContain('bad name/.epicenter.json');
+	await rm(join(folder, 'bad name'), { recursive: true });
 
-	// A declaration missing its tables was not generated; say how to make one.
-	await write('epicenter.json', JSON.stringify({ title: 'No tables' }));
-	const noTables = run('check', folder);
-	expect(noTables.exitCode).toBe(2);
-	expect(noTables.stderr).toContain(
-		"it has no 'tables'; every generated definition has them, so define the folder in epicenter.ts and run `epicenter generate`",
-	);
+	await write('posts/.epicenter.json', '{ not json');
+	const unreadable = run('check', folder);
+	expect(unreadable.exitCode).toBe(2);
+	expect(unreadable.stderr).toContain('posts/.epicenter.json');
+	expect(unreadable.stderr).toContain('not JSON');
 });
 
-test('a typo epicenter.json would otherwise ignore is refused, and $schema is allowed', async () => {
-	const { folder, write, run } = await setup();
-	const declare = (value: object) =>
-		write('epicenter.json', JSON.stringify(value));
+test('a typo a schema would otherwise ignore is refused, and $schema is allowed', async () => {
+	const { folder, declare, run } = await setup();
 
-	await declare({ ...declaration, tabels: {} });
+	await declare({ posts: { ...declaration.tables.posts, propertys: {} } });
 	const extraKey = run('check', folder);
 	expect(extraKey.exitCode).toBe(2);
-	expect(extraKey.stderr).toContain("unknown top-level key 'tabels'");
+	expect(extraKey.stderr).toContain("unknown key 'propertys'");
 
 	await declare({
-		tables: {
-			posts: objectSchema({ due: { type: 'string', format: 'date-tme' } }),
-		},
+		posts: objectSchema({ due: { type: 'string', format: 'date-tme' } }),
 	});
 	const format = run('query', folder);
 	expect(format.exitCode).toBe(2);
@@ -214,14 +209,16 @@ test('a typo epicenter.json would otherwise ignore is refused, and $schema is al
 	expect(format.stderr).toContain('date-tme');
 
 	await declare({
-		$schema: 'https://example.test/epicenter.schema.json',
-		...declaration,
+		posts: {
+			$schema: 'https://example.test/epicenter.schema.json',
+			...declaration.tables.posts,
+		},
 	});
 	expect(run('check', folder).exitCode).toBe(0);
 });
 
 test('query refuses fields it cannot project: case duplicates and body; a field named id is no field at all', async () => {
-	const { folder, write, run } = await setup();
+	const { folder, declare, run } = await setup();
 	for (const [fields, message] of [
 		[
 			{ title: { type: 'string' }, Title: { type: 'string' } },
@@ -229,34 +226,21 @@ test('query refuses fields it cannot project: case duplicates and body; a field 
 		],
 		[{ body: { type: 'string' } }, "a field 'body'"],
 	] as const) {
-		await write(
-			'epicenter.json',
-			JSON.stringify({
-				tables: { posts: objectSchema(fields) },
-			}),
-		);
+		await declare({ posts: objectSchema(fields) });
 		const result = run('query', folder, 'SELECT 1');
 		expect(result.exitCode).toBe(2);
 		expect(result.stderr).toContain(message);
 		expect(run('check', folder).exitCode).not.toBe(2);
 	}
-	// `id` is the row's own column, and a definition cannot declare it.
-	await write(
-		'epicenter.json',
-		JSON.stringify({ tables: { posts: objectSchema({ ID: { type: 'string' } }) } }),
-	);
+	// `id` is the row's own column, and a schema cannot declare it.
+	await declare({ posts: objectSchema({ ID: { type: 'string' } }) });
 	for (const args of [['check'], ['query', 'SELECT 1']]) {
 		const refused = run(args[0]!, folder, ...args.slice(1));
 		expect(refused.exitCode).toBe(2);
 		expect(refused.stderr).toContain("field name 'posts.ID' is not usable");
 	}
 	// `stem` names the row no more: it is an ordinary field.
-	await write(
-		'epicenter.json',
-		JSON.stringify({
-			tables: { posts: objectSchema({ stem: { type: 'string' } }) },
-		}),
-	);
+	await declare({ posts: objectSchema({ stem: { type: 'string' } }) });
 	await rm(join(folder, 'posts/reel.md'));
 	expect(run('query', folder, 'SELECT id, stem FROM posts').exitCode).toBe(0);
 });
@@ -292,6 +276,10 @@ test('query without a statement describes the declaration, even while rows are b
 	expect(result.exitCode).toBe(0);
 	expect(result.stdout).toBe(
 		[
+			'accounts:',
+			"  id: the row's file is accounts/<id>.md",
+			'  kind: social',
+			'  body: Markdown after the frontmatter',
 			'posts:',
 			"  id: the row's file is posts/<id>.md",
 			'  title: string',
@@ -302,15 +290,11 @@ test('query without a statement describes the declaration, even while rows are b
 			'  tags: list of string',
 			'  account: id in accounts',
 			'  body: Markdown after the frontmatter',
-			'accounts:',
-			"  id: the row's file is accounts/<id>.md",
-			'  kind: social',
-			'  body: Markdown after the frontmatter',
 			'',
 		].join('\n'),
 	);
 	expect(
-		JSON.parse(run('query', folder, '--json').stdout).tables[0].columns,
+		JSON.parse(run('query', folder, '--json').stdout).tables[1].columns,
 	).toContainEqual({ name: 'status', values: 'planned|drafting|done' });
 });
 
@@ -381,7 +365,13 @@ test('nothing outside the data folder is read', async () => {
 	const outside = await mkdtemp(join(tmpdir(), 'epicenter-cli-test-'));
 	temporaryFolders.push(outside);
 	await writeFile(join(outside, 'secret.md'), '---\ntitle: Secret\n---\n');
+	await writeFile(
+		join(outside, '.epicenter.json'),
+		JSON.stringify(objectSchema({ title: { type: 'string' } })),
+	);
 	await symlink(join(outside, 'secret.md'), join(folder, 'posts/linked.md'));
+	// A linked directory is never followed, so it is not a table.
+	await rm(join(folder, 'accounts'), { recursive: true });
 	await symlink(outside, join(folder, 'accounts'));
 
 	const result = run('check', folder, '--json');
@@ -393,20 +383,15 @@ test('nothing outside the data folder is read', async () => {
 			message:
 				'The path is not usable: the path passes through a symbolic link',
 		},
-		{
-			path: 'accounts',
-			message:
-				'The path is not usable: the path passes through a symbolic link',
-		},
 	]);
 	expect(result.stdout).not.toContain('Secret');
 	const query = run('query', folder, 'SELECT title FROM posts', '--json');
 	expect(query.exitCode).toBe(0);
 	expect(query.stdout).not.toContain('Secret');
-	expect(JSON.parse(query.stdout).excluded).toEqual([
-		'posts/linked.md',
-		'accounts',
-	]);
+	expect(JSON.parse(query.stdout).excluded).toEqual(['posts/linked.md']);
+	expect(run('query', folder, 'SELECT * FROM accounts').stderr).toContain(
+		'no such table',
+	);
 });
 
 test('only <table>/<id>.md is a row: a directory, a dot file, an empty id, an uppercase .MD, and a nested file are not', async () => {
@@ -641,35 +626,36 @@ export default defineFolder({
 });
 `;
 
-test('generate writes the epicenter.json that epicenter.ts declares, local included, and check reads it', async () => {
+test("generate writes each table's .epicenter.json that epicenter.ts declares, local into .gitignore, and check reads them", async () => {
 	const { folder, write, run } = await setup();
 	await write('epicenter.ts', source);
 	await write('pages/a.md', '---\ntitle: A\n---\n');
 
 	const generated = run('generate', folder);
 	expect(generated.exitCode).toBe(0);
-	expect(generated.stdout).toBe('wrote epicenter.json from epicenter.ts\n');
-	const declaration = JSON.parse(
-		await readFile(join(folder, 'epicenter.json'), 'utf8'),
+	expect(generated.stdout).toBe(
+		'wrote pages/.epicenter.json, .gitignore from epicenter.ts\n',
 	);
-	expect(declaration.tables.pages).toMatchObject({
-		type: 'object',
-		required: ['title'],
-	});
-	expect(Object.keys(declaration.tables)).toEqual(['pages']);
-	// What stays on this machine is part of the declaration every host reads.
-	expect(declaration.local).toEqual(['drafts/']);
+	const schema = JSON.parse(
+		await readFile(join(folder, 'pages/.epicenter.json'), 'utf8'),
+	);
+	expect(schema).toMatchObject({ type: 'object', required: ['title'] });
+	expect(schema).not.toHaveProperty('local');
+	// What stays on this machine is the folder's .gitignore.
+	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe('drafts/\n');
+	expect(await readdir(folder)).not.toContain('epicenter.json');
 	expect(run('generate', folder).stdout).toBe(
-		'unchanged epicenter.json from epicenter.ts\n',
+		'unchanged: every <table>/.epicenter.json already matches epicenter.ts\n',
 	);
 
 	const checked = run('check', folder);
 	expect(checked.exitCode).toBe(0);
+	// The setup's own tables are read beside the generated one.
 	expect(checked.stdout).toBe(
-		'1 row conforms; 0 files invalid; 0 unreadable.\n',
+		'2 rows conform; 0 files invalid; 0 unreadable.\n',
 	);
 	expect(checked.stderr).toContain(
-		'epicenter.json is generated from epicenter.ts',
+		'Each <table>/.epicenter.json is generated from epicenter.ts',
 	);
 	expect(JSON.parse(run('check', folder, '--json').stdout).source).toBe(
 		'epicenter.ts',
@@ -678,12 +664,13 @@ test('generate writes the epicenter.json that epicenter.ts declares, local inclu
 		'epicenter generate does not take --check',
 	);
 	expect(JSON.parse(run('generate', folder, '--json').stdout)).toEqual({
-		written: false,
-		path: 'epicenter.json',
+		written: [],
 		source: 'epicenter.ts',
 	});
-	await rm(join(folder, 'epicenter.json'));
-	expect(run('check', folder).stderr).toContain('run `epicenter generate');
+	const empty = await mkdtemp(join(tmpdir(), 'epicenter-cli-test-'));
+	temporaryFolders.push(empty);
+	await writeFile(join(empty, 'epicenter.ts'), source);
+	expect(run('check', empty).stderr).toContain('run `epicenter generate');
 });
 
 test('generate refuses a folder with no epicenter.ts, no default export, or a declaration that cannot be kept', async () => {
@@ -711,8 +698,9 @@ test('generate refuses a folder with no epicenter.ts, no default export, or a de
 	const refused = run('generate', folder);
 	expect(refused.exitCode).toBe(2);
 	expect(refused.stderr).toContain('date-tme');
-	// Nothing was written over the folder's existing declaration.
+	// Nothing was written over the folder's existing schemas.
 	expect(
-		JSON.parse(await readFile(join(folder, 'epicenter.json'), 'utf8')),
-	).toEqual(declaration);
+		JSON.parse(await readFile(join(folder, 'posts/.epicenter.json'), 'utf8')),
+	).toEqual(declaration.tables.posts);
+	expect(await readdir(folder)).not.toContain('epicenter.json');
 });

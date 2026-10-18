@@ -295,7 +295,10 @@ describe('native folder', () => {
 				path: 'todos/plan.md',
 			});
 			expect(expectErr(moved).name).toBe('InvalidPath');
-			expect(await readdir(join(root, 'todos'))).toEqual(['Plan.md']);
+			expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+				'.epicenter.json',
+				'Plan.md',
+			]);
 			expect(await readFile(join(root, 'todos/Plan.md'), 'utf8')).toBe(
 				'---\ntitle: P\ndone: false\n---\n',
 			);
@@ -303,6 +306,7 @@ describe('native folder', () => {
 			expectOk(other);
 			expectOk(moved);
 			expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+				'.epicenter.json',
 				'PLAN.md',
 				'plan.md',
 			]);
@@ -391,6 +395,7 @@ describe('native folder', () => {
 		);
 		expectOk(await folder.tables.todos.rename('take', 'take2'));
 		expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+			'.epicenter.json',
 			'take.opus',
 			'take2.md',
 		]);
@@ -403,6 +408,7 @@ describe('native folder', () => {
 
 		expectOk(await folder.tables.todos.delete('take3'));
 		expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+			'.epicenter.json',
 			'take3.opus',
 			'take3.wav',
 		]);

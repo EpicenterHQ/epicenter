@@ -63,11 +63,18 @@ import {
 	withResultFailures,
 } from './workspace.test-support.js';
 
+/** The names in a directory beside a table's `.epicenter.json` schema. */
+const entriesOf = (root: string, directory: string) =>
+	readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
+
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
 	[
-		...(await readdir(join(root, 'recordings')).catch(() => [] as string[])),
-		...(await readdir(join(root, 'audio')).catch(() => [] as string[])),
+		...(await entriesOf(root, 'recordings')),
+		...(await entriesOf(root, 'audio')),
 	].sort();
 
 const { createLibrary, recordingId } = await import('./library.svelte.ts');
@@ -281,14 +288,14 @@ test('record, stop, and save leave a row, real audio, and a commit that leaves t
 	expect(['committed', 'unchanged']).toContain(outcome.status);
 	const tree = git(root, 'ls-tree', '-r', '--name-only', 'HEAD');
 	expect(tree).toContain(entry.path);
-	// Audio stays on the machine that recorded it: the folder's own
-	// epicenter.json declares audio/ local, which every host reads, and its
-	// .gitignore mirrors it, so the commit, and every Sync, carries the row
-	// alone.
+	// Audio stays on the machine that recorded it: the folder's .gitignore
+	// names audio/, which every host reads, so the commit, and every Sync,
+	// carries the row alone. No schema file carries it.
 	expect(
-		JSON.parse(await readFile(join(root, 'epicenter.json'), 'utf8')).local,
-	).toEqual(['audio/']);
+		(await readFile(join(root, '.gitignore'), 'utf8')).split('\n'),
+	).toContain('audio/');
 	expect(tree).toContain('.gitignore');
+	expect(tree.split('\n')).not.toContain('epicenter.json');
 	expect(tree).not.toContain(fields.audioPath);
 	expect(git(root, 'status', '--porcelain')).toBe('');
 });
@@ -483,8 +490,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(git(root, 'status', '--porcelain').trim()).toBe('');
 });
 
-const transcripts = (root: string) =>
-	readdir(join(root, 'transcriptions')).catch(() => [] as string[]);
+const transcripts = (root: string) => entriesOf(root, 'transcriptions');
 
 /** The state of the newest transcript of `recording`. */
 function newest(library: Library, recording: string) {

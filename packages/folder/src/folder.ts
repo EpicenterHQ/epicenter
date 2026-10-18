@@ -183,8 +183,8 @@ export type Folder<
 	 * Whether this is the opening app's own folder, the one named after the
 	 * `app` it was opened for: whether this handle may publish its
 	 * definition. It is decided when the folder opens, not by what lands. An
-	 * own handle publishes its definition to `epicenter.json` just before its
-	 * first write, best effort: a publication that fails is logged, and the
+	 * own handle publishes its table schemas, each `<table>/.epicenter.json`,
+	 * just before its first write, best effort: a publication that fails is logged, and the
 	 * write still lands, so `own` does not say the definition is on disk.
 	 * Every other handle reads with the folder's own definition and never
 	 * writes it. False for a folder opened without an `app`.
@@ -192,8 +192,8 @@ export type Folder<
 	readonly own: boolean;
 	/**
 	 * The prepared definition this handle reads with: the app's own, in its
-	 * own folder, or the folder's own `epicenter.json` as it was read when
-	 * the folder opened (no tables when there was none). Every row is
+	 * own folder, or the tables the folder's own schema files declared when
+	 * the folder opened (no tables when there were none). Every row is
 	 * checked against it, and Sync merges rows by it. A definition changed
 	 * after opening is read by the next open.
 	 */
@@ -380,8 +380,8 @@ export function assembleFolder<
 	id: string;
 	/**
 	 * Whether this is the opening app's own folder. Its handle publishes
-	 * `prepared` to `epicenter.json` before its first write; any other
-	 * handle, whose definition is that file, never writes it.
+	 * `prepared`'s table schemas before its first write; any other
+	 * handle, whose definition is those files, never writes them.
 	 */
 	own: boolean;
 	prepared: Definition;

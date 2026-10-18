@@ -68,9 +68,17 @@ import {
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
 	[
-		...(await readdir(join(root, 'recordings')).catch(() => [] as string[])),
-		...(await readdir(join(root, 'audio')).catch(() => [] as string[])),
+		...(await entriesOf(root, 'recordings')),
+		...(await entriesOf(root, 'audio')),
 	].sort();
+
+/** The names in a directory beside a table's `.epicenter.json` schema. */
+function entriesOf(root: string, directory: string) {
+	return readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
+}
 
 const { openSession } = await import('./session.svelte.ts');
 
@@ -466,7 +474,7 @@ test('transcribing several sends the audio each row names once, in order, and sk
 	expect(library.resultsFor('dentist')[0]!.row.body).toBe(
 		'words from audio/dentist.wav\n',
 	);
-	expect((await readdir(join(root, 'transcriptions'))).length).toBe(5);
+	expect((await entriesOf(root, 'transcriptions')).length).toBe(5);
 
 	// Asked again, everything now has a transcript: nothing more is sent.
 	await transcribeRows(
@@ -600,7 +608,7 @@ test('deleting several captures each deletion first, removes exactly those with 
 		'standup.wav',
 		'walk.wav',
 	]);
-	expect(await readdir(join(root, 'transcriptions'))).toEqual([]);
+	expect(await entriesOf(root, 'transcriptions')).toEqual([]);
 });
 
 test('a recording with a transcription under way is left out with the library’s reason, and the rest are still captured', async () => {

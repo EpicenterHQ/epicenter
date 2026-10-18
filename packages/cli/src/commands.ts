@@ -33,7 +33,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<dir>',
 		minArgs: 1,
 		maxArgs: 1,
-		summary: 'run <dir>/epicenter.ts and write the epicenter.json it declares',
+		summary:
+			"run <dir>/epicenter.ts and write each table's .epicenter.json it declares",
 	},
 	{
 		path: ['status'],

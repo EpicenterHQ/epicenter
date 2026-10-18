@@ -7,6 +7,8 @@ import {
 	rowAddressProblem,
 	rowStemOf,
 	rowStemOfName,
+	schemaPath,
+	tableOfSchemaPath,
 } from './paths.js';
 
 /** The vectors `paths.rs` reads too, so the engine and the desktop shell agree. */
@@ -82,4 +84,17 @@ describe('the one row predicate', () => {
 		for (const stem of ['', '.hidden', '.', '..', 'a/b', 'con'])
 			expect(rowAddressProblem('todos', stem)).toBeString();
 	});
+});
+
+test('a table schema is <table>/.epicenter.json, one level down', () => {
+	expect(schemaPath('todos')).toBe('todos/.epicenter.json');
+	expect(tableOfSchemaPath('todos/.epicenter.json')).toBe('todos');
+	for (const path of [
+		'.epicenter.json',
+		'epicenter.json',
+		'todos/epicenter.json',
+		'a/b/.epicenter.json',
+		'/.epicenter.json',
+	])
+		expect(tableOfSchemaPath(path)).toBeUndefined();
 });

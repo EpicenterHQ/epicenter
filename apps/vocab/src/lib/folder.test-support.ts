@@ -114,7 +114,7 @@ export async function fileText(
 	return readError === null ? new TextDecoder().decode(file.bytes) : undefined;
 }
 
-/** The paths of every file in one table's directory, sorted. */
+/** The paths of every file in one table's directory but its schema, sorted. */
 export async function tableFiles(
 	folder: VocabFolder,
 	table: keyof VocabTables,
@@ -122,7 +122,10 @@ export async function tableFiles(
 	const listed = expectOk(await folder.files.list());
 	return listed.files
 		.map((file) => file.path)
-		.filter((path) => path.startsWith(`${table}/`))
+		.filter(
+			(path) =>
+				path.startsWith(`${table}/`) && path !== `${table}/.epicenter.json`,
+		)
 		.sort();
 }
 

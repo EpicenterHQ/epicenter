@@ -39,9 +39,9 @@ export type DirectoryHistory = (wiring: {
  * The directory is the folder, and a repository someone already made there
  * is used as it is. Opening creates nothing: a directory with no repository
  * gets one with its first commit or remote. In the opening app's own folder
- * the handle publishes the app's definition to `epicenter.json` before its
- * first write; in any other it reads with the folder's own `epicenter.json`
- * and never writes it (`Opening`).
+ * the handle publishes the app's table schemas before its first write; in
+ * any other it reads with the folder's own table schemas and never writes
+ * them (`Opening`).
  * Files are read and written through the host's storage. History is real
  * Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the

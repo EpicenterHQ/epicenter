@@ -99,7 +99,10 @@ async function ask<T>(
 
 /**
  * The history of the folder this window was granted under `scope`, over
- * the shell's history commands.
+ * the shell's history commands. The CLI reads no definition from the folder,
+ * so the `local` patterns of the definition this window reads with, its own
+ * in an app's own folder, travel with each command beside an app's
+ * `appLocal`.
  */
 export function cliHistory({
 	scope,
@@ -107,8 +110,12 @@ export function cliHistory({
 	readonly scope: string;
 }): DirectoryHistory {
 	return async ({ landed }) =>
-		(_definition, appLocal = []) =>
-			createCliHistory({ scope, landed, appLocal });
+		(definition, appLocal = []) =>
+			createCliHistory({
+				scope,
+				landed,
+				appLocal: [...new Set([...(definition?.local ?? []), ...appLocal])],
+			});
 }
 
 function createCliHistory({
@@ -118,7 +125,7 @@ function createCliHistory({
 }: {
 	scope: string;
 	landed: (paths: readonly string[]) => void;
-	/** The reading app's `local` patterns, which the CLI never commits. */
+	/** The `local` patterns of the definition and the reading app, which the CLI never commits. */
 	appLocal: readonly string[];
 }): FolderHistory {
 	const closing = new AbortController();
