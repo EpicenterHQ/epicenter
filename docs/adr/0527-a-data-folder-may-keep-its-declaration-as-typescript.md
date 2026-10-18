@@ -1,7 +1,8 @@
 # 0527. A data folder may keep its declaration as TypeScript
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-11
+- **Superseded by:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md): a table's description is the literal JSON Schema in its `table.json`, and nothing generates it.
 - **Amends:** [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) at "nothing executes the folder's code": `epicenter generate` runs the folder's `epicenter.ts`; `check` and `query` still never do. [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) at its rejected `epicenter.config.ts`: the TypeScript file is a source a person runs on purpose, never what a reader reads.
 - **Relates:** [ADR-0525](0525-a-field-is-plain-json-schema.md) (a field is plain JSON Schema), [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) (`field.optional` and `required`)
 

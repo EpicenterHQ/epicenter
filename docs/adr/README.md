@@ -750,8 +750,8 @@ When you add an ADR, add its row here.
 | [0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) | A folder syncs over plain Git with a token, to a server the person chooses | Proposed (`mountGitApp`, both stores, LFS, Sync panel, connector deletion unbuilt) |
 | [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Superseded by 0528 |
 | [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
-| [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted |
-| [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Accepted |
+| [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted (amended by 0613) |
+| [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Superseded by 0613 |
 | [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
 | [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted |
 | [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Accepted (every desktop folder uses it and the Rust owner is deleted; desktop and Windows runs unbuilt) |
@@ -804,14 +804,14 @@ When you add an ADR, add its row here.
 | [0580](0580-a-local-model-is-pinned-by-commit-and-content-hash-under-a-frozen-id.md) | A local model is pinned by commit and content hash under a frozen id | Accepted |
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Superseded by 0611 |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
-| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612) |
-| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, and 0609) |
+| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612 and 0613) |
+| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, and 0613) |
 | [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Superseded by 0611 |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Superseded by 0611 |
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Superseded by 0611 |
 | [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted (amended by 0605, 0607, and 0609) |
-| [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576) |
+| [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576; amended by 0613) |
 | [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | The hosted Git service stores data repositories and offers no rename or move | Accepted (amends 0546 and 0547; amended by 0594, 0608, and 0612) |
 | [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | A hosted repository is reached only by the person who owns it | Accepted (amends 0547, 0549, 0565, 0578, and 0593; amended by 0612 and 0614) |
@@ -830,5 +830,5 @@ When you add an ADR, add its row here.
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Superseded by 0611 |
 | [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is only the data layer its apps reach over Git | Proposed (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0586, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558) |
 | [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Proposed (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
-| [0613](0613-a-tables-schema-describes-its-rows-without-refusing-writes.md) | A table's schema describes its rows without refusing writes | Proposed (supersedes 0527; amends 0526, 0584, 0585, 0590, 0591, and 0609) |
+| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Proposed (supersedes 0527; amends 0526, 0584, 0585, and 0591) |
 | [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Proposed (amends 0594 and 0606) |
