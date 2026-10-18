@@ -4,7 +4,7 @@
 - **Date:** 2026-10-18
 - **Amends:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "a grant has no target, and a token reaches its person's own namespace": a grant names one repository; [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (a first-party app is an ordinary client), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (what a grant names).
-- **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name; silent renewal pinned to the grant; and native app identity. A refresh token per grant is deferred.
+- **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name or offering to create a repository by it; silent renewal pinned to the grant; and native app identity. A refresh token per grant is deferred.
 
 ## Context
 
@@ -50,8 +50,10 @@ deferred.
 
 **`connect()` navigates the page to consent and back.** An app may suggest
 a repository name; at consent the one repository of that name on the
-person's list is preselected, and otherwise the person chooses. Whether
-consent offers to create a repository when none matches is not decided.
+person's list is preselected, and otherwise the person chooses. Consent
+also offers to create a repository with the suggested name, which the
+person who creates it owns
+([ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md)).
 
 ```txt
 https://kanban.alice.dev wants to read and change everything in one repository.
@@ -59,13 +61,16 @@ It suggests: studio
 
   ( ) Braden                  owner
   (•) studio                  member     the only repository named "studio": preselected
+  ( ) Create a repository named "studio"
 
                                          [Cancel]  [Allow]
 ```
 
 **Native app identity is deferred to Whispering's desktop app.** A native
 app would claim its website's origin; how Epicenter verifies that claim is
-not decided.
+not decided. The desktop data browser is no OAuth client: it reaches the
+Git service through the CLI's credential helper
+([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
 
 ## Consequences
 
