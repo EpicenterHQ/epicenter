@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out": Epicenter writes no `info/attributes`.
-- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the Git service, the CLI, and the library), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the access list).
-- **Unbuilt:** all of it: the deletion of `refs/epicenter/publishing`, `refs/epicenter/builds`, and `neutralizeAttributes`; and a sync that recovers an interrupted checkout from the working files and Git alone.
+- **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the Git service, the CLI, and the library), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the access list), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (what a browser clone holds).
+- **Unbuilt:** all of it: the deletion of `refs/epicenter/publishing`, `refs/epicenter/builds`, and `neutralizeAttributes`; and an `epicenter sync` that recovers an interrupted checkout on disk from the working files and Git alone.
 
 ## Context
 
@@ -30,11 +30,16 @@ with Git.
 **Every byte Epicenter keeps is one of four things:**
 
 ```txt
-Git object        commits, trees, and blobs, in a clone or on the Git service
-working file      a file in a clone's working tree, committed or not
+Git object        commits, trees, and blobs, and the refs naming them, in a clone or on the Git service
+working file      a path's uncommitted bytes, wherever the clone keeps them: a file in a disk
+                  clone's working tree, or an unsent edit in a browser clone (ADR-0623)
 access-list row   accounts, repositories, members, grants, and token rows on the Git service
 cache             anything rebuilt from the three above, and lost without loss of data
 ```
+
+A browser clone holds Git objects, refs, and its unsent edits, and no
+cache
+([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)).
 
 The four kinds cover what Epicenter keeps for a repository. Credentials
 held on a device, such as an access token or a bring-your-own provider key
@@ -56,9 +61,10 @@ the rule that the next commit finishes that publish first;
 - A repository's `.gitattributes` applies to Epicenter's checkouts as it
   does to Git's, so an attribute that changes bytes can make a checked-out
   file differ from its blob.
-- A checkout cut off partway has no ref recording it. How the next sync
-  tells such a file from an edit, from the working files and Git alone, is
-  not decided.
+- A browser clone has no checkout to cut off. On disk, a checkout cut off
+  partway has no ref recording it; how the next `epicenter sync` tells
+  such a file from an edit, from the working files and Git alone, is not
+  decided.
 
 ## Considered alternatives
 

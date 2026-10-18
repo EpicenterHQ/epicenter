@@ -16,11 +16,10 @@ Epicenter's hosted blob storage as the LFS server
 Whispering's audio in the folder's `audio/`, left out of every commit, and
 [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md)
 moved that rule into Whispering's template `.gitignore`. No LFS route or
-client exists. Every app's clone of a repository downloads every file in
-its tree
-([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)),
-and a full clone on disk every version of each, so a binary committed once
-costs every clone.
+client exists. Every clone of a repository, in a browser
+([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md))
+or on disk, downloads every version of every file, so a binary committed
+once costs every clone.
 
 ## Decision
 
@@ -57,5 +56,4 @@ storage on the machine that recorded it.
   in the working tree that one line of `.gitignore` decides whether to
   commit, so editing that line commits every recording.
 - **Binary files as ordinary Git blobs.** Each one is downloaded by every
-  clone, in every tab, while it is in the tree, and by every full clone
-  forever.
+  clone, in every tab and on disk, forever.

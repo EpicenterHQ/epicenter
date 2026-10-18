@@ -31,7 +31,8 @@ governs where the two differ.
    repository; Git is the only record and the only sync format, and no CRDT
    store exists beside it (ADR-0611, ADR-0612, ADR-0613).
 2. Every byte Epicenter keeps is a Git object, a working file, an
-   access-list row, or a cache (ADR-0619).
+   access-list row, or a cache. A browser clone holds Git objects, refs,
+   and its unsent edits, and nothing else (ADR-0619, ADR-0623).
 3. The access list is the only guard on who. The only refusals on what are
    a non-text write from the library, a push that would rewrite history,
    and what Git or a client cannot represent; everything else is accepted.
@@ -41,8 +42,9 @@ governs where the two differ.
 4. Git's nouns win, and Epicenter names only types: its own words say what
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613).
-5. Every place that edits is its own clone: each app origin keeps its own,
-   with one writer at a time. On disk, the person and their agents write
+5. Every place that edits is its own clone: each app origin keeps its own
+   in IndexedDB, where reads and saves are transactions and only sync
+   takes turns between tabs. On disk, the person and their agents write
    files with last-write-wins, the data browser saves through the merge,
    and commits happen at `epicenter sync` (ADR-0611, ADR-0622, ADR-0623).
 6. One TypeScript merge runs wherever Epicenter merges, in a sync on every
