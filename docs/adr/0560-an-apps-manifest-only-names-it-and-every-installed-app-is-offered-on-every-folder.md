@@ -10,6 +10,7 @@
 - **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "the app's lens decides" and Whispering's mismatch refusal: an app opens any folder it is handed with its own definition, and rows that do not fit read as invalid rows.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at "The Folders window offers every installed app that can run on every data folder": a new opening chooses the app a folder's `epicenter.json` names.
 - **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at `epicenter.app.json` and `bun run build:installed` in the folder: there is no manifest and no build on the person's machine.
+- **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "Epicenter builds every app with `bun run build:installed` in its folder and keeps `dist/`": Epicenter builds every app with `bun run build` at its repository's root, writing `dist/`.
 - **Unbuilt:** marking an app and folder pair that refused once, so "Open in" stops offering a pair that will refuse again.
 
 ## Context
