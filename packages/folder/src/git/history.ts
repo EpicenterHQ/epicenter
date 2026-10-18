@@ -58,6 +58,7 @@ import {
 	EMPTY_TREE,
 	hashFiles,
 	isAncestor,
+	type ObjectAccess,
 	readBlob,
 	readTreeFiles,
 	type TreeFile,
@@ -65,7 +66,7 @@ import {
 	writeFilesTree,
 } from './objects.js';
 import { createPassRunner } from './runner.js';
-import { isGitignore } from './scope.js';
+import { isGitignorePath } from './scope.js';
 import type { SyncOptions, SyncOutcome } from './sync.js';
 
 export { GitError };
@@ -237,16 +238,41 @@ export function createHistory({
 				: { state: 'unknown', error };
 	}
 
-	async function headFiles(head: string | undefined) {
+	/**
+	 * Object work for one logical operation: a status scan, a commit, or one
+	 * Sync attempt. Its calls share one isomorphic-git cache, so each pack's
+	 * index and bytes are loaded and checksummed once per operation, not once
+	 * per object read. Sharing it within an operation is safe: the cache holds
+	 * pack data, with some decoded objects at the end of deep delta chains,
+	 * all of which Git names by their contents and never rewrites in place,
+	 * and every read lists the pack directory again, so a pack a fetch adds
+	 * partway through is found. It lives no longer than the operation,
+	 * so it never holds packs a repack has since deleted, and a pack read
+	 * while another tab was still writing it fails that one operation rather
+	 * than every later one.
+	 */
+	type Objects = <T>(work: (access: ObjectAccess) => Promise<T>) => Promise<T>;
+	function operationObjects(): Objects {
+		const cache = {};
+		return (work) => backend.withObjects(work, cache);
+	}
+
+	async function headFiles(objects: Objects, head: string | undefined) {
 		if (head === undefined)
 			return new Map<string, { oid: string; mode: string }>();
-		return backend.withObjects(async (access) =>
+		return objects(async (access) =>
 			readTreeFiles(access, await commitTree(access, head)),
 		);
 	}
 
-	/** `head`, when given, is the branch head the caller just read. */
-	async function refreshSync(known?: { head: string | undefined }) {
+	/**
+	 * `head`, when given, is the branch head the caller just read, and
+	 * `objects` the object work of the operation it belongs to.
+	 */
+	async function refreshSync(
+		known?: { head: string | undefined },
+		objects: Objects = operationObjects(),
+	) {
 		try {
 			// Another page or program may have set the remote.
 			await backend.refreshRemote();
@@ -254,7 +280,7 @@ export function createHistory({
 				known === undefined ? backend.readBranch() : known.head,
 				backend.readRemoteTracking(),
 			]);
-			const [ahead, behind] = await backend.withObjects((access) =>
+			const [ahead, behind] = await objects((access) =>
 				Promise.all([
 					countOnly(access, head, remote),
 					countOnly(access, remote, head),
@@ -282,6 +308,8 @@ export function createHistory({
 	 * exclude (ADR-0592). The `.gitignore` files are read first, since they
 	 * decide what else is read; an ignored file that is not tracked is never
 	 * read. A tracked file stays source whatever `.gitignore` says, as in Git.
+	 * A `.gitignore` is source with the bytes the decision used, and is never
+	 * read again, so no rules are committed that did not choose what else is.
 	 * A file removed while it is read is left out, as if the listing had
 	 * missed it; a file that cannot be read throws, naming it.
 	 */
@@ -298,7 +326,11 @@ export function createHistory({
 				? new Set<string>()
 				: await backend.ignoredPaths(untracked, rules);
 		const kept = paths.filter((path) => !ignored.has(path));
-		const source = await readFiles(kept.filter((path) => !rules.has(path)));
+		// A rule file is source with the bytes that chose the rest, and never
+		// read again: one missing then is left for the next capture.
+		const source = await readFiles(
+			kept.filter((path) => !isGitignorePath(path)),
+		);
 		for (const path of kept) {
 			const bytes = rules.get(path);
 			if (bytes !== undefined) source.set(path, bytes);
@@ -321,7 +353,7 @@ export function createHistory({
 	) {
 		const depth = (path: string) => path.split('/').length;
 		const byDepth = new Map<number, string[]>();
-		for (const path of paths.filter(isGitignore))
+		for (const path of paths.filter(isGitignorePath))
 			byDepth.set(depth(path), [...(byDepth.get(depth(path)) ?? []), path]);
 		const rules = new Map<string, Uint8Array>();
 		for (const level of [...byDepth.keys()].sort((a, b) => a - b)) {
@@ -431,7 +463,8 @@ export function createHistory({
 			const capturedAt = ++clock;
 			try {
 				const head = await backend.readBranch();
-				const committed = await headFiles(head);
+				const objects = operationObjects();
+				const committed = await headFiles(objects, head);
 				// Status shows what a commit would record.
 				const hashes = await hashFiles(await captureSource(committed));
 				const value: FilesObservation = {
@@ -439,7 +472,7 @@ export function createHistory({
 					changes: diffFileMaps(committed, hashes),
 				};
 				observeFiles(capturedAt, value);
-				await refreshSync({ head });
+				await refreshSync({ head }, objects);
 				emit();
 				return Ok(value);
 			} catch (cause) {
@@ -465,9 +498,10 @@ export function createHistory({
 		subject?: string,
 	): Promise<CommitOutcome> {
 		return exclusive(async (): Promise<CommitOutcome> => {
-			const first = await attemptCommit(onCapture, subject);
+			const objects = operationObjects();
+			const first = await attemptCommit(objects, onCapture, subject);
 			if (first.status !== 'branchMoved') return first;
-			return attemptCommit(onCapture, subject);
+			return attemptCommit(objects, onCapture, subject);
 		});
 	}
 
@@ -477,6 +511,7 @@ export function createHistory({
 	 * what changed.
 	 */
 	async function attemptCommit(
+		objects: Objects,
 		onCapture?: (capturedAt: number) => void,
 		subject?: string,
 	): Promise<CommitOutcome> {
@@ -485,7 +520,7 @@ export function createHistory({
 		if (unborn !== undefined) return { status: 'blocked', reason: unborn };
 		const blocked = await backend.blocked();
 		if (blocked !== undefined) return { status: 'blocked', reason: blocked };
-		const unfinished = await finishPublishing();
+		const unfinished = await finishPublishing(objects);
 		if (unfinished !== undefined)
 			return { status: 'blocked', reason: unfinished };
 		// Pin the parent, then capture, both inside the backend's
@@ -497,14 +532,14 @@ export function createHistory({
 		const parent = await backend.readBranch();
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
-		const committed = await headFiles(parent);
+		const committed = await headFiles(objects, parent);
 		const included = await captureSource(committed);
 		// An empty folder with no history has nothing to record, and writes
 		// nothing: not even an empty tree.
 		const built =
 			parent === undefined && included.size === 0
 				? undefined
-				: await backend.withObjects(async (access) => {
+				: await objects(async (access) => {
 						const tree = await writeFilesTree(access, included, committed);
 						const parentTree =
 							parent === undefined
@@ -652,10 +687,11 @@ export function createHistory({
 	 * the remote's tree arriving, or this folder's about to be sent.
 	 */
 	async function representable(
+		objects: Objects,
 		commit: string,
 		whose: 'remote' | 'folder',
 	): Promise<Result<undefined, SyncError>> {
-		const files = await headFiles(commit);
+		const files = await headFiles(objects, commit);
 		const unsupported = [...files]
 			.filter(([, entry]) => entry.mode !== '100644')
 			.map(([path]) => path);
@@ -677,7 +713,7 @@ export function createHistory({
 			});
 		// Under a filter a blob means something else than its bytes: under
 		// `filter=lfs` it is a pointer.
-		const attributeFiles = await backend.withObjects((access) =>
+		const attributeFiles = await objects((access) =>
 			Promise.all(
 				[...files]
 					.filter(([path]) => isAttributesPath(path))
@@ -713,17 +749,24 @@ export function createHistory({
 	}
 
 	/** The files `from` and `to` hold, and the paths Sync changes between them. */
-	async function between(from: string | undefined, to: string) {
-		const [before, after] = await Promise.all([headFiles(from), headFiles(to)]);
+	async function between(
+		objects: Objects,
+		from: string | undefined,
+		to: string,
+	) {
+		const [before, after] = await Promise.all([
+			headFiles(objects, from),
+			headFiles(objects, to),
+		]);
 		const changes = diffFileMaps(before, after);
 		return { before, after, changes };
 	}
 	type Between = Awaited<ReturnType<typeof between>>;
 
-	const blobOf = (entry: TreeFile | undefined) =>
+	const blobOf = (objects: Objects, entry: TreeFile | undefined) =>
 		entry === undefined
 			? Promise.resolve(null)
-			: backend.withObjects((access) => readBlob(access, entry.oid));
+			: objects((access) => readBlob(access, entry.oid));
 
 	/**
 	 * What in `storage`, as it is now, stands where the files of `to` go.
@@ -738,6 +781,7 @@ export function createHistory({
 	 * `failed` when the folder cannot be listed.
 	 */
 	async function inTheWay(
+		objects: Objects,
 		storage: Pick<FolderStorage, 'list' | 'read'>,
 		{ before, after, changes }: Between,
 	): Promise<{
@@ -802,7 +846,9 @@ export function createHistory({
 			const read = await storage.read(path);
 			// A file that cannot be read is no file to record: Sync stops.
 			if (read.error !== null) occupied.push(path);
-			else if (!sameContent(read.data.bytes, await blobOf(after.get(path))))
+			else if (
+				!sameContent(read.data.bytes, await blobOf(objects, after.get(path)))
+			)
 				made.push(path);
 		}
 		return { occupied, ignored, made };
@@ -821,8 +867,12 @@ export function createHistory({
 	 * `from`, when there is one, then `to`, which also keeps both from being
 	 * collected while the publish is unfinished.
 	 */
-	async function beginPublishing(from: string | undefined, to: string) {
-		const marker = await backend.withObjects(async (access) =>
+	async function beginPublishing(
+		objects: Objects,
+		from: string | undefined,
+		to: string,
+	) {
+		const marker = await objects(async (access) =>
 			writeCommitObject(access, {
 				tree: await commitTree(access, to),
 				parents: from === undefined ? [to] : [from, to],
@@ -843,18 +893,20 @@ export function createHistory({
 	 * still at `from` takes `to`, and one edited since keeps its edit. A
 	 * branch that moved since leaves nothing to finish.
 	 */
-	async function finishPublishing(): Promise<string | undefined> {
+	async function finishPublishing(
+		objects: Objects,
+	): Promise<string | undefined> {
 		const marker = await backend.readPublishing();
 		if (marker === undefined) return undefined;
-		const parents = await backend.withObjects((access) =>
-			commitParents(access, marker),
-		);
+		const parents = await objects((access) => commitParents(access, marker));
 		const [from, to] = parents.length === 2 ? parents : [undefined, parents[0]];
 		if (to === undefined || (await backend.readBranch()) !== from) {
 			await backend.writePublishing(undefined);
 			return undefined;
 		}
-		const { error } = await publishWithin(from, to, { resuming: true });
+		const { error } = await publishWithin(objects, from, to, {
+			resuming: true,
+		});
 		if (error === null) return undefined;
 		return `a Sync stopped while it wrote this folder's files and cannot finish them: ${error.message}`;
 	}
@@ -863,8 +915,10 @@ export function createHistory({
 	 * Write the tree of `to` over the files, which the branch left at `from`,
 	 * then move the branch and set the index to it.
 	 */
-	function publish(from: string | undefined, to: string) {
-		return exclusive(() => publishWithin(from, to, { resuming: false }));
+	function publish(objects: Objects, from: string | undefined, to: string) {
+		return exclusive(() =>
+			publishWithin(objects, from, to, { resuming: false }),
+		);
 	}
 
 	/**
@@ -897,6 +951,7 @@ export function createHistory({
 	 * `to`'s as an addition on both sides, the live file winning.
 	 */
 	async function publishWithin(
+		objects: Objects,
 		from: string | undefined,
 		to: string,
 		{ resuming }: { readonly resuming: boolean },
@@ -912,8 +967,8 @@ export function createHistory({
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
-		const plan = await between(from, to);
-		const way = await inTheWay(boundary, plan);
+		const plan = await between(objects, from, to);
+		const way = await inTheWay(objects, boundary, plan);
 		const { made, ignored } = way;
 		const refused = wayProblem(way.failed, [...way.occupied, ...ignored]);
 		if (refused !== undefined) return SyncError.Blocked({ reason: refused });
@@ -931,8 +986,8 @@ export function createHistory({
 		>();
 		for (const { path } of plan.changes)
 			blobs.set(path, {
-				was: await blobOf(plan.before.get(path)),
-				next: await blobOf(plan.after.get(path)),
+				was: await blobOf(objects, plan.before.get(path)),
+				next: await blobOf(objects, plan.after.get(path)),
 			});
 		const removals = plan.changes
 			.filter((change) => change.kind === 'delete')
@@ -943,7 +998,7 @@ export function createHistory({
 		// A publish that changes no file has nothing to finish, and one
 		// resuming is already named.
 		const marked = resuming || plan.changes.length > 0;
-		if (marked && !resuming) await beginPublishing(from, to);
+		if (marked && !resuming) await beginPublishing(objects, from, to);
 		const unmark = () =>
 			marked ? backend.writePublishing(undefined) : Promise.resolve();
 		const { data: listed } = await boundary.list();
@@ -1165,6 +1220,9 @@ export function createHistory({
 			// `null` before any rejection; `undefined` names a remote with no branch.
 			let rejectedAt: string | null | undefined = null;
 			for (let attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
+				// Each attempt its own: a pack another tab was still writing
+				// when one attempt read it fails that attempt, never the retries.
+				const objects = operationObjects();
 				const { data: theirs, error: fetchError } = await fetchRunner.request();
 				if (fetchError !== null)
 					return fetchError.name === 'Closed' || closing.signal.aborted
@@ -1181,13 +1239,11 @@ export function createHistory({
 				if (
 					theirs === undefined ||
 					(local !== undefined &&
-						(await backend.withObjects((access) =>
-							isAncestor(access, theirs, local!),
-						)))
+						(await objects((access) => isAncestor(access, theirs, local!))))
 				) {
 					// The remote is behind: send ours, if another device could
 					// hold it.
-					const unsendable = await representable(local!, 'folder');
+					const unsendable = await representable(objects, local!, 'folder');
 					if (unsendable.error !== null) return unsendable;
 					const pushed = await pushCommit(local!);
 					if (pushed === 'rejected') {
@@ -1196,16 +1252,18 @@ export function createHistory({
 					}
 					return done(local, pushed);
 				}
-				const refused = await representable(theirs, 'remote');
+				const refused = await representable(objects, theirs, 'remote');
 				if (refused.error !== null) return refused;
 				if (
 					local === undefined ||
-					(await backend.withObjects((access) =>
-						isAncestor(access, local!, theirs),
-					))
+					(await objects((access) => isAncestor(access, local!, theirs)))
 				) {
 					// This folder is behind: take theirs.
-					const { data: published, error } = await publish(local, theirs);
+					const { data: published, error } = await publish(
+						objects,
+						local,
+						theirs,
+					);
 					if (error !== null) return Err(error);
 					if (published.kind === 'moved') {
 						local = published.head;
@@ -1217,13 +1275,13 @@ export function createHistory({
 					}
 					return done(theirs, undefined);
 				}
-				const base = await backend.withObjects((access) =>
+				const base = await objects((access) =>
 					chooseBase(access, local!, theirs),
 				);
 				if (base === undefined && !unrelated)
 					return SyncError.Unrelated({ head: local });
 				const mine = local;
-				const merged = await backend.withObjects(async (access) => {
+				const merged = await objects(async (access) => {
 					const result = await mergeHistories(access, {
 						base,
 						ours: mine,
@@ -1241,12 +1299,16 @@ export function createHistory({
 				});
 				// A merge of two sendable trees can still hold two paths only
 				// their case tells apart, one from each side.
-				const unsendable = await representable(merged, 'folder');
+				const unsendable = await representable(objects, merged, 'folder');
 				if (unsendable.error !== null) return unsendable;
 				// What stands in the way stops Sync before the merge is sent; a
 				// file the person made since the checkpoint is recorded, and
 				// merged in from the start.
-				const way = await inTheWay(boundary, await between(mine, merged));
+				const way = await inTheWay(
+					objects,
+					boundary,
+					await between(objects, mine, merged),
+				);
 				const { made, ignored } = way;
 				const inWay = wayProblem(way.failed, [...way.occupied, ...ignored]);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });
@@ -1260,7 +1322,7 @@ export function createHistory({
 					rejectedAt = theirs;
 					continue;
 				}
-				const { data: published, error } = await publish(mine, merged);
+				const { data: published, error } = await publish(objects, mine, merged);
 				if (error !== null) return Err(error);
 				// A commit moved the branch while the merge was pushed: the next
 				// Sync merges the two.

@@ -27,7 +27,7 @@ export function gitignoreMatcher(
 ): (path: string) => boolean {
 	const rules = new Map<string, Ignore>();
 	for (const [path, bytes] of files) {
-		if (!isGitignore(path)) continue;
+		if (!isGitignorePath(path)) continue;
 		const directory = path.slice(0, -'.gitignore'.length);
 		rules.set(directory, ignore().add(decoder.decode(bytes)));
 	}
@@ -55,6 +55,6 @@ export function gitignoreMatcher(
 }
 
 /** Whether `path` is a `.gitignore` file, whose rules decide what is source. */
-export function isGitignore(path: string): boolean {
+export function isGitignorePath(path: string): boolean {
 	return path === '.gitignore' || path.endsWith('/.gitignore');
 }

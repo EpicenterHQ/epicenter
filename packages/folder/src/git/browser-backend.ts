@@ -93,9 +93,10 @@ export async function createStoredGitBackend({
 
 	async function withObjects<T>(
 		work: (access: ObjectAccess) => Promise<T>,
+		cache: object = {},
 	): Promise<T> {
 		const session = store.session();
-		const value = await work({ fs: session.fs, gitdir: GITDIR, cache: {} });
+		const value = await work({ fs: session.fs, gitdir: GITDIR, cache });
 		await session.flush();
 		return value;
 	}
@@ -277,8 +278,8 @@ export async function createStoredGitBackend({
 					});
 			});
 		},
-		async ignoredPaths(candidates, current) {
-			const ignored = gitignoreMatcher(current);
+		async ignoredPaths(candidates, gitignores) {
+			const ignored = gitignoreMatcher(gitignores);
 			return new Set(candidates.filter((path) => ignored(path)));
 		},
 		async log(depth) {
