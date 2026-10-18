@@ -1,6 +1,6 @@
 # 0608. Apps never talk to each other; they share paths
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "the person may change it before the first push" and "After the first push the directory may be renamed freely": a folder's directory name is its repository name, made valid when the folder is made, and is never changed. [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at the consequence "renaming the folder on disk changes nothing remote": no local rename is offered either.
 - **Relates:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) (an app opens any folder by id), [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (principle 2: a folder is named by its directory), [ADR-0586](0586-you-open-a-folder-never-an-app.md) (a folder's id is its directory name), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`epicenter.json` describes tables), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (Sync refuses a link), [ADR-0165](0165-browser-origins-contain-independent-epicenter-replicas.md) (each browser origin holds its own replica).
@@ -74,7 +74,8 @@ that folder by its id:
 and in every origin.**
 
 - Making a folder gives its directory a valid repository name (ADR-0546's
-  rule), and its first push uses that name unchanged.
+  rule) that does not begin with `app-` (ADR-0605), and its first push uses
+  that name unchanged.
 - Cloning a folder uses the repository's name as the directory. It refuses
   a destination of another name, and refuses when a directory of that name
   exists, rather than cloning under another name.
@@ -103,7 +104,7 @@ same way in a tab and on the desktop.
 **A reference to a folder that is not there is reported as absent, never
 opened empty.** `openFolder` refuses an `id` that names no directory, with
 or without a definition, so absence cannot race a listing. Making a folder
-stays a separate, explicit act (from a template, ADR-0585). The app offers
+stays a separate, explicit act (from its app's template, ADR-0609). The app offers
 to clone the absent folder, naming the repository explicitly, such as
 `<namespace>/crm` on the hosted service, and cloning it lands under `crm`.
 

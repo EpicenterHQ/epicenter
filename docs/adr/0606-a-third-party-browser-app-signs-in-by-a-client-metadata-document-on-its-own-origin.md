@@ -1,6 +1,6 @@
 # 0606. A third-party browser app signs in by a client metadata document on its own origin
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) at "Every OAuth client is a first-party row written by `registerFirstPartyClients`", "The authorization server composes no `@better-auth/cimd` plugin", and "A `client_id` that names a URL is an unknown client": a browser app's client id may be the URL of its client ID metadata document; the `mcp` audience stays deleted. [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "An OAuth client id is a constant in each app's code, registered on the server": a third-party app registers nothing, and its client id is its metadata document's URL.
 - **Relates:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (every app is a static site its author deploys), [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) (a token reaches every repository its owner holds).
