@@ -49,7 +49,8 @@ also runs in `epicenter sync` on disk.
 THE GIT SERVICE    git.epicenter.so, the front door to every repository
   accounts                      who signs in
   repositories and members      the access list (ADR-0612)
-  consent and grants            one per app origin (ADR-0614)
+  consent and grants            one per app origin and repository, and an account grant
+                                per signed-in device (ADR-0614)
   Git smart HTTP                authorized on every request, then served from
                                 Cloudflare Artifacts (apps/api/worker/git-repositories.ts)
                                 or a disk store when self-hosted (packages/server/src/git-disk-store.ts)
