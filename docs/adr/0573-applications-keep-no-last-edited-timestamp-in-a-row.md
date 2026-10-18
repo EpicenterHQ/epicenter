@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (unknown keys are kept), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (a save names what of the other side it replaced)
+- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (unknown keys are kept), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (a browser clone has no working tree), [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (a save names what of the other side it replaced)
 - **Unbuilt:** removing `updatedAt` from Honeycrisp's `notes` table and note creation; deleting `withBody`; sorting and grouping `NoteList` by `createdAt`; deleting the `updatedAt` exception in Honeycrisp's save notices.
 
 ## Context
@@ -36,8 +36,12 @@ In Honeycrisp:
 - `NoteList` sorts newest first by `createdAt` and groups by `createdAt`.
 - The `updatedAt` exception in the save notices is deleted.
 
-When a file last changed belongs to the file system and Git. A "recently
-edited" order may return later from file modification time.
+A browser clone has no file modification time: it keeps no working tree,
+only Git objects, refs, and unsent edits
+([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)).
+In v1 an app orders rows by `createdAt` only. A "recently edited" order may
+come later from the time of the last commit that changed each row's blob,
+which needs a full clone.
 
 ## Consequences
 
@@ -50,8 +54,9 @@ edited" order may return later from file modification time.
 
 ## Considered alternatives
 
-- **File modification time now.** It is correct for changes made outside the
-  app, but it needs a new folder contract, and a Git checkout or Sync resets
-  it, so every pulled note would look edited just now.
-- **Last commit time.** Commits happen only on Sync or "Save version"
-  (ADR-0529), so the groups would be stale.
+- **File modification time.** A browser clone has none, and on disk a Git
+  checkout or Sync resets it, so every pulled note would look edited just
+  now.
+- **Last commit time in v1.** Commits happen only at sync (ADR-0623), so an
+  order by them lags each edit, and finding each row's last commit walks
+  the history.
