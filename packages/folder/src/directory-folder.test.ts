@@ -173,10 +173,8 @@ describe('a folder over an ordinary directory', () => {
 
 		const folder = expectOk(await open(root));
 		await addTodo(folder, 'From Todos');
-		expect(await folder.git.commit()).toMatchObject({
-			status: 'committed',
-			parent: start,
-		});
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(await git(root, 'rev-parse', 'HEAD^')).toBe(start);
 		expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
 			'Braden <braden@example.test>',
 		);
@@ -213,10 +211,8 @@ describe('a folder over an ordinary directory', () => {
 		await git(root, 'gc', '--quiet');
 		const folder = expectOk(await open(root));
 		await addTodo(folder, 'After gc');
-		expect(await folder.git.commit()).toMatchObject({
-			status: 'committed',
-			parent: start,
-		});
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(await git(root, 'rev-parse', 'HEAD^')).toBe(start);
 		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('2');
 		await git(root, 'merge-base', '--is-ancestor', start, 'HEAD');
 		await git(root, 'fsck', '--strict');
@@ -299,10 +295,8 @@ describe('a folder over an ordinary directory', () => {
 		await git(root, 'commit', '--quiet', '-m', 'Native while open');
 		const native = await git(root, 'rev-parse', 'HEAD');
 		await addTodo(folder, 'After the native commit');
-		expect(await folder.git.commit()).toMatchObject({
-			status: 'committed',
-			parent: native,
-		});
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(await git(root, 'rev-parse', 'HEAD^')).toBe(native);
 		await git(root, 'fsck', '--strict');
 		await folder.close();
 	});
@@ -315,7 +309,8 @@ describe('a folder over an ordinary directory', () => {
 		// The commit's objects and its compare-and-swap of the branch need no
 		// index; refreshing the index is refused, and the outcome says why.
 		const committed = await folder.git.commit();
-		expect(committed).toMatchObject({ status: 'committed', parent: start });
+		expect(committed.status).toBe('committed');
+		expect(await git(root, 'rev-parse', 'HEAD^')).toBe(start);
 		expect(JSON.stringify(committed)).toContain('index.lock');
 		await Bun.file(join(root, '.git', 'index.lock')).delete();
 		expect((await folder.git.commit()).status).toBe('unchanged');
@@ -457,7 +452,8 @@ describe('a folder over an ordinary directory', () => {
 		const folder = expectOk(await open(root));
 		const created = await addTodo(folder, 'Plain bytes');
 		const committed = await folder.git.commit();
-		expect(committed).toMatchObject({ status: 'committed', parent: start });
+		expect(committed.status).toBe('committed');
+		expect(await git(root, 'rev-parse', 'HEAD^')).toBe(start);
 		expect(await git(root, 'rev-parse', `HEAD:${created.path}`)).toBe(
 			await git(root, 'hash-object', '--no-filters', created.path),
 		);
@@ -664,8 +660,11 @@ describe('a folder over an ordinary directory', () => {
 		await addTodo(b, 'Saved by B');
 		const before = await git(root, 'rev-parse', 'HEAD');
 		const outcome = await b.git.commit();
-		const fromA = await git(root, 'rev-parse', 'HEAD^');
-		expect(outcome).toMatchObject({ status: 'committed', parent: fromA });
+		// B's commit is the head, on top of A's, which is on top of before.
+		expect(outcome).toMatchObject({
+			status: 'committed',
+			oid: await git(root, 'rev-parse', 'HEAD'),
+		});
 		expect(await git(root, 'rev-parse', 'HEAD^^')).toBe(before);
 		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('3');
 		expect(await git(root, 'rev-list', '--merges', '--count', 'HEAD')).toBe(

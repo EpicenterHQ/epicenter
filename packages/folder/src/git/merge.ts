@@ -161,7 +161,7 @@ export async function mergeFirstCommit(
 				? new Map<string, TreeFile>()
 				: await readTreeFiles(access, tree),
 		theirs: await filesOf(access, theirs),
-		oursCommit: undefined,
+		oursCommit: theirs,
 		theirsCommit: theirs,
 	});
 }
@@ -178,8 +178,7 @@ async function mergeFiles(
 		readonly base: Map<string, TreeFile>;
 		readonly ours: Map<string, TreeFile>;
 		readonly theirs: Map<string, TreeFile>;
-		/** `undefined` for files no commit holds, which only a delete could make lose. */
-		readonly oursCommit: string | undefined;
+		readonly oursCommit: string;
 		readonly theirsCommit: string;
 	},
 ): Promise<HistoryMerge> {
@@ -209,8 +208,6 @@ async function mergeFiles(
 					unit.kind === 'file' && unit.lost === 'ours'
 						? oursCommit
 						: theirsCommit;
-				if (losing === undefined)
-					throw new Error(`no commit holds the ${path} that lost`);
 				overrides.push({ path, unit, losing });
 			}
 			if (merged.content === null) settled = undefined;

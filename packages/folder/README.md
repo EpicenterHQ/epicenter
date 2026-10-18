@@ -380,7 +380,7 @@ if (error?.name === 'Unrelated') {
 | --- | --- | --- |
 | files, no history | no branch | commits and pushes |
 | empty | history | takes it |
-| files, no history | history | merges them with the remote's over an empty base into one commit on the remote head; where a path differs, this folder's version wins and history keeps the remote's |
+| files, no history | history | merges them with the remote's over an empty base into one commit on the remote head: a path both added merges by unit, so a text file keeps both versions' lines, and where a unit differs this folder's wins and history keeps the remote's |
 | its own history | related | syncs |
 | its own history | unrelated | `Unrelated`, writing nothing, until `allowUnrelatedHistories` |
 
@@ -1432,9 +1432,10 @@ branch moves; the next commit finishes that publish before it records the
 files, so what arrived is never recorded as this device's edit. A folder
 with no commit fetches before it records anything (ADR-0615). Against a
 remote branch, its files merge with the remote's tree over an empty base
-into a first commit whose one parent is the remote head, or, when they add
-nothing, it takes the remote head as it is; against none, its first commit
-is its own root and is pushed. A fetch that fails leaves nothing recorded,
+into a first commit whose one parent is the remote head, which is published
+here and then pushed like any local commit, or, when they add nothing, it
+takes the remote head as it is; against none, its first commit is its own
+root and is pushed. A fetch that fails leaves nothing recorded,
 so the next Sync starts the same way. A folder with a history of its own
 meets an unrelated remote as `Unrelated`, and
 `run({ allowUnrelatedHistories: true })` combines them. `connect(url)` sets

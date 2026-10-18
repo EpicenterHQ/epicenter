@@ -129,7 +129,6 @@ test('the header leads with current state; changes since the last version are ne
 		versionOutcomeLine({
 			status: 'committed',
 			oid: 'c'.repeat(40),
-			parent: undefined,
 			message: 'Update todos/milk.md',
 			changedPaths: 1,
 			indexWarning: undefined,
