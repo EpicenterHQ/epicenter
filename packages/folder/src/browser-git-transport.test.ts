@@ -104,9 +104,10 @@ test('the injected Git transport receives cancellation', async () => {
 			);
 		});
 	};
-	const transfer = abortableHttp(controller.signal, httpFetch).request({
-		url: 'https://example.test/data.git/info/refs',
-	});
+	const transfer = abortableHttp(
+		controller.signal,
+		httpFetch,
+	)('https://example.test/data.git/info/refs');
 	await started;
 	controller.abort(new Error('Folder closed'));
 	await expect(transfer).rejects.toThrow('Folder closed');
