@@ -1,7 +1,8 @@
 # 0595. The self-hosted Git store accepts a force push
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0620](0620-history-in-a-repository-only-grows.md): no store accepts a force push.
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "unrelated history is refused as not a fast-forward, so a second folder cannot land in a repository by taking its name": the pushing Git client refuses a push that is not a fast-forward, and a forced push replaces the branch on the self-hosted store.
 - **Relates:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (a file committed by mistake is repaired by rewriting history in Git, which reaches a remote only as a force push).
 - **Unbuilt:** all of it: dropping `receive.denyNonFastForwards` from the disk store and inverting its test. Whether Cloudflare Artifacts accepts a force push is not verified; Epicenter does not promise that a hosted repository accepts one until a forced push to the deployed binding has replaced a branch.
