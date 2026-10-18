@@ -1,10 +1,11 @@
 # 0054. An inference backend is either the metered Epicenter gateway or a custom OpenAI-compatible server
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-22
 - **Amended by:** [ADR-0396](0396-transcription-operations-preserve-destinations-and-results.md) at model fallback: `connection.transcribe` sends a saved model as saved, the server refuses one it cannot serve, and nothing substitutes that backend's default. The hosted-or-custom split and the per-turn snapshot stand.
 <!-- doc-path-check: ignore-next-line (the superseded spec is deleted by this decision) -->
 - **Supersedes:** the unbuilt spec `specs/20260223T160300-byok-api-key-settings.md` (a tab-manager body-`apiKey` BYOK plan, never implemented), deleted by this decision; git keeps the body recoverable.
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
 - **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes a user-chosen backend safe), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire whose base URL this makes user-chosen; amended below), [ADR-0049](0049-inference-is-its-own-box-the-daemon-never-infers.md) (the swappable inference server; amended below), [ADR-0030](0030-agents-are-immutable-capability-bundles.md) (the model is in the capability bundle; the backend is transport, not capability), [ADR-0033](0033-a-conversation-has-one-transport-and-two-triggers.md) (the inference stream is the pluggable axis, distinct from the conversation's sync transport), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (secrets stay off the synced plaintext path), [ADR-0051](0051-one-agent-loop-its-store-seam-chooses-persistence.md) (the one loop these engines drive)
 
 ## Context

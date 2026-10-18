@@ -1,7 +1,8 @@
 # 0564. An AI connection's endpoint is stored with its key, not in its row
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
 - **Amends:** [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at the row's `endpoint` field, the `savedForAnotherAddress` state, the kind named `endpoint`, the key commands' names and arguments, and the capability-file rule that lets an app into `so.epicenter`: a row holds `kind`, `title`, and `model`, the endpoint lives only in the keychain entry, the kind is `openai-compatible`, and `AI_CONNECTION_APPS` names the apps whose windows open `so.epicenter`.
 - **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at `AI_CONNECTION_APPS`: every installed app's window is permitted into `so.epicenter`, and the list is deleted.
 - **Amended by:** [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at "its row in `so.epicenter` holds only `kind`, `title`, and `model`" and "A page learns a connection's endpoint from the keychain": the kind, title, and model are in `connections.json` in app data, the endpoint stays with the key, and a page learns everything but the key.

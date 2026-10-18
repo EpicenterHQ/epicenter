@@ -1,8 +1,9 @@
 # 0049. Inference is its own box; the daemon never infers; the client loop talks to a swappable inference server
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-21
 - **Supersedes:** [ADR-0038](0038-a-daemon-answers-through-the-first-inference-backend-it-can-satisfy.md) (the daemon no longer resolves a `ChatStream` or answers; inference leaves the daemon entirely)
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
 - **Relates:** [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md) (the client owns the loop; the daemon provides data as dispatched actions), [ADR-0033](0033-a-conversation-has-one-transport-and-two-triggers.md) (the metered inference stream this names a box), [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) (tools are dispatched actions), [ADR-0030](0030-agents-are-immutable-capability-bundles.md) (an agent's model and tools), [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md) (the relay stays content-blind), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the wire this box speaks)
 - **Amended by:** [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (2026-06-22): the BYOK arm "Epicenter's gateway when passed through" is withdrawn. The hosted gateway is house-key-only and always metered; a user's own provider key lives only on a custom inference backend, the self-hosted/local arm this ADR already named as the clean home.
 

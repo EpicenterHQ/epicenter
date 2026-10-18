@@ -1,7 +1,8 @@
 # 0579. Epicenter never deletes a model from the shared Hugging Face cache
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no AI connection or local model.
 - **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at `models/<provider>/<model-id>/` in app data and "A person deletes them in Settings"; [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at "deleting" in Home's model administration. Models stay in the shared Hugging Face cache, and Settings shows a model's folder instead of deleting it.
 
 ## Context
