@@ -308,7 +308,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 	});
 }
 
-test('Bun publication failure leaves the folder usable and reports the actual destination failure', async () => {
+test('Bun publication failure leaves the folder usable, reports the actual destination failure, and is tried again before the next write', async () => {
 	const root = await scratch('definition-failure-');
 	await mkdir(join(root, SCHEMA), { recursive: true });
 	const folder = expectOk(
@@ -328,6 +328,16 @@ test('Bun publication failure leaves the folder usable and reports the actual de
 				reason: expect.stringContaining('is a directory'),
 			},
 		});
+		// Once what was in the way is gone, the next write publishes.
+		await rm(join(root, SCHEMA), { recursive: true });
+		expectOk(await folder.write('again.txt', null, 'again'));
+		expect(decode(expectOk(await folder.files.read(SCHEMA)).bytes)).toBe(
+			schemaOf(definition),
+		);
+		// Confirmed, it is not published again.
+		await rm(join(root, SCHEMA));
+		expectOk(await folder.write('third.txt', null, 'third'));
+		expect(expectErr(await folder.files.read(SCHEMA)).name).toBe('NotFound');
 	} finally {
 		await folder.close();
 		await rm(root, { recursive: true, force: true });

@@ -13,9 +13,8 @@
  * - A Markdown row merges by field at any depth, with no definition
  * - A rename on one side carries the other side's edit to the new path
  * - A file against a directory stands beside it as `~local` or `~remote`
- * - A JSON file, `epicenter.json` included, merges key by key, nested
- *   objects recursing, and a key both changed is this device's; local paths
- *   are in no merge
+ * - A JSON file merges key by key, nested objects recursing, and a key
+ *   both changed is this device's
  * - A file moved beside a directory never takes a name another file holds
  * - `mergeMessage` writes one `Overrode:` trailer per lost unit
  */
@@ -151,7 +150,6 @@ test('one-sided changes keep their blob, and competing ones go to this device', 
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			'notes.md': 'ONE\ntwo\nmine\n',
@@ -193,7 +191,6 @@ test("a rename carries the other side's edit to the new path", async () => {
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			'todos/stroll.md': '---\ntitle: Walk\ndone: true\n---\n',
@@ -222,7 +219,6 @@ test('a file against a directory stands beside it, by the side it came from', as
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			keep: 'k\n',
@@ -262,7 +258,6 @@ test('a row two levels deep merges by field, with no definition', async () => {
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			[path]: row('Evening walk', 'true'),
@@ -271,26 +266,26 @@ test('a row two levels deep merges by field, with no definition', async () => {
 	});
 });
 
-test('epicenter.json merges key by key, nested objects too, and local paths are in no merge', async () => {
+test('a JSON file merges key by key, nested objects too', async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (theme: string, size: string) =>
 			`{\n\t"meta": {\n\t\t"theme": ${theme},\n\t\t"size": ${size}\n\t}\n}\n`;
 		const base = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('1', '1'), 'cache.db': 'base\n' },
+			{ 'epicenter.json': declaration('1', '1') },
 			[],
 			100,
 		);
 		const ours = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('2', '1'), 'cache.db': 'ours\n' },
+			{ 'epicenter.json': declaration('2', '1') },
 			[base],
 			200,
 		);
 		const theirs = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('1', '2'), 'cache.db': 'theirs\n' },
+			{ 'epicenter.json': declaration('1', '2') },
 			[base],
 			200,
 		);
@@ -298,7 +293,6 @@ test('epicenter.json merges key by key, nested objects too, and local paths are 
 			base,
 			ours,
 			theirs,
-			isLocal: (path) => path.endsWith('.db'),
 		});
 		// Each side's key stands; the result is neither side's, so it is
 		// written with a two-space indent.
@@ -336,7 +330,6 @@ test("a JSON key both sides changed is this device's, an array included", async 
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			'epicenter.json': declaration('Mine', ['audio/', 'cache/']),
@@ -374,7 +367,6 @@ test('a file moved beside a directory takes a name nothing else holds', async ()
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			keep: 'k\n',

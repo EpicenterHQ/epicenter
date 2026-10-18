@@ -11,18 +11,16 @@ import { encodeHistory, type HistoryRequest } from './history-wire.js';
 
 /** One history command of the Epicenter shell, with the arguments a page sends. */
 export type ShellHistoryCommand =
-	| { readonly command: 'status'; readonly appLocal?: readonly string[] }
+	| { readonly command: 'status' }
 	| { readonly command: 'history'; readonly depth: number }
 	| {
 			readonly command: 'save_version';
 			readonly message: string | null;
-			readonly appLocal?: readonly string[];
 	  }
 	| {
 			readonly command: 'sync';
 			readonly remote: string | null;
 			readonly allowUnrelated: boolean;
-			readonly appLocal?: readonly string[];
 	  };
 
 /** The request a shell history command makes of the CLI. */
@@ -56,13 +54,8 @@ export async function answerShellHistory(
 	options: Partial<HistoryOptions> = {},
 ): Promise<{ code: number; reply: string | null; stderr: string }> {
 	try {
-		const appLocal =
-			'appLocal' in shell && shell.appLocal?.length
-				? shell.appLocal
-				: undefined;
 		const reply = await runHistory(root, historyRequestOf(shell), {
 			author: CLI_AUTHOR,
-			appLocal,
 			...options,
 		});
 		return {

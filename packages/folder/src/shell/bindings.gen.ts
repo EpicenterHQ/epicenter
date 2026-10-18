@@ -5,16 +5,16 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**  The folder's changed files, its head, and its remote, ahead and behind. */
-	status: (scope: string, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("status", { scope, appLocal })),
+	status: (scope: string) => typedError<CliExit, CliError>(__TAURI_INVOKE("status", { scope })),
 	/**  The folder's last `depth` versions. */
 	history: (scope: string, depth: number) => typedError<CliExit, CliError>(__TAURI_INVOKE("history", { scope, depth })),
 	/**  Record the folder's edits as a version, with `message` when a person gave one. */
-	saveVersion: (scope: string, message: string | null, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message, appLocal })),
+	saveVersion: (scope: string, message: string | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message })),
 	/**
 	 *  Record the folder's edits, fetch, merge by each file's kind into one
 	 *  merge commit, and push (ADR-0576). Sync asks the person nothing.
 	 */
-	sync: (scope: string, remote: string | null, allowUnrelated: boolean, appLocal: string[]) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, appLocal })),
+	sync: (scope: string, remote: string | null, allowUnrelated: boolean) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated })),
 };
 
 /* Types */

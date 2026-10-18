@@ -65,12 +65,11 @@ type PreparedDefinition<TDefinition extends Definition> = {
 /**
  * What a folder reads its files through: a definition that names no dataset.
  *
- * Its `local` patterns name files that stay on the machine that wrote them.
- * Every commit leaves out a path they match, and untracks one already
- * committed, whatever `.gitignore` says (`git/scope.ts`). No schema file
- * carries them: before its first write a handle adds each pattern the root
- * `.gitignore` lacks, so every host, the `epicenter` CLI and plain `git`
- * agrees (`publish-definition.ts`).
+ * Its `local` patterns are lines its app's own folder's root `.gitignore`
+ * gets: before its first write a handle adds each one the file lacks
+ * (`publish-definition.ts`), and `epicenter generate` does the same. Nothing
+ * else reads them: `.gitignore` alone decides what stays on one machine, on
+ * every host, as Git reads it (ADR-0592, `git/scope.ts`).
  */
 export type { Definition };
 

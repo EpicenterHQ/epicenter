@@ -19,9 +19,7 @@ import { events } from './publication-log.test-support.js';
 afterEach(() => {
 	events.length = 0;
 });
-const { publishDefinition, publishLocalPatterns } = await import(
-	'./publish-definition.js'
-);
+const { publishDefinition } = await import('./publish-definition.js');
 
 const definition = defineFolder({
 	tables: { todos: defineTable({ fields: { title: field.string() } }) },
@@ -99,16 +97,11 @@ test('the same JSON spelled otherwise is put over once, guarded by what was read
 });
 
 test('the schema replaces the file it read whole, keys only the file held included', async () => {
-	const titled = defineFolder({
-		title: 'Mine',
-		tables: definition.tables,
-		local: ['audio/'],
-	});
+	const titled = defineFolder({ title: 'Mine', tables: definition.tables });
 	const there = '{"type":"object","properties":{},"note":"x"}\n';
 	const { storage, writes, paths } = recording([holding(there)]);
-	// The definition's `local` is answered for `.gitignore`, and its title
-	// and `local` are in no file: the schema is the table's alone.
-	expect(await publishDefinition(titled, storage)).toEqual(['audio/']);
+	// The title is in no file: the schema is the table's alone.
+	expect(await publishDefinition(titled, storage)).toBe(true);
 	expect(paths).toEqual([SCHEMA]);
 	expect(writes).toEqual([{ text: schema, ifMatch: await shaOf(there) }]);
 	expect(events).toEqual([]);
@@ -255,14 +248,15 @@ test('a thrown write retains its cause without claiming whether the save landed'
 	});
 });
 
-test('a .gitignore that cannot be read writes nothing and names .gitignore in the log', async () => {
+test('a .gitignore that cannot be read writes nothing, names .gitignore in the log, and leaves the publication unconfirmed', async () => {
 	const storage = {
 		read: async (path: string) => FileError.NotAFile({ path }),
 		put: async () => {
 			throw new Error('nothing is written');
 		},
-	} as unknown as Parameters<typeof publishLocalPatterns>[1];
-	await publishLocalPatterns(['audio/'], storage);
+	} as unknown as Parameters<typeof publishDefinition>[1];
+	const local = defineFolder({ tables: {}, local: ['audio/'] });
+	expect(await publishDefinition(local, storage)).toBe(false);
 	expect(events).toHaveLength(1);
 	expect(events[0]?.data).toMatchObject({
 		name: 'LocalPatternsUnconfirmed',

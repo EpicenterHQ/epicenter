@@ -92,10 +92,11 @@ export type DeclaredTable = TableDeclaration & DeclaredMark;
 export type Definition = {
 	readonly title?: string;
 	/**
-	 * Files that stay on the machine that wrote them, as `.gitignore` patterns
-	 * such as `audio/`. A storage that syncs commits none of them. Each is one
-	 * line that ignores something: not empty, not a comment or a negation, and
-	 * without surrounding whitespace.
+	 * Lines a storage that syncs writes into its `.gitignore` when it first
+	 * writes, such as `audio/`, so those files stay on the machine that wrote
+	 * them; `.gitignore` is what decides, and nothing reads these patterns
+	 * afterward. Each is one line that ignores something: not empty, not a
+	 * comment or a negation, and without surrounding whitespace.
 	 */
 	readonly local?: readonly string[];
 	readonly tables: {

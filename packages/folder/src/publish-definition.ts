@@ -21,6 +21,7 @@
  */
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import { formatDefinition } from './declaration.js';
 import type { Definition } from './definition.js';
@@ -61,45 +62,57 @@ const PublicationError = defineErrors({
 });
 
 /**
- * Await one publication of each table of `prepared` at its
- * `<table>/.epicenter.json`: the formatted schema put over the file it read,
- * guarded by that file's hash, so the schema replaces what it read whole. A
- * file already holding the schema is left as it is. Another writer landing
- * between the read and the put makes the put stale, and the publication
- * reads that file and replaces it instead, at most `WRITE_ATTEMPTS` times;
- * it never merges with it. A failure is logged per file and never refuses
- * the write it precedes, nor the other tables' publications.
- *
- * Answers the definition's `local` patterns, for `.gitignore`.
+ * Await one publication of `prepared`: each table's schema at its
+ * `<table>/.epicenter.json` (`writeSchemaFile`), then its `local` patterns
+ * into the root `.gitignore` (`nameLocalPatterns`). A failure is logged per
+ * file and never refuses the write it precedes, nor the other files'
+ * publications. Answers whether every file is confirmed, so a handle whose
+ * publication failed tries again before its next write.
  */
 export async function publishDefinition(
 	prepared: Definition,
 	storage: Publisher,
-): Promise<readonly string[]> {
-	for (const [path, text] of Object.entries(formatDefinition(prepared)))
-		await publishFile(path, encoder.encode(text), storage);
-	return prepared.local ?? [];
+): Promise<boolean> {
+	let confirmed = true;
+	for (const [path, text] of Object.entries(formatDefinition(prepared))) {
+		const { error } = await writeSchemaFile(path, text, storage);
+		if (error === null) continue;
+		confirmed = false;
+		log.error(
+			PublicationError.DefinitionPublicationUnconfirmed({ path, cause: error }),
+		);
+	}
+	const { error } = await nameLocalPatterns(prepared.local ?? [], storage);
+	if (error !== null) {
+		confirmed = false;
+		log.error(PublicationError.LocalPatternsUnconfirmed({ cause: error }));
+	}
+	return confirmed;
 }
 
-/** One schema file's publication: `bytes` replace what `path` held, or a failure is logged. */
-async function publishFile(
+/**
+ * Put `text` at the schema file `path`, over the file it read and guarded
+ * by that file's hash, so the schema replaces what it read whole. A file
+ * already holding the text is left as it is (`false`); `true` when it was
+ * written. Another writer landing between the read and the put makes the put
+ * stale, and the file is read and replaced again, at most `WRITE_ATTEMPTS`
+ * times; it never merges with it. A thrown write can also have landed, so
+ * its cause is the failure, claiming nothing about the file.
+ */
+export async function writeSchemaFile(
 	path: string,
-	bytes: Uint8Array,
+	text: string,
 	storage: Publisher,
-): Promise<void> {
-	let failure: unknown = WriteError.KeptChanging({
-		path,
-		attempts: WRITE_ATTEMPTS,
-	}).error;
+): Promise<Result<boolean, unknown>> {
+	const bytes = encoder.encode(text);
 	try {
 		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 			const read = await storage.read(path);
-			if (read.error !== null && read.error.name !== 'NotFound') {
-				failure = writeFailure(path, read.error);
-				break;
-			}
+			if (read.error !== null && read.error.name !== 'NotFound')
+				return Err(writeFailure(path, read.error));
 			const current = read.error === null ? read.data : null;
-			if (current !== null && sameContent(bytes, current.bytes)) return;
+			if (current !== null && sameContent(bytes, current.bytes))
+				return Ok(false);
 			const { data: put, error } = await confirmedPut(
 				storage,
 				path,
@@ -107,54 +120,46 @@ async function publishFile(
 				current?.sha256 ?? null,
 				await hashBytes(bytes),
 			);
-			if (error !== null) {
-				failure = writeFailure(path, error);
-				break;
-			}
-			if (put === 'landed') return;
+			if (error !== null) return Err(writeFailure(path, error));
+			if (put === 'landed') return Ok(true);
 		}
 	} catch (cause) {
-		// A thrown write can also have landed. Retain the cause without claiming
-		// the destination is missing, unchanged, or successfully published.
-		failure = cause;
+		return Err(cause);
 	}
-	log.error(
-		PublicationError.DefinitionPublicationUnconfirmed({ path, cause: failure }),
-	);
+	return Err(WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS }).error);
 }
 
 /**
- * Await one attempt to make the root `.gitignore` name each `local`
- * pattern, skipped when every pattern is already one of its lines. A missing
- * file is created holding the patterns. A present one gains the missing
- * patterns as lines at its end; nothing in it is reordered, rewritten, or
- * removed, so a person's own lines stay. The addition is written with the
- * one write, from the file as it was read, so a line another writer adds
- * meanwhile stays too; the file is read again until it names every pattern,
- * since a line another writer removed meanwhile stays removed in that merge.
- * A failure is logged and never refuses the write it precedes.
+ * Make the root `.gitignore` name each `local` pattern, skipped when every
+ * pattern is already one of its lines (`false`); `true` when it was written.
+ * A missing file is created holding the patterns. A present one gains the
+ * missing patterns as lines at its end; nothing in it is reordered,
+ * rewritten, or removed, so a person's own lines stay. The addition is
+ * written with the one write, from the file as it was read, so a line
+ * another writer adds meanwhile stays too; the file is read again until it
+ * names every pattern, since a line another writer removed meanwhile stays
+ * removed in that merge. Only a missing file reads as empty: any other read
+ * failure is the answer, and nothing is written.
  */
-export async function publishLocalPatterns(
+export async function nameLocalPatterns(
 	local: readonly string[],
 	storage: Publisher,
-): Promise<void> {
-	if (local.length === 0) return;
-	let failure: unknown = 'another writer kept removing the patterns';
+): Promise<Result<boolean, unknown>> {
+	if (local.length === 0) return Ok(false);
+	let written = false;
 	try {
 		// Read again after each write: the merge keeps a line another writer
 		// removed meanwhile, so a landed write is not yet every pattern.
 		for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 			const read = await storage.read(GITIGNORE_PATH);
-			if (read.error !== null && read.error.name !== 'NotFound') {
-				failure = writeFailure(GITIGNORE_PATH, read.error);
-				break;
-			}
+			if (read.error !== null && read.error.name !== 'NotFound')
+				return Err(writeFailure(GITIGNORE_PATH, read.error));
 			const current = read.error === null ? read.data.bytes : null;
 			const next = gitignoreNaming(
 				current === null ? '' : new TextDecoder().decode(current),
 				local,
 			);
-			if (next === undefined) return;
+			if (next === undefined) return Ok(written);
 			const { error } = await writeFile(
 				storage,
 				GITIGNORE_PATH,
@@ -162,15 +167,13 @@ export async function publishLocalPatterns(
 				next,
 				{ joining: true },
 			);
-			if (error !== null) {
-				failure = error;
-				break;
-			}
+			if (error !== null) return Err(error);
+			written = true;
 		}
 	} catch (cause) {
-		failure = cause;
+		return Err(cause);
 	}
-	log.error(PublicationError.LocalPatternsUnconfirmed({ cause: failure }));
+	return Err('another writer kept removing the patterns');
 }
 
 /**

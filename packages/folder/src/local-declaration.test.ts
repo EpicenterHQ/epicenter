@@ -1,9 +1,9 @@
 /**
  * Local Declaration Tests
  *
- * What stays on one machine is the folder's `.gitignore` (ADR-0592). A
- * definition may still declare `local`, which an opened handle adds to
- * `.gitignore` and hands its history, but no file in the folder carries it:
+ * What stays on one machine is the folder's `.gitignore` alone (ADR-0592).
+ * A definition may still declare `local`, lines an app's own handle adds to
+ * `.gitignore` before its first write, but no file in the folder carries it:
  * a table's `.epicenter.json` is its schema alone, and a root
  * `epicenter.json` is an ordinary file nothing reads. So the desktop's Sync
  * and Save version, which run in the `epicenter` CLI (`runHistory`), read

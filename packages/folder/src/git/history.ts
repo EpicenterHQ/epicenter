@@ -32,7 +32,6 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage, LockingStorage } from '../boundary.js';
-import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import type { FolderHistory } from '../folder.js';
 import { sameContent } from '../merge-file.js';
@@ -66,7 +65,7 @@ import {
 	writeFilesTree,
 } from './objects.js';
 import { createPassRunner } from './runner.js';
-import { localMatcher, sourceFiles } from './scope.js';
+import { isGitignore } from './scope.js';
 import type { SyncOptions, SyncOutcome } from './sync.js';
 
 export { GitError };
@@ -155,21 +154,11 @@ export function createHistory({
 	backend,
 	boundary,
 	author,
-	definition,
-	appLocal,
 	landed = () => {},
 }: {
 	backend: GitBackend;
 	boundary: LockingStorage;
 	author: Author;
-	/** The prepared definition whose `local` patterns no commit carries; nothing else reads it, so it leaves with `local` (ADR-0592). */
-	definition?: Definition;
-	/**
-	 * The `local` patterns of an app reading a folder that is not its own:
-	 * untracked files they match are never committed, and the folder's
-	 * definition is not changed (`sourceFiles`).
-	 */
-	appLocal?: readonly string[];
 	/** Paths a Sync wrote or removed, whether or not it completed. */
 	landed?: (paths: readonly string[]) => void;
 }): FolderHistory {
@@ -288,17 +277,51 @@ export function createHistory({
 	}
 
 	/**
-	 * Every portable file's bytes, read now, for a commit or a status. A file
-	 * removed while it is read is left out, as if the listing had missed it;
-	 * a file that cannot be read throws, naming it.
+	 * The history source now, read for a commit or a status: every file
+	 * `tracked` holds, and every other portable file `.gitignore` does not
+	 * exclude (ADR-0592). The `.gitignore` files are read first, since they
+	 * decide what else is read; an ignored file that is not tracked is never
+	 * read. A tracked file stays source whatever `.gitignore` says, as in Git.
+	 * A file removed while it is read is left out, as if the listing had
+	 * missed it; a file that cannot be read throws, naming it.
 	 */
-	async function capture() {
+	async function captureSource(tracked: ReadonlyMap<string, unknown>) {
 		const { data: listed, error } = await boundary.list();
 		if (error !== null) throw new Error(error.message);
+		const paths = listed.files
+			.map(({ path }) => path)
+			.filter((path) => isPortablePath(path));
+		const rules = await readFiles(paths.filter(isGitignore));
+		const untracked = paths.filter((path) => !tracked.has(path));
+		const ignored =
+			untracked.length === 0
+				? new Set<string>()
+				: await backend.ignoredPaths(untracked, rules);
+		const kept = paths.filter((path) => !ignored.has(path));
+		const source = await readFiles(kept.filter((path) => !rules.has(path)));
+		for (const path of kept) {
+			const bytes = rules.get(path);
+			if (bytes !== undefined) source.set(path, bytes);
+		}
+		return new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1)));
+	}
+
+	/** Every `.gitignore` file's bytes now: what the ignore rules read. */
+	async function gitignoreFiles() {
+		const { data: listed, error } = await boundary.list();
+		if (error !== null) throw new Error(error.message);
+		return readFiles(
+			listed.files
+				.map(({ path }) => path)
+				.filter((path) => isPortablePath(path) && isGitignore(path)),
+		);
+	}
+
+	/** The bytes of `paths`, leaving out a file removed meanwhile. */
+	async function readFiles(paths: readonly string[]) {
 		const files = new Map<string, Uint8Array>();
 		const unreadable: string[] = [];
-		for (const { path } of listed.files) {
-			if (!isPortablePath(path)) continue;
+		for (const path of paths) {
 			const read = await boundary.read(path);
 			if (read.error === null) files.set(path, read.data.bytes);
 			else if (read.error.name !== 'NotFound') unreadable.push(path);
@@ -308,32 +331,6 @@ export function createHistory({
 				`${unreadable.length} files could not be read: ${unreadable.join(', ')}`,
 			);
 		return files;
-	}
-
-	type IsLocal = (path: string) => boolean;
-
-	/**
-	 * Files kept on this machine: what the definition keeps (ADR-0577;
-	 * ADR-0592 replaces it with `.gitignore`). No commit carries one, whether
-	 * or not `.gitignore` names it.
-	 */
-	const isLocal: IsLocal = localMatcher(definition?.local ?? []);
-
-	const isAppLocal = localMatcher(appLocal);
-
-	/** Captured files that are history source under the shared scope rule. */
-	function source(
-		current: ReadonlyMap<string, Uint8Array>,
-		tracked: ReadonlyMap<string, unknown>,
-		isLocal: IsLocal,
-	) {
-		return sourceFiles(
-			current,
-			tracked,
-			backend.ignoredPaths,
-			isLocal,
-			isAppLocal,
-		);
 	}
 
 	/**
@@ -386,13 +383,10 @@ export function createHistory({
 		async run() {
 			const capturedAt = ++clock;
 			try {
-				const captured = await capture();
 				const head = await backend.readBranch();
 				const committed = await headFiles(head);
 				// Status shows what a commit would record.
-				const hashes = await hashFiles(
-					await source(captured, committed, isLocal),
-				);
+				const hashes = await hashFiles(await captureSource(committed));
 				const value: FilesObservation = {
 					head,
 					changes: diffFileMaps(committed, hashes),
@@ -456,9 +450,8 @@ export function createHistory({
 		const parent = await backend.readBranch();
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
-		const current = await capture();
 		const committed = await headFiles(parent);
-		const included = await source(current, committed, isLocal);
+		const included = await captureSource(committed);
 		// An empty folder with no history has nothing to record, and writes
 		// nothing: not even an empty tree.
 		const built =
@@ -672,19 +665,10 @@ export function createHistory({
 		return Ok(undefined);
 	}
 
-	/**
-	 * The files `from` and `to` hold, and the paths Sync changes between
-	 * them, local paths aside (ADR-0577).
-	 */
-	async function between(
-		from: string | undefined,
-		to: string,
-		isLocal: IsLocal,
-	) {
+	/** The files `from` and `to` hold, and the paths Sync changes between them. */
+	async function between(from: string | undefined, to: string) {
 		const [before, after] = await Promise.all([headFiles(from), headFiles(to)]);
-		const changes = diffFileMaps(before, after).filter(
-			(change) => !isLocal(change.path),
-		);
+		const changes = diffFileMaps(before, after);
 		return { before, after, changes };
 	}
 	type Between = Awaited<ReturnType<typeof between>>;
@@ -768,7 +752,10 @@ export function createHistory({
 	 */
 	async function madeHere(untracked: readonly string[]) {
 		if (untracked.length === 0) return { made: [], ignored: [] };
-		const ignored = await backend.ignoredPaths(untracked, await capture());
+		const ignored = await backend.ignoredPaths(
+			untracked,
+			await gitignoreFiles(),
+		);
 		return {
 			made: untracked.filter((path) => !ignored.has(path)),
 			ignored: untracked.filter((path) => ignored.has(path)),
@@ -879,7 +866,7 @@ export function createHistory({
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
-		const plan = await between(from, to, isLocal);
+		const plan = await between(from, to);
 		const way = await inTheWay(boundary, plan);
 		const { made, ignored } = await madeHere(way.untracked);
 		const refused = wayProblem(way.failed, [...way.occupied, ...ignored]);
@@ -1195,7 +1182,6 @@ export function createHistory({
 						base,
 						ours: mine,
 						theirs,
-						isLocal,
 					});
 					return writeCommitObject(access, {
 						tree: result.tree,
@@ -1214,10 +1200,7 @@ export function createHistory({
 				// What stands in the way stops Sync before the merge is sent; a
 				// file the person made since the checkpoint is recorded, and
 				// merged in from the start.
-				const way = await inTheWay(
-					boundary,
-					await between(mine, merged, isLocal),
-				);
+				const way = await inTheWay(boundary, await between(mine, merged));
 				const { made, ignored } = await madeHere(way.untracked);
 				const inWay = wayProblem(way.failed, [...way.occupied, ...ignored]);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });

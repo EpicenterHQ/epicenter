@@ -184,13 +184,11 @@ export async function openAnyFolder<
 			});
 			return {
 				boundary,
-				history: (prepared, appLocal) =>
+				history: () =>
 					createHistory({
 						backend,
 						boundary,
 						author,
-						definition: prepared,
-						appLocal,
 						landed,
 					}),
 			};

@@ -1,19 +1,20 @@
 /**
  * Local Pattern Tests
  *
- * A definition's `local` patterns name files that stay on the machine that
- * wrote them. Before its first write a handle adds each one the root
- * `.gitignore` lacks, and both Git backends then leave the files out of what
- * Sync commits and sends.
+ * A definition's `local` patterns are lines its own folder's `.gitignore`
+ * gets: before its first write a handle adds each one the root `.gitignore`
+ * lacks. From then on `.gitignore` alone decides, read as Git reads it, and
+ * both Git backends leave what it ignores out of what Sync commits and sends
+ * (ADR-0592).
  *
  * Key behaviors:
  * - A missing `.gitignore` is created; a person's own lines are kept and only
  *   missing patterns are appended
  * - Patterns that cannot be one ignoring line are refused at the declaration
- * - On both backends, Sync sends the rows and never a local file: not with
- *   the `.gitignore` in place, not without it, not past a person's `!`
- *   exception, and one committed before the rule is untracked, its bytes
- *   kept on disk and out of the pushed tree
+ * - On both backends, Sync sends the rows and never an ignored file; a file
+ *   tracked before the rule stays tracked, as in Git; a person's `!`
+ *   exception is honoured as Git honours it; and with the `.gitignore`
+ *   removed, nothing keeps the audio out
  * - A pattern another device's `.gitignore` brings in by Sync stays there
  *   through the next publication, which only adds lines
  */
@@ -41,7 +42,7 @@ import {
 import { hashBytes } from './hash.js';
 import { events } from './publication-log.test-support.js';
 
-const { publishLocalPatterns } = await import('./publish-definition.js');
+const { nameLocalPatterns } = await import('./publish-definition.js');
 
 const tables = {
 	recordings: defineTable({ fields: { title: field.string() } }),
@@ -88,15 +89,14 @@ function gitignoreStorage(text: string | undefined) {
 			text = bytes === null ? undefined : decode(bytes);
 			return Ok('landed');
 		},
-	} as unknown as Parameters<typeof publishLocalPatterns>[1];
+	} as unknown as Parameters<typeof nameLocalPatterns>[1];
 	return { storage, writes };
 }
 
 test('a missing .gitignore is created holding the patterns', async () => {
 	const { storage, writes } = gitignoreStorage(undefined);
-	await publishLocalPatterns(
-		['recordings/*.wav', 'recordings/*.webm'],
-		storage,
+	expectOk(
+		await nameLocalPatterns(['recordings/*.wav', 'recordings/*.webm'], storage),
 	);
 	expect(writes).toEqual([
 		{ text: 'recordings/*.wav\nrecordings/*.webm\n', ifMatch: null },
@@ -106,9 +106,8 @@ test('a missing .gitignore is created holding the patterns', async () => {
 test("a person's own lines are kept and only missing patterns are appended", async () => {
 	const mine = '# mine\n*.log\nrecordings/*.wav';
 	const { storage, writes } = gitignoreStorage(mine);
-	await publishLocalPatterns(
-		['recordings/*.wav', 'recordings/*.webm'],
-		storage,
+	expectOk(
+		await nameLocalPatterns(['recordings/*.wav', 'recordings/*.webm'], storage),
 	);
 	expect(writes).toEqual([
 		{
@@ -134,8 +133,10 @@ test('a pattern another writer removes while publication writes is named again',
 			text = decode(bytes ?? new Uint8Array());
 			return Ok('landed');
 		},
-	} as unknown as Parameters<typeof publishLocalPatterns>[1];
-	await publishLocalPatterns(['audio/', 'cache/'], storage);
+	} as unknown as Parameters<typeof nameLocalPatterns>[1];
+	expect(expectOk(await nameLocalPatterns(['audio/', 'cache/'], storage))).toBe(
+		true,
+	);
 	expect(
 		text
 			.split('\n')
@@ -147,7 +148,9 @@ test('a pattern another writer removes while publication writes is named again',
 
 test('a .gitignore already naming every pattern is not written', async () => {
 	const { storage, writes } = gitignoreStorage('*.log\r\nrecordings/*.wav\r\n');
-	await publishLocalPatterns(['recordings/*.wav'], storage);
+	expect(expectOk(await nameLocalPatterns(['recordings/*.wav'], storage))).toBe(
+		false,
+	);
 	expect(writes).toEqual([]);
 });
 
@@ -321,7 +324,7 @@ for (const [name, fixture] of [
 		}
 	});
 
-	test(`${name}: audio committed before the rule is untracked by the next Sync and kept on disk`, async () => {
+	test(`${name}: audio tracked before the rule stays tracked, as in Git`, async () => {
 		const at = await fixture();
 		const before = await at.open(unruled);
 		try {
@@ -333,16 +336,18 @@ for (const [name, fixture] of [
 		}
 		const after = await at.open();
 		try {
-			// The first write publishes the rule.
+			// The first write publishes the rule; the tracked take is still
+			// source, and a change to it is recorded and sent.
 			await recordTake(after.folder, 'run');
+			await after.write('audio/walk.wav', 'RIFF, trimmed');
 			await at.sync(after.folder);
 			expect(await at.remoteTree()).toEqual([
 				'.gitignore',
+				'audio/walk.wav',
 				'recordings/.epicenter.json',
 				'recordings/run.md',
 				'recordings/walk.md',
 			]);
-			expect(await after.read('audio/walk.wav')).toBe('RIFF');
 			expect(await after.read('audio/run.wav')).toBe('RIFF');
 		} finally {
 			await after.folder.close();
@@ -373,7 +378,7 @@ for (const [name, fixture] of [
 		}
 	});
 
-	test(`${name}: without a .gitignore, Sync still leaves the audio out`, async () => {
+	test(`${name}: .gitignore is the only rule: removed, the audio is committed`, async () => {
 		const at = await fixture();
 		const opened = await at.open();
 		try {
@@ -382,6 +387,7 @@ for (const [name, fixture] of [
 			expect(await opened.read('.gitignore')).toBeUndefined();
 			await at.sync(opened.folder);
 			expect(await at.remoteTree()).toEqual([
+				'audio/walk.wav',
 				'recordings/.epicenter.json',
 				'recordings/walk.md',
 			]);
@@ -390,18 +396,20 @@ for (const [name, fixture] of [
 		}
 	});
 
-	test(`${name}: a person's ! exception in .gitignore does not get the audio committed`, async () => {
+	test(`${name}: a person's ! exception in .gitignore is honoured as Git honours it`, async () => {
 		const at = await fixture();
 		const opened = await at.open();
 		try {
 			await recordTake(opened.folder, 'x');
-			// Plain `git add -A` would now take audio/x.wav.
+			await recordTake(opened.folder, 'y');
 			await opened.write('.gitignore', 'audio/*\n!audio/x.wav\n');
 			await at.sync(opened.folder);
 			expect(await at.remoteTree()).toEqual([
 				'.gitignore',
+				'audio/x.wav',
 				'recordings/.epicenter.json',
 				'recordings/x.md',
+				'recordings/y.md',
 			]);
 		} finally {
 			await opened.folder.close();

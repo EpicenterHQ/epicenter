@@ -44,7 +44,7 @@ function folderName(location: FolderLocation): string {
 }
 
 /**
- * Make the folder's storage, and its history once the definition is known.
+ * Make the folder's storage, and its history once the definition is read.
  * `relay` hears each landed step, for the detector; `landed` hears the
  * paths an incoming update wrote.
  */
@@ -53,15 +53,8 @@ type StartFolder = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
 }) => Promise<{
 	readonly boundary: FolderStorage;
-	/**
-	 * The history, whose Sync merges rows by `definition`, and which never
-	 * commits an untracked file `appLocal` matches: the `local` patterns of
-	 * an app reading a folder that is not its own.
-	 */
-	readonly history: (
-		definition: Definition,
-		appLocal?: readonly string[],
-	) => FolderHistory;
+	/** Start the history, which reads no definition (ADR-0591, ADR-0592). */
+	readonly history: () => FolderHistory;
 }>;
 
 /**
@@ -131,12 +124,7 @@ export async function openAtRoot<TDefinition extends Definition>(
 		}
 		// A change made once the handle is returned is heard.
 		await detected?.ready;
-		// An app keeps its own `local` files out of a folder it reads through
-		// its definition, without writing them into that folder's definition.
-		const opened = started.history(
-			prepared,
-			target.own ? undefined : definition?.local,
-		);
+		const opened = started.history();
 		history = opened;
 		const folder = assembleFolder<TDefinition, Definition>({
 			id: target.id,

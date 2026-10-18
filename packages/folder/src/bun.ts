@@ -217,12 +217,6 @@ export type HistoryOptions = {
 	 */
 	readonly application?: boolean;
 	/**
-	 * The `local` patterns of an app reading a folder that is not its own
-	 * (ADR-0583): an untracked file they match is never committed, and the
-	 * folder's schema files are not changed.
-	 */
-	readonly appLocal?: readonly string[];
-	/**
 	 * The credential for the remote a fetch or push names, asked for each
 	 * transfer with the URL the folder's history reads.
 	 */
@@ -240,14 +234,14 @@ export type HistoryOptions = {
  * The folder is opened for its history alone: its file storage and history
  * over this process's `git` (`systemHistory`). No schema is read: history
  * reads none, and what stays on one machine is the folder's `.gitignore`
- * and `appLocal`. A save version and a sync hold the folder's history
+ * alone (ADR-0592). A save version and a sync hold the folder's history
  * lock (`holdingHistoryLock`), so two processes never interleave them.
  * Reading status or the log takes no lock.
  */
 export async function runHistory(
 	root: string,
 	request: HistoryRequest,
-	{ author, application = false, appLocal, credentials }: HistoryOptions,
+	{ author, application = false, credentials }: HistoryOptions,
 ): Promise<HistoryReply<unknown>> {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null)
@@ -283,9 +277,7 @@ export async function runHistory(
 	)({
 		landed: (paths) => landed.push(...paths),
 	});
-	// A folder's own schema files keep nothing local: what stays on one
-	// machine is its `.gitignore`, and `appLocal` (ADR-0592).
-	const history = open(undefined, appLocal);
+	const history = open();
 	try {
 		const result = await (async (): Promise<unknown> => {
 			switch (request.op) {
@@ -368,6 +360,15 @@ export async function directoryRoot(
 }
 
 /** The folder's storage over this process's file system at `resolved`. */
+/**
+ * The directory at `resolved` as folder storage, its saves taking the save
+ * lock every cooperating writer takes, for a tool that changes a folder's
+ * files without opening it, such as `epicenter generate`.
+ */
+export function directoryStorage(resolved: string): LockingStorage {
+	return directory(resolved).storage;
+}
+
 function directory(resolved: string) {
 	const files = savingPrimitives(resolved);
 	return {

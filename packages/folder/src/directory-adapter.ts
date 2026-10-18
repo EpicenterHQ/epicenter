@@ -20,16 +20,14 @@ import type { Opening } from './opening.js';
 
 /**
  * A directory folder's history, made when the folder opens: `landed` hears
- * the paths an incoming update wrote. Answers the history for the definition
- * the handle reads with; without one, Sync merges rows as text. `appLocal`
- * is the `local` patterns of an app reading a folder that is not its own,
- * whose untracked matches are never committed.
+ * the paths an incoming update wrote. Answers how to start the history once
+ * the handle's definition is known. No definition reaches it: Sync merges
+ * by each file's content, and `.gitignore` alone decides what stays on one
+ * machine (ADR-0591, ADR-0592).
  */
 export type DirectoryHistory = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
-}) => Promise<
-	(definition?: Definition, appLocal?: readonly string[]) => FolderHistory
->;
+}) => Promise<() => FolderHistory>;
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given

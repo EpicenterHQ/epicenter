@@ -23,9 +23,9 @@
  *   cannot add rows: `canCreate` is false and `create` is `InvalidValues`
  *   naming each such field
  * - A browser folder read through a definition behaves the same
- * - What the definition keeps on this machine (`local`) never enters the
- *   folder's history, while a file the folder already tracks stays tracked,
- *   and the folder's schema files and `.gitignore` are not changed
+ * - The folder's own `.gitignore` alone decides what stays on one machine:
+ *   the reading app's `local` patterns change nothing there, and the
+ *   folder's schema files and `.gitignore` are not changed
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -393,10 +393,11 @@ test('a browser folder read through a definition reads, writes, and refuses alik
 	).toBe('DefinitionMismatch');
 });
 
-test("a definition's local files never enter the folder's history, and what it tracks stays", async () => {
+test("a folder another app reads keeps what its own .gitignore says: the app's local patterns change nothing there", async () => {
 	const root = await folderRoot('read-through-local-');
 	await mkdir(join(root, 'audio'));
 	await writeFile(join(root, 'audio/kept.wav'), 'committed before');
+	await writeFile(join(root, '.gitignore'), 'drafts/\n');
 	await git(root, 'init', '--quiet', '--initial-branch=main');
 	await git(root, 'add', '-A');
 	await git(root, 'commit', '--quiet', '-m', 'base');
@@ -410,23 +411,25 @@ test("a definition's local files never enter the folder's history, and what it t
 	);
 	expect(folder.own).toBe(false);
 	expectOk(await folder.write('audio/new.wav', null, 'recorded here'));
-	expectOk(await folder.write('audio/kept.wav', 'committed before', 'changed'));
+	expectOk(await folder.write('drafts/mine.md', null, 'kept here'));
 	expectOk(await folder.tables.todos.set('milk', { status: 'done' }));
 
 	const status = expectOk(await folder.git.status());
 	expect(status.changes.map((change) => change.path).sort()).toEqual([
-		'audio/kept.wav',
+		'audio/new.wav',
 		'todos/milk.md',
 	]);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+		'.gitignore',
 		'audio/kept.wav',
+		'audio/new.wav',
 		'projects/.epicenter.json',
 		'settings/.epicenter.json',
 		'todos/.epicenter.json',
 		'todos/milk.md',
 	]);
 	expect(await readTables(root)).toEqual(DECLARED);
-	expect(existsSync(join(root, '.gitignore'))).toBe(false);
+	expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('drafts/\n');
 	await folder.close();
 });

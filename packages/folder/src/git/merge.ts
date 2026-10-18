@@ -119,7 +119,7 @@ function followRenames(
 
 /**
  * Merge `ours` and `theirs` over `base` into a tree, with `ours` the writer
- * acting. `isLocal` names the paths kept out of every commit.
+ * acting.
  */
 export async function mergeHistories(
 	access: ObjectAccess,
@@ -127,19 +127,15 @@ export async function mergeHistories(
 		base,
 		ours,
 		theirs,
-		isLocal,
 	}: {
 		readonly base: string | undefined;
 		readonly ours: string;
 		readonly theirs: string;
-		readonly isLocal: (path: string) => boolean;
 	},
 ): Promise<HistoryMerge> {
-	const kept = (files: Map<string, TreeFile>) =>
-		new Map([...files].filter(([path]) => !isLocal(path)));
-	const b = kept(await filesOf(access, base));
-	const o = kept(await filesOf(access, ours));
-	const t = kept(await filesOf(access, theirs));
+	const b = await filesOf(access, base);
+	const o = await filesOf(access, ours);
+	const t = await filesOf(access, theirs);
 	followRenames(b, o, t);
 	followRenames(b, t, o);
 	const result = new Map<string, TreeFile>();

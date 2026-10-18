@@ -33,10 +33,7 @@ import type { Author, CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import type { FileContent } from './merge-file.js';
 import { callObserver } from './observer.js';
-import {
-	publishDefinition,
-	publishLocalPatterns,
-} from './publish-definition.js';
+import { publishDefinition } from './publish-definition.js';
 import { createTable, type FileTable } from './table.js';
 import { movePath, type Written, writeFile } from './write.js';
 
@@ -285,7 +282,7 @@ export function createFileHints(): FileHints {
  * host's. A call made once closing started is `Closed`; one already begun
  * owns its result. With `published`, the handle publishes that definition
  * just before its first change (`publish-definition.ts`), through the same
- * accounting. Each put that changed a file, or may have, makes the history's
+ * accounting, and again before the next change while it is unconfirmed. Each put that changed a file, or may have, makes the history's
  * observations stale; it is not reported to the handle's own listeners
  * (ADR-0548), since whoever saved holds the result.
  */
@@ -310,12 +307,16 @@ function handleStorage(
 			return result;
 		},
 	};
+	// One publication runs at a time, and every change waits for it. Only a
+	// confirmed one is kept: after a failure the next change tries again.
+	let confirmed = false;
 	let publishing: Promise<void> | undefined;
 	const publish = async () => {
-		if (published === undefined) return;
-		publishing ??= publishDefinition(published, noting).then((local) =>
-			publishLocalPatterns(local, noting),
-		);
+		if (published === undefined || confirmed) return;
+		publishing ??= publishDefinition(published, noting).then((done) => {
+			confirmed = done;
+			publishing = undefined;
+		});
 		await publishing;
 	};
 	return {

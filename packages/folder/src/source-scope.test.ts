@@ -2,8 +2,9 @@
  * History Source Scope Tests
  *
  * Status, whole-folder commits, and incoming fast-forwards share one inclusion
- * rule: tracked files stay source, untracked files are source unless
- * `.gitignore` excludes them. SQLite filenames have no special source policy.
+ * rule on every host: tracked files stay source, untracked files are source
+ * unless `.gitignore` excludes them, and an ignored untracked file is never
+ * read (ADR-0592). SQLite filenames have no special source policy.
  *
  * Key behaviors:
  * - Root and nested `.gitignore` rules, negation, and ignored directories
@@ -15,13 +16,18 @@
  * - `index-reconcile.test.ts` for staged-only intent after a checkpoint
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { type Folder, openFolder as openBrowserFolder } from './browser.js';
-import { testBrowserStorage } from './browser-storage.test-support.js';
+import {
+	rawBrowserFolder,
+	testBrowserStorage,
+} from './browser-storage.test-support.js';
+import { runHistory } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
+import { createHistory } from './git/history.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
 	GIT_ENV,
@@ -29,7 +35,7 @@ import {
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
-import { put } from './put.test-support.js';
+import { overwrite, put } from './put.test-support.js';
 
 const definition = defineFolder({
 	tables: {
@@ -204,5 +210,57 @@ describe('native folder scope', () => {
 		);
 		await writer.close();
 		await reader.close();
+	});
+});
+
+describe('an ignored file that is not tracked is never read', () => {
+	test('in a browser folder, status and a commit read no ignored file', async () => {
+		const raw = await rawBrowserFolder({ id: 'scope-unread' });
+		await overwrite(raw.boundary, '.gitignore', 'audio/\n');
+		await overwrite(raw.boundary, 'audio/take.wav', 'RIFF');
+		await overwrite(raw.boundary, 'notes.md', 'kept\n');
+		const read: string[] = [];
+		const boundary = {
+			...raw.boundary,
+			read(path: string) {
+				read.push(path);
+				return raw.boundary.read(path);
+			},
+		};
+		const history = createHistory({
+			backend: await raw.backend(),
+			boundary,
+			author,
+		});
+		try {
+			expect(
+				expectOk(await history.status()).changes.map(({ path }) => path),
+			).toEqual(['.gitignore', 'notes.md']);
+			expect((await history.commit()).status).toBe('committed');
+			expect(read).not.toContain('audio/take.wav');
+			expect(read).toContain('notes.md');
+		} finally {
+			await history.close();
+		}
+	});
+
+	test('through the CLI, as the desktop runs it, an ignored file that cannot be read is never read: it stops nothing', async () => {
+		const root = await scratch('scope-unread-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, '.gitignore'), 'audio/\n');
+		await writeFile(join(root, 'notes.md'), 'kept\n');
+		// A link is a file a folder never reads: reading it would refuse.
+		await mkdir(join(root, 'audio'));
+		await symlink(join(root, 'notes.md'), join(root, 'audio/take.wav'));
+		const saved = await runHistory(
+			root,
+			{ op: 'saveVersion', message: 'Notes' },
+			{ author, application: true },
+		);
+		expect(saved.result).toMatchObject({ status: 'committed' });
+		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+			'.gitignore',
+			'notes.md',
+		]);
 	});
 });

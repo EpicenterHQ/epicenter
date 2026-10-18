@@ -23,8 +23,8 @@
  *   another folder in its query, still opens the folder the shell handed it
  * - A page that names an app its window does not run is `AppMismatch`, and
  *   asks for no folder
- * - The app's `local` files in a handed folder never enter its history: the
- *   page passes the patterns to the CLI's history, and writes them nowhere
+ * - A handed folder's own `.gitignore` decides what its history takes: the
+ *   page passes no patterns to the CLI's history, and writes none
  *
  * See also:
  * - `read-through.test.ts` for the containment check and the Bun rule
@@ -304,10 +304,11 @@ test('a folder opened by ID with no definition reads its own table schemas, what
 	await folder.close();
 });
 
-test("a handed folder's history never takes the app's local files, and its declaration is not changed", async () => {
+test("a handed folder's own .gitignore decides what its history takes, the app passes no patterns, and its declaration is not changed", async () => {
 	openWindow('data:Groceries');
 	const root = await grant('Groceries', {
 		...GROCERIES,
+		'.gitignore': 'audio/\n',
 		'todos/milk.md': '---\ntitle: Milk\ndone: false\naisle: dairy\n---\n',
 	});
 	const recorder = defineFolder({
@@ -324,9 +325,12 @@ test("a handed folder's history never takes the app's local files, and its decla
 	expect((await folder.git.commit()).status).toBe('committed');
 
 	const asked = shell.calls.filter(({ cmd }) => cmd === 'save_version');
-	expect(asked.map(({ args }) => args.appLocal)).toEqual([['audio/']]);
+	expect(asked.map(({ args }) => Object.keys(args).sort())).toEqual([
+		['message', 'scope'],
+	]);
 	const committed = await git(root, 'ls-files');
 	expect(committed.split('\n').sort()).toEqual([
+		'.gitignore',
 		'stores/.epicenter.json',
 		'todos/.epicenter.json',
 		'todos/milk.md',
