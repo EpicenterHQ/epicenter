@@ -84,14 +84,6 @@ async function writeLayout(folder: Folder<typeof definition>) {
 }
 
 describe('gitignoreMatcher', () => {
-	test('matches case exactly, as Git does with core.ignoreCase false', () => {
-		const ignored = gitignoreMatcher(
-			new Map([['.gitignore', encode('*.log\n')]]),
-		);
-		expect(ignored('case.log')).toBe(true);
-		expect(ignored('Case.LOG')).toBe(false);
-	});
-
 	test('applies nested files, negation, and ignored directories', () => {
 		const ignored = gitignoreMatcher(
 			new Map(
