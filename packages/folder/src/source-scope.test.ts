@@ -10,6 +10,7 @@
  * - A tracked file stays tracked after a rule starts matching it
  * - Browser and native folders agree with `git status` about what is dirty
  * - A fast-forward preserves ignored files and refuses to overwrite one
+ * - Status and commits decide ignored files by path and never read them
  *
  * See also:
  * - `index-reconcile.test.ts` for staged-only intent after a checkpoint
@@ -18,10 +19,17 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import type { LockingStorage } from './boundary.js';
 import { type Folder, openFolder as openBrowserFolder } from './browser.js';
-import { testBrowserStorage } from './browser-storage.test-support.js';
+import {
+	rawBrowserFolder,
+	testBrowserStorage,
+} from './browser-storage.test-support.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
+import type { GitBackend } from './git/backend.js';
+import { createHistory } from './git/history.js';
+import { commitTree, readTreeFiles } from './git/objects.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
 	GIT_ENV,
@@ -29,7 +37,7 @@ import {
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
-import { put } from './put.test-support.js';
+import { overwrite, put } from './put.test-support.js';
 
 const definition = defineFolder({
 	tables: {
@@ -121,6 +129,79 @@ describe('browser folder scope', () => {
 		await folder.close();
 	});
 });
+
+describe('ignored files are never read', () => {
+	test('status and a commit leave an ignored recording out without reading its bytes', async () => {
+		const raw = await rawBrowserFolder({ id: 'scope-unread' });
+		const backend = await raw.backend();
+		// Any read of an ignored file fails the status or the commit that made it.
+		const boundary: LockingStorage = {
+			...raw.boundary,
+			read(path) {
+				if (path.endsWith('.wav'))
+					throw new Error(`read the ignored file ${path}`);
+				return raw.boundary.read(path);
+			},
+		};
+		const history = createHistory({ backend, boundary, author });
+		await overwrite(raw.boundary, '.gitignore', '*.wav\n');
+		await overwrite(raw.boundary, 'notes.md', 'kept\n');
+		await overwrite(raw.boundary, 'recordings/take.wav', 'audio bytes');
+
+		const status = expectOk(await history.status());
+		expect(status.changes.map((change) => change.path)).toEqual([
+			'.gitignore',
+			'notes.md',
+		]);
+		const commit = await history.commit();
+		expect(commit).toMatchObject({ status: 'committed', changedPaths: 2 });
+		expect(expectOk(await history.status()).changes).toEqual([]);
+		await history.close();
+	});
+});
+
+describe('a .gitignore read once', () => {
+	test('one missing when selection reads it is not committed when it reappears', async () => {
+		const raw = await rawBrowserFolder({ id: 'scope-late-gitignore' });
+		const backend = await raw.backend();
+		// `.gitignore` reads as missing once, as during a replace, then is back.
+		let hidden = true;
+		const boundary: LockingStorage = {
+			...raw.boundary,
+			read(path) {
+				if (path === '.gitignore' && hidden) {
+					hidden = false;
+					return raw.boundary.read('no-such-file');
+				}
+				return raw.boundary.read(path);
+			},
+		};
+		const history = createHistory({ backend, boundary, author });
+		await overwrite(raw.boundary, '.gitignore', 'secret.txt\n');
+		await overwrite(raw.boundary, 'notes.md', 'kept\n');
+		await overwrite(raw.boundary, 'secret.txt', 'chosen without rules\n');
+
+		const commit = await history.commit();
+		expect(commit.status).toBe('committed');
+		const files = await headPaths(backend);
+		// Selection ran without the rules, so the commit holds no rules either:
+		// the late bytes never pair with a file they would have ignored.
+		expect(files).not.toContain('.gitignore');
+		expect(files).toEqual(['notes.md', 'secret.txt']);
+		await history.close();
+	});
+});
+
+/** The paths of the branch head's tree. */
+async function headPaths(backend: GitBackend) {
+	const head = await backend.readBranch();
+	if (head === undefined) return [];
+	return backend.withObjects(async (access) =>
+		[
+			...(await readTreeFiles(access, await commitTree(access, head))).keys(),
+		].sort(),
+	);
+}
 
 describe('native folder scope', () => {
 	test('agrees with git status and never commits ignored files', async () => {

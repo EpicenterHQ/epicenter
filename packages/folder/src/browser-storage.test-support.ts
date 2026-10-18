@@ -19,6 +19,7 @@ import type { BrowserFolderOptions } from './contract.js';
 import type { FolderLocation } from './folder.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
+import type { HttpFetch } from './git/http.js';
 import {
 	type MemoryOpfs,
 	memoryOpfs,
@@ -88,10 +89,14 @@ export function locationOf(id: string): FolderLocation {
 export type RawBrowserFolder = {
 	readonly boundary: LockingStorage;
 	/** A Git backend on the same storage, with the locks the opener uses. */
-	/** With `remote`, its URL is set in Git configuration first. */
+	/**
+	 * With `remote`, its URL is set in Git configuration first; `httpFetch`
+	 * carries its transfers.
+	 */
 	backend(options?: {
 		branch?: string;
 		remote?: GitRemote;
+		httpFetch?: HttpFetch;
 	}): Promise<GitBackend>;
 	/**
 	 * Every stored entry except Git objects, by kind and path, with values
@@ -157,12 +162,13 @@ export async function rawBrowserFolder({
 			locks: testLocks,
 			filesLock,
 		}),
-		backend: async ({ branch = 'main', remote } = {}) => {
+		backend: async ({ branch = 'main', remote, httpFetch } = {}) => {
 			const backend = await createStoredGitBackend({
 				folder: presentFolder(root),
 				locks: testLocks,
 				lockName: `epicenter-folder:${id}:git`,
 				branch,
+				httpFetch,
 			});
 			if (remote !== undefined) await backend.setRemote(remote.url);
 			return backend;
