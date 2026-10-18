@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Supersedes:** [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md), [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md), [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md), [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md), [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md), [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md), [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md), [ADR-0567](0567-epicenter-ships-for-macos-only-for-now.md), [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md), [ADR-0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md), [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md), [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md), [ADR-0586](0586-you-open-a-folder-never-an-app.md), [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md), [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md), [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md), [ADR-0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md), [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md), [ADR-0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md), [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md), [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md), [ADR-0609](0609-a-new-data-folder-copies-its-apps-template-once.md), and [ADR-0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md), the desktop host: Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
-- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command set, the `app` group, and "`sync --to` is Connect": the CLI is `login`, `sync`, `check`, and `query`, over plain Git.
-- **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (the table), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app's identity and grants).
+- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command set, the `app` group, and "`sync --to` is Connect": the CLI is `login`, `sync`, `check`, `query`, and `mv`, over plain Git.
+- **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (the table), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app's identity and grants), [ADR-0625](0625-epicenter-mv-renames-a-row-in-one-commit.md) (`epicenter mv`).
 - **Unbuilt:** almost all of it: the `@epicenter/data` package; `epicenter login` installing Git's credential helper; `epicenter sync` over plain Git; Epicenter Captures on `@epicenter/data`; the deletion of `apps/epicenter` and the CLI's `app` group; and Whispering as its own Tauri app.
 
 ## Context
@@ -46,7 +46,7 @@ THE GIT SERVICE    git.epicenter.so, the front door to every repository
   Git smart HTTP                authorized on every request, then served from
                                 Cloudflare Artifacts (apps/api/worker/git-repositories.ts)
                                 or a disk store when self-hosted (packages/server/src/git-disk-store.ts)
-THE CLI            epicenter login · sync · check · query
+THE CLI            epicenter login · sync · check · query · mv
 THE LIBRARY        @epicenter/data, imported by any website
 ```
 
@@ -64,7 +64,7 @@ site lacks. Epicenter Captures (`apps/capture`) is the first. Whispering
 later becomes its own Tauri app that links transcribe-cpp itself and reaches
 the Git service as a client.
 
-**The CLI is `login`, `sync`, `check`, and `query`, over plain Git.**
+**The CLI is `login`, `sync`, `check`, `query`, and `mv`, over plain Git.**
 
 ```txt
 epicenter login    signs in and installs Git's credential helper for the Git service,
@@ -72,6 +72,7 @@ epicenter login    signs in and installs Git's credential helper for the Git ser
 epicenter sync     in a clone: git add -A, git commit, git pull --no-rebase, git push
 epicenter check    lists every file that does not fit its table, and every conflict marker
 epicenter query    one read-only SQL statement over the tables
+epicenter mv       renames a row and its folder in one commit (ADR-0625)
 ```
 
 `git pull --no-rebase` merges with Git's own rules. A merge driver that
@@ -84,7 +85,7 @@ Withdrawn: `generate`, `status`, `history`, `save-version`, `clone`,
 
 ## Consequences
 
-- An agent on a Mac works on a clone with plain `git` and four commands; a
+- An agent on a Mac works on a clone with plain `git` and five commands; a
   website works on its own clone through the library; both read the same
   files.
 - The CLI needs a system `git`, as the desktop host did.
