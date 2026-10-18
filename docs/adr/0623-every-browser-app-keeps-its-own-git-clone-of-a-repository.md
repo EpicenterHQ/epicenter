@@ -55,7 +55,8 @@ objects        one record per Git object, keyed by oid, held inflated;
                a fetched pack is unpacked once, and no pack is kept
 refs           each ref's name and the oid it points at
 unsent edits   path → { bytes, base }: a path's bytes saved since the last commit,
-               and base, the blob id the edit started from
+               or null for a deleted path, and base, the blob id the edit
+               started from
 ```
 
 There is no pack at rest, no row cache, no working tree, no checkout, and

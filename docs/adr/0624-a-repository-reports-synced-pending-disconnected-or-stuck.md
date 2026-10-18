@@ -55,8 +55,10 @@ fetch
 **The only refusals are a non-text write from the library
 ([ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md)),
 a push that would rewrite history
-([ADR-0620](0620-history-in-a-repository-only-grows.md)), and what Git
-cannot represent; everything else is accepted.** Nothing about a file's
+([ADR-0620](0620-history-in-a-repository-only-grows.md)), what Git cannot
+represent, and a new row id that differs from an existing one only by case
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md));
+everything else is accepted.** Nothing about a file's
 content, a table's description, or an app's schema is a refusal. A browser
 clone carries untouched any tree entry it cannot represent, such as a
 symlink, an executable, or a submodule, anywhere in the tree (ADR-0623).

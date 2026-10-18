@@ -126,8 +126,11 @@ to it appended alphabetically
   a conflict marker.
 - **A Git merge driver, `merge.epicenter.driver`.** Each machine registers
   it and each repository opts in with a `.gitattributes` line; Git calls
-  no driver for a file one side deleted, and Git writes the merge commit,
-  so it carries no `Overrode:` trailer.
+  no driver for a file one side deleted, a file against a directory, or a
+  rename; Git writes the merge commit, so it carries no `Overrode:`
+  trailer; and Git also runs the driver for `git revert`, `cherry-pick`, and
+  `stash pop`, where letting the current side win can keep the very change
+  a revert means to undo, so a repair by revert could fail silently.
 - **A save whose body always replaces the row's.** Two tabs editing
   different paragraphs of one row lose one tab's edit.
 - **Fields set as named, outside the merge.** A save then has two rules,
