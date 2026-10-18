@@ -68,7 +68,8 @@ Different tools can use different definitions to interpret the same files.
 Compatible field meanings still matter when those tools write to the same
 dataset.
 
-Opening writes nothing. A folder's tables are its top-level directories that
+Opening writes nothing, save the `.gitignore` lines an app's own folder
+needs for its `local` patterns (below). A folder's tables are its top-level directories that
 hold a `.epicenter.json` (`SCHEMA_FILE`), the table's schema; a directory
 without one is plain files, never a table, and nothing at the folder's root
 declares anything (ADR-0611). One handle publishes the schemas: an app's, in
@@ -129,15 +130,21 @@ const definition = defineFolder({
 `local` is part of the definition, not of any file, and it is not a rule:
 what stays on one machine is the folder's root `.gitignore` alone, on every
 host, read as Git reads it (ADR-0592). `local` is the lines an app's own
-folder's `.gitignore` gets. Before the handle's first write, with the
-schemas, the handle makes the root `.gitignore` name each pattern, and
-`epicenter generate` does the same. A missing `.gitignore` is created holding
-the patterns. A present one gains each missing pattern as a line at its end,
+folder's `.gitignore` gets, and they are a prerequisite, not a best effort.
+Opening the app's own folder makes the root `.gitignore` name each pattern
+before the handle exists, so nothing the app starts, a native recording
+included, writes such a file unignored; when it cannot, the open is
+`IgnoreUnwritten` and nothing opens. Each change through the handle checks
+them again first and is refused while they cannot be written. `epicenter
+generate` writes them too. A missing `.gitignore` is created holding the
+patterns. A present one gains each missing pattern as a line at its end,
 written with the one write from the file as it was read, so a line another
 writer adds meanwhile stays; its other lines are never reordered, rewritten,
-or removed, and a file that already names every pattern is not written. A
-failed write is logged, and the publication is tried again before the next
-write. The `.gitignore` is source like any other file, so it syncs. A
+or removed, and a file that already names every pattern, line for line, is
+not written. The `.gitignore` is source like any other file, so it syncs.
+Opening an app's own folder whose definition has `local` therefore writes
+that one file; one without `local` still writes nothing until its first
+change. A
 definition without `local` writes nothing there. `local` is sorted and kept
 once each.
 
@@ -145,8 +152,14 @@ History reads `.gitignore` and nothing else (`git/scope.ts`). A tracked file
 stays tracked whatever `.gitignore` says, as in Git: untracking one is an
 explicit act, and history keeps what it held. An untracked file `.gitignore`
 excludes is never source and never read: status does not offer it, and a
-whole-folder commit leaves it out. A person's `!` exception is honoured as
-Git honours it.
+whole-folder commit leaves it out. Nor is an untracked `.gitignore` inside a
+directory a shallower rule excludes, as Git never reads one there. One
+exception is deliberate: the native checkpoint reads an ignored, untracked
+`.gitattributes` that governs a recorded file beneath it, to refuse a Git
+filter it names, since that filter would change what a commit holds. A
+person's `!` exception is honoured as Git honours it. Sync never reads an
+ignored untracked file where the remote adds one either: it stops, naming
+it, whatever bytes it holds.
 
 No publication drops a pattern: it only adds lines, so a pattern a Sync
 brought from another device stays. `.gitignore` merges by line.
@@ -1318,8 +1331,9 @@ the folder, so it includes saves made while it waited. If the folder closes
 while it still waits, it is told `closed` and nothing runs.
 
 Source files are tracked files plus untracked files that `.gitignore` does not
-exclude; an excluded untracked file is never read, and private Git state is
-never source. SQLite filenames have no special
+exclude; an excluded untracked file is never read (save an ignored
+`.gitattributes` the native checkpoint checks for a filter), and private Git
+state is never source. SQLite filenames have no special
 exclusion: an intentionally saved database follows ordinary Git rules. Plain Git
 records binary files like any other file. There is no default audio ignore, no
 format list, and no LFS; `.gitignore` is the one way a folder keeps files
