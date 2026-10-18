@@ -134,9 +134,11 @@ folder's `.gitignore` gets, and they are a prerequisite, not a best effort.
 Opening the app's own folder makes the root `.gitignore` name each pattern
 before the handle exists, so nothing the app starts, a native recording
 included, writes such a file unignored; when it cannot, the open is
-`IgnoreUnwritten` and nothing opens. Each change through the handle checks
-them again first and is refused while they cannot be written. `epicenter
-generate` writes them too. A missing `.gitignore` is created holding the
+`IgnoreUnwritten` and nothing opens. The handle checks them once more
+before its first change, with its schema publication, and refuses that
+change while they cannot be written; it checks again before each later
+change only until that publication is confirmed. `epicenter generate` writes
+them too. A missing `.gitignore` is created holding the
 patterns. A present one gains each missing pattern as a line at its end,
 written with the one write from the file as it was read, so a line another
 writer adds meanwhile stays; its other lines are never reordered, rewritten,

@@ -13,8 +13,9 @@
  * wrote them never enter a commit, plain `git add -A` included (ADR-0592).
  * That is no best-effort step: opening the folder writes the lines, and the
  * open fails when it cannot, so nothing such as a recording starts before
- * them; a handle's change checks them again first and is refused while they
- * are missing. It only adds lines: a person's own lines stay as they are,
+ * them; the handle checks them once more before its first change, which is
+ * refused while they are missing, and again before later changes only until
+ * its publication is confirmed. It only adds lines: a person's own lines stay as they are,
  * and so does a pattern a Sync brought from another device.
  *
  * Both go through the host's storage rather than the handle's writes, so a
