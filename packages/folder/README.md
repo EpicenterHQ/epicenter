@@ -1317,6 +1317,22 @@ once: it captures the folder again, so it records everything the lost
 attempt held, over the new head. A second move is reported as `branchMoved`.
 Commit and push failures never undo a save.
 
+A capture lists every file but reads and hashes only those whose stat
+changed. `.git/epicenter/capture-cache` remembers, for each file whose
+modification time was more than three seconds older than the listing that
+read it, the size, time, and (in Bun) inode and change time the listing
+gave, and the blob its bytes hashed to (`src/git/capture-cache.ts`,
+ADR-0617). A file whose listing still says exactly that is captured as that
+blob. A path the folder saves, moves, or publishes, or hears another page
+change, is forgotten at once, and a listing that begins before the latest
+listing that wrote the cache, on a clock stepped back, uses none of it. The
+cache only saves reads: deleted, corrupted, or from an older version, it is
+no cache, and every capture records what one without it would. A commit
+stores it; a status only keeps it in memory, so a status writes nothing.
+It assumes only the folder writes its browser directory: Chromium's
+in-memory storage keeps a file's old time for a write in place, which the
+folder never makes.
+
 A save never asks for a commit (ADR-0529). A commit happens only when a caller
 asks for one: `commit()`, or sync's checkpoint before it fetches, which a
 folder with no commit yet skips. A commit that fails otherwise is reported
@@ -1559,6 +1575,7 @@ dangle.
 | `src/tauri-files.ts` | A desktop page's storage: one folder plugin command per storage method. |
 | `src/directory-store.ts`, `directory-primitives.ts`, `directory-node.ts` | The Bun directory's storage over seven file system calls, and those calls over `node:fs`. |
 | `src/git/merge.ts`, `git/history.ts` | Sync's one merge commit as objects, and the coordinator that checkpoints, fetches, pushes, and publishes. |
+| `src/git/capture-cache.ts` | The stat cache a capture reads before it reads a file. |
 | `git/native-*.ts` | The `git` program a directory folder records history with, in Bun. |
 | `src/history-wire.ts`, `tauri-history.ts` | A desktop page's history: the reply line the `epicenter` CLI prints for what it runs (`runHistory` in `bun.ts`), and the page's `folder.git` over the shell's history commands. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
@@ -1595,7 +1612,11 @@ in the package's exports.
 
 A reference field has no integrity: nothing checks its target, and rename
 repairs no references. Browser bytes are stored whole.
-A whole-folder checkpoint or status scan reads and hashes the whole folder.
+A whole-folder checkpoint or status scan lists the whole folder: in a
+browser, one `getFile` for each file. A native
+checkpoint also walks the folder twice to refuse what it cannot represent,
+and a native folder's first commit stores each new blob with one
+`git hash-object -w`.
 Version checks on disk are best effort
 against other programs. File bytes cross the desktop bridge as JSON number
 arrays, which is slow for large audio.

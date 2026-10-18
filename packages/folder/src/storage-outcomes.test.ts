@@ -128,8 +128,20 @@ test.each(
 						);
 				case 'children':
 					return storage.children(path);
-				case 'list':
-					return storage.list();
+				case 'list': {
+					// The vectors pin what every host lists; stats are a host's own.
+					const listed = await storage.list();
+					if (listed.error !== null) return listed;
+					return {
+						data: {
+							files: listed.data.files.map(({ path, size }) => ({
+								path,
+								size,
+							})),
+							directories: listed.data.directories,
+						},
+					};
+				}
 			}
 		})();
 

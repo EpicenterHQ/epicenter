@@ -212,7 +212,7 @@ export function memoryOpfs(): MemoryOpfs {
 					lastModified: Math.max(Date.now(), ++clock),
 				});
 			},
-			async getFile(): Promise<OpfsFile & { lastModified: number }> {
+			async getFile(): Promise<OpfsFile> {
 				const node = fileAt(path);
 				const { version, bytes, lastModified } = node;
 				return {
@@ -420,6 +420,7 @@ export function memoryOpfs(): MemoryOpfs {
 			if (existing?.kind === 'file') {
 				existing.bytes = bytes.slice();
 				existing.version++;
+				existing.lastModified = Math.max(Date.now(), ++clock);
 			} else
 				directory.children.set(name, {
 					kind: 'file',

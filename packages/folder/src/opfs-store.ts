@@ -4,9 +4,10 @@
  * Each literal folder path is one stored file under the folder's directory,
  * and each directory, empty ones included, is one stored directory. There is
  * no inventory beside the files: a file's identity is the SHA-256 of the
- * bytes read from it, never its size or modification time. `.git` at the
- * folder root is private Git state. No portable path can name it, and
- * listing never shows it.
+ * bytes read from it, never its size or modification time. A listing gives
+ * both, which only lets a capture skip reading a file whose stat it has seen
+ * before (`git/capture-cache.ts`). `.git` at the folder root is private Git
+ * state. No portable path can name it, and listing never shows it.
  *
  * The folder's directory is made by its first change, never by opening or
  * reading (`OpfsFolder`).
@@ -41,6 +42,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type HostFiles,
 	isStaleScratch,
+	type ListedFile,
 	type LockingStorage,
 	lockingStorage,
 	PRIVATE_DIRECTORY,
@@ -54,6 +56,8 @@ import { ancestors, basename } from './paths.js';
 /** A snapshot of a stored file. */
 export type OpfsFile = {
 	readonly size: number;
+	/** When its bytes last changed, in milliseconds on this browser's clock. */
+	readonly lastModified: number;
 	arrayBuffer(): Promise<ArrayBuffer>;
 };
 
@@ -582,15 +586,17 @@ export function createOpfsStorage({
 		guard: <T>(work: () => Promise<T>) => Promise<T>,
 	): HostFiles => ({
 		async list() {
-			const files: { path: string; size: number }[] = [];
+			const files: ListedFile[] = [];
 			const directories: string[] = [];
+			const listedAt = Date.now();
 			try {
 				const root = await folder.existing();
 				if (root !== undefined)
 					await walk(root, '', {
 						async file(path, handle) {
 							try {
-								files.push({ path, size: (await handle.getFile()).size });
+								const { size, lastModified } = await handle.getFile();
+								files.push({ path, size, modified: lastModified });
 							} catch (cause) {
 								if (errorName(cause) !== 'NotFoundError') throw cause;
 							}
@@ -600,7 +606,7 @@ export function createOpfsStorage({
 			} catch (cause) {
 				return FileError.Io({ path: '', operation: 'list', cause });
 			}
-			return Ok({ files, directories });
+			return Ok({ files, directories, listedAt });
 		},
 		async children(directory) {
 			try {

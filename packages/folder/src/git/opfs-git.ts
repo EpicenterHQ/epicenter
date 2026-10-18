@@ -199,10 +199,7 @@ function createOpfsGitSession(folder: OpfsFolder): {
 			const found = await find(folder, rel);
 			if (found.kind === 'directory') return statsFor('directory', 0);
 			if (found.kind === 'file') {
-				const file = (await found.handle.getFile()) as {
-					size: number;
-					lastModified?: number;
-				};
+				const file = await found.handle.getFile();
 				return statsFor('file', file.size, file.lastModified);
 			}
 			throw failure('ENOENT', path);

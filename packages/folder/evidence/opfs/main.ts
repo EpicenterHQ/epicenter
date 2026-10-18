@@ -46,6 +46,7 @@ import {
 	openFolder,
 	schemaPath,
 } from '../../src/browser.js';
+import { RACY_MS } from '../../src/git/capture-cache.js';
 import type { PeerReply, PeerRequest } from './peer.js';
 
 type Status = 'pass' | 'fail' | 'note';
@@ -542,6 +543,60 @@ async function filesAndLayout(id: string) {
 				rawOutcome,
 			);
 			return 'the bytes read kept 4 MiB';
+		},
+	);
+
+	await check(
+		"a folder's writes are timed on the page's clock (the capture cache's racy rule)",
+		async () => {
+			const folder = await open(id);
+			const timed = async () => {
+				const { directory, name } = await rawParent(id, 'stat/kept.md');
+				return (await (await directory.getFileHandle(name)).getFile())
+					.lastModified;
+			};
+			const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
+			ok(await folder.write('stat/kept.md', null, 'aaaa'));
+			const created = await timed();
+			await pause();
+			const before = Date.now();
+			ok(await folder.write('stat/kept.md', 'aaaa', 'bbbb'));
+			const replaced = await timed();
+			await pause();
+			const beforeRaw = Date.now();
+			await rawWrite(id, 'stat/kept.md', encoder.encode('cccc'));
+			const raw = await timed();
+			// A write after a listing must be timed later than any time the
+			// cache trusts: older than that listing by `RACY_MS`. An engine
+			// that keeps whole seconds times two writes a second apart alike,
+			// which that margin is for.
+			assert(
+				replaced >= created && replaced > before - RACY_MS,
+				`a save after ${before} is timed ${replaced}, after ${created}`,
+			);
+			assert(
+				raw >= replaced && raw > beforeRaw - RACY_MS,
+				`a raw write after ${beforeRaw} is timed ${raw}, after ${replaced}`,
+			);
+			// A write in place, which the folder never makes: whether this
+			// engine times it at all.
+			await pause();
+			const beforeInPlace = Date.now();
+			const { directory, name } = await rawParent(id, 'stat/kept.md');
+			const writable = await (
+				await directory.getFileHandle(name)
+			).createWritable({ keepExistingData: true });
+			await writable.write(encoder.encode('dddd'));
+			await writable.close();
+			const inPlace = await timed();
+			record(
+				'a same-size write in place (keepExistingData), which no folder makes',
+				'note',
+				inPlace > raw
+					? `timed ${inPlace}, after ${beforeInPlace}`
+					: `kept the time ${inPlace} it had before, at ${beforeInPlace}`,
+			);
+			return `created ${created}; saved at ${before}, timed ${replaced}; written raw at ${beforeRaw}, timed ${raw}`;
 		},
 	);
 

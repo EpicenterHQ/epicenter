@@ -89,7 +89,16 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 					? basename(await realpath(path))
 					: undefined;
 			const name = stored === asked ? stored : undefined;
-			return { kind, size: stats.size, mode: stats.mode, name };
+			return {
+				kind,
+				size: stats.size,
+				mode: stats.mode,
+				name,
+				modified: stats.mtimeMs,
+				// A save that renames a new file into place changes the inode,
+				// and any change to the file, its time included, changes ctime.
+				stamp: `${stats.dev}:${stats.ino}:${stats.ctimeMs}`,
+			};
 		} catch (cause) {
 			if ((cause as { code?: string }).code === 'ENOENT') return undefined;
 			throw cause;

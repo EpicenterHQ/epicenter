@@ -36,7 +36,9 @@ export type DirectoryPrimitives = {
 	 * `name` is the final segment as the file system stores it, which differs
 	 * from the one asked for only on a case-insensitive file system; a
 	 * platform that cannot say leaves it out, and the handle lists the parent
-	 * instead.
+	 * instead. `modified` and `stamp` are a listing's (`ListedFile` in
+	 * `boundary.ts`): the modification time in milliseconds on this process's
+	 * clock, and what else changes with the file, where the platform has them.
 	 */
 	lstat(path: string): Promise<
 		| {
@@ -44,6 +46,8 @@ export type DirectoryPrimitives = {
 				readonly size: number;
 				readonly mode?: number;
 				readonly name?: string;
+				readonly modified?: number;
+				readonly stamp?: string;
 		  }
 		| undefined
 	>;

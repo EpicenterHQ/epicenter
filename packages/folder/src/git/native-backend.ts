@@ -22,8 +22,11 @@
  * desktop page runs none of this: the `epicenter` CLI runs it for the page
  * (ADR-0559, `tauri-history.ts`).
  */
+
+import { scratchName } from '../boundary.js';
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
+import { CAPTURE_CACHE_PATH } from './capture-cache.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
@@ -170,6 +173,7 @@ export async function createNativeGitBackend({
 			: { url, authorization: basicAuthorization(credential) };
 	}
 	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
+	const captureCachePath = `${gitdir}/${CAPTURE_CACHE_PATH}`;
 
 	// Only `git init` writes `HEAD`. Writes stage their bytes under
 	// `.git/epicenter`, so `.git` alone does not mean a repository.
@@ -352,6 +356,29 @@ export async function createNativeGitBackend({
 			]);
 			const paths = text(differing.stdout).split('\0').filter(Boolean);
 			await syncIndex(commit, paths);
+		},
+		captureCache: {
+			async read() {
+				try {
+					return await files.readFile(captureCachePath);
+				} catch {
+					return undefined;
+				}
+			},
+			async write(bytes) {
+				if (!(await exists())) return;
+				// Written beside itself and renamed over, so a reader never
+				// meets part of it.
+				await files.mkdir(`${gitdir}/epicenter`);
+				const temporary = `${captureCachePath}.${scratchName()}`;
+				await files.writeFile(temporary, bytes, { createNew: true });
+				try {
+					await files.rename(temporary, captureCachePath, 'any');
+				} catch (cause) {
+					await files.remove(temporary).catch(() => {});
+					throw cause;
+				}
+			},
 		},
 		async log(depth): Promise<CommitSummary[]> {
 			if ((await resolve(branchRef)) === undefined) return [];

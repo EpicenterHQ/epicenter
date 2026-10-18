@@ -27,7 +27,15 @@ export function createFiles({
 	storage: FolderStorage;
 }): FolderFiles {
 	return Object.freeze({
-		list: () => storage.list(),
+		async list() {
+			const { data: listed, error } = await storage.list();
+			if (error !== null) return Err(error);
+			// The stats are the capture's; a folder lists paths and sizes.
+			return Ok({
+				files: listed.files.map(({ path, size }) => ({ path, size })),
+				directories: listed.directories,
+			});
+		},
 		children: (directory) => storage.children(directory),
 		async read(path) {
 			const { data: read, error } = await storage.read(path);

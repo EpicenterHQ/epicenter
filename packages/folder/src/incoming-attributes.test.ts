@@ -97,7 +97,8 @@ async function dumpDirectory(root: string) {
 				!path.startsWith('.git/objects') &&
 				!path.startsWith('.git/refs/remotes') &&
 				!path.startsWith('.git/logs/refs/remotes') &&
-				path !== '.git/FETCH_HEAD'
+				path !== '.git/FETCH_HEAD' &&
+				!path.startsWith('.git/epicenter/capture-cache')
 			)
 				dump[path] = createHash('sha256')
 					.update(await readFile(join(directory, entry.name)))
@@ -161,7 +162,9 @@ async function incoming(kind: 'browser' | 'directory') {
 				(key) =>
 					key.startsWith('/git/objects/') ||
 					key.startsWith('/git/refs/remotes/') ||
-					key === '/git/FETCH_HEAD',
+					key === '/git/FETCH_HEAD' ||
+					// The checkpoint before the fetch may remember file stats.
+					key === '/git/epicenter/capture-cache',
 			);
 	} else {
 		const local = join(root, 'local');

@@ -33,6 +33,7 @@ export type FileRead = {
 	readonly sha256: string;
 };
 
+/** What a folder lists: its files and their sizes, and its directories. */
 export type FileListing = {
 	/**
 	 * Every entry that is not a directory, including files outside portable
@@ -44,10 +45,38 @@ export type FileListing = {
 	readonly directories: readonly string[];
 };
 
+/**
+ * What storage lists: a `FileListing` with each file's stat, where the host
+ * has one. The stats let a capture skip reading a file whose stat has not
+ * changed (`git/capture-cache.ts`), and nothing else reads them: a file's
+ * identity is still the bytes read from it, and `folder.files.list()` leaves
+ * them out.
+ */
+export type StorageListing = {
+	readonly files: readonly ListedFile[];
+	readonly directories: readonly string[];
+	/**
+	 * The host's clock, in milliseconds, just before it began listing: the
+	 * clock its files' `modified` times are on. A host that gives no
+	 * `modified` times gives none.
+	 */
+	readonly listedAt?: number;
+};
+
+/** One file of a storage listing, with what the host's stat says of it. */
+export type ListedFile = {
+	readonly path: string;
+	readonly size: number;
+	/** When its bytes last changed, in milliseconds on the host's clock. */
+	readonly modified?: number;
+	/** What else the host's stat says that changes with the file: its inode and change time. */
+	readonly stamp?: string;
+};
+
 /** A folder's files, as each host stores them. */
 export type FolderStorage = {
 	/** Every entry below the folder, `.git` aside. */
-	list(): Promise<Result<FileListing, FileError>>;
+	list(): Promise<Result<StorageListing, FileError>>;
 	/**
 	 * Immediate children of a directory by name: real subdirectories in
 	 * `directories`, every other entry in `files`, including a symbolic link or
@@ -184,6 +213,7 @@ export function hostStorage(
 			return Ok({
 				files: [...listed.files].sort(byPath),
 				directories: [...listed.directories].sort(),
+				listedAt: listed.listedAt,
 			});
 		},
 		async children(directory) {

@@ -23,6 +23,7 @@ import * as isogit from 'isomorphic-git';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';
 import {
+	capturedBytes,
 	type ObjectAccess,
 	readBlob,
 	readTreeFiles,
@@ -50,11 +51,13 @@ function commitOf(
 	return (async () => {
 		const tree = await writeFilesTree(
 			access,
-			new Map(
-				Object.entries(files).map(([path, text]) => [
-					path,
-					encoder.encode(text),
-				]),
+			await capturedBytes(
+				new Map(
+					Object.entries(files).map(([path, text]) => [
+						path,
+						encoder.encode(text),
+					]),
+				),
 			),
 		);
 		const signature = {

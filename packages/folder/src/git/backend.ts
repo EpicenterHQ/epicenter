@@ -124,4 +124,15 @@ export type GitBackend = {
 	push(oid: string, signal: AbortSignal): Promise<'pushed' | 'rejected'>;
 	/** Fetch the configured remote branch; returns its commit, or undefined if absent. */
 	fetch(signal: AbortSignal): Promise<string | undefined>;
+	/**
+	 * The capture's stat cache, `.git/epicenter/capture-cache`
+	 * (`capture-cache.ts`): machine state only this folder's captures read.
+	 * `read` answers `undefined` when there is none. `write` replaces it whole,
+	 * and writes nothing while there is no repository, so a status never
+	 * creates one. Without it every capture reads every file.
+	 */
+	captureCache?: {
+		read(): Promise<Uint8Array | undefined>;
+		write(bytes: Uint8Array): Promise<void>;
+	};
 };
