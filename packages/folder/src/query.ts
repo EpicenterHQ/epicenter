@@ -299,11 +299,15 @@ function folderCache(folder: Pick<Folder<Definition>, 'location'>) {
 	function matches(change: readonly string[]) {
 		const filesChanged = change.some((path) => !inGit(path));
 		const paths = new Set(change);
-		// A table's directory is the first segment of a path inside it.
+		// A table's listing changes with one of its rows (the one row
+		// predicate, `rowStemOf`), or with its directory itself.
 		const tableDirectories = new Set(
 			change.flatMap((path) => {
+				if (inGit(path)) return [];
 				const slash = path.indexOf('/');
-				return slash === -1 || inGit(path) ? [] : [path.slice(0, slash)];
+				if (slash === -1) return [path];
+				const table = path.slice(0, slash);
+				return rowStemOf(table, path) === undefined ? [] : [table];
 			}),
 		);
 		return (query: Query) => {

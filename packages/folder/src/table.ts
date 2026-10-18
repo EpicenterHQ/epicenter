@@ -40,7 +40,7 @@ import {
 	type WriteError,
 } from './errors.js';
 import type { FileContent } from './merge-file.js';
-import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
+import { rowAddressProblem, rowPath, rowStemOfName } from './paths.js';
 import { sameValue } from './row-merge.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
 import { movePath, writeFailure, writeFile } from './write.js';
@@ -57,10 +57,12 @@ export type StoredRow<TFields> = {
 };
 
 /**
- * One item for every `.md` name directly in the table's directory, in no
- * promised order, each read through the same pipeline as `get`. A symbolic
- * link is that item's `InvalidPath` and a directory its `NotAFile`. A file
- * that went away after it was enumerated is that item's `NotFound`.
+ * One item for every row file directly in the table's directory
+ * (`rowStemOfName`), in no promised order, each read through the same
+ * pipeline as `get`. A directory is never a row, whatever its name. A
+ * symbolic link or special entry under a row's name is that item's
+ * `InvalidPath`, and a file that went away after it was enumerated is that
+ * item's `NotFound`.
  */
 export type TableListing<TFields> = readonly {
 	readonly stem: string;
@@ -260,13 +262,13 @@ export function createTable<TFields>(
 	}
 
 	/**
-	 * Every name directly in the table's directory; none when it does not exist
-	 * yet. A directory named like a row is included so reading reports it.
+	 * The name of every entry directly in the table's directory that is not
+	 * a directory; none when the directory does not exist yet.
 	 */
 	async function filenamesOf(): Promise<Result<string[], FileError>> {
 		const { data: children, error } = await storage.children(name);
 		if (error !== null) return error.name === 'NotFound' ? Ok([]) : Err(error);
-		return Ok([...children.files, ...children.directories].sort());
+		return Ok([...children.files].sort());
 	}
 
 	const fileTable: FileTable<TFields> = {
@@ -275,15 +277,16 @@ export function createTable<TFields>(
 		async list() {
 			const { data: filenames, error: listError } = await filenamesOf();
 			if (listError !== null) return Err(listError);
-			// Only the exact lowercase extension is a row; `a.MD` is an ordinary file.
 			const rows: TableListing<TFields>[number][] = [];
 			for (const file of filenames) {
-				if (!file.endsWith(ROW_EXTENSION)) continue;
-				const path = `${name}/${file}`;
+				// The one row predicate: `a.MD`, `.md`, and `.hidden.md` are ordinary files.
+				const stem = rowStemOfName(file);
+				if (stem === undefined) continue;
+				const path = rowPath(name, stem);
 				const read = await storage.read(path);
 				rows.push(
 					Object.freeze({
-						stem: file.slice(0, -ROW_EXTENSION.length),
+						stem,
 						result:
 							read.error !== null
 								? Err(read.error)

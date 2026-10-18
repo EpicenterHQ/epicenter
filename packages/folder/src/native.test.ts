@@ -310,14 +310,14 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('literal stems are rows on disk: an empty stem, a leading dot, and a trailing space; a name some disk reads as another is refused', async () => {
+	test('literal stems are rows on disk, a trailing space included; an empty stem, a leading dot, and a name some disk reads as another are refused', async () => {
 		const root = await scratch('native-literal-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
-		for (const refused of ['a: b', 'q?*', 'con'])
+		for (const refused of ['a: b', 'q?*', 'con', '', '.hidden'])
 			expect(
 				(
 					await folder.tables.todos.create(
@@ -326,7 +326,7 @@ describe('native folder', () => {
 					)
 				).error,
 			).not.toBeNull();
-		const stems = ['', '.hidden', 'trailing ', 'naïve 日本'];
+		const stems = ['trailing ', 'naïve 日本', 'a.b'];
 		for (const stem of stems) {
 			const created = mustRow(
 				await folder.tables.todos.create(
@@ -343,8 +343,17 @@ describe('native folder', () => {
 			);
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(updated);
 		}
-		// An uppercase extension is an ordinary file, not a row.
+		// An uppercase extension, an empty id, and a dot name are ordinary
+		// files, not rows.
 		await writeFile(join(root, 'todos/Loud.MD'), 'not a row');
+		await writeFile(
+			join(root, 'todos/.md'),
+			'---\ntitle: x\ndone: false\n---\n',
+		);
+		await writeFile(
+			join(root, 'todos/.hidden.md'),
+			'---\ntitle: x\ndone: false\n---\n',
+		);
 		const listing = expectOk(await folder.tables.todos.list());
 		expect(listing.map((item) => item.stem).sort()).toEqual([...stems].sort());
 		expect(expectOk(await folder.tables.todos.get('Loud'))).toBeUndefined();
@@ -357,9 +366,10 @@ describe('native folder', () => {
 			expectErr(withBinary.find((item) => item.stem === 'binary')!.result).name,
 		).toBe('InvalidUtf8');
 
-		expectOk(await folder.tables.todos.rename('', 'named'));
+		expectOk(await folder.tables.todos.rename('trailing ', 'named'));
 		expectOk(await folder.tables.todos.delete('named'));
-		expect(await readdir(join(root, 'todos'))).not.toContain('.md');
+		expect(await readdir(join(root, 'todos'))).not.toContain('trailing .md');
+		expect(await readdir(join(root, 'todos'))).not.toContain('named.md');
 		await folder.close();
 	});
 

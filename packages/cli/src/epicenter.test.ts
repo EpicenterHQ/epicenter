@@ -409,14 +409,22 @@ test('nothing outside the data folder is read', async () => {
 	]);
 });
 
-test('a directory named <stem>.md in a table is a file to fix, not skipped', async () => {
-	const { folder, run } = await setup();
+test('only <table>/<id>.md is a row: a directory, a dot file, an empty id, an uppercase .MD, and a nested file are not', async () => {
+	const { folder, write, run } = await setup();
 	await mkdir(join(folder, 'posts/notes.md'));
+	await write('posts/.hidden.md', 'not a row\n');
+	await write('posts/.md', 'not a row\n');
+	await write('posts/Loud.MD', 'not a row\n');
+	await write('posts/reel/cover.md', "a row's own file\n");
 	const result = run('check', folder);
-	expect(result.exitCode).toBe(1);
+	expect(result.exitCode).toBe(0);
 	expect(result.stdout).toBe(
-		'posts/notes.md: A row must be a file, not a directory\n1 row conforms; 1 file invalid; 0 unreadable.\n',
+		'1 row conforms; 0 files invalid; 0 unreadable.\n',
 	);
+	expect(
+		JSON.parse(run('query', folder, 'SELECT id FROM posts', '--json').stdout)
+			.rows,
+	).toEqual([{ id: 'reel' }]);
 });
 
 test('query refuses statements that write, attach, or vacuum, and leaves the directory unchanged', async () => {

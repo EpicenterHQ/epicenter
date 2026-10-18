@@ -121,18 +121,39 @@ export const ROW_EXTENSION = '.md';
 
 /**
  * The row file a literal stem names. The stem is used as written: nothing is
- * trimmed, folded, or stripped, and the empty stem names `<table>/.md`.
+ * trimmed, folded, or stripped. Whether it addresses a row at all is
+ * `rowAddressProblem`'s question.
  */
 export function rowPath(table: string, stem: string): string {
 	return `${table}/${stem}${ROW_EXTENSION}`;
 }
 
 /**
+ * The row id a file name directly in a table's directory carries, or
+ * `undefined` when the name is not a row's. This is the one row predicate
+ * every entry point shares: listing, a row's get, set, delete, and rename,
+ * `epicenter check` and `epicenter query`, and change events. A row's file
+ * name is a nonempty id that does not start with a dot, then exactly the
+ * lowercase `.md`; the id is the name without `.md`. So `.md`, `.hidden.md`,
+ * `.epicenter.json`, and `a.MD` are never rows. (Whether the entry is a
+ * regular file is the storage's to say: a listing never offers a directory
+ * as a row, and a read refuses anything else that is not a file.)
+ */
+export function rowStemOfName(filename: string): string | undefined {
+	if (filename.includes('/')) return undefined;
+	if (!filename.endsWith(ROW_EXTENSION)) return undefined;
+	const stem = filename.slice(0, -ROW_EXTENSION.length);
+	if (stem === '' || stem.startsWith('.')) return undefined;
+	return stem;
+}
+
+/**
  * Why a stem does not address a row of the table, or `undefined` when it
- * does. A stem is one literal filename segment, so the only rules are the
- * folder's own path rules (`pathProblem`): a row file's name must mean only
- * itself on every disk a folder can live on, so a stem like `a: b` or `con`
- * is refused while `.hidden` is ordinary, and so is a stem ending in a space,
+ * does: exactly when `rowStemOfName` reads the stem back from its file name,
+ * and that file's path passes the folder's own path rules (`pathProblem`).
+ * A row file's name must mean only itself on every disk a folder can live
+ * on, so a stem like `a: b` or `con` is refused, and so are the empty stem
+ * and one that starts with a dot. A stem ending in a space is ordinary,
  * since its file name still ends in `.md`.
  */
 export function rowAddressProblem(
@@ -141,21 +162,21 @@ export function rowAddressProblem(
 ): string | undefined {
 	if (typeof stem !== 'string') return 'the stem is not a string';
 	if (stem.includes('/')) return 'the stem contains a path separator';
+	if (stem === '') return 'the stem is empty';
+	if (stem.startsWith('.'))
+		return 'the stem starts with a dot, and a dot file is never a row';
 	return pathProblem(rowPath(table, stem));
 }
 
 /**
- * The inverse of `rowPath`: the literal stem of a file directly in the table's
- * directory that ends in exactly `.md`, or `undefined` when the path is not a
- * row. The stem may be empty (`<table>/.md`). `.MD` is not a row.
+ * The inverse of `rowPath`: the id of a row file directly in the table's
+ * directory (`rowStemOfName`), or `undefined` when the path is not a row of
+ * that table.
  */
 export function rowStemOf(table: string, path: string): string | undefined {
 	const prefix = `${table}/`;
 	if (!path.startsWith(prefix)) return undefined;
-	const filename = path.slice(prefix.length);
-	if (filename.includes('/')) return undefined;
-	if (!filename.endsWith(ROW_EXTENSION)) return undefined;
-	return filename.slice(0, -ROW_EXTENSION.length);
+	return rowStemOfName(path.slice(prefix.length));
 }
 
 /**
