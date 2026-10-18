@@ -1,17 +1,17 @@
 # 0604. A page sends through one send that keeps desktop secrets in the epicenter CLI
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at "Three commands manage keys", as far as an app's window runs them, and at the AI target `{ connection: id, endpoint }`: an installed app's window runs no command that creates, changes, or removes a connection, and a target names only the connection. [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) at the `ai_send` target `{kind: "openai-compatible", connection, endpoint}` and at "`send` refuses a request prepared for an endpoint the keychain no longer holds", with `EndpointChanged`: the target carries the connection id, and `epicenter send` sends to the endpoint the keychain entry holds when it reads it. [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "the AI commands" in the union `installed-app.json` grants and at the consequence that a third-party app can "set or remove an AI connection's key": an installed app's window keeps `allow-ai-send` and `allow-ai-key-state` and loses `allow-ai-key-set` and `allow-ai-key-remove`. [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) at Whispering writing "through `ai_key_set`" and at "`send` sends an `openai-compatible` request only while the keychain entry still holds the endpoint it was prepared for": Whispering sends a person to Settings to set up a connection, and no endpoint comes from the page.
 - **Unbuilt:** all of it: the page-side `send(target, request)` in `@epicenter/ai`, the target without an endpoint, the capability changes, Whispering's setup through Settings, and every deletion below.
-- **Relates:** [ADR-0603](0603-a-machine-holds-one-account-grant-in-the-epicenter-cli.md) (the one account grant), [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (`epicenter send`), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (every installed app shares one origin), [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) (an app selects its host implementation at run time), [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (approving an app trusts it fully).
+- **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (`epicenter send`), [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) (each installed app has an origin of its own, isolation is verified only for `localStorage` on macOS, and an app's build runs inside the CLI's binary), [ADR-0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) (an app selects its host implementation at run time).
 
 ## Context
 
 Line numbers below are at `e9027cc744`.
 
 On the desktop the `epicenter` CLI already holds the secrets: the account
-grant in `so.epicenter.auth` (ADR-0556, ADR-0603) and each AI connection's
+grant in `so.epicenter.auth` (ADR-0556) and each AI connection's
 endpoint and key in `so.epicenter.connections` (ADR-0564). A page sends an
 AI request with `ai_send` and an account request with `account_send`, and
 Rust runs `epicenter send` for both. In a browser, a page keeps its keys in
@@ -45,11 +45,23 @@ one.**
 
 ```txt
 keychain, read and written only by the epicenter CLI
-  so.epicenter.auth          the machine's account grant (ADR-0603): refresh token, cached access tokens
+  so.epicenter.auth          the machine's account grant: refresh token, cached access tokens
   so.epicenter.connections   <id> -> {"endpoint", "key"} (ADR-0564)
 a desktop page               no token, no key, and no endpoint it can set
 a browser tab                its origin's localStorage: its own access token (ADR-0549), its own keys (ADR-0557)
 ```
+
+On the desktop no page holds a secret, whatever its origin. A connection's
+key serves every app, terminal, and agent on the machine (ADR-0557,
+ADR-0587), and only the CLI can promise it goes only to the endpoint saved
+with it. Per-app origins (ADR-0605) separate one app's storage from
+another's, and that separation is verified only for `localStorage`, within
+one run, on macOS; but a key in page storage would still be one copy per app, sendable
+anywhere, and reachable by anything injected into that page at run time,
+such as folder content the page renders. The boundary is between a running
+page and the machine's secrets, not between an installed app and the
+machine: an app's build already runs as the person inside the CLI's binary
+(ADR-0605).
 
 **A page sends every request through one function, `send(target, request)`,
 exported by `@epicenter/ai` for pages, which picks its path with
@@ -58,10 +70,12 @@ exported by `@epicenter/ai` for pages, which picks its path with
 | Target | Desktop (`isTauri()` is true) | Browser |
 | --- | --- | --- |
 | a connection, by id | `ai_send`: `epicenter send` reads the keychain entry and sends with its key | `fetch` to the endpoint saved in the origin's `localStorage`, with its key |
-| an account audience, `api` or `git` | `account_send`: `epicenter send` adds the grant's access token | `fetch` with the origin's own access token |
+| an account audience, `api` or `git` | `account_send`: `epicenter send` adds the grant's access token, refusing when the grant has changed since the page read it | `fetch` with the origin's own access token |
 
 A request is `SendRequest`: a method, a `path` below the connection's
-endpoint or the deployment's `/api/`, headers, and a body. `send` answers
+endpoint or the deployment's `/api/`, headers, and a body. The one account
+path outside `/api/` is a `GET` of `/auth/oauth2/userinfo`, the profile read
+(`isAccountPath`, `send.ts:97-104`). `send` answers
 with a `Response`. No app picks the path itself. `send.ts` keeps importing
 nothing but `wellcrafted`, so the compiled CLI carries no page code; the
 page-side `send` lives beside it in `@epicenter/ai`.
@@ -72,8 +86,8 @@ target names the connection and nothing that says where the request goes.
 endpoint with the entry's key. A page cannot repoint a connection by what it
 sends.
 
-**Installed apps use connections; only Settings creates, changes, or removes
-one.**
+**Installed apps use connections; among desktop pages, only Settings
+creates, changes, or removes one.**
 
 ```txt
 installed-app.json   keeps allow-ai-send, allow-ai-key-state, and ADR-0587's list command
@@ -102,38 +116,50 @@ own origin's storage, where it is the only page that can read them.
 
 ## Consequences
 
-- No installed app can repoint, replace, or delete a connection another app
-  sends over. Settings is the one desktop form where a connection's endpoint
-  and key are typed.
+- No installed app's page can read a key, or repoint, replace, or delete a
+  connection another app sends over. Settings is the one desktop page where
+  a connection's endpoint and key are typed. An app's build is not held to
+  this: under ADR-0605 it runs inside the CLI's binary as the person, so it
+  can read every key and the account grant. Installing trusts the author
+  fully (ADR-0605); this record protects the machine's secrets from a running
+  page, not from the code a person chose to install.
 - Whispering on the desktop sends a person to Settings to add a key, a window
   switch it does not need today.
-- No desktop page holds a token or a key, so the origin every installed app
-  shares (ADR-0561) exposes none. This is the API the platform offers, not a
-  sandbox: an approved app's build already ran on this machine with the
-  person's account (ADR-0540), and its page still sends over every connection.
-- A request goes to whatever endpoint the entry holds when `epicenter send`
-  reads it. A person who edits a connection in Settings while an app is open
-  redirects that app's next request with no refusal.
+- No desktop page holds a token or a key, so nothing injected into a page at
+  run time finds one there. This is the API the platform offers, not a
+  sandbox: a page still sends over every connection.
+- The guarantee is narrower than "a request goes where the page meant": an
+  installed page cannot change a keychain entry, but a request a page
+  prepared before an edit in Settings or `epicenter auth key set` in a
+  terminal goes to the new endpoint, with no refusal. An opaque connection
+  revision, which `ai_key_state` would return and the target would carry for
+  `epicenter send` to check, would restore a refusal without the target
+  naming an endpoint; this record does not adopt it.
 - In a browser, keys sit in each origin's `localStorage`, readable by any
   script on that origin, as ADR-0557 tells the person before they save one.
   Each browser app is its own origin, so one app's keys are not another's.
 - An app writes one request path for both hosts.
 - A terminal or an agent still sets and removes keys with `epicenter auth key
-  set` and `remove` (ADR-0587). The boundary is between pages, not against a
+  set` and `remove` (ADR-0587). The boundary is around pages, not against a
   local process.
 
 ## Considered alternatives
 
-- **Provider keys in desktop page storage, beside the browser's.** Every
-  installed app is served from one origin (ADR-0561), so one installed app
-  could read every key.
+- **Provider keys in desktop page storage, beside the browser's.** Per-app
+  origins (ADR-0605) would keep one app from reading another's storage, but
+  each app would hold its own copy of a key that serves the whole machine,
+  could send it to any endpoint, and would expose it to anything injected
+  into the page at run time.
 - **Keep key set and remove for installed apps.** An app could still repoint
   or delete a connection another app uses.
 - **Keep the page's endpoint in the target as a staleness check.** Once no
-  app can change an entry, it guards only against a person's own edit in
-  Settings, and it hands the page a value that names where a key goes.
+  page but Settings can change an entry, it guards only against a person's
+  own edit in Settings or a terminal. Hiding the endpoint is no reason
+  either: `ai_key_state` already tells a page the endpoint a key is saved for
+  (`KeyState`, `send.ts:135-142`).
 - **Each app chooses its own path, as today.** Every app reimplements the
   split between `ai_send` and `fetch`, and Whispering already carries it
   twice.
 - **`tauri-plugin-http` with the key handed to the page.** ADR-0557 refused
-  it: the key would sit in page memory on the shared origin.
+  it for the shared origin, and per-app origins do not revive it: the key
+  would still sit in page memory, sendable anywhere.
