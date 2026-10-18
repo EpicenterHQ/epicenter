@@ -442,6 +442,28 @@ for (const [name, fixture] of [
 		}
 	});
 
+	test(`${name}: an ignored file where the remote adds one stops Sync unread, equal bytes included`, async () => {
+		const at = await fixture();
+		const opened = await at.open();
+		try {
+			await recordTake(opened.folder, 'walk');
+			await at.sync(opened.folder);
+			// Another device commits a take this one keeps ignored, byte for byte.
+			await at.push({ 'audio/walk.wav': 'RIFF' });
+			const refused = expectErr(await opened.folder.sync.run());
+			expect(refused.name).toBe('Blocked');
+			expect(refused.message).toContain("'audio/walk.wav'");
+			expect(
+				expectOk(await opened.folder.git.status()).changes.map(
+					({ path }) => path,
+				),
+			).toEqual([]);
+			expect(await opened.read('audio/walk.wav')).toBe('RIFF');
+		} finally {
+			await opened.folder.close();
+		}
+	});
+
 	test(`${name}: .gitignore is the only rule: removed, the audio is committed`, async () => {
 		const at = await fixture();
 		const opened = await at.open();

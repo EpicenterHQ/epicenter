@@ -114,6 +114,9 @@ export async function nativeCheckpointProblem({
 
 	// An attribute file that names a filter and governs a recorded file:
 	// recorded itself, or, ignored, in a directory holding a recorded path.
+	// This is the one ignored untracked file history reads (ADR-0592's
+	// "never read" has this exception): Git applies it to the recorded files
+	// beneath it, so a filter it names would change what a commit holds.
 	// Git applies `D/.gitattributes` to paths under `D/` alone, so one in an
 	// ignored directory that holds nothing recorded, such as
 	// `node_modules/`, governs nothing a commit carries.

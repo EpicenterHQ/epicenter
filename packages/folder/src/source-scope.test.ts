@@ -218,6 +218,8 @@ describe('an ignored file that is not tracked is never read', () => {
 		const raw = await rawBrowserFolder({ id: 'scope-unread' });
 		await overwrite(raw.boundary, '.gitignore', 'audio/\n');
 		await overwrite(raw.boundary, 'audio/take.wav', 'RIFF');
+		// A rule file under an excluded directory is no rule: Git never reads it.
+		await overwrite(raw.boundary, 'audio/.gitignore', '!take.wav\n');
 		await overwrite(raw.boundary, 'notes.md', 'kept\n');
 		const read: string[] = [];
 		const boundary = {
@@ -238,6 +240,7 @@ describe('an ignored file that is not tracked is never read', () => {
 			).toEqual(['.gitignore', 'notes.md']);
 			expect((await history.commit()).status).toBe('committed');
 			expect(read).not.toContain('audio/take.wav');
+			expect(read).not.toContain('audio/.gitignore');
 			expect(read).toContain('notes.md');
 		} finally {
 			await history.close();
@@ -252,6 +255,7 @@ describe('an ignored file that is not tracked is never read', () => {
 		// A link is a file a folder never reads: reading it would refuse.
 		await mkdir(join(root, 'audio'));
 		await symlink(join(root, 'notes.md'), join(root, 'audio/take.wav'));
+		await symlink(join(root, 'notes.md'), join(root, 'audio/.gitignore'));
 		const saved = await runHistory(
 			root,
 			{ op: 'saveVersion', message: 'Notes' },

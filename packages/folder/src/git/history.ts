@@ -291,7 +291,7 @@ export function createHistory({
 		const paths = listed.files
 			.map(({ path }) => path)
 			.filter((path) => isPortablePath(path));
-		const rules = await readFiles(paths.filter(isGitignore));
+		const rules = await readRules(paths, tracked);
 		const untracked = paths.filter((path) => !tracked.has(path));
 		const ignored =
 			untracked.length === 0
@@ -306,14 +306,46 @@ export function createHistory({
 		return new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1)));
 	}
 
-	/** Every `.gitignore` file's bytes now: what the ignore rules read. */
-	async function gitignoreFiles() {
+	/**
+	 * The bytes of every `.gitignore` among `paths` that is a rule: read from
+	 * the root down, so a file `tracked` lacks under a directory a shallower
+	 * rule excludes is passed over, as Git never reads one there. A tracked
+	 * rule file is source, and read, wherever it is. Rule files at one depth
+	 * sit in different directories, so only shallower ones decide them.
+	 */
+	async function readRules(
+		paths: readonly string[],
+		tracked: ReadonlyMap<string, unknown>,
+	) {
+		const depth = (path: string) => path.split('/').length;
+		const byDepth = new Map<number, string[]>();
+		for (const path of paths.filter(isGitignore))
+			byDepth.set(depth(path), [...(byDepth.get(depth(path)) ?? []), path]);
+		const rules = new Map<string, Uint8Array>();
+		for (const level of [...byDepth.keys()].sort((a, b) => a - b)) {
+			const candidates = byDepth.get(level)!;
+			const untracked = candidates.filter((path) => !tracked.has(path));
+			const ignored =
+				untracked.length === 0
+					? new Set<string>()
+					: await backend.ignoredPaths(untracked, rules);
+			const read = await readFiles(
+				candidates.filter((path) => !ignored.has(path)),
+			);
+			for (const [path, bytes] of read) rules.set(path, bytes);
+		}
+		return rules;
+	}
+
+	/** The rule files now, for a question about untracked paths. */
+	async function currentRules(tracked: ReadonlyMap<string, unknown>) {
 		const { data: listed, error } = await boundary.list();
 		if (error !== null) throw new Error(error.message);
-		return readFiles(
+		return readRules(
 			listed.files
 				.map(({ path }) => path)
-				.filter((path) => isPortablePath(path) && isGitignore(path)),
+				.filter((path) => isPortablePath(path)),
+			tracked,
 		);
 	}
 
@@ -683,21 +715,25 @@ export function createHistory({
 	 * `occupied`: a file of this folder where `to` needs a directory, files
 	 * where it needs a file, a name held under another spelling, or a file
 	 * where `to` adds one that cannot be read.
-	 * `untracked`: a file `from` never tracked (ignored, or made since) where
-	 * `to` adds different bytes, which Sync never merges into history on its
-	 * own. `failed` when the folder cannot be listed.
+	 * `ignored`: a file `from` never tracked that `.gitignore` excludes where
+	 * `to` adds one, which Sync never reads, takes into history, or replaces;
+	 * Sync stops for it whatever bytes it holds.
+	 * `made`: any other file `from` never tracked where `to` adds different
+	 * bytes, which the person made here and Sync records and merges.
+	 * `failed` when the folder cannot be listed.
 	 */
 	async function inTheWay(
 		storage: Pick<FolderStorage, 'list' | 'read'>,
 		{ before, after, changes }: Between,
 	): Promise<{
 		readonly occupied: readonly string[];
-		readonly untracked: readonly string[];
+		readonly ignored: readonly string[];
+		readonly made: readonly string[];
 		readonly failed?: string;
 	}> {
 		const { data: listed, error } = await storage.list();
 		if (error !== null)
-			return { occupied: [], untracked: [], failed: error.message };
+			return { occupied: [], ignored: [], made: [], failed: error.message };
 		const leaving = new Set(
 			changes
 				.filter((change) => change.kind === 'delete')
@@ -733,33 +769,28 @@ export function createHistory({
 					})
 				);
 			});
-		const untracked: string[] = [];
-		for (const { path } of changes) {
-			if (before.has(path) || !after.has(path) || !present.has(path)) continue;
+		// Untracked files where `to` adds one: the ignored ones are classified
+		// by the rules alone, before anything reads them.
+		const colliding = changes
+			.map(({ path }) => path)
+			.filter(
+				(path) => !before.has(path) && after.has(path) && present.has(path),
+			);
+		const excluded =
+			colliding.length === 0
+				? new Set<string>()
+				: await backend.ignoredPaths(colliding, await currentRules(before));
+		const ignored = colliding.filter((path) => excluded.has(path));
+		const made: string[] = [];
+		for (const path of colliding) {
+			if (excluded.has(path)) continue;
 			const read = await storage.read(path);
 			// A file that cannot be read is no file to record: Sync stops.
 			if (read.error !== null) occupied.push(path);
 			else if (!sameContent(read.data.bytes, await blobOf(after.get(path))))
-				untracked.push(path);
+				made.push(path);
 		}
-		return { occupied, untracked };
-	}
-
-	/**
-	 * Of files `from` never tracked where `to` adds other bytes, the ones the
-	 * person made, which Sync records and merges, and the ignored ones, which
-	 * Sync never takes into history and stops for.
-	 */
-	async function madeHere(untracked: readonly string[]) {
-		if (untracked.length === 0) return { made: [], ignored: [] };
-		const ignored = await backend.ignoredPaths(
-			untracked,
-			await gitignoreFiles(),
-		);
-		return {
-			made: untracked.filter((path) => !ignored.has(path)),
-			ignored: untracked.filter((path) => ignored.has(path)),
-		};
+		return { occupied, ignored, made };
 	}
 
 	/** Why Sync stops for what stands in the way, or `undefined`. */
@@ -868,7 +899,7 @@ export function createHistory({
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
 		const plan = await between(from, to);
 		const way = await inTheWay(boundary, plan);
-		const { made, ignored } = await madeHere(way.untracked);
+		const { made, ignored } = way;
 		const refused = wayProblem(way.failed, [...way.occupied, ...ignored]);
 		if (refused !== undefined) return SyncError.Blocked({ reason: refused });
 		// A file the person made where `to` adds one, which no commit holds:
@@ -1201,7 +1232,7 @@ export function createHistory({
 				// file the person made since the checkpoint is recorded, and
 				// merged in from the start.
 				const way = await inTheWay(boundary, await between(mine, merged));
-				const { made, ignored } = await madeHere(way.untracked);
+				const { made, ignored } = way;
 				const inWay = wayProblem(way.failed, [...way.occupied, ...ignored]);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });
 				if (made.length > 0) {

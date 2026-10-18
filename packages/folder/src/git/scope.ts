@@ -4,7 +4,9 @@
  * A file tracked in the committed tree stays source, whatever `.gitignore`
  * says, as in Git; untracking one is an explicit act, and history keeps
  * what it held. Any other file is source unless `.gitignore` excludes it,
- * and an excluded one is never read. Nothing else decides what stays on one
+ * and an excluded one is never read, save an ignored `.gitattributes` the
+ * native checkpoint checks for a filter (`native-checkpoint.ts`), since one
+ * changes what a commit holds. Nothing else decides what stays on one
  * machine: no definition, no app. Private Git state and operating-system
  * scratch files are excluded earlier by `isPortablePath`. The browser
  * evaluates `.gitignore` files from their bytes; the native backend asks
