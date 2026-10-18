@@ -31,7 +31,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	).join('');
 	const id = `so.epicenter.git.${key}.${copy}`;
 	// A working copy is an existing folder, not this app's data: it opens with
-	// its own epicenter.json, if any, and saving never writes that file.
+	// its own table schemas, if any, and saving never writes them.
 	const opened = await openFolder({
 		id,
 		browser: {

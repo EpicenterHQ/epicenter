@@ -8,12 +8,12 @@ import { OpenFolderError } from './errors.js';
 
 /**
  * Which folder a handle opens and how it reads it, decided by the one rule:
- * a folder's `epicenter.json` is published by the app the folder is named
+ * a folder's table schemas are published by the app the folder is named
  * after, and every other opener reads through its definition.
  *
  * `own` is the opening app's own folder, read with the app's prepared
  * `definition`, which the handle publishes before its first write. Any other
- * folder is read with its own `epicenter.json`, which the handle never
+ * folder is read with its own table schemas, which the handle never
  * writes, and through `definition` when one was given: the folder's
  * definition must contain it (ADR-0538).
  */

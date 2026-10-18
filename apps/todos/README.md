@@ -40,7 +40,7 @@ Then open Todos from the Folders window's Apps list, or with "Open in Todos"
 beside a folder whose declaration contains its shape. Opened from the Apps
 list, it opens its own folder, `so.epicenter.todos`. Opened with "Open in
 Todos", it opens that folder and reads its todos through its shape
-(ADR-0538): it never rewrites that folder's `epicenter.json`, and a folder
+(ADR-0538): it never rewrites that folder's table schemas, and a folder
 whose declaration lacks the shape is refused with a message naming the
 folder. Such a folder offers no [Connect](#connect): Epicenter's server keeps
 one repository per app id today, so Connect would give it Todos's own
@@ -123,7 +123,7 @@ in another program, another window, or by an agent shows while you work
   A Save version while another Git program holds the index lands, says the
   index could not be refreshed, and the next Save version refreshes it.
 - Git hooks and fsmonitor never run for Todos' Git commands. The page
-  changes only `todos/*.md` and `epicenter.json`, which the shell declares
+  changes only `todos/*.md` and `todos/.epicenter.json`, which the shell declares
   for it, and its own staging files in `.git`: the shell makes every change
   and refuses any other path, or one with a link on the way. Git stores every object itself.
 
@@ -207,7 +207,7 @@ Both run the same UI, file storage, history rules, and merge review.
 
 Todos opens this browser's folder, `so.epicenter.todos` in the origin private
 file system, at once. Nothing is written until you write: the first todo
-creates the folder, its Git history, and `epicenter.json`. The folder has no
+creates the folder, its Git history, and `todos/.epicenter.json`. The folder has no
 remote until you connect one, and works without one. Versions are committed as
 `Todos <todos@epicenter.so>`. Another tab of the same origin edits the same
 folder; each tab tells the others which files it wrote, and they read those

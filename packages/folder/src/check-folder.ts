@@ -11,6 +11,7 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileError } from './errors.js';
+import { rowPath } from './paths.js';
 import type { ProjectedTable } from './projection.js';
 import { type ReadFolderError, readFolder } from './read-folder.js';
 
@@ -28,11 +29,11 @@ export type Finding = {
 	message: string;
 };
 
-/** One declared table, with its fields and the rows that conform, sorted by stem. */
+/** One declared table, with its fields and the rows that conform, sorted by id. */
 export type CheckedTable = ProjectedTable & {
 	fields: { name: string; schema: object }[];
 	rows: {
-		stem: string;
+		id: string;
 		fields: Record<string, unknown>;
 		body: string;
 	}[];
@@ -50,7 +51,7 @@ export type FolderCheck = {
 	invalid: Finding[];
 	/** Files that could not be read at all. */
 	unreadable: Finding[];
-	/** Whether `epicenter.ts` sits beside `epicenter.json`. */
+	/** Whether the folder keeps the `epicenter.ts` its schemas are generated from. */
 	hasSource: boolean;
 };
 
@@ -73,9 +74,9 @@ export function hasDefinitionSource(dir: string) {
 }
 
 /**
- * Read the data folder at `dir` and sort what it reports. A folder or
- * definition that cannot be used is the error; a file that does not conform
- * or cannot be read is a finding beside the others.
+ * Read the data folder at `dir` and sort what it reports. A folder with no
+ * table, or a table schema that cannot be used, is the error; a file that
+ * does not conform or cannot be read is a finding beside the others.
  */
 export async function checkFolder(
 	dir: string,
@@ -99,6 +100,18 @@ export async function checkFolder(
 		else unreadable.push({ path, message: failure.message });
 	}
 
+	for (const { path, reason } of folder.problems)
+		invalid.push({
+			path,
+			message: `The table's schema cannot be used: ${reason}`,
+		});
+	for (const path of folder.notRows)
+		invalid.push({
+			path,
+			message:
+				"Not a row: a row's file is an id that is not empty and does not start with a dot, then exactly .md",
+		});
+
 	const tables: CheckedTable[] = [];
 	for (const [name, listed] of Object.entries(folder.tables)) {
 		const table: CheckedTable = {
@@ -117,10 +130,10 @@ export async function checkFolder(
 		for (const { stem, result } of [...listed.data].sort((a, b) =>
 			a.stem < b.stem ? -1 : a.stem > b.stem ? 1 : 0,
 		)) {
-			if (result.error !== null) report(`${name}/${stem}.md`, result.error);
+			if (result.error !== null) report(rowPath(name, stem), result.error);
 			else
 				table.rows.push({
-					stem,
+					id: stem,
 					fields: result.data.row.fields,
 					body: result.data.row.body,
 				});

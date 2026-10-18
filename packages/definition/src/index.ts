@@ -49,3 +49,4 @@ export {
 	mismatches,
 	requiredOutside,
 } from './shape.js';
+export { isTableName } from './table-name.js';

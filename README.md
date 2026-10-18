@@ -38,8 +38,8 @@
 ## The Folder
 
 A data folder is a directory: one Markdown file per row, with settings as
-rows of a `settings` table, `epicenter.json` describing the tables, and Git
-history beside them. The
+rows of a `settings` table, each table's schema in its directory's
+`.epicenter.json`, and Git history beside them. The
 files are the data. There is no database behind them for an app to own.
 
 ```ts
@@ -60,12 +60,12 @@ const listed = await folder.tables.todos.list();   // one { stem, result } per r
 await folder.tables.todos.create({ fields: { title: 'Milk', done: false }, body: '' });
 ```
 
-One rule decides what the folder does with your definition: a folder's
-`epicenter.json` is written only by the app the folder is named after. In a
+One rule decides what the folder does with your definition: a folder's table
+schemas are written only by the app the folder is named after. In a
 browser your app opens its own folder. In the desktop app it opens the folder
 a person chose "Open in" on, or its own; `folder.own` says which. Any other
 folder is read through your definition: it must declare your tables, and its
-`epicenter.json` is never written.
+schemas are never written.
 
 The same handle opens in a browser tab (the origin's private file system), a
 desktop page (`~/Epicenter/<folder-id>/`, through the desktop shell), and a Bun

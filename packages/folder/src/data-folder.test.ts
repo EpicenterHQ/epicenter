@@ -2,19 +2,18 @@
  * Data Folder Tests
  *
  * `openFolder` from `@epicenter/folder/bun` opens a directory that already
- * exists with the schema in its own `epicenter.json` (ADR-0535).
+ * exists with each table's schema in its own `<table>/.epicenter.json`
+ * (ADR-0535).
  *
  * Key behaviors:
- * - The handle's tables are the declaration's, and `definition` is the
- *   prepared declaration
- * - The handle never writes `epicenter.json`: a hand-formatted declaration
- *   stays byte for byte through creates, writes, and commits
- * - A declaration with a `kv` section is `InvalidDefinition` naming `kv`,
- *   as any unknown key is
- * - A folder without `epicenter.json` opens with no tables; files and
- *   history work
- * - An `epicenter.json` that cannot be used is `InvalidDefinition`, and a
- *   missing root is `InvalidRoot`; neither creates anything
+ * - The handle's tables are the discovered schemas', and `definition` is
+ *   their prepared definition
+ * - The handle never writes a schema file: a hand-formatted one stays byte
+ *   for byte through creates, writes, and commits
+ * - A folder with no table schema opens with no tables, a root
+ *   `epicenter.json` included; files and history work
+ * - A schema file that cannot be used makes no table and the others open;
+ *   a missing root is `InvalidRoot`; neither creates anything
  * - Opening creates no repository: status is an empty history with every file
  *   uncommitted, and the first commit runs `git init`
  * - The first commit of a folder inside another repository's working tree is
@@ -45,8 +44,10 @@ import { mustRow } from './row-write.test-support.js';
 
 const author = { name: 'Vault', email: 'vault@localhost' };
 
-/** Written by hand: one line, no `$schema` order a publication would keep. */
-const DECLARED = `{"title":"Vault","tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
+/** Written by hand: one line, not the formatting a publication would write. */
+const DECLARED = `{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}`;
+/** Where `DECLARED` makes `todos` a table. */
+const SCHEMA = 'todos/.epicenter.json';
 
 const originalEnv = { ...process.env };
 beforeAll(() => {
@@ -64,8 +65,8 @@ afterAll(() => {
 /** A directory holding `DECLARED` and one row, with no repository. */
 async function dataFolder(prefix: string) {
 	const root = await scratch(prefix);
-	await writeFile(join(root, 'epicenter.json'), DECLARED);
 	await mkdir(join(root, 'todos'));
+	await writeFile(join(root, SCHEMA), DECLARED);
 	await writeFile(
 		join(root, 'todos/one.md'),
 		'---\ntitle: One\ndone: false\n---\n',
@@ -77,7 +78,7 @@ test('opens with its own declaration and never writes it', async () => {
 	const root = await dataFolder('data-folder-declared-');
 	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
-	expect(folder.definition.title).toBe('Vault');
+	expect(folder.definition).not.toHaveProperty('title');
 	expect(folder.definition).toEqual(
 		expectOk(await readFolder(root)).definition,
 	);
@@ -106,49 +107,58 @@ test('opens with its own declaration and never writes it', async () => {
 	).toBe('InvalidValues');
 	expect((await folder.git.commit()).status).toBe('committed');
 
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
-	expect(heard).not.toContain('epicenter.json');
+	expect(await readFile(join(root, SCHEMA), 'utf8')).toBe(DECLARED);
+	expect(heard).not.toContain(SCHEMA);
 	expect(expectOk(await todos.list())).toHaveLength(2);
 	await folder.close();
 });
 
-test('a folder without epicenter.json opens with no tables, and files and history work', async () => {
+test('a folder with no table schema opens with no tables, a root epicenter.json included, and files and history work', async () => {
 	const root = await scratch('data-folder-undeclared-');
 	await writeFile(join(root, 'notes.txt'), 'kept\n');
+	// The root file of the earlier model declares nothing.
+	const rootDeclaration = `{"tables":{"todos":${DECLARED}}}`;
+	await writeFile(join(root, 'epicenter.json'), rootDeclaration);
 	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expect(folder.definition).toEqual({ tables: {} });
 	expect(folder.tables).toEqual({});
 	expectOk(await folder.write('more/a.md', null, 'a\n'));
 	expect((await folder.git.commit()).status).toBe('committed');
-	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
-	expect(await git(root, 'ls-files')).toBe('more/a.md\nnotes.txt');
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
+		rootDeclaration,
+	);
+	expect(await git(root, 'ls-files')).toBe(
+		'epicenter.json\nmore/a.md\nnotes.txt',
+	);
 	await folder.close();
 });
 
-test('an epicenter.json that cannot be used is InvalidDefinition, and opening creates nothing', async () => {
-	const root = await scratch('data-folder-invalid-');
-	await writeFile(join(root, 'epicenter.json'), '{"tables":{}');
-	const refused = expectErr(await openFolder({ root, git: { author } }));
-	expect(refused).toMatchObject({
-		name: 'InvalidDefinition',
-		path: 'epicenter.json',
-	});
-	expect(refused.message).toContain('not JSON');
-	expect(existsSync(join(root, '.git'))).toBe(false);
-
-	await writeFile(join(root, 'epicenter.json'), '{"tables":{},"extra":1}');
-	expect(expectErr(await openFolder({ root, git: { author } })).name).toBe(
-		'InvalidDefinition',
-	);
-
-	// The `kv` section settings once had is an unknown key like any other.
-	await writeFile(
-		join(root, 'epicenter.json'),
-		'{"tables":{},"kv":{"theme":{"type":"string"}}}',
-	);
-	const kv = expectErr(await openFolder({ root, git: { author } }));
-	expect(kv.name).toBe('InvalidDefinition');
-	expect(kv.message).toContain("'kv'");
+test('a schema file that cannot be used makes no table, the other tables open, and opening creates nothing', async () => {
+	const root = await dataFolder('data-folder-invalid-');
+	await mkdir(join(root, 'notes'));
+	for (const text of [
+		'{"type":"object"',
+		'{"type":"object","properties":{},"extra":1}',
+		// A root's `tables` map inside a table's file is an unknown key.
+		`{"tables":{"todos":${DECLARED}}}`,
+	]) {
+		await writeFile(join(root, 'notes/.epicenter.json'), text);
+		const folder = expectOk(await openFolder({ root, git: { author } }));
+		expect(Object.keys(folder.tables)).toEqual(['todos']);
+		await folder.close();
+		// A reader through a definition that needs it meets a missing table.
+		const notes = defineFolder({
+			tables: { notes: defineTable({ fields: { title: field.string() } }) },
+		});
+		const refused = expectErr(
+			await openFolder({ root, git: { author }, definition: notes }),
+		);
+		expect(refused.name).toBe('DefinitionMismatch');
+		// It says why the table is missing.
+		expect(refused.message).toContain(
+			'its notes/.epicenter.json cannot be used: ',
+		);
+	}
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	const missing = join(root, 'missing');
@@ -169,7 +179,7 @@ test('opening creates no repository; status is every file uncommitted, and the f
 	expect(status.head).toBeUndefined();
 	expect(status.changes.map((change) => change.path).sort()).toEqual([
 		'.gitignore',
-		'epicenter.json',
+		SCHEMA,
 		'todos/one.md',
 	]);
 	expect(expectOk(await folder.git.log(10))).toEqual([]);
@@ -201,8 +211,8 @@ test('the first commit inside another repository is blocked and creates no repos
 	const host = await realpath(await scratch('data-folder-host-'));
 	await git(host, 'init', '--quiet', '--initial-branch=main');
 	const root = join(host, 'plan');
-	await mkdir(root);
-	await writeFile(join(root, 'epicenter.json'), DECLARED);
+	await mkdir(join(root, 'todos'), { recursive: true });
+	await writeFile(join(root, SCHEMA), DECLARED);
 	const folder = expectOk(await openFolder({ root, git: { author } }));
 	expectOk(
 		await folder.tables.todos!.create({
@@ -228,8 +238,8 @@ test("sync merges rows by the folder's own declaration", async () => {
 	const bare = await createBareRemote(project);
 	const native = join(project, 'native');
 	await git(project, 'clone', '--quiet', bare, native);
-	await writeFile(join(native, 'epicenter.json'), DECLARED);
 	await mkdir(join(native, 'todos'));
+	await writeFile(join(native, SCHEMA), DECLARED);
 	await writeFile(
 		join(native, 'todos/one.md'),
 		'---\ntitle: One\ndone: false\n---\n',
@@ -265,7 +275,7 @@ test("sync merges rows by the folder's own declaration", async () => {
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: true\n---\n',
 	);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readFile(join(root, SCHEMA), 'utf8')).toBe(DECLARED);
 	await folder.close();
 });
 
@@ -286,9 +296,8 @@ test('openFolder still publishes its own definition, and exposes it', async () =
 	// Opening creates no repository; the first commit does.
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 	expectOk(await folder.write('notes.txt', null, 'a\n'));
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).not.toBe(
-		DECLARED,
-	);
+	expect(await readFile(join(root, SCHEMA), 'utf8')).not.toBe(DECLARED);
+	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
 	await folder.close();
 });
 
@@ -305,7 +314,7 @@ test('a browser data folder reads with its own declaration, as of the open, and 
 	// Nothing is created by opening; a folder nobody wrote to has no tables.
 	expect(environment.opfs.directories()).toEqual([]);
 	expect(first.definition).toEqual({ tables: {} });
-	expectOk(await first.write('epicenter.json', null, DECLARED));
+	expectOk(await first.write(SCHEMA, null, DECLARED));
 	expect(first.tables).toEqual({});
 	await first.close();
 
@@ -319,9 +328,7 @@ test('a browser data folder reads with its own declaration, as of the open, and 
 	);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(
-		new TextDecoder().decode(
-			expectOk(await folder.files.read('epicenter.json')).bytes,
-		),
+		new TextDecoder().decode(expectOk(await folder.files.read(SCHEMA)).bytes),
 	).toBe(DECLARED);
 	await folder.close();
 });

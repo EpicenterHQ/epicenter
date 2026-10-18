@@ -8,7 +8,7 @@ command surface is ADR-0558's.
 
 ```sh
 bun run epicenter check path/to/folder          # from the repository root
-bun packages/cli/src/bin.ts query path/to/folder 'SELECT stem FROM posts'
+bun packages/cli/src/bin.ts query path/to/folder 'SELECT id FROM posts'
 ```
 
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run

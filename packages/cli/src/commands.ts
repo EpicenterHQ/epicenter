@@ -5,13 +5,6 @@
 
 import type { CommandSpec } from './parse.ts';
 
-/**
- * The `local` patterns of an app reading a folder that is not its own, as a
- * JSON array, which the desktop shell passes (ADR-0583): an untracked file
- * they match is never committed.
- */
-const APP_LOCAL = { name: 'app-local', value: '<json>', hidden: true } as const;
-
 export const COMMANDS: readonly CommandSpec[] = [
 	{
 		path: ['check'],
@@ -33,14 +26,14 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<dir>',
 		minArgs: 1,
 		maxArgs: 1,
-		summary: 'run <dir>/epicenter.ts and write the epicenter.json it declares',
+		summary:
+			"run <dir>/epicenter.ts and write each table's .epicenter.json it declares",
 	},
 	{
 		path: ['status'],
 		args: '<dir>',
 		minArgs: 1,
 		maxArgs: 1,
-		options: [APP_LOCAL],
 		summary: 'changed files, ahead and behind, and the remote',
 	},
 	{
@@ -57,7 +50,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<dir>',
 		minArgs: 1,
 		maxArgs: 1,
-		options: [{ name: 'message', value: '<text>', short: 'm' }, APP_LOCAL],
+		options: [{ name: 'message', value: '<text>', short: 'm' }],
 		summary: "commit the folder's edits as a version",
 		hidden: true,
 	},
@@ -69,7 +62,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		options: [
 			{ name: 'to', value: '<namespace>/<name>' },
 			{ name: 'allow-unrelated', hidden: true },
-			APP_LOCAL,
 		],
 		summary: 'fetch, merge by unit, commit, and push',
 		long: true,

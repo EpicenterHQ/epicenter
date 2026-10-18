@@ -10,7 +10,7 @@ false constraint.
 Use these source owners as starting points, then trace their callers and tests:
 
 - [Folder files](../../../../packages/folder/README.md): identify the paths,
-  file kinds, and declaration (`epicenter.json`) a folder stores. Files are the
+  file kinds, and table schemas (`<table>/.epicenter.json`) a folder stores. Files are the
   durable record: renaming a table directory or a stem can detach existing files
   even when the new code still writes successfully. Do not infer permission to
   delete old files from a change to the current layout.

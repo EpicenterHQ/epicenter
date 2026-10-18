@@ -36,14 +36,15 @@
  */
 import type { Result } from 'wellcrafted/result';
 import {
-	DEFINITION_PATH,
+	type Definition,
 	defineFolder,
 	defineTable,
 	type Folder,
 	field,
-	formatDefinition,
+	formatTableSchema,
 	hashBytes,
 	openFolder,
+	schemaPath,
 } from '../../src/browser.js';
 import type { PeerReply, PeerRequest } from './peer.js';
 
@@ -52,6 +53,11 @@ type Status = 'pass' | 'fail' | 'note';
 const definition = defineFolder({
 	tables: { rows: defineTable({ fields: { title: field.string() } }) },
 });
+/** The one table's schema file, which a write publishes. */
+const ROWS_SCHEMA = schemaPath('rows');
+/** The schema text `definition`'s one table publishes. */
+const rowsSchema = (published: Definition) =>
+	formatTableSchema(published.tables.rows!);
 const author = { name: 'Evidence', email: 'evidence@example.test' };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -322,8 +328,8 @@ async function publication(id: string) {
 			const folder = await open(id);
 			assert(!(await rawDirectoryExists(id)), 'opening made the directory');
 			ok(await folder.write('rows/first.md', null, '---\ntitle: First\n---\n'));
-			const expected = formatDefinition(definition);
-			const stored = decoder.decode(await rawRead(id, DEFINITION_PATH));
+			const expected = rowsSchema(definition);
+			const stored = decoder.decode(await rawRead(id, ROWS_SCHEMA));
 			assert(stored === expected, `stored ${stored}`);
 			// The first commit makes the repository, not the first write.
 			assert(
@@ -334,7 +340,7 @@ async function publication(id: string) {
 				ok(await folder.git.log(10)).length === 0,
 				'manual mode committed',
 			);
-			return `epicenter.json: ${stored}`;
+			return `${ROWS_SCHEMA}: ${stored}`;
 		},
 	);
 	await check(
@@ -349,11 +355,11 @@ async function publication(id: string) {
 				),
 			);
 			const before = await rawRead(id, 'rows/kept.md');
-			ok(await put(folder, DEFINITION_PATH, 'manual malformed description'));
+			ok(await put(folder, ROWS_SCHEMA, 'manual malformed description'));
 			await folder.close();
 			const reopened = await open(id);
 			assert(
-				decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
+				decoder.decode(await rawRead(id, ROWS_SCHEMA)) ===
 					'manual malformed description',
 				'reopening wrote',
 			);
@@ -365,27 +371,32 @@ async function publication(id: string) {
 				),
 			);
 			assert(
-				decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
-					formatDefinition(definition),
+				decoder.decode(await rawRead(id, ROWS_SCHEMA)) ===
+					rowsSchema(definition),
 				'manual description stayed after a write',
 			);
 			await reopened.close();
 			const changed = defineFolder({
-				...definition,
-				title: 'Changed publication',
+				tables: {
+					rows: defineTable({
+						fields: {
+							title: field.string(),
+							note: field.optional(field.string()),
+						},
+					}),
+				},
 			});
 			const third = await open(id, { definition: changed });
 			ok(await third.write('rows/third.md', null, '---\ntitle: Third\n---\n'));
 			assert(
-				decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
-					formatDefinition(changed),
+				decoder.decode(await rawRead(id, ROWS_SCHEMA)) === rowsSchema(changed),
 				'changed declaration was not published',
 			);
 			assert(
 				sameBytes(await rawRead(id, 'rows/kept.md'), before),
 				'row bytes changed',
 			);
-			return 'opening wrote nothing; the next write replaced the manual description; changed title published; saved Markdown unchanged';
+			return 'opening wrote nothing; the next write replaced the manual description; changed schema published; saved Markdown unchanged';
 		},
 	);
 	await check(
@@ -1006,24 +1017,21 @@ async function reloadCheck(stage: string) {
 	window.history.replaceState(null, '', location.pathname);
 	if (id === null) {
 		record(
-			'bytes and epicenter.json survive a page reload',
+			'bytes and the table schema survive a page reload',
 			'note',
 			'not run: this page was not reached from a reload check that wrote a folder. Press "Reload persistence check" to run it.',
 		);
 		return true;
 	}
-	await check('bytes and epicenter.json survive a page reload', async () => {
-		const persistedDefinition = decoder.decode(
-			await rawRead(id, DEFINITION_PATH),
-		);
+	await check('bytes and the table schema survive a page reload', async () => {
+		const persistedDefinition = decoder.decode(await rawRead(id, ROWS_SCHEMA));
 		assert(
-			persistedDefinition === formatDefinition(definition),
+			persistedDefinition === rowsSchema(definition),
 			'definition did not persist across page reload',
 		);
 		const folder = await open(id);
 		assert(
-			decoder.decode(await rawRead(id, DEFINITION_PATH)) ===
-				persistedDefinition,
+			decoder.decode(await rawRead(id, ROWS_SCHEMA)) === persistedDefinition,
 			'reopening changed definition bytes',
 		);
 		assert(

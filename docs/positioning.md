@@ -49,7 +49,7 @@ Roadmap language stays out of heroes.
 ## What Epicenter is
 
 - Apps whose data is a folder: one Markdown file per row, settings included,
-  `epicenter.json` for the folder's declaration, and Git history
+  a `.epicenter.json` in each table's directory for its schema, and Git history
   ([ADR-0534](adr/0534-data-folders-are-the-only-data-model.md)).
 - A desktop app that opens to your folders, lists them, edits their rows, and
   opens each in the apps whose shape it fits

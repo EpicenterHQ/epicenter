@@ -145,11 +145,13 @@ describe('row files', () => {
 		const moved = mustRow(await folder.tables.todos.rename('row', 'next'));
 		expect(moved.row.fields).toEqual({ title: 'Row', done: true });
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
+			'.epicenter.json',
 			'next.md',
 			'row.txt',
 		]);
 		expectOk(await folder.tables.todos.delete('next'));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
+			'.epicenter.json',
 			'row.txt',
 		]);
 	});
@@ -220,8 +222,10 @@ describe('empty directories', () => {
 			files: [],
 			directories: [],
 		});
+		// The first change published the `todos` table's schema.
 		expect((await folder.files.children('')).data!.directories).toEqual([
 			'empty',
+			'todos',
 		]);
 		expectOk(await folder.files.rmdir('empty'));
 		expect(expectErr(await folder.files.children('empty')).name).toBe(

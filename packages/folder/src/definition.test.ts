@@ -222,11 +222,16 @@ test('one prepared definition opens two folders that stay apart, and another def
 		),
 	);
 	expect(await paths(personal)).toEqual([
-		'epicenter.json',
+		'settings/.epicenter.json',
 		'settings/display.md',
+		'todos/.epicenter.json',
 		'todos/milk.md',
 	]);
-	expect(await paths(work)).toEqual(['epicenter.json', 'todos/report.md']);
+	expect(await paths(work)).toEqual([
+		'settings/.epicenter.json',
+		'todos/.epicenter.json',
+		'todos/report.md',
+	]);
 	expect(expectOk(await work.tables.todos.get('milk'))).toBeUndefined();
 	expect(expectOk(await work.tables.settings.get('display'))).toBeUndefined();
 	await personal.close();
@@ -286,9 +291,11 @@ test('tables named like Object.prototype members, and one table under two names,
 		),
 	);
 	expect((await paths(folder)).sort()).toEqual([
+		'constructor/.epicenter.json',
 		'constructor/a.md',
-		'epicenter.json',
+		'notes/.epicenter.json',
 		'notes/b.md',
+		'toString/.epicenter.json',
 		'toString/b.md',
 	]);
 	// The same stem in two tables is two rows, each read by its own table.
@@ -384,7 +391,7 @@ test('a prepared table rebuilt with a cloned field still type-checks, and readin
 	});
 });
 
-test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse an $id or point at the table root', () => {
+test('a table is one JSON Schema in its .epicenter.json, so its fields cannot reuse an $id or point at the table root', () => {
 	// What `Type.Cyclic({ [name]: ... }, name)` declares, as a file holds it.
 	const cyclic = (name: string) => ({
 		$defs: {
@@ -413,7 +420,7 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 			),
 		).reason,
 	).toBe(
-		"Fields 'chains.a' and 'chains.b' both define the $id 'Node'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.",
+		"Fields 'chains.a' and 'chains.b' both define the $id 'Node'. A table's .epicenter.json is one JSON Schema, where an $id names one schema; rename one of them.",
 	);
 	// A `#` pointer outside any `$id` is the field's root in memory and the
 	// table's root in the file.
@@ -426,7 +433,7 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 			),
 		).reason,
 	).toBe(
-		"Field 'chains.text' refers to '#/$defs/t' outside any $id. In epicenter.json '#' is the whole table, not the field; give the field an $id.",
+		"Field 'chains.text' refers to '#/$defs/t' outside any $id. In a table's .epicenter.json '#' is the whole table, not the field; give the field an $id.",
 	);
 
 	// Distinct names, the same name in two tables, and a pointer under an
@@ -458,7 +465,7 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 	);
 });
 
-test('a closed table reports an undeclared key at its line, and epicenter.json keeps it closed', () => {
+test('a closed table reports an undeclared key at its line, and its .epicenter.json keeps it closed', () => {
 	const fields = { title: field.string() };
 	const definition = defineFolder({
 		tables: {
@@ -478,10 +485,10 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 	]);
 
 	const declaration = formatDefinition(definition);
-	expect(JSON.parse(declaration).tables.closed.additionalProperties).toBe(
-		false,
-	);
-	expect(JSON.parse(declaration).tables.open).not.toHaveProperty(
+	expect(
+		JSON.parse(declaration['closed/.epicenter.json']!).additionalProperties,
+	).toBe(false);
+	expect(JSON.parse(declaration['open/.epicenter.json']!)).not.toHaveProperty(
 		'additionalProperties',
 	);
 	const reread = prepareFolderDefinition(
@@ -490,13 +497,13 @@ test('a closed table reports an undeclared key at its line, and epicenter.json k
 	expect(expectOk(reread).tables.closed?.additionalProperties).toBe(false);
 	expect(
 		expectErr(
-			parseDefinition(
-				JSON.stringify({
-					tables: {
-						notes: { type: 'object', properties: {}, additionalProperties: {} },
-					},
+			parseDefinition({
+				'notes/.epicenter.json': JSON.stringify({
+					type: 'object',
+					properties: {},
+					additionalProperties: {},
 				}),
-			),
+			}),
 		).reason,
 	).toContain('the only value is false');
 });

@@ -4,7 +4,7 @@
  * A table's `write` and `set` merge their change into the row as its file
  * holds it now (ADR-0576), over a real directory in Bun. The folder here is
  * opened by its own declaration, so every row is checked against
- * `epicenter.json`.
+ * `notes/.epicenter.json`.
  *
  * Key behaviors:
  * - A write over the row as read lands as it is
@@ -18,7 +18,7 @@
  *   that is not a row is written for repair and answered as the file it is
  * - A value the field does not admit is `InvalidValues`, and nothing is
  *   written
- * - `epicenter.json` keeps its bytes throughout
+ * - `notes/.epicenter.json` keeps its bytes throughout
  * - A `set` sets fields of the row as it is now: a field another writer
  *   changed between its read and its write survives, `set` wins the field
  *   it names, a field set to `undefined` is removed, and a row that is not
@@ -39,7 +39,9 @@ type StoredAnyRow = StoredRow<Record<string, unknown>>;
 const author = { name: 'Folders', email: 'folders@localhost' };
 
 /** Hand-written, so any rewrite would change its bytes. */
-const DECLARED = `{"title":"Notes","tables":{"notes":{"type":"object","properties":{"title":{"type":"string","x-field":{"kind":"string"}},"done":{"type":"boolean","x-field":{"kind":"boolean"}},"tags":{"type":"array","items":{"type":"string"},"x-field":{"kind":"tags"}}},"required":["title","done"]}}}`;
+const DECLARED = `{"type":"object","properties":{"title":{"type":"string","x-field":{"kind":"string"}},"done":{"type":"boolean","x-field":{"kind":"boolean"}},"tags":{"type":"array","items":{"type":"string"},"x-field":{"kind":"tags"}}},"required":["title","done"]}`;
+/** Where `DECLARED` makes `notes` a table. */
+const SCHEMA = 'notes/.epicenter.json';
 
 const ROW =
 	'---\ntitle: One\ndone: false\ntags: [a]\n---\nfirst\nsecond\nthird\n';
@@ -63,8 +65,8 @@ afterAll(async () => {
 async function setup() {
 	const root = await mkdtemp(join(tmpdir(), 'folder-row-writes-'));
 	roots.push(root);
-	await writeFile(join(root, 'epicenter.json'), DECLARED);
 	await mkdir(join(root, 'notes'));
+	await writeFile(join(root, SCHEMA), DECLARED);
 	await writeFile(join(root, 'notes/one.md'), ROW);
 	const folder = expectOk(await openFolder({ root, git: { author } }));
 	const table = folder.tables.notes as AnyTable;
@@ -81,7 +83,7 @@ async function setup() {
 		expectOk(await table.write('one', captured.row, edit(captured, change)));
 		return read();
 	};
-	const declaration = () => readFile(join(root, 'epicenter.json'), 'utf8');
+	const declaration = () => readFile(join(root, SCHEMA), 'utf8');
 	return { root, folder, table, read, otherWriter, declaration };
 }
 

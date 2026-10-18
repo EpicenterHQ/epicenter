@@ -81,8 +81,12 @@ async function open(options: TestWorkspaceOptions = {}) {
 	return { library, ...test };
 }
 
+/** The names in a table's directory beside its `.epicenter.json` schema. */
 const names = (root: string, directory: string) =>
-	readdir(join(root, directory)).catch(() => [] as string[]);
+	readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
 
 /** A recording with one saved transcript, and the transcript's bytes on disk. */
 async function transcribed(library: Library, root: string) {
@@ -149,7 +153,7 @@ test('a new transformation copies no model from another one', async () => {
 
 test('editing a transformation saves the whole row in one form and keeps fields the app does not know', async () => {
 	const { library, root } = await open();
-	await mkdir(join(root, 'transformations'));
+	await mkdir(join(root, 'transformations'), { recursive: true });
 	const source =
 		'---\n# a comment\ntitle: Mine\nmodel: chat-model\ntemperature: 0.2\n---\nOriginal prompt\n';
 	const path = join(root, 'transformations', 'mine.md');
@@ -188,7 +192,7 @@ test('editing a transformation saves the whole row in one form and keeps fields 
 test('a transformation that does not read is named for repair, cannot run, and is repaired as text', async () => {
 	const { library, root, transformed } = await open();
 	const { transcript } = await transcribed(library, root);
-	await mkdir(join(root, 'transformations'));
+	await mkdir(join(root, 'transformations'), { recursive: true });
 	const broken = '---\ntitle: *missing\nmood: curious\n---\nStill here\n';
 	const path = 'transformations/broken.md';
 	await writeFile(join(root, path), broken);

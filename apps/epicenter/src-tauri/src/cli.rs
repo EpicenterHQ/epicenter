@@ -1150,10 +1150,15 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(60), declared.finished())
             .await
             .expect("the declaration finished");
-        let declaration =
-            fs::read_to_string(paths.folder_dir.join("so.epicenter").join("epicenter.json"))
-                .expect("so.epicenter/epicenter.json was written");
-        assert!(declaration.contains("\"connections\""), "{declaration}");
+        let schema = fs::read_to_string(
+            paths
+                .folder_dir
+                .join("so.epicenter")
+                .join("connections")
+                .join(".epicenter.json"),
+        )
+        .expect("so.epicenter/connections/.epicenter.json was written");
+        assert!(schema.contains("\"type\": \"object\""), "{schema}");
         let _ = fs::remove_dir_all(dir);
     }
 

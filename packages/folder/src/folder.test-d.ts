@@ -253,7 +253,7 @@ expectTypeOf(root.openFolder({ id: 'data:Groceries' })).toEqualTypeOf<
 	Promise<Result<Folder<Definition>, OpenFolderError>>
 >();
 async function untypedRows(folder: Folder<Definition>) {
-	// A data folder's tables are whatever its epicenter.json declares.
+	// A data folder's tables are whatever its schema files declare.
 	const table = folder.tables.anything;
 	expectTypeOf(folder.definition).toEqualTypeOf<Definition>();
 	void table;

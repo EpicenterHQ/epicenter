@@ -259,7 +259,10 @@ test('a choice is saved on this device, not in the folder, and a new session sta
 	await first.input.select(USB);
 
 	expect(device.store.saved).toEqual(USB);
-	expect(await readdir(first.root)).toEqual([]);
+	// Only the .gitignore lines opening the folder writes.
+	expect((await readdir(first.root)).filter((name) => name !== '.git')).toEqual(
+		['.gitignore'],
+	);
 	const second = await open({ device });
 	expect(second.input.choice).toEqual(USB);
 

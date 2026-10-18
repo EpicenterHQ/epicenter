@@ -44,7 +44,6 @@ import {
 	dumpStorage,
 } from './browser-storage.test-support.js';
 import { defineFolder, type Folder } from './contract.js';
-import { formatDefinition } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
 	createBareRemote,
@@ -127,12 +126,8 @@ async function incoming(kind: 'browser' | 'directory') {
 	await writeFile(join(upstream, 'notes.md'), 'line one\nline two\n');
 	// Lets the folder keep a local, ignored attribute file of its own.
 	await writeFile(join(upstream, '.gitignore'), '.gitattributes\n');
-	// The declaration a folder of this definition publishes before its first
+	// A definition with no tables publishes no schema file before its first
 	// write, so that write leaves the folder clean.
-	await writeFile(
-		join(upstream, 'epicenter.json'),
-		formatDefinition(definition),
-	);
 	await git(upstream, 'add', '--all');
 	await git(upstream, 'commit', '--quiet', '-m', 'audio');
 	await git(upstream, 'push', '--quiet', 'origin', 'main');

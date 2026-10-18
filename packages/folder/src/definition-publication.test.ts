@@ -1,7 +1,7 @@
 /**
  * Definition publication through production Bun and browser adapters: a
- * handle publishes `epicenter.json` just before its first write, never on
- * open. Covers a folder nobody wrote to, replacement, changed declarations,
+ * handle publishes each table's `<table>/.epicenter.json` just before its
+ * first write, never on open. Covers a folder nobody wrote to, replacement, changed declarations,
  * an unchanged declaration left unwritten, unchanged history, and best-effort
  * failures while saved rows remain usable.
  */
@@ -50,6 +50,20 @@ const author = { name: 'Publication', email: 'publication@example.test' };
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 /** The settings row each test writes. */
 const DISPLAY = 'settings/display.md';
+/** The settings table's schema file, which each test watches. */
+const SCHEMA = 'settings/.epicenter.json';
+/** What `published` publishes at `SCHEMA`. */
+const schemaOf = (published: Definition) =>
+	formatDefinition(published)[SCHEMA]!;
+/** `definition` with a settings field that admits fewer values. */
+const changed = defineFolder({
+	tables: {
+		...definition.tables,
+		settings: defineTable({
+			fields: { theme: field.optional(field.string({ minLength: 4 })) },
+		}),
+	},
+});
 
 /** Set the display theme: the row is created the first time, then set. */
 async function setTheme(folder: Folder<Definition>, theme: string) {
@@ -89,9 +103,12 @@ test('opening writes nothing, so a fresh browser copy takes an existing remote a
 			expect(
 				expectOk(await receiver.tables.settings.get('display'))?.row.fields,
 			).toEqual({ theme: 'remote' });
-			expect(
-				decode(expectOk(await receiver.files.read('epicenter.json')).bytes),
-			).toBe(formatDefinition(definition));
+			expect(decode(expectOk(await receiver.files.read(SCHEMA)).bytes)).toBe(
+				schemaOf(definition),
+			);
+			expect(expectErr(await receiver.files.read('epicenter.json')).name).toBe(
+				'NotFound',
+			);
 			expect(expectOk(await receiver.git.status()).changes).toEqual([]);
 		} finally {
 			await receiver.close();
@@ -126,44 +143,39 @@ for (const adapter of ['browser', 'bun'] as const) {
 			);
 		const declaration = async (folder: {
 			files: Folder<typeof definition>['files'];
-		}) => decode(expectOk(await folder.files.read('epicenter.json')).bytes);
+		}) => decode(expectOk(await folder.files.read(SCHEMA)).bytes);
 		let folder: Folder<Definition> = await open(definition);
 		try {
-			expect(expectErr(await folder.files.read('epicenter.json')).name).toBe(
-				'NotFound',
-			);
+			expect(expectErr(await folder.files.read(SCHEMA)).name).toBe('NotFound');
 			expectOk(
 				await folder.tables.notes!.create(
 					{ fields: { title: 'Saved' }, body: 'Body stays\n' },
 					{ stem: 'kept' },
 				),
 			);
-			expect(await declaration(folder)).toBe(formatDefinition(definition));
+			expect(await declaration(folder)).toBe(schemaOf(definition));
+			expect(
+				decode(
+					expectOk(await folder.files.read('notes/.epicenter.json')).bytes,
+				),
+			).toBe(formatDefinition(definition)['notes/.epicenter.json']!);
+			expect(expectErr(await folder.files.read('epicenter.json')).name).toBe(
+				'NotFound',
+			);
 			await setTheme(folder, 'dark');
 			const row = expectOk(await folder.files.read('notes/kept.md'));
 			const display = expectOk(await folder.files.read(DISPLAY));
-			expectOk(
-				await put(folder, 'epicenter.json', 'malformed manual description'),
-			);
+			expectOk(await put(folder, SCHEMA, 'malformed manual description'));
 			await folder.close();
 			// Reopening writes nothing; the next write publishes again.
 			folder = await open(definition);
 			expect(await declaration(folder)).toBe('malformed manual description');
 			await setTheme(folder, 'light');
-			expect(await declaration(folder)).toBe(formatDefinition(definition));
+			expect(await declaration(folder)).toBe(schemaOf(definition));
 			await folder.close();
-			const changed = defineFolder({
-				title: 'Changed',
-				tables: {
-					...definition.tables,
-					settings: defineTable({
-						fields: { theme: field.optional(field.string({ minLength: 4 })) },
-					}),
-				},
-			});
 			folder = await open(changed);
 			await setTheme(folder, 'dark');
-			expect(await declaration(folder)).toBe(formatDefinition(changed));
+			expect(await declaration(folder)).toBe(schemaOf(changed));
 			expect(expectOk(await folder.files.read('notes/kept.md')).bytes).toEqual(
 				row.bytes,
 			);
@@ -198,7 +210,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 							browser: { ...browserStorage(environment), author },
 						}),
 			);
-		const watched = ['epicenter.json', DISPLAY];
+		const watched = [SCHEMA, DISPLAY];
 		/** Which files the saves in `write` replaced. */
 		const landed = async (
 			_folder: Folder<Definition>,
@@ -230,7 +242,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		let folder: Folder<Definition> = await open(definition);
 		try {
 			expect(await landed(folder, () => setTheme(folder, 'dark'))).toEqual([
-				'epicenter.json',
+				SCHEMA,
 				DISPLAY,
 			]);
 			await folder.close();
@@ -239,15 +251,14 @@ for (const adapter of ['browser', 'bun'] as const) {
 				DISPLAY,
 			]);
 			await folder.close();
-			const changed = defineFolder({ ...definition, title: 'Changed' });
 			folder = await open(changed);
 			expect(await landed(folder, () => setTheme(folder, 'dark'))).toEqual([
-				'epicenter.json',
+				SCHEMA,
 				DISPLAY,
 			]);
-			expect(
-				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
-			).toBe(formatDefinition(changed));
+			expect(decode(expectOk(await folder.files.read(SCHEMA)).bytes)).toBe(
+				schemaOf(changed),
+			);
 		} finally {
 			await folder.close();
 			await rm(root, { recursive: true, force: true });
@@ -297,9 +308,9 @@ for (const adapter of ['browser', 'bun'] as const) {
 	});
 }
 
-test('Bun publication failure leaves the folder usable and reports the actual destination failure', async () => {
+test('Bun publication failure leaves the folder usable, reports the actual destination failure, and is tried again before the next write', async () => {
 	const root = await scratch('definition-failure-');
-	await mkdir(join(root, 'epicenter.json'));
+	await mkdir(join(root, SCHEMA), { recursive: true });
 	const folder = expectOk(
 		await openBun({ app: basename(root), root, definition, git: { author } }),
 	);
@@ -309,14 +320,24 @@ test('Bun publication failure leaves the folder usable and reports the actual de
 			events.find((event) => event.source === 'folder/definition')?.data,
 		).toMatchObject({
 			name: 'DefinitionPublicationUnconfirmed',
-			path: 'epicenter.json',
+			path: SCHEMA,
 			// The write's own refusal, naming what is in the way.
 			cause: {
 				name: 'InvalidPath',
-				path: 'epicenter.json',
+				path: SCHEMA,
 				reason: expect.stringContaining('is a directory'),
 			},
 		});
+		// Once what was in the way is gone, the next write publishes.
+		await rm(join(root, SCHEMA), { recursive: true });
+		expectOk(await folder.write('again.txt', null, 'again'));
+		expect(decode(expectOk(await folder.files.read(SCHEMA)).bytes)).toBe(
+			schemaOf(definition),
+		);
+		// Confirmed, it is not published again.
+		await rm(join(root, SCHEMA));
+		expectOk(await folder.write('third.txt', null, 'third'));
+		expect(expectErr(await folder.files.read(SCHEMA)).name).toBe('NotFound');
 	} finally {
 		await folder.close();
 		await rm(root, { recursive: true, force: true });

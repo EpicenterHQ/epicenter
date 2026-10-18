@@ -216,6 +216,13 @@ test('a listing has one item per row file, each read through the same pipeline a
 	await s.put('todos/m.md', MALFORMED);
 	await s.put('todos/upper.MD', VALID);
 	await s.put('todos/notes.txt', 'not a row');
+	// The one row predicate: a nonempty id that is not a dot name, then `.md`.
+	await s.put('todos/.md', VALID);
+	await s.put('todos/.hidden.md', VALID);
+	await s.put('todos/.epicenter.json', '{}');
+	// Nested files are a row's own files, never rows; a directory is never a row.
+	await s.put('todos/a/nested.md', VALID);
+	await s.put('todos/dir.md/inside.txt', 'a directory named like a row');
 	const listing = expectOk(await s.table.list());
 	const byStem = Object.fromEntries(
 		listing.map(({ stem, result }) => [stem, result]),
@@ -649,19 +656,24 @@ test('rename from a stem with no file is InvalidPath, onto an occupied one Occup
 
 // -- Addresses ----------------------------------------------------------------
 
-test('every literal single-segment stem is an address, the empty one included', async () => {
+test('every literal single-segment stem that names a row file is an address', async () => {
 	const s = await setup();
-	const stems = ['', ' ', 'a b', 'ünïcode', '.hidden', 'a.b'];
+	const stems = [' ', 'a b', 'ünïcode', 'a.b', 'a.', 'trailing.md'];
 	for (const stem of stems)
 		expectOk(await s.table.create(todo(`stem ${stem}`), { stem }));
 	for (const stem of stems)
 		expect(expectOk(await s.table.get(stem))?.path).toBe(`todos/${stem}.md`);
+	expect(
+		expectOk(await s.table.list())
+			.map(({ stem }) => stem)
+			.sort(),
+	).toEqual([...stems].sort());
 });
 
-test('a stem that is not one segment is InvalidPath before storage', async () => {
+test('a stem that is not one segment, is empty, or starts with a dot is InvalidPath before storage', async () => {
 	const s = await setup();
 	s.resetCounts();
-	for (const stem of ['a/b', '../a']) {
+	for (const stem of ['a/b', '../a', '', '.hidden', '.']) {
 		expect(expectErr(await s.table.get(stem)).name).toBe('InvalidPath');
 		expect(expectErr(await s.table.create(todo('x'), { stem })).name).toBe(
 			'InvalidPath',

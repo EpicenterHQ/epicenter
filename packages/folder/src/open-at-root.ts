@@ -12,7 +12,7 @@ import { mismatches } from '@epicenter/definition';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import { readDefinition } from './declaration.js';
-import { type Definition, prepareFolderDefinition } from './definition.js';
+import type { Definition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import {
 	assembleFolder,
@@ -23,7 +23,8 @@ import {
 	type FolderLocation,
 } from './folder.js';
 import type { Opening } from './opening.js';
-import { DEFINITION_PATH } from './paths.js';
+import { schemaPath } from './paths.js';
+import { nameLocalPatterns } from './publish-definition.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -44,15 +45,8 @@ function folderName(location: FolderLocation): string {
 	return location.root.split(/[\\/]/).filter(Boolean).pop() ?? location.root;
 }
 
-/** What a folder with no `epicenter.json` declares: no tables. */
-const UNDECLARED = (() => {
-	const { data, error } = prepareFolderDefinition({ tables: {} });
-	if (error !== null) throw new Error(error.reason);
-	return data;
-})();
-
 /**
- * Make the folder's storage, and its history once the definition is known.
+ * Make the folder's storage, and its history once the definition is read.
  * `relay` hears each landed step, for the detector; `landed` hears the
  * paths an incoming update wrote.
  */
@@ -61,22 +55,15 @@ type StartFolder = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
 }) => Promise<{
 	readonly boundary: FolderStorage;
-	/**
-	 * The history, whose Sync merges rows by `definition`, and which never
-	 * commits an untracked file `appLocal` matches: the `local` patterns of
-	 * an app reading a folder that is not its own.
-	 */
-	readonly history: (
-		definition: Definition,
-		appLocal?: readonly string[],
-	) => FolderHistory;
+	/** Start the history, which reads no definition (ADR-0591, ADR-0592). */
+	readonly history: () => FolderHistory;
 }>;
 
 /**
  * Open the folder `target` names over the storage `captured.start` makes:
- * with the app's definition in the app's own folder, and with the folder's
- * own `epicenter.json` anywhere else, which must contain the definition the
- * folder is read through, if any.
+ * with the app's definition in the app's own folder, and with the tables the
+ * folder's own schema files declare anywhere else (`readDefinition`), which
+ * must contain the definition the folder is read through, if any.
  */
 export async function openAtRoot<TDefinition extends Definition>(
 	target: Opening,
@@ -110,8 +97,18 @@ export async function openAtRoot<TDefinition extends Definition>(
 		const { boundary } = started;
 		const { definition } = target;
 		let prepared: Definition;
-		if (target.own) prepared = target.definition;
-		else {
+		if (target.own) {
+			prepared = target.definition;
+			// The app's own folder ignores what the app keeps on this machine
+			// before the handle exists, so nothing the app starts, a native
+			// recording included, writes such a file unignored (ADR-0592).
+			const patterns = prepared.local ?? [];
+			const { error } = await nameLocalPatterns(patterns, boundary);
+			if (error !== null) {
+				release();
+				return OpenFolderError.IgnoreUnwritten({ patterns, cause: error });
+			}
+		} else {
 			// Read through the folder's own file boundary, after the grant, as
 			// every later read is.
 			const { data: declared, error } = await readDefinition(boundary);
@@ -119,12 +116,30 @@ export async function openAtRoot<TDefinition extends Definition>(
 				release();
 				return OpenFolderError.InvalidDefinition({
 					reason: error.reason,
-					path: DEFINITION_PATH,
+					path: '',
 				});
 			}
-			prepared = declared ?? UNDECLARED;
+			// A schema file that cannot be used makes no table; the others
+			// open, and `epicenter check` names it.
+			prepared = declared.definition;
 			if (definition !== undefined) {
-				const problems = mismatches(prepared, definition);
+				// A table the definition reads whose schema cannot be used is
+				// missing for that reason, which the refusal says.
+				const unusable = new Map(
+					declared.problems.map(({ path, reason }) => [path, reason]),
+				);
+				const problems = mismatches(prepared, definition).map((problem) => {
+					const reason =
+						problem.kind === 'missingTable'
+							? unusable.get(schemaPath(problem.table))
+							: undefined;
+					return reason === undefined
+						? problem
+						: {
+								...problem,
+								message: `${problem.message}: its ${schemaPath(problem.table)} cannot be used: ${reason}`,
+							};
+				});
 				if (problems.length > 0) {
 					release();
 					return OpenFolderError.DefinitionMismatch({
@@ -142,12 +157,7 @@ export async function openAtRoot<TDefinition extends Definition>(
 		}
 		// A change made once the handle is returned is heard.
 		await detected?.ready;
-		// An app keeps its own `local` files out of a folder it reads through
-		// its definition, without writing them into that folder's definition.
-		const opened = started.history(
-			prepared,
-			target.own ? undefined : definition?.local,
-		);
+		const opened = started.history();
 		history = opened;
 		const folder = assembleFolder<TDefinition, Definition>({
 			id: target.id,

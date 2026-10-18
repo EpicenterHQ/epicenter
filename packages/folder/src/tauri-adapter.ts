@@ -107,8 +107,8 @@ async function handedFolder(
  * handed this window, which must be running `app`; for `id`, that folder.
  * Refusals are returned, not thrown: not running in the shell, a window
  * that runs another app or none (`AppMismatch`), a missing ID, a
- * folder this window may not use, an `epicenter.json` that cannot be used,
- * or one that does not contain the definition. Opening creates no
+ * folder this window may not use, a table schema that cannot be used,
+ * or tables that do not contain the definition. Opening creates no
  * repository; the first commit does.
  */
 export async function openAnyFolder<

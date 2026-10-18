@@ -1,18 +1,17 @@
 /**
- * Which listed files are history source.
+ * Which files are history source: the one rule every host shares (ADR-0592).
  *
- * Status, commits, and incoming fast-forwards share one rule: a path the
- * folder definition's `local` patterns match is never source, tracked or
- * not, whatever `.gitignore` says; otherwise a file tracked in the committed
- * tree stays source, and an untracked file is source unless `.gitignore`
- * excludes it. So a commit leaves a local file out, and one committed before
- * is untracked by the next commit while its bytes stay on disk. Private Git state and operating-system
- * scratch files are excluded earlier by `isPortablePath`. Which paths are
- * source is decided before any file is read, and only source files are read:
- * the browser evaluates the `.gitignore` files' bytes, the only others it
- * reads; the native backend asks
- * `git check-ignore`, which also
- * honors `.git/info/exclude` and the user's excludes file.
+ * A file tracked in the committed tree stays source, whatever `.gitignore`
+ * says, as in Git; untracking one is an explicit act, and history keeps
+ * what it held. Any other file is source unless `.gitignore` excludes it,
+ * and an excluded one is never read, save an ignored `.gitattributes` the
+ * native checkpoint checks for a filter (`native-checkpoint.ts`), since one
+ * changes what a commit holds. Nothing else decides what stays on one
+ * machine: no definition, no app. Private Git state and operating-system
+ * scratch files are excluded earlier by `isPortablePath`. The browser
+ * evaluates `.gitignore` files from their bytes; the native backend asks
+ * `git check-ignore`, which also honors `.git/info/exclude` and the user's
+ * excludes file.
  */
 import ignore, { type Ignore } from 'ignore';
 
@@ -55,63 +54,7 @@ export function gitignoreMatcher(
 	};
 }
 
-/**
- * Whether a folder definition's `local` patterns match `path`, or a directory
- * above it. The patterns are read as one root `.gitignore` would read them,
- * except that nothing re-includes a match: they hold whatever the folder's
- * own `.gitignore` files say.
- */
-export function localMatcher(
-	patterns: readonly string[] | undefined,
-): (path: string) => boolean {
-	if (patterns === undefined || patterns.length === 0) return () => false;
-	const matcher = ignore().add([...patterns]);
-	return (path) => {
-		const parts = path.split('/');
-		for (let index = 0; index < parts.length; index++) {
-			const isDirectory = index < parts.length - 1;
-			const current =
-				parts.slice(0, index + 1).join('/') + (isDirectory ? '/' : '');
-			if (matcher.ignores(current)) return true;
-		}
-		return false;
-	};
-}
-
-/** Whether `path` is a `.gitignore` file, whose rules `gitignoreMatcher` reads. */
+/** Whether `path` is a `.gitignore` file, whose rules decide what is source. */
 export function isGitignorePath(path: string): boolean {
 	return path === '.gitignore' || path.endsWith('/.gitignore');
-}
-
-/**
- * Of `paths`, the tracked files and the untracked files that are not
- * ignored, never a file `isLocal` matches, in their order. `isAppLocal`, the
- * `local` patterns of an app that reads a folder it is not the owner of,
- * leaves out only untracked files: what the app keeps on this machine never
- * enters that folder's history, and what the folder already tracks stays
- * tracked, since its own definition says so.
- *
- * Decided by path alone, so a caller reads only the bytes of what this keeps
- * and an ignored file is never read.
- */
-export async function sourcePaths(
-	paths: readonly string[],
-	tracked: ReadonlyMap<string, unknown>,
-	ignoredPaths: (candidates: readonly string[]) => Promise<ReadonlySet<string>>,
-	isLocal: (path: string) => boolean = () => false,
-	isAppLocal: (path: string) => boolean = () => false,
-): Promise<string[]> {
-	const candidates = paths.filter(
-		(path) => !tracked.has(path) && !isLocal(path) && !isAppLocal(path),
-	);
-	const ignored =
-		candidates.length === 0
-			? new Set<string>()
-			: await ignoredPaths(candidates);
-	return paths.filter(
-		(path) =>
-			!ignored.has(path) &&
-			!isLocal(path) &&
-			(tracked.has(path) || !isAppLocal(path)),
-	);
 }

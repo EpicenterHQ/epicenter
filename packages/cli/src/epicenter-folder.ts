@@ -45,8 +45,8 @@ export const epicenterDefinition = defineFolder({
  * Make the handle's first write, which publishes its definition first: the
  * `connections` table's directory, the table apps read through their
  * definition. A
- * directory already there is left as it is, and so is an `epicenter.json`
- * that already holds the definition's bytes.
+ * directory already there is left as it is, and so is a
+ * `connections/.epicenter.json` that already holds the definition's bytes.
  */
 export async function declare(
 	folder: Folder<typeof epicenterDefinition>,
@@ -56,9 +56,9 @@ export async function declare(
 }
 
 /**
- * `epicenter declare-epicenter-folder`: publish `epicenterDefinition` to
- * `<folder dir>/so.epicenter/epicenter.json`, making the folder if it is
- * missing. Exits 0, or 2 with the problem.
+ * `epicenter declare-epicenter-folder`: publish `epicenterDefinition`'s
+ * schema to `<folder dir>/so.epicenter/connections/.epicenter.json`, making
+ * the folder if it is missing. Exits 0, or 2 with the problem.
  */
 export async function declareEpicenterFolder(
 	json: boolean,
@@ -82,6 +82,9 @@ export async function declareEpicenterFolder(
 	}
 	if (problem !== undefined) return fail(problem, json);
 	if (json) writeJson({ declared: root });
-	else writeOut(`${root}/epicenter.json declares Epicenter's folder.`);
+	else
+		writeOut(
+			`${root}/connections/.epicenter.json declares Epicenter's folder.`,
+		);
 	return EXIT.ok;
 }

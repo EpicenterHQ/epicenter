@@ -120,8 +120,8 @@ function folderAddress(id: string): FolderAddress {
  * named after it, since a browser is handed no other; for `id`, the folder
  * named `id`. Refusals are returned, not thrown: a definition a folder
  * cannot keep, a page inside the desktop app, an ID that cannot name a
- * directory, missing browser storage, an `epicenter.json` that cannot be
- * used, or one that does not contain the definition.
+ * directory, missing browser storage, a table schema that cannot be used,
+ * or tables that do not contain the definition.
  *
  * Opening writes nothing. A folder nobody wrote to lists no files, its
  * first write creates its directory, and its first commit or remote creates
@@ -184,13 +184,11 @@ export async function openAnyFolder<
 			});
 			return {
 				boundary,
-				history: (prepared, appLocal) =>
+				history: () =>
 					createHistory({
 						backend,
 						boundary,
 						author,
-						definition: prepared,
-						appLocal,
 						landed,
 					}),
 			};

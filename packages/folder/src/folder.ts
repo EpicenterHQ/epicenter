@@ -16,7 +16,7 @@
  * outcome. Closing makes no last commit.
  */
 import { type CreateRowOf, requiredOutside } from '@epicenter/definition';
-import type { Result } from 'wellcrafted/result';
+import { Err, type Result } from 'wellcrafted/result';
 import { type FolderStorage, mayHaveChanged } from './boundary.js';
 import type { Definition, PreparedFolderTable } from './definition.js';
 import { FileError, type WriteError } from './errors.js';
@@ -34,8 +34,9 @@ import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import type { FileContent } from './merge-file.js';
 import { callObserver } from './observer.js';
 import {
+	GITIGNORE_PATH,
+	nameLocalPatterns,
 	publishDefinition,
-	publishLocalPatterns,
 } from './publish-definition.js';
 import { createTable, type FileTable } from './table.js';
 import { movePath, type Written, writeFile } from './write.js';
@@ -183,8 +184,8 @@ export type Folder<
 	 * Whether this is the opening app's own folder, the one named after the
 	 * `app` it was opened for: whether this handle may publish its
 	 * definition. It is decided when the folder opens, not by what lands. An
-	 * own handle publishes its definition to `epicenter.json` just before its
-	 * first write, best effort: a publication that fails is logged, and the
+	 * own handle publishes its table schemas, each `<table>/.epicenter.json`,
+	 * just before its first write, best effort: a publication that fails is logged, and the
 	 * write still lands, so `own` does not say the definition is on disk.
 	 * Every other handle reads with the folder's own definition and never
 	 * writes it. False for a folder opened without an `app`.
@@ -192,8 +193,8 @@ export type Folder<
 	readonly own: boolean;
 	/**
 	 * The prepared definition this handle reads with: the app's own, in its
-	 * own folder, or the folder's own `epicenter.json` as it was read when
-	 * the folder opened (no tables when there was none). Every row is
+	 * own folder, or the tables the folder's own schema files declared when
+	 * the folder opened (no tables when there were none). Every row is
 	 * checked against it, and Sync merges rows by it. A definition changed
 	 * after opening is read by the next open.
 	 */
@@ -285,7 +286,7 @@ export function createFileHints(): FileHints {
  * host's. A call made once closing started is `Closed`; one already begun
  * owns its result. With `published`, the handle publishes that definition
  * just before its first change (`publish-definition.ts`), through the same
- * accounting. Each put that changed a file, or may have, makes the history's
+ * accounting, and again before the next change while it is unconfirmed. Each put that changed a file, or may have, makes the history's
  * observations stale; it is not reported to the handle's own listeners
  * (ADR-0548), since whoever saved holds the result.
  */
@@ -310,13 +311,29 @@ function handleStorage(
 			return result;
 		},
 	};
-	let publishing: Promise<void> | undefined;
-	const publish = async () => {
-		if (published === undefined) return;
-		publishing ??= publishDefinition(published, noting).then((local) =>
-			publishLocalPatterns(local, noting),
-		);
-		await publishing;
+	// One publication runs at a time, and every change waits for it. Only a
+	// confirmed one is kept: after a failure the next change tries again.
+	// The `.gitignore` lines come first and are a prerequisite: a change that
+	// could put a file they keep on this machine is refused until they land.
+	// The schemas are best effort, and never refuse a change.
+	let confirmed = false;
+	let publishing: Promise<FileError | undefined> | undefined;
+	const publish = async (): Promise<FileError | undefined> => {
+		if (published === undefined || confirmed) return undefined;
+		publishing ??= (async () => {
+			const { error } = await nameLocalPatterns(published.local ?? [], noting);
+			if (error !== null)
+				return FileError.Io({
+					path: GITIGNORE_PATH,
+					operation: 'name the files this app keeps on this machine in',
+					cause: error,
+				}).error;
+			confirmed = await publishDefinition(published, noting);
+			return undefined;
+		})().finally(() => {
+			publishing = undefined;
+		});
+		return publishing;
 	};
 	return {
 		list: () => (signal.aborted ? closed() : storage.list()),
@@ -325,12 +342,14 @@ function handleStorage(
 		read: (path) => (signal.aborted ? closed() : storage.read(path)),
 		async put(path, bytes, ifMatch) {
 			if (signal.aborted) return closed();
-			await publish();
+			const refused = await publish();
+			if (refused !== undefined) return Err(refused);
 			return noting.put(path, bytes, ifMatch);
 		},
 		async mkdir(path) {
 			if (signal.aborted) return closed();
-			await publish();
+			const refused = await publish();
+			if (refused !== undefined) return Err(refused);
 			return storage.mkdir(path);
 		},
 		rmdir: (path) => (signal.aborted ? closed() : storage.rmdir(path)),
@@ -380,8 +399,8 @@ export function assembleFolder<
 	id: string;
 	/**
 	 * Whether this is the opening app's own folder. Its handle publishes
-	 * `prepared` to `epicenter.json` before its first write; any other
-	 * handle, whose definition is that file, never writes it.
+	 * `prepared`'s table schemas before its first write; any other
+	 * handle, whose definition is those files, never writes them.
 	 */
 	own: boolean;
 	prepared: Definition;

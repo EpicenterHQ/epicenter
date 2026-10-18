@@ -19,12 +19,13 @@ its sync Durable Objects, and the apps built only on it are deleted.
 
 ```txt
 ~/Epicenter/so.epicenter.todos/
-  epicenter.json        the folder's declaration: its tables
-  settings/<concern>.md settings, one row per concern (ADR-0576)
-  todos/<id>.md         one row per file: YAML frontmatter fields, Markdown body
-  recordings/...        one row per recording
-  audio/...             recordings' audio: declared local, never committed
-  .git/                 history, and the remote in remote.origin.url
+  settings/.epicenter.json  the settings table's schema (ADR-0611)
+  settings/<concern>.md     settings, one row per concern (ADR-0576)
+  todos/.epicenter.json     the todos table's schema: its fields
+  todos/<id>.md             one row per file: YAML frontmatter fields, Markdown body
+  recordings/...            one row per recording, beside its schema
+  audio/...                 recordings' audio: declared local, never committed
+  .git/                     history, and the remote in remote.origin.url
 ```
 
 - **The files are the data.** No cache, event, or window state is
@@ -36,7 +37,7 @@ its sync Durable Objects, and the apps built only on it are deleted.
   folder
   ([ADR-0532](adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
 - **A folder declares its shape and names no app.** An app opens any folder
-  whose `epicenter.json` contains the tables and fields it reads. Only the app
+  whose table schemas contain the tables and fields it reads. Only the app
   a folder is named after publishes its declaration; every other app reads it
   through its definition and never rewrites it
   ([ADR-0535](adr/0535-an-existing-folder-opens-with-its-own-declaration.md),
@@ -99,8 +100,8 @@ exits ([ADR-0542](adr/0542-quitting-is-immediate-because-unfinished-work-already
 
 The Epicenter desktop app (`apps/epicenter`) opens to its Folders window
 ([ADR-0537](adr/0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)).
-It lists every folder under `~/Epicenter` that holds an `epicenter.json`,
-opens one with its own declaration, edits its rows, and offers every installed
+It lists every folder under `~/Epicenter` that holds a table, a directory
+with a `.epicenter.json`, opens one with its own table schemas, edits its rows, and offers every installed
 app as "Open in"; an app refuses a folder its definition does not fit. Settings (the
 `home` window) keeps Chat and model administration.
 

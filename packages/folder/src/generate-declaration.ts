@@ -1,13 +1,15 @@
 /**
- * Write a data folder's `epicenter.json` from the `epicenter.ts` its author
- * wrote (ADR-0527), in Bun.
+ * Write a data folder's table schemas, each `<table>/.epicenter.json`, from
+ * the `epicenter.ts` its author wrote (ADR-0527), in Bun. The definition's
+ * `local` patterns are added to the root `.gitignore` (ADR-0592), which is
+ * what keeps those files on one machine.
  *
  * This is the one reading of a folder that runs its code: it imports
  * `epicenter.ts` and keeps what its default export declares. Run it only on a
  * folder whose code you trust, as you would any script.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -15,7 +17,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { DEFINITION_SOURCE_PATH, hasDefinitionSource } from './check-folder.js';
 import { formatDefinition } from './declaration.js';
 import { defineFolder } from './definition.js';
-import { DEFINITION_PATH } from './paths.js';
+import { nameLocalPatterns, writeSchemaFile } from './publish-definition.js';
 
 export const GenerateDefinitionError = defineErrors({
 	/** The folder has no `epicenter.ts`. */
@@ -33,6 +35,12 @@ export const GenerateDefinitionError = defineErrors({
 	InvalidDefinition: ({ reason }: { reason: string }) => ({
 		message: reason,
 		reason,
+	}),
+	/** A file the definition declares could not be written; earlier ones may have been. */
+	WriteFailed: ({ path, cause }: { path: string; cause: unknown }) => ({
+		message: `${path} could not be written: ${cause instanceof Error ? cause.message : typeof cause === 'object' && cause !== null && 'message' in cause ? String(cause.message) : String(cause)}`,
+		path,
+		cause,
 	}),
 });
 export type GenerateDefinitionError = InferErrors<
@@ -78,13 +86,16 @@ async function resolveDefinitionImports() {
 }
 
 /**
- * Run `<dir>/epicenter.ts` and write the `epicenter.json` its default export
- * declares. `written` is false when the file already held exactly that text.
- * Nothing is written when the definition cannot be kept.
+ * Run `<dir>/epicenter.ts` and write the schema file of each table its
+ * default export declares, and the `local` patterns `.gitignore` lacks.
+ * `written` lists each file whose text changed, by its path in the folder;
+ * none when every file already held exactly that text. Nothing is written
+ * when the definition cannot be kept. A table directory the definition does
+ * not declare is left as it is.
  */
 export async function generateDefinition(
 	dir: string,
-): Promise<Result<{ written: boolean }, GenerateDefinitionError>> {
+): Promise<Result<{ written: string[] }, GenerateDefinitionError>> {
 	if (!hasDefinitionSource(dir))
 		return GenerateDefinitionError.NoSource({ dir });
 	const source = resolve(dir, DEFINITION_SOURCE_PATH);
@@ -101,19 +112,35 @@ export async function generateDefinition(
 		});
 	// defineFolder refuses what a folder cannot keep, and returns a prepared
 	// definition as it is.
-	let text: string;
+	let definition: ReturnType<typeof defineFolder>;
 	try {
-		text = formatDefinition(
-			defineFolder(declared as Parameters<typeof defineFolder>[0]),
-		);
+		definition = defineFolder(declared as Parameters<typeof defineFolder>[0]);
 	} catch (cause) {
 		return GenerateDefinitionError.InvalidDefinition({
 			reason: cause instanceof Error ? cause.message : String(cause),
 		});
 	}
-	const target = resolve(dir, DEFINITION_PATH);
-	const current = await readFile(target, 'utf8').catch(() => undefined);
-	if (current === text) return Ok({ written: false });
-	await writeFile(target, text);
-	return Ok({ written: true });
+	// Each file goes through the folder's one write boundary, under its save
+	// lock: a schema replaces what it read only while it still holds that,
+	// and `.gitignore` merges with what another writer added meanwhile.
+	const { directoryStorage } = await import('./bun.js');
+	const storage = directoryStorage(await realpath(dir));
+	const written: string[] = [];
+	for (const [path, text] of Object.entries(formatDefinition(definition))) {
+		const { data: changed, error } = await writeSchemaFile(path, text, storage);
+		if (error !== null)
+			return GenerateDefinitionError.WriteFailed({ path, cause: error });
+		if (changed) written.push(path);
+	}
+	const { data: named, error } = await nameLocalPatterns(
+		definition.local ?? [],
+		storage,
+	);
+	if (error !== null)
+		return GenerateDefinitionError.WriteFailed({
+			path: '.gitignore',
+			cause: error,
+		});
+	if (named) written.push('.gitignore');
+	return Ok({ written });
 }

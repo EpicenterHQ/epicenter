@@ -86,15 +86,17 @@ export type DeclaredTable = TableDeclaration & DeclaredMark;
  * it have this one type. The prepared one is an owned, frozen snapshot whose
  * fields `check` reads; a field of a definition that was never prepared is
  * refused by it. A storage selects its dataset when it opens, so
- * `prepareDefinition` refuses an `id`. `epicenter.json` holds one.
+ * `prepareDefinition` refuses an `id`. A folder holds one as its tables'
+ * schema files, each `<table>/.epicenter.json`.
  */
 export type Definition = {
 	readonly title?: string;
 	/**
-	 * Files that stay on the machine that wrote them, as `.gitignore` patterns
-	 * such as `audio/`. A storage that syncs commits none of them. Each is one
-	 * line that ignores something: not empty, not a comment or a negation, and
-	 * without surrounding whitespace.
+	 * Lines a storage that syncs writes into its `.gitignore` when it first
+	 * writes, such as `audio/`, so those files stay on the machine that wrote
+	 * them; `.gitignore` is what decides, and nothing reads these patterns
+	 * afterward. Each is one line that ignores something: not empty, not a
+	 * comment or a negation, and without surrounding whitespace.
 	 */
 	readonly local?: readonly string[];
 	readonly tables: {

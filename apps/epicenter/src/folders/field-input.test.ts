@@ -107,33 +107,29 @@ test('numbers, tags, and JSON parse their text', () => {
 test('a plain JSON Schema declaration gets editors by type', () => {
 	// The demo's books: a hand-written declaration with no x-field hints.
 	const declared = expectOk(
-		parseDefinition(
-			JSON.stringify({
-				tables: {
-					books: {
-						type: 'object',
-						properties: {
-							title: { type: 'string' },
-							read: { type: 'boolean' },
-							rating: { type: 'integer' },
-							price: { type: 'number' },
-							shelf: { type: 'string', enum: ['home', 'office'] },
-							started: { type: 'string', format: 'date' },
-							finished: { type: 'string', format: 'date-time' },
-							link: { type: 'string', format: 'uri' },
-							moods: {
-								type: 'array',
-								items: { type: 'string', enum: ['calm', 'tense'] },
-							},
-							tags: { type: 'array', items: { type: 'string' } },
-							note: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
-							meta: { type: 'object' },
-						},
-						required: ['title', 'read'],
+		parseDefinition({
+			'books/.epicenter.json': JSON.stringify({
+				type: 'object',
+				properties: {
+					title: { type: 'string' },
+					read: { type: 'boolean' },
+					rating: { type: 'integer' },
+					price: { type: 'number' },
+					shelf: { type: 'string', enum: ['home', 'office'] },
+					started: { type: 'string', format: 'date' },
+					finished: { type: 'string', format: 'date-time' },
+					link: { type: 'string', format: 'uri' },
+					moods: {
+						type: 'array',
+						items: { type: 'string', enum: ['calm', 'tense'] },
 					},
+					tags: { type: 'array', items: { type: 'string' } },
+					note: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
+					meta: { type: 'object' },
 				},
+				required: ['title', 'read'],
 			}),
-		),
+		}),
 	);
 	const books = declared.tables.books;
 	if (books === undefined) throw new Error('no books table');

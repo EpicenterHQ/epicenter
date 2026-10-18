@@ -68,58 +68,54 @@ Different tools can use different definitions to interpret the same files.
 Compatible field meanings still matter when those tools write to the same
 dataset.
 
-Opening writes nothing. One handle publishes root `epicenter.json`: an app's,
-in the folder named after the app
-([the one rule](#which-folder-opens-and-the-one-rule)). It writes
-`formatDefinition(definition)` just before its first write (ADR-0508). Every
-other handle reads the file as the folder's schema and never writes it. Each
-table is one JSON Schema object, `{ type: 'object', properties, required }`,
-whose properties are the table's fields as the prepared definition holds them:
+Opening writes nothing, save the `.gitignore` lines an app's own folder
+needs for its `local` patterns (below). A folder's tables are its top-level directories that
+hold a `.epicenter.json` (`SCHEMA_FILE`), the table's schema; a directory
+without one is plain files, never a table, and nothing at the folder's root
+declares anything (ADR-0611). One handle publishes the schemas: an app's, in
+the folder named after the app
+([the one rule](#which-folder-opens-and-the-one-rule)). It writes each file of
+`formatDefinition(definition)`, a map of `<table>/.epicenter.json` paths to
+their text, just before its first write (ADR-0508). Every other handle reads
+the schemas it finds and never writes them. Each file is one JSON Schema
+object, `{ type: 'object', properties, required }`, whose properties are the
+table's fields as the prepared definition holds them:
 
 ```json
+// pages/.epicenter.json
 {
-  "title": "Vault",
-  "tables": {
-    "settings": {
-      "type": "object",
-      "properties": { "theme": { "enum": ["light", "dark"], "x-field": { "kind": "select" } } },
-      "required": []
-    },
-    "pages": {
-      "type": "object",
-      "properties": {
-        "title": { "type": "string", "x-field": { "kind": "string" } },
-        "queuedAt": { "type": "string", "format": "date", "x-field": { "kind": "date" } }
-      },
-      "required": ["title"]
-    }
-  }
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "x-field": { "kind": "string" } },
+    "queuedAt": { "type": "string", "format": "date", "x-field": { "kind": "date" } }
+  },
+  "required": ["title"]
 }
 ```
 
 `required` is the one optionality marker in the file, and `field.optional` is
-the one in code. The file contains no dataset identity, runtime resources, or
-TypeBox `~` keys. The JSON uses two-space indentation, declared order, and a
-trailing newline. An app opening its own folder uses its code definition and
-does not read this file as configuration; any other opener reads the folder
-with this file, through its definition if it has one.
+the one in code. The file contains no dataset identity, title, `local`
+patterns, runtime resources, or TypeBox `~` keys. The JSON uses two-space
+indentation, declared order, and a trailing newline. An app opening its own
+folder uses its code definition and does not read these files as
+configuration; any other opener reads the folder with them, through its
+definition if it has one.
 
 Publication replaces manual descriptions and descriptions from another app
-version. It migrates no saved rows. A prepared definition is
-plain JSON, so formatting cannot fail; a failed write is logged through
-`wellcrafted/logger`, with the destination and actual failure, while the
-folder remains usable. A failed attempt can leave discovery missing, stale, or
-uncertain.
+version. It migrates no saved rows, and it never deletes another table's
+schema: a table directory the definition does not name is left as it is. A
+prepared definition is plain JSON, so formatting cannot fail; a failed write
+is logged through `wellcrafted/logger`, with the destination and actual
+failure, while the folder remains usable. A failed attempt can leave
+discovery missing, stale, or uncertain.
 
-Publication writes `epicenter.json` once per handle, before that handle's
-first save, with the one write from the file as it was read to the
-formatted definition: a missing file is created, and a present one is
-replaced whole, keys only the file held included, but for `local`, which
-lists every pattern the file or the definition lists. A file that already
-holds the result is not written, and another writer getting there first
-starts the write again, as it does any write. It never commits or pushes, so the published
-`epicenter.json` is recorded with the next version. A folder opened only to
-read, or to take a remote's history, is never written by opening.
+Publication writes each table's schema once per handle, before that handle's
+first save, with a put from the file as it was read to the formatted schema:
+a missing file is created, and a present one is replaced whole. A file that
+already holds the schema is not written, and another writer getting there
+first starts the put again. It never commits or pushes, so the published
+schemas are recorded with the next version. A folder opened only to read, or
+to take a remote's history, is never written by opening.
 
 A definition can name files that stay on the machine that wrote them, as
 `.gitignore` patterns in `local`:
@@ -131,48 +127,44 @@ const definition = defineFolder({
 });
 ```
 
-`local` is part of the definition: the handle publishes it in
-`epicenter.json` as `"local": ["audio/"]`, so every host that reads the
-folder's own file, the `epicenter` CLI's Sync and Save version included,
-leaves out the same paths. A definition without `local` keeps nothing local.
-`local` is sorted and kept once each, so the file's bytes do not depend on the
-order it was declared in. When the folder's `epicenter.json` is there but
-cannot be read or prepared, the CLI's `runHistory` refuses a save version and
-a sync, naming the problem, rather than commit without its `local`; status and
-the log still read.
+`local` is part of the definition, not of any file, and it is not a rule:
+what stays on one machine is the folder's root `.gitignore` alone, on every
+host, read as Git reads it (ADR-0592). `local` is the lines an app's own
+folder's `.gitignore` gets, and they are a prerequisite, not a best effort.
+Opening the app's own folder makes the root `.gitignore` name each pattern
+before the handle exists, so nothing the app starts, a native recording
+included, writes such a file unignored; when it cannot, the open is
+`IgnoreUnwritten` and nothing opens. The handle checks them once more
+before its first change, with its schema publication, and refuses that
+change while they cannot be written; it checks again before each later
+change only until that publication is confirmed. `epicenter generate` writes
+them too. A missing `.gitignore` is created holding the
+patterns. A present one gains each missing pattern as a line at its end,
+written with the one write from the file as it was read, so a line another
+writer adds meanwhile stays; its other lines are never reordered, rewritten,
+or removed, and a file that already names every pattern, line for line, is
+not written. The `.gitignore` is source like any other file, so it syncs.
+Opening an app's own folder whose definition has `local` therefore writes
+that one file; one without `local` still writes nothing until its first
+change. A
+definition without `local` writes nothing there. `local` is sorted and kept
+once each.
 
-An open handle reads `local` from `epicenter.json` again for each commit and
-each Sync, joined with the opened definition's, so a pattern a Sync brings in
-from another device applies at once. Its own publication keeps every pattern
-the file already lists. An `epicenter.json` whose `local` does not read
-refuses the commit, as the CLI does.
+History reads `.gitignore` and nothing else (`git/scope.ts`). A tracked file
+stays tracked whatever `.gitignore` says, as in Git: untracking one is an
+explicit act, and history keeps what it held. An untracked file `.gitignore`
+excludes is never source and never read: status does not offer it, and a
+whole-folder commit leaves it out. Nor is an untracked `.gitignore` inside a
+directory a shallower rule excludes, as Git never reads one there. One
+exception is deliberate: the native checkpoint reads an ignored, untracked
+`.gitattributes` that governs a recorded file beneath it, to refuse a Git
+filter it names, since that filter would change what a commit holds. A
+person's `!` exception is honoured as Git honours it. Sync never reads an
+ignored untracked file where the remote adds one either: it stops, naming
+it, whatever bytes it holds.
 
-The engine decides this itself, on both backends, whatever `.gitignore` says.
-A path `local` matches is never history source (`git/scope.ts`): status does
-not offer it, a whole-folder commit leaves it out, and a file committed before
-the rule is removed from the next commit's tree and from the index, as
-`git rm --cached` would, its bytes kept on disk. A path staged by hand with
-plain `git add -f` is left out of the next commit Epicenter makes too. A
-person's `!` exception in `.gitignore` does not override it.
-
-With the definition, before the same first write, the handle also makes the
-root `.gitignore` name each pattern `epicenter.json` then lists, its
-definition's and any a Sync brought from another device, so plain `git` and
-the `epicenter` CLI agree. A missing `.gitignore` is created holding the patterns. A present one
-gains each missing pattern as a line at its end, written with the one write
-from the file as it was read, so a line another writer adds meanwhile stays;
-its other lines are never reordered, rewritten, or removed, and a file that
-already names every pattern is not written. A failed
-write is logged, and the engine's rule still holds. The `.gitignore` is source
-like any other file, so it syncs.
-
-No publication drops a pattern: it unions `local` until the folder's
-`.gitignore` replaces it (ADR-0592). Sync merges `epicenter.json` by key, where `local` is one unit, so two
-devices that changed it differently since their last Sync keep this
-device's list; each device still excludes its own definition's patterns,
-and lists them again on its next publication. `.gitignore` merges by line and keeps the patterns meanwhile, so
-plain Git still ignores an untracked file there; `.gitignore` does nothing
-for a file already committed.
+No publication drops a pattern: it only adds lines, so a pattern a Sync
+brought from another device stays. `.gitignore` merges by line.
 A pattern must be one line that ignores something: `defineFolder` refuses an
 empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.
@@ -228,7 +220,7 @@ openFolder({
 }): Promise<Result<Folder<typeof definition, Definition>, OpenFolderError>>
 
 openFolder({
-  id,          // any folder, read with its own epicenter.json
+  id,          // any folder, read with its own table schemas
   credentials,
   browser,
 }): Promise<Result<Folder<Definition>, OpenFolderError>>
@@ -260,9 +252,9 @@ policy in effect is on `folder.git.snapshot`.
 
 ### Which folder opens, and the one rule
 
-One rule decides what a handle does with a definition: a folder's
-`epicenter.json` is published by the app the folder is named after, and every
-other opener reads through its definition (ADR-0583).
+One rule decides what a handle does with a definition: a folder's table
+schemas are published by the app the folder is named after, and every other
+opener reads through its definition (ADR-0583).
 
 An app opens with `{ app, definition }`. In a browser it opens its own folder,
 the one named `app`. In the desktop app it opens the folder the shell handed
@@ -279,26 +271,26 @@ as `so.epicenter.todos` or `data:Groceries`. `folder.own` says whether the
 handle may publish its definition: true exactly for the app's own folder. It
 is decided when the folder opens. Publication itself is best effort just
 before the first write, logged when it fails, so `own` does not promise that
-`epicenter.json` is on disk.
+a table's `.epicenter.json` is on disk.
 
 A tool that has no schema of its own, such as the Folders window, the CLI, or
-a script over a vault, opens with `{ id }` and reads the folder's own
-`epicenter.json`. With `{ id, definition }` it reads the folder through the
+a script over a vault, opens with `{ id }` and reads the folder's own table
+schemas. With `{ id, definition }` it reads the folder through the
 definition instead, as an app reads Epicenter's own folder.
 
 | | The app's own folder | Any other folder, through a definition | Any folder by `{ id }` alone |
 | --- | --- | --- | --- |
 | `folder.own` | `true` | `false` | `false` |
-| Definition | the app's `definition` | the folder's `epicenter.json`, which must contain the definition ([below](#opening-another-folder)) | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
-| `epicenter.json` | published before the first write, if its bytes differ | never written | never written |
-| No `epicenter.json` | published on the first write | contains only a definition with no tables, so a definition that reads a table is `DefinitionMismatch` | no tables; files, history, and Sync work |
-| An unusable `epicenter.json` | replaced on the first write | `InvalidDefinition` with `path: 'epicenter.json'`, and nothing opens | `InvalidDefinition` with `path: 'epicenter.json'`, and nothing opens |
+| Definition | the app's `definition` | the tables the folder's schema files declare, which must contain the definition ([below](#opening-another-folder)) | the tables the folder's schema files declare, discovered and prepared as `readFolder` does when the folder opens |
+| Each `<table>/.epicenter.json` | its own tables' published before the first write, if their bytes differ; another table's never written | never written | never written |
+| No table schema | published on the first write | contains only a definition with no tables, so a definition that reads a table is `DefinitionMismatch` | no tables; files, history, and Sync work |
+| An unusable schema file | its own table's replaced on the first write | no table there; the other tables open, and a definition that reads it is `DefinitionMismatch` | no table there; the other tables open |
 | Tables | typed by the definition | the definition's tables, typed by it | keyed by any name, rows checked at run time |
 | Repository on disk | created by the first commit (Save version, or Sync's checkpoint) or `sync.connect`; until then status is an empty history with every file uncommitted ([Repository creation](#repository-creation)) | the same | the same |
 
 Every handle has `folder.definition`, the prepared definition it reads with,
-so a view can render a folder it did not define. History uses its `local`
-patterns; Sync merges files without it (ADR-0591). The definition is read once, when the folder opens; a definition that changes
+so a view can render a folder it did not define. History and Sync read no
+definition (ADR-0591, ADR-0592). The definition is read once, when the folder opens; a definition that changes
 afterward, such as one a Sync brought, is read by the next open.
 
 On the desktop, `id` names a folder the shell registered, until the shell
@@ -340,7 +332,7 @@ either. A closed folder table (`additionalProperties: false`) contains a
 definition that reads some of its fields; a closed definition table needs a
 closed folder table with no other field. The check is conservative: a pair it
 cannot decide is a problem with the reason, and the app widens its
-definition. A folder without `epicenter.json` contains only a definition with
+definition. A folder with no table schema contains only a definition with
 no tables.
 
 | | Through a definition |
@@ -351,8 +343,8 @@ no tables.
 | A write | checked against the folder's own definition, every field of it, a merged row included: the definition cannot write a value the folder refuses |
 | `create` | `canCreate` is false, and `create` is `InvalidValues` naming the fields, when the folder requires a field the definition does not declare; rows can still be edited |
 | `definition` | the folder's own prepared definition |
-| `epicenter.json` | never written |
-| The definition's `local` | an untracked file it matches is never committed, so what the app keeps on this machine never enters the folder's history; a file the folder already tracks stays tracked. Nothing is added to the folder's `epicenter.json` or `.gitignore`. |
+| Table schemas | never written |
+| The definition's `local` | nothing: the folder's own `.gitignore` decides what stays on one machine, and nothing is added to it |
 
 Fields the definition does not name are kept only on the row it read. A row
 built from scratch and passed to `write` or `create` drops them, and the
@@ -361,9 +353,9 @@ folder refuses it when one of them is required.
 ### The folder, opened lazily, and its remote
 
 Opening a browser folder writes nothing. The folder's first write creates its
-directory, and an app's handle publishes `epicenter.json` just before it, in
-the app's own folder; each table's
-directory appears with its first row. Its repository comes with its first
+directory, and an app's handle publishes each table's `.epicenter.json` just
+before it, in the app's own folder, so each of its tables' directories appears
+then; in any other folder a table's directory appears with its first row. Its repository comes with its first
 commit or remote, as on every host (see
 [Repository creation](#repository-creation)). Reads never write: a folder
 nobody wrote to lists nothing, has no history, and a commit of it writes
@@ -629,7 +621,7 @@ const opened = await openFolder({
   git: { author: { name: 'Tool', email: 'tool@example.test' } },
 });
 
-// Any directory, with its own epicenter.json.
+// Any directory, with its own table schemas.
 const vault = await openFolder({
   root: '/Users/me/Code/vault',
   git: { author: { name: 'Tool', email: 'tool@example.test' } },
@@ -639,7 +631,7 @@ const vault = await openFolder({
 The Bun opener follows the same rule by path: a directory is named by its
 directory's name (`folder.id`), so `{ root, app, definition }` publishes
 only in a directory named after `app`. Any other directory is read through
-the definition, and `{ root }` reads the directory's own `epicenter.json`
+the definition, and `{ root }` reads the directory's own table schemas
 ([above](#which-folder-opens-and-the-one-rule)). The name is the whole test:
 a script that opens `/any/repo/sub/so.epicenter.todos` as `so.epicenter.todos`
 publishes there and may give it a repository of its own. The `epicenter`
@@ -682,26 +674,39 @@ programs' changes watches with `fs.watch` itself.
 import { readFolder } from '@epicenter/folder/bun';
 
 const { data: reading, error } = await readFolder('/path/to/a/data/folder');
-if (error !== null) return show(error.message); // NotDataFolder, InvalidDefinition, or a file error
-reading.definition; // the prepared definition from epicenter.json
+if (error !== null) return show(error.message); // NotDataFolder, InvalidDefinition (a root it cannot list), or a file error
+reading.definition; // the prepared definition its usable tables' .epicenter.json files declare
+reading.problems; // [{ path, reason }] for each schema file that makes no table
+reading.notRows; // files named like a row that are not one, such as 'todos/.b.md'
 reading.tables.todos; // exactly what tables.todos.list() returns
 ```
 
-A data folder is a directory holding `epicenter.json` (ADR-0517), the
-definition an opener publishes as `DEFINITION_PATH`. `readFolder` reads it,
-prepares it, and reads every defined table through the same tables and
-native file boundary an opened folder uses, so a tool
-and an application reach the same verdict on every file. A symbolically
-linked table directory is that table's `InvalidPath`, never followed.
+A data folder is a directory with at least one table (ADR-0517, ADR-0611):
+a top-level directory holding a regular `.epicenter.json`, at
+`schemaPath(table)`, the schema an opener publishes. A directory with none is
+`NotDataFolder` ("no top-level directory holds a .epicenter.json").
+`readFolder` discovers those files, prepares them, and reads every table
+through the same tables and native file boundary an opened folder uses, so a
+tool and an application reach the same verdict on every file. A symbolically
+linked directory is never followed, so it is no table.
 
-`parseDefinition(text)` reads the file's grammar and nothing else: a
-top-level `$schema` (which only helps an editor offer completion), `title`,
-`local`, and `tables`, each table `{ type: 'object', properties, required? }`
+`parseTableSchema(text)` reads one file's grammar and nothing else: a
+top-level `$schema` (which only helps an editor offer completion) and one
+object schema, `{ type: 'object', properties, required?, additionalProperties? }`,
 with every `required` name declared. A table without `required` has only
-optional fields. Any other top-level key, a `kv` included, a visible `~` key on a
+optional fields. `parseDefinition(files)` reads a record of such files by
+their `<table>/.epicenter.json` paths (`tableOfSchemaPath`) into a definition.
+Any other key, a `title`, `local`, or `kv` included, a visible `~` key on a
 field, or a field preparation refuses, such as one with an unknown `format`
-or a `$ref` that names nothing in the field, is `InvalidDefinition` with `path: 'epicenter.json'`. The older `{ fields }` form is refused; there is no
-migration.
+or a `$ref` that names nothing in the field, makes no table: `reading.problems`
+names the file's path, such as `todos/.epicenter.json`, and why, while the other
+tables read, and `epicenter check` reports it. A directory that cannot name a
+table is passed over (a dot directory, or a name like `HEAD` no folder path may
+hold), or is a problem when it holds a schema and its name is no table name
+(`my-drafts`). `reading.notRows` names each file directly in a table that is
+named like a row but is not one (`.md`, `.b.md`, `a.MD`), which `check` also
+reports. The older `{ fields }` form is refused, and a root `epicenter.json` is an ordinary file nothing reads; there
+is no migration.
 
 It writes nothing: no Git repository, lock, or definition. It can read a folder an application has open, or one
 nested anywhere in another repository. Each file is read whole, but the
@@ -723,8 +728,8 @@ import { checkFolder, generateDefinition, queryFolder } from '@epicenter/folder/
 const { data: checked, error } = await checkFolder(dir); // readFolder's errors
 checked.invalid; // files to fix, compiler-style findings
 checked.unreadable; // files that could not be read
-const { data: answer } = queryFolder(checked, 'SELECT stem FROM posts'); // { columns, rows, excluded }
-await generateDefinition(dir); // runs dir/epicenter.ts and writes epicenter.json
+const { data: answer } = queryFolder(checked, 'SELECT id FROM posts'); // { columns, rows, excluded }
+await generateDefinition(dir); // runs dir/epicenter.ts and writes each <table>/.epicenter.json
 ```
 
 `checkFolder` sorts what `readFolder` reports: a row that does not conform, bytes that are not UTF-8, or a path the folder cannot hold is
@@ -733,8 +738,11 @@ projects only the rows that conform into an in-memory `bun:sqlite` database,
 runs exactly one statement that reads, and names in `excluded` every file it
 left out. `generateDefinition` is the one reading that runs a folder's code:
 it imports `epicenter.ts`, resolving `@epicenter/folder`, `@epicenter/definition`,
-and `typebox` to this process's own modules, and writes the `epicenter.json`
-its default export declares (ADR-0527).
+and `typebox` to this process's own modules, and writes the
+`<table>/.epicenter.json` of each table its default export declares, adding
+its `local` patterns to `.gitignore` (ADR-0527). `written` lists each path
+whose text changed; a table directory the definition does not declare is left
+as it is.
 
 ## The handle
 
@@ -747,7 +755,7 @@ its default export declares (ADR-0527).
 | `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. |
 | `sync` | `run()` records saved files, fetches, merges both heads into one commit this device wins, and pushes; `connect(url)` sets the remote first. It asks nothing. See [Sync](#sync). |
 | `id`, `own` | Which folder this is: its ID (the scope the desktop shell granted, the browser directory's name, or in Bun the directory's name), and whether it is the opening app's own, the only folder where the handle publishes its definition. |
-| `definition` | The prepared definition the handle reads with: the app's own in its own folder, or the folder's own `epicenter.json` as it was read when the folder opened. Its tables are `tables`, settings among them. |
+| `definition` | The prepared definition the handle reads with: the app's own in its own folder, or the tables the folder's own schema files declared when the folder opened. Its tables are `tables`, settings among them. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own writes. Returns the function that stops listening. See [Changes](#changes). |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
@@ -879,8 +887,8 @@ only for a declared field the text lacks. Text with no canonical form has
 exactly one issue; text that parses has one per failing field. There is no
 partial row: an invalid row is repaired as text, guarded by its hash.
 
-`list()` reads every `.md` file directly in the table's directory through the
-same pipeline. Each item is `{ stem, result }`, where `result` is the
+`list()` reads every row file directly in the table's directory
+(`rowStemOfName`) through the same pipeline. Each item is `{ stem, result }`, where `result` is the
 `StoredRow` or the error that `get` would return; an outer error means the
 listing itself failed.
 
@@ -942,8 +950,9 @@ and header CRLF in source are normalized away by the first save.
 `projectTables(db, tables)` builds the projection `epicenter query` reads
 (ADR-0520) in any `SqlTarget` (`run` and `transaction`; `queryFolder` in
 `@epicenter/folder/bun` adapts a `bun:sqlite` database in six lines), so Bun
-and a browser's SQLite build the same tables. Each table has `stem`, one quoted column per declared
-field, and `body`; a list or object is JSON text and a boolean is `0` or `1`.
+and a browser's SQLite build the same tables. Each table has `id` (the row's
+file is `<table>/<id>.md`), one quoted column per declared field, and `body`,
+so `id` and `body` are reserved; a list or object is JSON text and a boolean is `0` or `1`.
 Pass only rows that conform and name the files you left out. The database is
 read-only afterwards. `projectionProblem` names a table that cannot be one
 SQLite table, `readingStatementProblem` refuses a statement that does not
@@ -954,15 +963,19 @@ after the first one, stays with the engine.
 ### Names
 
 A stored row's `path` is `rowPath(table.name, stem)`, and
-`rowStemOf(table.name, path)` is the inverse; it returns `undefined` for a
-path that is not a row of that table, including `a.MD`, which is an ordinary
-file.
+`rowStemOf(table.name, path)` is the inverse. One row predicate,
+`rowStemOfName(name)`, serves every entry point (listing, a row's reads and
+writes, `epicenter check` and `epicenter query`, and change events): a row is
+a regular file directly in its table's directory whose name is a nonempty id
+that does not start with a dot, then exactly the lowercase `.md`; the id is
+the name without `.md`. So `.md`, `.hidden.md`, `a.MD`, `.epicenter.json`, a
+file nested under the table (`todos/a/b.md`, a row's own files), and a
+directory, whatever its name, are ordinary entries and never rows.
 
 A stem is one literal filename segment. Nothing trims it, folds its case,
-normalizes its Unicode, or strips an extension. `'bad '`, `'.hidden'`, and
-the empty stem (`todos/.md`) are addresses like any other, and a name is
-never a diagnostic. An empty stem is an address, so compare a stem with
-`undefined` explicitly rather than by truthiness.
+normalizes its Unicode, or strips an extension. `'bad '` is an address like
+any other, and a name is never a diagnostic. The empty stem and one that
+starts with a dot, such as `'.hidden'`, are `InvalidPath`.
 
 A stem whose row path the folder's path rule (`pathProblem` in `paths.ts`)
 refuses is `InvalidPath`: a path separator, so no stem can address a nested
@@ -1320,12 +1333,13 @@ the folder, so it includes saves made while it waited. If the folder closes
 while it still waits, it is told `closed` and nothing runs.
 
 Source files are tracked files plus untracked files that `.gitignore` does not
-exclude, minus every path the definition's `local` patterns match; private Git
+exclude; an excluded untracked file is never read (save an ignored
+`.gitattributes` the native checkpoint checks for a filter), and private Git
 state is never source. SQLite filenames have no special
 exclusion: an intentionally saved database follows ordinary Git rules. Plain Git
 records binary files like any other file. There is no default audio ignore, no
-format list, and no LFS; a definition's `local` patterns are the one way a
-folder ignores files of its own accord.
+format list, and no LFS; `.gitignore` is the one way a folder keeps files
+on one machine, and an app's own folder gets its `local` lines there.
 
 ### Closing
 
@@ -1378,7 +1392,7 @@ acting:
 | Path | Merged by | Where both changed one unit |
 | --- | --- | --- |
 | `.md` with frontmatter that reads, at any path | field and body lines | this device's field or lines |
-| `.json` that parses as an object, `epicenter.json` included | key, nested objects by key | this device's key |
+| `.json` that parses as an object, a table's `.epicenter.json` included | key, nested objects by key | this device's key |
 | any other UTF-8 text, Markdown whose frontmatter does not read, or `.json` that does not parse or holds an inexact number | line | this device's lines |
 | JSON that is not an object | whole file | this device's file |
 | a binary file, a link, an executable, or a submodule | whole file | this device's |
@@ -1483,9 +1497,9 @@ helpers build common ones. A folder refuses a table that declares a body
 conversion, because a row's body is the file's Markdown text. An opener given
 such a definition returns `InvalidDefinition` before it acquires anything.
 
-`epicenter.json` holds each table as one JSON Schema object whose
-properties are the fields, and `local`, when the definition declares it, as
-the list of patterns. A table declared with `additionalProperties: false`
+Each table's `<table>/.epicenter.json` holds it as one JSON Schema object
+whose properties are the fields; `local` is in no file, and goes to
+`.gitignore`. A table declared with `additionalProperties: false`
 beside `fields` is closed: the file holds the same keyword beside `properties`,
 and a row with a key the table does not declare does not conform (ADR-0536).
 Open is the default, and a closed table is for folders people write by hand;

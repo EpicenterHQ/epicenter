@@ -28,9 +28,13 @@ export const AUDIO = 'audio';
  * as the body, so they still read correctly after anything they came from
  * changes or is deleted. The transcription row is never written.
  *
- * Audio stays on the machine that recorded it: `local` names `audio/`, so no
- * commit carries it and Sync sends the rows alone (ADR-0577). Where the
- * audio a row names is not in the folder, the app says so.
+ * Audio stays on the machine that recorded it: `local` names `audio/`, which
+ * opening Whispering's own folder writes into its `.gitignore` before
+ * anything records, and `.gitignore` is what keeps a file out of every
+ * commit (ADR-0577, ADR-0592). A folder that is not Whispering's own keeps
+ * what its own `.gitignore` says: there, recorded audio is committed unless
+ * that folder ignores it. Where the audio a row names is not in the folder,
+ * the app says so.
  *
  * The file stem is a row's identity. A recording's title is a field, so
  * renaming a recording never moves a file or breaks a result's `recordingId`.

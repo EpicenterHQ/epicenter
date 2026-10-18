@@ -174,6 +174,25 @@ test('pathFilter covers the listing, the files, and history', async () => {
 		keys.noteText,
 		keys.status,
 	]);
+	// The one row predicate decides what a listing holds, so a file in the
+	// table's directory that is not a row leaves the listing alone.
+	for (const path of [
+		'todos/.hidden.md',
+		'todos/.md',
+		'todos/A.MD',
+		'todos/.epicenter.json',
+		'todos/a/cover.png',
+	])
+		expect(matched(queryClient, folder$.pathFilter([path]))).toEqual([
+			keys.files,
+			keys.status,
+		]);
+	// The table's directory itself can take every row with it.
+	expect(matched(queryClient, folder$.pathFilter(['todos']))).toEqual([
+		keys.list,
+		keys.files,
+		keys.status,
+	]);
 	// A query of the page's own follows every path it names.
 	expect(
 		matched(queryClient, folder$.pathFilter(['messages/c1-m1.md'])),

@@ -16,8 +16,8 @@
  * - A write the shell finds overtaken where it publishes reads again and
  *   merges, a create onto the file that landed is `InvalidPath`, and a
  *   delete reads again and wins; none is `Unconfirmed`
- * - A folder opened by ID reads with its own `epicenter.json` and never
- *   writes it, asks for no history when it opens, creates no repository
+ * - A folder opened by ID reads with its own table schemas and never
+ *   writes them, asks for no history when it opens, creates no repository
  *   before the first commit, and merges rows on Sync by that declaration
  * - What a page's Sync wrote reaches its listeners once, from the reply
  * - Read through a definition, a data folder has the definition's tables,
@@ -458,7 +458,9 @@ test('a row write another window overtakes where it publishes merges with what i
 });
 
 /** Hand-formatted, as no publication would write it. */
-const DECLARED = `{"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
+const DECLARED = `{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}`;
+/** Where `DECLARED` makes `todos` a table. */
+const SCHEMA = 'todos/.epicenter.json';
 
 /** Every path the page asked the shell to change. */
 const changedPaths = () =>
@@ -472,10 +474,10 @@ const changedPaths = () =>
 			: [],
 	);
 
-test('a data folder reads with its own epicenter.json, never writes it, and its first commit creates the repository', async () => {
+test('a data folder reads with its own table schemas, never writes them, and its first commit creates the repository', async () => {
 	const root = await scratch('tauri-data-folder-');
-	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
 	await nodeFs.mkdir(join(root, 'todos'));
+	await nodeFs.writeFile(join(root, SCHEMA), DECLARED);
 	await nodeFs.writeFile(
 		join(root, 'todos/one.md'),
 		'---\ntitle: One\ndone: false\n---\n',
@@ -511,15 +513,15 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await git(root, 'fsck', '--strict');
 
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readFile(join(root, SCHEMA), 'utf8')).toBe(DECLARED);
 	expect(
-		changedPaths().filter((path) => path.endsWith('epicenter.json')),
+		changedPaths().filter((path) => path.endsWith('.epicenter.json')),
 	).toEqual([]);
-	expect(heard).not.toContain('epicenter.json');
+	expect(heard).not.toContain(SCHEMA);
 	await folder.close();
 });
 
-test('a data folder without epicenter.json opens with no tables, and files work', async () => {
+test('a data folder with no table schema opens with no tables, and files work', async () => {
 	const root = await scratch('tauri-data-folder-none-');
 	grantRoot(root);
 	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
@@ -531,21 +533,22 @@ test('a data folder without epicenter.json opens with no tables, and files work'
 			expectOk(await folder.files.read('notes/a.md')).bytes,
 		),
 	).toBe('a\n');
-	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
+	expect(existsSync(join(root, 'notes/.epicenter.json'))).toBe(false);
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 	await folder.close();
 });
 
-test('a data folder whose epicenter.json cannot be used is InvalidDefinition and opens nothing', async () => {
+test('a data folder whose table schema cannot be used opens without that table and writes nothing', async () => {
 	const root = await scratch('tauri-data-folder-invalid-');
+	await nodeFs.mkdir(join(root, 'todos'));
 	await nodeFs.writeFile(
-		join(root, 'epicenter.json'),
-		'{"tables":{"todos":{"type":"object","properties":{},"required":["title"]}}}',
+		join(root, SCHEMA),
+		'{"type":"object","properties":{},"required":["title"]}',
 	);
 	grantRoot(root);
-	const refused = expectErr(await openFolder({ id: 'so.epicenter.vault' }));
-	expect(refused.name).toBe('InvalidDefinition');
-	expect(refused.message).toContain("requires 'title'");
+	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
+	expect(folder.tables).toEqual({});
+	await folder.close();
 	expect(shell.calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
 });
@@ -554,8 +557,8 @@ test('a data folder inside another repository blocks its first commit', async ()
 	const outer = await scratch('tauri-data-folder-outer-');
 	await git(outer, 'init', '--quiet');
 	const root = join(outer, 'vault');
-	await nodeFs.mkdir(root);
-	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
+	await nodeFs.mkdir(join(root, 'todos'), { recursive: true });
+	await nodeFs.writeFile(join(root, SCHEMA), DECLARED);
 	// The CLI names the folder and the repository by their real paths.
 	const initProblem = `${await nodeFs.realpath(root)} is inside the repository at ${await nodeFs.realpath(outer)}; commit it with that repository's Git`;
 	grantRoot(root);
@@ -583,10 +586,10 @@ test('a data folder grant refused is the refusal', async () => {
 	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
 });
 
-test('a data folder read through a definition reads its fields, keeps the rest, and never writes epicenter.json', async () => {
+test('a data folder read through a definition reads its fields, keeps the rest, and never writes a schema', async () => {
 	const root = await scratch('tauri-data-folder-read-through-');
-	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
 	await nodeFs.mkdir(join(root, 'todos'));
+	await nodeFs.writeFile(join(root, SCHEMA), DECLARED);
 	await nodeFs.writeFile(
 		join(root, 'todos/one.md'),
 		'---\ntitle: One\ndone: false\nsource: phone\n---\n',
@@ -609,9 +612,9 @@ test('a data folder read through a definition reads its fields, keeps the rest, 
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: false\nsource: phone\n---\n',
 	);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readFile(join(root, SCHEMA), 'utf8')).toBe(DECLARED);
 	expect(
-		changedPaths().filter((path) => path.endsWith('epicenter.json')),
+		changedPaths().filter((path) => path.endsWith('.epicenter.json')),
 	).toEqual([]);
 	await folder.close();
 
@@ -632,8 +635,8 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	const bare = await createBareRemote(project);
 	const native = join(project, 'native');
 	await git(project, 'clone', '--quiet', bare, native);
-	await nodeFs.writeFile(join(native, 'epicenter.json'), DECLARED);
 	await nodeFs.mkdir(join(native, 'todos'));
+	await nodeFs.writeFile(join(native, SCHEMA), DECLARED);
 	await nodeFs.writeFile(
 		join(native, 'todos/one.md'),
 		'---\ntitle: One\ndone: false\n---\n',
@@ -666,7 +669,7 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: true\n---\n',
 	);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readFile(join(root, SCHEMA), 'utf8')).toBe(DECLARED);
 	await folder.close();
 });
 

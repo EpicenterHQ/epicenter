@@ -140,7 +140,7 @@ repository's root and the build here. Opened from the Folders window's
 Apps list, Capture opens its own folder, `so.epicenter.capture`. Opened with
 "Open in Capture" beside another folder whose declaration contains its shape,
 it opens that folder and reads its captures through its shape (ADR-0538): it
-never rewrites that folder's `epicenter.json`, and a folder whose declaration
+never rewrites that folder's table schemas, and a folder whose declaration
 lacks the shape is refused with a message naming the folder.
 
 The captures are files in `so.epicenter.capture/captures` under Epicenter's

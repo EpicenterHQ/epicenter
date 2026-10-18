@@ -57,11 +57,12 @@ IP. Run the server yourself and that metadata is yours too.
 ## Audio stays on the machine that recorded it
 
 Rows and documents ride Git, but large binaries do not belong in history.
-Whispering keeps audio in `audio/`, which its folder definition declares
-local: no commit Epicenter makes carries a file there, whatever `.gitignore`
-says, and the folder's `.gitignore` names `audio/` too. So a recording's
+Whispering keeps audio in `audio/`, which its folder's `.gitignore` names:
+Whispering writes that line before its first write to its own folder, and
+`.gitignore` is the one rule every host reads (ADR-0592). So a recording's
 audio never leaves the machine that recorded it; only the transcript row
-syncs. Epicenter hosts no blob store, so no server holds your
+syncs. A file someone committed before the rule stays tracked, as in Git,
+until they untrack it. Epicenter hosts no blob store, so no server holds your
 audio unless you send it to a transcription service yourself
 ([ADR-0577](adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
 Git LFS is the later path for carrying large files with a folder (ADR-0544).

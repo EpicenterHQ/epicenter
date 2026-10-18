@@ -24,6 +24,7 @@ import { defineFolder, defineTable, field } from './contract.js';
 import { formatDefinition } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import { writeFiles } from './schema-files.test-support.js';
 
 const definition = defineFolder({
 	tables: {
@@ -48,7 +49,7 @@ async function repository() {
 	await git(root, 'init', '--quiet', '--initial-branch=main');
 	await writeFile(join(root, 'a.md'), 'A\n');
 	await writeFile(join(root, 'kept.md'), 'kept\n');
-	await writeFile(join(root, 'epicenter.json'), formatDefinition(definition));
+	await writeFiles(root, formatDefinition(definition));
 	await git(root, 'add', '--all');
 	await git(root, 'commit', '--quiet', '-m', 'Start');
 	return root;
@@ -98,7 +99,7 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 	expect(outcome.status).toBe('unchanged');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	expect(await git(root, 'ls-files')).toBe(
-		'.gitignore\na.md\nepicenter.json\nkept.md',
+		'.gitignore\na.md\nkept.md\ntodos/.epicenter.json',
 	);
 	await folder.close();
 });

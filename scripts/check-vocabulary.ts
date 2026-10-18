@@ -116,7 +116,7 @@ const RULES: readonly Rule[] = [
 			'README.md',
 		],
 	},
-	// ADR-0584 P1: one noun for what `epicenter.json` holds.
+	// ADR-0584 P1: one noun for what a folder's schema files hold.
 	...(
 		[
 			['DataSchema', 'Definition'],
@@ -127,12 +127,12 @@ const RULES: readonly Rule[] = [
 			['formatDeclaration', 'formatDefinition'],
 			['parseDeclaration', 'parseDefinition'],
 			['readDeclaration', 'readDefinition'],
-			['DECLARATION_PATH', 'DEFINITION_PATH'],
+			['DECLARATION_PATH', 'SCHEMA_FILE'],
 			['DECLARATION_SOURCE_PATH', 'DEFINITION_SOURCE_PATH'],
 			['hasDeclarationSource', 'hasDefinitionSource'],
 			['generateDeclaration', 'generateDefinition'],
 			['GenerateDeclarationError', 'GenerateDefinitionError'],
-			['InvalidDeclaration', "InvalidDefinition with path 'epicenter.json'"],
+			['InvalidDeclaration', "InvalidDefinition with a table's schema path"],
 			['ShapeMismatch', 'DefinitionMismatch'],
 			['ShapeProblem', 'Mismatch'],
 			['shapeProblems', 'mismatches'],

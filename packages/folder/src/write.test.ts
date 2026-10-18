@@ -435,7 +435,7 @@ test('a move puts the file at a vacant path as it is and removes it from its own
 		'NotFound',
 	);
 	// A row moves as its bytes, with no canonical rewrite.
-	await mkdir(join(root, 'notes'));
+	await mkdir(join(root, 'notes'), { recursive: true });
 	await writeFile(join(root, 'notes/a.md'), '---\ntitle:   Spaced\n---\n');
 	expectOk(await folder.move('notes/a.md', 'notes/b.md'));
 	expect(await onDisk('notes/b.md')).toBe('---\ntitle:   Spaced\n---\n');

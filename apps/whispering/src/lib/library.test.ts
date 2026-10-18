@@ -63,11 +63,18 @@ import {
 	withResultFailures,
 } from './workspace.test-support.js';
 
+/** The names in a directory beside a table's `.epicenter.json` schema. */
+const entriesOf = (root: string, directory: string) =>
+	readdir(join(root, directory)).then(
+		(found) => found.filter((name) => name !== '.epicenter.json'),
+		() => [] as string[],
+	);
+
 /** The file names under `recordings/` (rows) and `audio/` (their audio), sorted. */
 const recordingFiles = async (root: string) =>
 	[
-		...(await readdir(join(root, 'recordings')).catch(() => [] as string[])),
-		...(await readdir(join(root, 'audio')).catch(() => [] as string[])),
+		...(await entriesOf(root, 'recordings')),
+		...(await entriesOf(root, 'audio')),
 	].sort();
 
 const { createLibrary, recordingId } = await import('./library.svelte.ts');
@@ -212,9 +219,13 @@ test('the first launch creates no files or history, and saving a connection writ
 	const { library, root, device } = await open({
 		connections: { connections: {} },
 	});
-	// Opening writes nothing: not the definition, which waits for a write,
-	// and no repository, which the first commit creates.
-	expect(await readdir(root)).toEqual([]);
+	// Opening writes the .gitignore lines that keep audio here, and nothing
+	// else: not the definition, which waits for a write, and no repository,
+	// which the first commit creates.
+	expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('audio/\n');
+	expect((await readdir(root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
@@ -235,7 +246,9 @@ test('the first launch creates no files or history, and saving a connection writ
 		readOnlyReason: undefined,
 	});
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
-	expect(await readdir(root)).toEqual([]);
+	expect((await readdir(root)).filter((name) => name !== '.git')).toEqual([
+		'.gitignore',
+	]);
 });
 
 test('with no transcription connection, transcribing sends nothing and says to set one up', async () => {
@@ -281,14 +294,14 @@ test('record, stop, and save leave a row, real audio, and a commit that leaves t
 	expect(['committed', 'unchanged']).toContain(outcome.status);
 	const tree = git(root, 'ls-tree', '-r', '--name-only', 'HEAD');
 	expect(tree).toContain(entry.path);
-	// Audio stays on the machine that recorded it: the folder's own
-	// epicenter.json declares audio/ local, which every host reads, and its
-	// .gitignore mirrors it, so the commit, and every Sync, carries the row
-	// alone.
+	// Audio stays on the machine that recorded it: the folder's .gitignore
+	// names audio/, which every host reads, so the commit, and every Sync,
+	// carries the row alone. No schema file carries it.
 	expect(
-		JSON.parse(await readFile(join(root, 'epicenter.json'), 'utf8')).local,
-	).toEqual(['audio/']);
+		(await readFile(join(root, '.gitignore'), 'utf8')).split('\n'),
+	).toContain('audio/');
 	expect(tree).toContain('.gitignore');
+	expect(tree.split('\n')).not.toContain('epicenter.json');
 	expect(tree).not.toContain(fields.audioPath);
 	expect(git(root, 'status', '--porcelain')).toBe('');
 });
@@ -483,8 +496,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	expect(git(root, 'status', '--porcelain').trim()).toBe('');
 });
 
-const transcripts = (root: string) =>
-	readdir(join(root, 'transcriptions')).catch(() => [] as string[]);
+const transcripts = (root: string) => entriesOf(root, 'transcriptions');
 
 /** The state of the newest transcript of `recording`. */
 function newest(library: Library, recording: string) {

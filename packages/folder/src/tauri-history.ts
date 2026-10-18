@@ -99,7 +99,8 @@ async function ask<T>(
 
 /**
  * The history of the folder this window was granted under `scope`, over
- * the shell's history commands.
+ * the shell's history commands. The CLI reads the folder's `.gitignore`
+ * itself, so a command carries no patterns (ADR-0592).
  */
 export function cliHistory({
 	scope,
@@ -107,19 +108,16 @@ export function cliHistory({
 	readonly scope: string;
 }): DirectoryHistory {
 	return async ({ landed }) =>
-		(_definition, appLocal = []) =>
-			createCliHistory({ scope, landed, appLocal });
+		() =>
+			createCliHistory({ scope, landed });
 }
 
 function createCliHistory({
 	scope,
 	landed,
-	appLocal,
 }: {
 	scope: string;
 	landed: (paths: readonly string[]) => void;
-	/** The reading app's `local` patterns, which the CLI never commits. */
-	appLocal: readonly string[];
 }): FolderHistory {
 	const closing = new AbortController();
 	let clock = 0;
@@ -214,7 +212,7 @@ function createCliHistory({
 		async run() {
 			const capturedAt = ++clock;
 			const answer = await ask<HistoryResults['status']>(() =>
-				commands.status(scope, [...appLocal]),
+				commands.status(scope),
 			);
 			if (answer.kind !== 'reply') {
 				const failure = gitFailure('status', answer);
@@ -246,7 +244,7 @@ function createCliHistory({
 			try {
 				const capturedAt = ++clock;
 				const answer = await ask<HistoryResults['saveVersion']>(() =>
-					commands.saveVersion(scope, message ?? null, [...appLocal]),
+					commands.saveVersion(scope, message ?? null),
 				);
 				if (answer.kind === 'missing')
 					return {
@@ -294,7 +292,6 @@ function createCliHistory({
 					scope,
 					connect ?? null,
 					options.allowUnrelatedHistories === true,
-					[...appLocal],
 				),
 			),
 		);

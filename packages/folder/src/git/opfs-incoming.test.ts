@@ -24,16 +24,15 @@
  *   where the remote added a directory stands beside it as `~local`
  * - An empty first-commit ref, and a repository whose creation stopped before
  *   `HEAD`, keep working
- * - A `local` pattern another device's `epicenter.json` brings in keeps its
- *   files out of the next commit in the same open folder; an `epicenter.json`
- *   that does not read refuses the commit
+ * - A root `epicenter.json` another device brings in is an ordinary file:
+ *   its `local` keeps nothing out of a commit, and one that does not read
+ *   refuses nothing
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineFolder, type Folder, openFolder } from '../browser.js';
-import { formatDefinition } from '../declaration.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -63,7 +62,6 @@ const FILES_LOCK = 'epicenter-folder:merge:files';
 const GIT_LOCK = 'epicenter-folder:merge:git';
 const REMOTE_URL = 'http://git.test/remote.git';
 const definition = defineFolder({ tables: {} });
-const discovery = formatDefinition(definition);
 
 type Tree = Record<string, string>;
 type Opened = Folder<typeof definition>;
@@ -164,10 +162,7 @@ async function synced(tree: Tree, opfs = memoryOpfs()) {
 		await git(other, 'push', '--quiet', 'origin', 'HEAD:main');
 	}
 	await git(other, 'checkout', '--quiet', '-b', 'main');
-	for (const [path, text] of Object.entries({
-		'epicenter.json': discovery,
-		...tree,
-	})) {
+	for (const [path, text] of Object.entries(tree)) {
 		await mkdir(dirname(join(other, path)), { recursive: true });
 		await writeFile(join(other, path), text);
 		await git(other, 'add', path);
@@ -282,7 +277,6 @@ for (const [stage, fault] of faults)
 		const outcome = expectOk(await folder.sync.run());
 		expect(outcome.kind).toBe('synced');
 		const expected = {
-			'epicenter.json': discovery,
 			'a.md': '2',
 			'notes.md': 'mine',
 			'z.md': 'new',
@@ -319,7 +313,6 @@ for (const [stage, fault] of faults)
 		clearFaults(opfs);
 		// The merge was pushed before any file here changed.
 		const expected = {
-			'epicenter.json': discovery,
 			'a.md': '2',
 			'b.md': '2',
 			'shared.md': 'ONE\ntwo\nTHREE\n',
@@ -343,7 +336,6 @@ test('a folder reopened over a cut-off publish converges on its next Sync', asyn
 	clearFaults(opfs);
 	// Each file holds its old bytes or its new ones; nothing is empty.
 	expect(folderFiles(opfs)).toEqual({
-		'epicenter.json': discovery,
 		'a.md': '2',
 	});
 	await folder.close();
@@ -352,7 +344,6 @@ test('a folder reopened over a cut-off publish converges on its next Sync', asyn
 	expectOk(await reopened.write('notes.md', null, 'mine'));
 	expect(expectOk(await reopened.sync.run()).kind).toBe('synced');
 	const expected = {
-		'epicenter.json': discovery,
 		'a.md': '2',
 		'notes.md': 'mine',
 		'z.md': 'new',
@@ -379,7 +370,6 @@ test('a tree turning a directory into a file, or a file into a directory, publis
 		await push(change);
 		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 		expect(folderFiles(opfs)).toEqual({
-			'epicenter.json': discovery,
 			...after,
 		});
 		expect(await changedPaths(folder)).toEqual([]);
@@ -428,7 +418,6 @@ test('a file added here where the remote added a directory stands beside it', as
 	expectOk(await folder.write('a', null, 'mine'));
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(folderFiles(opfs)).toEqual({
-		'epicenter.json': discovery,
 		'a/b': 'child',
 		'a~local': 'mine',
 		keep: 'k',
@@ -476,39 +465,30 @@ test('a commit whose branch write landed but whose reply was lost is unconfirmed
 	expect((await made.history.commit()).status).toBe('unchanged');
 });
 
-test("a local pattern Sync brings in keeps its files out of this open folder's next commit", async () => {
-	const { folder, bare, push } = await synced({});
-	// Another device's definition keeps drafts on the machine that wrote them.
+test('a root epicenter.json Sync brings in is an ordinary file: it keeps nothing local and refuses nothing', async () => {
+	const { folder, bare, push } = await synced({ 'keep.md': 'k' });
+	// The earlier model's root file, naming drafts local.
 	await push({
-		'epicenter.json': formatDefinition(
-			defineFolder({ tables: {}, local: ['drafts/'] }),
-		),
+		'epicenter.json': JSON.stringify({ tables: {}, local: ['drafts/'] }),
 	});
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
-	expectOk(await folder.write('drafts/secret.md', null, 'private'));
+	expectOk(await folder.write('drafts/secret.md', null, 'shared now'));
 	expectOk(await folder.write('notes.md', null, 'shared'));
-	// The first write's publication names the pattern in `.gitignore` too.
-	const gitignore = expectOk(await folder.files.read('.gitignore'));
-	expect(new TextDecoder().decode(gitignore.bytes)).toBe('drafts/\n');
-	expect(await changedPaths(folder)).toEqual(['.gitignore', 'notes.md']);
+	expect(expectErr(await folder.files.read('.gitignore')).name).toBe(
+		'NotFound',
+	);
+	expect(await changedPaths(folder)).toEqual(['drafts/secret.md', 'notes.md']);
+	expect((await folder.git.commit()).status).toBe('committed');
+
+	const current = expectOk(await folder.files.read('epicenter.json'));
+	expectOk(await folder.write('epicenter.json', current.bytes, '{ not json'));
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	const tree = await git(bare, 'ls-tree', '-r', '--name-only', 'main');
 	expect(tree.split('\n').sort()).toEqual([
-		'.gitignore',
+		'drafts/secret.md',
 		'epicenter.json',
+		'keep.md',
 		'notes.md',
 	]);
-
-	// A declaration that does not read leaves nothing known to keep local.
-	await overwriteDeclaration(folder, '{ not json');
-	expect(await folder.git.commit()).toMatchObject({
-		status: 'blocked',
-		reason: expect.stringContaining('epicenter.json'),
-	});
 });
-
-async function overwriteDeclaration(folder: Opened, text: string) {
-	const current = expectOk(await folder.files.read('epicenter.json'));
-	expectOk(await folder.write('epicenter.json', current.bytes, text));
-}

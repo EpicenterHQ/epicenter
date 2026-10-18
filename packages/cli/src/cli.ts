@@ -131,11 +131,15 @@ async function history(
 
 /** What `epicenter <command> --help` adds below the usage line. */
 const DETAILS: Record<string, string> = {
-	check: `Prints one line per file that does not conform, compiler style, then a
-summary. Exits 0 when every file conforms, 1 when one does not, and 2 when
-the folder or its definition cannot be used or a file cannot be read.
-Never writes a file or runs the folder's code.`,
-	query: `Without a statement, describes each table's columns and what they hold.
+	check: `Reads every table, each a top-level directory holding a .epicenter.json
+(its schema); a row is <table>/<id>.md directly in it. Prints one line per
+file that does not conform, compiler style, then a summary: a row, a
+table schema that cannot be used, or a file named like a row that is not
+one (.md, .b.md, a.MD). Exits 0 when every file conforms, 1 when one does
+not, and 2 when the folder has no table or a file cannot be read. Never
+writes a file or runs the folder's code.`,
+	query: `Without a statement, describes each table's columns and what they hold:
+id (the row's file is <table>/<id>.md), each field, and body.
 With one, runs that single read-only statement (SELECT, WITH, VALUES, or
 EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
@@ -201,12 +205,13 @@ What both sides changed merges into one commit, and this folder's version
 of each field or lines both changed wins; the commit's Overrode: lines name
 what the remote lost, which its history still holds. A sync asks nothing.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
-@epicenter/folder, and writes the epicenter.json it declares. It is the only
-command that runs a folder's code; check and query read only epicenter.json.
+@epicenter/folder, and writes each table's <table>/.epicenter.json, adding
+its local patterns to .gitignore. It is the only command that runs a
+folder's code; check and query read only the schema files.
 It may import @epicenter/folder, @epicenter/definition, typebox, and their
 subpaths, which resolve to this binary's own copies. Exits 0, or 2 when
-epicenter.ts cannot be used. To confirm the file is current, run generate
-and then git diff --exit-code -- <dir>/epicenter.json.`,
+epicenter.ts cannot be used. To confirm the files are current, run generate
+and then git diff --exit-code -- <dir>.`,
 };
 
 const name = (command: CommandSpec) => command.path.join(' ');

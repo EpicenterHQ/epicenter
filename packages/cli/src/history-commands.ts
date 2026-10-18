@@ -85,23 +85,6 @@ async function syncRequest(options: Options): Promise<HistoryRequest> {
 	};
 }
 
-/**
- * `--app-local`, a JSON array of the `local` patterns of an app reading a
- * folder that is not its own (ADR-0583), as the desktop shell passes them.
- */
-function appLocalOf(options: Options): string[] | undefined {
-	const given = options['app-local'];
-	if (given === undefined) return undefined;
-	const patterns: unknown =
-		typeof given === 'string' ? JSON.parse(given) : given;
-	if (
-		!Array.isArray(patterns) ||
-		!patterns.every((pattern) => typeof pattern === 'string')
-	)
-		throw new Error('--app-local takes a JSON array of patterns');
-	return patterns;
-}
-
 /** The request each command line makes. */
 async function requestOf(
 	command: 'status' | 'history' | 'save-version' | 'sync',
@@ -198,10 +181,8 @@ export async function historyCommand(
 	grant: GrantKind,
 ): Promise<number> {
 	let request: HistoryRequest;
-	let appLocal: string[] | undefined;
 	try {
 		request = await requestOf(command, options);
-		appLocal = appLocalOf(options);
 	} catch (error) {
 		return fail(error instanceof Error ? error.message : String(error), json);
 	}
@@ -210,7 +191,6 @@ export async function historyCommand(
 		reply = await runHistory(dir, request, {
 			author: AUTHOR,
 			application: await isApplicationFolder(dir),
-			appLocal,
 			credentials: async (url, signal) => {
 				const [{ authContext }, { hostedCredentials }] = await Promise.all([
 					import('./auth.ts'),

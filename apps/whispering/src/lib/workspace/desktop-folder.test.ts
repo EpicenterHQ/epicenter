@@ -121,13 +121,11 @@ test("a window handed Whispering's own folder opens it with its definition", asy
 test('a window handed another folder opens it through the definition and keeps its declaration', async () => {
 	openWindow('data:Dictation');
 	// Whispering's tables, declared by the folder itself, with one more table.
-	const declared = JSON.parse(formatDefinition(whisperingDefinition));
-	declared.title = 'Dictation';
-	declared.tables.notes = { type: 'object', properties: {} };
-	const dictation = `${JSON.stringify(declared, null, '\t')}\n`;
-	const root = await register('data:Dictation', {
-		'epicenter.json': dictation,
-	});
+	const dictation = {
+		...formatDefinition(whisperingDefinition),
+		'notes/.epicenter.json': `${JSON.stringify({ type: 'object', properties: {} }, null, '\t')}\n`,
+	};
+	const root = await register('data:Dictation', dictation);
 
 	const workspace = expectOk(await open());
 
@@ -136,8 +134,9 @@ test('a window handed another folder opens it through the definition and keeps i
 	// A recording is written under the handed folder's scope.
 	expect(workspace.folderId).toBe('data:Dictation');
 	expect(Object.keys(workspace.folder.definition.tables)).toContain('notes');
-	// The folder's own declaration stays; Whispering's is never published over it.
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(dictation);
+	// The folder's own schemas stay; Whispering's are never published over them.
+	for (const [path, text] of Object.entries(dictation))
+		expect(await readFile(join(root, path), 'utf8')).toBe(text);
 	await workspace.close();
 });
 
@@ -145,19 +144,16 @@ test('a handed folder without the recordings Whispering reads is refused by name
 	openWindow('data:Recipes');
 	const recipes = `${JSON.stringify(
 		{
-			title: 'Recipes',
-			tables: {
-				recipes: {
-					type: 'object',
-					properties: { title: { type: 'string' } },
-					required: ['title'],
-				},
-			},
+			type: 'object',
+			properties: { title: { type: 'string' } },
+			required: ['title'],
 		},
 		null,
 		'\t',
 	)}\n`;
-	const root = await register('data:Recipes', { 'epicenter.json': recipes });
+	const root = await register('data:Recipes', {
+		'recipes/.epicenter.json': recipes,
+	});
 
 	const error = expectErr(await open());
 
@@ -166,5 +162,7 @@ test('a handed folder without the recordings Whispering reads is refused by name
 		"Whispering cannot open the folder 'Recipes': ",
 	);
 	expect(error.message).toContain("The folder declares no 'recordings' table");
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(recipes);
+	expect(await readFile(join(root, 'recipes/.epicenter.json'), 'utf8')).toBe(
+		recipes,
+	);
 });

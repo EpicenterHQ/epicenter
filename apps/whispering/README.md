@@ -98,7 +98,7 @@ that commit's `dist/` at `/apps/so.epicenter.whispering/<commit>/`. Opening Whis
 from the Apps list opens its own folder, `so.epicenter.whispering`, under
 Epicenter's folder root. "Open in Whispering" beside another folder opens that
 folder through Whispering's definition, never rewriting its
-`epicenter.json`, and refuses one that lacks Whispering's tables, naming the
+table schemas, and refuses one that lacks Whispering's tables, naming the
 folder. To try a change, run `epicenter app remove so.epicenter.whispering`
 (its data folder stays), install Whispering again from your own clone of the
 repository by its absolute path, commit there on the branch that was checked

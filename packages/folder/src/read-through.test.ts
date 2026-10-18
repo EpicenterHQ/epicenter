@@ -15,7 +15,7 @@
  * - Rows read through the definition keep the fields it does not name, so a
  *   write keeps them, and every write is checked against the folder's
  *   declaration
- * - `epicenter.json` is never written
+ * - No schema file is ever written
  * - A definition the declaration does not contain is `DefinitionMismatch`,
  *   naming the folder, and the app when an app opened it, and listing every
  *   problem; opening creates nothing
@@ -23,9 +23,9 @@
  *   cannot add rows: `canCreate` is false and `create` is `InvalidValues`
  *   naming each such field
  * - A browser folder read through a definition behaves the same
- * - What the definition keeps on this machine (`local`) never enters the
- *   folder's history, while a file the folder already tracks stays tracked,
- *   and the folder's `epicenter.json` and `.gitignore` are not changed
+ * - The folder's own `.gitignore` alone decides what stays on one machine:
+ *   the reading app's `local` patterns change nothing there, and the
+ *   folder's schema files and `.gitignore` are not changed
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -40,11 +40,21 @@ import {
 import { openFolder, readFolder } from './bun.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import {
+	readTables,
+	tableFiles,
+	writeFiles,
+} from './schema-files.test-support.js';
 
 const author = { name: 'Board', email: 'board@localhost' };
 
 /** A folder that declares more than any definition below reads, written by hand. */
-const DECLARED = `{"title":"Todos","tables":{"settings":{"type":"object","properties":{"theme":{"enum":["light","dark"]},"density":{"type":"number"}},"required":[]},"todos":{"type":"object","properties":{"title":{"type":"string"},"status":{"enum":["todo","done"]},"priority":{"type":"integer","minimum":1,"maximum":3},"note":{"type":"string"}},"required":["title","status","priority"]},"projects":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}`;
+/** Its tables' schema files, by path. */
+const DECLARED = tableFiles(
+	JSON.parse(
+		`{"settings":{"type":"object","properties":{"theme":{"enum":["light","dark"]},"density":{"type":"number"}},"required":[]},"todos":{"type":"object","properties":{"title":{"type":"string"},"status":{"enum":["todo","done"]},"priority":{"type":"integer","minimum":1,"maximum":3},"note":{"type":"string"}},"required":["title","status","priority"]},"projects":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}`,
+	),
+);
 
 const ROW =
 	'---\ntitle: Milk\nstatus: todo\npriority: 2\nnote: Oat\nsource: phone\n---\nBuy it.\n';
@@ -92,8 +102,7 @@ afterAll(() => {
 
 async function folderRoot(prefix: string) {
 	const root = await scratch(prefix);
-	await writeFile(join(root, 'epicenter.json'), DECLARED);
-	await mkdir(join(root, 'todos'));
+	await writeFiles(root, DECLARED);
 	await writeFile(join(root, 'todos/milk.md'), ROW);
 	return root;
 }
@@ -119,7 +128,8 @@ test('an app opener publishes in the directory named after the app, and reads th
 			{ stem: 'eggs' },
 		),
 	);
-	expect(existsSync(join(own, 'epicenter.json'))).toBe(true);
+	expect(existsSync(join(own, 'todos/.epicenter.json'))).toBe(true);
+	expect(existsSync(join(own, 'epicenter.json'))).toBe(false);
 	await opened.close();
 
 	const root = await folderRoot('read-through-other-');
@@ -134,7 +144,7 @@ test('an app opener publishes in the directory named after the app, and reads th
 	expect(other.id).toBe(basename(root));
 	expect(other.own).toBe(false);
 	expectOk(await other.tables.todos.set('milk', { status: 'done' }));
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readTables(root)).toEqual(DECLARED);
 	await other.close();
 });
 
@@ -166,7 +176,7 @@ test('a definition over a bigger folder opens with its own tables, and the folde
 		expectOk(await folder.tables.settings.get('display'))!.row.fields,
 	).toEqual({ theme: 'dark' });
 	expect((await folder.git.commit()).status).toBe('committed');
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readTables(root)).toEqual(DECLARED);
 	await folder.close();
 });
 
@@ -215,7 +225,10 @@ test('a definition that does not declare a required field cannot add rows', asyn
 		name: 'InvalidValues',
 		issues: [{ field: 'priority' }],
 	});
-	expect(await readdir(join(root, 'todos'))).toEqual(['milk.md']);
+	expect((await readdir(join(root, 'todos'))).sort()).toEqual([
+		'.epicenter.json',
+		'milk.md',
+	]);
 	await folder.close();
 
 	const knowing = expectOk(
@@ -283,10 +296,10 @@ test('a definition the declaration does not contain is DefinitionMismatch, namin
 	);
 	expect(refused.message).toContain("The folder declares no 'events' table");
 	expect(existsSync(join(root, '.git'))).toBe(false);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(await readTables(root)).toEqual(DECLARED);
 });
 
-test('a folder without epicenter.json contains only a definition that reads nothing', async () => {
+test('a folder with no table schema contains only a definition that reads nothing', async () => {
 	const root = await scratch('read-through-undeclared-');
 	expect(
 		expectErr(await openFolder({ root, git: { author }, definition: board }))
@@ -302,11 +315,10 @@ test('a folder without epicenter.json contains only a definition that reads noth
 
 test('a closed folder table opens through a definition that reads a subset of it', async () => {
 	const root = await scratch('read-through-closed-');
-	await writeFile(
-		join(root, 'epicenter.json'),
-		'{"tables":{"pages":{"type":"object","properties":{"title":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}}}',
-	);
-	await mkdir(join(root, 'pages'));
+	await writeFiles(root, {
+		'pages/.epicenter.json':
+			'{"type":"object","properties":{"title":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}',
+	});
 	await writeFile(
 		join(root, 'pages/a.md'),
 		'---\ntitle: A\ntags:\n  - x\n---\n',
@@ -341,7 +353,8 @@ test('a browser folder read through a definition reads, writes, and refuses alik
 	const writer = expectOk(
 		await openBrowserFolder({ id: 'todos', browser: storage }),
 	);
-	expectOk(await writer.write('epicenter.json', null, DECLARED));
+	for (const [path, text] of Object.entries(DECLARED))
+		expectOk(await writer.write(path, null, text));
 	expectOk(await writer.write('todos/milk.md', null, ROW));
 	await writer.close();
 
@@ -360,11 +373,10 @@ test('a browser folder read through a definition reads, writes, and refuses alik
 			expectOk(await folder.files.read('todos/milk.md')).bytes,
 		),
 	).toContain('priority: 2\nnote: Oat\nsource: phone\n');
-	expect(
-		new TextDecoder().decode(
-			expectOk(await folder.files.read('epicenter.json')).bytes,
-		),
-	).toBe(DECLARED);
+	for (const [path, text] of Object.entries(DECLARED))
+		expect(
+			new TextDecoder().decode(expectOk(await folder.files.read(path)).bytes),
+		).toBe(text);
 	await folder.close();
 
 	const mismatch = defineFolder({
@@ -381,10 +393,11 @@ test('a browser folder read through a definition reads, writes, and refuses alik
 	).toBe('DefinitionMismatch');
 });
 
-test("a definition's local files never enter the folder's history, and what it tracks stays", async () => {
+test("a folder another app reads keeps what its own .gitignore says: the app's local patterns change nothing there", async () => {
 	const root = await folderRoot('read-through-local-');
 	await mkdir(join(root, 'audio'));
 	await writeFile(join(root, 'audio/kept.wav'), 'committed before');
+	await writeFile(join(root, '.gitignore'), 'drafts/\n');
 	await git(root, 'init', '--quiet', '--initial-branch=main');
 	await git(root, 'add', '-A');
 	await git(root, 'commit', '--quiet', '-m', 'base');
@@ -398,21 +411,25 @@ test("a definition's local files never enter the folder's history, and what it t
 	);
 	expect(folder.own).toBe(false);
 	expectOk(await folder.write('audio/new.wav', null, 'recorded here'));
-	expectOk(await folder.write('audio/kept.wav', 'committed before', 'changed'));
+	expectOk(await folder.write('drafts/mine.md', null, 'kept here'));
 	expectOk(await folder.tables.todos.set('milk', { status: 'done' }));
 
 	const status = expectOk(await folder.git.status());
 	expect(status.changes.map((change) => change.path).sort()).toEqual([
-		'audio/kept.wav',
+		'audio/new.wav',
 		'todos/milk.md',
 	]);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+		'.gitignore',
 		'audio/kept.wav',
-		'epicenter.json',
+		'audio/new.wav',
+		'projects/.epicenter.json',
+		'settings/.epicenter.json',
+		'todos/.epicenter.json',
 		'todos/milk.md',
 	]);
-	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
-	expect(existsSync(join(root, '.gitignore'))).toBe(false);
+	expect(await readTables(root)).toEqual(DECLARED);
+	expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('drafts/\n');
 	await folder.close();
 });

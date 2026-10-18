@@ -33,23 +33,23 @@ const posts: ProjectedTable = {
 	],
 	rows: [
 		{
-			stem: 'reel',
+			id: 'reel',
 			fields: { title: 'Reel', order: 1, pinned: true, tags: ['a'], due: null },
 			body: 'Cut done.\n',
 		},
 	],
 };
 
-test('each table projects stem, its quoted fields, and body, as SQLite values', () => {
+test('each table projects id, its quoted fields, and body, as SQLite values', () => {
 	const db = new Database(':memory:');
 	projectTables(target(db), [posts]);
 	expect(
 		db
-			.query('SELECT stem, title, "order", pinned, tags, due, body FROM posts')
+			.query('SELECT id, title, "order", pinned, tags, due, body FROM posts')
 			.all(),
 	).toEqual([
 		{
-			stem: 'reel',
+			id: 'reel',
 			title: 'Reel',
 			order: 1,
 			pinned: 1,
@@ -78,8 +78,13 @@ test('a table that cannot be one SQLite table is named, not projected', () => {
 	);
 	expect(projectionProblem(posts)).toBeUndefined();
 	expect(() =>
-		projectTables(target(new Database(':memory:')), [clash('stem')]),
-	).toThrow("uses 'stem' for the row itself");
+		projectTables(target(new Database(':memory:')), [clash('id')]),
+	).toThrow("uses 'id' for the row itself");
+	expect(projectionProblem(clash('ID'))).toBe(
+		"table 'notes' declares a field 'ID', but query uses 'id' for the row itself",
+	);
+	// `stem` is no longer the projection's: a field may take the name.
+	expect(projectionProblem(clash('stem'))).toBeUndefined();
 });
 
 test('only a statement that starts with a reading keyword may run', () => {
@@ -95,7 +100,7 @@ test('the description names what each column holds', () => {
 	expect(
 		describeTables([posts])[0]?.columns.map(({ values }) => values),
 	).toEqual([
-		"the row's file is posts/<stem>.md",
+		"the row's file is posts/<id>.md",
 		'string',
 		'number',
 		'boolean',
