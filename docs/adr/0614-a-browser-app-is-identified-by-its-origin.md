@@ -4,7 +4,7 @@
 - **Date:** 2026-10-18
 - **Amends:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "a grant has no target, and a token reaches its person's own namespace": a grant names one repository; [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at the client ID metadata document, the `cimd` plugin, "A redirect URI is accepted only when the document lists it", and "Epicenter's first-party browser apps keep their rows in `BROWSER_APPS`": every browser app's client id is its origin, and nothing is registered or hosted; CORS chosen by route stands.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (a first-party app is an ordinary client), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (what a grant names).
-- **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name; a refresh token per grant that renews without leaving the page; and native app identity.
+- **Unbuilt:** all of it: a client row created at an origin's first sign-in; (account, origin, repository) grants; sign-in returning to the page that called it; `connect()` navigating to consent; consent preselecting a suggested name; silent renewal pinned to the grant; and native app identity. A refresh token per grant is deferred.
 
 ## Context
 
@@ -39,9 +39,14 @@ client's origin.
 record.** It names one repository by id, never `*`. One grant exists per
 tuple. Access tokens stay stored rows checked on every request
 ([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)),
-so revoking a grant retires its tokens at once. A refresh token per grant
-renews access without leaving the page. Cost: a site that works in two
-repositories holds two grants.
+so revoking a grant retires its tokens at once. Cost: a site that works in
+two repositories holds two grants.
+
+**In v1 an access token renews by a silent sign-in that navigates the page
+and returns, pinned to the grant's repository.** Saves are already on disk,
+so the page loses only what it held in memory, about once per token
+lifetime. A refresh token per grant, renewing without leaving the page, is
+deferred.
 
 **`connect()` navigates the page to consent and back.** An app may suggest
 a repository name; at consent the one repository of that name on the

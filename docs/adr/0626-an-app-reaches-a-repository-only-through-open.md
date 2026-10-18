@@ -47,8 +47,9 @@ a table's `table.json` only orders the keys a save writes
 
 **`open` creates no table, and nothing in the app API writes a
 `table.json`.** A table named in `tables` that the repository lacks lists no
-rows. The first `set` in it writes `<t>/<id>.md`, and the table stays
-untyped until a person or an agent writes its `table.json`.
+rows. The first `set` in it writes `<t>/<id>.md`, and the directory is a
+table to `check` and `query` once a person or an agent writes its
+`table.json`.
 
 **`set` and `delete` are always accepted.** Neither checks a schema. A save
 sets the named fields on the row as it is now; merging two versions happens

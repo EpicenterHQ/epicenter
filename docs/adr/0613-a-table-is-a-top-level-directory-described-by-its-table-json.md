@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (a data folder keeps `epicenter.ts`, and `epicenter generate <dir>` writes the `epicenter.json` it declares): a table's description is the literal JSON Schema in its `table.json`, and nothing generates it.
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the root `epicenter.json`, its `app` and `title`, and "A data folder is every real, non-dot directory directly in the Epicenter folder": a table is described by its own `<table>/table.json`, which only people and agents write, and the unit a person owns is a repository; [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) at `field.optional` as the declaration of optionality: a field is optional when its table's `required` list omits it; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`; [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "`epicenter.json` included": a `table.json` is text and merges as any text file does ([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`check` and `query`), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the repository a table lives in), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (the app API over tables and rows).
-- **Unbuilt:** all of it: tables found as top-level directories, each described by its own `table.json`, and the deletion of the root `epicenter.json`; the one row predicate; the `id` name; readers that describe and never refuse; `check` listing untyped tables; and key order from `table.json`. How `query` shows an untyped table is not decided.
+- **Unbuilt:** all of it: tables found as top-level directories, each described by its own `table.json`, and the deletion of the root `epicenter.json`; the one row predicate; the `id` name; readers that describe and never refuse; and key order from `table.json`.
 
 ## Context
 
@@ -32,20 +32,19 @@ a repository it could otherwise use, and a root description names one app.
 
 ## Decision
 
-**A table is a top-level, non-dot directory holding a visible `table.json`
-or a `.md` file directly inside it, and a row is a `.md` file directly
-inside it.** A table with a `table.json` is typed; a table without one is
-untyped.
+**A table is a top-level directory holding a visible `table.json`, and a
+row is a `.md` file directly inside it.** A directory without a
+`table.json` is not a table, so code and documents live beside tables
+under no rule.
 
 ```txt
 <repository>/
-├── cards/                  table "cards", typed
+├── cards/                  table "cards"
 │   ├── table.json          JSON Schema describing a row's frontmatter fields
 │   ├── abc.md              row id "abc": frontmatter fields, then a body
 │   └── abc/                row abc's own files, optional
-├── notes/                  table "notes", untyped: rows and no table.json
-│   └── xyz.md              row id "xyz"
-└── attachments/            no table.json and no .md file directly inside: plain files, under no rule
+├── docs/                   no table.json: plain files, under no rule
+└── scripts/                no table.json: plain files, under no rule
 ```
 
 A row's id is its file name without `.md`. `<table>/<id>/` holds that row's
@@ -70,14 +69,14 @@ row from landing; it shows up in `check` and as raw fields in every app.
 An app reads rows with its own schema
 ([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)), may
 read a table's `table.json` for key order, and never creates or changes
-one. `check` lists every table without a `table.json` as untyped. Deleted:
-`publishDefinition`. Cost: a table an app makes by writing its first row has
-no description for `check`, `query`, or the data browser until a person or
-an agent writes one.
+one. Deleted: `publishDefinition`. Cost: a directory an app writes rows
+into is plain files to `check`, `query`, and the data browser until a
+person or an agent writes its `table.json`; the app itself reads and writes
+its rows either way.
 
 **When the library saves a row, its frontmatter keys are written in its
 table's `table.json` order, then alphabetically, without comments.** A row
-of an untyped table is written alphabetically. The save
+in a directory with no `table.json` is written alphabetically. The save
 formats the row (`formatRowSource` in `packages/folder/src/canonical.ts`)
 with that order. A merge reads no description: it keeps the change's key
 order and adds keys only the other side has
@@ -91,11 +90,11 @@ frontmatter.
   `check` names it, and an app gets its raw fields.
 - An app one field behind the repository's description keeps reading and
   writing.
-- A table an app makes stays untyped, and `check` lists it, until a person
-  or an agent writes its `table.json`; a `table.json` someone deletes stays
+- A directory an app writes rows into becomes a table when a person or an
+  agent writes its `table.json`; a `table.json` someone deletes stays
   deleted.
-- A top-level directory of Markdown notes, such as `docs/`, is an untyped
-  table, and `check` lists it.
+- A top-level directory of notes or code, such as `docs/` or `scripts/`,
+  is never a table unless someone gives it a `table.json`.
 - Two apps that pick one table name share it, and each reads it with its
   own schema.
 - A YAML comment in a row's frontmatter is lost the next time Epicenter
@@ -105,6 +104,9 @@ frontmatter.
 
 ## Considered alternatives
 
+- **Every top-level directory holding Markdown is a table, untyped until
+  described.** A repository's `docs/` and `scripts/` become tables, so a
+  table opts in with its `table.json` instead.
 - **A hidden `.epicenter.json` per table.** A person browsing the
   repository does not see what describes the table.
 - **Every Markdown file under a table is a row, with its path as id.** Row
