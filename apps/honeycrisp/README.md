@@ -43,10 +43,11 @@ installs and builds Honeycrisp from a clone of this repository named by
 
 ```text
 ~/Epicenter/so.epicenter.honeycrisp/
-├── epicenter.json
 ├── notes/
+│   ├── .epicenter.json
 │   └── <note-id>.md
 ├── folders/
+│   ├── .epicenter.json
 │   └── <folder-id>.md
 └── .git/
 ```
@@ -60,19 +61,19 @@ EPICENTER_FOLDER_DIR=/tmp/epicenter-test bun dev:epicenter
 ```
 
 Opened from the Folders window's Apps list, Honeycrisp gets its own folder.
-Opened beside another folder whose `epicenter.json` declares Honeycrisp's
-`notes` and `folders` tables, possibly with more fields or tables, it opens
-that folder instead: it reads and writes its notes, never writes its
-`epicenter.json`, and sets nothing up in it. A folder that does not declare
+Opened beside another folder whose `notes/.epicenter.json` and
+`folders/.epicenter.json` declare Honeycrisp's tables, possibly with more
+fields, or beside more tables, it opens that folder instead: it reads and
+writes its notes, never writes its schemas, and sets nothing up in it. A folder that does not declare
 them is refused with what it lacks.
 
-Opening writes nothing. The first write publishes `epicenter.json` from
-Honeycrisp's declaration, replacing any previous description, and a table's
-directory appears with its first file: Git keeps no empty directory, so
-Honeycrisp makes none. The Git repository appears with the first saved
+Opening writes nothing. The first write publishes `notes/.epicenter.json`
+and `folders/.epicenter.json` from Honeycrisp's declaration, replacing any
+previous description, so each table's directory appears holding its schema.
+The Git repository appears with the first saved
 version. Saved notes and every other file stay intact, and opening
-records no commit. The definition file
-supports discovery and does not configure Honeycrisp.
+records no commit. The schema files
+support discovery and do not configure Honeycrisp.
 
 A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,
 `pinned`, `createdAt`, and `deletedAt`; its body is the note. The note list
@@ -110,8 +111,9 @@ file in `notes/` that is not text at all, and a file in `folders/` that does
 not read as a folder, are listed apart and open nothing here; Files, rename,
 and delete still work on them.
 
-A file name may start with a dot: `notes/.hidden.md` and `notes/.md` itself
-are notes like any other, and `.gitignore` is an ordinary file. A folder's id
+A file name that starts with a dot is never a note: `notes/.hidden.md`,
+`notes/.md` itself, and `notes/.epicenter.json` are ordinary files, as is
+`.gitignore`. A folder's id
 is its file stem. A name that some disk would read as another file is
 refused, on every platform, so a folder copied to Windows still means the same
 files: a name ending in a dot or a space (`draft.`, `old `), one holding

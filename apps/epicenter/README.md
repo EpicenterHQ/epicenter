@@ -138,7 +138,7 @@ Files split by what they cost to lose (ADR-0539):
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
   so.epicenter/                               Epicenter's own folder
-    epicenter.json                            declares the connections table
+    connections/.epicenter.json               the connections table's schema
     connections/<id>.md                       one row per AI connection
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   apps/<app-id>/                              an installed app's bare clone; its detached HEAD is the approved commit (the CLI writes it)
@@ -271,10 +271,10 @@ It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
 The page asks the shell for `list_data_folders`, granted to this window alone
 (`folders.json`, beside `epicenter-folder:default`). The shell lists
 the direct children of the root that are real directories, not links or dot
-entries, holding a regular file `epicenter.json`, and answers each with
-`{ id, title, declaration }`: `title` is `epicenter.json`'s `title` when it is
-a string, else the directory name, and `declaration` is the text of
-`epicenter.json`. The page passes `id` to `openFolder({ id })` from
+entries, holding at least one table: a real directory directly in it, not
+`.git`, holding a regular file `.epicenter.json` (ADR-0611). It answers each
+with `{ id, title }`, where `title` is the directory name; a folder declares
+no title. The page passes `id` to `openFolder({ id })` from
 `@epicenter/folder/tauri`. The reply carries no paths; the page learns a
 folder's root from the plugin's grant, as every app does.
 
@@ -291,11 +291,11 @@ folder's root from the plugin's grant, as every app does.
   process exits; a folder removed from the root keeps an unused scope.
 
 The shell watches the root from setup until exit (`watch_data_folders`). When
-an entry directly under it, or a folder's `epicenter.json`, is created,
-changed, or removed, it sends `epicenter://data-folders-changed` to the
+an entry directly under it, an entry directly in a folder, or a table's
+`.epicenter.json` is created, changed, or removed, it sends `epicenter://data-folders-changed` to the
 `folders` window, which calls `list_data_folders` again. A rescan or a watch
-error is sent the same way. Deeper changes, such as a row saved in a folder,
-are not.
+error is sent the same way. Other deeper changes, such as a row saved in a
+table, are not.
 
 ### What the view does
 
@@ -309,7 +309,7 @@ report invalidates the queries `pathFilter` names; switching folders stops the
 subscription and drops the folder's cache. On the desktop the reports are the
 shell's file watcher's. Focus refetch is off and the view has no refresh of its
 own, so another window's save, an agent's edit, or Sync landing a change
-appears within the watcher's debounce. A changed `epicenter.json` opens the
+appears within the watcher's debounce. A changed table schema opens the
 folder again once the writes running settle, so the grid follows the new
 declaration.
 
@@ -317,12 +317,12 @@ Beside every folder, the page offers every installed app that can run
 (`src/folders/openers.ts`, ADR-0560): one shows "Open in <app>"; several show
 "Open with…". Epicenter does not check whether the app fits the folder. The
 app reads the folder through its definition (ADR-0538), which refuses a folder
-whose `epicenter.json` lacks a table or field the app reads, with a message
+whose table schemas lack a table or field the app reads, with a message
 naming the folder and what is missing. Opening it there hands
 the app that folder; the Apps list's Open hands it its own folder. Every button
 opens through `open_installed_app`, and the Settings button through
 `open_home`, both granted by `folders.json`; model
-administration stays in Settings. An opened folder shows the tables its `epicenter.json` declares
+administration stays in Settings. An opened folder shows the tables its schema files declare
 (`folder.definition.tables`). The selected table is a grid of its rows read
 with `table.list()`: one column per declared field, in declared order. A row's
 stem opens a side panel with every field, keys the table does not declare
@@ -372,7 +372,7 @@ the last second of typing (see [Quitting Epicenter](#quitting-epicenter)).
 "Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`
 (ADR-0529), and reports a version saved, nothing new to save, or why none was
 saved; the header shows how many files changed since the last version, from
-the history's `status` query. The window never writes `epicenter.json`.
+the history's `status` query. The window never writes a table's schema.
 
 ## Installed apps
 

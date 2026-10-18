@@ -227,7 +227,8 @@ describes the schema its validator checks.
 
 A prepared field is the declared schema's JSON, deeply frozen. What is
 checked in memory is exactly what a declaration file holds, so a definition in
-code and the same definition read from `epicenter.json` validate alike.
+code and the same definition read from its tables' `.epicenter.json` files
+validate alike.
 Preparation refuses, with the table, field, and path named:
 
 - a function anywhere, which is how a `Type.Refine`, a `~guard`, or a codec is

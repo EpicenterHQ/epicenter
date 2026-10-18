@@ -1,7 +1,7 @@
 # Apps
 
-An application keeps its data in a data folder: Markdown rows,
-`epicenter.json`, and Git history beside them (`@epicenter/folder`). The files
+An application keeps its data in a data folder: Markdown rows, each table's
+`<table>/.epicenter.json`, and Git history beside them (`@epicenter/folder`). The files
 are the data. A recording is a file in the folder from its start
 (`@epicenter/recorder`), and its audio stays on the machine that recorded it,
 ignored by Git; inference and secrets have their own constructors and
@@ -53,7 +53,7 @@ when it is called
 ([ADR-0533](../docs/adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md));
 `installedAppViteConfig` resolves that specifier to the build's one entry.
 An app keeps no per-host folder leaves. `app` is the app's id, its manifest
-`id`. A folder's `epicenter.json` is
+`id`. A folder's table schemas are
 published only by the app the folder is named after
 ([ADR-0583](../docs/adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md)).
 In a browser the app opens its own folder. In the desktop app it opens the

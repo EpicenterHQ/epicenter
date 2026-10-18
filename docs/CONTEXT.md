@@ -120,20 +120,26 @@ Screens keep the word a person already has: "Save version", "Rename",
 - **App**: an installed program, named by its reverse-domain id such as
   `so.epicenter.todos`. Code says `app` (`openFolder({ app, definition })`),
   not `application`.
-- **Folder** (ADR-0517, ADR-0583): a directory a person owns, named by its id,
-  usually with an `epicenter.json`. Code says `Folder` and `folder.id`, the wire
+- **Folder** (ADR-0517, ADR-0583, ADR-0611): a directory a person owns, named
+  by its id, usually with at least one table: a top-level directory holding a
+  `.epicenter.json`. Code says `Folder` and `folder.id`, the wire
   says `folderId`; "data folder" and the folder sense of `scope` are retired. An
   app's own folder is the one named after it (`folder.own`); only there does
   the app publish its definition.
-- **Definition**: what `epicenter.json` holds and `defineFolder` returns: the
-  folder's tables, their fields, and its `local` patterns. Code says
-  `Definition`; "schema" means a field's JSON Schema only, and "declaration"
-  and "shape" are retired at the folder level.
-- **Table**: a directory of rows that a definition names. `defineTable`
+- **Definition**: what `defineFolder` returns: the folder's tables, their
+  fields, and its `local` patterns. On disk each table is its
+  `<table>/.epicenter.json`, and `local` is lines of the root `.gitignore`
+  (ADR-0592). Code says `Definition`; "schema" means a field's JSON Schema or
+  a table's `.epicenter.json`, and "declaration" and "shape" are retired at
+  the folder level.
+- **Table**: a top-level directory of rows holding its `.epicenter.json`, as
+  a definition names it. `defineTable`
   returns a `TableDefinition`; `folder.tables.<name>` is a `Table`.
-- **Row** and **stem** (ADR-0457, ADR-0480): a row is one `<table>/<stem>.md`,
-  and a table owns only those files. The stem is the row's address everywhere,
-  never `id`, since it changes when the row moves. A field naming another row
+- **Row** and **stem** (ADR-0457, ADR-0480): a row is one `<table>/<stem>.md`
+  directly in the table's directory, its stem nonempty and not starting with a
+  dot, and a table owns only those files. The stem is the row's address in
+  code, never `id`, since it changes when the row moves; `epicenter query`'s
+  SQL column for it is `id` (ADR-0611). A field naming another row
   is named for that row's table in the singular, such as `chat`.
 - **File** and **path**: any file in a folder, at a folder-relative `path`
   (`folder.files`). A table method takes a stem; a `files` method takes a path.

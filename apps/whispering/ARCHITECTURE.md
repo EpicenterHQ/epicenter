@@ -138,7 +138,7 @@ own folder asks the shell for the scope `so.epicenter.whispering`
 (`grant_directory`), the folder Epicenter hands an installed app opened from
 its Apps list, and publishes `whisperingDefinition` there. Any other handed
 folder is read through `whisperingDefinition`, which never writes its
-`epicenter.json` and refuses one that lacks Whispering's tables with
+table schemas and refuses one that lacks Whispering's tables with
 "Whispering cannot open the folder '<name>': …". Recordings are written under
 the scope opened (`Workspace.folderId`); in a folder that is not
 Whispering's own, `audio/`, which Whispering's definition keeps `local`, is
