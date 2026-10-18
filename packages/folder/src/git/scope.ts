@@ -31,9 +31,14 @@ export function gitignoreMatcher(
 	files: ReadonlyMap<string, Uint8Array>,
 ): (path: string) => boolean {
 	const rules = new Map<string, Ignore>();
+	const exact = new Set<string>();
 	for (const [path, bytes] of files) {
 		if (!isGitignorePath(path)) continue;
 		const directory = path.slice(0, -'.gitignore'.length);
+		// Two spellings in one directory exist only on a case-sensitive
+		// disk, where Git reads the exact one.
+		if (exact.has(directory)) continue;
+		if (path.endsWith('.gitignore')) exact.add(directory);
 		rules.set(directory, ignore().add(decoder.decode(bytes)));
 	}
 	if (rules.size === 0) return () => false;
@@ -96,7 +101,13 @@ export async function readRules(
 	return rules;
 }
 
-/** Whether `path` is a `.gitignore` file, whose rules decide what is source. */
+/**
+ * Whether `path` is a `.gitignore` file, whose rules decide what is source.
+ * Its name compares case-insensitively, as its patterns do: on a disk that
+ * folds case, Git opening `.gitignore` reads `.GITIGNORE`, so every host
+ * treats either spelling as the rule file.
+ */
 export function isGitignorePath(path: string): boolean {
-	return path === '.gitignore' || path.endsWith('/.gitignore');
+	const name = path.slice(path.lastIndexOf('/') + 1);
+	return name.toLowerCase() === '.gitignore';
 }

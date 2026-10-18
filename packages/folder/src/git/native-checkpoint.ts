@@ -35,12 +35,15 @@ export async function nativeCheckpointProblem({
 	run,
 	files,
 	head,
+	rules,
 }: {
 	root: string;
 	run: GitRun;
 	/** The working tree, read without following links. */
 	files: DirectoryPrimitives;
 	head: string | undefined;
+	/** The rule bytes a capture chose its source with; else read now. */
+	rules?: ReadonlyMap<string, Uint8Array>;
 }): Promise<string | undefined> {
 	// Unmerged stages another Git program left: the checkpoint would reset
 	// them and record conflict markers as content.
@@ -102,21 +105,23 @@ export async function nativeCheckpointProblem({
 	}
 	await walk(root, '');
 	// Which untracked files are no source, decided as a capture decides:
-	// from the folder's `.gitignore` bytes alone (`scope.ts`).
+	// from the folder's `.gitignore` bytes alone (`scope.ts`), the very
+	// bytes a capture used when it supplies them.
 	const ignored = gitignoreMatcher(
-		await readRules(regular, tracked, async (paths) => {
-			const read = new Map<string, Uint8Array>();
-			for (const path of paths) {
-				const full = `${root}/${path}`;
-				try {
-					read.set(path, await files.readFile(full));
-				} catch (error) {
-					// One removed since the walk is no rule, as in a capture.
-					if ((await files.lstat(full)) !== undefined) throw error;
+		rules ??
+			(await readRules(regular, tracked, async (paths) => {
+				const read = new Map<string, Uint8Array>();
+				for (const path of paths) {
+					const full = `${root}/${path}`;
+					try {
+						read.set(path, await files.readFile(full));
+					} catch (error) {
+						// One removed since the walk is no rule, as in a capture.
+						if ((await files.lstat(full)) !== undefined) throw error;
+					}
 				}
-			}
-			return read;
-		}),
+				return read;
+			})),
 	);
 	const excluded = (path: string) => !tracked.has(path) && ignored(path);
 	const blocking = special.find((item) => !excluded(item.path));

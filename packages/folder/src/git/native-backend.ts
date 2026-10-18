@@ -306,7 +306,7 @@ export async function createNativeGitBackend({
 			if (actual !== expected) return { ok: false, actual };
 			throw new GitCommandError(['update-ref'], result.code, result.stderr);
 		},
-		async blocked() {
+		async blocked(rules) {
 			// No repository has no operation in progress.
 			if (await exists()) {
 				const head = await run(['symbolic-ref', '--quiet', 'HEAD'], {
@@ -335,6 +335,7 @@ export async function createNativeGitBackend({
 				run,
 				files,
 				head: await resolve(branchRef),
+				rules,
 			});
 		},
 		async reconcileIndex(commit) {

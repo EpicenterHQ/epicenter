@@ -311,7 +311,8 @@ export function createHistory({
 	 * A `.gitignore` is source with the bytes the decision used, and is never
 	 * read again, so no rules are committed that did not choose what else is.
 	 * A file removed while it is read is left out, as if the listing had
-	 * missed it; a file that cannot be read throws, naming it.
+	 * missed it; a file that cannot be read throws, naming it. `rules` is
+	 * the rule bytes that chose `source`.
 	 */
 	async function captureSource(tracked: ReadonlyMap<string, unknown>) {
 		const { data: listed, error } = await boundary.list();
@@ -333,7 +334,10 @@ export function createHistory({
 			const bytes = rules.get(path);
 			if (bytes !== undefined) source.set(path, bytes);
 		}
-		return new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1)));
+		return {
+			source: new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1))),
+			rules,
+		};
 	}
 
 	/** The rule files now, for a question about untracked paths. */
@@ -419,7 +423,7 @@ export function createHistory({
 				const objects = operationObjects();
 				const committed = await headFiles(objects, head);
 				// Status shows what a commit would record.
-				const hashes = await hashFiles(await captureSource(committed));
+				const hashes = await hashFiles((await captureSource(committed)).source);
 				const value: FilesObservation = {
 					head,
 					changes: diffFileMaps(committed, hashes),
@@ -486,7 +490,13 @@ export function createHistory({
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
 		const committed = await headFiles(objects, parent);
-		const included = await captureSource(committed);
+		const { source: included, rules } = await captureSource(committed);
+		// Checked again against the rules that chose the source: a rule
+		// removed after the first check must not let a file the tree would
+		// write as plain bytes, such as an executable, in unrefused.
+		const unrepresentable = await backend.blocked(rules);
+		if (unrepresentable !== undefined)
+			return { status: 'blocked', reason: unrepresentable };
 		// An empty folder with no history has nothing to record, and writes
 		// nothing: not even an empty tree.
 		const built =

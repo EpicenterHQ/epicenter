@@ -14,12 +14,15 @@
  * - Status and commits decide ignored files by path and never read them
  * - Native and browser hosts select from the same captured `.gitignore`
  *   bytes, so a rule replaced after capture chooses nothing
+ * - A rule file is recognized in any letter case, on every host
+ * - A native commit refuses what the captured rules leave unignored and a
+ *   plain-bytes tree cannot represent, such as an executable
  *
  * See also:
  * - `index-reconcile.test.ts` for staged-only intent after a checkpoint
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import type { LockingStorage } from './boundary.js';
@@ -535,5 +538,85 @@ describe('every host selects from the captured rules', () => {
 			expect(browserRead).not.toContain(path);
 			expect(nativeRead).not.toContain(path);
 		}
+	});
+
+	test('a rule file spelled .GITIGNORE excludes what it names on both hosts', async () => {
+		const files: Record<string, string> = {
+			'.GITIGNORE': 'secret.key\n',
+			'secret.key': 'secret\n',
+			'notes.md': 'kept\n',
+		};
+		const expected = ['.GITIGNORE', 'notes.md'];
+		const recording =
+			(read: string[]) =>
+			(storage: LockingStorage): LockingStorage => ({
+				...storage,
+				read(path) {
+					read.push(path);
+					return storage.read(path);
+				},
+			});
+
+		const raw = await rawBrowserFolder({ id: 'scope-upper-gitignore' });
+		for (const [path, text] of Object.entries(files))
+			await overwrite(raw.boundary, path, text);
+		const browserRead: string[] = [];
+		const browserBackend = await raw.backend();
+		const browser = createHistory({
+			backend: browserBackend,
+			boundary: recording(browserRead)(raw.boundary),
+			author,
+		});
+		try {
+			expect((await browser.commit()).status).toBe('committed');
+			expect(await headPaths(browserBackend)).toEqual(expected);
+		} finally {
+			await browser.close();
+		}
+
+		const root = await scratch('scope-upper-gitignore-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		for (const [path, text] of Object.entries(files))
+			await writeFile(join(root, path), text);
+		const nativeRead: string[] = [];
+		const native = await nativeHistoryAt(root, recording(nativeRead));
+		try {
+			expect((await native.commit()).status).toBe('committed');
+		} finally {
+			await native.close();
+		}
+		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual(expected);
+		expect(browserRead).not.toContain('secret.key');
+		expect(nativeRead).not.toContain('secret.key');
+	});
+
+	test('a native commit refuses an executable whose ignore rule is removed after the first check', async () => {
+		const root = await scratch('scope-native-executable-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, '.gitignore'), 'tool.sh\n');
+		await writeFile(join(root, 'tool.sh'), '#!/bin/sh\n');
+		await chmod(join(root, 'tool.sh'), 0o755);
+		await writeFile(join(root, 'notes.md'), 'kept\n');
+		// The early check reads the rules from disk; the capture reads them
+		// through the folder's files, by which time another writer removed
+		// the line.
+		const history = await nativeHistoryAt(root, (storage) => ({
+			...storage,
+			async read(path) {
+				if (path === '.gitignore')
+					await writeFile(join(root, '.gitignore'), '');
+				return storage.read(path);
+			},
+		}));
+		try {
+			const outcome = await history.commit();
+			expect(outcome).toMatchObject({ status: 'blocked' });
+			expect(outcome.status === 'blocked' && outcome.reason).toContain(
+				'tool.sh is an executable file',
+			);
+		} finally {
+			await history.close();
+		}
+		expect(await git(root, 'ls-files')).toBe('');
 	});
 });
