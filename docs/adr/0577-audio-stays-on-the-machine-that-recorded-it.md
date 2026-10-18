@@ -1,7 +1,8 @@
 # 0577. Audio stays on the machine that recorded it
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), a blob as a file in its folder and audio kept in the folder but off Git: the library writes no binary file in v1, and Whispering's audio stays outside the repository.
 - **Amends:** [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at "`recordings/<name>.wav`": a recording's audio is written to `audio/<name>.wav`, and its row stays `recordings/<name>.md`. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "Epicenter's hosted blob storage is the LFS server for hosted folders" and the deletions "With the LFS wave": the hosted blob routes, `@epicenter/blobs`, and `s3-blob-store.ts` are deleted now, and the LFS store is chosen when LFS is built. LFS stays the later path for audio.
 - **Amended by:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at the `local` key, the engine's rule table, `publishLocalPatterns`, and the consequences about `local` merging: audio stays on the machine while the folder's `.gitignore` ignores it, whoever edits that line decides for every device, a recording committed by mistake syncs and is repaired by rewriting history outside Epicenter, and Epicenter never refuses to commit a file because of what it holds.
 - **Unbuilt:** LFS (ADR-0544).

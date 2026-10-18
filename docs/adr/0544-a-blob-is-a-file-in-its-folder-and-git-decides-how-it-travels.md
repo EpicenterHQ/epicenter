@@ -1,7 +1,8 @@
 # 0544. A blob is a file in its folder, and Git decides how it travels
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), a blob as a file in its folder and audio kept in the folder but off Git: the library writes no binary file in v1, and Whispering's audio stays outside the repository.
 - **Amends:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at the Browser Local and Desktop Local rows: a local blob is a file in its folder, not an object under `device/no-account/blobs`.
 - **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "Epicenter's hosted blob storage is the LFS server for hosted folders" and the deletions "With the LFS wave": the hosted blob routes, `@epicenter/blobs`, and `s3-blob-store.ts` are deleted now, and the LFS store is chosen when LFS is built. Until then Whispering's audio is in `audio/`, which its definition declares local, so no commit carries it; LFS stays the later path for audio.
 - **Amended by:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`, and the Definition has no `local`.
