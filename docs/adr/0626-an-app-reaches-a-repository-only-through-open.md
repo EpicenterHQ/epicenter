@@ -87,9 +87,10 @@ a storage failure, or a call on a closed repository
 
 Everything else is a `status` or an `ok: false` row. No write is refused
 for not fitting a schema: the only refusals are a non-text write from the
-library, a push that would rewrite history, and what Git or a client
-cannot represent
+library, a push that would rewrite history, and what Git cannot represent
 ([ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md)).
+The case rule keeps a disk clone on a file system that folds case from
+holding two rows as one file.
 
 **One subscription per repository.** `subscribe` reports the status and the
 rows that changed, by table and id; no table has a subscription of its own.

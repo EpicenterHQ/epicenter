@@ -35,10 +35,11 @@ governs where the two differ.
    and its unsent edits, and nothing else (ADR-0619, ADR-0623).
 3. The access list is the only guard on who. The only refusals on what are
    a non-text write from the library, a push that would rewrite history,
-   and what Git or a client cannot represent; everything else is accepted.
+   and what Git cannot represent; everything else is accepted, and a
+   browser clone carries untouched any tree entry it cannot represent.
    Rules are files, breaks are `check` lines, repairs are edits or reverts,
    and history only grows (ADR-0612, ADR-0613, ADR-0620, ADR-0621,
-   ADR-0624).
+   ADR-0623, ADR-0624).
 4. Git's nouns win, and Epicenter names only types: its own words say what
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613).

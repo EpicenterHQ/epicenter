@@ -2,9 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
-- **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Sync still refuses, as `SyncError.Unrepresentable`" and its list: the only refusals are a non-text write from the library, a push that would rewrite history, and what Git or a client cannot represent; on a clone each of the last is a cause of `stuck`, and a browser clone leaves a link or an executable outside tables untouched instead of refusing it.
+- **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Sync still refuses, as `SyncError.Unrepresentable`" and its list: the only refusals are a non-text write from the library, a push that would rewrite history, and what Git cannot represent; a browser clone carries untouched any tree entry it cannot represent, and on a disk clone what its file system cannot represent is a cause of `stuck`.
 - **Relates:** [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the sync whose state this reports), [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter status`), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`status`, `subscribe`, and `connect`).
-- **Unbuilt:** all of it: the four words in `@epicenter/data`, `epicenter status` reporting each cause, and the full list of what a client cannot represent.
+- **Unbuilt:** all of it: the four words in `@epicenter/data`, `epicenter status` reporting each cause, and the full list of what a disk clone's file system cannot represent.
 
 ## Context
 
@@ -40,10 +40,10 @@ only `connect()` mends it
 **The causes of `stuck`:**
 
 ```txt
-case-only twins        incoming names that differ only by case (ADR-0623)
-unrepresentable names  a name, a submodule, or an attribute filter a client cannot represent
-storage failure        the clone's storage refuses a read or a write
-unresolved state       a sync that cannot settle what the clone holds against main
+case folding       on a disk clone whose file system folds case, incoming names that differ only by case
+storage failure    the clone's storage refuses a read or a write
+unresolved state   a sync that cannot settle what the clone holds against main; on disk, also a file
+                   holding conflict markers or a path plain Git left unresolved (ADR-0611)
 ```
 
 **Apps learn whether; the CLI and agents learn why.** `@epicenter/data`
@@ -55,12 +55,16 @@ fetch
 **The only refusals are a non-text write from the library
 ([ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md)),
 a push that would rewrite history
-([ADR-0620](0620-history-in-a-repository-only-grows.md)), and what Git or
-a client cannot represent; everything else is accepted.** On a clone, what
-it cannot represent is a cause of `stuck`. Nothing about a file's content,
-a table's description, or an app's schema is a refusal. A browser clone
-leaves a link or an executable outside tables untouched rather than
-refusing it (ADR-0623).
+([ADR-0620](0620-history-in-a-repository-only-grows.md)), and what Git
+cannot represent; everything else is accepted.** Nothing about a file's
+content, a table's description, or an app's schema is a refusal. A browser
+clone carries untouched any tree entry it cannot represent, such as a
+symlink, an executable, or a submodule, anywhere in the tree (ADR-0623).
+On a disk clone, what its file system cannot represent, such as two names
+that differ only by case where the file system folds case, is a cause of
+`stuck`; the library never writes such a pair, because it refuses a new id
+that differs from an existing one only by case
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)).
 
 ## Consequences
 

@@ -61,7 +61,7 @@ hierarchy, so a category is a field.
 
 **`table.json` describes and never refuses.** No write is refused for not
 fitting it: the only refusals are a non-text write from the library, a push
-that would rewrite history, and what Git or a client cannot represent
+that would rewrite history, and what Git cannot represent
 ([ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md)).
 `check` lists what does not fit, `query` shows every row with `NULL` for a
 value that does not fit its column, and an app that reads a row that does
