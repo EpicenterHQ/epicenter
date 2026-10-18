@@ -547,13 +547,14 @@ async function filesAndLayout(id: string) {
 	);
 
 	await check(
-		"a listing times each write on the page's clock (the capture cache's racy rule)",
+		"a folder's writes are timed on the page's clock (the capture cache's racy rule)",
 		async () => {
 			const folder = await open(id);
-			const timed = async () =>
-				ok(await folder.files.list()).files.find(
-					(file) => file.path === 'stat/kept.md',
-				)?.modified;
+			const timed = async () => {
+				const { directory, name } = await rawParent(id, 'stat/kept.md');
+				return (await (await directory.getFileHandle(name)).getFile())
+					.lastModified;
+			};
 			const pause = () => new Promise((resolve) => setTimeout(resolve, 30));
 			ok(await folder.write('stat/kept.md', null, 'aaaa'));
 			const created = await timed();
@@ -565,10 +566,6 @@ async function filesAndLayout(id: string) {
 			const beforeRaw = Date.now();
 			await rawWrite(id, 'stat/kept.md', encoder.encode('cccc'));
 			const raw = await timed();
-			assert(
-				created !== undefined && replaced !== undefined && raw !== undefined,
-				'the listing gives no modification time',
-			);
 			// A write after a listing must be timed later than any time the
 			// cache trusts: older than that listing by `RACY_MS`. An engine
 			// that keeps whole seconds times two writes a second apart alike,
@@ -580,6 +577,24 @@ async function filesAndLayout(id: string) {
 			assert(
 				raw >= replaced && raw > beforeRaw - RACY_MS,
 				`a raw write after ${beforeRaw} is timed ${raw}, after ${replaced}`,
+			);
+			// A write in place, which the folder never makes: whether this
+			// engine times it at all.
+			await pause();
+			const beforeInPlace = Date.now();
+			const { directory, name } = await rawParent(id, 'stat/kept.md');
+			const writable = await (
+				await directory.getFileHandle(name)
+			).createWritable({ keepExistingData: true });
+			await writable.write(encoder.encode('dddd'));
+			await writable.close();
+			const inPlace = await timed();
+			record(
+				'a same-size write in place (keepExistingData), which no folder makes',
+				'note',
+				inPlace > raw
+					? `timed ${inPlace}, after ${beforeInPlace}`
+					: `kept the time ${inPlace} it had before, at ${beforeInPlace}`,
 			);
 			return `created ${created}; saved at ${before}, timed ${replaced}; written raw at ${beforeRaw}, timed ${raw}`;
 		},

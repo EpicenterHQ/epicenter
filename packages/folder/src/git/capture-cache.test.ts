@@ -44,6 +44,7 @@ import {
 	parseCache,
 	RACY_MS,
 	serializeCache,
+	usableCache,
 } from './capture-cache.js';
 import { createHistory } from './history.js';
 import { nativeHistory } from './native-history.js';
@@ -155,8 +156,14 @@ async function folder({
 			history = createHistory({ backend, boundary: files.storage, author });
 			cleanup.push(() => history.close());
 		},
-		write: (path: string, text: string | null) =>
-			overwrite(files.storage, path, text),
+		/**
+		 * A write by this folder, which it reports to its history as a
+		 * folder's own save does; with `reported` false, another program's.
+		 */
+		async write(path: string, text: string | null, reported = true) {
+			await overwrite(files.storage, path, text);
+			if (reported) history.noteEdit([path]);
+		},
 		/** The files of the branch head, by path and blob. */
 		async head() {
 			const oid = await real.readBranch();
@@ -200,11 +207,22 @@ const PATHS = ['a.md', 'b.md', 'dir/c.md', 'dir/d.md', 'e.md'];
 // Same-size contents, so only the bytes tell them apart, and one longer.
 const CONTENTS = ['aaaa', 'bbbb', 'cccc', 'ddddd'];
 const STEPS = [0, 0, 1, 500, 2000, RACY_MS + 1, 10_000];
+// A wall clock stepped back, which a file's time alone cannot show.
+const BACK = [-(RACY_MS + 1), -5000, -10_000];
 
-for (const granularity of [1, 2000])
-	test(`random edits commit the same trees with and without the cache (${granularity} ms times)`, async () => {
-		for (let seed = 1; seed <= 12; seed++) {
-			const next = random(seed * 7919 + granularity);
+const SEEDS = Number(process.env.CAPTURE_CACHE_SEEDS ?? 12);
+const UNREPORTED = process.env.CAPTURE_CACHE_UNREPORTED === '1';
+
+for (const { granularity, back } of [
+	{ granularity: 1, back: false },
+	{ granularity: 2000, back: false },
+	{ granularity: 1000, back: true },
+	{ granularity: 1, back: true },
+])
+	test(`random edits commit the same trees with and without the cache (${granularity} ms times${back ? ', clock stepped back' : ''})`, async () => {
+		const steps = back ? [...STEPS, ...BACK] : STEPS;
+		for (let seed = 1; seed <= SEEDS; seed++) {
+			const next = random(seed * 7919 + granularity + (back ? 1 : 0));
 			const pick = <T>(items: readonly T[]) =>
 				items[Math.floor(next() * items.length)]!;
 			const clock = { now: 1_700_000_000_000 };
@@ -223,13 +241,13 @@ for (const granularity of [1, 2000])
 					const path = pick(PATHS);
 					const text = next() < 0.15 ? null : pick(CONTENTS);
 					log.push(`write ${path} ${text}`);
-					await both((side) => side.write(path, text));
+					await both((side) => side.write(path, text, !UNREPORTED));
 				} else if (roll < 0.4) {
 					const text = next() < 0.5 ? null : 'e.md\n';
 					log.push(`.gitignore ${text}`);
-					await both((side) => side.write('.gitignore', text));
+					await both((side) => side.write('.gitignore', text, !UNREPORTED));
 				} else if (roll < 0.6) {
-					const by = pick(STEPS);
+					const by = pick(steps);
 					log.push(`clock +${by}`);
 					clock.now += by;
 				} else if (roll < 0.72) {
@@ -238,19 +256,25 @@ for (const granularity of [1, 2000])
 						await cached.history.status(),
 						await plain.history.status(),
 					];
-					expect(a.error, log.join('\n')).toBeNull();
-					expect(a.data?.changes, log.join('\n')).toEqual(b.data?.changes);
+					expect(a.error, `seed ${seed}\n${log.join('\n')}`).toBeNull();
+					expect(a.data?.changes, `seed ${seed}\n${log.join('\n')}`).toEqual(
+						b.data?.changes,
+					);
 				} else if (roll < 0.92) {
 					log.push('commit');
 					const [a, b] = [
 						await cached.history.commit(),
 						await plain.history.commit(),
 					];
-					expect(a.status, log.join('\n')).toBe(b.status);
-					expect(await cached.head(), log.join('\n')).toEqual(
-						await plain.head(),
-					);
-					expect(await cached.missing(), log.join('\n')).toEqual([]);
+					expect(a.status, `seed ${seed}\n${log.join('\n')}`).toBe(b.status);
+					expect(
+						await cached.head(),
+						`seed ${seed}\n${log.join('\n')}`,
+					).toEqual(await plain.head());
+					expect(
+						await cached.missing(),
+						`seed ${seed}\n${log.join('\n')}`,
+					).toEqual([]);
 				} else if (roll < 0.96) {
 					log.push('reopen');
 					await cached.reopen();
@@ -271,10 +295,12 @@ for (const granularity of [1, 2000])
 			}
 			// Whatever the sequence left, a final commit agrees.
 			clock.now += 10_000;
-			expect((await cached.history.commit()).status).toBe(
+			log.push('clock +10000', 'commit');
+			const replay = `seed ${seed}\n${log.join('\n')}`;
+			expect((await cached.history.commit()).status, replay).toBe(
 				(await plain.history.commit()).status,
 			);
-			expect(await cached.head()).toEqual(await plain.head());
+			expect(await cached.head(), replay).toEqual(await plain.head());
 		}
 	}, 120_000);
 
@@ -292,7 +318,8 @@ test('a same-size edit in the listing timestamp, after the read, is read again',
 	side.files.hooks.afterRead = async (path) => {
 		if (path !== 'note.md') return;
 		side.files.hooks.afterRead = undefined;
-		await side.write('note.md', 'cccc');
+		// Unreported, so only the timestamps can tell.
+		await side.write('note.md', 'cccc', false);
 	};
 	expect((await side.history.commit()).status).toBe('committed');
 	const committed = await side.head();
@@ -321,7 +348,8 @@ test('a file edited after the listing is committed as listed, then as edited', a
 	const before = await side.head();
 	clock.now += 10_000;
 	await side.write('other.md', 'yyyy');
-	side.files.hooks.afterList = () => side.write('kept.md', 'bbbb');
+	// Another program's write, which nothing reports.
+	side.files.hooks.afterList = () => side.write('kept.md', 'bbbb', false);
 	expect((await side.history.commit()).status).toBe('committed');
 	const listed = await side.head();
 	expect(listed?.['kept.md']).toBe(before?.['kept.md']);
@@ -385,23 +413,34 @@ function countDigests(algorithm: string) {
 }
 
 test('a cache that does not check is no cache', async () => {
-	const entries = new Map([
-		['a.md', { size: 4, modified: 1000, stamp: '1:2:3', oid: OID }],
-		['b c.md', { size: 5, modified: 2000, stamp: undefined, oid: OID }],
-	]);
-	const bytes = await serializeCache(entries);
-	expect(await parseCache(bytes)).toEqual(entries);
+	const cache = {
+		entries: new Map([
+			['a.md', { size: 4, modified: 1000, stamp: '1:2:3', oid: OID }],
+			['b c.md', { size: 5, modified: 2000, stamp: undefined, oid: OID }],
+		]),
+		listedAt: 9000,
+	};
+	const bytes = await serializeCache(cache);
+	expect(await parseCache(bytes)).toEqual(cache);
 	for (let at = 0; at < bytes.length; at += 7) {
 		const flipped = bytes.slice();
 		flipped[at]! ^= 1;
-		expect((await parseCache(flipped)).size).toBe(0);
+		expect((await parseCache(flipped)).entries.size).toBe(0);
 	}
-	expect((await parseCache(bytes.subarray(0, bytes.length - 1))).size).toBe(0);
-	expect((await parseCache(undefined)).size).toBe(0);
+	expect(
+		(await parseCache(bytes.subarray(0, bytes.length - 1))).entries.size,
+	).toBe(0);
+	expect((await parseCache(undefined)).entries.size).toBe(0);
 	const other = new TextDecoder()
 		.decode(bytes)
-		.replace('capture cache 1', 'capture cache 2');
-	expect((await parseCache(new TextEncoder().encode(other))).size).toBe(0);
+		.replace('capture cache 2', 'capture cache 1');
+	expect((await parseCache(new TextEncoder().encode(other))).entries.size).toBe(
+		0,
+	);
+	// A listing that began before the latest one that wrote it.
+	expect(usableCache(cache, 9000)).toBe(cache);
+	expect(usableCache(cache, 8999).entries.size).toBe(0);
+	expect(usableCache(cache, undefined).entries.size).toBe(0);
 });
 
 test('only a time older than its listing by the racy margin is remembered', () => {

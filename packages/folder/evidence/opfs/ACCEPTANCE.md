@@ -67,22 +67,34 @@ above are from the run before this change.
 expects it; the file checks read with `files.read`, since `files.open` is
 gone. Not yet run in a browser.
 
-2026-10-18, headless through Playwright 1.62 with a persistent context, with
-a new check that a listing times each write on the page's clock, which the
-capture cache's racy rule relies on (`src/git/capture-cache.ts`, ADR-0617):
+2026-10-18, headless through Playwright 1.62, with a new check that a
+folder's writes are timed on the page's clock, which the capture cache's
+racy rule relies on (`src/git/capture-cache.ts`, ADR-0617), and a note on a
+write in place, which no folder makes:
 
-- Chromium 151 (macOS arm64): 22 passed, 0 failed. `lastModified` is in
-  milliseconds: a save 35 ms after the create, and a raw write 36 ms after
-  that, each got a later time, one or two milliseconds after the clock read
-  before it.
-- WebKit 26.5: the check passed. `lastModified` is in whole seconds: the
-  create, a save 628 ms into the second, and a raw write after it were all
-  timed at the second's start, up to 666 ms before the clock read before
-  them, so a write lands with a time up to a second older than its listing.
-  `RACY_MS` (3,000) covers it. The case check failed as before
-  (`Occupied` at `names/case.md`), and the run stopped at the two-context
-  stage again.
-- Firefox: not run; Playwright 1.62's build was not installed.
+- Chromium 151 with a persistent context: 22 passed, 0 failed. Times are in
+  milliseconds; each save and raw write was timed one or two milliseconds
+  after the clock read before it, and so was a same-size write in place
+  (`createWritable({ keepExistingData: true })`).
+- Chromium 151 with a default (in-memory) context: 22 passed, 0 failed.
+  Saves and raw writes are timed as above, but the write in place kept the
+  file's old time. A review run found the same for a same-size write in
+  place after `truncate(0)` and for a `SyncAccessHandle` write, flush, and
+  close, in incognito and guest profiles too. The folder never writes in
+  place (`writeThrough` opens with `keepExistingData: false`, a new file is
+  moved in from scratch, `movePath` copies), so ADR-0617 requires that only
+  the folder writes its directory.
+- WebKit 26.5 with a persistent context: the check passed. Times are whole
+  seconds: the create, a save 244 ms into the second, and a raw write after
+  it were all timed at the second's start, up to about 0.7 s before the
+  clock read before them in another run. `RACY_MS` (3,000) covers it. The
+  write in place landed in the same second, so whether it is timed is not
+  shown. The case check failed as before (`Occupied` at `names/case.md`),
+  and the run stopped at the two-context stage again.
+- WebKit 26.5 with a default context: no folder opened (an unknown transient
+  error from OPFS), so nothing here applies.
+- Firefox: not run; Playwright 1.62's build was not installed. A review run
+  found that Firefox times writes in place.
 
 ### Chrome 142 behavior the replacement relies on
 

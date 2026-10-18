@@ -37,7 +37,7 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage, LockingStorage } from '../boundary.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
-import type { FolderHistory } from '../folder.js';
+import type { FilesChanged, FolderHistory } from '../folder.js';
 import { sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
@@ -57,6 +57,7 @@ import {
 	type StatEntry,
 	sameCache,
 	serializeCache,
+	usableCache,
 } from './capture-cache.js';
 import { GitError, SyncError } from './errors.js';
 import {
@@ -352,6 +353,9 @@ export function createHistory({
 		tracked: ReadonlyMap<string, { readonly oid: string }>,
 		stored?: (oid: string) => Promise<boolean>,
 	) {
+		// Paths reported changed after this point are not remembered from
+		// this capture.
+		const began = edits;
 		const { data: listed, error } = await boundary.list();
 		if (error !== null) throw new Error(error.message);
 		const files = new Map(
@@ -369,12 +373,15 @@ export function createHistory({
 		// one inside an ignored directory.
 		const misnamed = misnamedRulesProblem(kept);
 		if (misnamed !== undefined) return { refused: misnamed.reason } as const;
-		const cache = await statCache();
+		const remembered = await statCache();
+		const cache = usableCache(remembered.cache, listed.listedAt);
 		const source = new Map<string, CapturedFile>();
 		const unread: string[] = [];
 		for (const path of kept) {
 			if (isGitignorePath(path)) continue;
-			const oid = cachedOid(cache, path, files.get(path)!);
+			const oid = forgotten(path, remembered.epoch)
+				? undefined
+				: cachedOid(cache, path, files.get(path)!);
 			if (
 				oid !== undefined &&
 				(stored === undefined ||
@@ -390,10 +397,20 @@ export function createHistory({
 		// vouch for it later. A rule file is read every time.
 		const next = new Map<string, StatEntry>();
 		for (const [path, { oid }] of source) {
+			if (forgotten(path, began)) continue;
 			const entry = entryFor(files.get(path)!, listed.listedAt, oid);
 			if (entry !== undefined) next.set(path, entry);
 		}
-		await rememberStats(next, { store: stored !== undefined });
+		await rememberStats(
+			{
+				cache: {
+					entries: next,
+					listedAt: Math.max(listed.listedAt ?? 0, remembered.cache.listedAt),
+				},
+				epoch: began,
+			},
+			{ store: stored !== undefined },
+		);
 		// A rule file is source with the bytes that chose the rest, and never
 		// read again: one missing then is left for the next capture.
 		for (const path of kept) {
@@ -412,10 +429,13 @@ export function createHistory({
 	 * The stat cache: the backend's, read once, and then as this handle's
 	 * last capture left it. Every entry is a fact about a file's bytes,
 	 * whoever recorded it, so two captures that replace it one after the
-	 * other each leave a true cache.
+	 * other each leave a true cache. `epoch` is the count of reported
+	 * changes when the capture that made it began: an entry for a path
+	 * reported changed since is not used (`forgotten`).
 	 */
+	type Remembered = { readonly cache: StatCache; readonly epoch: number };
 	let loaded: Promise<StatCache> | undefined;
-	let latest: StatCache | undefined;
+	let latest: Remembered | undefined;
 	/** What the backend holds, as this handle last read or wrote it. */
 	let onBackend: StatCache | undefined;
 	const storedCache = () => {
@@ -424,9 +444,31 @@ export function createHistory({
 			.then(parseCache);
 		return loaded;
 	};
-	async function statCache(): Promise<StatCache> {
-		return latest ?? (await storedCache());
+	async function statCache(): Promise<Remembered> {
+		return latest ?? { cache: await storedCache(), epoch: 0 };
 	}
+
+	/**
+	 * Reported changes: their count, the count when each path was last
+	 * reported, and when a report could not name its paths.
+	 */
+	let edits = 0;
+	const editedAt = new Map<string, number>();
+	let everythingAt = 0;
+	/**
+	 * Forget what the cache says of paths this folder changed, or heard
+	 * another page change: its own saves and moves, Sync's writes, and the
+	 * paths the change channel reports. A file's time alone cannot show a
+	 * change under a clock stepped back; a report can.
+	 */
+	function forget(change: FilesChanged) {
+		edits++;
+		if (change === 'everything') everythingAt = edits;
+		else for (const path of change) editedAt.set(path, edits);
+	}
+	/** Whether `path` was reported changed after `epoch`. */
+	const forgotten = (path: string, epoch: number) =>
+		everythingAt > epoch || (editedAt.get(path) ?? 0) > epoch;
 
 	/**
 	 * Keep `next` as the stat cache, and with `store`, store it when it
@@ -434,15 +476,15 @@ export function createHistory({
 	 * costs reads later, never a capture.
 	 */
 	async function rememberStats(
-		next: StatCache,
+		next: Remembered,
 		{ store }: { readonly store: boolean },
 	) {
 		latest = next;
 		if (!store || backend.captureCache === undefined) return;
-		if (sameCache(onBackend ?? (await storedCache()), next)) return;
+		if (sameCache(onBackend ?? (await storedCache()), next.cache)) return;
 		try {
-			await backend.captureCache.write(await serializeCache(next));
-			onBackend = next;
+			await backend.captureCache.write(await serializeCache(next.cache));
+			onBackend = next.cache;
 		} catch {
 			// The next commit stores it again.
 		}
@@ -1204,6 +1246,9 @@ export function createHistory({
 			await backend.reconcileIndex(to).catch(() => {});
 			return Ok({ kind: 'published' } as const);
 		} finally {
+			// Every path this publish may have written, whether it said so or
+			// failed partway.
+			forget(plan.changes.map(({ path }) => path));
 			// Heard once the branch and the index are set, or the publish
 			// stopped: a status taken between them would be of neither.
 			if (reached.length > 0) {
@@ -1594,8 +1639,12 @@ export function createHistory({
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},
-		/** A known file change: existing observations become stale. */
-		noteEdit() {
+		/**
+		 * A known file change: existing observations become stale, and the
+		 * stat cache forgets the paths, or everything when none are named.
+		 */
+		noteEdit(change: FilesChanged = 'everything') {
+			forget(change);
 			const wasFresh = files.state === 'observed' && !files.stale;
 			markEdited();
 			if (wasFresh) emit();

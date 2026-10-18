@@ -85,7 +85,7 @@ export async function openAtRoot<TDefinition extends Definition>(
 		// are gone.
 		detected = captured.detector?.((change) => {
 			if (history === undefined || history.snapshot.closed) return;
-			history.noteEdit();
+			history.noteEdit(change);
 			hints.report(change);
 		});
 		const started = await captured.start({

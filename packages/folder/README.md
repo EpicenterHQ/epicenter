@@ -1323,10 +1323,15 @@ modification time was more than three seconds older than the listing that
 read it, the size, time, and (in Bun) inode and change time the listing
 gave, and the blob its bytes hashed to (`src/git/capture-cache.ts`,
 ADR-0617). A file whose listing still says exactly that is captured as that
-blob. The cache only saves reads: deleted, corrupted, or from an older
-version, it is no cache, and every capture records what one without it
-would. A commit stores it; a status only keeps it in memory, so a status
-writes nothing.
+blob. A path the folder saves, moves, or publishes, or hears another page
+change, is forgotten at once, and a listing that begins before the latest
+listing that wrote the cache, on a clock stepped back, uses none of it. The
+cache only saves reads: deleted, corrupted, or from an older version, it is
+no cache, and every capture records what one without it would. A commit
+stores it; a status only keeps it in memory, so a status writes nothing.
+It assumes only the folder writes its browser directory: Chromium's
+in-memory storage keeps a file's old time for a write in place, which the
+folder never makes.
 
 A save never asks for a commit (ADR-0529). A commit happens only when a caller
 asks for one: `commit()`, or sync's checkpoint before it fetches, which a

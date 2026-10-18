@@ -33,14 +33,27 @@ export type FileRead = {
 	readonly sha256: string;
 };
 
+/** What a folder lists: its files and their sizes, and its directories. */
 export type FileListing = {
 	/**
 	 * Every entry that is not a directory, including files outside portable
 	 * scope, symbolic links, and special entries, none of them followed. A
 	 * read refuses what is not a regular file.
 	 */
-	readonly files: readonly ListedFile[];
+	readonly files: readonly { readonly path: string; readonly size: number }[];
 	/** Every directory, including empty ones kept for the shell. */
+	readonly directories: readonly string[];
+};
+
+/**
+ * What storage lists: a `FileListing` with each file's stat, where the host
+ * has one. The stats let a capture skip reading a file whose stat has not
+ * changed (`git/capture-cache.ts`), and nothing else reads them: a file's
+ * identity is still the bytes read from it, and `folder.files.list()` leaves
+ * them out.
+ */
+export type StorageListing = {
+	readonly files: readonly ListedFile[];
 	readonly directories: readonly string[];
 	/**
 	 * The host's clock, in milliseconds, just before it began listing: the
@@ -50,12 +63,7 @@ export type FileListing = {
 	readonly listedAt?: number;
 };
 
-/**
- * One entry of a listing. `modified` and `stamp` are what the host's file
- * system says of it, where it can say. They let a capture skip reading a
- * file whose stat has not changed (`git/capture-cache.ts`), and nothing else
- * reads them: a file's identity is still the bytes read from it.
- */
+/** One file of a storage listing, with what the host's stat says of it. */
 export type ListedFile = {
 	readonly path: string;
 	readonly size: number;
@@ -68,7 +76,7 @@ export type ListedFile = {
 /** A folder's files, as each host stores them. */
 export type FolderStorage = {
 	/** Every entry below the folder, `.git` aside. */
-	list(): Promise<Result<FileListing, FileError>>;
+	list(): Promise<Result<StorageListing, FileError>>;
 	/**
 	 * Immediate children of a directory by name: real subdirectories in
 	 * `directories`, every other entry in `files`, including a symbolic link or

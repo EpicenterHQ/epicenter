@@ -471,7 +471,7 @@ describe('address and history', () => {
 		const folder = await open();
 		expect(folder.location).toEqual({ kind: 'opfs', directory: 'test' });
 		expect(opfs.directories()).toEqual([]);
-		expect(expectOk(await folder.files.list())).toMatchObject({
+		expect(expectOk(await folder.files.list())).toEqual({
 			files: [],
 			directories: [],
 		});

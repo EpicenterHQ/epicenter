@@ -232,8 +232,12 @@ export type Folder<
 /** The history a handle is assembled over. */
 export type FolderHistory = FolderGit & {
 	readonly sync: FolderSync;
-	/** The files changed outside the history; its observations are stale. */
-	noteEdit(): void;
+	/**
+	 * The files changed outside the history; its observations are stale.
+	 * `change` names the paths, or `'everything'`, the default, when the
+	 * caller cannot say.
+	 */
+	noteEdit(change?: FilesChanged): void;
 	close(): Promise<void>;
 };
 
@@ -307,7 +311,7 @@ function handleStorage(
 		read: (path) => storage.read(path),
 		async put(path, bytes, ifMatch) {
 			const result = await storage.put(path, bytes, ifMatch);
-			if (mayHaveChanged(result)) history.noteEdit();
+			if (mayHaveChanged(result)) history.noteEdit([path]);
 			return result;
 		},
 	};
