@@ -128,7 +128,8 @@ Screens keep the word a person already has: "Save version", "Rename",
   the app publish its definition.
 - **Definition**: what `defineFolder` returns: the folder's tables, their
   fields, and its `local` patterns. On disk each table is its
-  `<table>/.epicenter.json`, and `local` is lines of the root `.gitignore`
+  `<table>/.epicenter.json`, and `local` is lines the app's own folder's root
+  `.gitignore` gets; `.gitignore` alone decides what stays on one machine
   (ADR-0592). Code says `Definition`; "schema" means a field's JSON Schema or
   a table's `.epicenter.json`, and "declaration" and "shape" are retired at
   the folder level.

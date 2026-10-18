@@ -59,9 +59,9 @@ published only by the app the folder is named after
 In a browser the app opens its own folder. In the desktop app it opens the
 folder the shell handed its window, which the shell answers the page, never
 its URL; any folder but its own is read through the definition and never
-written over, one that does not declare the definition's tables is refused,
-named, and what the definition keeps `local` never enters that folder's
-history. `getFolder().isOwn`, the handle's `folder.own`, says whether the
+written over, and one that does not declare the definition's tables is
+refused, named. That folder's own `.gitignore` decides what stays on one
+machine there (ADR-0592). `getFolder().isOwn`, the handle's `folder.own`, says whether the
 handle may publish, for a feature that belongs to the app's own folder only,
 such as Todos' Connect.
 
