@@ -1,7 +1,8 @@
 # 0602. `<FolderApp>` names its app by the last segment of its address
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at the deleted `epicenter.app.json`, its `title`, and its `id`: the name `<FolderApp>` shows, and a browser folder's commit author, come from the last segment of the app's address.
 - **Unbuilt:** all of it: `<FolderApp>` reading `definition.app` for its name and its commit author.
 

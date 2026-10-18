@@ -1,7 +1,8 @@
 # 0596. Native dictation code no page can reach compiles only behind an off-by-default Cargo feature
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) at the clipboard-manager and global-shortcut plugins being registered, the global-shortcut and clipboard-manager grants, and the custom Rust kept for `write_text`, `simulate_enter_keystroke`, `pause_playback`, `resume_playback`, `open_panel`, and `get_dictation_capability`: none of it is compiled, registered, or in the page API by default, until a native API decision exposes it. [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) at "A hidden window keeps its global shortcuts live" and push-to-talk from boot: no global-shortcut plugin runs in the default shell, so neither applies until a native API decision exposes it.
 - **Relates:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) (after the first release the page API changes only by addition).
 

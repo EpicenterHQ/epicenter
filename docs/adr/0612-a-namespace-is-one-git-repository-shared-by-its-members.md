@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at `https://git.epicenter.so/<namespace>/<name>.git`, Connect, and the proposed name: the remote is `https://git.epicenter.so/<namespace id>.git` and nothing proposes a name; [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) at "A repository belongs to exactly one namespace", the role table, personal and group kinds, and "People never see the word namespace": a namespace is one repository, owners and members are its only relation, and people choose namespaces by name; [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "Every hosted repository belongs to one person's namespace" and the deletion of `namespace_member`: a namespace has owners and members, and `namespace_member` stays; [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) at principles 2 and 10: they read as restated below.
-- **Relates:** [0611](0611-epicenters-data-is-namespaces-of-typed-markdown-in-git.md) (the v1 model and its build order), [0614](0614-a-browser-app-is-identified-by-its-origin.md) (a grant targets one namespace).
+- **Relates:** [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the v1 model and its build order), [0614](0614-a-browser-app-is-identified-by-its-origin.md) (a grant targets one namespace).
 - **Unbuilt:** all of it: the `/<namespace id>.git` route; the deletion of the repository registry and `namespace.personal_account_id`; a namespace's name as its label on screen; creating a namespace from consent; and invites, which come later.
 
 ## Context

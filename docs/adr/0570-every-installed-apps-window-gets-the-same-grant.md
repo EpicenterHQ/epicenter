@@ -1,7 +1,8 @@
 # 0570. Every installed app's window gets the same grant
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) at "granted by app id" and at "Each app is granted in one file, `installed-<app>.json`": every installed app's window is granted by one file, `installed-app.json`, whose `windows` is `app:*`.
 - **Amends:** [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at "Each app has one file": there is one capability file per kind of window, `folders.json`, `home.json`, and `installed-app.json`.
 - **Amends:** [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) at `AI_CONNECTION_APPS`: every installed app's window is permitted into `so.epicenter`, and the list is deleted.

@@ -1,7 +1,8 @@
 # 0541. A desktop folder needs no Web Locks, and a commit that loses a race retries
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amended by:** [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) at the Bun row's "saves from separate processes do not" and "in Bun, only saves within one process wait for each other": Bun's saves and the shell's checked renames take turns under one save lock per folder, `.<name>.epicenter-save-lock`.
 
 ## Context

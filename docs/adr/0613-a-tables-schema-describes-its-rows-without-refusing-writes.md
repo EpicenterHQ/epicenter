@@ -4,7 +4,7 @@
 - **Date:** 2026-10-18
 - **Supersedes:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (a data folder keeps `epicenter.ts`, and `epicenter generate <dir>` writes the `epicenter.json` it declares): a table's schema is the literal JSON Schema in its `.epicenter.json`, and nothing generates it.
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at the root `epicenter.json`, its `app` and `title`, "never reads the folder's `epicenter.json`", and "A data folder is every real, non-dot directory directly in the Epicenter folder": each table carries `<table>/.epicenter.json`, an app reads it, and the unit a person owns is a namespace; [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) at principles 3 and 5: they read as restated below; [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "every `.json` file merges key by key" for `.epicenter.json`: a schema merges as indivisible bytes; [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) at `field.optional` and the code column: optionality is the schema's `required` list; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`; [ADR-0609](0609-a-new-data-folder-copies-its-apps-template-once.md) at `template/` and "An author ships a change to their app's data as code": nothing is copied, and an app never changes an existing schema.
-- **Relates:** [0611](0611-epicenters-data-is-namespaces-of-typed-markdown-in-git.md) (the v1 model and its build order), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (what sync refuses).
+- **Relates:** [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the v1 model and its build order), [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) (what sync refuses).
 - **Unbuilt:** almost all of it: `<table>/.epicenter.json` discovery and the deletion of the root `epicenter.json`; the one row predicate; the `id` column; the reader that describes and never refuses; `.epicenter.json` merging as bytes; `open({ tables })` and the `@epicenter/data` surface; and every deletion below.
 
 ## Context
@@ -52,7 +52,7 @@ from it and validates rows against it.** Optionality is the schema's
 `epicenter generate`, and `packages/folder/src/generate-declaration.ts`. Cost:
 a person writing a schema by hand loses shared TypeBox constants; the Vault's
 own 300-line `epicenter.ts` is the counter-case, and restoring it is on the
-Deferred list of [0611](0611-epicenters-data-is-namespaces-of-typed-markdown-in-git.md).
+Deferred list of [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md).
 
 **The schema describes and never refuses.** Every write is accepted.
 `epicenter check` reports what does not fit, with undeclared fields and type

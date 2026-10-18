@@ -1,7 +1,8 @@
 # 0555. Apps reach native code through official Tauri plugins first, granted by app id
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "Whispering's recorder and global shortcuts, and Honeycrisp's terminal and 'reveal folder', are host functions": shortcuts come from the global-shortcut plugin, reveal is a folder action every window offers, and the terminal is refused.
 - **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "granted by app id" and "Each app is granted in one file, `installed-<app>.json`": every installed app's window is granted by one file, `installed-app.json`, whose `windows` is `app:*`.
 - **Amended by:** [ADR-0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md) at the registered clipboard-manager and global-shortcut plugins, their grants, and the custom Rust kept for paste, media, the panel, and the dictation capability: none of it is compiled, registered, or in the page API by default, until a native API decision exposes it.

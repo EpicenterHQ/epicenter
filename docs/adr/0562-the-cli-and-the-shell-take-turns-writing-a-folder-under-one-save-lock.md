@@ -1,7 +1,8 @@
 # 0562. The CLI and the shell take turns writing a folder under one save lock
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) at its Bun row's "saves from separate processes do not" and "in Bun, only saves within one process wait for each other": Bun's saves and the shell's checked renames take turns under one save lock per folder, `.<name>.epicenter-save-lock`.
 - **Amended by:** [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` is deleted, and a second shell takes turns under the save lock like the CLI.
 - **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI writes folders the app may hold open), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge that settles commits).

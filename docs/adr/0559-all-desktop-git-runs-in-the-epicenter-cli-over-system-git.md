@@ -1,7 +1,8 @@
 # 0559. All desktop Git runs in the epicenter CLI, over system git
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at "history through the system `git`, which the shell runs for it" (`run_git`): the `epicenter` CLI runs whole Git operations for the page, one child each, under the same rules, while files through the shell's read and checked change commands are unchanged.
 - **Amends:** [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) at the desktop page's history, "system git via run_git": desktop Git runs in an `epicenter` child, a Bun process.
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "`run_git` allowlist with hooks disabled": the same rules live in the `epicenter` CLI's Git runner.

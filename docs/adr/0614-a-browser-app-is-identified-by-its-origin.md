@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-18
 - **Amends:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "a grant has no target": a browser grant targets exactly one namespace; [ADR-0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) at the client ID metadata document and the `cimd` plugin: a browser app's client id is its origin, and its first sign-in creates its client row; CORS chosen by route stands.
-- **Relates:** [0611](0611-epicenters-data-is-namespaces-of-typed-markdown-in-git.md) (the correctness blockers and build order), [0612](0612-a-namespace-is-one-git-repository-shared-by-its-members.md) (what a grant targets).
+- **Relates:** [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the correctness blockers and build order), [0612](0612-a-namespace-is-one-git-repository-shared-by-its-members.md) (what a grant targets).
 - **Unbuilt:** all of it: client rows created at first sign-in; (account, origin, namespace) grants with `referenceId = ns:<id>`; consent that lists namespaces and takes a suggested name; tokens keyed by grant; renewal pinned to a namespace; revocation retiring tokens; and Reconnect.
 
 ## Context

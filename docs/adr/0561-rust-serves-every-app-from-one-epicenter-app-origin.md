@@ -1,11 +1,11 @@
 # 0561. Rust serves every app from one epicenter-app origin
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop host; Epicenter builds no desktop host, no app registry or installed apps, and no native capabilities.
 - **Amends:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) at "Bun-hosted", its loopback port, and its per-launch token: Rust serves the one trusted origin over the `epicenter-app` scheme.
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at where apps are served, `epicenter-app://localhost/apps/<app-id>/`, and at its consequence that one origin shares Web Locks and `BroadcastChannel`: the desktop uses neither.
 - **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "Each app has one file": there is one capability file per kind of window, `folders.json`, `home.json`, and `installed-app.json`.
-- **Amended by:** [ADR-0571](0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md) at the microphone probe: Whispering's page in Epicenter opens no microphone, so the probe narrows to another installed app's WebView microphone on the scheme.
 - **Amended by:** [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) at the installed app's URL: `/apps/<app-id>/<commit>/`, served from that commit's build, so a window keeps the build it opened on.
 - **Amended by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) at "Every page shares the one origin", the row `epicenter-app://localhost/apps/<id>/…`, and the consequence that every installed app shares storage with every other: each installed app is served at the root of its own host on the one scheme, and Epicenter's own pages keep `epicenter-app://localhost`.
 - **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (no Bun host runs, so something else serves pages), [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) (each app's capability file).
