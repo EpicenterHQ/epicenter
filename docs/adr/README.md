@@ -811,7 +811,7 @@ When you add an ADR, add its row here.
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Superseded by 0611 |
 | [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Accepted (amended by 0605, 0607, and 0609) |
 | [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576; amended by 0613 and 0622) |
-| [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577; amended by 0619, 0620, and 0621) |
+| [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | A folder's `.gitignore` decides what stays on one machine | Accepted (amends 0544, 0576, and 0577; amended by 0619, 0620, 0621, and 0624) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | The hosted Git service stores data repositories and offers no rename or move | Accepted (amends 0546 and 0547; amended by 0594, 0608, and 0612) |
 | [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | A hosted repository is reached only by the person who owns it | Accepted (amends 0547, 0549, 0565, 0578, and 0593; amended by 0612 and 0614) |
 | [0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) | The self-hosted Git store accepts a force push | Superseded by 0620 |
@@ -837,3 +837,4 @@ When you add an ADR, add its row here.
 | [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Proposed (supersedes 0544 and 0577; amends 0592) |
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Proposed (supersedes 0576; amends 0591) |
 | [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Every browser app keeps its own Git clone of a repository | Proposed (amends 0529) |
+| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Proposed (amends 0592) |
