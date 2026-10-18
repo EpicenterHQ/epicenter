@@ -110,17 +110,6 @@ export type GitBackend = {
 	 * additions and deletions. Working files are not touched.
 	 */
 	reconcileIndex(commit: string): Promise<void>;
-	/**
-	 * Which untracked candidates `.gitignore` (and native excludes) ignore,
-	 * decided by path alone. `gitignores` is the folder's `.gitignore` files
-	 * by path, which a backend that evaluates the rules itself reads; no other
-	 * file's bytes are needed, so an ignored file is never read to learn that
-	 * it is ignored.
-	 */
-	ignoredPaths(
-		candidates: readonly string[],
-		gitignores: ReadonlyMap<string, Uint8Array>,
-	): Promise<ReadonlySet<string>>;
 	log(depth: number): Promise<CommitSummary[]>;
 	/**
 	 * Push an exact commit to the configured remote branch, never forcing:

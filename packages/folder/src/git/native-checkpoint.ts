@@ -17,6 +17,7 @@ import { pathProblem } from '../paths.js';
 import { declaredFilter, isAttributesPath } from './attributes.js';
 import { orphanStagesProblem } from './index-file.js';
 import type { GitRun } from './native-backend.js';
+import { gitignoreMatcher, readRules } from './scope.js';
 
 const MODES: Record<string, string> = {
 	'100755': 'an executable file',
@@ -34,15 +35,12 @@ export async function nativeCheckpointProblem({
 	run,
 	files,
 	head,
-	ignored,
 }: {
 	root: string;
 	run: GitRun;
 	/** The working tree, read without following links. */
 	files: DirectoryPrimitives;
 	head: string | undefined;
-	/** Untracked candidates that ignore rules exclude from source. */
-	ignored: (paths: readonly string[]) => Promise<ReadonlySet<string>>;
 }): Promise<string | undefined> {
 	// Unmerged stages another Git program left: the checkpoint would reset
 	// them and record conflict markers as content.
@@ -103,12 +101,25 @@ export async function nativeCheckpointProblem({
 		}
 	}
 	await walk(root, '');
-	const untracked = [...special.map((item) => item.path), ...regular].filter(
-		(path) => !tracked.has(path),
+	// Which untracked files are no source, decided as a capture decides:
+	// from the folder's `.gitignore` bytes alone (`scope.ts`).
+	const ignored = gitignoreMatcher(
+		await readRules(regular, tracked, async (paths) => {
+			const read = new Map<string, Uint8Array>();
+			for (const path of paths) {
+				const full = `${root}/${path}`;
+				try {
+					read.set(path, await files.readFile(full));
+				} catch (error) {
+					// One removed since the walk is no rule, as in a capture.
+					if ((await files.lstat(full)) !== undefined) throw error;
+				}
+			}
+			return read;
+		}),
 	);
-	const excluded =
-		untracked.length === 0 ? new Set<string>() : await ignored(untracked);
-	const blocking = special.find((item) => !excluded.has(item.path));
+	const excluded = (path: string) => !tracked.has(path) && ignored(path);
+	const blocking = special.find((item) => !excluded(item.path));
 	if (blocking !== undefined)
 		return `${blocking.path} is ${blocking.reason}; ${plainOnly}`;
 
@@ -120,9 +131,7 @@ export async function nativeCheckpointProblem({
 	// Git applies `D/.gitattributes` to paths under `D/` alone, so one in an
 	// ignored directory that holds nothing recorded, such as
 	// `node_modules/`, governs nothing a commit carries.
-	const recorded = regular.filter(
-		(path) => tracked.has(path) || !excluded.has(path),
-	);
+	const recorded = regular.filter((path) => !excluded(path));
 	const governs = (path: string) => {
 		const directory = path.slice(0, path.lastIndexOf('/') + 1);
 		return recorded.some((file) => file.startsWith(directory));

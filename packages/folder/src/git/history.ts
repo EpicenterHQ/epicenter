@@ -66,7 +66,7 @@ import {
 	writeFilesTree,
 } from './objects.js';
 import { createPassRunner } from './runner.js';
-import { isGitignorePath } from './scope.js';
+import { gitignoreMatcher, isGitignorePath, readRules } from './scope.js';
 import type { SyncOptions, SyncOutcome } from './sync.js';
 
 export { GitError };
@@ -319,13 +319,11 @@ export function createHistory({
 		const paths = listed.files
 			.map(({ path }) => path)
 			.filter((path) => isPortablePath(path));
-		const rules = await readRules(paths, tracked);
-		const untracked = paths.filter((path) => !tracked.has(path));
-		const ignored =
-			untracked.length === 0
-				? new Set<string>()
-				: await backend.ignoredPaths(untracked, rules);
-		const kept = paths.filter((path) => !ignored.has(path));
+		const rules = await readRules(paths, tracked, readFiles);
+		// Decided from the captured bytes alone, on every host: the rules
+		// committed are exactly the rules that chose the rest.
+		const ignored = gitignoreMatcher(rules);
+		const kept = paths.filter((path) => tracked.has(path) || !ignored(path));
 		// A rule file is source with the bytes that chose the rest, and never
 		// read again: one missing then is left for the next capture.
 		const source = await readFiles(
@@ -338,52 +336,6 @@ export function createHistory({
 		return new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1)));
 	}
 
-	/**
-	 * The bytes of every `.gitignore` among `paths` that is a rule: read from
-	 * the root down, so a file `tracked` lacks under a directory a shallower
-	 * rule excludes is passed over, as Git never reads one there. A rule file
-	 * a pattern names itself still applies; whether it is source is the
-	 * caller's question. A tracked
-	 * rule file is source, and read, wherever it is. Rule files at one depth
-	 * sit in different directories, so only shallower ones decide them.
-	 */
-	async function readRules(
-		paths: readonly string[],
-		tracked: ReadonlyMap<string, unknown>,
-	) {
-		const depth = (path: string) => path.split('/').length;
-		const byDepth = new Map<number, string[]>();
-		for (const path of paths.filter(isGitignorePath))
-			byDepth.set(depth(path), [...(byDepth.get(depth(path)) ?? []), path]);
-		const rules = new Map<string, Uint8Array>();
-		for (const level of [...byDepth.keys()].sort((a, b) => a - b)) {
-			const candidates = byDepth.get(level)!;
-			// A rule file is passed over only when its directory, or one above
-			// it, is excluded; one that a pattern names itself, such as
-			// `**/.gitignore`, still applies, though it is no source.
-			const directories = [
-				...new Set(
-					candidates
-						.filter((path) => !tracked.has(path) && path.includes('/'))
-						.map((path) => path.slice(0, path.lastIndexOf('/') + 1)),
-				),
-			];
-			const excluded =
-				directories.length === 0
-					? new Set<string>()
-					: await backend.ignoredPaths(directories, rules);
-			const read = await readFiles(
-				candidates.filter(
-					(path) =>
-						tracked.has(path) ||
-						!excluded.has(path.slice(0, path.lastIndexOf('/') + 1)),
-				),
-			);
-			for (const [path, bytes] of read) rules.set(path, bytes);
-		}
-		return rules;
-	}
-
 	/** The rule files now, for a question about untracked paths. */
 	async function currentRules(tracked: ReadonlyMap<string, unknown>) {
 		const { data: listed, error } = await boundary.list();
@@ -393,6 +345,7 @@ export function createHistory({
 				.map(({ path }) => path)
 				.filter((path) => isPortablePath(path)),
 			tracked,
+			readFiles,
 		);
 	}
 
@@ -835,14 +788,14 @@ export function createHistory({
 			.filter(
 				(path) => !before.has(path) && after.has(path) && present.has(path),
 			);
-		const excluded =
+		const isIgnored =
 			colliding.length === 0
-				? new Set<string>()
-				: await backend.ignoredPaths(colliding, await currentRules(before));
-		const ignored = colliding.filter((path) => excluded.has(path));
+				? () => false
+				: gitignoreMatcher(await currentRules(before));
+		const ignored = colliding.filter((path) => isIgnored(path));
 		const made: string[] = [];
 		for (const path of colliding) {
-			if (excluded.has(path)) continue;
+			if (isIgnored(path)) continue;
 			const read = await storage.read(path);
 			// A file that cannot be read is no file to record: Sync stops.
 			if (read.error !== null) occupied.push(path);

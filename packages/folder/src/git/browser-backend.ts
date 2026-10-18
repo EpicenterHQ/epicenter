@@ -30,7 +30,6 @@ import {
 import { orphanStagesProblem, parseIndex } from './index-file.js';
 import { logCommits, type ObjectAccess } from './objects.js';
 import { createOpfsGitStore, GITDIR, WORKDIR } from './opfs-git.js';
-import { gitignoreMatcher } from './scope.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
 
 const decoder = new TextDecoder();
@@ -277,10 +276,6 @@ export async function createStoredGitBackend({
 						ref: commit,
 					});
 			});
-		},
-		async ignoredPaths(candidates, gitignores) {
-			const ignored = gitignoreMatcher(gitignores);
-			return new Set(candidates.filter((path) => ignored(path)));
 		},
 		async log(depth) {
 			const head = await readRef(branchKey);

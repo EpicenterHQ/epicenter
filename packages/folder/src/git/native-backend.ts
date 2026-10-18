@@ -30,7 +30,6 @@ import { nativeCheckpointProblem } from './native-checkpoint.js';
 import { neutralizeAttributes } from './neutral-attributes.js';
 import type { CommitSummary, ObjectAccess } from './objects.js';
 import { primitiveFs } from './primitive-fs.js';
-import { gitignoreMatcher } from './scope.js';
 
 const ZERO = '0000000000000000000000000000000000000000';
 const PUBLISHING_REF = 'refs/epicenter/publishing';
@@ -336,7 +335,6 @@ export async function createNativeGitBackend({
 				run,
 				files,
 				head: await resolve(branchRef),
-				ignored: (paths) => backend.ignoredPaths(paths, new Map()),
 			});
 		},
 		async reconcileIndex(commit) {
@@ -353,23 +351,6 @@ export async function createNativeGitBackend({
 			]);
 			const paths = text(differing.stdout).split('\0').filter(Boolean);
 			await syncIndex(commit, paths);
-		},
-		async ignoredPaths(candidates, gitignores) {
-			// With no repository there is no `git` to ask: the folder's own
-			// `.gitignore` files decide, as in a browser folder. Its first
-			// commit creates the repository and asks `git` first.
-			if (!(await exists())) {
-				const ignored = gitignoreMatcher(gitignores);
-				return new Set(candidates.filter((path) => ignored(path)));
-			}
-			// `--no-index` evaluates the rules alone; the caller keeps tracked files.
-			const result = await run(
-				['check-ignore', '--no-index', '--stdin', '-z'],
-				{ input: `${candidates.join('\0')}\0`, allowFailure: true },
-			);
-			if (result.code !== 0 && result.code !== 1)
-				throw new GitCommandError(['check-ignore'], result.code, result.stderr);
-			return new Set(text(result.stdout).split('\0').filter(Boolean));
 		},
 		async log(depth): Promise<CommitSummary[]> {
 			if ((await resolve(branchRef)) === undefined) return [];
