@@ -318,8 +318,8 @@ export function createHistory({
 	 * A file removed while it is read is left out, as if the listing had
 	 * missed it; a file that cannot be read throws, naming it. `rules` is
 	 * the rule bytes that chose `source`. A `.gitignore` spelled in another
-	 * case is `refused` from the listing alone, with nothing read
-	 * (`misnamedRulesProblem`).
+	 * case that would be source is `refused` before anything but the rules
+	 * is read (`misnamedRulesProblem`).
 	 */
 	async function captureSource(tracked: ReadonlyMap<string, unknown>) {
 		const { data: listed, error } = await boundary.list();
@@ -327,13 +327,15 @@ export function createHistory({
 		const paths = listed.files
 			.map(({ path }) => path)
 			.filter((path) => isPortablePath(path));
-		const misnamed = misnamedRulesProblem(paths);
-		if (misnamed !== undefined) return { refused: misnamed.reason } as const;
 		const rules = await readRules(paths, tracked, readFiles);
 		// Decided from the captured bytes alone, on every host: the rules
 		// committed are exactly the rules that chose the rest.
 		const ignored = gitignoreMatcher(rules);
 		const kept = paths.filter((path) => tracked.has(path) || !ignored(path));
+		// Only a misspelling that would be source matters: Git never reads
+		// one inside an ignored directory.
+		const misnamed = misnamedRulesProblem(kept);
+		if (misnamed !== undefined) return { refused: misnamed.reason } as const;
 		// A rule file is source with the bytes that chose the rest, and never
 		// read again: one missing then is left for the next capture.
 		const source = await readFiles(

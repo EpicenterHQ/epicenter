@@ -14,7 +14,11 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import type { FileError } from './errors.js';
-import { misnamedRulesProblem } from './git/scope.js';
+import {
+	gitignoreMatcher,
+	misnamedRulesProblem,
+	readRules,
+} from './git/scope.js';
 import { rowPath } from './paths.js';
 import type { ProjectedTable } from './projection.js';
 import { type ReadFolderError, readFolder } from './read-folder.js';
@@ -105,14 +109,25 @@ export async function checkFolder(
 		else unreadable.push({ path, message: failure.message });
 	}
 
-	// A `.gitignore` spelled in another case, which commits and Sync refuse.
-	const { data: listed } = await createDirectoryStorage({
+	// A `.gitignore` spelled in another case outside what the rules ignore,
+	// which commits and Sync refuse.
+	const storage = createDirectoryStorage({
 		root: await realpath(dir),
 		primitives: nodeDirectoryPrimitives,
-	}).list();
-	const misnamed = misnamedRulesProblem(
-		listed?.files.map(({ path }) => path) ?? [],
+	});
+	const paths =
+		(await storage.list()).data?.files.map(({ path }) => path) ?? [];
+	const ignored = gitignoreMatcher(
+		await readRules(paths, new Set(), async (wanted) => {
+			const read = new Map<string, Uint8Array>();
+			for (const path of wanted) {
+				const { data } = await storage.read(path);
+				if (data) read.set(path, data.bytes);
+			}
+			return read;
+		}),
 	);
+	const misnamed = misnamedRulesProblem(paths.filter((path) => !ignored(path)));
 	for (const path of misnamed?.paths ?? [])
 		invalid.push({
 			path,

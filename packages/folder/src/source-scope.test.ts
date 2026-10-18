@@ -645,6 +645,25 @@ describe('every host selects from the captured rules', () => {
 		}
 	});
 
+	test('a .gitignore spelled in another case inside an ignored directory is not refused', async () => {
+		const root = await scratch('scope-misnamed-ignored-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, '.gitignore'), 'node_modules/\n');
+		await mkdir(join(root, 'node_modules/dep'), { recursive: true });
+		await writeFile(join(root, 'node_modules/dep/.GITIGNORE'), '*\n');
+		await writeFile(join(root, 'notes.md'), 'kept\n');
+		const history = await nativeHistoryAt(root, (storage) => storage);
+		try {
+			expect((await history.commit()).status).toBe('committed');
+			expect((await git(root, 'ls-files')).split('\n').sort()).toEqual([
+				'.gitignore',
+				'notes.md',
+			]);
+		} finally {
+			await history.close();
+		}
+	});
+
 	test('a native commit refuses an executable whose ignore rule is removed after the first check', async () => {
 		const root = await scratch('scope-native-executable-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
