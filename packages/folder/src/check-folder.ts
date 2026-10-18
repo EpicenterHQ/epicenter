@@ -100,6 +100,18 @@ export async function checkFolder(
 		else unreadable.push({ path, message: failure.message });
 	}
 
+	for (const { path, reason } of folder.problems)
+		invalid.push({
+			path,
+			message: `The table's schema cannot be used: ${reason}`,
+		});
+	for (const path of folder.notRows)
+		invalid.push({
+			path,
+			message:
+				"Not a row: a row's file is an id that is not empty and does not start with a dot, then exactly .md",
+		});
+
 	const tables: CheckedTable[] = [];
 	for (const [name, listed] of Object.entries(folder.tables)) {
 		const table: CheckedTable = {

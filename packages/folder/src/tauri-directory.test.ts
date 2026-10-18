@@ -538,7 +538,7 @@ test('a data folder with no table schema opens with no tables, and files work', 
 	await folder.close();
 });
 
-test('a data folder whose table schema cannot be used is InvalidDefinition and opens nothing', async () => {
+test('a data folder whose table schema cannot be used opens without that table and writes nothing', async () => {
 	const root = await scratch('tauri-data-folder-invalid-');
 	await nodeFs.mkdir(join(root, 'todos'));
 	await nodeFs.writeFile(
@@ -546,9 +546,9 @@ test('a data folder whose table schema cannot be used is InvalidDefinition and o
 		'{"type":"object","properties":{},"required":["title"]}',
 	);
 	grantRoot(root);
-	const refused = expectErr(await openFolder({ id: 'so.epicenter.vault' }));
-	expect(refused).toMatchObject({ name: 'InvalidDefinition', path: SCHEMA });
-	expect(refused.message).toContain("requires 'title'");
+	const folder = expectOk(await openFolder({ id: 'so.epicenter.vault' }));
+	expect(folder.tables).toEqual({});
+	await folder.close();
 	expect(shell.calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
 });

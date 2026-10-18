@@ -16,41 +16,28 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { readDefinition } from './declaration.js';
+import { readDefinition, type SchemaProblem } from './declaration.js';
 import type { Definition, PreparedFolderTable } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { FileError } from './errors.js';
-import { SCHEMA_FILE } from './paths.js';
+import { ROW_EXTENSION, rowStemOfName, SCHEMA_FILE } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
 export const ReadFolderError = defineErrors({
-	/** No top-level directory holds a `.epicenter.json`, so it is not a data folder. */
+	/**
+	 * No top-level directory holds a `.epicenter.json`, so it is not a data
+	 * folder.
+	 */
 	NotDataFolder: ({ root }: { root: string }) => ({
 		message: `'${root}' is not a data folder: no top-level directory holds a ${SCHEMA_FILE}`,
 		root,
 	}),
-	/**
-	 * A table's schema file (`path`; `''` when the root could not be listed) is not a
-	 * readable file, is not UTF-8 JSON, is not the schema grammar
-	 * `parseTableSchema` reads, or declares a field a folder cannot keep.
-	 */
-	InvalidDefinition: ({
+	/** The folder's root could not be listed to find its tables. */
+	InvalidDefinition: ({ root, reason }: { root: string; reason: string }) => ({
+		message: `'${root}' cannot be read for its tables: ${reason}`,
 		root,
 		reason,
-		path,
-	}: {
-		root: string;
-		reason: string;
-		path: string;
-	}) => ({
-		message:
-			path === ''
-				? `'${root}' cannot be read for its tables: ${reason}`
-				: `'${root}/${path}' cannot be used: ${reason}`,
-		root,
-		reason,
-		path,
 	}),
 });
 export type ReadFolderError = InferErrors<typeof ReadFolderError>;
@@ -59,8 +46,21 @@ export type ReadFolderError = InferErrors<typeof ReadFolderError>;
 export type FolderReading = {
 	/** The directory read, as the caller named it. */
 	readonly root: string;
-	/** The prepared definition its tables' schema files declare. */
+	/** The prepared definition of every table whose schema file can be used. */
 	readonly definition: Definition;
+	/**
+	 * Each schema file that cannot make its directory a table: one that is
+	 * not the schema grammar or declares a field a folder cannot keep, or
+	 * that sits in a directory whose name is no table name. The other tables
+	 * still read.
+	 */
+	readonly problems: readonly SchemaProblem[];
+	/**
+	 * Each file directly in a table's directory that is named like a row but
+	 * is not one (`rowStemOfName`), such as `.md`, `.b.md`, or `a.MD`, so a
+	 * reader can say why it is not in the table.
+	 */
+	readonly notRows: readonly string[];
 	/** Exactly what each declared table's `list()` returns. */
 	readonly tables: Readonly<
 		Record<string, Result<TableListing<Record<string, unknown>>, FileError>>
@@ -68,10 +68,11 @@ export type FolderReading = {
 };
 
 /**
- * Read the data folder at `root`. A directory with no table is
- * `NotDataFolder`; one with a schema file that cannot be used is
- * `InvalidDefinition`; a missing root is `NotFound`, and a root that is not
- * a directory is `NotADirectory`. A table that cannot be read is that
+ * Read the data folder at `root`. A directory with no table, and no schema
+ * file that tried to be one, is `NotDataFolder`; a schema file that cannot
+ * be used is one of `problems`; a root that cannot be listed is
+ * `InvalidDefinition`, a missing root `NotFound`, and a root that is not a
+ * directory `NotADirectory`. A table that cannot be read is that
  * entry's error, beside the others.
  */
 export async function readFolder(
@@ -92,31 +93,42 @@ export async function readFolder(
 		primitives: nodeDirectoryPrimitives,
 	});
 
-	const { data: definition, error: declarationError } =
+	const { data: declared, error: declarationError } =
 		await readDefinition(storage);
 	if (declarationError !== null)
 		return ReadFolderError.InvalidDefinition({
 			root,
 			reason: declarationError.reason,
-			path: declarationError.path,
 		});
-	if (Object.keys(definition.tables).length === 0)
+	const { definition, problems } = declared;
+	if (Object.keys(definition.tables).length === 0 && problems.length === 0)
 		return ReadFolderError.NotDataFolder({ root });
 
 	const tables: Record<
 		string,
 		Result<TableListing<Record<string, unknown>>, FileError>
 	> = {};
-	for (const [name, table] of Object.entries(definition.tables))
+	const notRows: string[] = [];
+	for (const [name, table] of Object.entries(definition.tables)) {
 		tables[name] = await createTable<Record<string, unknown>>(
 			{ storage },
 			name,
 			table as PreparedFolderTable,
 		).list();
+		const { data: children } = await storage.children(name);
+		for (const file of children?.files ?? [])
+			if (
+				file.toLowerCase().endsWith(ROW_EXTENSION) &&
+				rowStemOfName(file) === undefined
+			)
+				notRows.push(`${name}/${file}`);
+	}
 	return Ok(
 		Object.freeze({
 			root,
 			definition,
+			problems,
+			notRows: Object.freeze(notRows.sort()),
 			tables: Object.freeze(tables),
 		}),
 	);

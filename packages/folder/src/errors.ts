@@ -205,12 +205,11 @@ export const RowWriteError = { ...WriteError, ...RowValuesError };
 export const OpenFolderError = defineErrors({
 	/**
 	 * A definition declares something a file folder cannot keep. Without
-	 * `path`, it is the definition the opener was handed. With `path`, a
-	 * table's `<table>/.epicenter.json`, it is the folder's own, which a
-	 * folder that is not the opening app's own is read with: the file is not
-	 * readable, is not UTF-8 JSON, is not the schema grammar, or declares a
-	 * field a folder cannot keep. A `path` of `''` is the folder's root,
-	 * which could not be listed to find its tables. Nothing was opened.
+	 * `path`, it is the definition the opener was handed. With `path` `''`,
+	 * it is the folder's own, which a folder that is not the opening app's
+	 * own is read with: its root could not be listed to find its tables. (A
+	 * table schema that cannot be used makes no table and refuses nothing.)
+	 * Nothing was opened.
 	 */
 	InvalidDefinition: ({ reason, path }: { reason: string; path?: string }) =>
 		path === undefined

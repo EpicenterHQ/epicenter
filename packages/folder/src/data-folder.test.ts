@@ -10,11 +10,10 @@
  *   their prepared definition
  * - The handle never writes a schema file: a hand-formatted one stays byte
  *   for byte through creates, writes, and commits
- * - A schema with an unknown key is `InvalidDefinition` naming the key
  * - A folder with no table schema opens with no tables, a root
  *   `epicenter.json` included; files and history work
- * - A schema file that cannot be used is `InvalidDefinition`, and a
- *   missing root is `InvalidRoot`; neither creates anything
+ * - A schema file that cannot be used makes no table and the others open;
+ *   a missing root is `InvalidRoot`; neither creates anything
  * - Opening creates no repository: status is an empty history with every file
  *   uncommitted, and the first commit runs `git init`
  * - The first commit of a folder inside another repository's working tree is
@@ -134,29 +133,28 @@ test('a folder with no table schema opens with no tables, a root epicenter.json 
 	await folder.close();
 });
 
-test('a schema file that cannot be used is InvalidDefinition, and opening creates nothing', async () => {
-	const root = await scratch('data-folder-invalid-');
-	await mkdir(join(root, 'todos'));
-	await writeFile(join(root, SCHEMA), '{"type":"object"');
-	const refused = expectErr(await openFolder({ root, git: { author } }));
-	expect(refused).toMatchObject({ name: 'InvalidDefinition', path: SCHEMA });
-	expect(refused.message).toContain('not JSON');
-	expect(refused.message).toContain(SCHEMA);
-	expect(existsSync(join(root, '.git'))).toBe(false);
-
-	await writeFile(
-		join(root, SCHEMA),
+test('a schema file that cannot be used makes no table, the other tables open, and opening creates nothing', async () => {
+	const root = await dataFolder('data-folder-invalid-');
+	await mkdir(join(root, 'notes'));
+	for (const text of [
+		'{"type":"object"',
 		'{"type":"object","properties":{},"extra":1}',
-	);
-	expect(expectErr(await openFolder({ root, git: { author } })).name).toBe(
-		'InvalidDefinition',
-	);
-
-	// A root's `tables` map inside a table's file is an unknown key like any other.
-	await writeFile(join(root, SCHEMA), `{"tables":{"todos":${DECLARED}}}`);
-	const nested = expectErr(await openFolder({ root, git: { author } }));
-	expect(nested.name).toBe('InvalidDefinition');
-	expect(nested.message).toContain("'tables'");
+		// A root's `tables` map inside a table's file is an unknown key.
+		`{"tables":{"todos":${DECLARED}}}`,
+	]) {
+		await writeFile(join(root, 'notes/.epicenter.json'), text);
+		const folder = expectOk(await openFolder({ root, git: { author } }));
+		expect(Object.keys(folder.tables)).toEqual(['todos']);
+		await folder.close();
+		// A reader through a definition that needs it meets a missing table.
+		const notes = defineFolder({
+			tables: { notes: defineTable({ fields: { title: field.string() } }) },
+		});
+		expect(
+			expectErr(await openFolder({ root, git: { author }, definition: notes }))
+				.name,
+		).toBe('DefinitionMismatch');
+	}
 	expect(existsSync(join(root, '.git'))).toBe(false);
 
 	const missing = join(root, 'missing');

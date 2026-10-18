@@ -36,11 +36,12 @@ import {
 	type FieldMap,
 	field,
 	isOptional,
+	isTableName,
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import { type Definition, prepareFolderDefinition } from './definition.js';
-import { schemaPath, tableOfSchemaPath } from './paths.js';
+import { pathProblem, schemaPath, tableOfSchemaPath } from './paths.js';
 
 /** One table's schema file text, as an opener publishes it. */
 export function formatTableSchema(table: DeclaredTable): string {
@@ -138,52 +139,82 @@ export function parseDefinition(
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
+/** A top-level directory whose schema file cannot make it a table, and why. */
+export type SchemaProblem = { readonly path: string; readonly reason: string };
+
+/** A folder's tables as its schema files declare them, and the ones that cannot. */
+export type DefinitionReading = {
+	/** The prepared definition of every table whose schema can be used. */
+	readonly definition: Definition;
+	/** Each schema file that cannot make its directory a table. */
+	readonly problems: readonly SchemaProblem[];
+};
+
 /**
  * Discover a folder's tables through `storage` and prepare them, as
  * `readFolder` does and `openFolder` does for any folder but an app's own:
  * every top-level directory holding a `.epicenter.json` is a table, read
- * from that file. A folder with none has no tables. A schema file that
- * cannot be used is the error, naming its path; a root that cannot be
- * listed names the path `''`. It writes nothing.
+ * from that file. A folder with none has no tables.
+ *
+ * A directory that cannot name a table is passed over: a dot directory, as
+ * a dot file is never a row, and a name no folder path may hold, such as
+ * `HEAD`; a link is no directory at all. A schema file that cannot be used,
+ * or that sits in a directory whose name is no table name (such as
+ * `my-drafts`), is a problem beside the other tables, which still read. Only
+ * a root that cannot be listed is the error. It writes nothing.
  */
 export async function readDefinition(
 	storage: Pick<FolderStorage, 'read' | 'children'>,
-): Promise<
-	Result<Definition, { readonly reason: string; readonly path: string }>
-> {
+): Promise<Result<DefinitionReading, { readonly reason: string }>> {
 	const { data: root, error: listError } = await storage.children('');
-	// The root itself could not be listed: no file is to blame.
-	if (listError !== null) return Err({ path: '', reason: listError.message });
-	const files: Record<string, string> = {};
+	if (listError !== null) return Err({ reason: listError.message });
+	const tables: Record<string, ParsedTable> = Object.create(null);
+	const problems: SchemaProblem[] = [];
 	for (const directory of root.directories) {
+		if (directory.startsWith('.')) continue;
 		const path = schemaPath(directory);
+		if (pathProblem(path) !== undefined) continue;
 		const { data: read, error: readError } = await storage.read(path);
 		if (readError !== null) {
 			// A directory with no schema file is not a table.
-			if (readError.name === 'NotFound') continue;
-			return Err({ path, reason: readError.message });
+			if (readError.name !== 'NotFound')
+				problems.push({ path, reason: readError.message });
+			continue;
 		}
+		if (!isTableName(directory)) {
+			problems.push({
+				path,
+				reason: `'${directory}' cannot name a table: a table name is a letter, then letters, digits, and underscores, and no SQL keyword`,
+			});
+			continue;
+		}
+		let text: string;
 		try {
-			files[path] = utf8.decode(read.bytes);
+			text = utf8.decode(read.bytes);
 		} catch {
-			return Err({ path, reason: 'it is not UTF-8 text' });
+			problems.push({ path, reason: 'it is not UTF-8 text' });
+			continue;
 		}
+		const { data: table, error: parseError } = parseTableSchema(text);
+		if (parseError !== null) {
+			problems.push({ path, reason: parseError.reason });
+			continue;
+		}
+		const alone = prepareFolderDefinition({
+			tables: { [directory]: table },
+		} as unknown as Definition);
+		if (alone.error !== null) {
+			problems.push({ path, reason: alone.error.reason });
+			continue;
+		}
+		tables[directory] = table;
 	}
-	const { data: declared, error: parseError } = parseDefinition(files);
-	if (parseError !== null) return Err(parseError);
-	const { data: prepared, error: prepareError } =
-		prepareFolderDefinition(declared);
-	if (prepareError === null) return Ok(prepared);
-	// Name the file whose table cannot be prepared on its own.
-	const names = Object.keys(declared.tables);
-	const blamed =
-		names.find(
-			(name) =>
-				prepareFolderDefinition({
-					tables: { [name]: declared.tables[name]! },
-				} as Definition).error !== null,
-		) ?? names[0]!;
-	return Err({ path: schemaPath(blamed), reason: prepareError.reason });
+	// Each table prepared alone; together they prepare the same way.
+	const { data: definition, error: prepareError } = prepareFolderDefinition({
+		tables,
+	} as unknown as Definition);
+	if (prepareError !== null) return Err(prepareError);
+	return Ok(Object.freeze({ definition, problems: Object.freeze(problems) }));
 }
 
 /**

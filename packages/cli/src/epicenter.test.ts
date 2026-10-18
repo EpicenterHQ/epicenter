@@ -160,7 +160,7 @@ test('a closed table reports an undeclared key, and query leaves its file out', 
 	});
 });
 
-test('a folder with no table, or a schema that cannot be used, is a tool failure with exit 2', async () => {
+test('a folder with no table is a tool failure with exit 2; a schema that cannot be used is a finding, and the other tables read', async () => {
 	const { folder, write, declare, run } = await setup();
 	const empty = await mkdtemp(join(tmpdir(), 'epicenter-cli-test-'));
 	temporaryFolders.push(empty);
@@ -179,17 +179,29 @@ test('a folder with no table, or a schema that cannot be used, is a tool failure
 	);
 	expect(run('check', empty).stderr).toContain('is not a data folder');
 
-	await declare({ 'bad name': objectSchema({}) });
+	await declare({ 'bad-name': objectSchema({}) });
 	const badName = run('check', folder);
-	expect(badName.exitCode).toBe(2);
-	expect(badName.stderr).toContain('bad name/.epicenter.json');
-	await rm(join(folder, 'bad name'), { recursive: true });
+	expect(badName.exitCode).toBe(1);
+	expect(badName.stdout).toContain(
+		"bad-name/.epicenter.json: The table's schema cannot be used: 'bad-name' cannot name a table",
+	);
+	expect(badName.stdout).toContain('1 row conforms');
+	await rm(join(folder, 'bad-name'), { recursive: true });
 
 	await write('posts/.epicenter.json', '{ not json');
-	const unreadable = run('check', folder);
-	expect(unreadable.exitCode).toBe(2);
-	expect(unreadable.stderr).toContain('posts/.epicenter.json');
-	expect(unreadable.stderr).toContain('not JSON');
+	const unreadable = run('check', folder, '--json');
+	expect(unreadable.exitCode).toBe(1);
+	expect(JSON.parse(unreadable.stdout).invalid).toEqual([
+		{
+			path: 'posts/.epicenter.json',
+			message: expect.stringContaining('not JSON'),
+		},
+	]);
+	// The other table still answers; the broken one is no table.
+	expect(run('query', folder, 'SELECT id FROM accounts').exitCode).toBe(0);
+	expect(run('query', folder, 'SELECT id FROM posts').stderr).toContain(
+		'no such table',
+	);
 });
 
 test('a typo a schema would otherwise ignore is refused, and $schema is allowed', async () => {
@@ -197,16 +209,16 @@ test('a typo a schema would otherwise ignore is refused, and $schema is allowed'
 
 	await declare({ posts: { ...declaration.tables.posts, propertys: {} } });
 	const extraKey = run('check', folder);
-	expect(extraKey.exitCode).toBe(2);
-	expect(extraKey.stderr).toContain("unknown key 'propertys'");
+	expect(extraKey.exitCode).toBe(1);
+	expect(extraKey.stdout).toContain("unknown key 'propertys'");
 
 	await declare({
 		posts: objectSchema({ due: { type: 'string', format: 'date-tme' } }),
 	});
-	const format = run('query', folder);
-	expect(format.exitCode).toBe(2);
-	expect(format.stderr).toContain('posts.due');
-	expect(format.stderr).toContain('date-tme');
+	const format = run('check', folder);
+	expect(format.exitCode).toBe(1);
+	expect(format.stdout).toContain('posts.due');
+	expect(format.stdout).toContain('date-tme');
 
 	await declare({
 		posts: {
@@ -234,11 +246,9 @@ test('query refuses fields it cannot project: case duplicates and body; a field 
 	}
 	// `id` is the row's own column, and a schema cannot declare it.
 	await declare({ posts: objectSchema({ ID: { type: 'string' } }) });
-	for (const args of [['check'], ['query', 'SELECT 1']]) {
-		const refused = run(args[0]!, folder, ...args.slice(1));
-		expect(refused.exitCode).toBe(2);
-		expect(refused.stderr).toContain("field name 'posts.ID' is not usable");
-	}
+	const refused = run('check', folder);
+	expect(refused.exitCode).toBe(1);
+	expect(refused.stdout).toContain("field name 'posts.ID' is not usable");
 	// `stem` names the row no more: it is an ordinary field.
 	await declare({ posts: objectSchema({ stem: { type: 'string' } }) });
 	await rm(join(folder, 'posts/reel.md'));
@@ -401,15 +411,30 @@ test('only <table>/<id>.md is a row: a directory, a dot file, an empty id, an up
 	await write('posts/.md', 'not a row\n');
 	await write('posts/Loud.MD', 'not a row\n');
 	await write('posts/reel/cover.md', "a row's own file\n");
+	// Each file named like a row that is not one is a finding, so nothing
+	// leaves the table unsaid; the directory and the nested file are not.
 	const result = run('check', folder);
-	expect(result.exitCode).toBe(0);
+	expect(result.exitCode).toBe(1);
+	const why =
+		"Not a row: a row's file is an id that is not empty and does not start with a dot, then exactly .md";
 	expect(result.stdout).toBe(
-		'1 row conforms; 0 files invalid; 0 unreadable.\n',
+		[
+			`posts/.hidden.md: ${why}`,
+			`posts/.md: ${why}`,
+			`posts/Loud.MD: ${why}`,
+			'1 row conforms; 3 files invalid; 0 unreadable.',
+			'',
+		].join('\n'),
 	);
-	expect(
-		JSON.parse(run('query', folder, 'SELECT id FROM posts', '--json').stdout)
-			.rows,
-	).toEqual([{ id: 'reel' }]);
+	const query = JSON.parse(
+		run('query', folder, 'SELECT id FROM posts', '--json').stdout,
+	);
+	expect(query.rows).toEqual([{ id: 'reel' }]);
+	expect(query.excluded).toEqual([
+		'posts/.hidden.md',
+		'posts/.md',
+		'posts/Loud.MD',
+	]);
 });
 
 test('query refuses statements that write, attach, or vacuum, and leaves the directory unchanged', async () => {

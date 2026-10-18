@@ -102,9 +102,14 @@ export async function openAtRoot<TDefinition extends Definition>(
 			const { data: declared, error } = await readDefinition(boundary);
 			if (error !== null) {
 				release();
-				return OpenFolderError.InvalidDefinition(error);
+				return OpenFolderError.InvalidDefinition({
+					reason: error.reason,
+					path: '',
+				});
 			}
-			prepared = declared;
+			// A schema file that cannot be used makes no table; the others
+			// open, and `epicenter check` names it.
+			prepared = declared.definition;
 			if (definition !== undefined) {
 				const problems = mismatches(prepared, definition);
 				if (problems.length > 0) {

@@ -133,10 +133,11 @@ async function history(
 const DETAILS: Record<string, string> = {
 	check: `Reads every table, each a top-level directory holding a .epicenter.json
 (its schema); a row is <table>/<id>.md directly in it. Prints one line per
-file that does not conform, compiler style, then a summary. Exits 0 when
-every file conforms, 1 when one does not, and 2 when the folder has no
-table, a schema cannot be used, or a file cannot be read. Never writes a
-file or runs the folder's code.`,
+file that does not conform, compiler style, then a summary: a row, a
+table schema that cannot be used, or a file named like a row that is not
+one (.md, .b.md, a.MD). Exits 0 when every file conforms, 1 when one does
+not, and 2 when the folder has no table or a file cannot be read. Never
+writes a file or runs the folder's code.`,
 	query: `Without a statement, describes each table's columns and what they hold:
 id (the row's file is <table>/<id>.md), each field, and body.
 With one, runs that single read-only statement (SELECT, WITH, VALUES, or

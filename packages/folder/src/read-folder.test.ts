@@ -13,7 +13,8 @@
  *   UTF-8 JSON, is not the schema grammar (an unknown key, a `required`
  *   naming no property, a visible `~optional`), or declares a field a folder
  *   cannot keep (an unknown format, a `$ref` naming nothing, an `$id` two
- *   fields define) is `InvalidDefinition`, naming its path; a missing root is
+ *   fields define) is a problem naming its path while the other tables read;
+ *   a directory that cannot name a table is passed over; a missing root is
  *   `NotFound`, a file root `NotADirectory`
  * - A hand-written declaration with optional fields reads sparse rows as
  *   valid, and an absent required field as missing
@@ -71,6 +72,13 @@ async function writeTables(
 			typeof schema === 'string' ? schema : JSON.stringify(schema),
 		);
 	}
+}
+
+/** The one schema problem `readFolder` reports for `root`: its path and reason. */
+async function problemOf(root: string) {
+	const reading = expectOk(await readFolder(root));
+	expect(reading.problems).toHaveLength(1);
+	return reading.problems[0]!;
 }
 
 const roots: string[] = [];
@@ -160,7 +168,7 @@ test('a table is a top-level directory holding .epicenter.json; nothing else is'
 	expect(reading.definition).not.toHaveProperty('title');
 });
 
-test('a schema file that cannot be used is InvalidDefinition, naming its path', async () => {
+test('a schema file that cannot be used is a problem naming its path, and the other tables still read', async () => {
 	for (const text of [
 		'{ not json',
 		'null',
@@ -181,20 +189,41 @@ test('a schema file that cannot be used is InvalidDefinition, naming its path', 
 			notes: objectSchema({ body: { type: 'string' } }),
 			todos: text,
 		});
-		expect(expectErr(await readFolder(root))).toMatchObject({
-			name: 'InvalidDefinition',
-			path: 'todos/.epicenter.json',
-		});
+		const reading = expectOk(await readFolder(root));
+		expect(Object.keys(reading.tables)).toEqual(['notes']);
+		expect(reading.problems).toEqual([
+			{ path: 'todos/.epicenter.json', reason: expect.any(String) },
+		]);
 	}
 });
 
-test('an unknown key in a schema is InvalidDefinition, and $schema is allowed', async () => {
+test('a directory that cannot name a table is passed over, or named as a problem when it holds a schema', async () => {
+	const root = await scratch();
+	const schema = objectSchema({ body: { type: 'string' } });
+	await writeTables(root, {
+		notes: schema,
+		'my-drafts': schema,
+		order: schema,
+		'.hidden': schema,
+		HEAD: schema,
+	});
+	const reading = expectOk(await readFolder(root));
+	expect(Object.keys(reading.tables)).toEqual(['notes']);
+	expect(reading.problems.map(({ path }) => path).sort()).toEqual([
+		'my-drafts/.epicenter.json',
+		'order/.epicenter.json',
+	]);
+	expect(reading.problems[0]!.reason).toContain('cannot name a table');
+	// A folder whose only schemas cannot be used is still a data folder.
+	await rm(join(root, 'notes'), { recursive: true });
+	expect(Object.keys(expectOk(await readFolder(root)).tables)).toEqual([]);
+});
+
+test('an unknown key in a schema is a problem, and $schema is allowed', async () => {
 	const root = await scratch();
 	const todos = objectSchema({ title: { type: 'string' } });
 	await writeTables(root, { todos: { ...todos, propertys: {} } });
-	const refused = expectErr(await readFolder(root));
-	expect(refused).toMatchObject({ name: 'InvalidDefinition' });
-	expect(refused.message).toContain("'propertys'");
+	expect((await problemOf(root)).reason).toContain("'propertys'");
 
 	await writeTables(root, {
 		todos: { ...todos, $schema: 'https://example.test/s.json' },
@@ -204,18 +233,17 @@ test('an unknown key in a schema is InvalidDefinition, and $schema is allowed', 
 	]);
 });
 
-test('a field with an unknown format is InvalidDefinition, naming the field', async () => {
+test('a field with an unknown format is a problem, naming the field', async () => {
 	const root = await scratch();
 	await writeTables(root, {
 		todos: objectSchema({ due: { type: 'string', format: 'date-tme' } }),
 	});
-	const refused = expectErr(await readFolder(root));
-	expect(refused).toMatchObject({ name: 'InvalidDefinition' });
-	expect(refused.message).toContain('todos.due');
-	expect(refused.message).toContain('date-tme');
+	const { reason } = await problemOf(root);
+	expect(reason).toContain('todos.due');
+	expect(reason).toContain('date-tme');
 });
 
-test('a field whose $ref names nothing, or that would resolve differently in the file, is InvalidDefinition, naming the reference', async () => {
+test('a field whose $ref names nothing, or that would resolve differently in the file, is a problem, naming the reference', async () => {
 	const node = {
 		$defs: {
 			Node: {
@@ -236,9 +264,8 @@ test('a field whose $ref names nothing, or that would resolve differently in the
 	] as const) {
 		const root = await scratch();
 		await writeTables(root, { todos: objectSchema(fields) });
-		const refused = expectErr(await readFolder(root));
-		expect(refused).toMatchObject({ name: 'InvalidDefinition' });
-		for (const said of says) expect(refused.message).toContain(said);
+		const { reason } = await problemOf(root);
+		for (const said of says) expect(reason).toContain(said);
 	}
 });
 
@@ -333,14 +360,30 @@ test('a missing root is NotFound and a file root is NotADirectory', async () => 
 	);
 });
 
-test('a .epicenter.json that is not a readable file is InvalidDefinition', async () => {
+test('a .epicenter.json that is not a readable file is a problem', async () => {
 	const root = await scratch();
 	await mkdir(join(root, schemaPath('todos')), { recursive: true });
-	expect(expectErr(await readFolder(root))).toMatchObject({
-		name: 'InvalidDefinition',
-		root,
-		path: 'todos/.epicenter.json',
+	expect((await problemOf(root)).path).toBe('todos/.epicenter.json');
+});
+
+test('a file named like a row that is not one is named, so nothing leaves a table unsaid', async () => {
+	const root = await scratch();
+	await writeTables(root, {
+		notes: objectSchema({ body: { type: 'string' } }),
 	});
+	for (const name of ['a.md', '.b.md', '.md', 'Loud.MD', 'plain.txt'])
+		await writeFile(join(root, 'notes', name), '---\nbody: x\n---\n');
+	await mkdir(join(root, 'notes/a'));
+	await writeFile(join(root, 'notes/a/nested.md'), "a row's own file\n");
+	const reading = expectOk(await readFolder(root));
+	expect(expectOk(reading.tables.notes!).map(({ stem }) => stem)).toEqual([
+		'a',
+	]);
+	expect(reading.notRows).toEqual([
+		'notes/.b.md',
+		'notes/.md',
+		'notes/Loud.MD',
+	]);
 });
 
 test('a symbolically linked directory is never followed, so it is no table, and the other tables read', async () => {
