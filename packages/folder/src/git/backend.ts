@@ -82,6 +82,15 @@ export type GitBackend = {
 	/** Point `refs/epicenter/publishing` at `oid`, or delete it with `undefined`. */
 	writePublishing(oid: string | undefined): Promise<void>;
 	/**
+	 * `refs/epicenter/joining`: the first commit a Sync made in a folder that
+	 * had never fetched from its remote, while that folder still has not.
+	 * Such a folder joins the remote's history over an empty base, on that
+	 * Sync or the next. `undefined` when none is.
+	 */
+	readJoining(): Promise<string | undefined>;
+	/** Point `refs/epicenter/joining` at `oid`, or delete it with `undefined`. */
+	writeJoining(oid: string | undefined): Promise<void>;
+	/**
 	 * Why no whole-folder commit or publish may run now. A Git operation is
 	 * in progress: a detached `HEAD`, a rebase, or a merge another Git
 	 * program began (`MERGE_HEAD`), which the folder never begins and Git
