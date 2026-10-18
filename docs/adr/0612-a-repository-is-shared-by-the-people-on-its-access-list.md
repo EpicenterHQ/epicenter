@@ -4,7 +4,7 @@
 - **Date:** 2026-10-18
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at `https://git.epicenter.so/<namespace>/<name>.git`, Connect's proposed name, "unique within its namespace", and the `repository` and `repository_alias` tables: the remote is `https://git.epicenter.so/<id>.git`, and a name is a label; [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) at "A repository belongs to exactly one namespace", the personal namespace, and "People never see the word namespace": the `namespace` and `namespace_member` tables are renamed `repository` and `repository_member`, a repository has owners and members, and no code or schema says namespace; [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at "Every hosted repository belongs to one person's namespace" and the deletion of `namespace_member`: `namespace_member` stays as `repository_member`, and a repository's access list is its owners and members; [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at "offers no rename": a repository's name changes freely, and nothing moves; [ADR-0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) at the Folder noun: what a person shares and an app opens is a repository; [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) at "A folder's directory name is its hosted repository's name, on every device and in every origin": a clone lives in a directory of any name.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the Git service), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a grant names one repository).
-- **Unbuilt:** all of it: the `/<id>.git` route; renaming the `namespace` tables and every `namespace` identifier to `repository`; storage named by the renamed table's id; renaming a repository's name; the deletion of the second registry (`repository` and `repository_alias`) and of `personal_account_id`; `GET /api/repos` listing by id and name from the one registry; creating a repository at consent; and invites.
+- **Unbuilt:** all of it: the `/<id>.git` route; renaming the `namespace` tables and every `namespace` identifier to `repository`; storage named by the renamed table's id; renaming a repository's name; the deletion of the second registry (`repository` and `repository_alias`) and of `personal_account_id`; `GET /api/repos` listing by id and name from the one registry; creating a repository at consent; refusing a push to a branch other than `main`; and invites.
 
 ## Context
 
@@ -31,7 +31,9 @@ and several people share, which leaves the namespace naming nothing.
 ## Decision
 
 **A repository is one Git repository at `https://git.epicenter.so/<id>.git`,
-with one branch, `main`.** Every clone commits to `main` and syncs it. Its
+with one branch, `main`.** Every clone commits to `main` and syncs it, and
+the Git service refuses a push to any other branch
+([ADR-0620](0620-history-in-a-repository-only-grows.md)). Its
 id is its identity and never changes. URLs, grants, and clones use the
 id. Its name is a free, non-unique label, shown to people and changeable at
 any time without breaking anything.
@@ -84,7 +86,7 @@ repositories the signed-in person is on, each by id and name, from
 - Two repositories with one name are told apart by their ids, and
   `epicenter clone` given a name two of them share asks for the id.
 - No client chooses a branch: every app, the CLI, and the data browser
-  sync `main`.
+  sync `main`, and a plain `git push` of another branch is refused.
 - Removing a member stops that member's future fetches and pushes and does
   not recall a clone already made.
 - A large archive is its own repository, so it never slows the

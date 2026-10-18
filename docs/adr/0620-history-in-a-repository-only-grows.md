@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) (the self-hosted Git store accepts a push that is not a fast-forward): no store accepts a force push.
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "unrelated history is refused as not a fast-forward, so a second folder cannot land in a repository by taking its name", as ADR-0595 amended it: the Git service refuses every push that is not a fast-forward, forced or not; [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "repairing it means rewriting history in Git, by a person or an agent": a repair is a revert, and a rewritten history is a new repository.
 - **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (a repository's id never changes), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a grant names one repository).
-- **Unbuilt:** the refusal on the hosted service: whether Cloudflare Artifacts refuses a forced push that is not a fast-forward is not verified, and where the hosted service enforces the refusal (Artifacts or the Worker in `apps/api/worker/git-repositories.ts`) is not decided; and pushing a rewritten history to a new repository. The disk store already refuses one (`safety` in `packages/server/src/git-disk-store.ts`).
+- **Unbuilt:** the Worker in `apps/api/worker/git-repositories.ts` refusing a push that is not a fast-forward or that names a branch other than `main`; the disk store refusing a branch other than `main`; and pushing a rewritten history to a new repository. The disk store already refuses a push that is not a fast-forward (`safety` in `packages/server/src/git-disk-store.ts`).
 
 ## Context
 
@@ -26,8 +26,13 @@ reset first.
 
 **History in a repository only grows.** The Git service refuses a push that
 is not a fast-forward, forced or not, and refuses deleting a branch, on
-Cloudflare Artifacts as on the disk store. `safety` keeps
-`receive.denyNonFastForwards=true` and `receive.denyDeletes=true`.
+Cloudflare Artifacts as on the disk store, and refuses a push to any
+branch other than `main`
+([ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md)).
+On the hosted service the Worker in `apps/api/worker/git-repositories.ts`
+sees every push and enforces both rules itself, whatever Cloudflare
+Artifacts would accept. `safety` keeps `receive.denyNonFastForwards=true`
+and `receive.denyDeletes=true` on the disk store.
 
 **A repair is a revert.** A file committed by mistake is removed by a new
 commit, and its bytes stay in history.
