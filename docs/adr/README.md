@@ -830,3 +830,7 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Accepted (amends 0585, 0589, 0590, and 0598) |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Accepted (amends 0607) |
+| [0611](0611-epicenters-data-is-namespaces-of-typed-markdown-in-git.md) | Epicenter's data is namespaces of typed Markdown in Git | Proposed (amends 0529, 0558, 0590, 0605, 0607, and 0608) |
+| [0612](0612-a-namespace-is-one-git-repository-shared-by-its-members.md) | A namespace is one Git repository shared by its members | Proposed (amends 0546, 0547, 0590, and 0594) |
+| [0613](0613-a-tables-schema-describes-its-rows-without-refusing-writes.md) | A table's schema describes its rows without refusing writes | Proposed (supersedes 0527; amends 0526, 0584, 0585, 0590, 0591, and 0609) |
+| [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Proposed (amends 0594 and 0606) |
