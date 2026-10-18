@@ -1,13 +1,14 @@
 /**
- * Browser Git's transfers cost what changed, not what the history holds
- * (`transfer.ts`). A remote of many files and commits, served by the system
+ * Browser Git's transfers cost what changed, not what the history holds:
+ * the fetch in `browser-backend.ts`, the push in `push.ts`. A remote of many files and commits, served by the system
  * `git http-backend`, is fetched once; every later fetch and push of one
  * changed file is counted by the objects in the pack each side sent.
  *
  * Key behaviors:
- * - A fetch tells the server the remote-tracking commit as well as the
- *   branch head, so a folder with a commit the remote lacks receives only
- *   the remote's new objects
+ * - A fetch tells the server the remote-tracking commit, so a folder with a
+ *   commit the remote lacks receives only the remote's new objects. This
+ *   relies on isomorphic-git sending `ref` as its one have, so an upgrade
+ *   that changes it fails here
  * - A push of a merge whose other parent is behind the remote head sends
  *   its new commits and the trees and blobs they changed, not the history
  */
@@ -142,7 +143,7 @@ test('a fetch and a push of one changed file transfer that change, not the histo
 		await nativeGit(native, 'pull', '--quiet', bare, 'main');
 		await remoteEdit(FILES - 2);
 		const third = (await backend.fetch(signal)) ?? '';
-		expect(haves(sent)).toEqual([second, mine]);
+		expect(haves(sent)).toEqual([second]);
 		expect(packObjects(received)).toBe(4);
 		expect(await backend.readRemoteTracking()).toBe(third);
 

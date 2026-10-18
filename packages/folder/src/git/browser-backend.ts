@@ -2,10 +2,10 @@
  * Browser Git: isomorphic-git over a folder's private Git state.
  *
  * `createStoredGitBackend` is everything that is Git: objects, refs, the
- * index, the log, and transfers (`transfer.ts`), through a filesystem view
- * whose `/files` is the folder's files, read-only, and whose `/git` is
- * private Git state, the `.git` of the folder's origin private file system
- * directory (`opfs-git.ts`).
+ * index, the log, and transfers (the push in `push.ts`), through a
+ * filesystem view whose `/files` is the folder's files, read-only, and whose
+ * `/git` is private Git state, the `.git` of the folder's origin private file
+ * system directory (`opfs-git.ts`).
  *
  * The branch moves only by comparing the stored ref with the pinned value.
  * Index and branch work holds a Web Lock, which queues this tab's requests
@@ -25,7 +25,7 @@ import {
 import { orphanStagesProblem, parseIndex } from './index-file.js';
 import { logCommits, type ObjectAccess } from './objects.js';
 import { createOpfsGitStore, GITDIR, WORKDIR } from './opfs-git.js';
-import { fetchRef, pushRef } from './transfer.js';
+import { pushRef } from './push.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
 
 const decoder = new TextDecoder();
@@ -189,15 +189,29 @@ export async function createStoredGitBackend({
 			return remote;
 		},
 		async setRemote(url) {
+			// A browser's `fetch` refuses such a URL with an opaque error, and
+			// a credential belongs to `credentials`, never the configuration.
+			if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(url))
+				throw new Error(
+					'A remote URL may not contain a username or password; pass the credential to `credentials` instead',
+				);
 			await ensureCreated();
-			await withObjects(({ fs, gitdir }) =>
-				git.setConfig({
+			// The fetch refspec makes isomorphic-git record fetched heads as
+			// tracking refs.
+			await withObjects(async ({ fs, gitdir }) => {
+				await git.setConfig({
 					fs,
 					gitdir,
 					path: `remote.${REMOTE_NAME}.url`,
 					value: url,
-				}),
-			);
+				});
+				await git.setConfig({
+					fs,
+					gitdir,
+					path: `remote.${REMOTE_NAME}.fetch`,
+					value: `+refs/heads/*:refs/remotes/${REMOTE_NAME}/*`,
+				});
+			});
 			remote = { url, branch };
 			return remote;
 		},
@@ -278,7 +292,7 @@ export async function createStoredGitBackend({
 			return withObjects(async (access) => {
 				const outcome = await pushRef({
 					access,
-					request: abortableHttp(signal, httpFetch),
+					http: abortableHttp(signal, httpFetch),
 					url,
 					headers,
 					ref: `refs/heads/${branch}`,
@@ -301,24 +315,37 @@ export async function createStoredGitBackend({
 			const { url } = remote;
 			await ensureCreated();
 			const headers = await authorizationHeaders(url, signal);
-			const haves = [await readRef(trackingKey), await readRef(branchKey)];
 			return withObjects(async (access) => {
-				const head = await fetchRef({
-					access,
-					request: abortableHttp(signal, httpFetch),
-					url,
-					headers,
-					ref: `refs/heads/${branch}`,
-					haves,
-				});
-				if (head !== undefined)
-					await git.writeRef({
+				try {
+					const result = await git.fetch({
 						...access,
+						http: abortableHttp(signal, httpFetch),
+						headers,
+						dir: WORKDIR,
+						url,
+						remote: REMOTE_NAME,
+						// With `singleBranch`, isomorphic-git sends `ref` as its one
+						// `have` line and uses it for nothing else, since `remote` and
+						// `remoteRef` are given. The tracking ref is the commit the
+						// server is sure to know, so it sends only what is new; the
+						// branch head would not be known whenever a checkpoint is
+						// unpushed, and the whole history came back. `transfer.test.ts`
+						// fails if an upgrade changes this.
 						ref: trackingRef,
-						value: head,
-						force: true,
+						remoteRef: branch,
+						singleBranch: true,
+						tags: false,
 					});
-				return head;
+					return result.fetchHead ?? undefined;
+				} catch (cause) {
+					if (
+						cause instanceof Error &&
+						(cause as { code?: string }).code === 'NotFoundError' &&
+						cause.message.includes(branch)
+					)
+						return undefined;
+					throw cause;
+				}
 			});
 		},
 	};

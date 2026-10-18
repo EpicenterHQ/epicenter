@@ -231,8 +231,8 @@ Git is about to reach, and its answer goes to that URL alone as an HTTP Basic
 `Authorization` header (a token is the password). `undefined` sends none; a
 throw refuses the transfer with its message. The folder keeps nothing it is
 given: not in `origin`, its files, or its Git configuration. In the browser
-the header rides the folder's own smart HTTP requests (`git/transfer.ts`)
-with no cookies and no redirects. In
+the header rides each Git request, isomorphic-git's fetch and the folder's
+own push (`git/push.ts`), with no cookies and no redirects. In
 Bun and on the desktop it reaches `git` through Git's environment, never its
 arguments: `http.<url>.extraHeader`, `http.followRedirects` and
 `http.<url>.followRedirects` false, so no repository or global setting turns

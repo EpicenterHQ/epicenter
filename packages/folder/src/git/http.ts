@@ -1,7 +1,10 @@
 /**
- * Browser Git's HTTP: requests over `fetch` that honor an abort signal, so
- * closing the folder stops an in-flight push or fetch.
+ * An isomorphic-git HTTP client over `fetch` that honors an abort signal.
+ *
+ * The bundled web client ignores cancellation. Passing the owner's signal to
+ * `fetch` lets closing the folder stop an in-flight push or fetch transport.
  */
+import type { GitHttpRequest, HttpClient } from 'isomorphic-git';
 
 /** HTTP capability used for this folder's Git requests. */
 export type HttpFetch = (
@@ -34,34 +37,66 @@ export function basicAuthorization({ username, password }: GitCredential) {
 	return `Basic ${btoa(binary)}`;
 }
 
-/** One request of a Git transfer. */
-export type HttpRequest = (
-	url: string,
-	init?: {
-		readonly method?: 'GET' | 'POST';
-		readonly headers?: Record<string, string>;
-		readonly body?: Uint8Array;
-	},
-) => Promise<Response>;
+async function collect(
+	body: GitHttpRequest['body'],
+): Promise<Uint8Array | undefined> {
+	if (body === undefined) return undefined;
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	for await (const chunk of body) {
+		chunks.push(chunk);
+		size += chunk.byteLength;
+	}
+	const bytes = new Uint8Array(size);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
+}
 
-/** Git requests through `httpFetch` that stop when `signal` aborts. */
+async function* chunks(stream: ReadableStream<Uint8Array>) {
+	const reader = stream.getReader();
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return;
+			yield value;
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
+
 export function abortableHttp(
 	signal: AbortSignal,
 	httpFetch: HttpFetch = globalThis.fetch,
-): HttpRequest {
-	return (url, { method = 'GET', headers = {}, body } = {}) => {
-		const authorized = Object.keys(headers).some(
-			(name) => name.toLowerCase() === 'authorization',
-		);
-		return httpFetch(url, {
-			method,
-			headers,
-			body: body as Uint8Array<ArrayBuffer> | undefined,
-			signal,
-			// Git needs no cookie, and a credential goes to the URL it was
-			// given for, never wherever a redirect points.
-			credentials: 'omit',
-			redirect: authorized ? 'error' : 'follow',
-		});
+): HttpClient {
+	return {
+		async request({ url, method = 'GET', headers = {}, body }) {
+			const payload = await collect(body);
+			const authorized = Object.keys(headers).some(
+				(name) => name.toLowerCase() === 'authorization',
+			);
+			const response = await httpFetch(url, {
+				method,
+				headers,
+				body: payload as Uint8Array<ArrayBuffer> | undefined,
+				signal,
+				// Git needs no cookie, and a credential goes to the URL it was
+				// given for, never wherever a redirect points.
+				credentials: 'omit',
+				redirect: authorized ? 'error' : 'follow',
+			});
+			return {
+				url: response.url,
+				method,
+				statusCode: response.status,
+				statusMessage: response.statusText,
+				headers: Object.fromEntries(response.headers),
+				body: response.body ? chunks(response.body) : (async function* () {})(),
+			};
+		},
 	};
 }
