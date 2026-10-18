@@ -1,8 +1,9 @@
 # 0576. A folder has one write: a merge by unit where the writer acting wins
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-16
 - **Supersedes:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (a field edit as its own verb, `table.update`)
+- **Superseded by:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md): the edit that reaches `main` last wins each unit both sides changed, an edit beats a delete it never saw, and Epicenter writes no conflict marker or conflict file.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing "Sync: decided by the person": an overlap in Sync is decided by the device syncing. That files are the truth, with one read path and one channel of change, remains.
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Amended by:** [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at the unit table's "a row, `<table>/<stem>.md`", the whole-file merge of `epicenter.json` with its union of `local`, "Sync, the one write, and the merge driver take the same rule", "Plain Git keeps its conflicts", and the rejected alternative "No merge driver": a `.md` file with readable frontmatter merges by field wherever it is, every `.json` file, `epicenter.json` included, merges key by key, recursing into objects, the writer acting winning a key both changed, and the plain-Git merge driver is deleted.
