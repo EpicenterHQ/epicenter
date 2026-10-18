@@ -4,7 +4,7 @@
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) at "only": a browser clone commits at each sync, and sync runs on its own once edits settle.
 - **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (a browser clone's unsent edits are its working files, and it holds no cache), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge a sync and a save make), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the causes of `stuck`).
-- **Unbuilt:** all of it: objects, refs, and unsent edits in IndexedDB; reads, `list()`, and commits over them; push from individual objects; the open check; the two network fixes; the sync lock's lease; moving existing clones; the deletion of the OPFS clone; and the sync schedule. Every measurement below is from headless desktop engines on macOS; a real iPhone still has to show IndexedDB under `navigator.storage.persist()` as a home-screen web app, eviction, and a tab killed mid-transaction.
+- **Unbuilt:** all of it: objects, refs, and unsent edits in IndexedDB; reads, `list()`, and commits over them; push from individual objects; the open check; the two network fixes; the sync lock's lease; moving existing clones; the deletion of the OPFS clone; and the sync schedule. Every measurement below is from headless desktop engines on macOS; a real iPhone still has to show IndexedDB under `navigator.storage.persist()` as a home-screen web app, eviction, a tab killed mid-transaction, and whether a committed transaction survives the phone restarting at once.
 
 ## Context
 
@@ -142,9 +142,10 @@ index, and `reconcileIndex` and the `MERGE_HEAD` path in
 
 - Incoming changes cost more, because each object is unpacked and written
   as its own record: 50 of them take about 1 s at 5,000 rows (874 / 1,159 /
-  1,171 ms). A clone takes about three times the storage of packed objects
-  (6.9 MB against 2.2 MB at 5,000 rows in Chromium), and grows until it is
-  cloned again.
+  1,171 ms). A clone takes 2.6 to 5.5 times the storage of packed
+  objects: at 5,000 rows, 6.9 MB against 2.2 MB in Chromium, 7.3 against
+  2.8 in Firefox, and 12 against 2.2 in WebKit, whose storage estimate is
+  coarse. It grows until it is cloned again.
 - Native `git fsck --full` passed on every branch the benchmark pushed, and
   all 120 runs, across the four designs, three engines, and two sizes,
   pushed the content they committed.
