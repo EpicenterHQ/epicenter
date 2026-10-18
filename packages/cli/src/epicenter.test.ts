@@ -140,6 +140,17 @@ test('check reports invalid rows compiler style and exits 1', async () => {
 	);
 });
 
+test('check names a .gitignore spelled in another case as a file to fix', async () => {
+	const { folder, write, run } = await setup();
+	await write('.GITIGNORE', 'secret.key\n');
+	const result = run('check', folder);
+	expect(result.exitCode).toBe(1);
+	expect(result.stdout).toContain(
+		'.GITIGNORE: A rule file must be named exactly .gitignore; rename .GITIGNORE to .gitignore',
+	);
+	expect(result.stdout).toContain('1 row conforms');
+});
+
 test('a closed table reports an undeclared key, and query leaves its file out', async () => {
 	const { folder, write, declare, run } = await setup();
 	await declare({

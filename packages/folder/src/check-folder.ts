@@ -8,9 +8,13 @@
  */
 
 import { statSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
 import type { FileError } from './errors.js';
+import { misnamedRulesProblem } from './git/scope.js';
 import { rowPath } from './paths.js';
 import type { ProjectedTable } from './projection.js';
 import { type ReadFolderError, readFolder } from './read-folder.js';
@@ -46,7 +50,8 @@ export type FolderCheck = {
 	rows: number;
 	/**
 	 * Files to fix: a row that does not conform, bytes that are not UTF-8,
-	 * or a path the folder cannot hold, such as a symbolic link.
+	 * a path the folder cannot hold, such as a symbolic link, or a
+	 * `.gitignore` spelled in another case.
 	 */
 	invalid: Finding[];
 	/** Files that could not be read at all. */
@@ -99,6 +104,20 @@ export async function checkFolder(
 			invalid.push({ path, message: 'A row must be a file, not a directory' });
 		else unreadable.push({ path, message: failure.message });
 	}
+
+	// A `.gitignore` spelled in another case, which commits and Sync refuse.
+	const { data: listed } = await createDirectoryStorage({
+		root: await realpath(dir),
+		primitives: nodeDirectoryPrimitives,
+	}).list();
+	const misnamed = misnamedRulesProblem(
+		listed?.files.map(({ path }) => path) ?? [],
+	);
+	for (const path of misnamed?.paths ?? [])
+		invalid.push({
+			path,
+			message: `A rule file must be named exactly .gitignore; rename ${path} to .gitignore`,
+		});
 
 	for (const { path, reason } of folder.problems)
 		invalid.push({

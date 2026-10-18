@@ -66,7 +66,12 @@ import {
 	writeFilesTree,
 } from './objects.js';
 import { createPassRunner } from './runner.js';
-import { gitignoreMatcher, isGitignorePath, readRules } from './scope.js';
+import {
+	gitignoreMatcher,
+	isGitignorePath,
+	misnamedRulesProblem,
+	readRules,
+} from './scope.js';
 import type { SyncOptions, SyncOutcome } from './sync.js';
 
 export { GitError };
@@ -312,7 +317,9 @@ export function createHistory({
 	 * read again, so no rules are committed that did not choose what else is.
 	 * A file removed while it is read is left out, as if the listing had
 	 * missed it; a file that cannot be read throws, naming it. `rules` is
-	 * the rule bytes that chose `source`.
+	 * the rule bytes that chose `source`. A `.gitignore` spelled in another
+	 * case is `refused` from the listing alone, with nothing read
+	 * (`misnamedRulesProblem`).
 	 */
 	async function captureSource(tracked: ReadonlyMap<string, unknown>) {
 		const { data: listed, error } = await boundary.list();
@@ -320,6 +327,8 @@ export function createHistory({
 		const paths = listed.files
 			.map(({ path }) => path)
 			.filter((path) => isPortablePath(path));
+		const misnamed = misnamedRulesProblem(paths);
+		if (misnamed !== undefined) return { refused: misnamed.reason } as const;
 		const rules = await readRules(paths, tracked, readFiles);
 		// Decided from the captured bytes alone, on every host: the rules
 		// committed are exactly the rules that chose the rest.
@@ -335,9 +344,10 @@ export function createHistory({
 			if (bytes !== undefined) source.set(path, bytes);
 		}
 		return {
+			refused: undefined,
 			source: new Map([...source].sort(([a], [b]) => (a < b ? -1 : 1))),
 			rules,
-		};
+		} as const;
 	}
 
 	/** The rule files now, for a question about untracked paths. */
@@ -423,7 +433,10 @@ export function createHistory({
 				const objects = operationObjects();
 				const committed = await headFiles(objects, head);
 				// Status shows what a commit would record.
-				const hashes = await hashFiles((await captureSource(committed)).source);
+				// A refused capture fails the status, naming the file to fix.
+				const captured = await captureSource(committed);
+				if (captured.refused !== undefined) throw new Error(captured.refused);
+				const hashes = await hashFiles(captured.source);
 				const value: FilesObservation = {
 					head,
 					changes: diffFileMaps(committed, hashes),
@@ -490,7 +503,10 @@ export function createHistory({
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
 		const committed = await headFiles(objects, parent);
-		const { source: included, rules } = await captureSource(committed);
+		const captured = await captureSource(committed);
+		if (captured.refused !== undefined)
+			return { status: 'blocked', reason: captured.refused };
+		const { source: included, rules } = captured;
 		// Checked again against the rules that chose the source: a rule
 		// removed after the first check must not let a file the tree would
 		// write as plain bytes, such as an executable, in unrefused.
@@ -674,6 +690,9 @@ export function createHistory({
 				paths: invalid,
 				reason: 'some paths are not valid folder paths',
 			});
+		const misnamed = misnamedRulesProblem([...files.keys()]);
+		if (misnamed !== undefined)
+			return SyncError.Unrepresentable({ whose, ...misnamed });
 		// Under a filter a blob means something else than its bytes: under
 		// `filter=lfs` it is a pointer.
 		const attributeFiles = await objects((access) =>

@@ -31,14 +31,9 @@ export function gitignoreMatcher(
 	files: ReadonlyMap<string, Uint8Array>,
 ): (path: string) => boolean {
 	const rules = new Map<string, Ignore>();
-	const exact = new Set<string>();
 	for (const [path, bytes] of files) {
 		if (!isGitignorePath(path)) continue;
 		const directory = path.slice(0, -'.gitignore'.length);
-		// Two spellings in one directory exist only on a case-sensitive
-		// disk, where Git reads the exact one.
-		if (exact.has(directory)) continue;
-		if (path.endsWith('.gitignore')) exact.add(directory);
 		rules.set(directory, ignore().add(decoder.decode(bytes)));
 	}
 	if (rules.size === 0) return () => false;
@@ -102,12 +97,30 @@ export async function readRules(
 }
 
 /**
- * Whether `path` is a `.gitignore` file, whose rules decide what is source.
- * Its name compares case-insensitively, as its patterns do: on a disk that
- * folds case, Git opening `.gitignore` reads `.GITIGNORE`, so every host
- * treats either spelling as the rule file.
+ * Whether `path` is a `.gitignore` file, whose rules decide what is source:
+ * one named exactly `.gitignore`, the only name Git opens on every disk.
  */
 export function isGitignorePath(path: string): boolean {
-	const name = path.slice(path.lastIndexOf('/') + 1);
-	return name.toLowerCase() === '.gitignore';
+	return path === '.gitignore' || path.endsWith('/.gitignore');
+}
+
+/**
+ * Why `paths` cannot be history source, when one is `.gitignore` spelled in
+ * another case, such as `.GITIGNORE`: a disk that folds case opens it as the
+ * folder's rules, one that does not never reads it, so no single rule
+ * decides what it would ignore. It is refused, naming it, before anything
+ * it might ignore is read.
+ */
+export function misnamedRulesProblem(
+	paths: readonly string[],
+): { paths: string[]; reason: string } | undefined {
+	const misnamed = paths.filter((path) => {
+		const name = path.slice(path.lastIndexOf('/') + 1);
+		return name !== '.gitignore' && name.toLowerCase() === '.gitignore';
+	});
+	if (misnamed.length === 0) return undefined;
+	return {
+		paths: misnamed,
+		reason: `${misnamed.join(', ')} ${misnamed.length === 1 ? 'is' : 'are'} not named exactly .gitignore, which is the only rule file every disk reads alike; rename ${misnamed.length === 1 ? 'it' : 'each'} to .gitignore`,
+	};
 }
