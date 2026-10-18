@@ -21,7 +21,9 @@ const decoder = new TextDecoder();
 /**
  * Git-style ignore evaluation over captured `.gitignore` files. Deeper files
  * override shallower ones, a later rule overrides an earlier one, and nothing
- * below an ignored directory can be re-included.
+ * below an ignored directory can be re-included. Patterns match case
+ * exactly, as Git's do with `core.ignoreCase` false: `*.log` leaves
+ * `Case.LOG` in.
  */
 export function gitignoreMatcher(
 	files: ReadonlyMap<string, Uint8Array>,
@@ -30,7 +32,10 @@ export function gitignoreMatcher(
 	for (const [path, bytes] of files) {
 		if (!isGitignorePath(path)) continue;
 		const directory = path.slice(0, -'.gitignore'.length);
-		rules.set(directory, ignore().add(decoder.decode(bytes)));
+		rules.set(
+			directory,
+			ignore({ ignorecase: false }).add(decoder.decode(bytes)),
+		);
 	}
 	if (rules.size === 0) return () => false;
 	return (path) => {
