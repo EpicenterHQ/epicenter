@@ -24,8 +24,13 @@ export type HttpRequest = (
 ) => Promise<Response>;
 
 import type { GitHttpRequest, HttpClient } from 'isomorphic-git';
+import {
+	type GitObject,
+	hashObject,
+	readCommit,
+	readTree,
+} from '../../git/raw-objects.js';
 import type { RepositoryRefs } from '../storage.js';
-import { type GitObject, hashObject, readCommit, readTree } from './objects.js';
 import { createScratchFs, type ScratchFs } from './transfer-fs.js';
 
 /** Every inflated object the caller holds for B and C, and where history stops. */

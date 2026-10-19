@@ -2,17 +2,17 @@
  * The one write of a file in a directory's history (ADR-0576): what Sync's
  * publish (`git/history.ts`) writes each changed path through.
  *
- * `writeFile(storage, path, from, to)` reads the file as it is now, merges
- * the change from `from` to `to` into it by the file's content and extension
- * (`merge`), where the writer acting wins every unit both changed, and puts
+ * `publishFile(storage, path, checkpoint, mergedFile)` reads the live file,
+ * merges it over the incoming file by the shared content rules, and puts
  * the result guarded by the hash it read. Another writer landing between the
  * read and the put starts the next attempt, at most `WRITE_ATTEMPTS` times,
  * then `KeptChanging`. A `put` whose reply was lost is read back once: the
  * bytes it sent, or no file for a delete, mean done.
  *
- * Where both sides changed one unit, the writer wins. Nothing is returned to
- * show a person; each overwrite that lands is logged through
- * `wellcrafted/logger` with the units it replaced.
+ * The checkpoint is the base, the incoming merged file is current, and the
+ * live file is the change, so an edit made while Sync runs stands.
+ * Nothing is returned to show a person; each overwrite that lands is logged
+ * through `wellcrafted/logger` with the units it replaced.
  */
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -24,8 +24,7 @@ import {
 	merge,
 	type Overridden,
 	sameContent,
-	type Winner,
-} from './merge-file.js';
+} from './shared/merge.js';
 
 const log = createLogger('folder/save');
 
@@ -46,16 +45,16 @@ export type Written = {
 	 * already there when the merge changed nothing, or `null` for no file.
 	 */
 	readonly file: FileRead | null;
-	/** Each unit where the writer replaced another writer's change; logged, never shown. */
+	/** Each unit of the current file the change replaced; logged, never shown. */
 	readonly overridden: readonly Overridden[];
 };
 
 const encoder = new TextEncoder();
 
-/** Log that a write landed over another writer's change to `overridden`. */
+/** Log a live edit that stood over the incoming file. */
 function logOverwrite(path: string, overridden: readonly Overridden[]) {
 	if (overridden.length === 0) return;
-	log.info(`Saved over another writer's change to ${path}`, {
+	log.info(`Kept an edit to ${path} over the change Sync brought in`, {
 		path,
 		units: overridden,
 	});
@@ -92,7 +91,7 @@ export async function confirmedPut(
 }
 
 /** A storage failure as a write reports it. */
-export function writeFailure(path: string, error: FileError): WriteError {
+function writeFailure(path: string, error: FileError): WriteError {
 	if (error.name === 'Closed' || error.name === 'InvalidPath') return error;
 	if (error.name === 'NotAFile' || error.name === 'NotADirectory')
 		return FileError.InvalidPath({ path, reason: error.message }).error;
@@ -100,76 +99,35 @@ export function writeFailure(path: string, error: FileError): WriteError {
 }
 
 /**
- * Write the change from `from` to `to` into the file at `path` as it is
- * now (ADR-0576).
- *
- * `from` is the version the change started from: content, or `null` for no
- * file. `to` is the content, or `null` to delete the file. A delete needs no
- * base, since the deleter wins: its `from` only names the file as
- * overridden when another writer changed it since, and `null` names
- * nothing. An edit, from a version that existed, of a file deleted since
- * writes nothing and answers `file: null`: a delete beats an edit it never
- * saw, and only a write from no file creates one. A create, from `null`,
- * places a file only where none is: a file already there is `Occupied`,
- * unless it holds the same bytes, which is that create landed before. Both
- * are owned before anything is awaited. With `joining`, a create onto a
- * file merges with it as an addition on both sides instead: what Sync does
- * when it finishes a publish over a file the person made where the
- * published tree adds one.
- *
- * Any `to` is written, whether or not it reads: a raw edit of a row may be a
- * repair in progress (ADR-0503).
+ * Publish one file from Sync's merged tree over the working directory. The
+ * live file is read on every attempt and wins units changed since the
+ * checkpoint (ADR-0576). Raw source remains repairable (ADR-0503).
  */
-export async function writeFile(
+export async function publishFile(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
 	path: string,
-	from: FileContent | null,
-	to: FileContent | null,
-	{
-		winner = 'ours',
-		joining = false,
-	}: { readonly winner?: Winner; readonly joining?: boolean } = {},
+	checkpoint: FileContent | null,
+	mergedFile: FileContent | null,
 ): Promise<Result<Written, WriteError>> {
 	const own = (content: FileContent | null) =>
 		typeof content === 'string' || content === null
 			? content
 			: new Uint8Array(content);
-	const base = own(from);
-	const ours = own(to);
+	const base = own(checkpoint);
+	const next = own(mergedFile);
 	for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 		const read = await storage.read(path);
 		if (read.error !== null && read.error.name !== 'NotFound')
 			return Err(writeFailure(path, read.error));
 		const current = read.error === null ? read.data : null;
-		const theirs = current?.bytes ?? null;
-		// A create places a file only where none is. The same bytes already
-		// there are this create landed before, so a retried create is done.
-		if (base === null && ours !== null && current !== null && !joining) {
-			if (sameContent(toBytes(ours), current.bytes))
-				return Ok(
-					Object.freeze({ path, file: fileOf(current), overridden: [] }),
-				);
-			return WriteError.Occupied({ path });
-		}
-		const merged =
-			ours === null
-				? {
-						content: null,
-						overridden:
-							theirs !== null && base !== null && !sameContent(theirs, base)
-								? [{ kind: 'file', lost: 'theirs' } as const]
-								: [],
-					}
-				: await merge(path, { base, ours, theirs }, { winner });
+		const live = current?.bytes ?? null;
+		const merged = await merge(path, { base, current: next, change: live });
 		const bytes = toBytes(merged.content);
-		if (
-			merged.overridden.some(
-				(unit) => unit.kind === 'file' && unit.lost === 'ours',
-			)
-		)
-			log.info(`Wrote nothing to ${path}: it was deleted since`, { path });
-		if (sameContent(bytes, theirs))
+		if (sameContent(bytes, live))
 			return Ok(Object.freeze({ path, file: fileOf(current), overridden: [] }));
+		// A current file that stands whole lost nothing, as when a delete gave
+		// way to its edit.
+		const overridden = sameContent(bytes, next) ? [] : merged.overridden;
 		const sha256 = bytes === null ? null : await hashBytes(bytes);
 		const { data: put, error } = await confirmedPut(
 			storage,
@@ -180,13 +138,13 @@ export async function writeFile(
 		);
 		if (error !== null) return Err(writeFailure(path, error));
 		if (put === 'stale') continue;
-		logOverwrite(path, merged.overridden);
+		logOverwrite(path, overridden);
 		return Ok(
 			Object.freeze({
 				path,
 				file:
 					bytes === null || sha256 === null ? null : fileOf({ bytes, sha256 }),
-				overridden: Object.freeze(merged.overridden),
+				overridden: Object.freeze(overridden),
 			}),
 		);
 	}

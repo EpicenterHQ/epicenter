@@ -232,8 +232,8 @@ test('a sync of competing changes merges them into one commit this folder wins, 
 	expect(await readFile(join(folder, 'notes.txt'), 'utf8')).toBe(
 		'one\ntwo (mine)\nthree\n',
 	);
-	// A delete beats an edit it never saw.
-	expect(existsSync(join(folder, 'doc.md'))).toBe(false);
+	// A delete cannot erase the other device's unseen edit.
+	expect(await readFile(join(folder, 'doc.md'), 'utf8')).toBe('changed here\n');
 	expect(new Uint8Array(await readFile(join(folder, 'image.bin')))).toEqual(
 		bytes(0, 1, 4),
 	);
@@ -245,7 +245,7 @@ test('a sync of competing changes merges them into one commit this folder wins, 
 	const message = await git(folder, 'log', '-1', '--format=%B');
 	expect(message).toContain(`Overrode: ${theirs} field="title" "posts/x.md"`);
 	expect(message).toContain(`Overrode: ${theirs} file "image.bin"`);
-	expect(message).toContain(`Overrode: ${parents[0]} file "doc.md"`);
+	expect(message).toContain(`Overrode: ${theirs} file "doc.md"`);
 	expect(await git(other, 'ls-remote', 'origin', 'main')).toStartWith(head);
 	expect(await git(folder, 'status', '--porcelain')).toBe('');
 });

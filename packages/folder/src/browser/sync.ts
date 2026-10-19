@@ -5,10 +5,6 @@ import {
 } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
-import { parseRowSource, sameValue } from '../shared/content/canonical.js';
-import { includesCommit } from './git/ancestry.js';
-import { snapshotObjects } from './git/closure.js';
-import { mergeTrees } from './git/merge.js';
 import {
 	type GitObject,
 	hashObject,
@@ -16,7 +12,12 @@ import {
 	readTree,
 	writeCommit,
 	writeTree,
-} from './git/objects.js';
+} from '../git/raw-objects.js';
+import { mergeTrees, overrodeTrailer } from '../git/tree-merge.js';
+import { parseRowSource, sameValue } from '../shared/content/canonical.js';
+import { sameContent } from '../shared/merge.js';
+import { includesCommit } from './git/ancestry.js';
+import { snapshotObjects } from './git/closure.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	fetchRemote,
@@ -24,7 +25,6 @@ import {
 	pushRemote,
 	TransferFailure,
 } from './git/transfer.js';
-import { sameContent } from '../shared/merge.js';
 import type { LocalRepository, SaveError } from './repository.js';
 import { StorageFailure } from './storage.js';
 
@@ -244,15 +244,7 @@ export function createSync(
 								)
 									continue;
 							}
-							const words =
-								unit.kind === 'field'
-									? `field=${JSON.stringify(unit.field)}`
-									: unit.kind === 'lines'
-										? `lines=${unit.part}:${unit.line}+${unit.count}`
-										: 'file';
-							trailers.add(
-								`Overrode: ${remote} ${words} ${JSON.stringify(path)}`,
-							);
+							trailers.add(overrodeTrailer(remote, path, unit));
 						}
 					if (pending && pendingProof === 'excluded' && head !== null) {
 						const message = new TextDecoder()

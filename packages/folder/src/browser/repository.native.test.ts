@@ -13,7 +13,7 @@ import {
 	type TreeEntry,
 	writeCommit,
 	writeTree,
-} from './git/objects.js';
+} from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
 
 const encoder = new TextEncoder();

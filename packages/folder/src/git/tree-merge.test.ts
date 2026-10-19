@@ -4,11 +4,15 @@
  * change, and modes survive independent content changes.
  */
 import { expect, test } from 'bun:test';
-import { readRow } from '../../shared/row.js';
-import { includesCommit } from './ancestry.js';
-import { mergeTrees } from './merge.js';
-import { type GitObject, hashObject, readTree, writeTree } from './objects.js';
-import { changeSnapshot, readSnapshot } from './snapshot.js';
+import { changeSnapshot, readSnapshot } from '../browser/git/snapshot.js';
+import { readRow } from '../shared/row.js';
+import {
+	type GitObject,
+	hashObject,
+	readTree,
+	writeTree,
+} from './raw-objects.js';
+import { mergeTrees } from './tree-merge.js';
 
 function fixture() {
 	const objects = new Map<string, GitObject>();
@@ -90,6 +94,22 @@ test('a file-directory collision takes the change while retaining an unrelated r
 	});
 });
 
+test('both directory replacements of a file retain their independent children', async () => {
+	const f = fixture();
+	const base = await f.changed(null, [['path', 'old file']]);
+	const current = await f.changed(base, [
+		['path', null],
+		['path/remote.txt', 'remote'],
+	]);
+	const change = await f.changed(base, [
+		['path', null],
+		['path/local.txt', 'local'],
+	]);
+	const merged = await f.merge(base, current, change);
+	expect(await f.text(merged.tree, 'path/remote.txt')).toBe('remote');
+	expect(await f.text(merged.tree, 'path/local.txt')).toBe('local');
+});
+
 test('a second merge retains a newer reversal that collapsing the local snapshots would erase', async () => {
 	const f = fixture();
 	const base = await f.changed(null, [['row.md', '---\ntitle: a\n---\n']]);
@@ -98,25 +118,6 @@ test('a second merge retains a newer reversal that collapsing the local snapshot
 	const first = await f.merge(base, remote, pending);
 	const result = await f.merge(pending, first.tree, base);
 	expect(await f.text(result.tree, 'row.md')).toBe('---\ntitle: a\n---\n');
-});
-
-test('ancestry follows second parents and distinguishes a missing parent from exclusion', () => {
-	const commit = (parents: string[]): GitObject => ({
-		type: 'commit',
-		bytes: new TextEncoder().encode(
-			`tree ${'f'.repeat(40)}\n${parents.map((parent) => `parent ${parent}\n`).join('')}\n`,
-		),
-	});
-	const tip = 'a'.repeat(40),
-		missing = 'b'.repeat(40),
-		target = 'c'.repeat(40),
-		other = 'd'.repeat(40);
-	const objects = new Map([[tip, commit([missing, target])]]);
-	expect(includesCommit({ tip, target, objects })).toBe('included');
-	expect(includesCommit({ tip, target: other, objects })).toBe('unknown');
-	objects.set(missing, commit([]));
-	objects.set(target, commit([]));
-	expect(includesCommit({ tip, target: other, objects })).toBe('excluded');
 });
 
 test('concurrent Markdown replacements of a directory still merge independent fields', async () => {

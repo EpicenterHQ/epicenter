@@ -1,30 +1,7 @@
 /**
- * One Write Tests
- *
- * `writeFile(storage, path, from, to)`, the one write Sync publishes each
- * changed path through, reads the file as it is now, merges the change from
- * `from` to `to` into it by unit with `merge`, and puts the result guarded by
- * the hash it read (ADR-0576). `put` is the storage's one conditional change
- * of one file.
- *
- * Key behaviors:
- * - Units only one side changed survive; on a unit both changed, the writer
- *   acting wins, and `overridden` names the unit
- * - Two insertions at one place both survive; identical ones are one
- * - Merged frontmatter keeps a side's spelling where its fields are that
- *   side's, and is written canonically only where they are neither side's
- * - A delete and an edit are the whole file: the delete beats an edit it
- *   never saw, and only a write from no file creates one
- * - A write from no file onto a file already there is `Occupied` and
- *   changes nothing, unless the file holds the same bytes: a retried create
- *   is done
- * - A version whose frontmatter does not read merges as text
- * - `put` lands only while the path holds `ifMatch`, and is `'stale'`
- *   otherwise, changing nothing
- * - A write that loses a race reads and merges again, and gives up as
- *   `KeptChanging` after `WRITE_ATTEMPTS`
- * - A write that changes nothing puts nothing
- * - A delete needs no base; a path no file can be at is `InvalidPath`
+ * Sync publication writes each changed path through `publishFile`. These
+ * tests cover its guarded storage writes and the live file's role as the
+ * change. The shared file rules have their own tests in `shared/merge.test.ts`.
  */
 import { afterAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -32,161 +9,33 @@ import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawDirectoryFolder } from './directory-history.test-support.js';
 import { hashBytes } from './hash.js';
-import { type FileContent, merge } from './merge-file.js';
-import { WRITE_ATTEMPTS, writeFile as writeFolderFile } from './write.js';
-
-const ROW = 'notes/a.md';
-const TEXT = 'notes.txt';
-
-const row = (frontmatter: string[], body = '') =>
-	['---', ...frontmatter, '---', body].join('\n');
-const note = (title: string, body = '', done = false) =>
-	row([`title: ${title}`, `done: ${done}`], body);
+import type { FileContent } from './shared/merge.js';
+import { publishFile, WRITE_ATTEMPTS } from './write.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const note = (title: string, done = false) =>
+	`---\ntitle: ${title}\ndone: ${done}\n---\n`;
 
-test('units only one side changed survive, and the writer wins a unit both changed', async () => {
-	const merged = await merge(ROW, {
-		base: note('Walk', 'one\ntwo\n'),
-		ours: note('Evening walk', 'one\ntwo\n', true),
-		theirs: note('Run', 'one\ntwo\nthree\n'),
-	});
-	expect(merged).toEqual({
-		content: note('Evening walk', 'one\ntwo\nthree\n', true),
-		overridden: [{ kind: 'field', field: 'title' }],
-	});
+const roots: string[] = [];
+afterAll(async () => {
+	await Promise.all(roots.map((root) => rm(root, { recursive: true })));
 });
 
-test('competing body lines name where the writer’s lines stand', async () => {
-	const merged = await merge(ROW, {
-		base: note('Walk', 'one\ntwo\nthree\n'),
-		ours: note('Walk', 'one\nTWO (ours)\nthree\n'),
-		theirs: note('Walk', 'one\nTWO (theirs)\nthree\n'),
-	});
-	expect(merged).toEqual({
-		content: note('Walk', 'one\nTWO (ours)\nthree\n'),
-		overridden: [{ kind: 'lines', part: 'body', line: 2, count: 1 }],
-	});
-});
-
-test('two appends to one body both survive, and two identical fills are one', async () => {
-	expect(
-		await merge(ROW, {
-			base: note('Walk', 'Notes'),
-			ours: note('Walk', 'Notes\nmine'),
-			theirs: note('Walk', 'Notes\nyours'),
-		}),
-	).toEqual({ content: note('Walk', 'Notes\nyours\nmine'), overridden: [] });
-	expect(
-		await merge(ROW, {
-			base: note('Walk'),
-			ours: note('Walk', 'The answer.\n'),
-			theirs: note('Walk', 'The answer.\n'),
-		}),
-	).toEqual({ content: note('Walk', 'The answer.\n'), overridden: [] });
-});
-
-test("a row only one writer changed keeps that writer's spelling, comments included", async () => {
-	const handWritten = row(['# a comment', "title: 'Walk'", 'done: false']);
-	expect(
-		await merge(ROW, {
-			base: handWritten,
-			ours: note('Walk', '', true),
-			theirs: handWritten,
-		}),
-	).toEqual({ content: note('Walk', '', true), overridden: [] });
-	expect(
-		await merge(ROW, {
-			base: note('Walk'),
-			ours: note('Walk'),
-			theirs: handWritten,
-		}),
-	).toEqual({ content: handWritten, overridden: [] });
-});
-
-test('a delete and an edit are the whole file, and the delete beats the edit it never saw', async () => {
-	expect(
-		await merge(ROW, {
-			base: note('Walk'),
-			ours: null,
-			theirs: note('Run'),
-		}),
-	).toEqual({
-		content: null,
-		overridden: [{ kind: 'file', lost: 'theirs' }],
-	});
-	expect(
-		await merge(ROW, {
-			base: note('Walk'),
-			ours: note('Run'),
-			theirs: null,
-		}),
-	).toEqual({
-		content: null,
-		overridden: [{ kind: 'file', lost: 'ours' }],
-	});
-	// Only a side with no base brings a file into existence.
-	expect(
-		await merge(ROW, { base: null, ours: note('Run'), theirs: null }),
-	).toEqual({ content: note('Run'), overridden: [] });
-	// A delete nobody competed with stands.
-	expect(
-		await merge(ROW, { base: note('Walk'), ours: note('Walk'), theirs: null }),
-	).toEqual({ content: null, overridden: [] });
-});
-
-test('a version whose frontmatter does not read merges as text, and binary is the whole file', async () => {
-	const broken = '---\ntitle: [unclosed\n---\n';
-	expect(
-		await merge(ROW, {
-			base: note('Walk', 'first\n'),
-			ours: broken,
-			theirs: note('Walk', 'first\nsecond\n'),
-		}),
-	).toEqual({ content: `${broken}second\n`, overridden: [] });
-	const bytes = (...values: number[]) => new Uint8Array([0, ...values]);
-	expect(
-		await merge(TEXT, { base: bytes(1), ours: bytes(2), theirs: bytes(3) }),
-	).toEqual({
-		content: bytes(2),
-		overridden: [{ kind: 'file', lost: 'theirs' }],
-	});
-});
-
-test('a row merged as text never joins two lines added at one place in its frontmatter', async () => {
-	// No version's frontmatter reads as YAML, so the rows merge as text.
-	const base = '---\ntitle: Walk\nnote: [unclosed\n---\nbody\n';
-	const merged = await merge(ROW, {
-		base,
-		ours: '---\ntitle: Walk\ncolor: red\nnote: [unclosed\n---\nbody\nmine\n',
-		theirs:
-			'---\ntitle: Walk\ncolor: blue\nnote: [unclosed\n---\nbody\nyours\n',
-	});
-	// The frontmatter lines compete, and the writer's stands alone; the
-	// body's insertions both stay.
-	expect(merged.content).toBe(
-		'---\ntitle: Walk\ncolor: red\nnote: [unclosed\n---\nbody\nyours\nmine\n',
-	);
-	expect(merged.overridden).toEqual([
-		{ kind: 'lines', part: 'text', line: 3, count: 1 },
-	]);
-});
-
-test("Sync's publish asks for the file as it is now to win, with the same lines kept beside it", async () => {
-	const versions = {
-		base: 'a\nb\nc\n',
-		ours: 'a\nB (ours)\nc\nadded\n',
-		theirs: 'a\nB (theirs)\nc\n',
-	};
-	expect((await merge(TEXT, versions)).content).toBe('a\nB (ours)\nc\nadded\n');
-	expect((await merge(TEXT, versions, { winner: 'theirs' })).content).toBe(
-		'a\nB (theirs)\nc\nadded\n',
-	);
-});
+async function directory() {
+	const { root, boundary } = await rawDirectoryFolder('folder-publish-');
+	roots.push(root);
+	const publish = (
+		path: string,
+		base: FileContent | null,
+		next: FileContent | null,
+	) => publishFile(boundary, path, base, next);
+	const onDisk = (path: string) => readFile(join(root, path), 'utf8');
+	return { root, boundary, publish, onDisk };
+}
 
 test('put lands only while the path holds ifMatch, and changes nothing when stale', async () => {
-	const { boundary } = await rawDirectoryFolder('write-');
+	const { boundary } = await directory();
 	const one = encoder.encode('one\n');
 	expect(expectOk(await boundary.put('a/b.md', one, null))).toBe('landed');
 	expect(expectOk(await boundary.put('a/b.md', one, null))).toBe('stale');
@@ -208,8 +57,8 @@ test('put lands only while the path holds ifMatch, and changes nothing when stal
 	);
 });
 
-test('a write that loses a race reads and merges again', async () => {
-	const { boundary } = await rawDirectoryFolder('write-');
+test('a racing live edit is reread and merged after a stale put', async () => {
+	const { boundary } = await directory();
 	expectOk(
 		await boundary.put('notes/a.md', encoder.encode(note('Walk')), null),
 	);
@@ -223,7 +72,7 @@ test('a write that loses a race reads and merges again', async () => {
 				expectOk(
 					await boundary.put(
 						'notes/a.md',
-						encoder.encode(note('Walk', '', true)),
+						encoder.encode(note('Walk', true)),
 						now.sha256,
 					),
 				);
@@ -232,21 +81,19 @@ test('a write that loses a race reads and merges again', async () => {
 		},
 	};
 	const written = expectOk(
-		await writeFolderFile(
+		await publishFile(
 			storage,
 			'notes/a.md',
 			note('Walk'),
 			note('Evening walk'),
 		),
 	);
-	expect(decoder.decode(written.file?.bytes)).toBe(
-		note('Evening walk', '', true),
-	);
+	expect(decoder.decode(written.file?.bytes)).toBe(note('Evening walk', true));
 	expect(written.overridden).toEqual([]);
 });
 
-test('a file that changes on every attempt is KeptChanging, and nothing of the write lands', async () => {
-	const { boundary } = await rawDirectoryFolder('write-');
+test('a file changing on every attempt stops as KeptChanging', async () => {
+	const { boundary } = await directory();
 	expectOk(await boundary.put('n.txt', encoder.encode('0\n'), null));
 	let count = 0;
 	const storage = {
@@ -259,10 +106,9 @@ test('a file that changes on every attempt is KeptChanging, and nothing of the w
 			return boundary.put(...args);
 		},
 	};
-	const error = expectErr(
-		await writeFolderFile(storage, 'n.txt', '0\n', '0\nmine\n'),
-	);
-	expect(error).toMatchObject({
+	expect(
+		expectErr(await publishFile(storage, 'n.txt', '0\n', '0\nremote\n')),
+	).toMatchObject({
 		name: 'KeptChanging',
 		attempts: WRITE_ATTEMPTS,
 	});
@@ -271,63 +117,32 @@ test('a file that changes on every attempt is KeptChanging, and nothing of the w
 	);
 });
 
-const roots: string[] = [];
-afterAll(async () => {
-	await Promise.all(roots.map((root) => rm(root, { recursive: true })));
+test('publication keeps the live edit over a conflicting incoming unit', async () => {
+	const { root, publish, onDisk } = await directory();
+	await writeFile(join(root, 'a.txt'), 'a\nB (typed)\nc\n');
+	const written = expectOk(
+		await publish('a.txt', 'a\nb\nc\n', 'a\nB (remote)\nc\nadded\n'),
+	);
+	expect(await onDisk('a.txt')).toBe('a\nB (typed)\nc\nadded\n');
+	expect(written.overridden).toEqual([
+		{ kind: 'lines', part: 'text', line: 2, count: 1 },
+	]);
 });
 
-/** The one write over a directory's storage, and what lands on disk. */
-async function directory() {
-	const { root, boundary } = await rawDirectoryFolder('folder-write-');
-	roots.push(root);
-	const folder = {
-		write: (path: string, from: FileContent | null, to: FileContent | null) =>
-			writeFolderFile(boundary, path, from, to),
-		files: { read: (path: string) => boundary.read(path) },
-	};
-	const onDisk = (path: string) => readFile(join(root, path), 'utf8');
-	return { root, folder, onDisk };
-}
-
-test('a create makes the file and its directory; a second create is refused, and the same one sent again is done', async () => {
-	const { folder, onDisk } = await directory();
-	const created = expectOk(
-		await folder.write('notes/a.md', null, note('Walk', 'mine\n')),
+test('publication joins a live addition and preserves an incoming edit over an unseen delete', async () => {
+	const { root, publish, onDisk } = await directory();
+	await writeFile(join(root, 'made.txt'), 'mine\n');
+	expectOk(await publish('made.txt', null, 'remote\n'));
+	expect(await onDisk('made.txt')).toBe('remote\nmine\n');
+	const restored = expectOk(
+		await publish('gone.txt', 'base\n', 'base\nremote\n'),
 	);
-	expect(created.overridden).toEqual([]);
-	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
-	expect(
-		expectErr(await folder.write('notes/a.md', null, note('Run', 'yours\n'))),
-	).toMatchObject({ name: 'Occupied', path: 'notes/a.md' });
-	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
-	// A retried create finds its own bytes there.
-	const again = expectOk(
-		await folder.write('notes/a.md', null, note('Walk', 'mine\n')),
-	);
-	expect(again).toEqual(created);
-	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
+	expect(decoder.decode(restored.file?.bytes)).toBe('base\nremote\n');
+	expect(await onDisk('gone.txt')).toBe('base\nremote\n');
 });
 
-test('a write over a file another writer changed merges with them', async () => {
-	const { root, folder, onDisk } = await directory();
-	await mkdir(join(root, 'notes'));
-	await writeFile(join(root, 'notes/a.md'), note('Walk', 'one\n'));
-	// Another program appends after this writer read the file.
-	await writeFile(join(root, 'notes/a.md'), note('Walk', 'one\ntheirs\n'));
-	expectOk(
-		await folder.write(
-			'notes/a.md',
-			note('Walk', 'one\n'),
-			note('Walk', 'one\nmine\n', true),
-		),
-	);
-	expect(await onDisk('notes/a.md')).toBe(
-		note('Walk', 'one\ntheirs\nmine\n', true),
-	);
-});
-
-test('a write that changes nothing puts nothing', async () => {
-	const { boundary } = await rawDirectoryFolder('write-');
+test('publication puts nothing when the merged file is already live', async () => {
+	const { boundary } = await directory();
 	expectOk(await boundary.put('a.txt', encoder.encode('same\n'), null));
 	let puts = 0;
 	const storage = {
@@ -338,46 +153,17 @@ test('a write that changes nothing puts nothing', async () => {
 		},
 	};
 	const written = expectOk(
-		await writeFolderFile(storage, 'a.txt', 'old\n', 'same\n'),
+		await publishFile(storage, 'a.txt', 'old\n', 'same\n'),
 	);
 	expect(puts).toBe(0);
 	expect(decoder.decode(written.file?.bytes)).toBe('same\n');
 });
 
-test('a delete needs no base, and the deleter wins', async () => {
-	const { root, folder } = await directory();
-	await writeFile(join(root, 'a.txt'), 'theirs\n');
-	expect(expectOk(await folder.write('a.txt', null, null))).toEqual({
-		path: 'a.txt',
-		file: null,
-		overridden: [],
-	});
-	// A delete that names its base reports a change it removed.
-	await writeFile(join(root, 'b.txt'), 'theirs\n');
-	expect(
-		expectOk(await folder.write('b.txt', 'mine\n', null)).overridden,
-	).toEqual([{ kind: 'file', lost: 'theirs' }]);
-	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
-	// Deleting what is already gone is done.
-	expectOk(await folder.write('a.txt', 'theirs\n', null));
-});
-
-test('an edit of a file deleted since its version writes nothing and answers no file', async () => {
-	const { folder } = await directory();
-	const written = expectOk(
-		await folder.write('a.txt', 'mine\n', 'mine\nmore\n'),
-	);
-	expect(written).toEqual({ path: 'a.txt', file: null, overridden: [] });
-	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
-});
-
-test('a path no file can be at is InvalidPath', async () => {
-	const { root, folder } = await directory();
+test('publication refuses a path where a file cannot be written', async () => {
+	const { root, publish } = await directory();
 	await mkdir(join(root, 'notes'));
-	expect(expectErr(await folder.write('.git/x', null, 'x')).name).toBe(
+	expect(expectErr(await publish('.git/x', null, 'x')).name).toBe(
 		'InvalidPath',
 	);
-	expect(expectErr(await folder.write('notes', null, 'x')).name).toBe(
-		'InvalidPath',
-	);
+	expect(expectErr(await publish('notes', null, 'x')).name).toBe('InvalidPath');
 });

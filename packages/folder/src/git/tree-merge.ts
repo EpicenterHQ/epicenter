@@ -1,11 +1,11 @@
-import { merge, type Overridden } from '../../shared/merge.js';
+import { merge, type Overridden } from '../shared/merge.js';
 import {
 	type GitObject,
 	hashObject,
 	readTree,
 	type TreeEntry,
 	writeTree,
-} from './objects.js';
+} from './raw-objects.js';
 
 /** Merge raw tree entries while applying content merge only at file leaves. */
 export async function mergeTrees({
@@ -20,7 +20,11 @@ export async function mergeTrees({
 	read: (oid: string) => Promise<GitObject>;
 }) {
 	const objects = new Map<string, GitObject>();
-	const overridden: { path: string; unit: Overridden }[] = [];
+	const overridden: {
+		path: string;
+		unit: Overridden;
+		losing: 'current' | 'change';
+	}[] = [];
 	const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 	async function load(oid: string, type: GitObject['type']) {
 		const object = objects.get(oid) ?? (await read(oid));
@@ -80,13 +84,15 @@ export async function mergeTrees({
 			const named = ne ?? ce ?? be!;
 			const path = `${prefix}${nameOf(named.name)}`;
 			let result: TreeEntry | undefined;
+			let units: readonly Overridden[] = [];
 			if (equal(ce, ne) || equal(ne, be)) result = ce;
 			else if (equal(ce, be)) result = ne;
 			else if (
+				(isTree(ce) && isTree(ne)) ||
 				[be, ce, ne].every((entry) => entry === undefined || isTree(entry))
 			) {
 				const oid = await tree(
-					be?.oid ?? null,
+					isTree(be) ? be!.oid : null,
 					ce?.oid ?? null,
 					ne?.oid ?? null,
 					`${path}/`,
@@ -100,7 +106,7 @@ export async function mergeTrees({
 				ne.mode === '160000'
 			) {
 				result = ne ?? ce;
-				overridden.push({ path, unit: { kind: 'file' } });
+				units = [{ kind: 'file' }];
 			} else {
 				const merged = await merge(path, {
 					base:
@@ -110,7 +116,7 @@ export async function mergeTrees({
 					current: await load(ce.oid, 'blob'),
 					change: await load(ne.oid, 'blob'),
 				});
-				for (const unit of merged.overridden) overridden.push({ path, unit });
+				units = merged.overridden;
 				if (merged.content !== null) {
 					const bytes =
 						typeof merged.content === 'string'
@@ -123,6 +129,17 @@ export async function mergeTrees({
 					};
 				}
 			}
+			if (units.length > 0) {
+				const stands = equal(result, ce);
+				for (const unit of units) {
+					if (stands && unit.kind !== 'file') continue;
+					overridden.push({
+						path,
+						unit,
+						losing: stands ? 'change' : 'current',
+					});
+				}
+			}
 			if (result !== undefined) entries.push(result);
 		}
 		return entries.length === 0 && prefix !== ''
@@ -131,4 +148,19 @@ export async function mergeTrees({
 	}
 	const root = await tree(base, current, change, '');
 	return { tree: root, objects, overridden };
+}
+
+/** A losing unit's Git commit trailer, shared by both Sync hosts. */
+export function overrodeTrailer(
+	losing: string,
+	path: string,
+	unit: Overridden,
+): string {
+	const words =
+		unit.kind === 'field'
+			? `field=${JSON.stringify(unit.field)}`
+			: unit.kind === 'lines'
+				? `lines=${unit.part}:${unit.line}+${unit.count}`
+				: 'file';
+	return `Overrode: ${losing} ${words} ${JSON.stringify(path)}`;
 }

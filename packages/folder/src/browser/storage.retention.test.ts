@@ -12,7 +12,7 @@ import {
 	hashObject,
 	writeCommit,
 	writeTree,
-} from './git/objects.js';
+} from '../git/raw-objects.js';
 import { openStorage } from './storage.js';
 
 async function stored(type: GitObject['type'], bytes: Uint8Array) {

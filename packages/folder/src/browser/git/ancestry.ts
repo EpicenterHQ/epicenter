@@ -1,4 +1,4 @@
-import { type GitObject, readCommit } from './objects.js';
+import { type GitObject, readCommit } from '../../git/raw-objects.js';
 
 /** Missing parents stay unknown. A verified path through any parent proves inclusion. */
 export function includesCommit({

@@ -8,7 +8,7 @@
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { type GitObject, hashObject, writeCommit } from './git/objects.js';
+import { type GitObject, hashObject, writeCommit } from '../git/raw-objects.js';
 import { changeSnapshot } from './git/snapshot.js';
 import { type LocalRepository, openRepository } from './repository.js';
 
@@ -119,9 +119,9 @@ test('row lists omit attachment trees while prefix lists retain partial filename
 		expect(expectOk(await repository.files.list('notes/ne'))).toEqual([
 			'notes/new/extra.txt',
 		]);
-		expect(expectOk(await repository.files.list('notes/one/'))).toEqual(
-			['notes/one/deep/file.txt'],
-		);
+		expect(expectOk(await repository.files.list('notes/one/'))).toEqual([
+			'notes/one/deep/file.txt',
+		]);
 	} finally {
 		repository.close();
 	}

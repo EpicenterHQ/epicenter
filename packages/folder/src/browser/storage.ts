@@ -1,7 +1,7 @@
 import { createLogger } from 'wellcrafted/logger';
+import { type GitObject, readCommit, readTree } from '../git/raw-objects.js';
 import type { FileContent } from '../shared/merge.js';
 import { snapshotObjects } from './git/closure.js';
-import { type GitObject, readCommit, readTree } from './git/objects.js';
 import { readSnapshot } from './git/snapshot.js';
 
 /** B, C and the explicit boundary beyond which retained snapshots need no parents. */

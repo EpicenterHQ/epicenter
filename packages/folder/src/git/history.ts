@@ -18,14 +18,16 @@
  *
  * `sync.run()` never stops because changes compete. It checkpoints saved
  * files, fetches, and then fast-forwards, pushes, or makes one merge commit
- * of the local head and the remote's (`mergeHistories`), with this device as
- * the writer acting. A merge commit is pushed before anything here changes,
- * so a push that lost a race leaves nothing to undo: Sync fetches and merges
- * again from the same local head. A tree that lands is published over the
- * files by the one write, holding the folder's save lock, the live file as
- * the writer acting, so text typed while Sync runs stands. Each write lands
- * whole, so a publish cut off partway is ordinary changed files, which the
- * next Sync records and merges (ADR-0545).
+ * of the local head and the remote's (`mergeHistories`) by the rules the
+ * browser's Sync uses: the merge base, the remote's tree as current, and
+ * this device's as the change. A merge commit is pushed before anything here
+ * changes, so a push that lost a race leaves nothing to undo: Sync fetches
+ * and merges again from the same local head. A tree that lands is published
+ * over the files by the one write, holding the folder's save lock: the
+ * checkpoint's file is the base, the merged tree's the current file, and the
+ * live file the change, so text typed while Sync runs stands. Each write
+ * lands whole, so a publish cut off partway is ordinary changed files, which
+ * the next Sync records and merges (ADR-0545).
  *
  * Status scans take no protection. Callers who ask while a scan is running
  * share the one scan that follows it, so a burst of requests costs two scans
@@ -36,7 +38,6 @@ import type { FolderStorage, LockingStorage } from '../boundary.js';
 import { localPatterns } from '../declaration.js';
 import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
-import { sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
 	ancestors,
@@ -45,7 +46,8 @@ import {
 	isPortablePath,
 	pathProblem,
 } from '../paths.js';
-import { confirmedPut, writeFile } from '../write.js';
+import { sameContent } from '../shared/merge.js';
+import { confirmedPut, publishFile } from '../write.js';
 import { declaredFilter, isAttributesPath } from './attributes.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { GitError, SyncError } from './errors.js';
@@ -179,7 +181,7 @@ export type FolderSync = {
 	 * together: a fast-forward, a push, or one merge commit of both heads,
 	 * pushed before its files are written here. Units only one side changed
 	 * merge; where both changed one, this device's side wins, and the merge
-	 * commit names what lost. A delete beats an edit it never saw.
+	 * commit names what lost. A delete never erases an edit it did not see.
 	 */
 	run(options?: SyncOptions): Promise<Result<SyncOutcome, SyncError>>;
 	/**
@@ -918,8 +920,9 @@ export function createHistory({
 	 * there instead.
 	 *
 	 * Each path that differs between the two goes once, by the one write
-	 * (ADR-0576), the live file as the writer acting: one still at `from`'s
-	 * bytes takes `to`'s, and one edited since keeps the units it changed.
+	 * (ADR-0576), `from`'s file the base, `to`'s the current file, and the
+	 * live file the change: one still at `from`'s bytes takes `to`'s, and one
+	 * edited since keeps the units it changed.
 	 * Each file is checked and written holding the folder's save lock
 	 * (`lock`), one file at a time, so no cooperating save lands between its
 	 * check and its write, and a save waits for one file, never for the whole
@@ -929,16 +932,16 @@ export function createHistory({
 	 * reverse; an empty directory where a file goes is removed too.
 	 *
 	 * `edited` when a file `to` removes holds an edit no commit has, answered
-	 * before anything changed: Sync records it and merges again, so the
-	 * delete wins and the edit stays in history. Every write lands whole, so
-	 * a publish that stops partway leaves each file at its old bytes or its
-	 * new ones, and `refs/epicenter/publishing` says which publish they
-	 * belong to until the branch moves: the next commit finishes it first
-	 * (`finishPublishing`). `resuming` is that second run. The files hold part
-	 * of `to` already, so recording an edit first would record that part as
-	 * this device's: a file `to` removes that was edited after the cut stays,
-	 * and a file the person made where `to` adds one, ignored aside, takes
-	 * `to`'s as an addition on both sides, the live file winning.
+	 * before anything changed: Sync records it and merges again, and the
+	 * edit stands, since a delete never erases an edit it did not see. Every
+	 * write lands whole, so a publish that stops partway leaves each file at
+	 * its old bytes or its new ones, and `refs/epicenter/publishing` says which
+	 * publish they belong to until the branch moves: the next commit finishes
+	 * it first (`finishPublishing`). `resuming` is that second run. The files
+	 * hold part of `to` already, so recording an edit first would record that
+	 * part as this device's: a file `to` removes that was edited after the cut
+	 * stays, and a file the person made where `to` adds one, ignored aside,
+	 * merges with `to`'s as an addition on both sides, the live file winning.
 	 */
 	async function publishWithin(
 		from: string | undefined,
@@ -969,7 +972,6 @@ export function createHistory({
 		// Resuming, part of `to` is in the files already, so it joins `to`'s
 		// here instead.
 		if (made.length > 0 && !resuming) return Ok({ kind: 'edited' } as const);
-		const adopted = new Set(made);
 		// Read from history before any lock: only each file's check and
 		// write need it.
 		const blobs = new Map<
@@ -1020,8 +1022,8 @@ export function createHistory({
 					}
 					// A file `to` changes that was moved or removed since the
 					// checkpoint is that change of the person's, which no commit
-					// holds yet: recorded first, the merge follows a move with the
-					// incoming edit, and a removal names what it overrode.
+					// holds yet: recorded first, the merge keeps the incoming
+					// edit at its path and names the removal it gave way to.
 					if (!resuming)
 						for (const path of writes) {
 							if (blobs.get(path)!.was === null) continue;
@@ -1061,12 +1063,9 @@ export function createHistory({
 						)
 						.sort((a, b) => b.length - a.length))
 						await held.rmdir(directory);
-					// A file the person made where `to` adds one joins `to`'s as
-					// an addition on both sides.
-					return writeFile(held, path, was, next, {
-						winner: 'theirs',
-						joining: adopted.has(path),
-					});
+					// The live file is the change: an edit since the checkpoint,
+					// or a file the person made where `to` adds one, stands.
+					return publishFile(held, path, was, next);
 				});
 				// A file this folder cannot take there, from a program outside
 				// the save lock or a name the disk holds under another spelling.
@@ -1145,7 +1144,7 @@ export function createHistory({
 	/**
 	 * Checkpoint saved files, fetch, and bring the folder and the remote
 	 * together: a fast-forward, a push, or one merge commit of both heads
-	 * with this device as the writer acting, pushed before it is published
+	 * with this device's tree as the change, pushed before it is published
 	 * here. A push that lost a race merges again from the same local head
 	 * against the new remote, at most `SYNC_ATTEMPTS` times. A push that
 	 * failed otherwise still publishes the merge here, so the folder keeps

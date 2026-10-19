@@ -15,7 +15,7 @@ import {
 	type TreeEntry,
 	writeCommit,
 	writeTree,
-} from './objects.js';
+} from '../../git/raw-objects.js';
 import { changeSnapshot, readSnapshot } from './snapshot.js';
 
 const encoder = new TextEncoder();

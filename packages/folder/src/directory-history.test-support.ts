@@ -1,8 +1,8 @@
 /**
  * Test helper: one directory's history over the system `git`, held open
  * across a test's steps. It is the engine `runHistory` runs one operation of
- * (`bun.ts`), with the directory's files saved through the one write Sync
- * publishes with (`write.ts`). No `Folder` holds Git (ADR-0636); this is
+ * (`bun.ts`), with the directory's files saved through the public native
+ * Folder. No `Folder` holds Git (ADR-0636); this is
  * the smallest whole a history test drives.
  *
  * `git` and `sync` are the history; `write` saves a file and marks the
@@ -11,6 +11,7 @@
  * lock at all.
  */
 import { realpath } from 'node:fs/promises';
+import { Err, Ok } from 'wellcrafted/result';
 import { mayHaveChanged } from './boundary.js';
 import type { Definition } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
@@ -23,8 +24,8 @@ import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import type { Author } from './git/objects.js';
 import { scratch } from './git-http.test-support.js';
-import type { FileContent } from './merge-file.js';
-import { writeFile } from './write.js';
+import { createNativeFolder } from './native/engine.js';
+import type { FileContent } from './shared/merge.js';
 
 export async function openDirectoryHistory({
 	root,
@@ -65,13 +66,17 @@ export async function openDirectoryHistory({
 	})({ landed: (paths) => landed.push(...paths) });
 	const history = open(definition);
 	const noting = {
-		read: storage.read,
 		async put(path: string, bytes: Uint8Array | null, ifMatch: string | null) {
 			const result = await storage.put(path, bytes, ifMatch);
 			if (mayHaveChanged(result)) history.noteEdit();
 			return result;
 		},
 	};
+	const local = createNativeFolder({
+		storage: { ...storage, put: noting.put },
+		tables: {},
+		directory: root,
+	});
 	return {
 		root,
 		storage,
@@ -79,10 +84,22 @@ export async function openDirectoryHistory({
 		sync: history.sync,
 		/** Every path a Sync of this history wrote or removed, in order. */
 		landed,
-		write: (path: string, from: FileContent | null, to: FileContent | null) =>
-			writeFile(noting, path, from, to),
+		write: async (
+			path: string,
+			from: FileContent | null,
+			to: FileContent | null,
+		) => {
+			const saved =
+				to === null
+					? await local.files.delete(path, from)
+					: await local.files.write(path, from, to);
+			return saved.error === null ? Ok(undefined) : Err(saved.error);
+		},
 		files: { read: (path: string) => storage.read(path) },
-		close: () => history.close(),
+		close: async () => {
+			await local.close();
+			await history.close();
+		},
 	};
 }
 

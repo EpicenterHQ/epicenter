@@ -7,16 +7,18 @@
  * Key behaviors:
  * - Several merge bases, as hand-run merges leave, resolve to the newest by
  *   committer time, then the smallest object ID, so every host picks one
+ * - The tree merges as the browser's Sync merges it: the remote's tree is
+ *   current and this device's the change
  * - A path one side changed keeps that side's blob; one both changed merges
- *   by its content and extension with this device winning, each lost unit
- *   an override naming the losing head
+ *   by the shared content rules with this device winning, each lost unit an
+ *   override naming the losing head
  * - A Markdown row merges by field at any depth, with no definition
- * - A rename on one side carries the other side's edit to the new path
- * - A file against a directory stands beside it as `~local` or `~remote`
- * - A JSON file, `epicenter.json` included, merges key by key, nested
- *   objects recursing, and a key both changed is this device's; local paths
- *   are in no merge
- * - A file moved beside a directory never takes a name another file holds
+ * - A delete never erases an edit it did not see, in either direction, and
+ *   no rename is followed: a move against an edit keeps both paths
+ * - A file against a directory takes this device's entry whole, and the
+ *   remote's stays in its parent commit, named by an override
+ * - JSON, `epicenter.json` included, merges by line like any text; local
+ *   paths, tracked on any side, are in no merge
  * - `mergeMessage` writes one `Overrode:` trailer per lost unit
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -25,11 +27,13 @@ import { rawDirectoryFolder } from '../directory-history.test-support.js';
 import { GIT_ENV } from '../git-http.test-support.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';
 import {
+	commitTree,
 	type ObjectAccess,
 	readBlob,
 	readTreeFiles,
 	writeFilesTree,
 } from './objects.js';
+import { readTree, writeTree } from './raw-objects.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -181,10 +185,11 @@ test('one-sided changes keep their blob, and competing ones go to this device', 
 	});
 });
 
-test("a rename carries the other side's edit to the new path", async () => {
+test('a move against an edit keeps both paths: the edit is not erased by the delete it never saw', async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const row = '---\ntitle: Walk\ndone: false\n---\n';
+		const done = row.replace('done: false', 'done: true');
 		const base = await commitOf(access, { 'todos/walk.md': row }, [], 100);
 		const ours = await commitOf(
 			access,
@@ -194,7 +199,7 @@ test("a rename carries the other side's edit to the new path", async () => {
 		);
 		const theirs = await commitOf(
 			access,
-			{ 'todos/walk.md': row.replace('done: false', 'done: true') },
+			{ 'todos/walk.md': done },
 			[base],
 			200,
 		);
@@ -205,13 +210,52 @@ test("a rename carries the other side's edit to the new path", async () => {
 			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
-			'todos/stroll.md': '---\ntitle: Walk\ndone: true\n---\n',
+			'todos/stroll.md': row,
+			'todos/walk.md': done,
 		});
-		expect(merged.overrides).toEqual([]);
+		// The remote's edit stands whole, so the delete is what lost.
+		expect(merged.overrides).toEqual([
+			{ path: 'todos/walk.md', unit: { kind: 'file' }, losing: ours },
+		]);
+		expect(mergeMessage('Merge', merged.overrides)).toBe(
+			`Merge\n\nOverrode: ${ours} file "todos/walk.md"`,
+		);
 	});
 });
 
-test('a file against a directory stands beside it, by the side it came from', async () => {
+test("this device's edit stands over the remote's delete of the file", async () => {
+	const withObjects = await objects();
+	await withObjects(async (access) => {
+		const base = await commitOf(
+			access,
+			{ 'a.txt': 'a\n', 'b.txt': 'b\n' },
+			[],
+			100,
+		);
+		const ours = await commitOf(
+			access,
+			{ 'a.txt': 'a\nmine\n', 'b.txt': 'b\n' },
+			[base],
+			200,
+		);
+		const theirs = await commitOf(access, { 'b.txt': 'b\n' }, [base], 200);
+		const merged = await mergeHistories(access, {
+			base,
+			ours,
+			theirs,
+			isLocal: () => false,
+		});
+		expect(await treeText(access, merged.tree)).toEqual({
+			'a.txt': 'a\nmine\n',
+			'b.txt': 'b\n',
+		});
+		expect(merged.overrides).toEqual([
+			{ path: 'a.txt', unit: { kind: 'file' }, losing: theirs },
+		]);
+	});
+});
+
+test("a file against a directory takes this device's entry whole, and the remote's stays in its parent", async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const base = await commitOf(access, { keep: 'k\n' }, [], 100);
@@ -235,10 +279,18 @@ test('a file against a directory stands beside it, by the side it came from', as
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			keep: 'k\n',
-			'a/b': 'dir\n',
-			'a~local': 'mine\n',
+			a: 'mine\n',
 			'b/c': 'dir\n',
-			'b~remote': 'theirs\n',
+		});
+		expect(merged.overrides).toEqual([
+			{ path: 'a', unit: { kind: 'file' }, losing: theirs },
+			{ path: 'b', unit: { kind: 'file' }, losing: theirs },
+		]);
+		// Nothing is lost: the merge commit's remote parent still holds both.
+		expect(await treeText(access, await commitTree(access, theirs))).toEqual({
+			keep: 'k\n',
+			'a/b': 'dir\n',
+			b: 'theirs\n',
 		});
 	});
 });
@@ -280,7 +332,7 @@ test('a row two levels deep merges by field, with no definition', async () => {
 	});
 });
 
-test('epicenter.json merges key by key, nested objects too, and local paths are in no merge', async () => {
+test('epicenter.json merges by line, and local paths tracked on any side are in no merge', async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (theme: string, size: string) =>
@@ -293,13 +345,21 @@ test('epicenter.json merges key by key, nested objects too, and local paths are 
 		);
 		const ours = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('2', '1'), 'cache.db': 'ours\n' },
+			{
+				'epicenter.json': declaration('2', '1'),
+				'cache.db': 'ours\n',
+				'audio/mine.wav': 'RIFF mine',
+			},
 			[base],
 			200,
 		);
 		const theirs = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('1', '2'), 'cache.db': 'theirs\n' },
+			{
+				'epicenter.json': declaration('1', '2'),
+				'cache.db': 'theirs\n',
+				'audio/theirs.wav': 'RIFF theirs',
+			},
 			[base],
 			200,
 		);
@@ -307,18 +367,166 @@ test('epicenter.json merges key by key, nested objects too, and local paths are 
 			base,
 			ours,
 			theirs,
-			isLocal: (path) => path.endsWith('.db'),
+			isLocal: (path) => path.endsWith('.db') || path.startsWith('audio/'),
 		});
-		// Each side's key stands; the result is neither side's, so it is
-		// written with a two-space indent.
+		// Each side changed its own line, so both stand, in its spelling.
 		expect(await treeText(access, merged.tree)).toEqual({
-			'epicenter.json': `${JSON.stringify({ meta: { theme: 2, size: 2 } }, null, 2)}\n`,
+			'epicenter.json': declaration('2', '2'),
 		});
 		expect(merged.overrides).toEqual([]);
 	});
 });
 
-test("a JSON key both sides changed is this device's, an array included", async () => {
+test('filtering tracked local files keeps unrelated raw Git names unchanged', async () => {
+	const withObjects = await objects();
+	await withObjects(async (access) => {
+		const initial = await commitOf(
+			access,
+			{ 'audio/private.wav': 'private', 'notes/a.md': '---\ntitle: A\n---\n' },
+			[],
+			100,
+		);
+		const original = await isogit.readCommit({ ...access, oid: initial });
+		const root = await isogit.readObject({
+			...access,
+			oid: original.commit.tree,
+			format: 'content',
+		});
+		if (!(root.object instanceof Uint8Array))
+			throw new Error('Expected tree bytes');
+		const rawBlob = await isogit.writeBlob({
+			...access,
+			blob: encoder.encode('raw'),
+		});
+		const rawName = Uint8Array.of(0xfe);
+		const audioTree = await isogit.writeObject({
+			...access,
+			type: 'tree',
+			object: writeTree([
+				{ name: rawName, mode: '100644', oid: rawBlob },
+				{
+					name: Uint8Array.of(0xfd),
+					mode: '40000',
+					oid: await isogit.writeObject({
+						...access,
+						type: 'tree',
+						object: writeTree([
+							{ name: encoder.encode('child'), mode: '100644', oid: rawBlob },
+						]),
+						format: 'content',
+					}),
+				},
+			]),
+			format: 'content',
+		});
+		const tree = await isogit.writeObject({
+			...access,
+			type: 'tree',
+			object: writeTree([
+				...readTree(root.object).map((entry) =>
+					decoder.decode(entry.name) === 'audio'
+						? { ...entry, oid: audioTree }
+						: entry,
+				),
+				{ name: rawName, mode: '100644', oid: rawBlob },
+			]),
+			format: 'content',
+		});
+		const commit = await isogit.writeCommit({
+			...access,
+			commit: { ...original.commit, tree },
+		});
+		const merged = await mergeHistories(access, {
+			base: commit,
+			ours: commit,
+			theirs: commit,
+			isLocal: (path) => path.startsWith('audio/'),
+		});
+		const result = await isogit.readObject({
+			...access,
+			oid: merged.tree,
+			format: 'content',
+		});
+		if (!(result.object instanceof Uint8Array))
+			throw new Error('Expected tree bytes');
+		const entries = readTree(result.object);
+		expect(
+			entries.some((entry) => entry.name[0] === 0xfe && entry.oid === rawBlob),
+		).toBe(true);
+		expect(
+			entries.some((entry) => decoder.decode(entry.name) === 'audio'),
+		).toBe(false);
+	});
+});
+
+test('raw-name conflicts name the parent whose bytes lost', async () => {
+	const withObjects = await objects();
+	await withObjects(async (access) => {
+		const rawName = Uint8Array.of(0xfe);
+		const rawTextName = Uint8Array.of(0xfd);
+		const commit = async (
+			binary: Uint8Array,
+			text: string,
+			parent: string[],
+			time: number,
+		) => {
+			const binaryOid = await isogit.writeBlob({ ...access, blob: binary });
+			const textOid = await isogit.writeBlob({
+				...access,
+				blob: encoder.encode(text),
+			});
+			const tree = await isogit.writeObject({
+				...access,
+				type: 'tree',
+				object: writeTree([
+					{ name: rawName, mode: '100644', oid: binaryOid },
+					{ name: rawTextName, mode: '100644', oid: textOid },
+				]),
+				format: 'content',
+			});
+			const signature = {
+				name: 'Test',
+				email: 'test@example.test',
+				timestamp: time,
+				timezoneOffset: 0,
+			};
+			return isogit.writeCommit({
+				...access,
+				commit: {
+					tree,
+					parent,
+					author: signature,
+					committer: signature,
+					message: `At ${time}\n`,
+				},
+			});
+		};
+		const base = await commit(Uint8Array.of(0, 1, 2), 'base\n', [], 100);
+		const theirs = await commit(
+			Uint8Array.of(0, 1, 3),
+			'remote\n',
+			[base],
+			200,
+		);
+		const ours = await commit(Uint8Array.of(0, 1, 4), 'local\n', [base], 300);
+		const merged = await mergeHistories(access, {
+			base,
+			ours,
+			theirs,
+			isLocal: () => false,
+		});
+		expect(merged.overrides).toEqual([
+			{
+				path: 'raw:fd',
+				unit: { kind: 'lines', part: 'text', line: 1, count: 1 },
+				losing: theirs,
+			},
+			{ path: 'raw:fe', unit: { kind: 'file' }, losing: theirs },
+		]);
+	});
+});
+
+test("JSON lines both sides changed are this device's, and lines only one side added stand", async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (title: string, local: string[]) =>
@@ -348,48 +556,17 @@ test("a JSON key both sides changed is this device's, an array included", async 
 			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
-			'epicenter.json': declaration('Mine', ['audio/', 'cache/']),
+			'epicenter.json': declaration('Mine', ['video/', 'audio/', 'cache/']),
 		});
-		expect(merged.overrides).toEqual(
-			['title', 'local'].map((field) => ({
+		expect(merged.overrides).toEqual([
+			{
 				path: 'epicenter.json',
-				unit: { kind: 'field', field },
+				unit: { kind: 'lines', part: 'text', line: 2, count: 1 },
 				losing: theirs,
-			})),
-		);
+			},
+		]);
 		expect(mergeMessage('Merge', merged.overrides)).toBe(
-			`Merge\n\nOverrode: ${theirs} field="title" "epicenter.json"\nOverrode: ${theirs} field="local" "epicenter.json"`,
+			`Merge\n\nOverrode: ${theirs} lines=text:2+1 "epicenter.json"`,
 		);
-	});
-});
-
-test('a file moved beside a directory takes a name nothing else holds', async () => {
-	const withObjects = await objects();
-	await withObjects(async (access) => {
-		const base = await commitOf(access, { keep: 'k\n' }, [], 100);
-		const ours = await commitOf(
-			access,
-			{ keep: 'k\n', a: 'mine\n', 'a~local': 'already here\n' },
-			[base],
-			200,
-		);
-		const theirs = await commitOf(
-			access,
-			{ keep: 'k\n', 'a/b': 'dir\n' },
-			[base],
-			200,
-		);
-		const merged = await mergeHistories(access, {
-			base,
-			ours,
-			theirs,
-			isLocal: () => false,
-		});
-		expect(await treeText(access, merged.tree)).toEqual({
-			keep: 'k\n',
-			'a/b': 'dir\n',
-			'a~local': 'already here\n',
-			'a~local-2': 'mine\n',
-		});
 	});
 });

@@ -1,10 +1,15 @@
 import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { pathProblem, readablePath, rowAddressProblem, writableExistingPath } from '../paths.js';
+import { type GitObject, hashObject, writeCommit } from '../git/raw-objects.js';
+import {
+	pathProblem,
+	readablePath,
+	rowAddressProblem,
+	writableExistingPath,
+} from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
-import { type GitObject, hashObject, writeCommit } from './git/objects.js';
 import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
@@ -29,14 +34,22 @@ const validPath = (path: string) =>
 	readablePath(path) && pathProblem(path) === undefined;
 
 const readableId = (table: string, id: string) =>
-	typeof id === 'string' && !id.includes('/') && readablePath(`${table}/${id}.md`);
+	typeof id === 'string' &&
+	!id.includes('/') &&
+	readablePath(`${table}/${id}.md`);
 
 const validId = (table: string, id: string) =>
-	typeof id === 'string' && id !== '' && id.isWellFormed() && rowAddressProblem(table, id) === undefined;
+	typeof id === 'string' &&
+	id !== '' &&
+	id.isWellFormed() &&
+	rowAddressProblem(table, id) === undefined;
 
 /** A table is one top-level directory. */
 export const isTableName = (name: string) =>
-	typeof name === 'string' && name.isWellFormed() && !name.includes('/') && pathProblem(name) === undefined;
+	typeof name === 'string' &&
+	name.isWellFormed() &&
+	!name.includes('/') &&
+	pathProblem(name) === undefined;
 
 function caseTwin(
 	path: string,
@@ -300,10 +313,7 @@ export async function openRepository<
 			read(path: string) {
 				return read(async () => {
 					if (!readablePath(path)) return undefined;
-					const content = snapshotContent(
-						await storage.capture([path]),
-						path,
-					);
+					const content = snapshotContent(await storage.capture([path]), path);
 					if (content === null) return undefined;
 					const bytes =
 						typeof content === 'string' ? encoder.encode(content) : content;

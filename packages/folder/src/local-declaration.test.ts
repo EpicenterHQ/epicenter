@@ -156,6 +156,28 @@ test("the CLI's Sync untracks audio committed before epicenter.json declared it 
 	);
 });
 
+test('a remote edit to tracked audio stays off disk after the folder declares it local', async () => {
+	const folder = await desktopFolder();
+	await folder.write(
+		'epicenter.json',
+		formatDefinition(defineFolder({ tables })),
+	);
+	await folder.write('audio/x.wav', 'RIFF local');
+	await folder.sync();
+	const other = join(folder.directory, '..', 'other');
+	await git(folder.directory, 'clone', '--quiet', '../remote.git', other);
+	await writeFile(join(other, 'audio/x.wav'), 'RIFF remote');
+	await git(other, 'add', '--all');
+	await git(other, 'commit', '--quiet', '-m', 'Change tracked audio');
+	await git(other, 'push', '--quiet', 'origin', 'main');
+	await folder.write('epicenter.json', formatDefinition(definition));
+	await folder.sync();
+	expect(await readFile(join(folder.directory, 'audio/x.wav'), 'utf8')).toBe(
+		'RIFF local',
+	);
+	expect(await folder.remoteTree()).not.toContain('audio/x.wav');
+});
+
 test('the CLI refuses to save or sync when epicenter.json cannot be used, and pushes nothing', async () => {
 	const folder = await desktopFolder();
 	await folder.write(

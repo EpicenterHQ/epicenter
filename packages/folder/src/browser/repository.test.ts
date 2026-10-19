@@ -7,7 +7,7 @@
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { readCommit } from './git/objects.js';
+import { readCommit } from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
 
 const author = { name: 'Test', email: 'test@example.com', timestamp: 1 };
@@ -220,7 +220,11 @@ test('table and row-folder writes share the structural collision protection', as
 		);
 		expect(
 			expectErr(
-				await repository.files.write('notes/one.md/attachment.txt', null, 'collision'),
+				await repository.files.write(
+					'notes/one.md/attachment.txt',
+					null,
+					'collision',
+				),
 			).name,
 		).toBe('Occupied');
 		expect(expectOk(await repository.tables.notes.get('one'))!.fields).toEqual({
@@ -238,7 +242,11 @@ test('table and row-folder writes share the structural collision protection', as
 			title: 'Keep row',
 		});
 		expectOk(
-			await repository.files.write('notes/two.md/attachment.txt', null, 'keep attachment'),
+			await repository.files.write(
+				'notes/two.md/attachment.txt',
+				null,
+				'keep attachment',
+			),
 		);
 		expect(
 			expectErr(
@@ -247,15 +255,15 @@ test('table and row-folder writes share the structural collision protection', as
 				}),
 			).name,
 		).toBe('Occupied');
-		expect(
-			expectOk(await repository.files.list('notes/two.md/')),
-		).toEqual(['notes/two.md/attachment.txt']);
+		expect(expectOk(await repository.files.list('notes/two.md/'))).toEqual([
+			'notes/two.md/attachment.txt',
+		]);
 		expect(expectOk(await repository.tables.notes.delete('two', null))).toEqual(
 			{ deleted: false },
 		);
-		expect(
-			expectOk(await repository.files.list('notes/two.md/')),
-		).toEqual(['notes/two.md/attachment.txt']);
+		expect(expectOk(await repository.files.list('notes/two.md/'))).toEqual([
+			'notes/two.md/attachment.txt',
+		]);
 	} finally {
 		repository.close();
 	}
@@ -367,7 +375,11 @@ test('row deletion keeps adjacent files and unseen row edits', async () => {
 			await table.set('one', null, { fields: { title: 'Before' } }),
 		).sent;
 		expectOk(
-			await repository.files.write('notes/one/nested/a.txt', null, 'attachment'),
+			await repository.files.write(
+				'notes/one/nested/a.txt',
+				null,
+				'attachment',
+			),
 		);
 		expectOk(await repository.files.write('keep.md', null, 'keep'));
 		await observeEmpty(repository);
@@ -381,18 +393,25 @@ test('row deletion keeps adjacent files and unseen row edits', async () => {
 		expect(expectOk(await table.delete('one', before))).toEqual({
 			deleted: false,
 		});
-		expect(expectOk(await repository.files.list('notes/one/'))).toEqual(['notes/one/nested/a.txt']);
+		expect(expectOk(await repository.files.list('notes/one/'))).toEqual([
+			'notes/one/nested/a.txt',
+		]);
 		expect(expectOk(await table.delete('one', edited))).toEqual({
 			deleted: true,
 		});
-		expect(expectOk(await repository.files.list())).toEqual(['keep.md', 'notes/one/nested/a.txt']);
+		expect(expectOk(await repository.files.list())).toEqual([
+			'keep.md',
+			'notes/one/nested/a.txt',
+		]);
 		expectOk(await repository.prepareCommit({ ...author, timestamp: 2 }));
 		expect(expectOk(await table.list())).toEqual([]);
 		expect(
-			expectErr(await repository.files.write('notes/../escape/x', null, 'no')).name,
+			expectErr(await repository.files.write('notes/../escape/x', null, 'no'))
+				.name,
 		).toBe('InvalidPath');
 		expect(
-			expectErr(await repository.files.write('notes/one/../escape', null, 'no')).name,
+			expectErr(await repository.files.write('notes/one/../escape', null, 'no'))
+				.name,
 		).toBe('InvalidPath');
 	} finally {
 		repository.close();

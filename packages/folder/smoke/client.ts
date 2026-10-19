@@ -1,11 +1,18 @@
 /** Production engine exercised from two real pages; no alternative state model. */
 
 import { unwrap } from 'wellcrafted/result';
-import { type GitObject, hashObject, writeCommit } from '../src/browser/git/objects.js';
 import { changeSnapshot } from '../src/browser/git/snapshot.js';
-import { openRepository, type PendingCommit } from '../src/browser/repository.js';
-import type { Row } from '../src/shared/row.js';
+import {
+	openRepository,
+	type PendingCommit,
+} from '../src/browser/repository.js';
 import { snapshotObject } from '../src/browser/storage.js';
+import {
+	type GitObject,
+	hashObject,
+	writeCommit,
+} from '../src/git/raw-objects.js';
+import type { Row } from '../src/shared/row.js';
 
 const schema = {
 	type: 'object',

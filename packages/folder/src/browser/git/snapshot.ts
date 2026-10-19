@@ -1,6 +1,5 @@
 /** Current files from a commit, and path edits applied without a checkout or index. */
 
-import type { FileContent } from '../../shared/merge.js';
 import {
 	type GitObject,
 	hashObject,
@@ -8,7 +7,8 @@ import {
 	readTree,
 	type TreeEntry,
 	writeTree,
-} from './objects.js';
+} from '../../git/raw-objects.js';
+import type { FileContent } from '../../shared/merge.js';
 
 export type SnapshotFile = { oid: string; mode: string };
 

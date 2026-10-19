@@ -1,11 +1,10 @@
 /**
- * Rows as text: the one way a row file is read and the one way it is written.
+ * Rows as text for the CLI's definition-based reader. Public Folder tables
+ * use `shared/row.ts` to expose source and repairable issues.
  *
  * Both functions take a table of a prepared folder definition, the one
- * `defineFolder` returns, so they work before `openFolder` and with no
- * storage at all. A table's `get`, `list`, `create`, and `replace` run
- * exactly these. The one other reader is `merge`, which reads and writes
- * frontmatter through the same codec with no table (`merge-file.ts`).
+ * `defineFolder` returns, so they work with no storage at all. The CLI's
+ * `readFolder` calls `parseRow` for each table file it finds.
  *
  *     const definition = defineFolder({ tables: { todos } });
  *     const { data: row, error: issues } = parseRow(definition.tables.todos, text);
@@ -132,40 +131,6 @@ export function formatRow<const TTable extends PreparedFolderTable>(
 	);
 	if (refusal === null) return Ok(written.text);
 	return Err(writeIssue(refusal));
-}
-
-/**
- * The text a valid row is saved as, and the row that text reads back as:
- * one format and one parse, the parse doubling as the schema check. Fails
- * with every reason the row is not valid, without lines, since they would
- * point into text the caller never saw. Internal to the package; every
- * validating table write goes through it.
- */
-export function writeRow<const TTable extends PreparedFolderTable>(
-	table: TTable,
-	row: Row<CreateRowOf<TTable>>,
-): Result<{ text: string; row: Row<CreateRowOf<TTable>> }, Issues> {
-	const { data: written, error: refusal } = formatRowSource(
-		storable(row) as unknown as CanonicalDocument,
-		Object.keys(table.fields),
-	);
-	if (refusal !== null) return Err(issueList([writeIssue(refusal)]));
-	const { issues } = check(
-		table.fields,
-		written.document.fields,
-		storedMode(table),
-	);
-	if (issues.length > 0)
-		return Err(
-			issueList(issues.map(({ field, message }) => ({ message, field }))),
-		);
-	return Ok({
-		text: written.text,
-		row: {
-			fields: written.document.fields as Row<CreateRowOf<TTable>>['fields'],
-			body: written.document.body,
-		},
-	});
 }
 
 const LONE_SURROGATE =

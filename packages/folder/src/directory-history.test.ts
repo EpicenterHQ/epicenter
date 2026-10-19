@@ -419,7 +419,7 @@ describe('a directory history', () => {
 		await folder.close();
 	});
 
-	test('a write another writer overtakes after its check merges; a create is refused where it publishes, and a delete reads again and wins', async () => {
+	test('a write another writer overtakes after its check merges; a create joins the file made meanwhile, and a delete reads again and gives way to the edit', async () => {
 		const root = await scratch('directory-history-overtaken-');
 		// Another writer, sharing no lock with this history, lands these bytes
 		// on a path after this one checked it and before it publishes.
@@ -453,24 +453,20 @@ describe('a directory history', () => {
 
 		const note = join(root, 'todos/a.md');
 		overtaken.set(note, 'theirs\n');
-		// A create lands only where no file is.
-		const made = await folder.write('todos/a.md', null, 'mine\n');
-		expect(made.error?.name).toBe('Occupied');
-		expect(await readFile(note, 'utf8')).toBe('theirs\n');
+		// A create onto a file made meanwhile merges as an addition on both
+		// sides.
+		expectOk(await folder.write('todos/a.md', null, 'mine\n'));
+		expect(await readFile(note, 'utf8')).toBe('theirs\nmine\n');
 
-		// A delete reads again, and the deleter wins over what landed meanwhile.
+		// A delete reads again, and never erases an edit it did not see.
 		overtaken.set(note, 'theirs again\n');
-		const deleted = expectOk(
-			await folder.write('todos/a.md', 'theirs\n', null),
-		);
-		expect(deleted.file).toBeNull();
-		expect(await Bun.file(note).exists()).toBe(false);
+		expectOk(await folder.write('todos/a.md', 'theirs\nmine\n', null));
+		expect(await readFile(note, 'utf8')).toBe('theirs again\n');
 
 		// A write merges with whatever is there, and wins the lines both changed.
-		expectOk(await folder.write('todos/a.md', null, 'base\n'));
+		expectOk(await folder.write('todos/a.md', 'theirs again\n', 'base\n'));
 		overtaken.set(note, 'theirs once more\n');
-		const mine = expectOk(await folder.write('todos/a.md', 'base\n', 'mine\n'));
-		expect(mine.overridden).not.toEqual([]);
+		expectOk(await folder.write('todos/a.md', 'base\n', 'mine\n'));
 		expect(await readFile(note, 'utf8')).toBe('mine\n');
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await folder.close();
@@ -600,8 +596,6 @@ describe('a directory history', () => {
 		await git(native, 'add', '--all');
 		await git(native, 'commit', '--quiet', '-m', 'Two more');
 		await git(native, 'push', '--quiet', 'origin', 'main');
-		const theirs = await git(native, 'rev-parse', 'HEAD');
-
 		// The second incoming file never lands, as a quit would leave it.
 		const stopping: DirectoryPrimitives = {
 			...nodeDirectoryPrimitives,
@@ -614,14 +608,23 @@ describe('a directory history', () => {
 		const stopped = await interrupted.sync.run();
 		expect(stopped.error).not.toBeNull();
 		await interrupted.close();
+		// The remote changes a file that already landed before the interruption.
+		// Recovery must finish that publication before comparing new edits.
+		await writeFile(join(native, 'todos/a.md'), todo('New remote title'));
+		await git(native, 'add', '--all');
+		await git(native, 'commit', '--quiet', '-m', 'Edit landed file');
+		await git(native, 'push', '--quiet', 'origin', 'main');
+		const latest = await git(native, 'rev-parse', 'HEAD');
 
 		const reopened = await open(root);
 		expectOk(await reopened.sync.run());
-		for (const name of ['a', 'b'])
-			expect(
-				await readFile(join(root, 'todos', `${name}.md`), 'utf8'),
-			).toContain(`title: ${name}`);
-		await git(root, 'merge-base', '--is-ancestor', theirs, 'HEAD');
+		expect(await readFile(join(root, 'todos/a.md'), 'utf8')).toContain(
+			'title: New remote title',
+		);
+		expect(await readFile(join(root, 'todos/b.md'), 'utf8')).toContain(
+			'title: b',
+		);
+		await git(root, 'merge-base', '--is-ancestor', latest, 'HEAD');
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await git(root, 'fsck', '--strict');
 		await reopened.close();

@@ -12,7 +12,7 @@ import {
 	type TreeEntry,
 	writeCommit,
 	writeTree,
-} from './objects.js';
+} from '../../git/raw-objects.js';
 import { createScratchFs } from './transfer-fs.js';
 
 const encoder = new TextEncoder();

@@ -1,4 +1,4 @@
-import { type GitObject, readCommit, readTree } from './objects.js';
+import { type GitObject, readCommit, readTree } from '../../git/raw-objects.js';
 
 /** Complete raw file snapshots, deliberately stopping at commit parents. */
 export async function snapshotObjects(

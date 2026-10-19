@@ -1,5 +1,5 @@
 /**
- * Git object codec for the browser data engine.
+ * Raw Git object codec shared by browser and native exchange.
  *
  * Objects are held inflated and keyed by SHA-1 oid, the same bytes native Git
  * stores before compression. Everything here is a pure byte transformation;

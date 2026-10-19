@@ -4,8 +4,8 @@
  * directory's history use.
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. Every write fails as one `WriteError` (ADR-0576); a
- * refusal before publication wrote nothing.
+ * a person is told. Native publication uses `WriteError` (ADR-0576); public
+ * Folder saves use `SaveError`.
  *
  * A row file whose text was read but is not a valid row is `InvalidRow`: it
  * carries the exact text, the hash of the bytes read, and every issue, so the
@@ -120,25 +120,11 @@ export type RowReadError = FileError | InferErrors<typeof RowTextError>;
 /** The constructors of `RowReadError`. */
 export const RowReadError = { ...FileError, ...RowTextError };
 
-/** Why a write or a move stopped for what other writers left. */
+/** Why a write stopped for what other writers left. */
 const WriteRefusal = defineErrors({
-	/**
-	 * A create, or a move's destination, found a file already at `path`,
-	 * under exactly this spelling, before writing anything; nothing was
-	 * written. A folder never writes over a file a writer did not read; the
-	 * path itself is usable. On a case-insensitive disk, a name held under
-	 * another spelling is `InvalidPath` instead, since no read of `path`
-	 * finds it.
-	 */
-	Occupied: ({ path }: { path: string }) => ({
-		message: `A file is already at '${path}'`,
-		path,
-	}),
 	/**
 	 * A write found the file changed by another writer, merged with it, and
 	 * found it changed again, `attempts` times; nothing of the write landed.
-	 * A move whose source kept changing stops with its copy at the
-	 * destination, so both paths hold the file, to repair (ADR-0503).
 	 */
 	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
 		message: `'${path}' kept changing while it was saved; gave up after ${attempts} attempts`,
@@ -150,8 +136,7 @@ const WriteRefusal = defineErrors({
 /**
  * Every way the one write a directory's history publishes through fails
  * (`write.ts`, ADR-0576): a path no file can be written at (`InvalidPath`, a
- * directory included), a file already where a create puts one (`Occupied`),
- * a file another writer kept changing past `WRITE_ATTEMPTS`
+ * directory included), a file another writer kept changing past `WRITE_ATTEMPTS`
  * (`KeptChanging`), storage that failed or whose reply was lost and could not
  * be confirmed (`Io`, with the storage failure as its cause), or closed
  * storage (`Closed`). A failed write wrote nothing. A file that does not read

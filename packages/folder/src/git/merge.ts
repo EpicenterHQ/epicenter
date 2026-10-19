@@ -2,32 +2,30 @@
  * Sync's one merge commit, computed as objects only (ADR-0576). Nothing here
  * writes a file, the index, or a ref.
  *
- * Each path that changed between the base and either head is settled once,
- * net. A path only one side changed, or both changed alike, keeps that
- * side's blob and mode exactly. A path both changed differently takes
- * `merge(path, { base, ours, theirs })`, `ours` the device syncing. A delete
- * beats an edit it never saw. A rename is a path one side deleted and the
- * same side created elsewhere with the deleted path's blob at the base, the
- * only such pair: the other side's version, and the base's, move to the new
- * path first, so its edit merges there. A file against a directory at one
- * path keeps the directory, and the file beside it as `<path>~<side>`,
- * or `<path>~<side>-2` and on when that name is taken.
+ * The tree uses the shared `mergeTrees` in `git/tree-merge.ts`, so one
+ * policy settles every host's Sync: the base is the common tree, `current`
+ * the remote's, and `change` this device's. A path only one side changed, or
+ * both changed alike, keeps that side's entry exactly. A file both changed
+ * differently takes the shared content merge (`shared/merge.ts`), where the
+ * change wins each unit both changed. A delete never erases an edit it did
+ * not see, and a file against a directory at one path takes this device's
+ * entry whole. No rename is followed: a path one side moved and the other
+ * edited keeps both, the edit at the old path. A side that lost a whole
+ * entry keeps it in its parent commit, which the merge message names.
  *
- * A path the folder keeps local is in no merge commit (ADR-0577).
+ * A path the folder keeps local is in no merge commit (ADR-0577), tracked
+ * on either side or not.
  */
 import * as git from 'isomorphic-git';
-import { merge, type Overridden, wholeFile } from '../merge-file.js';
+import type { Overridden } from '../shared/merge.js';
+import { commitTree, EMPTY_TREE, type ObjectAccess } from './objects.js';
 import {
-	commitTree,
-	EMPTY_TREE,
-	type ObjectAccess,
-	readBlob,
-	readTreeFiles,
-	type TreeFile,
-	writeTreeFiles,
-} from './objects.js';
-
-const PLAIN = '100644';
+	type GitObject,
+	readTree,
+	type TreeEntry,
+	writeTree,
+} from './raw-objects.js';
+import { mergeTrees, overrodeTrailer } from './tree-merge.js';
 
 /** One unit a merge commit's side lost, and the commit that held it. */
 export type Override = {
@@ -42,11 +40,6 @@ type HistoryMerge = {
 	readonly tree: string;
 	readonly overrides: readonly Override[];
 };
-
-const same = (left: TreeFile | undefined, right: TreeFile | undefined) =>
-	left === undefined || right === undefined
-		? left === right
-		: left.oid === right.oid && left.mode === right.mode;
 
 /**
  * The merge base of `ours` and `theirs`: the one best common ancestor, or,
@@ -80,46 +73,67 @@ export async function chooseBase(
 	return timed[0]!.oid;
 }
 
-/** The files of `commit`, or none for no commit. */
-async function filesOf(access: ObjectAccess, commit: string | undefined) {
-	if (commit === undefined) return new Map<string, TreeFile>();
-	const tree = await commitTree(access, commit);
-	return tree === EMPTY_TREE
-		? new Map<string, TreeFile>()
-		: readTreeFiles(access, tree);
-}
-
 /**
- * Move one side's renames onto their new paths in the other side and the
- * base: a path `side` deleted and created elsewhere holding the deleted
- * path's blob at the base, where neither path is ambiguous and nothing else
- * stands at the new path.
+ * The tree of `commit` without the paths `isLocal` names, or `null` for no
+ * commit. A tree that holds none is the commit's own.
  */
-function followRenames(
-	base: Map<string, TreeFile>,
-	side: ReadonlyMap<string, TreeFile>,
-	other: Map<string, TreeFile>,
-) {
-	const deleted = [...base].filter(([path]) => !side.has(path));
-	const created = [...side].filter(([path]) => !base.has(path));
-	const count = (entries: [string, TreeFile][], oid: string) =>
-		entries.filter(([, entry]) => entry.oid === oid).length;
-	for (const [from, entry] of deleted) {
-		if (count(deleted, entry.oid) !== 1) continue;
-		const matches = created.filter(([, made]) => made.oid === entry.oid);
-		if (matches.length !== 1) continue;
-		const to = matches[0]![0];
-		if (other.has(to) || !other.has(from)) continue;
-		other.set(to, other.get(from)!);
-		other.delete(from);
-		base.set(to, entry);
-		base.delete(from);
+async function sharedTree(
+	access: ObjectAccess,
+	commit: string | undefined,
+	isLocal: (path: string) => boolean,
+): Promise<string | null> {
+	if (commit === undefined) return null;
+	const tree = await commitTree(access, commit);
+	const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+	async function prune(oid: string, prefix: string): Promise<string> {
+		if (prefix !== '' && isLocal(prefix)) return EMPTY_TREE;
+		if (oid === EMPTY_TREE) return oid;
+		const object = await git.readObject({ ...access, oid, format: 'content' });
+		if (object.type !== 'tree' || !(object.object instanceof Uint8Array))
+			throw new Error(`Expected tree object ${oid}`);
+		let changed = false;
+		const kept: TreeEntry[] = [];
+		for (const entry of readTree(object.object)) {
+			let name: string;
+			try {
+				name = decoder.decode(entry.name);
+			} catch {
+				// A local pattern cannot name undecodable bytes. Keep the entry exact.
+				kept.push(entry);
+				continue;
+			}
+			const path = `${prefix}${name}`;
+			if (entry.mode !== '40000' && entry.mode !== '040000') {
+				if (isLocal(path)) changed = true;
+				else kept.push(entry);
+				continue;
+			}
+			const child = await prune(entry.oid, `${path}/`);
+			if (child === entry.oid) kept.push(entry);
+			else {
+				changed = true;
+				if (child !== EMPTY_TREE) kept.push({ ...entry, oid: child });
+			}
+		}
+		if (!changed) return oid;
+		return git.writeObject({
+			...access,
+			type: 'tree',
+			object: writeTree(kept),
+			format: 'content',
+		});
 	}
+	return prune(tree, '');
 }
 
 /**
- * Merge `ours` and `theirs` over `base` into a tree, with `ours` the writer
- * acting. `isLocal` names the paths kept out of every commit.
+ * Merge `ours` and `theirs` over `base` into a tree, `ours` the device
+ * syncing and so the change. `isLocal` names the paths kept out of every
+ * commit.
+ *
+ * Every unit the change won is `theirs` losing. Where `theirs` stands
+ * whole at a path, it lost nothing there: a unit of it is `ours` losing,
+ * as when this device's delete gave way to the remote's edit.
  */
 export async function mergeHistories(
 	access: ObjectAccess,
@@ -135,85 +149,43 @@ export async function mergeHistories(
 		readonly isLocal: (path: string) => boolean;
 	},
 ): Promise<HistoryMerge> {
-	const kept = (files: Map<string, TreeFile>) =>
-		new Map([...files].filter(([path]) => !isLocal(path)));
-	const b = kept(await filesOf(access, base));
-	const o = kept(await filesOf(access, ours));
-	const t = kept(await filesOf(access, theirs));
-	followRenames(b, o, t);
-	followRenames(b, t, o);
-	const result = new Map<string, TreeFile>();
-	const overrides: Override[] = [];
-	const read = (entry: TreeFile | undefined) =>
-		entry === undefined ? null : readBlob(access, entry.oid);
-	for (const path of new Set([...b.keys(), ...o.keys(), ...t.keys()])) {
-		const [atBase, mine, yours] = [b.get(path), o.get(path), t.get(path)];
-		let settled: TreeFile | undefined;
-		if (same(mine, yours) || same(yours, atBase)) settled = mine;
-		else if (same(mine, atBase)) settled = yours;
-		else {
-			const versions = {
-				base: await read(atBase),
-				ours: await read(mine),
-				theirs: await read(yours),
-			};
-			const plain = [atBase, mine, yours].every(
-				(entry) => entry === undefined || entry.mode === PLAIN,
-			);
-			const merged = !plain ? wholeFile(versions) : await merge(path, versions);
-			for (const unit of merged.overridden)
-				overrides.push({
-					path,
-					unit,
-					losing: unit.kind === 'file' && unit.lost === 'ours' ? ours : theirs,
-				});
-			if (merged.content === null) settled = undefined;
-			else if (merged.content === versions.ours && mine !== undefined)
-				settled = mine;
-			else if (merged.content === versions.theirs && yours !== undefined)
-				settled = yours;
-			else
-				settled = {
-					mode: PLAIN,
-					oid: await git.writeBlob({
-						...access,
-						blob:
-							typeof merged.content === 'string'
-								? new TextEncoder().encode(merged.content)
-								: merged.content,
-					}),
-				};
-		}
-		if (settled !== undefined) result.set(path, settled);
-	}
-	// A file where the other side made a directory stands beside it, under
-	// the first name nothing else takes.
-	const taken = (name: string) =>
-		result.has(name) ||
-		[...result.keys()].some((other) => other.startsWith(`${name}/`));
-	for (const path of [...result.keys()]) {
-		if (![...result.keys()].some((other) => other.startsWith(`${path}/`)))
-			continue;
-		const entry = result.get(path)!;
-		result.delete(path);
-		const beside = `${path}~${same(entry, o.get(path)) ? 'local' : 'remote'}`;
-		let name = beside;
-		for (let next = 2; taken(name); next++) name = `${beside}-${next}`;
-		result.set(name, entry);
-	}
-	return { tree: await writeTreeFiles(access, result), overrides };
-}
-
-/** One unit as a trailer names it: fixed fields first, quoted values. */
-function unitWords(unit: Overridden): string {
-	switch (unit.kind) {
-		case 'field':
-			return `field=${JSON.stringify(unit.field)}`;
-		case 'lines':
-			return `lines=${unit.part}:${unit.line}+${unit.count}`;
-		case 'file':
-			return 'file';
-	}
+	const [b, current, change] = await Promise.all([
+		sharedTree(access, base, isLocal),
+		sharedTree(access, theirs, isLocal),
+		sharedTree(access, ours, isLocal),
+	]);
+	const read = async (oid: string): Promise<GitObject> => {
+		// Every repository names the empty tree without storing it.
+		if (oid === EMPTY_TREE) return { type: 'tree', bytes: new Uint8Array() };
+		const { type, object } = await git.readObject({
+			...access,
+			oid,
+			format: 'content',
+		});
+		if (typeof object === 'string' || !(object instanceof Uint8Array))
+			throw new Error(`Object ${oid} did not read as bytes`);
+		return { type: type as GitObject['type'], bytes: object };
+	};
+	const merged = await mergeTrees({ base: b, current, change, read });
+	for (const object of merged.objects.values())
+		await git.writeObject({
+			...access,
+			type: object.type,
+			object: object.bytes,
+			format: 'content',
+		});
+	const tree =
+		merged.tree === null || merged.tree === EMPTY_TREE
+			? await git.writeTree({ ...access, tree: [] })
+			: merged.tree;
+	const overrides: Override[] = merged.overridden.map(
+		({ path, unit, losing }) => ({
+			path,
+			unit,
+			losing: losing === 'current' ? theirs : ours,
+		}),
+	);
+	return { tree, overrides };
 }
 
 /**
@@ -226,9 +198,8 @@ export function mergeMessage(
 	overrides: readonly Override[],
 ): string {
 	if (overrides.length === 0) return subject;
-	const lines = overrides.map(
-		({ path, unit, losing }) =>
-			`Overrode: ${losing} ${unitWords(unit)} ${JSON.stringify(path)}`,
+	const lines = overrides.map(({ path, unit, losing }) =>
+		overrodeTrailer(losing, path, unit),
 	);
 	return `${subject}\n\n${lines.join('\n')}`;
 }

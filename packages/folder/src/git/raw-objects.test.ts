@@ -29,7 +29,7 @@ import {
 	type TreeEntry,
 	writeCommit,
 	writeTree,
-} from './objects.js';
+} from './raw-objects.js';
 
 const scratchDirs: string[] = [];
 const encoder = new TextEncoder();

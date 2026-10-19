@@ -239,9 +239,25 @@ directory it is given (ADR-0520). None of it opens a `Folder`.
 Git is not on a `Folder`'s lifetime (ADR-0636). The history engine under
 `src/git/` stays for exchange: `runHistory` opens a directory's history for
 one operation, reads `local` from `epicenter.json` so no commit carries a
-path it names, holds the history lock across a save version or a sync, and
-merges with the same content rules a save uses. The browser engine's own Git
-exchange is in `src/browser/` ([its README](src/browser/README.md)).
+path it names, tracked or not, and holds the history lock across a save
+version or a sync. The browser engine's own Git exchange is in
+`src/browser/` ([its README](src/browser/README.md)).
+
+Sync merges by the same rules on every host. Its merge commit's tree uses
+`src/git/tree-merge.ts` over the merge base, the
+remote's tree as current, and this device's as the change, with each file
+both sides changed merged by the content rules a save uses (`shared/merge.ts`).
+A delete never erases an edit it did not see. No rename is followed: a move
+on one side against an edit on the other keeps both paths. A file against a
+directory takes this device's entry whole. JSON, `epicenter.json` included,
+merges by line like other text. Whatever a side lost stays in its parent
+commit, and the merge message names it in an `Overrode:` trailer.
+
+Sync then publishes the merged tree over the files through `write.ts`, one
+file at a time under the save lock. The file the checkpoint committed is the
+base, the merged tree's file is current, and the live file is the change, so
+an edit made while Sync runs stands. A publish cut off partway is finished
+first by the next commit (`refs/epicenter/publishing`).
 
 ## Building for one environment
 
@@ -271,7 +287,7 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | `src/shared/` | The content merge and row reading every engine uses. |
 | `src/boundary.ts`, `directory-store.ts`, `directory-node.ts`, `directory-primitives.ts`, `tauri-files.ts`, `changes-tauri.ts` | Directory storage over `node:fs` and over the shell's commands, and the shell's change watcher. |
 | `src/check-folder.ts`, `query-folder.ts`, `read-folder.ts`, `projection.ts`, `declaration.ts`, `definition.ts`, `row-text.ts`, `canonical.ts`, `generate-declaration.ts` | The CLI's readers of `epicenter.json` and its row codec. |
-| `src/git/`, `history-wire.ts`, `write.ts`, `merge-file.ts` | The directory history engine `runHistory` runs, and the one write its Sync publishes through. |
+| `src/git/`, `history-wire.ts`, `write.ts` | Shared Git object and tree rules, the directory history engine `runHistory` runs, and the one write its Sync publishes through. |
 | `src/file-browser.ts` | File-browser helpers. |
 | `evidence/` | Bundle and dependency-closure tests, and recorded browser-engine experiments. |
 | `smoke/` | Browser smoke runs of the IndexedDB engine (`bun run smoke:local`, `bun run smoke:sync:local`). |

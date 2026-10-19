@@ -7,9 +7,9 @@
  */
 import { Err, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import type { FileError, WriteError } from './errors.js';
-import type { FileContent } from './merge-file.js';
-import type { Written } from './write.js';
+import type { FileError } from './errors.js';
+import type { SaveError } from './shared/errors.js';
+import type { FileContent } from './shared/merge.js';
 
 export async function put(
 	folder: {
@@ -18,11 +18,11 @@ export async function put(
 			path: string,
 			from: FileContent | null,
 			to: FileContent | null,
-		): Promise<Result<Written, WriteError>>;
+		): Promise<Result<void, SaveError>>;
 	},
 	path: string,
 	content: string | Uint8Array,
-): Promise<Result<Written, WriteError | FileError>> {
+): Promise<Result<void, SaveError | FileError>> {
 	const { data: current, error } = await folder.files.read(path);
 	if (error !== null && error.name !== 'NotFound') return Err(error);
 	return folder.write(path, current?.bytes ?? null, content);
