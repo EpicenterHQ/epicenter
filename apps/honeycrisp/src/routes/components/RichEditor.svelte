@@ -30,9 +30,7 @@
 	import { untrack } from 'svelte';
 	import {
 		editingPlugins,
-		marks,
 		nodeActive,
-		nodes,
 		stateAfter,
 		stateShowing,
 		toggleQuote,
@@ -102,21 +100,21 @@
 
 	function readActive(state: EditorState) {
 		active = {
-			bold: markActive(state, marks.strong),
-			italic: markActive(state, marks.em),
-			strike: markActive(state, marks.strike),
-			code: markActive(state, marks.code),
-			link: markActive(state, marks.link),
-			heading: [1, 2, 3].find((level) => nodeActive(state, nodes.heading, { level })) ?? 0,
-			list: nodeActive(state, nodes.taskList)
+			bold: markActive(state, schema.marks.strong),
+			italic: markActive(state, schema.marks.em),
+			strike: markActive(state, schema.marks.strike),
+			code: markActive(state, schema.marks.code),
+			link: markActive(state, schema.marks.link),
+			heading: [1, 2, 3].find((level) => nodeActive(state, schema.nodes.heading, { level })) ?? 0,
+			list: nodeActive(state, schema.nodes.taskList)
 				? 'task'
-				: nodeActive(state, nodes.bullet_list)
+				: nodeActive(state, schema.nodes.bullet_list)
 					? 'bullet'
-					: nodeActive(state, nodes.ordered_list)
+					: nodeActive(state, schema.nodes.ordered_list)
 						? 'ordered'
 						: '',
-			quote: nodeActive(state, nodes.blockquote),
-			codeBlock: nodeActive(state, nodes.code_block),
+			quote: nodeActive(state, schema.nodes.blockquote),
+			codeBlock: nodeActive(state, schema.nodes.code_block),
 			canUndo: undoDepth(state) > 0,
 			canRedo: redoDepth(state) > 0,
 		};
@@ -141,7 +139,7 @@
 	const taskCheckbox = new Plugin({
 		props: {
 			handleClickOn(view, _pos, node, nodePos, event) {
-				if (node.type !== nodes.taskItem) return false;
+				if (node.type !== schema.nodes.taskItem) return false;
 				const target = event.target;
 				if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return false;
 				event.preventDefault();
@@ -233,26 +231,26 @@
 	function toggleHeading(level: number) {
 		run(
 			active.heading === level
-				? setBlockType(nodes.paragraph)
-				: setBlockType(nodes.heading, { level }),
+				? setBlockType(schema.nodes.paragraph)
+				: setBlockType(schema.nodes.heading, { level }),
 		);
 	}
 
 	function toggleList(kind: 'bullet' | 'ordered' | 'task') {
-		const list = { bullet: nodes.bullet_list, ordered: nodes.ordered_list, task: nodes.taskList }[kind];
-		const item = kind === 'task' ? nodes.taskItem : nodes.list_item;
+		const list = { bullet: schema.nodes.bullet_list, ordered: schema.nodes.ordered_list, task: schema.nodes.taskList }[kind];
+		const item = kind === 'task' ? schema.nodes.taskItem : schema.nodes.list_item;
 		if (active.list === kind) run(liftListItem(item));
 		else if (active.list === '') run(wrapInList(list));
 		else {
 			// Leave the other kind of list first, then wrap in this one.
-			run(liftListItem(active.list === 'task' ? nodes.taskItem : nodes.list_item));
+			run(liftListItem(active.list === 'task' ? schema.nodes.taskItem : schema.nodes.list_item));
 			run(wrapInList(list));
 		}
 	}
 
 	function openLink() {
 		if (!view) return;
-		const existing = marks.link.isInSet(view.state.selection.$from.marks());
+		const existing = schema.marks.link.isInSet(view.state.selection.$from.marks());
 		linkHref = existing ? String(existing.attrs.href) : '';
 		linkOpen = true;
 	}
@@ -264,17 +262,17 @@
 		const { from, to, empty } = view.state.selection;
 		if (href === '') {
 			run((state, dispatch) => {
-				dispatch?.(state.tr.removeMark(from, to, marks.link));
+				dispatch?.(state.tr.removeMark(from, to, schema.marks.link));
 				return true;
 			});
 			return;
 		}
-		const mark = marks.link.create({ href });
+		const mark = schema.marks.link.create({ href });
 		run((state, dispatch) => {
 			dispatch?.(
 				empty
 					? state.tr.insert(from, schema.text(href, [mark]))
-					: state.tr.removeMark(from, to, marks.link).addMark(from, to, mark),
+					: state.tr.removeMark(from, to, schema.marks.link).addMark(from, to, mark),
 			);
 			return true;
 		});
@@ -297,10 +295,10 @@
 				<RedoIcon />
 			</Button>
 			<Separator orientation="vertical" class="mx-1 h-6" />
-			{@render toggle(active.bold, () => run(toggleMark(marks.strong)), BoldIcon, 'Bold')}
-			{@render toggle(active.italic, () => run(toggleMark(marks.em)), ItalicIcon, 'Italic')}
-			{@render toggle(active.strike, () => run(toggleMark(marks.strike)), StrikethroughIcon, 'Strikethrough')}
-			{@render toggle(active.code, () => run(toggleMark(marks.code)), CodeIcon, 'Inline code')}
+			{@render toggle(active.bold, () => run(toggleMark(schema.marks.strong)), BoldIcon, 'Bold')}
+			{@render toggle(active.italic, () => run(toggleMark(schema.marks.em)), ItalicIcon, 'Italic')}
+			{@render toggle(active.strike, () => run(toggleMark(schema.marks.strike)), StrikethroughIcon, 'Strikethrough')}
+			{@render toggle(active.code, () => run(toggleMark(schema.marks.code)), CodeIcon, 'Inline code')}
 			<Popover.Root bind:open={linkOpen}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
@@ -335,7 +333,7 @@
 			{@render toggle(active.quote, () => run(toggleQuote), QuoteIcon, 'Quote')}
 			{@render toggle(
 				active.codeBlock,
-				() => run(active.codeBlock ? setBlockType(nodes.paragraph) : setBlockType(nodes.code_block)),
+				() => run(active.codeBlock ? setBlockType(schema.nodes.paragraph) : setBlockType(schema.nodes.code_block)),
 				SquareCodeIcon,
 				'Code block',
 			)}
@@ -346,7 +344,7 @@
 				title="Divider"
 				onclick={() =>
 					run((state, dispatch) => {
-						dispatch?.(state.tr.replaceSelectionWith(nodes.horizontal_rule.create()).scrollIntoView());
+						dispatch?.(state.tr.replaceSelectionWith(schema.nodes.horizontal_rule.create()).scrollIntoView());
 						return true;
 					})}
 			>

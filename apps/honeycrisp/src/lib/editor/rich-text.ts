@@ -44,7 +44,7 @@ import {
 	wrappingInputRule,
 } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import type { MarkType, Node, NodeType } from 'prosemirror-model';
+import type { Node, NodeType } from 'prosemirror-model';
 import {
 	liftListItem,
 	sinkListItem,
@@ -59,25 +59,6 @@ import {
 import type { NoteEntry } from '../data.js';
 import { bodyCodec, equivalentNoteDocs } from './markdown.js';
 import { noteSchema } from './schema.js';
-
-export const marks = noteSchema.marks as unknown as Record<
-	'strong' | 'em' | 'strike' | 'code' | 'link',
-	MarkType
->;
-export const nodes = noteSchema.nodes as unknown as Record<
-	| 'paragraph'
-	| 'heading'
-	| 'blockquote'
-	| 'code_block'
-	| 'bullet_list'
-	| 'ordered_list'
-	| 'list_item'
-	| 'taskList'
-	| 'taskItem'
-	| 'horizontal_rule'
-	| 'hard_break',
-	NodeType
->;
 
 export function nodeActive(
 	state: EditorState,
@@ -98,13 +79,15 @@ export function nodeActive(
 }
 
 export const toggleQuote: Command = (state, dispatch) =>
-	nodeActive(state, nodes.blockquote)
+	nodeActive(state, noteSchema.nodes.blockquote)
 		? lift(state, dispatch)
-		: wrapIn(nodes.blockquote)(state, dispatch);
+		: wrapIn(noteSchema.nodes.blockquote)(state, dispatch);
 
 const hardBreak: Command = chainCommands(exitCode, (state, dispatch) => {
 	dispatch?.(
-		state.tr.replaceSelectionWith(nodes.hard_break.create()).scrollIntoView(),
+		state.tr
+			.replaceSelectionWith(noteSchema.nodes.hard_break.create())
+			.scrollIntoView(),
 	);
 	return true;
 });
@@ -120,43 +103,47 @@ export function editingPlugins(): Plugin[] {
 			'Mod-z': undo,
 			'Mod-y': redo,
 			'Mod-Shift-z': redo,
-			'Mod-b': toggleMark(marks.strong),
-			'Mod-i': toggleMark(marks.em),
-			'Mod-Shift-s': toggleMark(marks.strike),
-			'Mod-e': toggleMark(marks.code),
+			'Mod-b': toggleMark(noteSchema.marks.strong),
+			'Mod-i': toggleMark(noteSchema.marks.em),
+			'Mod-Shift-s': toggleMark(noteSchema.marks.strike),
+			'Mod-e': toggleMark(noteSchema.marks.code),
 			'Mod-Shift-b': toggleQuote,
 			'Shift-Enter': hardBreak,
 			Enter: chainCommands(
-				splitListItem(nodes.taskItem),
-				splitListItem(nodes.list_item),
+				splitListItem(noteSchema.nodes.taskItem),
+				splitListItem(noteSchema.nodes.list_item),
 				baseKeymap.Enter as Command,
 			),
 			Tab: (state, dispatch) =>
-				sinkListItem(nodes.taskItem)(state, dispatch) ||
-				sinkListItem(nodes.list_item)(state, dispatch),
+				sinkListItem(noteSchema.nodes.taskItem)(state, dispatch) ||
+				sinkListItem(noteSchema.nodes.list_item)(state, dispatch),
 			'Shift-Tab': (state, dispatch) =>
-				liftListItem(nodes.taskItem)(state, dispatch) ||
-				liftListItem(nodes.list_item)(state, dispatch),
+				liftListItem(noteSchema.nodes.taskItem)(state, dispatch) ||
+				liftListItem(noteSchema.nodes.list_item)(state, dispatch),
 		}),
 		keymap(baseKeymap),
 		inputRules({
 			rules: [
 				...smartQuotes,
 				ellipsis,
-				textblockTypeInputRule(/^(#{1,3})\s$/, nodes.heading, (match) => ({
-					level: (match[1] as string).length,
-				})),
-				wrappingInputRule(/^\s*\[([ xX]?)\]\s$/, nodes.taskList),
-				wrappingInputRule(/^\s*([-+*])\s$/, nodes.bullet_list),
+				textblockTypeInputRule(
+					/^(#{1,3})\s$/,
+					noteSchema.nodes.heading,
+					(match) => ({
+						level: (match[1] as string).length,
+					}),
+				),
+				wrappingInputRule(/^\s*\[([ xX]?)\]\s$/, noteSchema.nodes.taskList),
+				wrappingInputRule(/^\s*([-+*])\s$/, noteSchema.nodes.bullet_list),
 				wrappingInputRule(
 					/^(\d+)\.\s$/,
-					nodes.ordered_list,
+					noteSchema.nodes.ordered_list,
 					(match) => ({ order: Number(match[1]) }),
 					(match, node) =>
 						node.childCount + node.attrs.order === Number(match[1]),
 				),
-				wrappingInputRule(/^\s*>\s$/, nodes.blockquote),
-				textblockTypeInputRule(/^```$/, nodes.code_block),
+				wrappingInputRule(/^\s*>\s$/, noteSchema.nodes.blockquote),
+				textblockTypeInputRule(/^```$/, noteSchema.nodes.code_block),
 			],
 		}),
 	];

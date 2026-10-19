@@ -48,13 +48,14 @@ import {
 import type { EditorView } from 'prosemirror-view';
 import { expectOk } from 'wellcrafted/testing';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
+import { noteSchema } from './schema.js';
 
 // The notes state is a runes module: load it, and the rules, after the
 // compiler plugin.
 const { openNotes, quiet, until, noteText, rows } = await import(
 	'../local.test-support.ts'
 );
-const { editingPlugins, marks, nodes, stateAfter, stateShowing } = await import(
+const { editingPlugins, stateAfter, stateShowing } = await import(
 	'./rich-text.js'
 );
 
@@ -251,7 +252,7 @@ describe('every displayed edit is in the note', () => {
 
 	test('a space typed in pending bold is kept', async () => {
 		const { type, run, body, expectNoteHoldsScreen, ...view } = await open('');
-		run(toggleMark(marks.strong));
+		run(toggleMark(noteSchema.marks.strong));
 		type('bold');
 		type(' ');
 		expect(view.shown().doc.textContent).toBe('bold ');
@@ -303,9 +304,12 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, settled, failures, stored, writes } = await open('', {
-			text: crlf,
-		});
+		const { type, end, body, settled, failures, stored, writes } = await open(
+			'',
+			{
+				text: crlf,
+			},
+		);
 		expect(body()).toBe('\none\n\ntwo\n');
 		expect(writes()).toBe(0);
 		end();
@@ -325,9 +329,9 @@ describe('every displayed edit is in the note', () => {
 		const { end, run, body, writes, settled, ...view } = await open('one\n');
 		const before = body();
 		end();
-		expect(run(toggleMark(marks.em))).toBe(true);
+		expect(run(toggleMark(noteSchema.marks.em))).toBe(true);
 		expect(view.shown().storedMarks?.map((mark) => mark.type)).toEqual([
-			marks.em,
+			noteSchema.marks.em,
 		]);
 		expect(body()).toBe(before);
 		await settled();
@@ -351,7 +355,7 @@ describe('an edit that cannot be written', () => {
 		const before = view.shown();
 		// Bold on "(b)" directly after a letter has no Markdown spelling.
 		const displayed = run((state, send) => {
-			send?.(state.tr.addMark(2, 5, marks.strong.create()));
+			send?.(state.tr.addMark(2, 5, noteSchema.marks.strong.create()));
 			return true;
 		});
 		expect(displayed).toBe(false);
@@ -363,7 +367,7 @@ describe('an edit that cannot be written', () => {
 	test('a line break in a heading is refused; the heading text is untouched', async () => {
 		const { run, body, ...view } = await open('# Title\n');
 		const displayed = run((state, send) => {
-			send?.(state.tr.insert(3, nodes.hard_break.create()));
+			send?.(state.tr.insert(3, noteSchema.nodes.hard_break.create()));
 			return true;
 		});
 		expect(displayed).toBe(false);
@@ -464,7 +468,7 @@ describe('undo history', () => {
 			return true;
 		});
 		type('!');
-		run(toggleMark(marks.strong));
+		run(toggleMark(noteSchema.marks.strong));
 		const state = view.shown();
 		expect(body()).toBe('*a* b!\n');
 		source('_a_ b!\n');
@@ -571,7 +575,9 @@ describe('the editor follows the note', () => {
 		const { fixture, follow, settled, body, ...view } = await open('one\n');
 		const tab = await fixture.otherTab();
 		const theirs = expectOk(await tab.tables.notes.get('a'));
-		expectOk(await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }));
+		expectOk(
+			await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }),
+		);
 		await until(() => body() === 'theirs\n', 'their save');
 		await settled();
 		follow();
@@ -626,7 +632,9 @@ describe('the editor follows the note', () => {
 		expect(type('!')).toBe(true);
 		const tab = await fixture.otherTab();
 		const theirs = expectOk(await tab.tables.notes.get('a'));
-		expectOk(await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }));
+		expectOk(
+			await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }),
+		);
 		await settled();
 		// Both changed the one line: the typing is the fresher intent.
 		expect(failures()).toEqual([]);

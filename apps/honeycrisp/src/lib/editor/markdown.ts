@@ -33,28 +33,12 @@ import {
 	defaultMarkdownSerializer,
 	MarkdownParser,
 	MarkdownSerializer,
+	type MarkdownSerializerState,
 } from 'prosemirror-markdown';
-import {
-	Fragment,
-	Mark,
-	type MarkType,
-	type Node,
-	type NodeType,
-} from 'prosemirror-model';
+import { Fragment, Mark, type Node } from 'prosemirror-model';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
 import { noteSchema } from './schema.js';
-
-// Through `unknown` because the schema's maps are typed by their OrderedMap
-// specs, not by name.
-const { hard_break, paragraph } = noteSchema.nodes as unknown as Record<
-	'hard_break' | 'paragraph',
-	NodeType
->;
-const { code: codeMark } = noteSchema.marks as unknown as Record<
-	'code',
-	MarkType
->;
 
 // ── Whitespace Markdown would drop ──────────────────────────────────────────
 
@@ -91,10 +75,10 @@ function keepEdgeWhitespace(node: Node): Node {
 		for (const index of order) {
 			const child = children[index] as Node;
 			if (!child.isText) {
-				atEdge = child.type === hard_break;
+				atEdge = child.type === noteSchema.nodes.hard_break;
 				continue;
 			}
-			if (!atEdge || codeMark.isInSet(child.marks)) {
+			if (!atEdge || noteSchema.marks.code.isInSet(child.marks)) {
 				atEdge = false;
 				continue;
 			}
@@ -130,7 +114,8 @@ function adjacentBefore(parent: Node, index: number): number {
 	for (let at = index - 1; at >= 0; at -= 1) {
 		const sibling = parent.child(at);
 		// A paragraph that writes nothing does not separate two lists.
-		if (sibling.type === paragraph && isBlank(sibling)) continue;
+		if (sibling.type === noteSchema.nodes.paragraph && isBlank(sibling))
+			continue;
 		if (sibling.type !== type) break;
 		count += 1;
 	}
@@ -141,7 +126,7 @@ function adjacentBefore(parent: Node, index: number): number {
 function isBlank(block: Node): boolean {
 	let blank = true;
 	block.forEach((child) => {
-		if (child.type !== hard_break) blank = false;
+		if (child.type !== noteSchema.nodes.hard_break) blank = false;
 	});
 	return blank;
 }
@@ -172,21 +157,22 @@ function escapeMore(text: string, startOfLine: boolean): string {
 	);
 }
 
-type SerializerState = Parameters<
-	(typeof defaultMarkdownSerializer.nodes)[string]
->[0];
 /**
  * Two fields the serializer state has and its types leave out: the text
  * written so far, and whether the next text starts a line. prosemirror-markdown
  * 1.13 reads and writes both in its own node serializers.
  */
-type SerializerInternals = { out: string; atBlockStart: boolean };
-const internals = (state: SerializerState) =>
-	state as unknown as SerializerInternals;
+type SerializerInternals = MarkdownSerializerState & {
+	out: string;
+	atBlockStart: boolean;
+};
+const internals = (state: MarkdownSerializerState) =>
+	// SAFETY: prosemirror-markdown initializes both fields on every serializer state; its declarations omit them.
+	state as SerializerInternals;
 const extended = new WeakSet<object>();
 
 /** Add `escapeMore` to a serializer state, once. */
-function withMoreEscapes(state: SerializerState) {
+function withMoreEscapes(state: MarkdownSerializerState) {
 	if (extended.has(state)) return;
 	extended.add(state);
 	const esc = state.esc.bind(state);
@@ -260,12 +246,12 @@ function canBeTight(list: Node): boolean {
 }
 
 function renderList(
-	state: SerializerState,
+	state: MarkdownSerializerState,
 	node: Node,
 	indent: string,
 	marker: (index: number) => string,
 ) {
-	const options = state.options as { tightLists?: boolean };
+	const options = state.options;
 	const outer = options.tightLists;
 	options.tightLists = canBeTight(node);
 	state.renderList(node, indent, marker);
@@ -279,7 +265,10 @@ const serializer = new MarkdownSerializer(
 			withMoreEscapes(state);
 			// Text after a line break starts a line, where `#`, `-`, and `1.`
 			// would start a block.
-			if (index > 0 && parent.child(index - 1).type === hard_break)
+			if (
+				index > 0 &&
+				parent.child(index - 1).type === noteSchema.nodes.hard_break
+			)
 				internals(state).atBlockStart = true;
 			serializeText(state, node, parent, index);
 		},
@@ -317,7 +306,7 @@ const serializer = new MarkdownSerializer(
 			let size = 0;
 			while (
 				skip < node.childCount - 1 &&
-				node.child(skip).type === paragraph &&
+				node.child(skip).type === noteSchema.nodes.paragraph &&
 				isBlank(node.child(skip))
 			) {
 				size += node.child(skip).nodeSize;
@@ -405,6 +394,8 @@ tokenizer.core.ruler.push('honeycrisp_task_lists', (state) => {
 			open: Token;
 			close: Token;
 			inline: Token;
+			first: Token;
+			markerLength: number;
 			checked: boolean;
 		}[] = [];
 		let close = open + 1;
@@ -421,15 +412,18 @@ tokenizer.core.ruler.push('honeycrisp_task_lists', (state) => {
 			}
 			if (token.type !== 'list_item_open') continue;
 			const inline = tokens[close + 2];
+			const first = inline?.children?.[0];
 			const marker =
 				tokens[close + 1]?.type === 'paragraph_open' &&
 				inline?.type === 'inline' &&
-				inline.children?.[0]?.type === 'text'
+				first?.type === 'text'
 					? TASK_MARKER.exec(inline.content)
 					: null;
 			if (
 				marker === null ||
-				!inline?.children?.[0]?.content.startsWith(marker[0])
+				inline === undefined ||
+				first === undefined ||
+				!first.content.startsWith(marker[0])
 			) {
 				shaped = false;
 				break;
@@ -438,6 +432,8 @@ tokenizer.core.ruler.push('honeycrisp_task_lists', (state) => {
 				open: token,
 				close: token,
 				inline,
+				first,
+				markerLength: marker[0].length,
 				checked: marker[1] !== ' ',
 			});
 		}
@@ -448,13 +444,9 @@ tokenizer.core.ruler.push('honeycrisp_task_lists', (state) => {
 			item.open.type = 'task_item_open';
 			item.open.attrSet('checked', String(item.checked));
 			item.close.type = 'task_item_close';
-			const length = (
-				TASK_MARKER.exec(item.inline.content) as RegExpExecArray
-			)[0].length;
-			item.inline.content = item.inline.content.slice(length);
-			const first = (item.inline.children as Token[])[0] as Token;
-			first.content = first.content.slice(length);
-			if (first.content === '') item.inline.children?.shift();
+			item.inline.content = item.inline.content.slice(item.markerLength);
+			item.first.content = item.first.content.slice(item.markerLength);
+			if (item.first.content === '') item.inline.children?.shift();
 		}
 	}
 });
@@ -516,14 +508,18 @@ export function canonicalNoteDoc(node: Node): Node {
 				if (part !== '')
 					push(noteSchema.text(part, /^\s+$/.test(part) ? plain : child.marks));
 		});
-		while (pieces.at(-1)?.type === hard_break) pieces.pop();
+		while (pieces.at(-1)?.type === noteSchema.nodes.hard_break) pieces.pop();
 		return node.copy(Fragment.from(pieces));
 	}
 	const children: Node[] = [];
 	node.forEach((child) => {
 		// Canonical first: a paragraph holding only a line break is empty too.
 		const canonical = canonicalNoteDoc(child);
-		if (canonical.type === paragraph && canonical.content.size === 0) return;
+		if (
+			canonical.type === noteSchema.nodes.paragraph &&
+			canonical.content.size === 0
+		)
+			return;
 		children.push(canonical);
 	});
 	// A parent that needs content keeps one empty paragraph, as the parser does.
@@ -574,12 +570,12 @@ const detector = MarkdownIt('commonmark', { html: true }).enable([
 	'table',
 ]);
 
-const REFUSED: Record<string, string> = {
-	html_block: 'HTML',
-	html_inline: 'HTML',
-	image: 'an image',
-	table_open: 'a table',
-};
+const REFUSED = new Map([
+	['html_block', 'HTML'],
+	['html_inline', 'HTML'],
+	['image', 'an image'],
+	['table_open', 'a table'],
+]);
 
 /** What in `text` the editor refuses: HTML, an image, a table. */
 function refusedIn(text: string): Set<string> {
@@ -587,7 +583,7 @@ function refusedIn(text: string): Set<string> {
 	type Token = ReturnType<typeof detector.parse>[number];
 	const visit = (tokens: readonly Token[]) => {
 		for (const token of tokens) {
-			const reason = REFUSED[token.type];
+			const reason = REFUSED.get(token.type);
 			if (reason !== undefined) reasons.add(reason);
 			if (token.children) visit(token.children);
 		}

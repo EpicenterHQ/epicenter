@@ -9,8 +9,11 @@
  * in the Source view.
  */
 import { type MarkSpec, type NodeSpec, Schema } from 'prosemirror-model';
-import { schema as basicSchema } from 'prosemirror-schema-basic';
-import { addListNodes } from 'prosemirror-schema-list';
+import {
+	marks as basicMarks,
+	nodes as basicNodes,
+} from 'prosemirror-schema-basic';
+import { bulletList, listItem, orderedList } from 'prosemirror-schema-list';
 
 const taskList = {
 	group: 'block',
@@ -88,27 +91,31 @@ const codeBlock = {
 	],
 } satisfies NodeSpec;
 
-const nodes = addListNodes(
-	basicSchema.spec.nodes
-		.remove('image')
-		.update('code_block', codeBlock)
-		.append({ taskList, taskItem }),
-	'paragraph block*',
-	'block',
-);
-
 /**
  * Inline code is literal text: Markdown reads `**` inside backticks as two
  * asterisks, so bold, italic, and strikethrough cannot sit on code. A link
  * can.
  */
 const code = {
-	...(basicSchema.spec.marks.get('code') as MarkSpec),
+	...basicMarks.code,
 	excludes: 'strong em strike',
 } satisfies MarkSpec;
 
 export const noteSchema = new Schema({
-	nodes,
-	// `strike` is declared before `code` is replaced so `excludes` can name it.
-	marks: basicSchema.spec.marks.append({ strike }).update('code', code),
+	nodes: {
+		doc: basicNodes.doc,
+		paragraph: basicNodes.paragraph,
+		blockquote: basicNodes.blockquote,
+		horizontal_rule: basicNodes.horizontal_rule,
+		heading: basicNodes.heading,
+		code_block: codeBlock,
+		text: basicNodes.text,
+		hard_break: basicNodes.hard_break,
+		taskList,
+		taskItem,
+		ordered_list: { ...orderedList, content: 'list_item+', group: 'block' },
+		bullet_list: { ...bulletList, content: 'list_item+', group: 'block' },
+		list_item: { ...listItem, content: 'paragraph block*' },
+	},
+	marks: { ...basicMarks, strike, code },
 });
