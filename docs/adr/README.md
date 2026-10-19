@@ -824,6 +824,8 @@ When you add an ADR, add its row here.
 | [0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) | An approved commit supplies a window's page and its relative assets | Superseded by 0605 |
 | [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | The generic editor edits a file's text, so a row is repaired there | Accepted |
 | [0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) | `<FolderApp>` names its app by the last segment of its address | Accepted (amends 0589) |
+| [0603](0603-a-machine-holds-one-account-grant-in-the-epicenter-cli.md) | A machine holds one account grant, in the epicenter CLI | Proposed (amends 0546, 0549, 0556, 0558, 0565, and 0578) |
+| [0604](0604-a-page-sends-through-one-send-that-keeps-desktop-secrets-in-the-epicenter-cli.md) | A page sends through one send that keeps desktop secrets in the epicenter CLI | Proposed (amends 0557, 0564, 0570, and 0587) |
 | [0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) | An app is an ordinary single-page app in a forkable Git repository | Accepted (supersedes 0597 and 0600; amends 0539, 0546, 0556, 0558, 0560, 0561, 0569, 0585, 0586, 0588, 0589, 0590, and 0598) |
 | [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | A third-party browser app signs in by a client metadata document on its own origin | Accepted (amends 0578 and 0589) |
 | [0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) | An app opens any data folder by its id, on every host | Accepted (amends 0570, 0584, 0585, 0586, 0587, and 0590; amended by 0610) |
