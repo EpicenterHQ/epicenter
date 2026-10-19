@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-19
 - **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (the data Git records), [ADR-0620](0620-history-in-a-repository-only-grows.md) (conditional, fast-forward server updates), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (field and text-region merging), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser engine this would amend), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (offline reads and saves), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (the summary this would amend).
-- **Unbuilt:** the replacement browser engine, its revision-checked publications, isolated fetch workspaces, ancestry recovery, safe collection, and coalesced attempts. Local transport probes exercised isomorphic-git against native Git, not this IndexedDB engine, Cloudflare Artifacts, or an iPhone.
+- **Unbuilt:** the replacement browser engine, its isolated fetch workspaces, ancestry recovery, safe collection, and coalesced attempts. Separate local Git transport and IndexedDB contention prototypes exercise parts of the design, not the complete engine, Cloudflare Artifacts, or an iPhone.
 
 ## Context
 
@@ -20,6 +20,12 @@ This proposed amendment specifies the safety conditions behind the approved
 coordination change. It removes ADR-0623's synchronous-only save requirement
 and uses one repository revision to validate refs and the complete edit set.
 
+The owner also chose a whole active repository available offline, browser
+support focused on Epicenter's Git service, automatic conflict resolution,
+and recovery of committed versions through ordinary Git. Every intermediate
+save need not become a recoverable version. Sync may wait for a pause in
+editing; offline saves must continue.
+
 ## Decision
 
 **Storage and sync preserve ADR-0622's merge units.** Markdown frontmatter
@@ -28,6 +34,14 @@ text merge by diff3 region. Independent fields and body regions survive.
 Simultaneous insertions both stay, and an edit beats a deletion it never saw.
 Competing replacements of the same unit follow ADR-0622's winner rule.
 Passing complete files to the merge does not make the file the winning unit.
+
+**The browser keeps the whole active repository for offline use.** It need
+only support Epicenter's Git service. This narrows the compatibility target;
+it does not add a custom sync protocol, selective offline files, or a partial
+repository cache. Git records committed versions; the app needs no conflict
+review UI or history of every intermediate local save.
+Whole describes the current files; retained Git history follows the snapshot
+boundary rule below.
 
 **No browser page owns synchronization across tabs.** Each page runs at most
 one attempt per open repository at a time and coalesces requests made while
@@ -112,6 +126,13 @@ failure counter, or jitter system is required. Respect a server's
 `Retry-After` deadline. Timing is a resource policy, not part of merge or
 publication correctness.
 
+**Sync may wait for a pause in editing.** Saves still acknowledge local
+transaction completion while offline. A revision mismatch during sync may
+end the attempt and leave work for the next trigger after edits settle.
+ADR-0623's maximum 60-second wait does not apply while editing continues.
+Do not add per-edit bases or ownership machinery to guarantee network
+publication during uninterrupted typing.
+
 ## Consequences
 
 - A suspended page needs no ownership transfer. Its resumed operations face
@@ -124,13 +145,18 @@ publication correctness.
   adding per-edit bases and revisions to avoid those retries.
 - A device may remain pending until another scheduled attempt succeeds.
   Closing a page needs no network completion; acknowledged saves are local.
+- Another device may not see changes until editing pauses and a sync
+  succeeds. Committed versions remain recoverable through Git; an overlapping
+  save replaced before any commit may have no history entry.
 - Temporary recovery traffic can grow with server activity since B. Bounded
   retained snapshots do not promise a bounded recovery download.
 - The actual engine must demonstrate transaction aborts, new edits during
   publication, delayed pushes, shared-object collection, and mobile reopening.
-  Two tabs must also demonstrate adoption progress while one saves every
-  second, with unpacking completed before the revision snapshot; repeat with
-  large overlapping text edits and unrelated paths.
+  Two tabs must demonstrate preserved saves and adoption after editing pauses,
+  with unpacking completed before the revision snapshot. A desktop prototype
+  exercised revision checks, independent fields/body regions, and ordinary
+  reopening ([results](../../packages/folder/evidence/revision/RESULTS.md));
+  the actual engine must reproduce them on the target phone.
   Artifacts must demonstrate the conditional Git updates and recovery fetches
   required here. Existing storage benchmarks do not prove these transitions.
 
