@@ -849,4 +849,5 @@ When you add an ADR, add its row here.
 | [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
 | [0635](0635-generic-desktop-data-tools-are-deferred.md) | Generic desktop data tools are deferred | Accepted (amends 0611 and 0627) |
 | [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Proposed (amends 0584, 0626, and 0633) |
+| [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Proposed (amends 0592, 0611, and 0621) |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
