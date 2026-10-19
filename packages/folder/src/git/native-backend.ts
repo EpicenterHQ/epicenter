@@ -19,8 +19,8 @@
  *
  * The backend reaches the machine only through its host: a `git` runner and
  * directory primitives, which `native-host.ts` supplies in Bun and Node. A
- * desktop page runs none of this: the `epicenter` CLI runs it for the page
- * (ADR-0559, `tauri-history.ts`).
+ * desktop page runs none of this: the `epicenter` CLI runs it (ADR-0559,
+ * `runHistory` in `bun.ts`).
  */
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
@@ -356,8 +356,8 @@ export async function createNativeGitBackend({
 		},
 		async ignoredPaths(candidates, current) {
 			// With no repository there is no `git` to ask: the folder's own
-			// `.gitignore` files decide, as in a browser folder. Its first
-			// commit creates the repository and asks `git` first.
+			// `.gitignore` files decide. Its first commit creates the
+			// repository and asks `git` first.
 			if (!(await exists())) {
 				const ignored = gitignoreMatcher(current);
 				return new Set(candidates.filter((path) => ignored(path)));

@@ -2,21 +2,18 @@
 	"name": "@epicenter/folder",
 	"version": "0.0.1",
 	"private": true,
-	"description": "File-authoritative folders: Markdown tables, ordinary files, and Git history, opened in a browser, in the Tauri desktop app, or over a directory in Bun.",
+	"description": "One local Folder: Markdown tables and ordinary files, opened as a browser origin's default folder, a directory the Tauri desktop app registered, or a directory in Bun.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
-		"./file-browser": "./src/file-browser.ts",
-		"./query": "./src/query.ts",
-		"./svelte": "./src/svelte/editor.svelte.ts"
+		"./file-browser": "./src/file-browser.ts"
 	},
 	"scripts": {
-		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --path-ignore-patterns='src/svelte/**' && bun run test:svelte",
-		"test:svelte": "bun test --isolate --conditions=browser src/svelte",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test --isolate",
 		"test:engine": "bun test --isolate src/browser/ src/shared/",
 		"smoke:local": "bun smoke/local.ts",
 		"smoke:sync:local": "bun smoke/sync.ts",
@@ -29,34 +26,16 @@
 		"diff": "^8.0.4",
 		"ignore": "^7.0.5",
 		"isomorphic-git": "1.38.5",
-		"nanoid": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"
 	},
-	"peerDependencies": {
-		"@tanstack/query-core": "^5.82.0",
-		"svelte": "^5.9.0"
-	},
-	"peerDependenciesMeta": {
-		"@tanstack/query-core": {
-			"optional": true
-		},
-		"svelte": {
-			"optional": true
-		}
-	},
 	"devDependencies": {
-		"@tanstack/query-core": "catalog:",
 		"@types/bun": "catalog:",
 		"fake-indexeddb": "^6.2.6",
 		"playwright": "^1.61.1",
 		"typescript": "catalog:",
-		"vite": "catalog:",
-		"svelte": "catalog:",
-		"svelte-check": "catalog:",
-		"jsdom": "26.1.0",
-		"@types/jsdom": "21.1.7"
+		"vite": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

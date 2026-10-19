@@ -5,9 +5,8 @@
  * attribute files name a Git filter means something else by those bytes
  * (under `filter=lfs` a blob is a pointer), so Sync refuses it before a file,
  * the index, or the branch changes (ADR-0592). Line-ending attributes change
- * nothing Sync writes, so a commit declaring them syncs. These run the same
- * cases against a browser folder and a directory folder, which is what the
- * desktop app opens.
+ * nothing Sync writes, so a commit declaring them syncs. These run against a
+ * directory's history, as the `epicenter` CLI runs it.
  *
  * Key behaviors:
  * - An LFS filter at the root or in a nested attribute file is refused,
@@ -36,21 +35,16 @@ import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openFolder as openBrowserFolder } from './browser.js';
-import {
-	browserStorage,
-	configureRemote,
-	createTestStorage,
-	dumpStorage,
-} from './browser-storage.test-support.js';
-import { defineFolder, type LegacyFolder as Folder } from './contract.js';
+import { defineFolder } from './bun.js';
 import { formatDefinition } from './declaration.js';
-import { openNativeFolder } from './directory.test-support.js';
+import {
+	type DirectoryHistory,
+	openDirectoryHistory,
+} from './directory-history.test-support.js';
 import {
 	createBareRemote,
 	GIT_ENV,
 	git,
-	gitHttpFetch,
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
@@ -58,7 +52,6 @@ import {
 const definition = defineFolder({
 	tables: {},
 });
-type Opened = Folder<typeof definition>;
 const author = { name: 'Reader', email: 'reader@example.test' };
 const decoder = new TextDecoder();
 
@@ -66,7 +59,6 @@ const decoder = new TextDecoder();
 const LFS_POINTER =
 	'version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\nsize 12345\n';
 
-const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
 beforeAll(() => {
 	Object.assign(process.env, {
@@ -75,16 +67,14 @@ beforeAll(() => {
 	});
 });
 afterAll(() => {
-	globalThis.fetch = originalFetch;
 	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
 		if (originalEnv[key] === undefined) delete process.env[key];
 		else process.env[key] = originalEnv[key];
 });
 
-const opened: Opened[] = [];
+const opened: DirectoryHistory[] = [];
 afterEach(async () => {
 	for (const folder of opened.splice(0)) await folder.close();
-	globalThis.fetch = originalFetch;
 });
 
 /** Every file below `root` outside fetched objects and remote refs, hashed. */
@@ -113,7 +103,7 @@ async function dumpDirectory(root: string) {
  * A folder that fast-forwarded to an upstream commit holding real audio, and
  * the plain Git clone that upstream commits are made in.
  */
-async function incoming(kind: 'browser' | 'directory') {
+async function incoming() {
 	const root = await scratch('incoming-');
 	const bare = await createBareRemote(root);
 	// Another program's clone: plain Git, so it can commit what a folder
@@ -127,8 +117,7 @@ async function incoming(kind: 'browser' | 'directory') {
 	await writeFile(join(upstream, 'notes.md'), 'line one\nline two\n');
 	// Lets the folder keep a local, ignored attribute file of its own.
 	await writeFile(join(upstream, '.gitignore'), '.gitattributes\n');
-	// The declaration a folder of this definition publishes before its first
-	// write, so that write leaves the folder clean.
+	// The root `epicenter.json` a data folder commits for the CLI's readers.
 	await writeFile(
 		join(upstream, 'epicenter.json'),
 		formatDefinition(definition),
@@ -137,48 +126,17 @@ async function incoming(kind: 'browser' | 'directory') {
 	await git(upstream, 'commit', '--quiet', '-m', 'audio');
 	await git(upstream, 'push', '--quiet', 'origin', 'main');
 
-	let folder: Opened;
-	let untouched: () => Promise<Record<string, string>>;
-	if (kind === 'browser') {
-		globalThis.fetch = await gitHttpFetch(root);
-		const environment = createTestStorage();
-		await configureRemote(
-			environment,
-			'so.epicenter.incomingtest',
-			'http://git.test/remote.git',
-		);
-		folder = expectOk(
-			await openBrowserFolder({
-				app: 'so.epicenter.incomingtest',
-				definition,
-				browser: {
-					author,
-					...browserStorage(environment),
-				},
-			}),
-		);
-		// The fetch itself records the remote head and its objects; a refused
-		// Sync must change nothing else.
-		untouched = () =>
-			dumpStorage(
-				environment,
-				'so.epicenter.incomingtest',
-				(key) =>
-					key.startsWith('/git/objects/') ||
-					key.startsWith('/git/refs/remotes/') ||
-					key === '/git/FETCH_HEAD',
-			);
-	} else {
-		const local = join(root, 'local');
-		await mkdir(local);
-		await initWithOrigin(local, bare);
-		folder = await openNativeFolder({
-			root: local,
-			definition,
-			git: { author },
-		});
-		untouched = () => dumpDirectory(local);
-	}
+	const local = join(root, 'local');
+	await mkdir(local);
+	await initWithOrigin(local, bare);
+	const folder = await openDirectoryHistory({
+		root: local,
+		definition,
+		git: { author },
+	});
+	// The fetch itself records the remote head and its objects; a refused
+	// Sync must change nothing else.
+	const untouched = () => dumpDirectory(local);
 	opened.push(folder);
 	// Seed the initial remote tree before testing later incoming attributes.
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
@@ -203,17 +161,16 @@ async function incoming(kind: 'browser' | 'directory') {
 		 */
 		async refusedUntouched(path: string, reasonHolds: string) {
 			const head = expectOk(await folder.git.log(1))[0]?.oid;
-			// Looking at a browser folder's status refreshes the index's stat
-			// cache, as `git status` does. Look once first, so the comparison
-			// below sees only what the refused Sync itself wrote: nothing.
+			// Looking at status may refresh the index's stat cache, as `git
+			// status` does. Look once first, so the comparison below sees only
+			// what the refused Sync itself wrote: nothing.
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			const before = await untouched();
-			const heard: string[] = [];
-			const stop = folder.onFilesChanged((paths) => heard.push(...paths));
+			const landedBefore = folder.landed.length;
 
 			const refused = expectErr(await folder.sync.run());
 
-			stop();
+			const heard = folder.landed.slice(landedBefore);
 			expect(refused.name).toBe('Unrepresentable');
 			if (refused.name !== 'Unrepresentable') return;
 			expect(refused.paths).toEqual([path]);
@@ -229,14 +186,11 @@ async function incoming(kind: 'browser' | 'directory') {
 	};
 }
 
-describe.each([
-	'browser',
-	'directory',
-] as const)('%s folder incoming attributes', (kind) => {
+describe('directory incoming attributes', () => {
 	test('an incoming commit that declares an LFS filter is refused before any write', async () => {
 		// At the root: the remote starts tracking audio with LFS and replaces
 		// the bytes with a pointer.
-		const rooted = await incoming(kind);
+		const rooted = await incoming();
 		await writeFile(
 			join(rooted.upstream, '.gitattributes'),
 			'*.wav filter=lfs diff=lfs merge=lfs -text\n',
@@ -249,7 +203,7 @@ describe.each([
 		).toBe('NotFound');
 
 		// In a nested attribute file, selecting only files below it.
-		const nested = await incoming(kind);
+		const nested = await incoming();
 		await writeFile(
 			join(nested.upstream, 'rec/nested/.gitattributes'),
 			'deep.wav filter=lfs\n',
@@ -260,7 +214,7 @@ describe.each([
 	});
 
 	test('an incoming commit that declares line endings syncs, and each file keeps the bytes the commit stores', async () => {
-		const converting = await incoming(kind);
+		const converting = await incoming();
 		await writeFile(
 			join(converting.upstream, '.gitattributes'),
 			'* text=auto\n*.md text eol=crlf\n',
@@ -280,12 +234,11 @@ describe.each([
 
 	test("the folder's own attribute file does not mask the incoming commit's", async () => {
 		// In the folder the audio is declared plain; upstream declares a filter.
-		const masked = await incoming(kind);
+		const masked = await incoming();
 		expectOk(
 			await masked.folder.write('.gitattributes', null, '*.wav -filter\n'),
 		);
-		// Ignored by the committed `.gitignore`, and the declaration this first
-		// write published matches the committed one, so the folder is still clean.
+		// Ignored by the committed `.gitignore`, so the folder is still clean.
 		expect(expectOk(await masked.folder.git.status()).changes).toEqual([]);
 		await writeFile(
 			join(masked.upstream, '.gitattributes'),
@@ -302,7 +255,7 @@ describe.each([
 	});
 
 	test('pointer-shaped text with no declared filter syncs byte for byte', async () => {
-		const plain = await incoming(kind);
+		const plain = await incoming();
 		// Someone keeps an LFS pointer as an ordinary file, and declares
 		// attributes that change no bytes.
 		await writeFile(join(plain.upstream, 'rec/take.wav'), LFS_POINTER);
@@ -312,15 +265,14 @@ describe.each([
 			'*.wav -text diff=audio\n*.md linguist-documentation\n',
 		);
 		const head = await plain.publish('keep a pointer as plain text');
-		const heard: string[] = [];
-		plain.folder.onFilesChanged((paths) => heard.push(...paths));
+		const landedBefore = plain.folder.landed.length;
 
 		expect(expectOk(await plain.folder.sync.run())).toEqual({
 			kind: 'synced',
 			head,
 		});
-		// An update that landed is announced, with the paths it reached.
-		expect(heard.sort()).toEqual([
+		// An update that landed reports the paths it reached.
+		expect(plain.folder.landed.slice(landedBefore).sort()).toEqual([
 			'.gitattributes',
 			'example-pointer.txt',
 			'rec/take.wav',

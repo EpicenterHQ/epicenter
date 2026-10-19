@@ -1,7 +1,7 @@
 /**
  * The native `Folder`: the handle `openFolder({ directory, tables })` returns
- * over an ordinary directory, with the same shape and `Result` semantics as
- * the browser's default local folder (`local-folder.ts`).
+ * over an ordinary directory, the same handle (`handle.ts`) and `Result`
+ * semantics as the browser's default local folder (`local-folder.ts`).
  *
  * The directory's files are the saved data. There is no store beside them:
  * every read goes to the host's storage (`boundary.ts`), and every save is
@@ -29,16 +29,16 @@ import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileRead, FolderStorage } from '../boundary.js';
 import type { FileError } from '../errors.js';
-import { hashBytes } from '../hash.js';
 import type {
 	Folder,
 	FolderChange,
-	FolderStatus,
-	LocalFiles,
-	LocalTable,
-} from '../local-folder.js';
+	FolderFiles,
+	FolderTable,
+} from '../folder.js';
+import { folderHandle } from '../handle.js';
+import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
-import { pathProblem, rowAddressProblem } from '../paths.js';
+import { pathProblem, readablePath, rowAddressProblem } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
@@ -64,31 +64,16 @@ export function invalidTable(
 }
 
 /**
- * Whether `path` could name a file in any folder: nonempty `/`-separated
- * segments, none `.`, `..`, or `.git`, well-formed, and without NUL. A path
- * that fails it reads as absent and is refused for a save. One that passes
- * but that this disk's names cannot address (`pathProblem`) may still be a
- * file a person made, so a read reports why it cannot be read.
+ * Structural admission for existing source. The host checks literal names
+ * and refuses links. New paths must also pass `pathProblem`.
  */
-function structural(path: string): boolean {
-	return (
-		typeof path === 'string' &&
-		path !== '' &&
-		path.isWellFormed() &&
-		!path.includes('\0') &&
-		!path
-			.split('/')
-			.some(
-				(part) =>
-					part === '' ||
-					part === '.' ||
-					part === '..' ||
-					part.toLowerCase() === '.git',
-			)
-	);
-}
+const structural = readablePath;
 
-/** Whether `id` addresses a row of `table`: one nonempty, portable segment. */
+/** Existing rows may have names a new cross-platform save would refuse. */
+const readableId = (table: string, id: string) =>
+	typeof id === 'string' && !id.includes('/') && structural(`${table}/${id}.md`);
+
+/** Whether `id` addresses a new writable row: one nonempty, portable segment. */
 const validId = (table: string, id: string) =>
 	typeof id === 'string' &&
 	id !== '' &&
@@ -244,7 +229,7 @@ export function createNativeFolder<
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
 		const change = content instanceof Uint8Array ? content.slice() : content;
-		if (!structural(path) || pathProblem(path) !== undefined)
+		if (!structural(path) || (pathProblem(path) !== undefined && base === null))
 			return SaveError.InvalidPath({ path });
 		if (
 			typeof change === 'string' &&
@@ -259,6 +244,8 @@ export function createNativeFolder<
 					return Ok({ deleted: false });
 				return Err(await refusal(path, error));
 			}
+			if (pathProblem(path) !== undefined && found === null)
+				return SaveError.InvalidPath({ path });
 			if (change !== null && found === null) {
 				const twin = await caseTwin(path);
 				if (twin !== undefined)
@@ -307,60 +294,10 @@ export function createNativeFolder<
 		return ReadError.StorageFailed({ cause: result.error });
 	}
 
-	/**
-	 * Remove every file and directory in `directory`, deepest first, each file
-	 * guarded by the bytes read from it. `removed` hears each path that went.
-	 */
-	async function removeTree(
-		directory: string,
-		removed: string[],
-	): Promise<Result<undefined, SaveError>> {
-		const { data: listing, error } = await storage.list();
-		if (error !== null) return SaveError.StorageFailed({ cause: error });
-		const prefix = `${directory}/`;
-		for (const { path } of listing.files) {
-			if (!path.startsWith(prefix)) continue;
-			for (let attempt = 0; ; attempt++) {
-				const { data: found, error: readError } = await current(path);
-				if (readError !== null)
-					return SaveError.StorageFailed({ cause: readError });
-				if (found === null) break;
-				const { data: outcome, error: putError } = await put(
-					path,
-					null,
-					found.sha256,
-				);
-				if (putError !== null) return Err(putError);
-				if (outcome === 'landed') {
-					removed.push(path);
-					break;
-				}
-				if (attempt + 1 >= SAVE_ATTEMPTS)
-					return SaveError.StorageFailed({
-						cause: new Error(`${path} kept changing while it was removed`),
-					});
-			}
-		}
-		const directories = listing.directories
-			.filter((path) => path.startsWith(prefix))
-			.sort((a, b) => b.split('/').length - a.split('/').length);
-		for (const path of [...directories, directory]) {
-			const gone = await storage.rmdir(path);
-			if (gone.error === null) removed.push(path);
-			// No folder is there, or a file that is no row's folder stays.
-			else if (
-				gone.error.name !== 'NotFound' &&
-				!(path === directory && gone.error.name === 'NotADirectory')
-			)
-				return SaveError.StorageFailed({ cause: gone.error });
-		}
-		return Ok(undefined);
-	}
-
 	function table<const TSchema extends Schema>(
 		name: string,
 		schema: TSchema,
-	): LocalTable<TSchema> {
+	): FolderTable<TSchema> {
 		const rowPath = (id: string) => `${name}/${id}.md`;
 		return {
 			list() {
@@ -374,7 +311,7 @@ export function createNativeFolder<
 					for (const file of children.files) {
 						if (!file.endsWith('.md')) continue;
 						const id = file.slice(0, -3);
-						if (!validId(name, id)) continue;
+						if (!readableId(name, id)) continue;
 						const { data: found, error: readError } = await current(
 							rowPath(id),
 						);
@@ -394,7 +331,7 @@ export function createNativeFolder<
 			},
 			get(id) {
 				return read(async () => {
-					if (!validId(name, id)) return Ok(undefined);
+					if (!readableId(name, id)) return Ok(undefined);
 					const { data: found, error } = await current(rowPath(id));
 					if (error !== null)
 						return error.name === 'NotAFile' ? Ok(undefined) : Err(error);
@@ -404,7 +341,8 @@ export function createNativeFolder<
 				});
 			},
 			async set(id, from, change: RowChange) {
-				if (!validId(name, id)) return SaveError.InvalidId({ id });
+				if (!validId(name, id) && (from === null || !readableId(name, id)))
+					return SaveError.InvalidId({ id });
 				if (
 					change.body !== undefined &&
 					(typeof change.body !== 'string' ||
@@ -427,91 +365,37 @@ export function createNativeFolder<
 				return Ok({ sent: readRow(id, sent.data.text, schema) });
 			},
 			async delete(id, from) {
-				if (!validId(name, id)) return SaveError.InvalidId({ id });
+				if (!validId(name, id) && (from === null || !readableId(name, id)))
+					return SaveError.InvalidId({ id });
 				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
 					return SaveError.NotText();
-				const base = from?.text ?? null;
-				const path = rowPath(id);
-				const removed: string[] = [];
-				let vacant = false;
-				for (let attempt = 0; attempt < SAVE_ATTEMPTS && !vacant; attempt++) {
-					const { data: found, error } = await current(path);
-					if (error !== null) {
-						if (error.name === 'NotAFile') return Ok({ deleted: false });
-						return Err(await refusal(path, error));
-					}
-					const merged = await merge(path, {
-						base,
-						current: found?.bytes ?? null,
-						change: null,
-					});
-					// An edit this delete did not see keeps the row and its files.
-					if (merged.content !== null) return Ok({ deleted: false });
-					if (found === null) {
-						vacant = true;
-						continue;
-					}
-					const { data: outcome, error: putError } = await put(
-						path,
-						null,
-						found.sha256,
-					);
-					if (putError !== null) return Err(putError);
-					if (outcome === 'stale') continue;
-					removed.push(path);
-					vacant = true;
-				}
-				if (!vacant)
-					return SaveError.StorageFailed({
-						cause: new Error(
-							`${path} kept changing while it was deleted, ${SAVE_ATTEMPTS} times`,
-						),
-					});
-				const tree = await removeTree(`${name}/${id}`, removed);
-				landed(removed);
-				if (tree.error !== null) {
-					if (removed.includes(path) && tree.error.name === 'StorageFailed')
-						return SaveError.StorageFailed({
-							cause: new Error(
-								`Deleted ${path}, but not every file in ${name}/${id}/: ${tree.error.message}`,
-							),
-						});
-					return Err(tree.error);
-				}
-				return Ok({ deleted: true });
-			},
-			files(id) {
-				return files(`${name}/${id}/`, validId(name, id) ? undefined : id);
+				return saveFile(rowPath(id), from?.text ?? null, null);
 			},
 		};
 	}
 
-	/** The files under `root`; `invalidId` makes every call refuse that row id. */
-	function files(root = '', invalidId?: string): LocalFiles {
+	function files(): FolderFiles {
 		return {
 			list(prefix = '') {
 				return read(async () => {
-					if (
-						invalidId !== undefined ||
-						(prefix !== '' && !structural(prefix.replace(/\/$/, '')))
-					)
+					if (prefix !== '' && !structural(prefix.replace(/\/$/, '')))
 						return Ok([]);
 					const { data: listing, error } = await storage.list();
 					if (error !== null) return Err(error);
 					return Ok(
 						listing.files
 							.map((file) => file.path)
-							.filter((path) => path.startsWith(root + prefix))
+							.filter((path) => path.startsWith(prefix))
 							.sort()
-							.map((path) => path.slice(root.length)),
+							.map((path) => path),
 					);
 				});
 			},
 			read(path) {
 				return read(async () => {
-					if (invalidId !== undefined || !structural(path))
+					if (!structural(path))
 						return Ok(undefined);
-					const { data: found, error } = await current(root + path);
+					const { data: found, error } = await current(path);
 					if (error !== null)
 						return error.name === 'NotAFile' ? Ok(undefined) : Err(error);
 					if (found === null) return Ok(undefined);
@@ -519,17 +403,13 @@ export function createNativeFolder<
 				});
 			},
 			async write(path, from, content) {
-				if (invalidId !== undefined)
-					return SaveError.InvalidId({ id: invalidId });
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				const saved = await saveFile(root + path, from, content);
+				const saved = await saveFile(path, from, content);
 				return saved.error !== null ? Err(saved.error) : Ok(undefined);
 			},
 			async delete(path, from) {
-				if (invalidId !== undefined)
-					return SaveError.InvalidId({ id: invalidId });
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				return saveFile(root + path, from, null);
+				return saveFile(path, from, null);
 			},
 		};
 	}
@@ -541,7 +421,7 @@ export function createNativeFolder<
 				name,
 				table(name, schema),
 			]),
-		) as Record<string, LocalTable>,
+		) as Record<string, FolderTable>,
 		subscribe(listener: (change: FolderChange) => void) {
 			listeners.add(listener);
 			return () => {
@@ -556,149 +436,5 @@ export function createNativeFolder<
 			detected?.stop();
 		},
 	};
-	return handle(engine, tables);
-}
-
-/**
- * The caller-facing handle over the engine: status, the operations `close`
- * waits for, and the error thrown on a closed handle. The same rules as the
- * browser's local folder (`local-folder.ts`).
- */
-function handle<const TTables extends Record<string, Schema>>(
-	engine: {
-		readonly files: LocalFiles;
-		readonly tables: Record<string, LocalTable>;
-		subscribe(listener: (change: FolderChange) => void): () => void;
-		close(): void;
-	},
-	tables: TTables,
-): Folder<TTables> {
-	let closing: Promise<void> | undefined;
-	const inflight = new Set<Promise<unknown>>();
-	let saves = 0;
-	let status: FolderStatus = {
-		state: 'local',
-		saving: false,
-		storageFailure: null,
-	};
-	const statusListeners = new Set<(status: FolderStatus) => void>();
-
-	function assertOpen() {
-		if (closing !== undefined) throw new Error('The folder is closed');
-	}
-
-	function publishStatus(storageFailure = status.storageFailure) {
-		const next: FolderStatus = {
-			state: 'local',
-			saving: saves > 0,
-			storageFailure,
-		};
-		if (
-			next.saving === status.saving &&
-			next.storageFailure === status.storageFailure
-		)
-			return;
-		status = next;
-		for (const listener of [...statusListeners])
-			callObserver('status listener', listener, next);
-	}
-
-	/** Track the operation so `close` can wait for it. */
-	function track<T>(run: () => Promise<T>): Promise<T> {
-		assertOpen();
-		let resolve!: (value: T) => void;
-		let reject!: (reason: unknown) => void;
-		const operation = new Promise<T>((accepted, refused) => {
-			resolve = accepted;
-			reject = refused;
-		});
-		inflight.add(operation);
-		const done = () => inflight.delete(operation);
-		operation.then(done, done);
-		// `run` can notify a status observer synchronously. That observer may
-		// close the folder, so close must already see this operation.
-		try {
-			Promise.resolve(run()).then(resolve, reject);
-		} catch (cause) {
-			reject(cause);
-		}
-		return operation;
-	}
-
-	function save<T>(work: () => Promise<Result<T, SaveError>>) {
-		return track(async () => {
-			saves++;
-			publishStatus();
-			let result: Result<T, SaveError>;
-			try {
-				result = await work();
-			} catch (cause) {
-				saves--;
-				publishStatus();
-				throw cause;
-			}
-			saves--;
-			publishStatus(
-				result.error === null
-					? null
-					: result.error.name === 'StorageFailed'
-						? result.error
-						: status.storageFailure,
-			);
-			return result;
-		});
-	}
-
-	function wrapFiles(files: LocalFiles): LocalFiles {
-		return {
-			list: (prefix) => track(() => files.list(prefix)),
-			read: (path) => track(() => files.read(path)),
-			write: (path, from, content) =>
-				save(() => files.write(path, from, content)),
-			delete: (path, from) => save(() => files.delete(path, from)),
-		};
-	}
-
-	function wrapTable(table: LocalTable): LocalTable {
-		return {
-			list: () => track(() => table.list()),
-			get: (id) => track(() => table.get(id)),
-			set: (id, from, change) => save(() => table.set(id, from, change)),
-			delete: (id, from) => save(() => table.delete(id, from)),
-			files: (id) => wrapFiles(table.files(id)),
-		};
-	}
-
-	const folder: Folder<Record<string, Schema>> = {
-		files: wrapFiles(engine.files),
-		tables: Object.fromEntries(
-			Object.keys(tables).map((name) => [
-				name,
-				wrapTable(engine.tables[name]!),
-			]),
-		),
-		onChange(listener) {
-			assertOpen();
-			return engine.subscribe(listener);
-		},
-		get status() {
-			return status;
-		},
-		onStatusChange(listener) {
-			assertOpen();
-			statusListeners.add(listener);
-			return () => {
-				statusListeners.delete(listener);
-			};
-		},
-		close() {
-			closing ??= (async () => {
-				await Promise.allSettled([...inflight]);
-				statusListeners.clear();
-				engine.close();
-			})();
-			return closing;
-		},
-	};
-	return folder as unknown as Folder<TTables>;
+	return folderHandle(engine, tables);
 }

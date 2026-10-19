@@ -1,5 +1,6 @@
 import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { pathProblem, readablePath, rowAddressProblem } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
@@ -24,28 +25,18 @@ const encoder = new TextEncoder();
 /** Exact request identity captured by the transaction that published pending C. */
 export type PendingCommit = { base: string | null; head: string };
 
-function validPath(path: string): boolean {
-	return (
-		typeof path === 'string' &&
-		path.length > 0 &&
-		!path.includes('\0') &&
-		path.isWellFormed() &&
-		!path
-			.split('/')
-			.some(
-				(part) =>
-					part === '' ||
-					part === '.' ||
-					part === '..' ||
-					part.toLowerCase() === '.git',
-			)
-	);
-}
+const validPath = (path: string) =>
+	readablePath(path) && pathProblem(path) === undefined;
 
-const validId = (id: string) => validPath(id) && !id.includes('/');
+const readableId = (table: string, id: string) =>
+	typeof id === 'string' && !id.includes('/') && readablePath(`${table}/${id}.md`);
+
+const validId = (table: string, id: string) =>
+	typeof id === 'string' && id !== '' && id.isWellFormed() && rowAddressProblem(table, id) === undefined;
 
 /** A table is one top-level directory. */
-export const isTableName = validId;
+export const isTableName = (name: string) =>
+	typeof name === 'string' && name.isWellFormed() && !name.includes('/') && pathProblem(name) === undefined;
 
 function caseTwin(
 	path: string,
@@ -149,7 +140,8 @@ export async function openRepository<
 		const base = from instanceof Uint8Array ? from.slice() : from;
 		const change = content instanceof Uint8Array ? content.slice() : content;
 		return save(async () => {
-			if (!validPath(path)) return SaveError.InvalidPath({ path });
+			if (!validPath(path) && (base === null || !readablePath(path)))
+				return SaveError.InvalidPath({ path });
 			if (
 				typeof change === 'string' &&
 				(change.includes('\0') || !change.isWellFormed())
@@ -159,6 +151,8 @@ export async function openRepository<
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
 				const paths = snapshotPaths(snapshot);
+				if (!validPath(path) && !paths.has(path))
+					return SaveError.InvalidPath({ path });
 				if (change !== null) {
 					const directories = snapshotDirectories(snapshot);
 					const twin = caseTwin(path, new Set([...paths, ...directories]));
@@ -225,7 +219,7 @@ export async function openRepository<
 					for (const path of [...snapshotPaths(snapshot)].sort()) {
 						if (!path.startsWith(`${name}/`) || !path.endsWith('.md')) continue;
 						const id = path.slice(name.length + 1, -3);
-						if (!validId(id)) continue;
+						if (!readableId(name, id)) continue;
 						const content = snapshotContent(snapshot, path);
 						if (content !== null) rows.push(readRow(id, content, schema));
 					}
@@ -234,7 +228,7 @@ export async function openRepository<
 			},
 			get(id: string) {
 				return read(async () => {
-					if (!validId(id)) return undefined;
+					if (!readableId(name, id)) return undefined;
 					const content = snapshotContent(
 						await storage.capture([rowPath(id)]),
 						rowPath(id),
@@ -248,7 +242,8 @@ export async function openRepository<
 				change: RowChange,
 			): Promise<Result<{ sent: Row<TSchema> }, SaveError>> {
 				return save(async () => {
-					if (!validId(id)) return SaveError.InvalidId({ id });
+					if (!validId(name, id) && (from === null || !readableId(name, id)))
+						return SaveError.InvalidId({ id });
 					if (
 						change.body !== undefined &&
 						(typeof change.body !== 'string' ||
@@ -275,80 +270,39 @@ export async function openRepository<
 				id: string,
 				from: Row<TSchema> | null,
 			): Promise<Result<{ deleted: boolean }, SaveError>> {
-				const base = from?.text ?? null;
-				const notText = from?.issues?.some(
-					(issue) => issue.kind === 'not-text',
-				);
-				return save<{ deleted: boolean }>(async () => {
-					if (!validId(id)) return SaveError.InvalidId({ id });
-					if (notText) return SaveError.NotText();
-					const path = rowPath(id);
-					for (;;) {
-						const snapshot = await storage.capture([path]);
-						const directories = snapshotDirectories(snapshot);
-						if (directories.has(path)) return Ok({ deleted: false });
-						if (
-							snapshotContent(snapshot, path) === null &&
-							snapshotPaths(snapshot).has(path)
-						)
-							return Ok({ deleted: false });
-						const merged = await merge(path, {
-							base,
-							current: snapshotContent(snapshot, path),
-							change: null,
-						});
-						if (merged.content !== null) return Ok({ deleted: false });
-						const changes = new Map<string, null>([[path, null]]);
-						if (directories.has(`${name}/${id}`))
-							changes.set(`${name}/${id}`, null);
-						// The folder tombstone removes committed children, including raw
-						// names. Only pending children need individual cleanup.
-						for (const child of snapshot.edits.keys())
-							if (child.startsWith(`${name}/${id}/`)) changes.set(child, null);
-						if (
-							await storage.publish({
-								revision: snapshot.state.revision,
-								edits: editPatch(snapshot, changes),
-							})
-						)
-							return Ok({ deleted: true });
-					}
-				});
-			},
-			files(id: string) {
-				return files(`${name}/${id}/`, id);
+				if (!validId(name, id) && (from === null || !readableId(name, id)))
+					return Promise.resolve(SaveError.InvalidId({ id }));
+				if (from?.issues?.some((issue) => issue.kind === 'not-text'))
+					return Promise.resolve(SaveError.NotText());
+				return saveFile(rowPath(id), from?.text ?? null, null);
 			},
 		};
 	}
 
-	function files(root = '', rowId?: string) {
-		const invalidId = rowId !== undefined && !validId(rowId);
+	function files() {
 		return {
 			list(prefix = '') {
 				return read(async () => {
-					if (
-						invalidId ||
-						(prefix !== '' && !validPath(prefix.replace(/\/$/, '')))
-					)
+					if (prefix !== '' && !readablePath(prefix.replace(/\/$/, '')))
 						return [];
-					const snapshot = await storage.capture({ prefix: root + prefix });
+					const snapshot = await storage.capture({ prefix });
 					return [...snapshotPaths(snapshot)]
 						.filter(
 							(path) =>
 								(snapshot.edits.has(path) ||
 									snapshot.head.files.get(path)?.mode !== '160000') &&
-								path.startsWith(root + prefix),
+								path.startsWith(prefix),
 						)
 						.sort()
-						.map((path) => path.slice(root.length));
+						.map((path) => path);
 				});
 			},
 			read(path: string) {
 				return read(async () => {
-					if (invalidId || !validPath(path)) return undefined;
+					if (!readablePath(path)) return undefined;
 					const content = snapshotContent(
-						await storage.capture([root + path]),
-						root + path,
+						await storage.capture([path]),
+						path,
 					);
 					if (content === null) return undefined;
 					const bytes =
@@ -362,18 +316,12 @@ export async function openRepository<
 				content: FileContent,
 			): Promise<Result<void, SaveError>> {
 				assertOpen();
-				if (invalidId) return SaveError.InvalidId({ id: rowId });
-				if (!validPath(path)) return SaveError.InvalidPath({ path });
-				const result = await saveFile(root + path, from, content);
+				const result = await saveFile(path, from, content);
 				return result.error !== null ? Err(result.error) : Ok(undefined);
 			},
 			delete(path: string, from: FileContent | null) {
 				assertOpen();
-				if (invalidId)
-					return Promise.resolve(SaveError.InvalidId({ id: rowId }));
-				if (!validPath(path))
-					return Promise.resolve(SaveError.InvalidPath({ path }));
-				return saveFile(root + path, from, null);
+				return saveFile(path, from, null);
 			},
 		};
 	}

@@ -1,9 +1,11 @@
 /**
- * The folder's one storage contract, which every host implements natively
- * (ADR-0576): a browser over the origin private file system
- * (`opfs-store.ts`), a directory over `node:fs` in Bun
+ * The directory storage contract, which each directory host implements
+ * natively (ADR-0576): a directory over `node:fs` in Bun
  * (`directory-store.ts`), and a desktop page's directory through the shell,
- * one command per method (`tauri-files.ts`, ADR-0581).
+ * one command per method (`tauri-files.ts`, ADR-0581). The native `Folder`
+ * (`native/engine.ts`), the CLI's readers, and a directory's history all
+ * read and change files through it. The browser's default folder keeps its
+ * files in IndexedDB instead (`browser/storage.ts`).
  *
  * `put` is the one change: one file's bytes, or its removal, landing only
  * while the path holds what the caller expects. It lands whole: a reader,
@@ -26,7 +28,7 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { FileError } from './errors.js';
-import { pathProblem } from './paths.js';
+import { pathProblem, readablePath } from './paths.js';
 
 export type FileRead = {
 	readonly bytes: Uint8Array;
@@ -63,9 +65,8 @@ export type FolderStorage = {
 	 * no file. `'stale'` when it does not, and nothing changed. Missing
 	 * parent directories are made for a new file. The bytes land whole. The
 	 * host checks the condition where the change lands, under the folder's
-	 * save lock: the Web Lock in a browser, and in a directory the lock the
-	 * desktop shell and Bun share (ADR-0562). A reply that was lost is
-	 * `Unconfirmed`.
+	 * save lock, the lock the desktop shell and Bun share (ADR-0562). A reply
+	 * that was lost is `Unconfirmed`.
 	 */
 	put(
 		path: string,
@@ -93,8 +94,9 @@ export type LockingStorage = FolderStorage & {
 
 /**
  * A host's own operations on its storage. The storage built over them
- * (`hostStorage`) calls each only with a path `pathProblem` accepts, or the
- * root (`''`) for `children`, and with bytes no caller still holds. `change`
+ * (`hostStorage`) calls writes only with a path `pathProblem` accepts, and
+ * reads with a structurally safe path, including existing nonportable names.
+ * `children` also accepts the root (`''`). Calls carry bytes no caller still holds. `change`
  * is `put`'s change; a listing may come in any order.
  */
 export type HostFiles = Pick<
@@ -197,10 +199,13 @@ export function hostStorage(
 			});
 		},
 		async read(path) {
-			return refusal(path) ?? files.read(path);
+			return readablePath(path)
+				? files.read(path)
+				: FileError.InvalidPath({ path, reason: 'the path cannot be read safely' });
 		},
 		async put(path, bytes, ifMatch) {
-			const refused = refusal(path);
+			const refused =
+				ifMatch !== null && readablePath(path) ? undefined : refusal(path);
 			if (refused) return refused;
 			const owned = bytes === null ? null : new Uint8Array(bytes);
 			let result: Result<'landed' | 'stale', FileError>;

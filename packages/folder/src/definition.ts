@@ -1,10 +1,12 @@
 /**
- * Folder definitions: the shared definition vocabulary, checked for what a
- * file folder can keep.
+ * Folder definitions: the grammar of a data folder's root `epicenter.json`,
+ * which the CLI's `check` and `query` read (ADR-0632), checked for what a
+ * file folder can keep. An app opening a `Folder` supplies TypeBox schemas
+ * instead and needs none of this.
  *
- * A folder definition is how a tool reads and edits a folder's files. It names
- * no dataset: the opener is given the folder's ID, so one definition can read
- * several folders and several definitions can read one.
+ * A folder definition is how a tool reads a folder's files. It names no
+ * dataset, so one definition can read several folders and several
+ * definitions can read one.
  *
  * A folder stores a row as one Markdown file, and its body is the file's text.
  *
@@ -68,10 +70,7 @@ type PreparedDefinition<TDefinition extends Definition> = {
  * Its `local` patterns name files that stay on the machine that wrote them.
  * Every commit leaves out a path they match, and untracks one already
  * committed, whatever `.gitignore` says (`git/scope.ts`). `epicenter.json`
- * carries them, so every host that reads the folder's own definition, the
- * `epicenter` CLI included, excludes the same paths. Before its first write
- * a handle also adds each pattern the root `.gitignore` lacks, so plain `git`
- * agrees (`publish-definition.ts`).
+ * carries them, so the `epicenter` CLI's history excludes the same paths.
  */
 export type { Definition };
 

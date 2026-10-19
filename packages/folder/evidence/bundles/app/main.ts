@@ -1,24 +1,20 @@
 /**
  * The application every bundle test builds. It imports the bare package and
- * nothing else, as ordinary application code does. Which adapter a build
+ * nothing else, as ordinary application code does. Which engine a build
  * carries is decided by the build's alias, never by this file.
  */
-import {
-	defineFolder,
-	defineTable,
-	field,
-	openFolder,
-} from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder';
+import { Type } from 'typebox';
 
-const definition = defineFolder({
-	tables: { notes: defineTable({ fields: { title: field.string() } }) },
-});
+const notes = Type.Object({ title: Type.String() });
 
-export async function start() {
-	const { data: folder, error: openError } = await openFolder({
-		app: 'so.epicenter.bundlefixture',
-		definition,
-	});
+export async function start(directory?: string) {
+	const { data: folder, error: openError } = await openFolder(
+		directory === undefined
+			? { tables: { notes } }
+			: { directory, tables: { notes } },
+	);
 	if (openError !== null) return openError.name;
-	return folder.location.kind;
+	await folder.close();
+	return 'so.epicenter.bundlefixture';
 }

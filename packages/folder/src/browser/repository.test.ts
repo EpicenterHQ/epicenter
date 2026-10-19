@@ -220,9 +220,7 @@ test('table and row-folder writes share the structural collision protection', as
 		);
 		expect(
 			expectErr(
-				await repository.tables.notes
-					.files('one.md')
-					.write('attachment.txt', null, 'collision'),
+				await repository.files.write('notes/one.md/attachment.txt', null, 'collision'),
 			).name,
 		).toBe('Occupied');
 		expect(expectOk(await repository.tables.notes.get('one'))!.fields).toEqual({
@@ -240,9 +238,7 @@ test('table and row-folder writes share the structural collision protection', as
 			title: 'Keep row',
 		});
 		expectOk(
-			await repository.tables.notes
-				.files('two.md')
-				.write('attachment.txt', null, 'keep attachment'),
+			await repository.files.write('notes/two.md/attachment.txt', null, 'keep attachment'),
 		);
 		expect(
 			expectErr(
@@ -252,14 +248,14 @@ test('table and row-folder writes share the structural collision protection', as
 			).name,
 		).toBe('Occupied');
 		expect(
-			expectOk(await repository.tables.notes.files('two.md').list()),
-		).toEqual(['attachment.txt']);
+			expectOk(await repository.files.list('notes/two.md/')),
+		).toEqual(['notes/two.md/attachment.txt']);
 		expect(expectOk(await repository.tables.notes.delete('two', null))).toEqual(
 			{ deleted: false },
 		);
 		expect(
-			expectOk(await repository.tables.notes.files('two.md').list()),
-		).toEqual(['attachment.txt']);
+			expectOk(await repository.files.list('notes/two.md/')),
+		).toEqual(['notes/two.md/attachment.txt']);
 	} finally {
 		repository.close();
 	}
@@ -361,7 +357,7 @@ test('row sent bases preserve another draft, including schema-invalid fields and
 	}
 });
 
-test('row and row-folder deletion publish together or leave both intact', async () => {
+test('row deletion keeps adjacent files and unseen row edits', async () => {
 	const repository = await openRepository(crypto.randomUUID(), {
 		notes: { type: 'object' },
 	});
@@ -371,7 +367,7 @@ test('row and row-folder deletion publish together or leave both intact', async 
 			await table.set('one', null, { fields: { title: 'Before' } }),
 		).sent;
 		expectOk(
-			await table.files('one').write('nested/a.txt', null, 'attachment'),
+			await repository.files.write('notes/one/nested/a.txt', null, 'attachment'),
 		);
 		expectOk(await repository.files.write('keep.md', null, 'keep'));
 		await observeEmpty(repository);
@@ -385,18 +381,18 @@ test('row and row-folder deletion publish together or leave both intact', async 
 		expect(expectOk(await table.delete('one', before))).toEqual({
 			deleted: false,
 		});
-		expect(expectOk(await table.files('one').list())).toEqual(['nested/a.txt']);
+		expect(expectOk(await repository.files.list('notes/one/'))).toEqual(['notes/one/nested/a.txt']);
 		expect(expectOk(await table.delete('one', edited))).toEqual({
 			deleted: true,
 		});
-		expect(expectOk(await repository.files.list())).toEqual(['keep.md']);
+		expect(expectOk(await repository.files.list())).toEqual(['keep.md', 'notes/one/nested/a.txt']);
 		expectOk(await repository.prepareCommit({ ...author, timestamp: 2 }));
 		expect(expectOk(await table.list())).toEqual([]);
 		expect(
-			expectErr(await table.files('../escape').write('x', null, 'no')).name,
-		).toBe('InvalidId');
+			expectErr(await repository.files.write('notes/../escape/x', null, 'no')).name,
+		).toBe('InvalidPath');
 		expect(
-			expectErr(await table.files('one').write('../escape', null, 'no')).name,
+			expectErr(await repository.files.write('notes/one/../escape', null, 'no')).name,
 		).toBe('InvalidPath');
 	} finally {
 		repository.close();

@@ -44,10 +44,12 @@ export type GenerateDefinitionError = InferErrors<
  * data folder lives in any repository, so each name resolves to the modules
  * this process already holds, and a copy the folder installed never wins.
  * Bun ignores a runtime redirect of a bare specifier, so each name is listed.
- * Loading them here also puts them in a compiled binary.
+ * Loading them here also puts them in a compiled binary. `@epicenter/folder`
+ * is the Bun entry here, which holds `defineFolder`, `defineTable`, and
+ * `field`, so a file written for the older root entry still runs.
  */
 const DEFINITION_IMPORTS: Record<string, () => Promise<object>> = {
-	'@epicenter/folder': () => import('./index.js'),
+	'@epicenter/folder': () => import('./bun.js'),
 	'@epicenter/folder/bun': () => import('./bun.js'),
 	'@epicenter/definition': () => import('@epicenter/definition'),
 	'@epicenter/definition/field': () => import('@epicenter/definition/field'),

@@ -8,16 +8,21 @@
  */
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from 'wellcrafted/logger';
-import type { FilesChanged } from './folder.js';
 import {
 	FOLDER_CHANGED_EVENT,
 	type FolderChanged,
 } from './native/bindings.gen.js';
-import type { ChangeDetector } from './open-at-root.js';
 
 const log = createLogger('folder/changes-tauri');
 
-export function tauriChangeDetector(scope: string): ChangeDetector {
+/** Which files changed: their paths, or `'everything'` when the shell cannot say. */
+export type FilesChanged = readonly string[] | 'everything';
+
+/**
+ * Listen for the shell's reports about `scope`, calling `report` for each.
+ * `ready` settles once the page hears changes; `stop` ends listening.
+ */
+export function tauriChangeDetector(scope: string) {
 	return (report: (change: FilesChanged) => void) => {
 		let open = true;
 		let unlisten: UnlistenFn | undefined;

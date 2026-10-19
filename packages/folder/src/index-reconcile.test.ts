@@ -14,15 +14,15 @@
  *   reports `indexWarning`; a later explicit commit-and-push repairs the index
  *
  * See also:
- * - `native.test.ts` for whole-folder commits and the browser/native exchange
+ * - `directory-history.test.ts` for whole-folder commits over native Git
  * - `source-scope.test.ts` for which files a checkpoint includes
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defineFolder, defineTable, field } from './contract.js';
+import { defineFolder, defineTable, field } from './bun.js';
 import { formatDefinition } from './declaration.js';
-import { openNativeFolder } from './directory.test-support.js';
+import { openDirectoryHistory } from './directory-history.test-support.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 
 const definition = defineFolder({
@@ -61,7 +61,7 @@ test('an unchanged checkpoint repairs HEAD B, files B, index A (MM)', async () =
 	await git(root, 'reset', '--quiet', 'HEAD~1', '--', 'a.md');
 	expect(await git(root, 'status', '--porcelain')).toBe('MM a.md');
 
-	const folder = await openNativeFolder({
+	const folder = await openDirectoryHistory({
 		root,
 		definition,
 		git: { author },
@@ -88,7 +88,7 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 	expect(staged).toContain('A  debug.log');
 	expect(staged).toContain('D  kept.md');
 
-	const folder = await openNativeFolder({
+	const folder = await openDirectoryHistory({
 		root,
 		definition,
 		git: { author },
@@ -105,7 +105,7 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 
 test('an index lock after the branch moved keeps the commit and a later commit-and-push repairs the index', async () => {
 	const root = await repository();
-	const folder = await openNativeFolder({
+	const folder = await openDirectoryHistory({
 		root,
 		definition,
 		git: { author },

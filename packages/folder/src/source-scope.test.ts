@@ -8,7 +8,7 @@
  * Key behaviors:
  * - Root and nested `.gitignore` rules, negation, and ignored directories
  * - A tracked file stays tracked after a rule starts matching it
- * - Browser and native folders agree with `git status` about what is dirty
+ * - A directory's history agrees with `git status` about what is dirty
  * - A fast-forward preserves ignored files and refuses to overwrite one
  *
  * See also:
@@ -17,11 +17,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
-import { type LegacyFolder as Folder, openFolder as openBrowserFolder } from './browser.js';
-import { testBrowserStorage } from './browser-storage.test-support.js';
-import { defineFolder, defineTable, field } from './contract.js';
-import { openNativeFolder } from './directory.test-support.js';
+import { defineFolder, defineTable, field } from './bun.js';
+import {
+	type DirectoryHistory,
+	openDirectoryHistory,
+} from './directory-history.test-support.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
 	GIT_ENV,
@@ -70,7 +70,7 @@ const SOURCE = [
 	'notes/plain.txt',
 ].sort();
 
-async function writeLayout(folder: Folder<typeof definition>) {
+async function writeLayout(folder: DirectoryHistory) {
 	for (const [path, text] of Object.entries(LAYOUT))
 		expect((await put(folder, path, text)).error).toBeNull();
 }
@@ -90,50 +90,22 @@ describe('gitignoreMatcher', () => {
 	});
 });
 
-describe('browser folder scope', () => {
-	test('status and commits exclude ignored files; tracked files stay tracked', async () => {
-		const folder = expectOk(
-			await openBrowserFolder({
-				app: 'scope',
-				definition,
-				browser: {
-					author,
-					...testBrowserStorage(),
-				},
-			}),
-		);
-		// Committed before any rule matches it.
-		await folder.write('tracked.log', null, 'v1\n');
-		expect((await folder.git.commit()).status).toBe('committed');
-
-		await writeLayout(folder);
-		const { data: status, error: statusError } = await folder.git.status();
-		expect(statusError).toBeNull();
-		expect(status?.changes.map((change) => change.path)).toEqual(SOURCE);
-
-		await put(folder, 'tracked.log', 'v2\n');
-		expect(
-			(await folder.git.status()).data?.changes.map((change) => change.path),
-		).toEqual([...SOURCE, 'tracked.log'].sort());
-		const outcome = await folder.git.commit();
-		expect(outcome.status).toBe('committed');
-		expect((await folder.git.status()).data?.changes).toEqual([]);
-		await folder.close();
-	});
-});
-
-describe('native folder scope', () => {
-	test('agrees with git status and never commits ignored files', async () => {
+describe('directory scope', () => {
+	test('agrees with git status and never commits ignored files; tracked files stay tracked', async () => {
 		const root = await scratch('scope-native-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
-		const folder = await openNativeFolder({
+		const folder = await openDirectoryHistory({
 			root,
 			definition,
 			git: { author },
 		});
+		// Committed before any rule matches it.
 		await folder.write('tracked.log', null, 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		await writeLayout(folder);
+		const { data: status, error: statusError } = await folder.git.status();
+		expect(statusError).toBeNull();
+		expect(status?.changes.map((change) => change.path)).toEqual(SOURCE);
 		await put(folder, 'tracked.log', 'v2\n');
 
 		expect(
@@ -149,7 +121,7 @@ describe('native folder scope', () => {
 
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual(
-			[...SOURCE, 'epicenter.json', 'tracked.log'].sort(),
+			[...SOURCE, 'tracked.log'].sort(),
 		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await folder.close();
@@ -163,12 +135,12 @@ describe('native folder scope', () => {
 		const readerRoot = join(root, 'reader');
 		for (const path of [writerRoot, readerRoot])
 			await initWithOrigin(path, bare);
-		const writer = await openNativeFolder({
+		const writer = await openDirectoryHistory({
 			root: writerRoot,
 			definition,
 			git: { author },
 		});
-		const reader = await openNativeFolder({
+		const reader = await openDirectoryHistory({
 			root: readerRoot,
 			definition,
 			git: { author },

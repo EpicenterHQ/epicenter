@@ -1,11 +1,12 @@
 /**
  * `epicenter.json`: a folder's definition as JSON Schema (ADR-0517).
  *
- * The file is a generated, portable contract, not a source to author: an
- * application writes it from its code definition, and a folder no application
- * owns keeps its definition in `epicenter.ts`, from which `epicenter generate`
- * writes it (ADR-0527). Every written file has `tables`, even when empty, so
- * a reader never guesses at a missing section.
+ * The CLI's `check` and `query` read the root file's tables (ADR-0632). A
+ * person or a schema distribution installs it; opening a `Folder` neither
+ * reads nor writes it. The older `epicenter generate` still writes it from a
+ * folder's `epicenter.ts` (ADR-0527) until its callers migrate. Every written
+ * file has `tables`, even when empty, so a reader never guesses at a missing
+ * section.
  *
  * Each table is one object schema, `{ type: 'object', properties, required }`,
  * whose properties are the table's fields exactly as a prepared definition
@@ -50,7 +51,7 @@ import type { FolderStorage } from './boundary.js';
 import { type Definition, prepareFolderDefinition } from './definition.js';
 import { DEFINITION_PATH } from './paths.js';
 
-/** The text an opener publishes for a prepared definition. */
+/** The `epicenter.json` text of a prepared definition. */
 export function formatDefinition(definition: Definition): string {
 	const tables: Record<string, unknown> = {};
 	for (const [name, table] of Object.entries(definition.tables))
@@ -175,9 +176,8 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
  * Read a folder's own `epicenter.json` through `storage` and prepare it, as
- * `readFolder` does and `openFolder` does for any folder but an app's own:
- * `undefined` when the folder has none, or why the file cannot be used. It
- * writes nothing.
+ * `readFolder` and `runHistory` do: `undefined` when the folder has none, or
+ * why the file cannot be used. It writes nothing.
  */
 export async function readDefinition(
 	storage: Pick<FolderStorage, 'read'>,

@@ -10,28 +10,20 @@
  * - Declared keys come first in declared order; unknown keys are kept, sorted
  * - Anything without an exact JSON value is refused, never converted lossily
  * - The body is kept byte for byte; schema validation is not the codec's job
- * - An invalid row keeps its unknown and invalid fields: the table refuses to
- *   set fields over it, the one write repairs it from the `InvalidRow`'s
- *   exact text, and only an explicit create restores a deleted row
  *
  * See also:
  * - `row-text.test.ts` for `parseRow` and `formatRow` over this codec
  */
 import { expect, test } from 'bun:test';
-import {
-	defineFolder,
-	defineTable,
-	field,
-	openFolder,
-	parseRow,
-} from '@epicenter/folder/browser';
+import { defineTable, field } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { testBrowserStorage } from './browser-storage.test-support.js';
 import {
 	type CanonicalDocument,
 	formatRowSource,
 	parseRowSource,
 } from './canonical.js';
+import { defineFolder } from './definition.js';
+import { parseRow } from './row-text.js';
 
 /** A todos table's declared field order. */
 const DECLARED = ['title', 'done', 'priority'] as const;
@@ -393,70 +385,4 @@ test('a body that UTF-8 encoding would change is refused rather than rewritten',
 	expect(
 		expectErr(formatRowSource({ fields: {}, body }, DECLARED)).path,
 	).toEqual(['body']);
-});
-
-test('an invalid row keeps unknown and invalid fields through a raw write from its exact text, and restores only explicitly', async () => {
-	const definition = defineFolder({
-		tables: {
-			todos: defineTable({
-				fields: { title: field.string(), done: field.boolean() },
-			}),
-		},
-	});
-	const folder = expectOk(
-		await openFolder({
-			app: 'so.epicenter.canonical-test',
-			definition,
-			browser: {
-				author: { name: 'Canonical', email: 'canonical@example.test' },
-				...testBrowserStorage(),
-			},
-		}),
-	);
-	try {
-		const source =
-			'---\n# presentation\ntitle: Milk\ndone: invalid\nowner: {agent: alice}\n---\nBody\r\n';
-		expectOk(await folder.write('todos/milk.md', null, source));
-		const invalid = expectErr(await folder.tables.todos.get('milk'));
-		if (invalid.name !== 'InvalidRow') throw new Error(invalid.message);
-		expect(invalid.text).toBe(source);
-		const document = parse(invalid.text);
-		const edited = {
-			...document,
-			fields: { ...document.fields, title: 'Oat milk' },
-		};
-		const { text } = expectOk(
-			formatRowSource(edited, Object.keys(definition.tables.todos.fields)),
-		);
-
-		// The table writes only valid rows.
-		expect(
-			expectErr(await folder.tables.todos.set('milk', { title: 'Oat milk' }))
-				.name,
-		).toBe('InvalidValues');
-		// The one write lands the repair, from the text that was read.
-		expectOk(await folder.write(invalid.path, invalid.text, text));
-		const repaired = expectErr(await folder.tables.todos.get('milk'));
-		if (repaired.name !== 'InvalidRow') throw new Error(repaired.message);
-		expect(repaired.text).toBe(text);
-		expect(parse(repaired.text)).toEqual({
-			fields: { title: 'Oat milk', done: 'invalid', owner: { agent: 'alice' } },
-			body: 'Body\r\n',
-		});
-		expect(repaired.issues).toHaveLength(1);
-		expect(repaired.issues[0].field).toBe('done');
-
-		const captured = expectOk(await folder.files.read(repaired.path));
-		expectOk(await folder.tables.todos.delete('milk'));
-		// An edit of a row deleted since writes nothing: the delete stands.
-		expect(
-			expectOk(await folder.write(repaired.path, captured.bytes, text)).file,
-		).toBeNull();
-		expect(expectOk(await folder.tables.todos.get('milk'))).toBeUndefined();
-		expectOk(await folder.write('todos/milk.md', null, text));
-		const restored = expectErr(await folder.tables.todos.get('milk'));
-		expect(restored).toMatchObject({ name: 'InvalidRow', text });
-	} finally {
-		await folder.close();
-	}
 });

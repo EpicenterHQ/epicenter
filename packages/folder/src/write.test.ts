@@ -1,10 +1,11 @@
 /**
  * One Write Tests
  *
- * `folder.write(path, from, to)` reads the file as it is now, merges the
- * change from `from` to `to` into it by unit with `merge`, and puts the
- * result guarded by the hash it read (ADR-0576). `put` is the storage's one
- * conditional change of one file.
+ * `writeFile(storage, path, from, to)`, the one write Sync publishes each
+ * changed path through, reads the file as it is now, merges the change from
+ * `from` to `to` into it by unit with `merge`, and puts the result guarded by
+ * the hash it read (ADR-0576). `put` is the storage's one conditional change
+ * of one file.
  *
  * Key behaviors:
  * - Units only one side changed survive; on a unit both changed, the writer
@@ -23,35 +24,17 @@
  * - A write that loses a race reads and merges again, and gives up as
  *   `KeptChanging` after `WRITE_ATTEMPTS`
  * - A write that changes nothing puts nothing
- * - A delete needs no base; a closed folder is `Closed`; a path no file
- *   can be at is `InvalidPath`
- * - `folder.move` puts a file's bytes at a vacant path as they are and
- *   removes them from their own; no file at the source is `InvalidPath`,
- *   and one at the destination `Occupied` (its races are in `table.test.ts`,
- *   through `rename`)
+ * - A delete needs no base; a path no file can be at is `InvalidPath`
  */
-import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { afterAll, expect, test } from 'bun:test';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { rawBrowserFolder } from './browser-storage.test-support.js';
-import { openFolder } from './bun.js';
-import { defineFolder, defineTable, field, hashBytes } from './contract.js';
-import { merge } from './merge-file.js';
+import { rawDirectoryFolder } from './directory-history.test-support.js';
+import { hashBytes } from './hash.js';
+import { type FileContent, merge } from './merge-file.js';
 import { WRITE_ATTEMPTS, writeFile as writeFolderFile } from './write.js';
 
-const definition = defineFolder({
-	tables: {
-		notes: defineTable({
-			fields: {
-				title: field.string(),
-				done: field.boolean(),
-				tags: field.optional(field.tags()),
-			},
-		}),
-	},
-});
 const ROW = 'notes/a.md';
 const TEXT = 'notes.txt';
 
@@ -203,7 +186,7 @@ test("Sync's publish asks for the file as it is now to win, with the same lines 
 });
 
 test('put lands only while the path holds ifMatch, and changes nothing when stale', async () => {
-	const { boundary } = await rawBrowserFolder({ id: 'write.put' });
+	const { boundary } = await rawDirectoryFolder('write-');
 	const one = encoder.encode('one\n');
 	expect(expectOk(await boundary.put('a/b.md', one, null))).toBe('landed');
 	expect(expectOk(await boundary.put('a/b.md', one, null))).toBe('stale');
@@ -226,7 +209,7 @@ test('put lands only while the path holds ifMatch, and changes nothing when stal
 });
 
 test('a write that loses a race reads and merges again', async () => {
-	const { boundary } = await rawBrowserFolder({ id: 'write.race' });
+	const { boundary } = await rawDirectoryFolder('write-');
 	expectOk(
 		await boundary.put('notes/a.md', encoder.encode(note('Walk')), null),
 	);
@@ -263,7 +246,7 @@ test('a write that loses a race reads and merges again', async () => {
 });
 
 test('a file that changes on every attempt is KeptChanging, and nothing of the write lands', async () => {
-	const { boundary } = await rawBrowserFolder({ id: 'write.kept' });
+	const { boundary } = await rawDirectoryFolder('write-');
 	expectOk(await boundary.put('n.txt', encoder.encode('0\n'), null));
 	let count = 0;
 	const storage = {
@@ -288,33 +271,20 @@ test('a file that changes on every attempt is KeptChanging, and nothing of the w
 	);
 });
 
-const originalEnv = { ...process.env };
 const roots: string[] = [];
-beforeAll(() => {
-	Object.assign(process.env, {
-		GIT_CONFIG_GLOBAL: '/dev/null',
-		GIT_CONFIG_NOSYSTEM: '1',
-	});
-});
 afterAll(async () => {
-	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
-		if (originalEnv[key] === undefined) delete process.env[key];
-		else process.env[key] = originalEnv[key];
 	await Promise.all(roots.map((root) => rm(root, { recursive: true })));
 });
 
-/** A directory folder in Bun, which writes under the directory's save lock. */
+/** The one write over a directory's storage, and what lands on disk. */
 async function directory() {
-	const root = await mkdtemp(join(tmpdir(), 'folder-write-'));
+	const { root, boundary } = await rawDirectoryFolder('folder-write-');
 	roots.push(root);
-	const folder = expectOk(
-		await openFolder({
-			app: basename(root),
-			root,
-			definition,
-			git: { author: { name: 'Folders', email: 'folders@localhost' } },
-		}),
-	);
+	const folder = {
+		write: (path: string, from: FileContent | null, to: FileContent | null) =>
+			writeFolderFile(boundary, path, from, to),
+		files: { read: (path: string) => boundary.read(path) },
+	};
 	const onDisk = (path: string) => readFile(join(root, path), 'utf8');
 	return { root, folder, onDisk };
 }
@@ -336,7 +306,6 @@ test('a create makes the file and its directory; a second create is refused, and
 	);
 	expect(again).toEqual(created);
 	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
-	await folder.close();
 });
 
 test('a write over a file another writer changed merges with them', async () => {
@@ -355,11 +324,10 @@ test('a write over a file another writer changed merges with them', async () => 
 	expect(await onDisk('notes/a.md')).toBe(
 		note('Walk', 'one\ntheirs\nmine\n', true),
 	);
-	await folder.close();
 });
 
 test('a write that changes nothing puts nothing', async () => {
-	const { boundary } = await rawBrowserFolder({ id: 'write.same' });
+	const { boundary } = await rawDirectoryFolder('write-');
 	expectOk(await boundary.put('a.txt', encoder.encode('same\n'), null));
 	let puts = 0;
 	const storage = {
@@ -392,7 +360,6 @@ test('a delete needs no base, and the deleter wins', async () => {
 	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
 	// Deleting what is already gone is done.
 	expectOk(await folder.write('a.txt', 'theirs\n', null));
-	await folder.close();
 });
 
 test('an edit of a file deleted since its version writes nothing and answers no file', async () => {
@@ -402,10 +369,9 @@ test('an edit of a file deleted since its version writes nothing and answers no 
 	);
 	expect(written).toEqual({ path: 'a.txt', file: null, overridden: [] });
 	expect(expectErr(await folder.files.read('a.txt')).name).toBe('NotFound');
-	await folder.close();
 });
 
-test('a path no file can be at is InvalidPath, and a closed folder is Closed', async () => {
+test('a path no file can be at is InvalidPath', async () => {
 	const { root, folder } = await directory();
 	await mkdir(join(root, 'notes'));
 	expect(expectErr(await folder.write('.git/x', null, 'x')).name).toBe(
@@ -414,52 +380,4 @@ test('a path no file can be at is InvalidPath, and a closed folder is Closed', a
 	expect(expectErr(await folder.write('notes', null, 'x')).name).toBe(
 		'InvalidPath',
 	);
-	await folder.close();
-	expect(expectErr(await folder.write('a.txt', null, 'x')).name).toBe('Closed');
-});
-
-test('a move puts the file at a vacant path as it is and removes it from its own', async () => {
-	const { root, folder, onDisk } = await directory();
-	await mkdir(join(root, 'audio'));
-	const take = new Uint8Array([0, 1, 2, 255]);
-	await writeFile(join(root, 'audio/take.wav'), take);
-	const moved = expectOk(
-		await folder.move('audio/take.wav', 'archive/take.wav'),
-	);
-	expect(moved).toEqual({
-		path: 'archive/take.wav',
-		file: { bytes: take, sha256: await hashBytes(take) },
-		overridden: [],
-	});
-	expect(expectErr(await folder.files.read('audio/take.wav')).name).toBe(
-		'NotFound',
-	);
-	// A row moves as its bytes, with no canonical rewrite.
-	await mkdir(join(root, 'notes'));
-	await writeFile(join(root, 'notes/a.md'), '---\ntitle:   Spaced\n---\n');
-	expectOk(await folder.move('notes/a.md', 'notes/b.md'));
-	expect(await onDisk('notes/b.md')).toBe('---\ntitle:   Spaced\n---\n');
-	await folder.close();
-});
-
-test('a move from no file is InvalidPath, onto a file Occupied, and changes nothing', async () => {
-	const { root, folder, onDisk } = await directory();
-	await writeFile(join(root, 'a.txt'), 'a\n');
-	await writeFile(join(root, 'b.txt'), 'b\n');
-	expect(expectErr(await folder.move('gone.txt', 'c.txt'))).toMatchObject({
-		name: 'InvalidPath',
-		path: 'gone.txt',
-	});
-	expect(expectErr(await folder.move('a.txt', 'b.txt'))).toMatchObject({
-		name: 'Occupied',
-		path: 'b.txt',
-	});
-	expect(await onDisk('a.txt')).toBe('a\n');
-	expect(await onDisk('b.txt')).toBe('b\n');
-	// Onto its own path, a move answers the file as it is.
-	expect(expectOk(await folder.move('a.txt', 'a.txt')).file?.bytes).toEqual(
-		encoder.encode('a\n'),
-	);
-	await folder.close();
-	expect(expectErr(await folder.move('a.txt', 'c.txt')).name).toBe('Closed');
 });

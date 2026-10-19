@@ -104,6 +104,7 @@
         "@tanstack/query-core": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
+        "fake-indexeddb": "^6.2.6",
         "jsdom": "26.1.0",
         "playwright": "^1.61.1",
         "svelte": "catalog:",
@@ -125,6 +126,7 @@
         "@tanstack/svelte-query": "catalog:",
         "@tauri-apps/api": "catalog:",
         "runed": "catalog:",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -137,32 +139,6 @@
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
-      },
-    },
-    "apps/git": {
-      "name": "@epicenter/git",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/folder": "workspace:*",
-        "@epicenter/svelte": "workspace:*",
-        "buffer": "^6.0.3",
-      },
-      "devDependencies": {
-        "@epicenter/ui": "workspace:*",
-        "@epicenter/vite-config": "workspace:*",
-        "@lucide/svelte": "catalog:",
-        "@sveltejs/adapter-static": "catalog:",
-        "@sveltejs/kit": "catalog:",
-        "@sveltejs/vite-plugin-svelte": "catalog:",
-        "@tailwindcss/vite": "catalog:",
-        "@types/bun": "catalog:",
-        "mode-watcher": "catalog:",
-        "svelte": "catalog:",
-        "svelte-check": "catalog:",
-        "tailwindcss": "catalog:",
-        "typescript": "catalog:",
-        "vite": "catalog:",
-        "wellcrafted": "catalog:",
       },
     },
     "apps/honeycrisp": {
@@ -189,6 +165,7 @@
         "prosemirror-state": "^1.4.0",
         "prosemirror-view": "^1.41.0",
         "runed": "catalog:",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -203,6 +180,7 @@
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
         "@types/markdown-it": "^14.0.0",
+        "fake-indexeddb": "^6.2.6",
         "jsdom": "26.1.0",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
@@ -297,16 +275,9 @@
       "name": "@epicenter/todos",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/ai": "workspace:*",
-        "@epicenter/auth": "workspace:*",
-        "@epicenter/constants": "workspace:*",
-        "@epicenter/epicenter": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
-        "@tanstack/query-core": "catalog:",
         "@tanstack/svelte-query": "catalog:",
-        "@tauri-apps/api": "catalog:",
-        "runed": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -384,6 +355,7 @@
         "@tanstack/svelte-query": "catalog:",
         "nanoid": "catalog:",
         "runed": "catalog:",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -453,6 +425,7 @@
         "@tauri-apps/api": "catalog:",
         "nanoid": "catalog:",
         "openai": "^7.12.1",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -489,9 +462,9 @@
       "name": "@epicenter/capture",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "markdown-it": "^14.0.0",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -570,31 +543,17 @@
         "diff": "^8.0.4",
         "ignore": "^7.0.5",
         "isomorphic-git": "1.38.5",
-        "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yaml": "catalog:",
       },
       "devDependencies": {
-        "@tanstack/query-core": "catalog:",
         "@types/bun": "catalog:",
-        "@types/jsdom": "21.1.7",
         "fake-indexeddb": "^6.2.6",
-        "jsdom": "26.1.0",
         "playwright": "^1.61.1",
-        "svelte": "catalog:",
-        "svelte-check": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
       },
-      "peerDependencies": {
-        "@tanstack/query-core": "^5.82.0",
-        "svelte": "^5.9.0",
-      },
-      "optionalPeers": [
-        "@tanstack/query-core",
-        "svelte",
-      ],
     },
     "packages/principal": {
       "name": "@epicenter/principal",
@@ -661,6 +620,7 @@
         "@lucide/svelte": "catalog:",
         "@tanstack/query-core": "catalog:",
         "@tanstack/svelte-query": "catalog:",
+        "@tauri-apps/api": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -974,8 +934,6 @@
     "@epicenter/epicenter": ["@epicenter/epicenter@workspace:apps/epicenter"],
 
     "@epicenter/folder": ["@epicenter/folder@workspace:packages/folder"],
-
-    "@epicenter/git": ["@epicenter/git@workspace:apps/git"],
 
     "@epicenter/honeycrisp": ["@epicenter/honeycrisp@workspace:apps/honeycrisp"],
 

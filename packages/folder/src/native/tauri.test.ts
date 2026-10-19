@@ -7,6 +7,7 @@
  * Key behaviors:
  * - The shell grants the registered ID; opening reads existing files and writes none
  * - Every refused grant is an `OpenFolderError` and opens nothing
+ * - The automatic opener needs a directory here, and browser storage is refused
  * - A save is one guarded put; a put another writer overtook reads and merges again
  * - A lost reply is the save landing only when the path holds what was sent
  * - The shell's watcher reaches listeners as `other-handle`; history moving does not
@@ -17,12 +18,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import type { FolderChange } from '../folder.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
 	grantedDirectory,
 } from '../granted-shell.test-support.js';
-import type { FolderChange } from '../local-folder.js';
 
 let shell: GrantedShell;
 
@@ -115,6 +116,26 @@ test('every refused grant is a refusal, and nothing opens', async () => {
 		).name,
 	).toBe('InvalidTable');
 	expect(changeHandlers.size).toBe(0);
+});
+
+test('in the desktop app the automatic opener needs a directory, and browser storage is refused', async () => {
+	const { openFolder } = await import('../index.js');
+	expect(expectErr(await openFolder({ tables: { notes } })).name).toBe(
+		'DirectoryRequired',
+	);
+	const { openFolder: openBrowserFolder } = await import('../browser.js');
+	expect(expectErr(await openBrowserFolder({ tables: { notes } })).name).toBe(
+		'InsideTauri',
+	);
+	shell = createGrantedShell(await grantedDirectory('native-tauri-'));
+	const folder = expectOk(
+		await openFolder({ directory: SCOPE, tables: { notes } }),
+	);
+	expect(shell.calls[0]).toEqual({
+		cmd: 'grant_directory',
+		args: { scope: SCOPE },
+	});
+	await folder.close();
 });
 
 test('a save is one guarded put, and an overtaken put reads and merges again', async () => {

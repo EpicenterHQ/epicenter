@@ -20,22 +20,10 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { hostStorage, PRIVATE_DIRECTORY } from '../boundary.js';
 import { tauriChangeDetector } from '../changes-tauri.js';
 import { OpenFolderError } from '../errors.js';
-import type { Folder } from '../local-folder.js';
+import type { DirectoryFolderOptions, Folder } from '../folder.js';
 import { tauriHostFiles } from '../tauri-files.js';
 import { commands, type GrantError } from './bindings.gen.js';
 import { createNativeFolder, invalidTable } from './engine.js';
-
-/** `openTauriFolder`: a registered folder, and how its rows read. */
-export type TauriFolderOptions<TTables extends Record<string, Schema>> = {
-	/** The ID the shell registered the folder's directory under. */
-	readonly directory: string;
-	/**
-	 * The top-level directories read as Markdown rows, with the schema for
-	 * each row's frontmatter. Schemas interpret; they never decide what may
-	 * be written.
-	 */
-	readonly tables: TTables;
-};
 
 /** What a refused grant tells the page. */
 function grantRefusal(refusal: GrantError) {
@@ -67,7 +55,7 @@ export async function openTauriFolder<
 >({
 	directory: scope,
 	tables,
-}: TauriFolderOptions<TTables>): Promise<
+}: DirectoryFolderOptions<TTables>): Promise<
 	Result<Folder<TTables>, OpenFolderError>
 > {
 	const table = invalidTable(tables);

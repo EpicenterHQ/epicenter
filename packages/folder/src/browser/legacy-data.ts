@@ -17,6 +17,18 @@ export async function legacyOpfsFolders(): Promise<string[]> {
 			names.push(entry.name);
 			continue;
 		}
+		if (entry.name === 'Epicenter' || entry.name === 'Epicenter Dev') {
+			try {
+				const local = (await folder.getDirectoryHandle('local')) as FileSystemDirectoryHandle & {
+					values(): AsyncIterable<FileSystemHandle>;
+				};
+				for await (const old of local.values())
+					if (old.kind === 'directory' && old.name.startsWith('so.epicenter.'))
+						names.push(`${entry.name}/local/${old.name}`);
+			} catch (cause) {
+				if ((cause as { name?: unknown })?.name !== 'NotFoundError') throw cause;
+			}
+		}
 		for (const marker of ['epicenter.json', '.git']) {
 			try {
 				if (marker === '.git') await folder.getDirectoryHandle(marker);

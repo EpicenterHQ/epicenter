@@ -26,24 +26,13 @@ import {
 	sweepStaleScratch,
 } from '../directory-store.js';
 import { OpenFolderError } from '../errors.js';
-import type { Folder } from '../local-folder.js';
+import type { DirectoryFolderOptions, Folder } from '../folder.js';
 import { holdingSaveLock, localRoot, scratchDirectory } from './directory.js';
 import { createNativeFolder, invalidTable } from './engine.js';
 
-/** `openBunFolder`: an existing directory, and how its rows read. */
-export type BunFolderOptions<TTables extends Record<string, Schema>> = {
-	/** An existing directory. Links in the path are resolved once, at open. */
-	readonly directory: string;
-	/**
-	 * The top-level directories read as Markdown rows, with the schema for
-	 * each row's frontmatter. Schemas interpret; they never decide what may
-	 * be written.
-	 */
-	readonly tables: TTables;
-};
-
 /**
- * Open the directory at `directory`. Refusals are returned, not thrown: a
+ * Open the directory at `directory`, an existing directory whose links are
+ * resolved once, at open. Refusals are returned, not thrown: a
  * table name that cannot be one top-level directory (`InvalidTable`), or a
  * path that is not a directory, or is the file system's root, with no
  * parent to keep the save lock in (`InvalidRoot`).
@@ -53,7 +42,7 @@ export async function openBunFolder<
 >({
 	directory,
 	tables,
-}: BunFolderOptions<TTables>): Promise<
+}: DirectoryFolderOptions<TTables>): Promise<
 	Result<Folder<TTables>, OpenFolderError>
 > {
 	const table = invalidTable(tables);

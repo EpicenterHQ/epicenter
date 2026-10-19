@@ -33,6 +33,18 @@ const IGNORABLE =
  */
 const SHORT_NAME = /^[^ .]{1,6}~[0-9]+(\.[^ .]{1,3})?$/u;
 
+/** Existing paths may be nonportable; reads still keep them accessible for repair. */
+export function readablePath(path: string): boolean {
+	return (
+		typeof path === 'string' &&
+		path !== '' &&
+		path.isWellFormed() &&
+		!path.includes('\0') &&
+		!path.includes('\\') &&
+		!path.split('/').some((part) => part === '' || part === '.' || part === '..' || part.toLowerCase() === '.git')
+	);
+}
+
 /**
  * A name Windows reserves for a device, with or without an extension: the
  * part before the first dot, without trailing spaces (` `, U+0020 only), is a
@@ -142,20 +154,6 @@ export function rowAddressProblem(
 	if (typeof stem !== 'string') return 'the stem is not a string';
 	if (stem.includes('/')) return 'the stem contains a path separator';
 	return pathProblem(rowPath(table, stem));
-}
-
-/**
- * The inverse of `rowPath`: the literal stem of a file directly in the table's
- * directory that ends in exactly `.md`, or `undefined` when the path is not a
- * row. The stem may be empty (`<table>/.md`). `.MD` is not a row.
- */
-export function rowStemOf(table: string, path: string): string | undefined {
-	const prefix = `${table}/`;
-	if (!path.startsWith(prefix)) return undefined;
-	const filename = path.slice(prefix.length);
-	if (filename.includes('/')) return undefined;
-	if (!filename.endsWith(ROW_EXTENSION)) return undefined;
-	return filename.slice(0, -ROW_EXTENSION.length);
 }
 
 /**

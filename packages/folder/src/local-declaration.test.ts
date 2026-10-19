@@ -22,8 +22,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { runHistory } from './bun.js';
-import { defineFolder, defineTable, field } from './contract.js';
+import { defineFolder, defineTable, field, runHistory } from './bun.js';
 import { formatDefinition, parseDefinition } from './declaration.js';
 import { prepareFolderDefinition } from './definition.js';
 import {

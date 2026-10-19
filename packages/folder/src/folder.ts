@@ -1,453 +1,161 @@
 /**
- * The opened folder handle every opener returns (ADR-0471, ADR-0478).
+ * The public `Folder`: one opened, rooted set of local file paths and their
+ * contents (ADR-0636). Every entry's `openFolder` returns it, whichever
+ * engine holds the files: the browser's default local folder in IndexedDB
+ * (`local-folder.ts`), or an ordinary directory in Bun or the desktop app
+ * (`native/`).
  *
- * `write` is the one write and `move` the one move (ADR-0576), and
- * `tables` publish through the same file boundary, one file change per
- * operation; `files` reads files and keeps directories. A caller that
- * needs several changes makes several calls; each one that succeeded stays
- * published when a later one fails.
- * `git` observes and records history. A save never commits: commits happen
- * only through `git.commit()` or sync's checkpoint (ADR-0529).
+ * The handle exposes rooted `files`, table views that interpret Markdown rows
+ * through the caller's schemas, change notification, local-save status, and
+ * `close`. A schema only interprets (ADR-0632). A row that does not fit still
+ * comes back with its exact source, its raw fields, and the issues, and a
+ * save never validates against the schema, so unknown fields and repairable
+ * content survive. Each edit names the content it started from, and the
+ * engine merges it with whatever else was saved meanwhile, by the same rules
+ * on every host (`shared/merge.ts`, `shared/row.ts`).
  *
- * Closing fences new file work and this handle's history requests at once,
- * cancels pending history and network work, then drains admitted Git work.
- * Each file operation owns its completion promise. Closing does not wait for
- * file helpers; storage applications already started return their actual
- * outcome. Closing makes no last commit.
+ * Opening authenticates nothing, selects no remote, creates no Git history,
+ * and writes no schema file (ADR-0633).
+ *
+ * A call on a closed handle throws: it is a programming error, not a storage
+ * failure. Failures that storage reports come back as `ReadError` and
+ * `SaveError` results; a failed save leaves earlier storage unchanged.
  */
-import { type CreateRowOf, requiredOutside } from '@epicenter/definition';
+import type { TSchema as Schema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { type FolderStorage, mayHaveChanged } from './boundary.js';
-import type { Definition, PreparedFolderTable } from './definition.js';
-import { FileError, type WriteError } from './errors.js';
-import { createFiles, type FolderFiles } from './files.js';
-import type { SyncError } from './git/errors.js';
-import type {
-	CommitOutcome,
-	FilesObservation,
-	GitError,
-	GitSnapshot,
-} from './git/history.js';
-import type { GitCredentials } from './git/http.js';
-import type { Author, CommitSummary } from './git/objects.js';
-import type { SyncOptions, SyncOutcome } from './git/sync.js';
-import type { FileContent } from './merge-file.js';
-import { callObserver } from './observer.js';
-import {
-	publishDefinition,
-	publishLocalPatterns,
-} from './publish-definition.js';
-import { createTable, type FileTable } from './table.js';
-import { movePath, type Written, writeFile } from './write.js';
+import type { OpenFolderError } from './errors.js';
+import type { ReadError, SaveError } from './shared/errors.js';
+import type { FileContent } from './shared/merge.js';
+import type { Issue, Row, RowChange } from './shared/row.js';
 
-/** History settings for a folder whose history this process records. */
-export type FolderGitOptions = {
-	/** Author and committer for the folder's commits. */
-	readonly author: Author;
-	/** Asked before each push and fetch; see `GitCredentials`. */
-	readonly credentials?: GitCredentials;
+export type { FileContent, Issue, ReadError, Row, RowChange, SaveError };
+
+/** A committed change to file contents, from this handle or from another. */
+export type FolderChange = {
+	/** The paths written, or `null` when any path may differ. */
+	readonly paths: readonly string[] | null;
+	readonly origin: 'this-handle' | 'other-handle';
 };
 
 /**
- * A folder's history on every host: what changed, the versions, and saving
- * one. Sync (`folder.sync`) is how a folder exchanges history with its
- * remote, on every host the same way.
+ * What the handle can truthfully say about saving. `'local'` is the normal
+ * state of data without a sync destination, not a connection fault. A save
+ * counts as saved only after storage committed it. `storageFailure` is the
+ * last storage failure, cleared by a later successful save on this handle,
+ * including a retry whose desired content is already stored. Individual
+ * refusals and unsaved drafts belong to their callers.
  */
-export type FolderGit = {
-	readonly snapshot: GitSnapshot;
-	/** Delivers the current snapshot synchronously, then each change. */
-	subscribe(listener: (snapshot: GitSnapshot) => void): () => void;
-	/** A fresh inspection of uncommitted changes and local/remote heads. */
-	status(): Promise<Result<FilesObservation, GitError>>;
-	/**
-	 * Commit current source files if they changed, and reset the index to the
-	 * head either way. Never pushes. `message` is a person's own; without it
-	 * the message names what changed.
-	 */
-	commit(options?: { message?: string }): Promise<CommitOutcome>;
-	log(depth: number): Promise<Result<CommitSummary[], GitError>>;
+export type FolderStatus = {
+	readonly state: 'local';
+	/** Saves started on this handle and not yet committed or refused. */
+	readonly saving: boolean;
+	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
 };
 
-/**
- * Synchronization with the configured remote branch (ADR-0576). It never
- * stops because changes compete: the device syncing is the writer acting.
- *
- * ```ts
- * const { data: done, error } = await folder.sync.run();
- * if (error !== null) return show(error.message);
- * done.kind; // 'synced', or 'saved' when the remote may not have it yet
- * ```
- *
- * Browser and directory folders implement it, the desktop folder included.
- */
-export type FolderSync = {
+export type FolderFiles = {
+	/** Paths under `prefix`, relative to the root, sorted. */
+	list(prefix?: string): Promise<Result<string[], ReadError>>;
+	/** The file at `path`, or `undefined` when none exists. */
+	read(
+		path: string,
+	): Promise<Result<{ path: string; content: Blob } | undefined, ReadError>>;
 	/**
-	 * Commit saved files, fetch the remote branch, and bring the two
-	 * together: a fast-forward, a push, or one merge commit of both heads,
-	 * pushed before its files are written here. Units only one side changed
-	 * merge; where both changed one, this device's side wins, and the merge
-	 * commit names what lost. A delete beats an edit it never saw.
-	 */
-	run(options?: SyncOptions): Promise<Result<SyncOutcome, SyncError>>;
-	/**
-	 * Make `url` the folder's remote (`remote.origin.url` in its Git
-	 * configuration), then sync. This is how a folder gets a remote, or
-	 * changes it. An empty folder takes the remote's history; a folder with
-	 * files and no history of its own merges them with it; a remote with no
-	 * branch receives this folder's. Separate histories are `Unrelated` until
-	 * `allowUnrelatedHistories` combines them. The remote stays set whatever
-	 * the sync answers, and a later `run` continues.
-	 */
-	connect(
-		url: string,
-		options?: SyncOptions,
-	): Promise<Result<SyncOutcome, SyncError>>;
-};
-
-/** Borrowed data access; the object that opened the folder owns its lifetime. */
-export type FolderAccess<TDefinition extends Definition> = {
-	readonly tables: {
-		readonly [K in keyof TDefinition['tables']]: FileTable<
-			CreateRowOf<TDefinition['tables'][K]>
-		>;
-	};
-	readonly files: FolderFiles;
-	readonly git: FolderGit;
-	/**
-	 * The one write (ADR-0576): read the file at `path` as it is now, merge
-	 * the change from `from` to `to` into it by unit (`merge`, by the file's
-	 * content and extension), and put the result guarded by what was read,
-	 * again when another writer landed in between, at most `WRITE_ATTEMPTS`
-	 * times.
-	 *
-	 * Units only one side changed survive; where both changed one unit
-	 * differently, this write wins, and `overridden` names each such unit,
-	 * which is also logged. Two insertions at one place both survive.
-	 * Markdown whose frontmatter does not read merges as text, so the result
-	 * may be a file to repair; nothing is refused for it.
-	 *
-	 * `from` is the content the change started from, or `null` for no file
-	 * (a create). `to` is the new content, or `null` to delete the file,
-	 * which the deleter wins whatever `from` is. Any `to` is written,
-	 * whether it reads or not. Strings are written as UTF-8; byte arrays are
-	 * copied when it is called.
+	 * Save `content` at `path`. `from` is the content the edit started from, or
+	 * `null` for a new file; it lets the engine keep other saves that landed
+	 * meanwhile. Pass bytes for binary files or to retain a byte-order mark.
 	 */
 	write(
 		path: string,
 		from: FileContent | null,
-		to: FileContent | null,
-	): Promise<Result<Written, WriteError>>;
+		content: FileContent,
+	): Promise<Result<void, SaveError>>;
+	delete(
+		path: string,
+		from: FileContent | null,
+	): Promise<Result<{ deleted: boolean }, SaveError>>;
+};
+
+export type FolderTable<TSchema extends Schema = Schema> = {
+	/** Every row of the table, with its source, fields, and issues. */
+	list(): Promise<Result<Row<TSchema>[], ReadError>>;
+	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
 	/**
-	 * Move the file at `path` to `next`, as it is (ADR-0576): its bytes land
-	 * at `next` only where nothing is, then `path` is removed only while it
-	 * holds them, a write that lands there meanwhile carried along first. A
-	 * move changes where a file is, not what it holds, so it merges nothing.
-	 * No file at `path` is `InvalidPath`, and a file already at `next` is
-	 * `Occupied`; nothing changes. Another writer changing or deleting `next`
-	 * after the copy landed there is `InvalidPath` naming `next`, and leaves
-	 * the file at `path` and `next` as that writer left it. `KeptChanging`,
-	 * or a removal that failed, leaves the file at both paths, to repair.
-	 * Answers the file as it stands at `next`.
+	 * Save a change to row `id` starting from `from`, the row as read, or `null`
+	 * for a new row. Returns `sent`, the row this save submitted, to start the
+	 * next edit from. The schema never refuses a save.
 	 */
-	move(path: string, next: string): Promise<Result<Written, WriteError>>;
+	set(
+		id: string,
+		from: Row<TSchema> | null,
+		change: RowChange,
+	): Promise<Result<{ sent: Row<TSchema> }, SaveError>>;
+	/** Delete only the row file. Adjacent files remain accessible through `folder.files`. */
+	delete(
+		id: string,
+		from: Row<TSchema> | null,
+	): Promise<Result<{ deleted: boolean }, SaveError>>;
 };
 
 /**
- * Where an opened folder's files are. For showing to a person or telling
- * folders apart; file paths passed to the folder are never joined onto it.
- */
-export type FolderLocation =
-	/** A directory of this origin's private file system, by its path from the root. */
-	| { readonly kind: 'opfs'; readonly directory: string }
-	/** An ordinary directory, by absolute path. */
-	| { readonly kind: 'directory'; readonly root: string };
-
-/**
- * An opened folder. `TDefinition` types `tables`; `TFolderDefinition`
- * types `definition`, the folder's definition the handle reads and writes
- * with. That is the app's definition only in the app's own folder, so an
- * opener types it as any definition.
- */
-export type Folder<
-	TDefinition extends Definition,
-	TFolderDefinition extends Definition = Definition,
-> = FolderAccess<TDefinition> & {
-	readonly git: FolderGit;
-	/**
-	 * The folder's id: the scope the desktop shell granted, the browser
-	 * directory's name, or in Bun the directory's name. An app's own folder
-	 * is named by the app's id.
-	 */
-	readonly id: string;
-	/**
-	 * Whether this is the opening app's own folder, the one named after the
-	 * `app` it was opened for: whether this handle may publish its
-	 * definition. It is decided when the folder opens, not by what lands. An
-	 * own handle publishes its definition to `epicenter.json` just before its
-	 * first write, best effort: a publication that fails is logged, and the
-	 * write still lands, so `own` does not say the definition is on disk.
-	 * Every other handle reads with the folder's own definition and never
-	 * writes it. False for a folder opened without an `app`.
-	 */
-	readonly own: boolean;
-	/**
-	 * The prepared definition this handle reads with: the app's own, in its
-	 * own folder, or the folder's own `epicenter.json` as it was read when
-	 * the folder opened (no tables when there was none). Every row is
-	 * checked against it, and Sync merges rows by it. A definition changed
-	 * after opening is read by the next open.
-	 */
-	readonly definition: TFolderDefinition;
-	readonly location: FolderLocation;
-	readonly sync: FolderSync;
-	/**
-	 * Hear that files may have changed, as a reason to read again (ADR-0548).
-	 * `change` is the paths a change reached, or `'everything'` when the
-	 * reporter cannot say which. A call carries no content; read through
-	 * the folder to learn what the files hold.
-	 *
-	 * Reports come from the host's one detector of changes made outside
-	 * this handle, and from incoming updates this handle's own Sync wrote.
-	 * In a browser the detector is other pages of this origin, which tell
-	 * the paths they write; on the desktop it is the shell's watcher of the
-	 * granted directory; in Bun there is none. This handle's own saves are
-	 * not reported: whoever saved holds the result.
-	 *
-	 * Nothing records reports, so one missed costs a delay, never data.
-	 * Subscribe before the first read so no change falls between them.
-	 * Returns the function that stops listening; closing stops all of them.
-	 */
-	onFilesChanged(listener: (change: FilesChanged) => void): () => void;
-	/** Aborts when closing starts. */
-	readonly signal: AbortSignal;
-	/**
-	 * Fence the next storage call and drain owned Git work before release.
-	 * Await each file operation that must finish before closing; close does
-	 * not wait for file helpers or their publication replies.
-	 */
-	close(): Promise<void>;
-};
-
-/** The history a handle is assembled over. */
-export type FolderHistory = FolderGit & {
-	readonly sync: FolderSync;
-	/** The files changed outside the history; its observations are stale. */
-	noteEdit(): void;
-	close(): Promise<void>;
-};
-
-/** Which files changed: their paths, or `'everything'` when a report cannot say. */
-export type FilesChanged = readonly string[] | 'everything';
-
-/** Reports of file changes for one opened folder. */
-type FileHints = {
-	/** Files changed: tell every listener. An empty list is no change. */
-	report(change: FilesChanged): void;
-	subscribe(listener: (change: FilesChanged) => void): () => void;
-	/** Stop calling this handle's listeners and drop them. */
-	close(): void;
-};
-
-export function createFileHints(): FileHints {
-	const listeners = new Set<(change: FilesChanged) => void>();
-	let closed = false;
-	return {
-		report(change) {
-			if (change !== 'everything' && change.length === 0) return;
-			const reported =
-				change === 'everything' ? change : Object.freeze([...change]);
-			// A listener may close the folder or stop another listener. The ones
-			// after it are asked again before each call, so neither hears a
-			// report it was fenced from, and one that throws does not silence
-			// the rest.
-			for (const listener of [...listeners]) {
-				if (closed) return;
-				if (listeners.has(listener))
-					callObserver('change listener', listener, reported);
-			}
-		},
-		subscribe(listener) {
-			if (closed) return () => {};
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
-		close() {
-			closed = true;
-			listeners.clear();
-		},
-	};
-}
-
-/**
- * The storage a handle's files, tables, and writes go through, over the
- * host's. A call made once closing started is `Closed`; one already begun
- * owns its result. With `published`, the handle publishes that definition
- * just before its first change (`publish-definition.ts`), through the same
- * accounting. Each put that changed a file, or may have, makes the history's
- * observations stale; it is not reported to the handle's own listeners
- * (ADR-0548), since whoever saved holds the result.
- */
-function handleStorage(
-	storage: FolderStorage,
-	{
-		signal,
-		history,
-		published,
-	}: {
-		signal: AbortSignal;
-		history: Pick<FolderHistory, 'noteEdit'>;
-		published: Definition | undefined;
-	},
-): FolderStorage {
-	const closed = () => Promise.resolve(FileError.Closed());
-	const noting: Pick<FolderStorage, 'read' | 'put'> = {
-		read: (path) => storage.read(path),
-		async put(path, bytes, ifMatch) {
-			const result = await storage.put(path, bytes, ifMatch);
-			if (mayHaveChanged(result)) history.noteEdit();
-			return result;
-		},
-	};
-	let publishing: Promise<void> | undefined;
-	const publish = async () => {
-		if (published === undefined) return;
-		publishing ??= publishDefinition(published, noting).then((local) =>
-			publishLocalPatterns(local, noting),
-		);
-		await publishing;
-	};
-	return {
-		list: () => (signal.aborted ? closed() : storage.list()),
-		children: (directory) =>
-			signal.aborted ? closed() : storage.children(directory),
-		read: (path) => (signal.aborted ? closed() : storage.read(path)),
-		async put(path, bytes, ifMatch) {
-			if (signal.aborted) return closed();
-			await publish();
-			return noting.put(path, bytes, ifMatch);
-		},
-		async mkdir(path) {
-			if (signal.aborted) return closed();
-			await publish();
-			return storage.mkdir(path);
-		},
-		rmdir: (path) => (signal.aborted ? closed() : storage.rmdir(path)),
-	};
-}
-
-/** The handle's `git`, frozen, over `history`. */
-function createFolderGit(history: FolderHistory): FolderGit {
-	return Object.freeze({
-		get snapshot() {
-			return history.snapshot;
-		},
-		subscribe: (listener) => history.subscribe(listener),
-		status: () => history.status(),
-		commit: (options) => history.commit(options),
-		log: (depth) => history.log(depth),
-	} satisfies FolderGit);
-}
-
-/**
- * Assemble the handle over acquired storage. `prepared` is the prepared
- * definition: the app's own in its own folder, or the definition read from
- * any other. It is the snapshot every table reads through, never the
- * definition the opener was handed. No argument carries `TDefinition`, so
- * the opener names it.
+ * The handle `openFolder` returns.
  *
- * With `through`, the definition a folder that is not the app's own is read
- * through, which `prepared` contains, the handle has that definition's
- * tables alone, each still reading and writing through `prepared`'s table,
- * so a row is checked against every field the folder declares and keeps the
- * fields the definition does not name.
+ * Subscribe before reading: a notification means a read may now differ, and
+ * `change.paths` says where (`null` when unknown).
  */
-export function assembleFolder<
-	TDefinition extends Definition,
-	TFolderDefinition extends Definition = TDefinition,
->({
-	id,
-	own,
-	prepared,
-	through,
-	storage: suppliedStorage,
-	history,
-	location,
-	hints,
-	release,
-}: {
-	id: string;
+export type Folder<TTables extends Record<string, Schema>> = {
+	readonly files: FolderFiles;
+	readonly tables: { [TName in keyof TTables]: FolderTable<TTables[TName]> };
 	/**
-	 * Whether this is the opening app's own folder. Its handle publishes
-	 * `prepared` to `epicenter.json` before its first write; any other
-	 * handle, whose definition is that file, never writes it.
+	 * Called after a save commits, whether this handle or another one made
+	 * it. The listener is not called for the current state. Returns the
+	 * function that stops listening.
 	 */
-	own: boolean;
-	prepared: Definition;
-	/** The definition the caller reads through, contained by `prepared` (ADR-0538). */
-	through?: Definition;
-	/** The host's storage, which the history shares. */
-	storage: FolderStorage;
-	history: FolderHistory;
-	location: FolderLocation;
-	hints: FileHints;
-	/** Releases this attachment after owned Git work settles. */
-	release: () => Promise<void>;
-}): Folder<TDefinition, TFolderDefinition> {
-	const controller = new AbortController();
-	let closing: Promise<void> | undefined;
+	onChange(listener: (change: FolderChange) => void): () => void;
+	readonly status: FolderStatus;
+	/** Called when `status` changes. Returns the function that stops listening. */
+	onStatusChange(listener: (status: FolderStatus) => void): () => void;
+	/**
+	 * Close the handle. New calls throw at once; saves already started finish
+	 * and report their real outcome; then listeners are released and storage
+	 * is released. Saved work stays saved. Closing again returns the same
+	 * promise.
+	 */
+	close(): Promise<void>;
+};
 
-	const storage = handleStorage(suppliedStorage, {
-		signal: controller.signal,
-		history,
-		published: own ? prepared : undefined,
-	});
-	const tables: Record<string, FileTable<unknown>> = {};
-	// A table's key is its name and its directory.
-	// The opener prepared every table, which is what the type's mark records.
-	for (const name of Object.keys((through ?? prepared).tables)) {
-		const table = prepared.tables[name] as PreparedFolderTable;
-		const shape = through?.tables[name];
-		tables[name] = createTable<unknown>(
-			{ storage },
-			name,
-			table,
-			shape === undefined ? [] : Object.freeze(requiredOutside(table, shape)),
-		);
-	}
-	const files = createFiles({ storage });
-	const git = createFolderGit(history);
+/**
+ * The top-level directories an app reads as Markdown rows, with the schema
+ * for each row's frontmatter. Schemas interpret; they never decide what may
+ * be written.
+ */
+export type FolderTables = Record<string, Schema>;
 
-	return Object.freeze({
-		id,
-		own,
-		definition: prepared as TFolderDefinition,
-		tables: Object.freeze(tables) as Folder<TDefinition>['tables'],
-		files,
-		git,
-		write: (path: string, from: FileContent | null, to: FileContent | null) =>
-			writeFile(storage, path, from, to),
-		move: (path: string, next: string) => movePath(storage, path, next),
-		location: Object.freeze(location),
-		sync: history.sync,
-		onFilesChanged: (listener: (change: FilesChanged) => void) =>
-			hints.subscribe(listener),
-		signal: controller.signal,
-		close() {
-			if (closing !== undefined) return closing;
-			const completion = Promise.withResolvers<void>();
-			// Abort and history observers may call close again synchronously.
-			// Give them this completion before notifying either one.
-			closing = completion.promise;
-			void (async () => {
-				// Fence new file work and hints, then close this handle's history.
-				controller.abort();
-				hints.close();
-				await history.close();
-				await release();
-			})().then(completion.resolve, completion.reject);
-			return closing;
-		},
-	} satisfies Folder<TDefinition, TFolderDefinition>);
-}
+/**
+ * `openFolder({ tables })`: the runtime's default local folder. In a browser
+ * it is this origin's one local folder, reopened under a fixed internal key
+ * that no app name, account, or remote changes.
+ */
+export type DefaultFolderOptions<TTables extends FolderTables> = {
+	readonly tables: TTables;
+	readonly directory?: never;
+};
+
+/**
+ * `openFolder({ directory, tables })`: an ordinary directory. In Bun it is a
+ * path to an existing directory; in the desktop app it is the ID the shell
+ * registered the directory under, never a path.
+ */
+export type DirectoryFolderOptions<TTables extends FolderTables> = {
+	readonly directory: string;
+	readonly tables: TTables;
+};
+
+/** Either opening: the runtime's default, or a directory. */
+export type FolderOptions<TTables extends FolderTables> =
+	| DefaultFolderOptions<TTables>
+	| DirectoryFolderOptions<TTables>;
+
+/** The automatic entry's opener: the runtime decides which options it takes. */
+export type OpenFolder = <const TTables extends FolderTables>(
+	options: FolderOptions<TTables>,
+) => Promise<Result<Folder<TTables>, OpenFolderError>>;

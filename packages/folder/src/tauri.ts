@@ -1,18 +1,17 @@
 /**
- * `@epicenter/folder/tauri`: a folder whose directory the desktop shell
- * grants, and nothing else.
+ * `@epicenter/folder/tauri`: a directory the desktop shell registered, and
+ * nothing else.
  *
- * The same `openFolder` and contract as `@epicenter/folder`, with the choice
- * already made. A build that imports this entry, or aliases the bare
- * specifier to it, carries no browser storage and no isomorphic-git; the
- * folder engine and its system-`git` backend load when a folder is granted.
- * Outside the desktop app the opener refuses; it never opens browser
- * storage instead.
+ * `openFolder({ directory, tables })` asks the shell to grant this window the
+ * directory registered as `directory`, an ID, never a path, and reads and
+ * saves its files through the shell's storage commands (`native/tauri.ts`).
+ * A build that imports this entry, or aliases the bare specifier to it,
+ * carries no browser storage. Outside the desktop app the opener refuses; it
+ * never opens browser storage instead.
  *
  * The shell installs the `tauri-plugin-epicenter-folder` crate and registers
- * each folder's directory under an ID for the windows that may edit it. An
- * app's window opens the folder the shell handed it (`window_folder`).
+ * each folder's directory under an ID for the windows that may edit it.
  * Importing this module does none of that and opens nothing.
  */
 export * from './contract.js';
-export { openFolder } from './tauri-adapter.js';
+export { openTauriFolder as openFolder } from './native/tauri.js';

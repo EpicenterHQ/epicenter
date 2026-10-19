@@ -101,8 +101,8 @@ wins its field or text region. Invalid source stays available for file repair.
 Local saves return `Occupied` if they would replace a folder with a file or
 an ancestor file with a folder. This protects table rows and raw files through
 the same check, including folders with names the app cannot decode. A witnessed
-row deletion removes the row and its whole attachment folder together; the
-folder follows the row, without a separate attachment-folder witness.
+row deletion removes only the row file. Adjacent files stay available through
+`folder.files`, including files the deleting caller never observed.
 
 File operations accept a string or exact bytes as `from`. Use bytes from
 the returned Blob to retain a leading byte-order mark or delete native binary

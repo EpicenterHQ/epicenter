@@ -1,10 +1,29 @@
 /**
- * The folder over an ordinary directory: files through the browser folder's
- * storage over directory primitives, history through real Git. Here the
- * primitives are `node:fs` and Git is the system `git`, as in the
- * `epicenter` CLI that runs a desktop page's history. Every check
- * reads the result with native Git, since another Git program shares the
- * repository.
+ * A directory's history over real Git: the engine the `epicenter` CLI runs
+ * (`runHistory`), with files saved through the one write Sync publishes
+ * with. Here the primitives are `node:fs` and Git is the system `git`.
+ * Every check reads the result with native Git, since another Git program
+ * shares the repository.
+ *
+ * Key behaviors:
+ * - Saving writes real files and creates no repository; the first commit
+ *   does, and native Git reads it cleanly
+ * - An existing repository, its author, a packed branch, and a commit native
+ *   Git makes meanwhile are continued, never forked; its configuration is
+ *   left as the person set it
+ * - A held index, an executable, an attribute file naming a filter, a
+ *   branch other than `main`, or a merge another Git program began is
+ *   reported, never silently rewritten; a branch that moves twice is never
+ *   forced
+ * - A save makes no commit; the next commit records external bytes with it
+ * - With `core.autocrlf`, every commit and Sync records the bytes on disk
+ * - A write merges with what another program landed, even after its check
+ * - Two handles of one directory share one repository and one linear history
+ * - An incoming update cut off partway is finished by the next Sync, and a
+ *   save racing Sync's publish wins and is sent next; Sync stops where a
+ *   remote name is held here under another spelling
+ * - Sync connects through Git's own `origin`, and syncs both ways with a
+ *   native checkout
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -17,18 +36,17 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { SCRATCH_DIRECTORY } from './boundary.js';
-import { defineFolder, defineTable, field } from './contract.js';
-import { prepareFolderDefinition } from './definition.js';
-import { openDirectoryFolder } from './directory-adapter.js';
+import {
+	type DirectoryHistory,
+	openDirectoryHistory,
+	rawDirectoryFolder,
+} from './directory-history.test-support.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import {
-	createDirectoryStorage,
-	sweepStaleScratch,
-} from './directory-store.js';
-import { nativeHistory } from './git/native-history.js';
+import { createHistory } from './git/history.js';
+import { createNativeGitBackend } from './git/native-backend.js';
 import { createGitRunner } from './git/native-host.js';
 import { NEUTRAL_ATTRIBUTES } from './git/neutral-attributes.js';
 import {
@@ -37,22 +55,13 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
-import { mustRow } from './row-write.test-support.js';
-
-const definition = defineFolder({
-	tables: {
-		todos: defineTable({
-			fields: { title: field.string(), done: field.boolean() },
-		}),
-	},
-});
 
 const author = { name: 'Todos', email: 'todos@localhost' };
 
 const originalEnv = { ...process.env };
 
 beforeAll(() => {
-	// The folder's own `git` and the checks here must not pick up the
+	// The history's own `git` and the checks here must not pick up the
 	// developer's hooks, signing, or identity.
 	Object.assign(process.env, {
 		GIT_CONFIG_GLOBAL: GIT_ENV.GIT_CONFIG_GLOBAL,
@@ -65,7 +74,7 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 
-async function open(
+function open(
 	root: string,
 	options: {
 		primitives?: DirectoryPrimitives;
@@ -73,57 +82,22 @@ async function open(
 		beforeGit?: (args: readonly string[]) => Promise<void>;
 	} = {},
 ) {
-	const files = options.primitives ?? nodeDirectoryPrimitives;
-	// As the Bun opener does before it opens.
-	await sweepStaleScratch(root, files);
-	const system = createGitRunner(root);
-	const run: typeof system = async (args, runOptions) => {
-		await options.beforeGit?.(args);
-		return system(args, runOptions);
-	};
-	// This process is the directory's only writer, so Sync's save lock is no
-	// lock at all.
-	const storage = createDirectoryStorage({
-		root,
-		primitives: files,
-		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
-	});
-	return openDirectoryFolder<typeof definition>({
-		opening: {
-			id: 'directory',
-			own: true,
-			definition: expectOk(prepareFolderDefinition(definition)),
-		},
-		rootPath: root,
-		storage,
-		history: nativeHistory({
-			rootPath: root,
-			host: { run, files },
-			boundary: storage,
-			author,
-		}),
-	});
+	return openDirectoryHistory({ root, git: { author }, ...options });
 }
 
-const HOUR = 60 * 60 * 1000;
+/** A todo row's text. */
+const todo = (title: string, done = false) =>
+	`---\ntitle: ${title}\ndone: ${done}\n---\n`;
 
-/** A staged file's name as another process's handle makes it, `offset` from now. */
-const stagedName = (offset: number) =>
-	`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
+let todos = 0;
 
-type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
-
-async function addTodo(folder: OpenedFolder, title: string) {
-	return mustRow(
-		await folder.tables.todos.create({
-			fields: { title, done: false },
-			body: '',
-		}),
-	);
+/** Save a new todo row through the one write, at a path no other test uses. */
+async function addTodo(folder: DirectoryHistory, title: string) {
+	const path = `todos/t${todos++}.md`;
+	const text = todo(title);
+	expectOk(await folder.write(path, null, text));
+	return { path, text };
 }
-
-/** The stem of a row path in `todos`. */
-const stemOf = (path: string) => path.slice('todos/'.length, -'.md'.length);
 
 /** A repository native Git made, with one committed file. */
 async function nativeRepository(prefix: string) {
@@ -135,21 +109,15 @@ async function nativeRepository(prefix: string) {
 	return { root, start: await git(root, 'rev-parse', 'HEAD') };
 }
 
-describe('a folder over an ordinary directory', () => {
+describe('a directory history', () => {
 	test('writes real files and a repository native Git reads cleanly', async () => {
-		const root = await scratch('directory-folder-');
-		const folder = expectOk(await open(root));
-		expect(folder.location).toEqual({ kind: 'directory', root });
+		const root = await scratch('directory-history-');
+		const folder = await open(root);
+		// Opening wrote nothing, and created no repository.
 		expect(existsSync(join(root, 'todos'))).toBe(false);
-		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
-		expect(existsSync(join(root, 'todos'))).toBe(false);
-		// Opening and reading wrote nothing, and created no repository.
 		expect(existsSync(join(root, '.git'))).toBe(false);
 		const created = await addTodo(folder, 'Buy milk');
-		// The first write published the declaration before its own file.
-		expect(existsSync(join(root, 'epicenter.json'))).toBe(true);
 		expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
-		expect(existsSync(join(root, 'todos'))).toBe(true);
 		expect(await readFile(join(root, created.path), 'utf8')).toContain(
 			'title: Buy milk',
 		);
@@ -166,12 +134,12 @@ describe('a folder over an ordinary directory', () => {
 
 	test('opens a repository native Git made, with its author, and continues its branch', async () => {
 		const { root, start } = await nativeRepository(
-			'directory-folder-existing-',
+			'directory-history-existing-',
 		);
 		await git(root, 'config', 'user.name', 'Braden');
 		await git(root, 'config', 'user.email', 'braden@example.test');
 
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		await addTodo(folder, 'From Todos');
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
@@ -186,16 +154,19 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test("a new folder's first open commits as the person's global Git identity", async () => {
-		const root = await scratch('directory-folder-identity-');
-		const global = join(await scratch('directory-folder-global-'), 'gitconfig');
+	test("a new directory's first commit is made as the person's global Git identity", async () => {
+		const root = await scratch('directory-history-identity-');
+		const global = join(
+			await scratch('directory-history-global-'),
+			'gitconfig',
+		);
 		await writeFile(
 			global,
 			'[user]\n\tname = Braden\n\temail = braden@example.test\n',
 		);
 		process.env.GIT_CONFIG_GLOBAL = global;
 		try {
-			const folder = expectOk(await open(root));
+			const folder = await open(root);
 			await addTodo(folder, 'First');
 			expect((await folder.git.commit()).status).toBe('committed');
 			expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
@@ -208,10 +179,10 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('a branch native Git packed (git gc) is continued, not forked', async () => {
-		const { root, start } = await nativeRepository('directory-folder-packed-');
+		const { root, start } = await nativeRepository('directory-history-packed-');
 		await git(root, 'pack-refs', '--all');
 		await git(root, 'gc', '--quiet');
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		await addTodo(folder, 'After gc');
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
@@ -223,9 +194,9 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test('a commit native Git makes while the folder is open is the next parent', async () => {
-		const { root } = await nativeRepository('directory-folder-concurrent-');
-		const folder = expectOk(await open(root));
+	test('a commit native Git makes while the history is open is the next parent', async () => {
+		const { root } = await nativeRepository('directory-history-concurrent-');
+		const folder = await open(root);
 		await writeFile(join(root, 'native.txt'), 'native\n');
 		await git(root, 'add', 'native.txt');
 		await git(root, 'commit', '--quiet', '-m', 'Native while open');
@@ -240,8 +211,8 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test("while another Git program holds the index, a commit lands by Git's ref lock and the next one refreshes the index", async () => {
-		const { root, start } = await nativeRepository('directory-folder-lock-');
-		const folder = expectOk(await open(root));
+		const { root, start } = await nativeRepository('directory-history-lock-');
+		const folder = await open(root);
 		await addTodo(folder, 'Beside a busy index');
 		await writeFile(join(root, '.git', 'index.lock'), '');
 		// The commit's objects and its compare-and-swap of the branch need no
@@ -257,7 +228,7 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('opening and committing leave the Git configuration as the person set it', async () => {
-		const { root } = await nativeRepository('directory-folder-config-');
+		const { root } = await nativeRepository('directory-history-config-');
 		await git(root, 'remote', 'add', 'origin', 'https://example.test/r.git');
 		await git(
 			root,
@@ -267,7 +238,7 @@ describe('a folder over an ordinary directory', () => {
 			'+refs/pull/*/head:refs/remotes/origin/pr/*',
 		);
 		const before = await readFile(join(root, '.git', 'config'), 'utf8');
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		await addTodo(folder, 'Config untouched');
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(await readFile(join(root, '.git', 'config'), 'utf8')).toBe(before);
@@ -275,7 +246,7 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('a repository that tracks an executable refuses the commit and names it', async () => {
-		const root = await scratch('directory-folder-modes-');
+		const root = await scratch('directory-history-modes-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
 		await writeFile(join(root, 'run.sh'), '#!/bin/sh\n');
 		await chmod(join(root, 'run.sh'), 0o755);
@@ -283,7 +254,7 @@ describe('a folder over an ordinary directory', () => {
 		await git(root, 'commit', '--quiet', '-m', 'Executable');
 		const head = await git(root, 'rev-parse', 'HEAD');
 
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		await addTodo(folder, 'Beside a script');
 		const refused = await folder.git.commit();
 		expect(refused.status).toBe('blocked');
@@ -299,7 +270,7 @@ describe('a folder over an ordinary directory', () => {
 		'global',
 		'repository',
 	] as const)("with core.autocrlf=true in the person's %s config, Save version and Sync commit each file as it is on disk, and the person's checkout writes it back the same", async (where) => {
-		const project = await scratch('directory-folder-autocrlf-');
+		const project = await scratch('directory-history-autocrlf-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');
 		await mkdir(root);
@@ -324,11 +295,11 @@ describe('a folder over an ordinary directory', () => {
 		};
 		try {
 			const ran: (readonly string[])[] = [];
-			const folder = expectOk(
-				await open(root, { beforeGit: async (args) => void ran.push(args) }),
-			);
+			const folder = await open(root, {
+				beforeGit: async (args) => void ran.push(args),
+			});
 			const created = await addTodo(folder, 'Line feeds');
-			// The folder's first commit creates its repository.
+			// The first commit creates the repository.
 			expect((await folder.git.commit()).status).toBe('committed');
 			expect(await readFile(join(root, '.git/info/attributes'), 'utf8')).toBe(
 				`${NEUTRAL_ATTRIBUTES}\n`,
@@ -384,9 +355,9 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('an attribute file that names a filter and governs a recorded file, ignored or not, refuses the commit; line-ending attributes commit the bytes on disk', async () => {
-		const { root, start } = await nativeRepository('directory-folder-filter-');
+		const { root, start } = await nativeRepository('directory-history-filter-');
 		await writeFile(join(root, '.gitattributes'), '*.md text eol=crlf\n');
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		const created = await addTodo(folder, 'Plain bytes');
 		const committed = await folder.git.commit();
 		expect(committed).toMatchObject({ status: 'committed', parent: start });
@@ -436,27 +407,22 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('a write merges with a file another program changed', async () => {
-		const root = await scratch('directory-folder-guard-');
-		const folder = expectOk(await open(root));
+		const root = await scratch('directory-history-guard-');
+		const folder = await open(root);
 		const created = await addTodo(folder, 'Mine');
 		const path = join(root, created.path);
-		await writeFile(path, '---\ntitle: Mine\ndone: true\n---\n');
+		await writeFile(path, todo('Mine', true));
 		expectOk(
-			await folder.tables.todos.write(stemOf(created.path), created.row, {
-				...created.row,
-				fields: { ...created.row.fields, title: 'Mine, edited' },
-			}),
+			await folder.write(created.path, created.text, todo('Mine, edited')),
 		);
-		expect(await readFile(path, 'utf8')).toBe(
-			'---\ntitle: Mine, edited\ndone: true\n---\n',
-		);
+		expect(await readFile(path, 'utf8')).toBe(todo('Mine, edited', true));
 		await folder.close();
 	});
 
 	test('a write another writer overtakes after its check merges; a create is refused where it publishes, and a delete reads again and wins', async () => {
-		const root = await scratch('directory-folder-overtaken-');
-		// Another writer, sharing no lock with this folder, lands these bytes
-		// on a path after this folder checked it and before it publishes.
+		const root = await scratch('directory-history-overtaken-');
+		// Another writer, sharing no lock with this history, lands these bytes
+		// on a path after this one checked it and before it publishes.
 		const overtaken = new Map<string, string>();
 		const overtake = async (path: string) => {
 			const theirs = overtaken.get(path);
@@ -475,17 +441,13 @@ describe('a folder over an ordinary directory', () => {
 				return nodeDirectoryPrimitives.remove(path, options);
 			},
 		};
-		const folder = expectOk(await open(root, { primitives: racing }));
+		const folder = await open(root, { primitives: racing });
 
 		const created = await addTodo(folder, 'Mine');
 		const path = join(root, created.path);
-		const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
-		overtaken.set(path, theirs);
+		overtaken.set(path, todo('Theirs'));
 		expectOk(
-			await folder.tables.todos.write(stemOf(created.path), created.row, {
-				...created.row,
-				fields: { ...created.row.fields, title: 'Mine, edited' },
-			}),
+			await folder.write(created.path, created.text, todo('Mine, edited')),
 		);
 		expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 
@@ -514,8 +476,8 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test('a write that stops before it lands leaves nothing at its path, and the next open clears what it staged', async () => {
-		const root = await scratch('directory-folder-interrupted-');
+	test('a write that stops before it lands leaves nothing at its path', async () => {
+		const root = await scratch('directory-history-interrupted-');
 		// The rename that publishes a todo is lost, as a quit would lose it.
 		const failing: DirectoryPrimitives = {
 			...nodeDirectoryPrimitives,
@@ -524,47 +486,22 @@ describe('a folder over an ordinary directory', () => {
 				return nodeDirectoryPrimitives.rename(from, to, expected);
 			},
 		};
-		const interrupted = expectOk(await open(root, { primitives: failing }));
-		const refused = await interrupted.tables.todos.create({
-			fields: { title: 'Never landed', done: false },
-			body: '',
-		});
+		const interrupted = await open(root, { primitives: failing });
+		const refused = await interrupted.write(
+			'todos/never.md',
+			null,
+			todo('Never landed'),
+		);
 		expect(refused.error).not.toBeNull();
 		// Neither an empty file nor a partial one is at the path.
-		const todos = await readdir(join(root, 'todos')).catch(() => []);
-		expect(todos.filter((name) => name.endsWith('.md'))).toEqual([]);
+		const listed = await readdir(join(root, 'todos')).catch(() => []);
+		expect(listed.filter((name) => name.endsWith('.md'))).toEqual([]);
 		await interrupted.close();
-
-		// A staged file a crash left is removed when the folder opens again,
-		// once it is old enough that no write can still be about to rename it.
-		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
-		await writeFile(join(root, SCRATCH_DIRECTORY, stagedName(-2 * HOUR)), 'x');
-		const reopened = expectOk(await open(root));
-		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
-		await reopened.close();
 	});
 
-	test('an open leaves a file another process just staged, and names it did not make', async () => {
-		const root = await scratch('directory-folder-foreign-scratch-');
-		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
-		// Another process wrote this between its write and its rename; it
-		// shares no lock with this one.
-		const fresh = stagedName(0);
-		const old = stagedName(-2 * HOUR);
-		for (const name of [fresh, old, 'left-behind'])
-			await writeFile(join(root, SCRATCH_DIRECTORY, name), 'x');
-		const folder = expectOk(await open(root));
-		expect((await readdir(join(root, SCRATCH_DIRECTORY))).sort()).toEqual(
-			[fresh, 'left-behind'].sort(),
-		);
-		await folder.close();
-	});
-
-	test('two windows opening a new folder at once share one repository', async () => {
-		const root = await scratch('directory-folder-race-');
-		const [first, second] = await Promise.all([open(root), open(root)]);
-		const a = expectOk(first);
-		const b = expectOk(second);
+	test('two handles opening a new directory at once share one repository', async () => {
+		const root = await scratch('directory-history-race-');
+		const [a, b] = await Promise.all([open(root), open(root)]);
 		await addTodo(a, 'From one window');
 		expect((await b.git.commit()).status).toBe('committed');
 		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('1');
@@ -574,25 +511,23 @@ describe('a folder over an ordinary directory', () => {
 		await b.close();
 	});
 
-	test('a commit whose branch another window moved retries from a fresh capture', async () => {
-		const root = await scratch('directory-folder-commit-race-');
-		const a = expectOk(await open(root));
+	test('a commit whose branch another handle moved retries from a fresh capture', async () => {
+		const root = await scratch('directory-history-commit-race-');
+		const a = await open(root);
 		await addTodo(a, 'First');
 		expect((await a.git.commit()).status).toBe('committed');
-		// Window A commits after B captured and before B moves the branch,
+		// Handle A commits after B captured and before B moves the branch,
 		// then saves once more: B's retry must record that save.
 		let interleave = true;
-		const b = expectOk(
-			await open(root, {
-				async beforeGit(args) {
-					if (!interleave || args[0] !== 'update-ref') return;
-					interleave = false;
-					await addTodo(a, 'Committed by A');
-					expect((await a.git.commit()).status).toBe('committed');
-					await addTodo(a, 'Saved after A committed');
-				},
-			}),
-		);
+		const b = await open(root, {
+			async beforeGit(args) {
+				if (!interleave || args[0] !== 'update-ref') return;
+				interleave = false;
+				await addTodo(a, 'Committed by A');
+				expect((await a.git.commit()).status).toBe('committed');
+				await addTodo(a, 'Saved after A committed');
+			},
+		});
 		await addTodo(b, 'Saved by B');
 		const before = await git(root, 'rev-parse', 'HEAD');
 		const outcome = await b.git.commit();
@@ -625,10 +560,10 @@ describe('a folder over an ordinary directory', () => {
 		await b.close();
 	});
 
-	test('two windows that commit at once both land on one linear history', async () => {
-		const root = await scratch('directory-folder-commits-');
-		const a = expectOk(await open(root));
-		const b = expectOk(await open(root));
+	test('two handles that commit at once both land on one linear history', async () => {
+		const root = await scratch('directory-history-commits-');
+		const a = await open(root);
+		const b = await open(root);
 		for (let round = 0; round < 5; round++) {
 			await Promise.all([addTodo(a, `A ${round}`), addTodo(b, `B ${round}`)]);
 			const outcomes = await Promise.all([a.git.commit(), b.git.commit()]);
@@ -647,12 +582,12 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('an incoming update that stops partway is finished by the next Sync', async () => {
-		const project = await scratch('directory-folder-incoming-');
+		const project = await scratch('directory-history-incoming-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');
 		await git(project, 'init', '--quiet', '--initial-branch=main', root);
 		await git(root, 'remote', 'add', 'origin', bare);
-		const first = expectOk(await open(root));
+		const first = await open(root);
 		await addTodo(first, 'Shared');
 		expectOk(await first.sync.run());
 		await first.close();
@@ -661,10 +596,7 @@ describe('a folder over an ordinary directory', () => {
 		const native = join(project, 'native');
 		await git(project, 'clone', '--quiet', bare, native);
 		for (const name of ['a', 'b'])
-			await writeFile(
-				join(native, 'todos', `${name}.md`),
-				`---\ntitle: ${name}\ndone: false\n---\n`,
-			);
+			await writeFile(join(native, 'todos', `${name}.md`), todo(name));
 		await git(native, 'add', '--all');
 		await git(native, 'commit', '--quiet', '-m', 'Two more');
 		await git(native, 'push', '--quiet', 'origin', 'main');
@@ -678,12 +610,12 @@ describe('a folder over an ordinary directory', () => {
 				return nodeDirectoryPrimitives.rename(from, to, expected);
 			},
 		};
-		const interrupted = expectOk(await open(root, { primitives: stopping }));
+		const interrupted = await open(root, { primitives: stopping });
 		const stopped = await interrupted.sync.run();
 		expect(stopped.error).not.toBeNull();
 		await interrupted.close();
 
-		const reopened = expectOk(await open(root));
+		const reopened = await open(root);
 		expectOk(await reopened.sync.run());
 		for (const name of ['a', 'b'])
 			expect(
@@ -695,13 +627,13 @@ describe('a folder over an ordinary directory', () => {
 		await reopened.close();
 	});
 
-	test('a save another window lands while Sync writes the same row wins over the remote, and the next Sync sends it', async () => {
-		const project = await scratch('directory-folder-incoming-race-');
+	test('a save another program lands while Sync writes the same row wins over the remote, and the next Sync sends it', async () => {
+		const project = await scratch('directory-history-incoming-race-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');
 		await git(project, 'init', '--quiet', '--initial-branch=main', root);
 		await git(root, 'remote', 'add', 'origin', bare);
-		// Another window, sharing no lock with this folder, saves the row
+		// Another program, sharing no lock with this history, saves the row
 		// after Sync checked it and before Sync's write publishes.
 		let racing: string | undefined;
 		const raced: DirectoryPrimitives = {
@@ -714,7 +646,7 @@ describe('a folder over an ordinary directory', () => {
 				return nodeDirectoryPrimitives.rename(from, to, expected);
 			},
 		};
-		const folder = expectOk(await open(root, { primitives: raced }));
+		const folder = await open(root, { primitives: raced });
 		const created = await addTodo(folder, 'Shared');
 		expectOk(await folder.sync.run());
 
@@ -729,7 +661,7 @@ describe('a folder over an ordinary directory', () => {
 		await git(native, 'commit', '--quiet', '-am', 'Rename remotely');
 		await git(native, 'push', '--quiet', 'origin', 'main');
 
-		const theirs = '---\ntitle: Other window\ndone: false\n---\n';
+		const theirs = todo('Other window');
 		racing = theirs;
 		// Sync merges the save in, the save winning the title both changed,
 		// and says the folder changed since the version it published.
@@ -747,8 +679,8 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('saves a version with a message and reads its log with Git', async () => {
-		const { root } = await nativeRepository('directory-folder-version-');
-		const folder = expectOk(await open(root));
+		const { root } = await nativeRepository('directory-history-version-');
+		const folder = await open(root);
 		await addTodo(folder, 'Versioned');
 		expect((await folder.git.commit({ message: 'Add one todo' })).status).toBe(
 			'committed',
@@ -761,13 +693,13 @@ describe('a folder over an ordinary directory', () => {
 	});
 
 	test('syncs both ways with a native checkout through a real remote', async () => {
-		const project = await scratch('directory-folder-sync-');
+		const project = await scratch('directory-history-sync-');
 		const bare = await createBareRemote(project);
 
 		const root = join(project, 'desktop');
 		await git(project, 'init', '--quiet', '--initial-branch=main', root);
 		await git(root, 'remote', 'add', 'origin', bare);
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		const created = await addTodo(folder, 'Synced');
 		expectOk(await folder.sync.run());
 		expect(await git(bare, 'log', '--format=%s', '-1', 'main')).not.toBe('');
@@ -793,12 +725,166 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test("connects through Git's own configuration: the remote is origin, and the first sync sends the folder", async () => {
-		const project = await scratch('directory-folder-connect-');
+	test('an existing non-main HEAD refuses history changes while file saves remain available', async () => {
+		const root = await scratch('directory-history-branch-');
+		await git(root, 'init', '--quiet', '--initial-branch=backup');
+		await writeFile(join(root, 'legacy.txt'), 'previous history');
+		await git(root, 'add', 'legacy.txt');
+		await git(root, 'commit', '--quiet', '-m', 'Previous history');
+		const previous = await git(root, 'rev-parse', 'HEAD');
+		const folder = await open(root);
+		try {
+			expectOk(await folder.write('saved.txt', null, 'saved'));
+			expect(await folder.git.commit()).toMatchObject({
+				status: 'blocked',
+				reason: 'HEAD is not on main',
+			});
+			expect(await git(root, 'rev-parse', 'HEAD')).toBe(previous);
+			expect(
+				await git(root, 'for-each-ref', '--format=%(refname)', 'refs/heads'),
+			).toBe('refs/heads/backup');
+			expect(await readFile(join(root, 'saved.txt'), 'utf8')).toBe('saved');
+		} finally {
+			await folder.close();
+		}
+	});
+
+	test('a save makes no commit; the next commit checkpoints external bytes with it, and keeps the native index consistent', async () => {
+		const root = await scratch('directory-history-checkpoint-');
+		const folder = await open(root);
+		try {
+			await writeFile(join(root, 'external.md'), 'external');
+			expectOk(await folder.write('saved.md', null, 'saved'));
+			expect(folder.git.snapshot.lastCommit).toBeUndefined();
+			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
+			// Saving creates no repository; the first commit does.
+			expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect(await git(root, 'show', 'HEAD:external.md')).toBe('external');
+			expect(await git(root, 'show', 'HEAD:saved.md')).toBe('saved');
+			expect(await git(root, 'status', '--porcelain')).toBe('');
+
+			// An edit another program makes is merged by the next save, and the
+			// commit after it is recorded through Git's own index.
+			await writeFile(join(root, 'saved.md'), 'saved\nexternal line\n');
+			expectOk(await folder.write('saved.md', 'saved', 'saved\nmine\n'));
+			expect(await git(root, 'status', '--porcelain')).toBe('M saved.md');
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect(await git(root, 'log', '-1', '--format=%s')).toBe(
+				'Update saved.md',
+			);
+			expect(await git(root, 'status', '--porcelain')).toBe('');
+		} finally {
+			await folder.close();
+		}
+	});
+
+	test("Sync stops where a remote file's name is held here under another spelling", async () => {
+		const project = await scratch('directory-history-case-sync-');
+		const bare = await createBareRemote(project);
+		const peer = join(project, 'peer');
+		await git(project, 'clone', '--quiet', bare, peer);
+		await writeFile(join(peer, 'keep.md'), 'keep\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Start');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const root = join(project, 'local');
+		await git(project, 'clone', '--quiet', bare, root);
+		const folder = await open(root);
+		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+		// An ignored local file, and the remote adding its other spelling.
+		await writeFile(join(root, '.git/info/exclude'), 'notes.md\n');
+		await writeFile(join(root, 'notes.md'), 'mine, ignored\n');
+		await writeFile(join(peer, 'Notes.md'), 'theirs\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Notes');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const head = await git(root, 'rev-parse', 'HEAD');
+		// Names compare folded on every disk, so a case-sensitive one stops
+		// too: the directory must open on a case-insensitive one.
+		const synced = await folder.sync.run();
+		expect(synced.error?.name).toBe('Blocked');
+		expect(synced.error?.message).toContain("'Notes.md'");
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+		expect(await readFile(join(root, 'notes.md'), 'utf8')).toBe(
+			'mine, ignored\n',
+		);
+		await folder.close();
+	});
+
+	test('a branch that moves again under the retry refuses the checkpoint; the branch is never forced', async () => {
+		const { root, boundary } = await rawDirectoryFolder(
+			'directory-history-cas-',
+		);
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		const backend = await createNativeGitBackend({
+			root,
+			branch: 'main',
+			host: { run: createGitRunner(root), files: nodeDirectoryPrimitives },
+		});
+		const history = createHistory({
+			backend: {
+				...backend,
+				async casBranch(expected, next) {
+					await git(
+						root,
+						'commit',
+						'--quiet',
+						'--allow-empty',
+						'-m',
+						'Competitor',
+					);
+					return backend.casBranch(expected, next);
+				},
+			},
+			boundary,
+			author,
+		});
+		await writeFile(join(root, 'a.txt'), 'a');
+		const outcome = await history.commit();
+		expect(outcome.status).toBe('branchMoved');
+		// The first move was retried once; the second is reported.
+		expect(await git(root, 'log', '--format=%s')).toBe(
+			'Competitor\nCompetitor',
+		);
+		if (outcome.status === 'branchMoved') {
+			// The candidate exists as an unreachable object; it was not published.
+			expect(await git(root, 'cat-file', '-t', outcome.candidate)).toBe(
+				'commit',
+			);
+			expect(outcome.actual).toBe(await git(root, 'rev-parse', 'HEAD'));
+		}
+		await history.close();
+	});
+
+	test('a merge another Git program began blocks commits and Sync until Git finishes it', async () => {
+		const root = await scratch('directory-history-merge-head-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		const folder = await open(root);
+		await folder.write('a.md', null, 'one\n');
+		expect((await folder.git.commit()).status).toBe('committed');
+		const head = await git(root, 'rev-parse', 'main');
+		await writeFile(join(root, '.git/MERGE_HEAD'), `${head}\n`);
+		await writeFile(join(root, 'a.md'), 'two\n');
+
+		const commit = await folder.git.commit();
+		expect(commit).toMatchObject({ status: 'blocked' });
+		if (commit.status === 'blocked')
+			expect(commit.reason).toContain(
+				'a Git operation is in progress (MERGE_HEAD)',
+			);
+		await git(root, 'remote', 'add', 'origin', join(root, 'none.git'));
+		expect(expectErr(await folder.sync.run()).name).toBe('Checkpoint');
+		expect(await git(root, 'rev-parse', 'main')).toBe(head);
+		await folder.close();
+	});
+
+	test("connects through Git's own configuration: the remote is origin, and the first sync sends the directory", async () => {
+		const project = await scratch('directory-history-connect-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');
 		await git(project, 'init', '--quiet', '--initial-branch=main', root);
-		const folder = expectOk(await open(root));
+		const folder = await open(root);
 		expect(folder.git.snapshot.remote).toBeUndefined();
 		await addTodo(folder, 'Connected');
 		const synced = expectOk(await folder.sync.connect(bare));

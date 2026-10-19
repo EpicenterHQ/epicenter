@@ -15,6 +15,7 @@ import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder } from './browser.js';
+import { openRepository } from './browser/repository.js';
 import type { Folder, FolderChange, FolderStatus } from './contract.js';
 import { openFolder as openAutomaticFolder } from './index.js';
 
@@ -103,6 +104,40 @@ test('an earlier OPFS folder is left untouched and never replaced with an empty 
 	}
 });
 
+test('an earlier nested OPFS folder also stops the new opener without writing', async () => {
+	const storage = Object.getOwnPropertyDescriptor(navigator, 'storage');
+	const calls: string[] = [];
+	Object.defineProperty(navigator, 'storage', {
+		configurable: true,
+		value: {
+			async getDirectory() {
+				return {
+					async *values() {
+						yield {
+							kind: 'directory', name: 'Epicenter',
+							async getDirectoryHandle(name: string) {
+								calls.push(name);
+								if (name !== 'local') throw new DOMException('Missing', 'NotFoundError');
+								return { async *values() { yield { kind: 'directory', name: 'so.epicenter.capture' }; } };
+							},
+							async getFileHandle() { throw new DOMException('Missing', 'NotFoundError'); },
+						};
+					},
+				};
+			},
+		},
+	});
+	try {
+		const refusal = expectErr(await openFolder({ tables: { notes } }));
+		expect(refusal.name).toBe('LegacyDataPresent');
+		expect(calls).toEqual(['local', '.git']);
+		expect(await indexedDB.databases()).toEqual([]);
+	} finally {
+		if (storage === undefined) Reflect.deleteProperty(navigator, 'storage');
+		else Object.defineProperty(navigator, 'storage', storage);
+	}
+});
+
 test('files and rows saved before close are there after reopening', async () => {
 	const first = await open();
 	expectOk(await first.files.write('readme.md', null, 'hello'));
@@ -113,7 +148,7 @@ test('files and rows saved before close are there after reopening', async () => 
 		}),
 	);
 	expect(sent.fields).toEqual({ title: 'Milk' });
-	expectOk(await first.tables.notes.files('a').write('photo.txt', null, 'x'));
+	expectOk(await first.files.write('notes/a/photo.txt', null, 'x'));
 	await first.close();
 
 	const second = await open();
@@ -133,12 +168,12 @@ test('files and rows saved before close are there after reopening', async () => 
 		'notes/a/photo.txt',
 		'readme.md',
 	]);
-	expect(expectOk(await second.tables.notes.files('a').list())).toEqual([
-		'photo.txt',
+	expect(expectOk(await second.files.list('notes/a/'))).toEqual([
+		'notes/a/photo.txt',
 	]);
 	const deleted = expectOk(await second.tables.notes.delete('a', row ?? null));
 	expect(deleted).toEqual({ deleted: true });
-	expect(expectOk(await second.files.list())).toEqual(['readme.md']);
+	expect(expectOk(await second.files.list())).toEqual(['notes/a/photo.txt', 'readme.md']);
 	await second.close();
 });
 
@@ -390,7 +425,7 @@ test('closing from a saving observer waits for the save it observed', async () =
 });
 
 test('a table that cannot be one directory, or missing IndexedDB, refuses to open', async () => {
-	for (const table of ['', 'a/b', '..', '.git'])
+	for (const table of ['', 'a/b', '..', '.git', 'con', 'HEAD', 'a: b'])
 		expect(
 			expectErr(await openFolder({ tables: { [table]: notes } })).name,
 		).toBe('InvalidTable');
@@ -409,7 +444,44 @@ test('a table that cannot be one directory, or missing IndexedDB, refuses to ope
 	}
 });
 
-test('the automatic opener opens the browser default and a desktop entry asks for a directory', async () => {
+test('browser writes refuse the same nonportable paths and row IDs as a directory', async () => {
+	const folder = await open();
+	for (const path of ['con.md', 'notes/a: b.md', 'a\\b', 'trailing.', 'HEAD/x'])
+		expect(expectErr(await folder.files.write(path, null, 'x')).name).toBe('InvalidPath');
+	for (const id of ['', 'con', 'a/b', 'a: b'])
+		expect(expectErr(await folder.tables.notes.set(id, null, { body: 'x' })).name).toBe('InvalidId');
+	expect(expectOk(await folder.files.list())).toEqual([]);
+	await folder.close();
+});
+
+test('earlier nonportable browser paths remain readable for repair', async () => {
+	const earlier = await openRepository('default');
+	const snapshot = await earlier.storage.capture([]);
+	expect(await earlier.storage.publish({
+		revision: snapshot.state.revision,
+		edits: new Map([
+			['notes/a: b.md', '---\ntitle: Kept\n---\nSource\n'],
+			['notes/.md', '---\ntitle: Empty stem\n---\nKept\n'],
+		]),
+	})).toBe(true);
+	const folder = await open();
+	expect(expectOk(await folder.files.list())).toEqual(['notes/.md', 'notes/a: b.md']);
+	expect(await expectOk(await folder.files.read('notes/a: b.md'))?.content.text()).toContain('Source');
+	expect(expectOk(await folder.tables.notes.list()).map((row) => row.id)).toEqual(['', 'a: b']);
+	expect(expectOk(await folder.tables.notes.get(''))?.fields).toEqual({ title: 'Empty stem' });
+	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
+	expect(raw.fields).toEqual({ title: 'Kept' });
+	expect(expectErr(await folder.tables.notes.set('a: b', null, { body: 'changed' })).name).toBe('InvalidId');
+	const { sent } = expectOk(await folder.tables.notes.set('a: b', raw, { body: 'Repaired\n' }));
+	expect(await expectOk(await folder.files.read('notes/a: b.md'))?.content.text()).toContain('Repaired');
+	expect(expectOk(await folder.tables.notes.delete('a: b', sent))).toEqual({ deleted: true });
+	expect(expectOk(await folder.tables.notes.get('a: b'))).toBeUndefined();
+	expect(expectErr(await folder.tables.notes.set('a: b', raw, { body: 'again' })).name).toBe('InvalidPath');
+	await folder.close();
+	earlier.close();
+});
+
+test('the automatic opener opens the browser default and refuses a directory in a browser', async () => {
 	const folder = expectOk(await openAutomaticFolder({ tables: { notes } }));
 	expectOk(
 		await folder.tables.notes.set('d', null, { fields: { title: 'Auto' } }),
@@ -421,8 +493,14 @@ test('the automatic opener opens the browser default and a desktop entry asks fo
 	});
 	await browser.close();
 
-	const { openFolder: openDesktopFolder } = await import('./tauri.js');
-	expect(expectErr(await openDesktopFolder({ tables: { notes } })).name).toBe(
-		'DirectoryRequired',
-	);
+	expect(
+		expectErr(
+			await openAutomaticFolder({ directory: '/tmp/notes', tables: { notes } }),
+		).name,
+	).toBe('NotTauri');
+	expect(
+		expectErr(
+			await openFolder({ directory: '/tmp/notes', tables: { notes } } as unknown as Parameters<typeof openFolder>[0]),
+		).name,
+	).toBe('NotTauri');
 });

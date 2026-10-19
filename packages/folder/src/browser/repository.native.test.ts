@@ -1,7 +1,7 @@
 /**
  * Local API operations over native Git content the text library did not author.
  * Exact byte witnesses protect BOM/binary content, opaque entries retain their
- * paths, and directory tombstones remove a row folder without decoding names.
+ * paths, and deleting a row preserves adjacent files without decoding names.
  */
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
@@ -181,28 +181,16 @@ test('subset capture omits unrelated blobs and preserves opaque directories and 
 	}
 });
 
-test('row-folder tombstones remove raw names and allow a later child to restore only itself', async () => {
+test('row deletion keeps adjacent native names without decoding or rewriting them', async () => {
 	const repository = await openRepository(crypto.randomUUID(), {
 		notes: { type: 'object' },
 	});
 	try {
-		await nativeFixture(repository);
+		const native = await nativeFixture(repository);
 		const row = expectOk(await repository.tables.notes.get('one'))!;
 		expect(expectOk(await repository.tables.notes.delete('one', row))).toEqual({
 			deleted: true,
 		});
-		expect(expectOk(await repository.tables.notes.files('one').list())).toEqual(
-			[],
-		);
-		// These bytes match C, but the folder tombstone means a new E is needed.
-		expectOk(
-			await repository.tables.notes
-				.files('one')
-				.write('a.txt', null, 'plain\n'),
-		);
-		expect(expectOk(await repository.tables.notes.files('one').list())).toEqual(
-			['a.txt'],
-		);
 		expectOk(await repository.prepareCommit(author));
 		const snapshot = await repository.storage.capture([]);
 		expect(snapshot.head.files.has('notes/one.md')).toBe(false);
@@ -212,10 +200,7 @@ test('row-folder tombstones remove raw names and allow a later child to restore 
 		const folder = readTree(snapshot.objects.get(notes.oid)!.bytes).find(
 			(entry) => new TextDecoder().decode(entry.name) === 'one',
 		)!;
-		const children = readTree(snapshot.objects.get(folder.oid)!.bytes);
-		expect(children.map((entry) => [...entry.name])).toEqual([
-			[...encoder.encode('a.txt')],
-		]);
+		expect(folder.oid).toBe(native.folder);
 	} finally {
 		repository.close();
 	}

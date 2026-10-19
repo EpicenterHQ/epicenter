@@ -1,20 +1,18 @@
 /**
- * Operation failures for file folders.
+ * Operation failures: opening a `Folder` (`OpenFolderError`), and the
+ * directory storage, row reading, and one write the CLI's readers and a
+ * directory's history use.
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. Every write and move fails as one `WriteError`, and a
- * table write as one `RowWriteError` (ADR-0576); a refusal before
- * publication wrote nothing. Each operation publishes one
- * file change at a time; a move that landed its destination but could not
- * remove its source leaves both, to repair.
+ * a person is told. Every write fails as one `WriteError` (ADR-0576); a
+ * refusal before publication wrote nothing.
  *
  * A row file whose text was read but is not a valid row is `InvalidRow`: it
  * carries the exact text, the hash of the bytes read, and every issue, so the
  * row can be repaired as text and saved guarded by those bytes.
  */
-import type { Mismatch } from '@epicenter/definition';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { Issue, Issues } from './row-text.js';
+import type { Issues } from './row-text.js';
 
 export const FileError = defineErrors({
 	InvalidPath: ({ path, reason }: { path: string; reason: string }) => ({
@@ -150,17 +148,14 @@ const WriteRefusal = defineErrors({
 });
 
 /**
- * Every way `folder.write` and `folder.move` fail (ADR-0576): a path no file
- * can be written at (`InvalidPath`, a directory included), a file already
- * where a create or a move puts one (`Occupied`), a file another writer kept
- * changing past `WRITE_ATTEMPTS` (`KeptChanging`), storage that failed or
- * whose reply was lost and could not be confirmed (`Io`, with the storage
- * failure as its cause), or a closed folder (`Closed`). A failed write
- * wrote nothing. A move can stop after its copy landed, leaving the file at
- * both paths, or with its destination changed by another writer; its error
- * says which (`KeptChanging`, `InvalidPath`), and the person repairs it
- * (ADR-0503). A file that does not read as its kind is never a refusal: it
- * merges as text, for repair (ADR-0503).
+ * Every way the one write a directory's history publishes through fails
+ * (`write.ts`, ADR-0576): a path no file can be written at (`InvalidPath`, a
+ * directory included), a file already where a create puts one (`Occupied`),
+ * a file another writer kept changing past `WRITE_ATTEMPTS`
+ * (`KeptChanging`), storage that failed or whose reply was lost and could not
+ * be confirmed (`Io`, with the storage failure as its cause), or closed
+ * storage (`Closed`). A failed write wrote nothing. A file that does not read
+ * as its kind is never a refusal: it merges as text, for repair (ADR-0503).
  */
 export type WriteError =
 	| Extract<FileError, { name: 'Io' | 'Closed' | 'InvalidPath' }>
@@ -174,124 +169,27 @@ export const WriteError = {
 	...WriteRefusal,
 };
 
-/** Why a table refused a row before writing it. */
-const RowValuesError = defineErrors({
-	/**
-	 * Supplied values are undeclared, do not conform to their fields, are
-	 * absent from a complete row, or cannot be copied or written to the file.
-	 */
-	InvalidValues: ({ issues }: { issues: readonly Issue[] }) => ({
-		message: `Supplied values do not conform: ${issues.map((issue) => issue.message).join('; ')}`,
-		issues,
-	}),
-});
-
-/**
- * Every way a table write fails: each way the one write fails, or a row the
- * table cannot write (`InvalidValues`), refused before the write. A table has
- * no naming or collision rule of its own (ADR-0457): a stem the folder does
- * not admit is `InvalidPath`, and one a file holds under exactly that
- * spelling `Occupied`.
- */
-export type RowWriteError = WriteError | InferErrors<typeof RowValuesError>;
-
-/** The constructors of `RowWriteError`. */
-export const RowWriteError = { ...WriteError, ...RowValuesError };
-
 /**
  * Why a folder could not be opened. Every opener returns these; none throws
  * for a refusal, and none opens another storage instead.
  */
 export const OpenFolderError = defineErrors({
-	/**
-	 * A definition declares something a file folder cannot keep. Without
-	 * `path`, it is the definition the opener was handed. With `path`
-	 * (`epicenter.json`), it is the folder's own, which a folder that is not
-	 * the opening app's own is read with: the file is not readable, is not
-	 * UTF-8 JSON, is not the definition grammar, or declares a field a folder
-	 * cannot keep. Nothing was opened.
-	 */
-	InvalidDefinition: ({ reason, path }: { reason: string; path?: string }) =>
-		path === undefined
-			? {
-					message: `This definition cannot be opened as a folder: ${reason}`,
-					reason,
-				}
-			: {
-					message: `The folder's ${path} cannot be used: ${reason}`,
-					reason,
-					path,
-				},
-	/**
-	 * The folder's own `epicenter.json` does not contain the definition it
-	 * was read through (ADR-0538): a table or field the definition reads is
-	 * missing, or the folder admits values there the definition does not.
-	 * The message names the folder by its directory's name and, when an app
-	 * opened it, the app by its definition's `title`, and lists every
-	 * problem. Nothing was opened.
-	 */
-	DefinitionMismatch: ({
-		app,
-		folder,
-		problems,
-	}: {
-		app: string | undefined;
-		folder: string;
-		problems: readonly Mismatch[];
-	}) => {
-		const listed = problems.map((problem) => problem.message).join('; ');
-		return {
-			message:
-				app === undefined
-					? `The folder '${folder}' does not declare what this definition reads: ${listed}.`
-					: `${app} cannot open the folder '${folder}': ${listed}.`,
-			folder,
-			problems,
-		};
-	},
-	/**
-	 * A desktop app opener named an `app` the window does not run: the shell
-	 * opened the window for `windowApp`, or for no app (`null`), such as the
-	 * Folders window. Nothing was opened.
-	 */
-	AppMismatch: ({
-		app,
-		windowApp,
-	}: {
-		app: string;
-		windowApp: string | null;
-	}) => ({
-		message:
-			windowApp === null
-				? `This window runs no app, so it cannot open a folder as '${app}'`
-				: `This window runs '${windowApp}', so it cannot open a folder as '${app}'`,
-		app,
-		windowApp,
-	}),
-	/** A folder ID names one directory: not empty, `.`, or `..`, with no slash, backslash, or control character. */
+	/** A desktop folder's registered ID is empty. */
 	InvalidId: ({ id }: { id: string }) => ({
 		message: `'${id}' cannot name a folder`,
 		id,
 	}),
-	/** The desktop adapter was asked to open outside the desktop shell. */
+	/** A desktop folder was asked for outside the desktop shell. */
 	NotTauri: () => ({
 		message:
 			'This folder lives in the desktop app; it cannot be opened from a browser tab',
 	}),
-	/** The browser adapter was asked to open inside the desktop shell. */
+	/** The browser's default local folder was asked for inside the desktop shell. */
 	InsideTauri: () => ({
 		message:
 			'This page runs in the desktop app, whose folders are files on disk; browser storage is not opened there',
 	}),
-	/**
-	 * The origin private file system, its writable streams, or Web Locks are
-	 * missing: a server render, a worker without them, or an insecure page.
-	 */
-	NoFileSystem: ({ missing }: { missing: string }) => ({
-		message: `Browser folders are stored in the origin private file system, which is not usable here: ${missing}`,
-		missing,
-	}),
-	/** The directory an explicit opener was given cannot hold a folder. */
+	/** The directory a native opener was given cannot hold a folder. */
 	InvalidRoot: ({ root, cause }: { root: string; cause: unknown }) => ({
 		message: `The directory '${root}' cannot be opened as a folder: ${describe(cause)}`,
 		root,
@@ -313,28 +211,32 @@ export const OpenFolderError = defineErrors({
 		window,
 	}),
 	/**
-	 * A data folder's directory is not there, perhaps moved or removed since
-	 * it was listed. The desktop shell creates only an application's own
-	 * folder, never a data folder's.
+	 * A registered folder's directory is not there, perhaps moved or removed
+	 * since it was chosen. Nothing replaces it with an empty one (ADR-0636).
 	 */
 	Missing: ({ root }: { root: string }) => ({
 		message: `There is no folder at ${root}; it may have been moved or removed.`,
 		root,
 	}),
 	/**
-	 * `openFolder({ tables })` named a table that cannot be one top-level
-	 * directory: empty, `.`, `..`, containing a slash or NUL, or `.git`.
+	 * `tables` named a table that cannot be one top-level directory: empty,
+	 * `.`, `..`, containing a slash or NUL, or `.git`.
 	 */
 	InvalidTable: ({ table }: { table: string }) => ({
 		message: `'${table}' cannot name a table: a table is one top-level directory`,
 		table,
 	}),
+	/**
+	 * This browser still holds folders the former OPFS opener kept. The
+	 * default local folder cannot read them yet, so it opens nothing rather
+	 * than show an empty folder in their place, and leaves them untouched.
+	 */
 	LegacyDataPresent: ({ folders }: { folders: readonly string[] }) => ({
 		message: `This browser still has earlier folder data in OPFS (${folders.join(', ')}). The local opener cannot read it yet, so it left that data untouched and did not open an empty folder.`,
 		folders,
 	}),
 	/**
-	 * `openFolder({ tables })` opens this origin's default local folder, which
+	 * `openFolder({ tables })` opens the runtime's default local folder, which
 	 * only a browser page has. A desktop app opens a directory.
 	 */
 	DirectoryRequired: () => ({

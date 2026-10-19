@@ -2,11 +2,11 @@
 
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing } from './boundary.js';
-import type { FileError } from './errors.js';
-import type { FolderFiles } from './files.js';
+import type { FolderFiles, ReadError } from './folder.js';
 import { basename, dirname } from './paths.js';
 
-export { ancestors, basename, dirname } from './paths.js';
+export { ancestors, basename, dirname, pathProblem } from './paths.js';
+export type { FileListing };
 
 export type TreeRow = {
 	path: string;
@@ -114,15 +114,23 @@ export function openedFile(
 	}
 }
 
-/** Read a file for the editor, as `openedFile` opens it. */
+/**
+ * Read a file for the editor, as `openedFile` opens it; `undefined` when no
+ * file is at `path`.
+ */
 export async function readTextFile(
 	files: Pick<FolderFiles, 'read'>,
 	path: string,
 	maxBytes = EDITABLE_TEXT_BYTES,
-): Promise<Result<OpenedFile, FileError>> {
+): Promise<Result<OpenedFile | undefined, ReadError>> {
 	const { data: file, error } = await files.read(path);
 	if (error !== null) return Err(error);
-	return Ok(openedFile(file.bytes, maxBytes));
+	if (file === undefined) return Ok(undefined);
+	if (file.content.size > maxBytes)
+		return Ok({ kind: 'tooLarge', size: file.content.size });
+	return Ok(
+		openedFile(new Uint8Array(await file.content.arrayBuffer()), maxBytes),
+	);
 }
 
 /** Textareas report LF; keep the file's CRLF line endings when it uses them. */

@@ -4,11 +4,12 @@
  * Key behaviors:
  * - Opening an existing directory reads its files as they are and writes none
  * - Git is optional: saving makes no `.git`, and a `.git` file or link opens
+ * - Opening clears what a stopped save staged an hour ago beside the directory
  * - Saves take the save lock other processes and the desktop shell take
  * - Rows keep exact source, unknown fields, comments, and repairable frontmatter
  * - Every save is guarded by the bytes it read, and merges what landed meanwhile
  * - Structural refusals are results, not storage failures
- * - A row delete takes its attachment folder, unless an unseen edit kept the row
+ * - A row delete keeps adjacent files, and an unseen edit keeps the row
  * - Saves notify this handle and the directory's other handles in this process
  * - Status reports saving and the last storage failure until a later success
  * - Close lets started saves finish, then stops listening; new calls throw
@@ -33,7 +34,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FolderChange, FolderStatus } from '../local-folder.js';
+import type { FolderChange, FolderStatus } from '../folder.js';
 import { openBunFolder } from './bun.js';
 
 const notes = Type.Object({
@@ -133,6 +134,26 @@ test('opening an existing directory reads its files as they are and writes none'
 	);
 });
 
+test('existing empty and nonportable row stems remain visible for repair', async () => {
+	const root = await directory({
+		'notes/.md': '---\ntitle: Empty\n---\nBody\n',
+		'notes/a: b.md': '---\ntitle: Colon\n---\nBody\n',
+	});
+	const folder = await open(root);
+	expect(expectOk(await folder.tables.notes.list()).map((row) => row.id)).toEqual(['', 'a: b']);
+	expect(expectOk(await folder.tables.notes.get(''))?.fields).toEqual({ title: 'Empty' });
+	const raw = expectOk(await folder.tables.notes.get('a: b'))!;
+	expect(raw.fields).toEqual({ title: 'Colon' });
+	expect(expectErr(await folder.tables.notes.set('', null, { body: 'new' })).name).toBe('InvalidId');
+	expect(expectErr(await folder.tables.notes.set('a: b', null, { body: 'new' })).name).toBe('InvalidId');
+	const { sent } = expectOk(await folder.tables.notes.set('a: b', raw, { body: 'Repaired\n' }));
+	expect(await text(root, 'notes/a: b.md')).toContain('Repaired');
+	expect(expectOk(await folder.tables.notes.delete('a: b', sent))).toEqual({ deleted: true });
+	expect(await text(root, 'notes/a: b.md')).toBeUndefined();
+	expect(expectErr(await folder.tables.notes.set('a: b', raw, { body: 'again' })).name).toBe('InvalidPath');
+	await folder.close();
+});
+
 test('opening refuses what cannot hold a folder, before acquiring anything', async () => {
 	const root = await directory({ 'file.txt': 'x' });
 	expect(
@@ -165,16 +186,35 @@ test('opening and saving make no .git, and stage nothing in the directory', asyn
 		await folder.tables.notes.set('one', null, { fields: { title: 'One' } }),
 	);
 	expectOk(await folder.files.write('docs/a.md', null, 'a\n'));
-	expectOk(await folder.tables.notes.files('one').write('x.txt', null, 'x'));
+	expectOk(await folder.files.write('notes/one/x.txt', null, 'x'));
 	expectOk(await folder.tables.notes.delete('one', sent));
 	expectOk(await folder.files.delete('docs/a.md', 'a\n'));
 	expect((await readdir(root)).sort()).toEqual(['docs', 'notes', 'readme.txt']);
-	expect(await readdir(join(root, 'notes'))).toEqual([]);
-	expect(expectOk(await folder.files.list())).toEqual(['readme.txt']);
+	expect(await readdir(join(root, 'notes'))).toEqual(['one']);
+	expect(expectOk(await folder.files.list())).toEqual(['notes/one/x.txt', 'readme.txt']);
 	// What a save staged went beside the directory, and none of it stays.
 	expect(await readdir(join(root, '..', '.folder.epicenter-scratch'))).toEqual(
 		[],
 	);
+	await folder.close();
+});
+
+test('opening clears what a stopped save staged an hour ago, and leaves younger and foreign files', async () => {
+	const root = await directory();
+	const scratch = join(root, '..', '.folder.epicenter-scratch');
+	await mkdir(scratch);
+	/** A staged file's name as another process's handle makes it, `offset` ms from now. */
+	const staged = (offset: number) =>
+		`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
+	// Another process may still be about to rename the young one into place.
+	const fresh = staged(0);
+	for (const name of [fresh, staged(-2 * 60 * 60 * 1000), 'left-behind'])
+		await writeFile(join(scratch, name), 'x');
+	const folder = await open(root);
+	expect((await readdir(scratch)).sort()).toEqual(
+		[fresh, 'left-behind'].sort(),
+	);
+	expect(await readdir(root)).toEqual([]);
 	await folder.close();
 });
 
@@ -326,8 +366,8 @@ test('structural refusals are results, and none is a storage failure', async () 
 		await refused(folder.tables.notes.set('a/b', null, { body: 'x' })),
 	).toBe('InvalidId');
 	expect(
-		await refused(folder.tables.notes.files('').write('x.txt', null, 'x')),
-	).toBe('InvalidId');
+		await refused(folder.files.write('notes//x.txt', null, 'x')),
+	).toBe('InvalidPath');
 	expect(folder.status).toEqual({
 		state: 'local',
 		saving: false,
@@ -337,29 +377,27 @@ test('structural refusals are results, and none is a storage failure', async () 
 	await folder.close();
 });
 
-test('a row delete removes its attachment folder, unless an unseen edit kept the row', async () => {
+test('a row delete keeps adjacent files, and an unseen edit keeps the row', async () => {
 	const root = await directory({ 'keep.md': 'keep' });
 	const folder = await open(root);
 	const table = folder.tables.notes;
 	const { sent: before } = expectOk(
 		await table.set('one', null, { fields: { title: 'Before' } }),
 	);
-	expectOk(await table.files('one').write('nested/a.txt', null, 'attachment'));
-	expect(expectOk(await table.files('one').list())).toEqual(['nested/a.txt']);
+	expectOk(await folder.files.write('notes/one/nested/a.txt', null, 'attachment'));
+	expect(expectOk(await folder.files.list('notes/one/'))).toEqual(['notes/one/nested/a.txt']);
 	const { sent: edited } = expectOk(
 		await table.set('one', before, { fields: { title: 'After' } }),
 	);
 	expect(expectOk(await table.delete('one', before))).toEqual({
 		deleted: false,
 	});
-	expect(expectOk(await table.files('one').list())).toEqual(['nested/a.txt']);
+	expect(expectOk(await folder.files.list('notes/one/'))).toEqual(['notes/one/nested/a.txt']);
 	expect(expectOk(await table.delete('one', edited))).toEqual({
 		deleted: true,
 	});
-	expect(expectOk(await folder.files.list())).toEqual(['keep.md']);
-	expect(await stat(join(root, 'notes/one')).catch(() => undefined)).toBe(
-		undefined,
-	);
+	expect(expectOk(await folder.files.list())).toEqual(['keep.md', 'notes/one/nested/a.txt']);
+	expect(await text(root, 'notes/one/nested/a.txt')).toBe('attachment');
 	expect(expectOk(await table.list())).toEqual([]);
 	await folder.close();
 });

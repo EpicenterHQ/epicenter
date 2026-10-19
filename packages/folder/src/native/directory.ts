@@ -5,9 +5,10 @@
  * link, opens and saves alike, and saving creates nothing inside it but the
  * files saved.
  *
- * The save lock is the one `../bun.ts` and the desktop shell's `lock.rs`
- * take: an exclusive SQLite transaction on `.<name>.epicenter-save-lock`
- * beside the directory (ADR-0562). The scratch directory is
+ * The save lock is the one the desktop shell's `lock.rs` takes too: an
+ * exclusive SQLite transaction on `.<name>.epicenter-save-lock` beside the
+ * directory (ADR-0562). The history lock beside it is the CLI's
+ * (`runHistory` in `../bun.ts`). The scratch directory is
  * `.<name>.epicenter-scratch` beside it, on the parent's file system, so a
  * directory that is itself a mount point cannot be saved to.
  */
@@ -56,16 +57,58 @@ export function holdingSaveLock<T>(
 	resolved: string,
 	work: () => Promise<T>,
 ): Promise<T> {
-	const refused = `Nothing was saved to the folder at ${resolved}`;
-	const path = join(
-		dirname(resolved),
-		`.${basename(resolved)}.epicenter-save-lock`,
-	);
+	return holdingFolderLock(resolved, 'save', SAVE_LOCK_WAIT_MS, work);
+}
+
+/** How long a history operation waits for another process's. */
+const HISTORY_LOCK_WAIT_MS = 60_000;
+
+/**
+ * Run `work`, one whole history operation (a save version or a sync),
+ * holding the history lock of the directory at `resolved`: an exclusive
+ * SQLite transaction on `.<name>.epicenter-history-lock` beside it, the
+ * mechanism of the save lock, held by whichever process runs the operation
+ * (ADR-0559). Two `epicenter` processes take turns, so a commit never lands
+ * between a sync's checkpoint and its merge. It is apart from the save lock,
+ * so saves never wait on a sync's network. Reading status or history takes
+ * no lock. Waits up to `HISTORY_LOCK_WAIT_MS`, then throws before `work`
+ * runs.
+ */
+export function holdingHistoryLock<T>(
+	resolved: string,
+	work: () => Promise<T>,
+): Promise<T> {
+	return holdingFolderLock(resolved, 'history', HISTORY_LOCK_WAIT_MS, work);
+}
+
+/** What each folder lock guards, for the message when it cannot be taken. */
+const LOCKED = {
+	save: (resolved: string) => `Nothing was saved to the folder at ${resolved}`,
+	history: (resolved: string) =>
+		`The history of the folder at ${resolved} was not changed`,
+} as const;
+
+/** `.<name>.epicenter-<kind>-lock` beside the directory at `resolved`. */
+function holdingFolderLock<T>(
+	resolved: string,
+	kind: keyof typeof LOCKED,
+	waitMs: number,
+	work: () => Promise<T>,
+): Promise<T> {
+	const refused = LOCKED[kind](resolved);
+	const parent = dirname(resolved);
+	if (parent === resolved)
+		return Promise.reject(
+			new Error(
+				`${refused}: it has no parent directory to hold its ${kind} lock.`,
+			),
+		);
+	const path = join(parent, `.${basename(resolved)}.epicenter-${kind}-lock`);
 	return holdingFileLock(
 		path,
 		{
-			waitMs: SAVE_LOCK_WAIT_MS,
-			held: `${refused}: another program held its save lock (${path}) for more than ${SAVE_LOCK_WAIT_MS / 1000} seconds. Try again; if it keeps happening, quit the other program.`,
+			waitMs,
+			held: `${refused}: another program held its ${kind} lock (${path}) for more than ${waitMs / 1000} seconds. Try again; if it keeps happening, quit the other program.`,
 		},
 		work,
 	);
@@ -75,15 +118,23 @@ export function holdingSaveLock<T>(
 const lockTurns = new Map<string, ReturnType<typeof createMutex>>();
 
 /**
- * Run `work` holding the lock file at `path`: an exclusive SQLite
- * transaction, which writes nothing and which the system releases when the
- * process ends, however it ends. Work in this process takes turns first, so
- * only one connection per lock waits on the file lock, by polling with
- * timers. When another process still holds it after `waitMs`, it throws
- * `held` before `work` runs, as `NothingChanged`, which every failure to
- * take the lock is. A path that is a link or not a regular file is refused.
+ * Run `work` holding the lock file at `path`, made with its directory when
+ * missing: an exclusive SQLite transaction, which writes nothing. SQLite
+ * holds it with an operating-system file lock (`fcntl`), which the system
+ * releases when the process ends, however it ends, so a killed holder leaves
+ * nothing to recover. Bun has no `flock`, so this is the one cross-process
+ * lock it can take without native code, and the desktop shell takes the same
+ * kind (`lock.rs`). The folder's save and history locks, the CLI's sign-in
+ * refresh, and its app installs all hold one.
+ *
+ * Work in this process takes turns first, so only one connection per lock
+ * waits on the file lock, by polling with timers, never by blocking the
+ * event loop. When another process still holds it after `waitMs` (at once,
+ * for `0`), it throws `held` before `work` runs, as `NothingChanged`, which
+ * every failure to take the lock is. A path that is a link or not a regular
+ * file is refused, so the lock is never taken on a database somewhere else.
  */
-function holdingFileLock<T>(
+export function holdingFileLock<T>(
 	path: string,
 	{ waitMs, held }: { readonly waitMs: number; readonly held: string },
 	work: () => Promise<T>,

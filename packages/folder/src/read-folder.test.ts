@@ -2,10 +2,11 @@
  * Read Folder Tests
  *
  * `readFolder` reads a data folder on disk without opening it, through the
- * same tables and native file boundary an opened folder uses.
+ * directory file storage, for the CLI's `check` and `query`.
  *
  * Key behaviors:
- * - Every declared table is exactly what an opened folder's `list()` returns
+ * - Every declared table reads each `.md` file as a row or the reason it is
+ *   not one; `a.MD` is an ordinary file
  * - A `kv` section is an unknown key, refused like any other
  * - A directory without `epicenter.json` is `NotDataFolder`; a declaration
  *   that is not UTF-8 JSON, is not the declaration grammar (an unknown key, a
@@ -32,7 +33,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	DEFINITION_PATH,
@@ -40,7 +41,6 @@ import {
 	defineTable,
 	field,
 	formatDefinition,
-	openFolder,
 	readFolder,
 } from './bun.js';
 
@@ -88,29 +88,28 @@ async function tree(root: string): Promise<string[]> {
 	return out.sort();
 }
 
-test('an opened folder reads back exactly as its tables list it', async () => {
+test('every declared table reads each row file as a row or the reason it is not one', async () => {
 	const root = await scratch();
-	const folder = expectOk(
-		await openFolder({
-			app: basename(root),
-			root,
-			definition,
-			git: { author: { name: 'T', email: 't@example.test' } },
-		}),
-	);
-	expectOk(
-		await folder.tables.todos.create(
-			{ fields: { title: 'Milk' }, body: '' },
-			{ stem: 'milk' },
-		),
-	);
-	expectOk(await folder.write('todos/broken.md', null, '---\ntitle: [\n---\n'));
-	const listed = expectOk(await folder.tables.todos.list());
-	await folder.close();
+	await writeFile(join(root, DEFINITION_PATH), formatDefinition(definition));
+	await mkdir(join(root, 'todos'));
+	await writeFile(join(root, 'todos/milk.md'), '---\ntitle: Milk\n---\n');
+	await writeFile(join(root, 'todos/broken.md'), '---\ntitle: [\n---\n');
+	await writeFile(join(root, 'todos/photo.MD'), 'not a row');
 
 	const reading = expectOk(await readFolder(root));
 	expect(Object.keys(reading.tables).sort()).toEqual(['notes', 'todos']);
-	expect(expectOk(reading.tables.todos!)).toEqual(listed);
+	const todos = expectOk(reading.tables.todos!);
+	expect(todos.map((item) => item.stem)).toEqual(['broken', 'milk']);
+	expect(expectOk(todos[1]!.result)).toMatchObject({
+		path: 'todos/milk.md',
+		text: '---\ntitle: Milk\n---\n',
+		row: { fields: { title: 'Milk' }, body: '' },
+	});
+	expect(expectErr(todos[0]!.result)).toMatchObject({
+		name: 'InvalidRow',
+		path: 'todos/broken.md',
+		text: '---\ntitle: [\n---\n',
+	});
 	expect(expectOk(reading.tables.notes!)).toEqual([]);
 	expect(Object.keys(reading.definition.tables).sort()).toEqual([
 		'notes',
@@ -247,7 +246,7 @@ test('a hand-written declaration with optional fields reads sparse rows as valid
 	]);
 });
 
-test('a written folder publishes each table as a standard object schema, and reads it back the same', async () => {
+test('epicenter.json holds each table as a standard object schema, and reads back the same', async () => {
 	const root = await scratch();
 	const sparse = defineFolder({
 		tables: {
@@ -259,22 +258,7 @@ test('a written folder publishes each table as a standard object schema, and rea
 			}),
 		},
 	});
-	const folder = expectOk(
-		await openFolder({
-			app: basename(root),
-			root,
-			definition: sparse,
-			git: { author: { name: 'T', email: 't@example.test' } },
-		}),
-	);
-	// Opening writes nothing; the first write publishes the declaration.
-	expectOk(
-		await folder.tables.pages.create(
-			{ fields: { title: 'First' }, body: '' },
-			{ stem: 'first' },
-		),
-	);
-	await folder.close();
+	await writeFile(join(root, DEFINITION_PATH), formatDefinition(sparse));
 	const published = JSON.parse(
 		await readFile(join(root, DEFINITION_PATH), 'utf8'),
 	);

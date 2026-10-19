@@ -21,10 +21,11 @@
  * See also:
  * - `history.test.ts` for cancellation of outgoing work on close
  */
-import { expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import type { LockingStorage } from '../boundary.js';
-import { rawBrowserFolder } from '../browser-storage.test-support.js';
+import { rawDirectoryFolder } from '../directory-history.test-support.js';
+import { GIT_ENV } from '../git-http.test-support.js';
 import { overwrite } from '../put.test-support.js';
 import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
@@ -32,6 +33,15 @@ import { writeCommitObject, writeFilesTree } from './objects.js';
 
 const author = { name: 'History', email: 'history@example.test' };
 const encoder = new TextEncoder();
+const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
+
+beforeAll(() => {
+	process.env.GIT_CONFIG_GLOBAL = GIT_ENV.GIT_CONFIG_GLOBAL;
+});
+afterAll(() => {
+	if (originalGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+	else process.env.GIT_CONFIG_GLOBAL = originalGlobal;
+});
 
 function gate() {
 	let open!: () => void;
@@ -45,10 +55,10 @@ async function setup(
 	overrides: (real: GitBackend) => Partial<GitBackend> = () => ({}),
 	options: { boundary?: (base: LockingStorage) => LockingStorage } = {},
 ) {
-	const raw = await rawBrowserFolder({ id: 'ordering' });
+	const raw = await rawDirectoryFolder('ordering-');
 	const base = raw.boundary;
 	const real = await raw.backend({
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+		remote: { url: 'https://unused.test/remote.git', branch: 'main' },
 	});
 	let pushStarts = 0;
 	const backend: GitBackend = {
@@ -188,6 +198,7 @@ test('a Sync whose files landed but whose branch did not move invalidates the cl
 
 test('explicit commit stays local; a commit requested during a held pass waits and takes its own; Sync pushes once', async () => {
 	const held = gate();
+	const reached = gate();
 	let holdNext = false;
 	const { history, write, pushes } = await setup((real) => ({
 		// An empty remote, so Sync's next step is a push.
@@ -196,6 +207,7 @@ test('explicit commit stays local; a commit requested during a held pass waits a
 		async casBranch(expected, next) {
 			if (holdNext) {
 				holdNext = false;
+				reached.open();
 				await held.opened;
 			}
 			return real.casBranch(expected, next);
@@ -211,7 +223,7 @@ test('explicit commit stays local; a commit requested during a held pass waits a
 	await write('a.txt', 'three');
 	holdNext = true;
 	const explicit = history.commit();
-	await Bun.sleep(5);
+	await reached.opened;
 	await write('a.txt', 'four');
 	const second = history.commit();
 	held.open();

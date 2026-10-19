@@ -2,8 +2,9 @@
 //! engine's `FolderStorage` (`packages/folder/src/boundary.ts`), each one IPC
 //! command (ADR-0581).
 //!
-//! A page names folder-relative paths, the ones `paths::path_problem`
-//! accepts, and never the root. Every path is literal, as in the Bun
+//! A page names folder-relative paths. New paths pass `paths::path_problem`;
+//! witnessed saves may repair existing structurally safe names. Every path
+//! is literal, as in the Bun
 //! directory storage (`directory-store.ts`), whose outcomes these match:
 //!
 //! - a symbolic link is never followed, and a path through one is refused;
@@ -35,7 +36,7 @@ use sha2::{Digest, Sha256};
 use specta::Type;
 
 use crate::page_files::{self, linked};
-use crate::paths::path_problem;
+use crate::paths::{path_problem, readable_path_problem};
 
 /// The folder's private Git directory, which no listing shows.
 const PRIVATE_DIRECTORY: &str = ".git";
@@ -371,7 +372,12 @@ pub fn children(root: &Path, directory: &str) -> Result<Children, StorageError> 
 
 /// The bytes of the regular file at `path`.
 pub fn read(root: &Path, path: &str) -> Result<Vec<u8>, StorageError> {
-    admit(path)?;
+    if let Some(reason) = readable_path_problem(path) {
+        return Err(StorageError::InvalidPath {
+            path: path.to_string(),
+            reason: reason.to_string(),
+        });
+    }
     let target = full(root, path);
     let read = || -> io::Result<Result<Vec<u8>, StorageError>> {
         Ok(match find(root, path)? {
@@ -622,7 +628,18 @@ pub fn put<Turn>(
     if_match: Option<&str>,
     turn: impl FnOnce() -> Result<Turn, String>,
 ) -> Result<PutOutcome, StorageError> {
-    admit(path)?;
+    // An existing nonportable name may be changed only with its exact file
+    // witness. A new file must satisfy the portable path rule.
+    if if_match.is_some() {
+        if let Some(reason) = readable_path_problem(path) {
+            return Err(StorageError::InvalidPath {
+                path: path.to_string(),
+                reason: reason.to_string(),
+            });
+        }
+    } else {
+        admit(path)?;
+    }
     let operation = if bytes.is_some() { "write" } else { "remove" };
     let failed = |cause: &dyn std::fmt::Display| io_error(path, operation, cause);
     // Refuse what cannot land before staging anything.

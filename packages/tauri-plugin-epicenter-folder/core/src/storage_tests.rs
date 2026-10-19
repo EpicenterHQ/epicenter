@@ -175,13 +175,30 @@ fn a_read_answers_the_bytes_of_a_regular_file_and_nothing_else() {
         ".git/HEAD",
         "../outside.md",
         "todos//a.md",
-        "todos/HEAD",
     ] {
         assert!(
             read(&root, refused).is_err_and(|error| invalid(refused)(&error)),
             "{refused:?}"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_nonportable_names_can_be_repaired_with_a_witness() {
+    let (_temp, root) = folder("storage-read-nonportable", &[
+        ("notes/.md", b"empty"),
+        ("notes/a: b.md", b"colon"),
+    ]);
+    assert_eq!(read(&root, "notes/.md").unwrap(), b"empty");
+    assert_eq!(read(&root, "notes/a: b.md").unwrap(), b"colon");
+    assert!(put_now(&root, "notes/a: b.md", b(b"changed"), None)
+        .is_err_and(|error| invalid("notes/a: b.md")(&error)));
+    let witness = sha256(b"colon");
+    assert_eq!(put_now(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(), PutOutcome::Landed);
+    assert_eq!(read(&root, "notes/a: b.md").unwrap(), b"repaired");
+    assert_eq!(put_now(&root, "notes/a: b.md", None, Some(&sha256(b"repaired"))).unwrap(), PutOutcome::Landed);
+    assert_eq!(read(&root, "notes/a: b.md"), Err(StorageError::NotFound { path: "notes/a: b.md".into() }));
 }
 
 #[cfg(unix)]

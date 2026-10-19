@@ -1,7 +1,7 @@
 /**
  * Row Reading Tests
  *
- * `parseRow` reads text as a row the way `table.get` will: one parse of the
+ * `parseRow` reads text as a row the way `readFolder` does: one parse of the
  * complete frontmatter, then every declared field checked. Each test names a
  * kind of text and shows what a caller gets: the complete row, or issues
  * located like compiler diagnostics.
@@ -17,16 +17,10 @@
  *   1.1 reader would read as something else, and reads back as the row
  */
 import { expect, test } from 'bun:test';
-import {
-	defineFolder,
-	defineTable,
-	field,
-	formatRow,
-	type Issue,
-	parseRow,
-	wellFormed,
-} from '@epicenter/folder/browser';
+import { defineTable, field } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { defineFolder } from './definition.js';
+import { formatRow, type Issue, parseRow, wellFormed } from './row-text.js';
 
 const definition = defineFolder({
 	tables: {

@@ -3,20 +3,15 @@
  * directory, for tests that run the production desktop opener
  * (`@epicenter/folder/tauri`) and everything above it.
  *
- * The shell grants the window one directory (`grant_directory`), and
- * answers which app the window runs and the folder it was handed
- * (`window_folder`), `null` unless a test names one. The page's
+ * The shell grants the window one directory (`grant_directory`). The page's
  * storage is the folder plugin's commands, one per storage method
- * (ADR-0581), and its history runs in the `epicenter` CLI through the
- * shell's history commands (ADR-0559). Here the Bun directory storage over
- * `node:fs` (`directory-store.ts`), whose outcomes the plugin's
- * `storage.rs` matches, answers each storage command, and the CLI's engine
- * runs in this process (`answerShellHistory`). A command answers as the
- * plugin does: its value, or a rejection with the plugin's `StorageError`,
- * where a failure the shell reports changed nothing and so is `Io`, never
- * `Unconfirmed`. A grant sweeps staged files an hour old, as the shell's
- * does. A test installs `invoke` with `mock.module`, then opens the folder
- * the way its app does.
+ * (ADR-0581). Here the Bun directory storage over `node:fs`
+ * (`directory-store.ts`), whose outcomes the plugin's `storage.rs` matches,
+ * answers each storage command. A command answers as the plugin does: its
+ * value, or a rejection with the plugin's `StorageError`, where a failure the
+ * shell reports changed nothing and so is `Io`, never `Unconfirmed`. A grant
+ * sweeps staged files an hour old, as the shell's does. A test installs
+ * `invoke` with `mock.module`, then opens the folder the way its app does.
  *
  * A data file is published as the shell publishes one: its bytes are staged
  * under `.git/epicenter/scratch` and renamed over the path once the path is
@@ -28,9 +23,8 @@
  * with something other than a `StorageError`, as a lost reply does. A
  * directory removal is no data change: it can lose its reply after it
  * landed (`loseDirectoryReplies`), and nothing else. Reads of a path can
- * fail (`failReads`). What a handle publishes before its
- * first write, `epicenter.json` and `.gitignore`, is outside every control.
- * `packages/tauri-plugin-epicenter-folder` tests the plugin's own checks.
+ * fail (`failReads`). `packages/tauri-plugin-epicenter-folder` tests the
+ * plugin's own checks.
  */
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -42,10 +36,6 @@ import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { describe, type FileError } from './errors.js';
 import type { StorageError } from './native/bindings.gen.js';
-import {
-	answerShellHistory,
-	type ShellHistoryCommand,
-} from './shell-history.test-support.js';
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
@@ -69,9 +59,6 @@ export function shellArguments(
 export type DataChange =
 	| { kind: 'write'; path: string; text: string }
 	| { kind: 'remove'; path: string };
-
-/** What a handle publishes before its first write: outside every control. */
-const PUBLISHED = new Set(['epicenter.json', '.gitignore']);
 
 /** A storage failure as the plugin answers it. */
 function storageError(error: FileError): StorageError {
@@ -108,23 +95,14 @@ export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
 	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
 }
 
-/** Which app a window runs and the folder the shell handed it. */
-export type WindowFolder = { readonly app: string; readonly folder: string };
-
-/**
- * The shell, granting the directory at `root`, to a window that runs
- * `window.app` on `window.folder`, or no app.
- */
-export function createGrantedShell(
-	root: string,
-	window: WindowFolder | null = null,
-) {
+/** The shell, granting the directory at `root`. */
+export function createGrantedShell(root: string) {
 	const calls: ShellCall[] = [];
 	/** Every data change that landed, in order. */
 	const changes: DataChange[] = [];
 	const control = {
-		/** The app the window runs and the folder it was handed (`window_folder`). */
-		window,
+		/** The installed app and directory handed to this window. */
+		window: undefined as { app: string; folder: string } | undefined,
 		/** The shell's answer to `grant_directory`; throw to refuse. */
 		grant: (): unknown => ({ root }),
 		/** Runs before each data change is checked and made; await in it to hold the change. */
@@ -150,20 +128,9 @@ export function createGrantedShell(
 		path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 	/** Data paths whose change landed and whose reply is to be lost, with why. */
 	const lostReplies = new Map<string, unknown>();
-	/** One history command, as the shell runs the CLI for it. */
-	const history = (cmd: string) => async (args: Record<string, unknown>) => {
-		// The CLI's `git` reads no global or system configuration here.
-		process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-		process.env.GIT_CONFIG_NOSYSTEM = '1';
-		return answerShellHistory(root, {
-			command: cmd,
-			...args,
-		} as unknown as ShellHistoryCommand);
-	};
 
 	/** One data change, under the test's controls. */
 	async function change(described: DataChange, make: () => Promise<void>) {
-		if (PUBLISHED.has(described.path)) return make();
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;
@@ -221,16 +188,15 @@ export function createGrantedShell(
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
-		window_folder: () => control.window,
+		window_folder() {
+			if (control.window === undefined) throw new Error('No folder was handed to this window');
+			return control.window;
+		},
 		async grant_directory() {
 			const granted = control.grant();
 			await sweep();
 			return granted;
 		},
-		status: history('status'),
-		history: history('history'),
-		save_version: history('save_version'),
-		sync: history('sync'),
 		list_folder: () => answered(storage.list()),
 		read_folder_children: (args) =>
 			answered(storage.children(args.directory as string)),
@@ -296,7 +262,7 @@ export function createGrantedShell(
 		calls,
 		changes,
 		control,
-		/** The data changes, without the folder's declaration. */
+		/** The kind of each data change, in order. */
 		get kinds() {
 			return changes.map((change) => change.kind);
 		},

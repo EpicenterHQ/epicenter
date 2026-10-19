@@ -2,7 +2,7 @@
  * Sync's Merge Commit, as Objects
  *
  * `chooseBase` and `mergeHistories` over commits written straight into a
- * browser folder's private repository: no files, index, or refs change.
+ * directory's repository: no files, index, or refs change.
  *
  * Key behaviors:
  * - Several merge bases, as hand-run merges leave, resolve to the newest by
@@ -19,9 +19,10 @@
  * - A file moved beside a directory never takes a name another file holds
  * - `mergeMessage` writes one `Overrode:` trailer per lost unit
  */
-import { expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import * as isogit from 'isomorphic-git';
-import { rawBrowserFolder } from '../browser-storage.test-support.js';
+import { rawDirectoryFolder } from '../directory-history.test-support.js';
+import { GIT_ENV } from '../git-http.test-support.js';
 import { chooseBase, mergeHistories, mergeMessage } from './merge.js';
 import {
 	type ObjectAccess,
@@ -32,10 +33,18 @@ import {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-let folders = 0;
+const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
+
+beforeAll(() => {
+	process.env.GIT_CONFIG_GLOBAL = GIT_ENV.GIT_CONFIG_GLOBAL;
+});
+afterAll(() => {
+	if (originalGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+	else process.env.GIT_CONFIG_GLOBAL = originalGlobal;
+});
 
 async function objects() {
-	const raw = await rawBrowserFolder({ id: `merge-objects-${folders++}` });
+	const raw = await rawDirectoryFolder('merge-objects-');
 	const backend = await raw.backend();
 	return <T>(work: (access: ObjectAccess) => Promise<T>) =>
 		backend.withObjects(work);

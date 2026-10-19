@@ -1,25 +1,16 @@
 /**
- * A folder asks its `credentials` for each push and fetch and sends what it
- * gets as one `Authorization` header to exactly that remote: in the browser
- * through isomorphic-git, and in Bun through the system `git`, whose
- * configuration comes from its environment, not its arguments. The Bun runner
- * sends one only to an `https` remote, as the desktop shell does.
+ * A directory's history asks its `credentials` for each push and fetch and
+ * sends what it gets as one `Authorization` header to exactly that remote,
+ * through the system `git`, whose configuration comes from its environment,
+ * not its arguments. The runner sends one only to an `https` remote, as the
+ * desktop shell does.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { defineFolder, openFolder } from './browser.js';
-import {
-	browserStorage,
-	createTestStorage,
-} from './browser-storage.test-support.js';
-import { openFolder as openBunFolder } from './bun.js';
-import {
-	basicAuthorization,
-	type GitCredentials,
-	type HttpFetch,
-} from './git/http.js';
+import { openDirectoryHistory } from './directory-history.test-support.js';
+import { basicAuthorization } from './git/http.js';
 import { credentialEnvironment } from './git/native-backend.js';
 import { createGitRunner } from './git/native-host.js';
 import {
@@ -31,7 +22,6 @@ import {
 	scratch,
 } from './git-http.test-support.js';
 
-const definition = defineFolder({ tables: {} });
 const AUTHORIZATION = basicAuthorization({
 	username: 'x-token',
 	password: 's3cret',
@@ -100,83 +90,7 @@ async function guardedGit(root: string) {
 	return { serve, seen };
 }
 
-test('a browser folder sends the credential it is given to that remote alone, for every transfer', async () => {
-	const root = await scratch('folder-credentials-browser-');
-	const bare = await createBareRemote(root);
-	const { serve, seen } = await guardedGit(root);
-	const remote = 'https://git.example.test/remote.git';
-	const httpFetch: HttpFetch = async (input, init) =>
-		serve(new Request(input, init), init);
-	const asked: string[] = [];
-	const credentials: GitCredentials = async (url) => {
-		asked.push(url);
-		return { username: 'x-token', password: 's3cret' };
-	};
-	const folder = expectOk(
-		await openFolder({
-			app: 'com.example.credentials',
-			definition,
-			credentials,
-			browser: {
-				author: { name: 'Test', email: 'test@example.test' },
-				httpFetch,
-				...browserStorage(createTestStorage()),
-			},
-		}),
-	);
-	try {
-		expectOk(await folder.write('language.txt', null, 'Chinese\n'));
-		expect(expectOk(await folder.sync.connect(remote)).kind).toBe('synced');
-		expect(await git(bare, 'rev-parse', 'main')).toMatch(/^[0-9a-f]{40}$/);
-		// Asked once per transfer, always with the exact remote.
-		expect(asked.length).toBeGreaterThanOrEqual(2);
-		expect(new Set(asked)).toEqual(new Set([remote]));
-		expect(seen.length).toBeGreaterThan(0);
-		for (const request of seen) {
-			expect(request.authorization).toBe(AUTHORIZATION);
-			expect(request.init?.credentials).toBe('omit');
-			expect(request.init?.redirect).toBe('error');
-		}
-		// The credential is kept nowhere in the folder.
-		expect(folder.git.snapshot.remote).toEqual({ url: remote, branch: 'main' });
-	} finally {
-		await folder.close();
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test('a browser folder without a credential is refused by a server that needs one', async () => {
-	const root = await scratch('folder-credentials-refused-');
-	await createBareRemote(root);
-	const { serve, seen } = await guardedGit(root);
-	const folder = expectOk(
-		await openFolder({
-			app: 'com.example.refused',
-			definition,
-			credentials: async () => undefined,
-			browser: {
-				httpFetch: async (input, init) => serve(new Request(input, init), init),
-				...browserStorage(createTestStorage()),
-			},
-		}),
-	);
-	try {
-		expectOk(await folder.write('language.txt', null, 'Chinese\n'));
-		const connected = await folder.sync.connect(
-			'https://git.example.test/remote.git',
-		);
-		expect(connected.error).not.toBeNull();
-		expect(seen.every((request) => request.authorization === null)).toBe(true);
-		expect(seen.every((request) => request.init?.redirect === 'follow')).toBe(
-			true,
-		);
-	} finally {
-		await folder.close();
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test('a Bun folder passes its credential to `git` through configuration, scoped to the remote', async () => {
+test('a directory history passes its credential to `git` through configuration, scoped to the remote', async () => {
 	const root = await scratch('folder-credentials-bun-');
 	const bare = await createBareRemote(root);
 	const { serve, seen } = await guardedGit(root);
@@ -194,20 +108,16 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 	await initWithOrigin(directory, remote);
 	await git(directory, 'config', 'http.sslVerify', 'false');
 	const asked: string[] = [];
-	const folder = expectOk(
-		await openBunFolder({
-			app: basename(directory),
-			root: directory,
-			definition,
-			git: {
-				author: { name: 'Test', email: 'test@example.test' },
-				credentials: async (url) => {
-					asked.push(url);
-					return { username: 'x-token', password: 's3cret' };
-				},
+	const folder = await openDirectoryHistory({
+		root: directory,
+		git: {
+			author: { name: 'Test', email: 'test@example.test' },
+			credentials: async (url) => {
+				asked.push(url);
+				return { username: 'x-token', password: 's3cret' };
 			},
-		}),
-	);
+		},
+	});
 	try {
 		expectOk(await folder.write('language.txt', null, 'Chinese\n'));
 		expectOk(await folder.sync.run());

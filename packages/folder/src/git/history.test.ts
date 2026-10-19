@@ -15,19 +15,29 @@
  * - `runner.test.ts` for `attempt` and `request`
  * - `browser.test.ts` for a folder-level stalled push
  */
-import { expect, test } from 'bun:test';
-import { rawBrowserFolder } from '../browser-storage.test-support.js';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { rawDirectoryFolder } from '../directory-history.test-support.js';
+import { GIT_ENV } from '../git-http.test-support.js';
 import { overwrite } from '../put.test-support.js';
 import type { GitBackend } from './backend.js';
 import { createHistory } from './history.js';
 
 const author = { name: 'History', email: 'history@example.test' };
+const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
+
+beforeAll(() => {
+	process.env.GIT_CONFIG_GLOBAL = GIT_ENV.GIT_CONFIG_GLOBAL;
+});
+afterAll(() => {
+	if (originalGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+	else process.env.GIT_CONFIG_GLOBAL = originalGlobal;
+});
 
 async function setup() {
-	const raw = await rawBrowserFolder({ id: 'history' });
+	const raw = await rawDirectoryFolder('history-');
 	const boundary = raw.boundary;
 	const real = await raw.backend({
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+		remote: { url: 'https://unused.test/remote.git', branch: 'main' },
 	});
 	const probe = {
 		pushStarts: 0,

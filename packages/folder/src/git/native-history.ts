@@ -6,14 +6,27 @@
  * `user.email`, with `author` for whichever is missing).
  */
 import type { LockingStorage } from '../boundary.js';
-import type { DirectoryHistory } from '../directory-adapter.js';
-import { createHistory } from './history.js';
+import type { Definition } from '../definition.js';
+import { createHistory, type FolderHistory } from './history.js';
 import type { GitCredentials } from './http.js';
 import {
 	createNativeGitBackend,
 	type NativeGitHost,
 } from './native-backend.js';
 import type { Author } from './objects.js';
+
+/**
+ * A directory's history, made in two steps: `landed` hears the paths an
+ * incoming update wrote. Answers the history for the definition whose `local`
+ * patterns no commit carries; without one, Sync merges rows as text.
+ * `appLocal` is the `local` patterns of an app reading a folder that is not
+ * its own, whose untracked matches are never committed.
+ */
+export type DirectoryHistory = (wiring: {
+	readonly landed: (paths: readonly string[]) => void;
+}) => Promise<
+	(definition?: Definition, appLocal?: readonly string[]) => FolderHistory
+>;
 
 export function nativeHistory({
 	rootPath,

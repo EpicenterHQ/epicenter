@@ -1,6 +1,6 @@
 /**
  * Print what a Vite build of the fixture application emits: each chunk, its
- * size, what it imports, and which adapter text it holds.
+ * size, what it imports, and which engine text it holds.
  *
  *     bun evidence/bundles/inspect.ts [main|browser|tauri] [browser|tauri] [--modules]
  *
@@ -15,8 +15,8 @@ const [entry = 'main', root] = process.argv
 	.filter((argument) => !argument.startsWith('--'));
 const APP = join(import.meta.dir, 'app');
 const MARKERS = {
-	desktop: 'plugin:epicenter-folder|attach',
-	browser: 'epicenter-folder-git:',
+	desktop: 'plugin:epicenter-folder|grant_directory',
+	browser: 'IndexedDB could not be opened',
 	git: 'git-upload-pack',
 	shell: 'sha256sum',
 };

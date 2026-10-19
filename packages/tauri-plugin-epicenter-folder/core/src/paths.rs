@@ -82,7 +82,8 @@ pub(crate) fn names_only_itself(name: &str) -> bool {
 /// leading slash, backslash, or control character; no segment that is `.git`
 /// or `HEAD` in any case; and every segment a name that means only itself on
 /// every disk. Leading dots are ordinary.
-pub fn path_problem(path: &str) -> Option<&'static str> {
+/// Structural safety for reading existing paths, including nonportable names.
+pub fn readable_path_problem(path: &str) -> Option<&'static str> {
     if path.is_empty() {
         return Some("the path is empty");
     }
@@ -92,7 +93,7 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
     if path.contains('\\') {
         return Some("the path contains a backslash");
     }
-    if path.chars().any(is_control) {
+    if path.contains('\0') {
         return Some("the path contains a control character");
     }
     for segment in path.split('/') {
@@ -106,6 +107,18 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
         if segment.to_lowercase() == ".git" {
             return Some("the path is inside private Git state");
         }
+    }
+    None
+}
+
+pub fn path_problem(path: &str) -> Option<&'static str> {
+    if let Some(problem) = readable_path_problem(path) {
+        return Some(problem);
+    }
+    if path.chars().any(is_control) {
+        return Some("the path contains a control character");
+    }
+    for segment in path.split('/') {
         if segment.eq_ignore_ascii_case("head") {
             return Some("the path contains a segment named HEAD, which Git reads as a repository");
         }

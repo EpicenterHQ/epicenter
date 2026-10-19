@@ -1,6 +1,7 @@
 /**
- * History coordination for one opened folder (ADR-0468, ADR-0469, ADR-0471,
- * ADR-0576).
+ * History coordination for one directory (ADR-0468, ADR-0469, ADR-0471,
+ * ADR-0576), as the `epicenter` CLI runs it (`runHistory` in `bun.ts`). Git
+ * is not on a `Folder`'s lifetime (ADR-0636); this is kept for exchange.
  *
  * File saves never wait here. A commit captures the whole portable folder,
  * writes blobs and trees, writes a commit on the pinned branch head, and
@@ -35,7 +36,6 @@ import type { FolderStorage, LockingStorage } from '../boundary.js';
 import { localPatterns } from '../declaration.js';
 import type { Definition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
-import type { FolderHistory } from '../folder.js';
 import { sameContent } from '../merge-file.js';
 import { callObserver } from '../observer.js';
 import {
@@ -151,6 +151,60 @@ export type GitSnapshot = {
 	readonly lastCommit: Attempt<CommitOutcome> | undefined;
 	readonly lastPush: Attempt<PushOutcome> | undefined;
 	readonly closed: boolean;
+};
+
+/** A folder's history: what changed, the versions, and saving one. */
+export type FolderGit = {
+	readonly snapshot: GitSnapshot;
+	/** Delivers the current snapshot synchronously, then each change. */
+	subscribe(listener: (snapshot: GitSnapshot) => void): () => void;
+	/** A fresh inspection of uncommitted changes and local/remote heads. */
+	status(): Promise<Result<FilesObservation, GitError>>;
+	/**
+	 * Commit current source files if they changed, and reset the index to the
+	 * head either way. Never pushes. `message` is a person's own; without it
+	 * the message names what changed.
+	 */
+	commit(options?: { message?: string }): Promise<CommitOutcome>;
+	log(depth: number): Promise<Result<CommitSummary[], GitError>>;
+};
+
+/**
+ * Synchronization with the configured remote branch (ADR-0576). It never
+ * stops because changes compete: the device syncing is the writer acting.
+ */
+export type FolderSync = {
+	/**
+	 * Commit saved files, fetch the remote branch, and bring the two
+	 * together: a fast-forward, a push, or one merge commit of both heads,
+	 * pushed before its files are written here. Units only one side changed
+	 * merge; where both changed one, this device's side wins, and the merge
+	 * commit names what lost. A delete beats an edit it never saw.
+	 */
+	run(options?: SyncOptions): Promise<Result<SyncOutcome, SyncError>>;
+	/**
+	 * Make `url` the folder's remote (`remote.origin.url` in its Git
+	 * configuration), then sync. An empty folder takes the remote's history; a
+	 * folder with files and no history of its own merges them with it; a
+	 * remote with no branch receives this folder's. Separate histories are
+	 * `Unrelated` until `allowUnrelatedHistories` combines them. The remote
+	 * stays set whatever the sync answers.
+	 */
+	connect(
+		url: string,
+		options?: SyncOptions,
+	): Promise<Result<SyncOutcome, SyncError>>;
+};
+
+/**
+ * One directory's history, as the `epicenter` CLI runs it (`runHistory` in
+ * `bun.ts`): no `Folder` holds it (ADR-0636).
+ */
+export type FolderHistory = FolderGit & {
+	readonly sync: FolderSync;
+	/** The files changed outside the history; its observations are stale. */
+	noteEdit(): void;
+	close(): Promise<void>;
 };
 
 export function createHistory({

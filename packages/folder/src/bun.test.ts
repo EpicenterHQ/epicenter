@@ -7,14 +7,15 @@
  * processes take turns, so none is lost.
  *
  * Key behaviors:
- * - A write waits while another process holds the save lock, then finds
- *   its put stale against what that process saved, reads again, and merges
- * - Two processes appending to one file through the one write keep every
+ * - A save waits while another process holds the save lock, then finds its
+ *   put stale against what that process saved, reads again, and merges
+ * - Two processes appending to one file through `files.write` keep every
  *   line once
  * - A save lock not taken in time is `NothingChanged`, so the put it guarded
  *   is `Io`, never `Unconfirmed`, and leaves no staged file or new directory
  *
  * See also:
+ * - `native/bun.test.ts` for the rest of the Bun `Folder`
  * - `registry_tests.rs` in `tauri-plugin-epicenter-folder`, where a shell
  *   save waits for a Bun process holding the same lock
  */
@@ -29,8 +30,6 @@ import { NothingChanged } from './errors.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { hashBytes } from './hash.js';
 
-const author = { name: 'Saver', email: 'saver@localhost' };
-
 const originalEnv = { ...process.env };
 beforeAll(() => {
 	Object.assign(process.env, {
@@ -43,6 +42,10 @@ afterAll(() => {
 		if (originalEnv[key] === undefined) delete process.env[key];
 		else process.env[key] = originalEnv[key];
 });
+
+/** `.<name>.epicenter-<kind>` beside the directory at `root`. */
+const besideRoot = (root: string, kind: string) =>
+	join(dirname(root), `.${basename(root)}.epicenter-${kind}`);
 
 /** Each line a child process prints, in order. */
 function lines(stream: ReadableStream<Uint8Array>) {
@@ -64,13 +67,13 @@ function lines(stream: ReadableStream<Uint8Array>) {
 	};
 }
 
-test('a write waits for another process holding the save lock, then merges with its save', async () => {
+test('a save waits for another process holding the save lock, then merges with its save', async () => {
 	const root = await scratch('bun-save-lock-');
 	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
 	const target = join(root, 'note.txt');
 	try {
 		await writeFile(target, 'old');
-		const folder = expectOk(await openFolder({ root, git: { author } }));
+		const folder = expectOk(await openFolder({ directory: root, tables: {} }));
 
 		// Another process takes the lock as the shell does, and on a line from
 		// stdin lands its own save, then lets go.
@@ -104,7 +107,7 @@ test('a write waits for another process holding the save lock, then merges with 
 		expect(await said()).toBe('locked');
 
 		let settled = false;
-		const saving = folder.write('note.txt', 'old', 'ours').finally(() => {
+		const saving = folder.files.write('note.txt', 'old', 'ours').finally(() => {
 			settled = true;
 		});
 		await Bun.sleep(200);
@@ -118,26 +121,25 @@ test('a write waits for another process holding the save lock, then merges with 
 
 		// Its put, guarded by what it read, was stale: it read theirs and won
 		// the line both changed.
-		const written = expectOk(await saving);
-		expect(written.overridden).not.toEqual([]);
+		expectOk(await saving);
 		expect(await readFile(target, 'utf8')).toBe('ours');
 		await folder.close();
 	} finally {
 		await rm(root, { recursive: true, force: true });
 		await rm(lock, { force: true });
+		await rm(besideRoot(root, 'scratch'), { recursive: true, force: true });
 	}
 });
 
-test('two processes appending to one file through the one write keep every line once', async () => {
+test('two processes appending to one file through files.write keep every line once', async () => {
 	const ROUNDS = 30;
 	const root = await scratch('bun-write-race-');
 	try {
 		await writeFile(join(root, 'log.txt'), '');
-		// Each process appends its own lines through \`folder.write\`: read the
-		// file, then write the change from what it read to that plus a line.
-		// A put the other process overtook merges again, keeping both lines;
-		// one overtaken on every attempt is \`KeptChanging\`, landed nothing,
-		// and is sent again.
+		// Each process appends its own lines through \`files.write\`: read the
+		// file, then save the change from what it read to that plus a line. A
+		// put the other process overtook reads and merges again, keeping both
+		// lines.
 		const appender = (id: number) =>
 			Bun.spawn(
 				[
@@ -146,18 +148,14 @@ test('two processes appending to one file through the one write keep every line 
 					`
 					const { openFolder } = await import(${JSON.stringify(join(import.meta.dir, 'bun.ts'))});
 					const [root, rounds] = process.argv.slice(-2);
-					const { data: folder, error } = await openFolder({
-						root,
-						git: { author: { name: 'Appender', email: 'appender@localhost' } },
-					});
+					const { data: folder, error } = await openFolder({ directory: root, tables: {} });
 					if (error !== null) throw new Error(JSON.stringify(error));
-					for (let line = 0; line < Number(rounds); ) {
+					for (let line = 0; line < Number(rounds); line++) {
 						const read = await folder.files.read('log.txt');
 						if (read.error !== null) throw new Error(JSON.stringify(read.error));
-						const text = new TextDecoder().decode(read.data.bytes);
-						const { error } = await folder.write('log.txt', text, text + 'p${id}-' + line + '\\n');
-						if (error === null) line++;
-						else if (error.name !== 'KeptChanging') throw new Error(JSON.stringify(error));
+						const text = await read.data.content.text();
+						const { error } = await folder.files.write('log.txt', text, text + 'p${id}-' + line + '\\n');
+						if (error !== null) throw new Error(JSON.stringify(error));
 					}
 					await folder.close();
 					`,
@@ -181,9 +179,8 @@ test('two processes appending to one file through the one write keep every line 
 		expect(lines).toHaveLength(2 * ROUNDS);
 	} finally {
 		await rm(root, { recursive: true, force: true });
-		await rm(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), {
-			force: true,
-		});
+		await rm(besideRoot(root, 'save-lock'), { force: true });
+		await rm(besideRoot(root, 'scratch'), { recursive: true, force: true });
 	}
 }, 60_000);
 

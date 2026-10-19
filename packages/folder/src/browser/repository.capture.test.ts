@@ -119,8 +119,8 @@ test('row lists omit attachment trees while prefix lists retain partial filename
 		expect(expectOk(await repository.files.list('notes/ne'))).toEqual([
 			'notes/new/extra.txt',
 		]);
-		expect(expectOk(await repository.tables.notes.files('one').list())).toEqual(
-			['deep/file.txt'],
+		expect(expectOk(await repository.files.list('notes/one/'))).toEqual(
+			['notes/one/deep/file.txt'],
 		);
 	} finally {
 		repository.close();
