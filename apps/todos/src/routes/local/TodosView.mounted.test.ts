@@ -171,7 +171,9 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 
 	type(first.get('[aria-label="New todo title"]'), 'Buy milk');
 	flushSync();
-	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain('Todo not added');
+	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain(
+		'Todo not added',
+	);
 	click(first.get(LIST), 'Add');
 	await until(
 		() => first.get(TITLE).value === 'Buy milk',
@@ -274,6 +276,45 @@ test('a failed save keeps the typing and offers Try again', async () => {
 		'Saved on this device',
 	);
 	expect((await stored('milk'))?.fields.title).toBe('Oat milk');
+});
+
+test('leaving with a failed draft asks before unloading and offers its text after unmount', async () => {
+	const { get, text, close } = await onMilk();
+	const { Toaster } = await import('@epicenter/ui/sonner');
+	const notices = document.createElement('div');
+	document.body.append(notices);
+	const toaster = mount(Toaster, { target: notices });
+	cleanup.push(() => {
+		void unmount(toaster);
+		notices.remove();
+	});
+	const put = IDBObjectStore.prototype.put;
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Disk is full', 'QuotaExceededError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+
+	type(get(TITLE), 'Oat milk');
+	blur(get(TITLE));
+	await until(
+		() => text(STATUS)?.startsWith('Not saved') ?? false,
+		'the failure',
+	);
+	const leaving = new Event('beforeunload', { cancelable: true });
+	expect(window.dispatchEvent(leaving)).toBe(false);
+	close();
+	await until(
+		() =>
+			notices.textContent?.includes('Could not save todos/milk.md') ?? false,
+		'the recoverable draft',
+	);
+	expect(
+		notices.querySelector<HTMLTextAreaElement>('[aria-label="Your text"]')
+			?.value,
+	).toContain('Oat milk');
+	expect((await stored('milk'))?.fields.title).toBe('Milk');
 });
 
 test('a row that does not fit is listed with its source, and an edit keeps unnamed fields', async () => {

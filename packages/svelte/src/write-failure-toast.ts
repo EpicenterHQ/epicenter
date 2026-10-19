@@ -36,7 +36,8 @@ export function toastWriteFailure(failure: WriteFailure) {
 }
 
 /**
- * Show `failure` as a new toast. A toast is replaced by dismissing it and
+ * Show `failure` as a new toast. Once its editor is gone, the unsaved text
+ * is shown directly as well as offered for copying. A toast is replaced by dismissing it and
  * showing another, never updated in place: svelte-sonner restarts an updated
  * toast's timer with its duration, and an infinite duration then closes it
  * at once.
@@ -86,7 +87,9 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 				};
 
 	shown = toast.error(title, {
-		...(copyRefused || discarded !== undefined
+		...(copyRefused ||
+		discarded !== undefined ||
+		(copyable && retry === undefined)
 			? {
 					description: UnsavedText,
 					componentProps: copyRefused
@@ -95,7 +98,11 @@ function show(failure: WriteFailure, copyRefused = false): string | number {
 								text: unsaved,
 								discard: discarded,
 							}
-						: { message: said, discard: discarded },
+						: {
+								message: said,
+								text: retry === undefined ? unsaved : undefined,
+								discard: discarded,
+							},
 				}
 			: { description: said }),
 		duration: copyable ? Number.POSITIVE_INFINITY : undefined,

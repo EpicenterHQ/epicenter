@@ -25,7 +25,10 @@ fixed IndexedDB folder. Inside Epicenter, the root asks the shell which
 folder it handed the window, then calls `openFolder({ directory, tables })`.
 It never falls back to browser storage if a native open fails. Opening needs
 no account, remote, or network. The root shows a loading or refusal screen,
-sends drafts when the page hides, and closes after pending work settles.
+sends drafts when the page hides, and closes after pending work settles. A
+pending row draft prompts before a browser unload. If a save still fails as
+the route unmounts, the root shows its fields and body for copying in a
+notice held by the app layout's toaster.
 
 A child calls `getFolder<typeof todosTables>()` from
 `@epicenter/svelte/folder`. The context contains `folder`, `queryClient`,
