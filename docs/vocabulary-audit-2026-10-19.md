@@ -16,17 +16,17 @@ records. Its inventory is evidence, not a requirement to teach every term to a p
 
 An app opens local data and supplies its read schemas. On disk the files live in
 a folder; a web app uses its origin’s storage. Synchronization can connect the
-data to a Git repository later. The CLI can select a schema file to check and
-query the files. Inference is independently authorized. The Epicenter desktop
+data to a Git repository later. CLI check and query require root
+epicenter.json in v1. Inference is independently authorized. The Epicenter desktop
 app and its runner are deferred.
 
 A schema is the JSON Schema for one row’s frontmatter. A schema file contains
 a tables map of such schemas; it is not a single row schema or a repository
 configuration file. Filename and location confer no authority.
-The reader obtains it separately, including from a registry, and keeps it
-outside the data folder. Any folder can be read with any explicitly selected
-supported schema file. A mismatch reports a diagnostic while source remains
-available. No generation or installation puts a schema alongside the data.
+A person obtains it separately, including from a registry, and explicitly
+copies it to root epicenter.json for CLI use. Any folder can use such a
+supported schema. A mismatch reports a diagnostic while source remains
+available. Apps do not require or publish it.
 
 ## Full grouped inventory
 
@@ -42,7 +42,7 @@ available. No generation or installation puts a schema alongside the data.
 | Git copies | repository, hosted repository, data repository, app repository, local copy, clone, disk clone, browser clone, replica, fork, upstream | Repository is Git. A clone is an independent copy. Data/app repository describes contents. Replica remains precise technical vocabulary when needed, not a product tier. | [0589](adr/0589-an-app-is-one-git-repository-of-built-files-at-an-address.md), [0605](adr/0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md), [0612](adr/0612-a-repository-is-shared-by-the-people-on-its-access-list.md), [0623](adr/0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) |
 | Files and rows | table, row, record, row folder, row directory, attachment folder, file, path, root, stem, id, field, property, key, value, frontmatter, body, source, raw fields, reference, relative path | Keep table/row/field/body/file/path. Use row id for the address within a table and row directory for its associated files. Preserve existing record-reference IDs. | [0584](adr/0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md), [0608](adr/0608-apps-never-talk-to-each-other-they-share-paths.md), [0613](adr/0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [0626](adr/0626-an-app-reaches-a-repository-only-through-open.md) |
 | Interpretation | lens, description, declaration, definition, shape, schema, read schema, table schema, field schema, JSON Schema, editor hint, projection, view | Use schema for expectations, schema file for their selected envelope. Keep view for presentation and projection for derived query data. Definition remains a legacy source type. | [0584](adr/0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md), [0585](adr/0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md), [0613](adr/0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [0632](adr/0632-a-lens-belongs-to-its-reader.md) |
-| Schema artifacts | schema file, epicenter.json, table.json, epicenter.ts, $schema, template, template branch, template commit, template history, publisher, schema publication, registry, catalog | No magic filenames. A selected schema file maps names to frontmatter schemas. Template ancestry, owning-app publication, and marker files are retired. Registry acquisition distributes schemas separately from data; its implementation remains unbuilt. | [0585](adr/0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md), [0589](adr/0589-an-app-is-one-git-repository-of-built-files-at-an-address.md), [0609](adr/0609-a-new-data-folder-copies-its-apps-template-once.md), [0632](adr/0632-a-lens-belongs-to-its-reader.md) |
+| Schema artifacts | schema file, epicenter.json, table.json, epicenter.ts, $schema, template, template branch, template commit, template history, publisher, schema publication, registry, catalog | Root epicenter.json is a CLI interpretation convention, not data identity. A schema file maps names to frontmatter schemas. Template ancestry, owning-app publication, and marker files are retired. Registry acquisition explicitly copies schemas into the folder; its implementation remains unbuilt. | [0585](adr/0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md), [0589](adr/0589-an-app-is-one-git-repository-of-built-files-at-an-address.md), [0609](adr/0609-a-new-data-folder-copies-its-apps-template-once.md), [0632](adr/0632-a-lens-belongs-to-its-reader.md) |
 | Diagnostics | validity, conformance, issue, diagnostic, invalid row, malformed row, unreadable row, mismatch, containment, repair, refusal, finding | Name the criterion: schema issue, parse failure, or storage failure. Conformance issues do not erase raw values or universally refuse saves. | [0583](adr/0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md), [0601](adr/0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md), [0613](adr/0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [0626](adr/0626-an-app-reaches-a-repository-only-through-open.md) |
 | Queries | query, SQL, column, query projection, SQLite database, typed table, grid, raw grid | Preserve these technical roles. Selected schemas supply expectations; schema-free SQL and automatic discovery are separate features. | [0608](adr/0608-apps-never-talk-to-each-other-they-share-paths.md), [0611](adr/0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [0613](adr/0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [0632](adr/0632-a-lens-belongs-to-its-reader.md) |
 | Editing | save, write, put, set, create, delete, move, rename, draft, unsaved input, edit, starting source, witness, from, sent, overwrite | Keep save, commit, and sync distinct. API verbs remain exact. Starting source and sent source preserve the draft’s causal context. | [0584](adr/0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md), [0622](adr/0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), [0626](adr/0626-an-app-reaches-a-repository-only-through-open.md), [0629](adr/0629-a-local-save-refuses-a-file-directory-replacement.md), [0630](adr/0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) |
@@ -194,11 +194,21 @@ Whispering's `Workspace` is retained: it owns session capabilities beyond its
 folder. Replacing it with Folder would hide responsibility. The authored,
 generated, and owner-published schema chain remains real migration work; a
 terminology pass cannot remove it from working callers. Its eventual replacement
-must prove schema-free file access and explicitly selected schema-file checking
+must prove schema-free file access and checking through the root schema file
 without losing saved data or draft source.
 Superseded [ADR-0527](adr/0527-a-data-folder-may-keep-its-declaration-as-typescript.md)
 preserves the old `epicenter.ts → generate → epicenter.json` design. Its text
-remains historical; the chosen design does not generate metadata alongside data.
+remains historical; the chosen design installs static JSON explicitly instead
+of generating it from TypeScript.
+
+## Final CLI convention
+
+The owner chose root epicenter.json for v1 CLI check and query after the
+review. This revises the earlier outside-the-folder recommendation. A person
+obtains a schema independently and copies it into the folder. The commands
+require it; apps, raw file access, and synchronization do not. Cloning a
+committed copy restores that CLI interpretation. External-schema flags and
+schema-free checking or SQL are deferred. Apps still never publish the file.
 
 ## Per-record coverage
 

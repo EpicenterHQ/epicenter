@@ -52,15 +52,15 @@ table. The row's files live under <table>/<id>/, which a row deletion removes
 with the row under ADR-0626. Existing record-reference field names and values
 are unchanged by this vocabulary decision.
 
-**No table marker or root schema file is required.**
-An app supplies its own schemas. A generic reader can select a schema file
-explicitly. Neither table.json nor epicenter.json identifies data or is
+**Apps need no table marker or root schema file.**
+An app supplies its own schemas. CLI check and query instead require root
+epicenter.json for their shared interpretation. Neither filename identifies data or is
 created on open or first save. Existing files of those names remain ordinary
 files; no automatic deletion or rewrite follows from this decision.
 
 **Schemas check reads without refusing nonconforming writes.**
 A parseable row outside the selected schema retains its raw fields and
-issues. Malformed source remains available through files. With a selected
+issues. Malformed source remains available through files. With the root
 schema file, check reports the applicable issues and query retains each
 row's source and diagnostics alongside its projected values. A typed cell
 can be NULL when its value does not fit; the raw value remains available.

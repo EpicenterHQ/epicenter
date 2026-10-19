@@ -142,7 +142,7 @@ has a subscription of its own.
 issues, and no revoking of a grant.** A table named in `tables` whose
 directory is absent lists no rows; the first `set` in it writes
 `<t>/<id>.md`. Generic CLI table views name that directory through an
-explicitly selected schema file. A grant is
+root epicenter.json in v1. A grant is
 revoked on the consent page
 ([ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md)).
 

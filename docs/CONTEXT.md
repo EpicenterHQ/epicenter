@@ -61,18 +61,20 @@ several apps can use the same files through their own schemas.
 | View | A presentation of data. Selecting another schema changes interpretation, not saved files or draft ownership. |
 | Query projection | Derived query data, such as an in-memory SQLite table built from files and selected schemas. It is not another durable data owner. |
 
-An app supplies its own read schemas from code. Generic CLI readers can accept
-a schema file explicitly once migrated. The filename `epicenter.json` has no
-automatic role. Legacy metadata such as `local` is not part of the schema-file
-contract and does not configure Git policy. A selected schema grants no access,
-executes no code, and fetches no external references or updates.
+Apps supply their own read schemas and need no schema file. In v1, CLI
+`check` and `query` require `<folder>/epicenter.json`, which supplies their
+shared table interpretation. A person obtains it from a registry or authors
+it, then copies it into the folder deliberately. Apps never publish it by
+opening or saving. A committed copy restores the CLI interpretation on clone.
 
-Schema files are obtained separately, including from a registry, and kept
-outside the data folder. Registry acquisition and reader integration remain
-unbuilt. Any folder can be read with any explicitly selected supported schema
-file: disagreements produce diagnostics without hiding the source. No schema
-file is generated or installed alongside the data. The old `epicenter.ts`
-and `generate` workflow is historical design, still present in unmigrated code.
+Missing metadata blocks those two CLI commands, not app opening, Git sync,
+or ordinary file access. A schema grants no access, changes no merge policy,
+executes no code, and fetches no external references. Legacy metadata such as
+`local` configures no Git policy. Schema disagreements retain raw source.
+The new schema format, registry acquisition, and app migration remain unbuilt.
+External-schema flags and schema-free checking or SQL are deferred. The old
+`epicenter.ts` and `generate` design stays historical; current callers still
+implement it.
 
 Retire lens, description, declaration, and shape as competing domain names for
 these expectations. "Describe" remains an ordinary verb. Without a selected
@@ -147,7 +149,7 @@ These names remain in source until their consumers are migrated.
 | --- | --- |
 | `@epicenter/folder` | Public `openFolder`, `defineFolder`, `Definition`, and `stem`; root, `/browser`, `/tauri`, and `/bun` package entry points. Apps still use declaration publication and opening checks. |
 | `@epicenter/data` | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. Its package exports are empty; it is not a published cross-host opening API. |
-| CLI | Implemented `auth login`, `auth logout`, `generate`, `save-version`, and `app` commands remain distinct from the planned smaller command surface. No schema-selection flag is implemented yet. |
+| CLI | Implemented `auth login`, `auth logout`, `generate`, `save-version`, and `app` commands remain distinct from the planned smaller command surface. External-schema flags are deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,

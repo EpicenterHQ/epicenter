@@ -33,9 +33,8 @@ governs where the two differ.
    can stay local or synchronize through Git (ADR-0633, ADR-0634).
    Apps and agents edit the same file formats. Git records committed
    history and is the sync format; local saves need not yet be commits.
-   No CRDT store exists beside it. Apps supply read schemas; generic
-   readers select optional schema files. No schema file is required
-   (ADR-0611, ADR-0612, ADR-0613, ADR-0632).
+   No CRDT store exists beside it. Apps supply read schemas; CLI check and query use root epicenter.json.
+   Apps and file access need no schema file (ADR-0611, ADR-0612, ADR-0613, ADR-0632).
 2. Epicenter records content in Git objects and working files, access in
    access-list rows, and keeps rebuildable caches. A browser clone holds Git
    objects, refs, unsent edits, and the Git boundary metadata and local revision

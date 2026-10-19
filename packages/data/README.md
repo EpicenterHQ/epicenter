@@ -19,7 +19,7 @@ tracks transport, retention, app integration, and data-safe migration.
 requires desktop and browser apps to open local data before first sign-in.
 A local dataset has its own identity; optional synchronization later connects
 existing work to a chosen repository. No schema file or service grant is required for
-local opening. Generic CLI readers can select a separate schema file
+local opening. CLI check and query require root epicenter.json in v1
 ([ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)).
 
 The internal constructors already separate local storage from Git exchange.

@@ -30,8 +30,8 @@ for the local data toolkit, standalone apps, browser apps, CLI, or hosted
 services. Deferral does not restore the older full app platform.
 
 **The Epicenter desktop app can add structured views through a selected schema file.**
-A person can open any ordinary data folder and select a separately obtained
-schema file kept outside it. Without a schema file, files remain browsable. The
+A person can open ordinary data folders. The later app can use the same root
+epicenter.json as the CLI; its selection interface remains deferred. Without a schema file, files remain browsable. The
 filename grants no permissions and creates no requirement for apps to
 write metadata. Schema-file selection and editing follow ADR-0632; the app's
 interface and packaging can be designed when that client is built.

@@ -844,7 +844,7 @@ When you add an ADR, add its row here.
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Proposed (amends 0626) |
 | [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
-| [0632](0632-a-lens-belongs-to-its-reader.md) | Readers select schema files independently of data | Accepted (amends 0585, 0611, 0613, 0626, and 0627) |
+| [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Accepted (amends 0585, 0611, 0613, 0626, and 0627) |
 | [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627) |
 | [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
 | [0635](0635-generic-desktop-data-tools-are-deferred.md) | The Epicenter desktop app is deferred | Accepted (amends 0611 and 0627) |

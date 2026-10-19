@@ -2,9 +2,9 @@
 
 This README documents the current declaration-dependent implementation. App
 openers still publish or read root `epicenter.json`; CLI checking and queries
-require it. The chosen direction uses app-supplied schemas and independently
-selected schema files, with no required metadata file. That migration is unbuilt;
-the APIs below remain current. See [shared vocabulary](../../docs/CONTEXT.md)
+require it. The chosen direction uses app-supplied schemas and root
+epicenter.json for CLI check and query. Apps need no metadata file. That
+migration is unbuilt; the APIs below remain current. See [shared vocabulary](../../docs/CONTEXT.md)
 and [ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md).
 
 A folder whose current files are the saved data: Markdown rows and any other

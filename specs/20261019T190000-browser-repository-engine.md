@@ -70,8 +70,8 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
    account, offline saves and reopening unsent work, explicit combination with a
    nonempty remote, sign-out
    preserving local work, account replacement, reconnect, and native Git round-trip.
-   Apps supply read schemas without publishing schema files; explicit schema-file
-   selection in the CLI follows
+   Apps supply read schemas without publishing schema files. CLI check and query
+   keep root epicenter.json discovery and migrate its format under
    [ADR-0632](../docs/adr/0632-a-lens-belongs-to-its-reader.md).
    Inference authorization is independent. The deferred Epicenter desktop app and its runner
    are not integration gates (ADR-0634 and ADR-0635).

@@ -2,9 +2,10 @@
 
 This README describes implemented commands. `check` and `query` currently require
 root `epicenter.json`, and `generate` produces it from `epicenter.ts`. The
-chosen direction accepts independently selected schema files; schema-file input
-is not implemented yet. It obtains schemas separately from data, including from
-a registry; no generated metadata file accompanies the data. The old generation
+chosen v1 direction keeps that root path for check and query, using a static
+schema obtained from a registry or authored directly. The schema format still
+needs migration; external-schema flags are deferred. Apps need no root schema
+file and never publish it by opening or saving. The old generation
 workflow is preserved in superseded
 [ADR-0527](../../docs/adr/0527-a-data-folder-may-keep-its-declaration-as-typescript.md).
 See [shared vocabulary](../../docs/CONTEXT.md) and

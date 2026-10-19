@@ -1,18 +1,19 @@
-# 0632. Readers select schema files independently of data
+# 0632. Apps supply schemas; CLI readers use root epicenter.json
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md), [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) only where repository descriptions determine generic table discovery or a reader's lifetime.
 - **Relates:** [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (CLI readers), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (schema-independent saves).
-- **Unbuilt:** explicit schema-file input in the CLI and the later Epicenter desktop app; separate registry acquisition; browsing without a schema file; reader-scoped conformance diagnostics; preserving drafts through schema file changes; and migration of current declaration-dependent readers and application openers.
+- **Unbuilt:** migration of CLI readers to the new schema-file format, registry acquisition, schema-independent file browsing, reader-scoped diagnostics, preserving drafts through schema changes, and application migration. External-schema CLI flags are deferred; the Epicenter desktop app remains deferred.
 
 ## Context
 
 The former `epicenter.ts → epicenter generate → epicenter.json` workflow is
 preserved in superseded [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md).
-It generated a declaration alongside the data. The chosen design separates
-the schema artifact from the folder being read; the older generator remains
-implemented until its callers migrate.
+It generated a declaration alongside the data. The chosen design retains a
+root JSON file for CLI interpretation while removing app publication and
+TypeScript generation. The older generator remains implemented until its
+callers migrate.
 
 Whispering declares its recording and transcription fields in
 `apps/whispering/src/lib/definition.ts`. It already brings the knowledge
@@ -59,51 +60,49 @@ for the whole repository.
 Table keys name actual directories. There are no aliases, computed fields,
 transforms, or migration instructions. Supported schemas follow the reader's
 schema support; the filename promises no additional JSON Schema features.
-Apps supply read schemas from code. The CLI can select a local schema file;
-the deferred Epicenter desktop app can do the same later. A schema file
-grants no access and configures no data identity or ignored files.
+Apps supply read schemas from code. In v1, CLI `check` and `query` read
+`<folder>/epicenter.json`. A schema file grants no access and configures no
+data identity, merge behavior, or ignored files.
 
 ```text
-voice-notes/                    data repository
+voice-notes/
+    epicenter.json              schemas used by CLI check and query
     recordings/<id>.md
     transcriptions/<id>.md
-
-whispering-schema.json          obtained separately, outside the data folder
-    tables.recordings          JSON Schema for recording frontmatter
-    tables.transcriptions      JSON Schema for transcription frontmatter
 ```
 
-**No schema file is required to open, save, sync, or browse the files.**
-Neither `epicenter.json` nor `table.json` identifies data or establishes a
-directory's status as a table. Apps name the directories they use; a selected
-schema file names those a generic reader presents as tables. Files remain
-available without schemas. The later Epicenter desktop app can inspect
-source and raw frontmatter without inventing field meanings. Selecting
-schemas never hides files outside the named tables.
+**Apps and ordinary file access require no schema file.**
+Apps name the directories they use and bring their own read schemas. Neither
+`epicenter.json` nor `table.json` identifies data or establishes permissions.
+Opening or saving in an app never creates or replaces a schema file. Missing
+CLI metadata does not prevent Git synchronization or ordinary file access.
+Files outside the described tables remain accessible.
 
-**Schema files are obtained separately from the data they interpret.**
-A person can obtain a schema file from a registry, an app's distribution,
-or a local file they authored or copied. The reader keeps that artifact
-outside the data folder. Registry acquisition is an explicit step; reading
-an already obtained schema works offline and does not contact the registry.
-Obtaining or selecting it creates no `epicenter.ts`, `epicenter.json`, or
-`table.json` alongside the data.
+**CLI check and query require the root epicenter.json in v1.**
+That file supplies the CLI's table names and frontmatter schemas. If it is
+missing, unreadable, or malformed, those commands report the problem and how
+to obtain or repair it. They do not infer schemas, run `epicenter.ts`, or
+silently claim validation succeeded. Schema-free checking and SQL, external
+schema paths, and remembered reader selections are deferred.
 
-**Any folder can be read with any explicitly selected supported schema file.**
-Selection requires no owning app, folder marker, repository identity, or
-declaration-containment check. Whether values match is a read result, not
-permission to open the folder. Table names still address actual top-level
-directories, and files outside those tables stay accessible. Supported JSON
-Schema features remain the reader's contract; selection does not promise
-every JSON Schema extension or reinterpret arbitrary bytes as valid rows.
+**A schema is obtained independently and copied into the folder explicitly.**
+A person can download it from a registry or app distribution, or author the
+JSON themselves. Acquisition installs `epicenter.json` deliberately; it does
+not alter row files. Normal app opening and saving never install it. Reading
+the installed file works offline, executes no code, and fetches no external
+references or updates. Registry hosting, lookup, and versions remain unbuilt.
+The old TypeScript-to-JSON generator remains retired as a design.
 
-Existing JSON files inside a data folder remain ordinary source files; their
-presence neither installs a schema nor changes the selected interpretation.
-Nothing applies a schema merely because of its name. Remembered
-selections belong to machine-local settings outside the data. Reading a
-schema file executes no code and fetches no external references or updates.
-Legacy top-level metadata such as `local` supplies no Git-policy behavior;
-handling unsupported metadata belongs to the reader migration.
+Any ordinary folder can use a supported schema copied to that root path.
+There is no owning-app, repository-identity, or containment gate. Table names
+still address actual top-level directories. Whether rows match is a diagnostic,
+not permission to access them. Supported JSON Schema features remain the
+reader's contract. Legacy metadata such as `local` configures no Git policy.
+
+The root file is one shared default interpretation for CLI readers. Changing
+it changes subsequent CLI checks and queries; apps retain their own schemas.
+Committing it lets a clone restore that CLI interpretation. It does not
+restore app interfaces or machine-local settings.
 
 **A schema file describes expectations without determining which source survives.**
 A row that fails its schema retains its raw fields, source, and issues.
@@ -116,7 +115,8 @@ successful check is not evidence that the files fit an app.
 
 **Selecting a schema file changes interpretation without changing data lifetime.**
 It preserves unsaved input and the exact starting source needed to save it.
-Selection writes no data file and does not reopen storage. Field edits
+Deliberately installing or updating a schema changes its JSON file, not row
+data, and does not reopen storage. Field edits
 preserve unshown fields, including when the row does not fit the schema.
 A missing, unreadable, or malformed schema file produces an issue with that
 selection while raw file access remains available. A named table whose
@@ -124,33 +124,35 @@ directory is absent is empty; applying schemas creates no directory.
 
 ## Consequences
 
-- A fresh clone remains browsable offline without an app, schema file, or account.
-  Its typed forms and app-specific checks require a schema file obtained separately.
-- Two readers can select different schema files over the same files. Neither
-  selection publishes a declaration or changes the other reader's schemas.
-- A team can obtain the same published schema independently of its data.
-  Cloning data alone does not install a schema or restore machine-local selections.
+- A fresh clone remains readable as files without an app, schema file, or account.
+  CLI checking and queries require the root schema file.
+- Apps can use different read schemas over the same files. CLI readers share
+  the root file; external-schema overrides are deferred.
+- Cloning a committed root schema restores the CLI interpretation. A folder
+  without one needs explicit schema acquisition before check or query.
 - A stale schema file can report disagreements with current data. It never
   migrates records, discards unknown fields, or changes merge policy.
-- The CLI's declaration-required `readFolder` path and the browser's
-  declaration-driven reopening must be replaced. Invalid rows currently
+- The CLI keeps root-file discovery but must migrate its legacy declaration
+  format. The browser's declaration-driven reopening must be replaced. Invalid rows currently
   excluded by `checkFolder` and SQL projection must retain a source and
   diagnostic path in schema-based views. The browser's current read-only
   invalid-row display still needs a source repair path.
 - Declaration publication, ownership and containment gates, and mandatory
-  description discovery are unnecessary. Existing description files remain
+  app-description discovery are unnecessary. Existing description files remain
   ordinary files; migration removes none automatically.
 - A registry distributes schema artifacts; it does not identify data or own
   its interpretation. Registry hosting, lookup, and version selection remain
   unbuilt. A local schema file needs no registry connection to be read.
-- Schema-free SQL, automatic table discovery, and the exact raw-grid interface
-  remain separate features. No tool claims semantic conformance without schemas.
+- Schema-free checking and SQL, automatic table discovery, and the exact raw-grid
+  interface remain separate features. No tool claims conformance without schemas.
 
 ## Considered alternatives
 
-- **An optional root description applied automatically.** Restores a typed
-  default on clone, but introduces filename discovery and a shared default
-  interpretation. Separately obtained schemas preserve explicit reader selection.
+- **Require a separately selected schema path for each CLI command.** Supports
+  multiple interpretations but adds flags and reader settings before a concrete
+  need. V1 uses one root file instead.
+- **Require the root file for apps or file access.** Couples ordinary local
+  data use to metadata that an app already supplies from code.
 - **A required `table.json` beside every table.** Makes generic discovery
   depend on a description no app needs to write.
 - **Infer schemas and typed editors from observed values.** Existing values
