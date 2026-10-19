@@ -848,4 +848,5 @@ When you add an ADR, add its row here.
 | [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627) |
 | [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
 | [0635](0635-generic-desktop-data-tools-are-deferred.md) | Generic desktop data tools are deferred | Accepted (amends 0611 and 0627) |
+| [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Proposed (amends 0584, 0626, and 0633) |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
