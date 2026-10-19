@@ -851,3 +851,4 @@ When you add an ADR, add its row here.
 | [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Proposed (amends 0584, 0626, and 0633) |
 | [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Proposed (amends 0592, 0611, and 0621) |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
+| [0639](0639-automatic-commits-refuse-new-non-text-content.md) | Automatic commits refuse new non-text content | Proposed (amends 0592 and 0624) |
