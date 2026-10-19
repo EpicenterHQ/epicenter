@@ -142,7 +142,7 @@ function meter(
 /** Recording over `environment`, the browser's own by default. */
 export function createBrowserRecorder(
 	environment: BrowserEnvironment = browserEnvironment(),
-): { startRecording: StartRecording; recoverRecordings: RecoverRecordings } {
+) {
 	const startRecording: StartRecording = async ({
 		folder,
 		path,
@@ -194,7 +194,7 @@ export function createBrowserRecorder(
 		const file = `${path}.${container?.extension ?? extensionOf(recorder.mimeType)}`;
 		// The microphone going away ends the capture; what was recorded stays.
 		for (const track of stream.getAudioTracks())
-			track.addEventListener?.('ended', () => {
+			track.addEventListener('ended', () => {
 				for (const listener of endings) listener('deviceDisconnected');
 			});
 		let settled = false;
@@ -275,13 +275,12 @@ export function createBrowserRecorder(
 
 	return {
 		startRecording,
-		// A browser recording is written whole on stop, so none is ever cut off.
-		recoverRecordings: async () => Ok([]),
+		recoverRecordings,
 	};
 }
 
 export const startRecording: StartRecording = (options) =>
 	createBrowserRecorder().startRecording(options);
 
-export const recoverRecordings: RecoverRecordings = (options) =>
-	createBrowserRecorder().recoverRecordings(options);
+/** A browser recording is written whole on stop, so none is ever cut off. */
+export const recoverRecordings: RecoverRecordings = async () => Ok([]);
