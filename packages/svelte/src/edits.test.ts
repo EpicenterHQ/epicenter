@@ -274,6 +274,13 @@ test('close waits for a started file action and an app-owned text draft', async 
 		},
 	});
 	const closing = context.close();
+	let lateActionStarted = false;
+	await expect(
+		context.run(async () => {
+			lateActionStarted = true;
+		}),
+	).rejects.toThrow('The folder is closing');
+	expect(lateActionStarted).toBe(false);
 	try {
 		await until(() => textSent);
 		// The action still owns the handle while the text draft has landed.

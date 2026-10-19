@@ -116,6 +116,8 @@ export function createFolderContext<
 		},
 		/** Count a started file action in this handle's close and save status. */
 		run<T>(action: () => Promise<T>): Promise<T> {
+			if (closing !== undefined)
+				return Promise.reject(new Error('The folder is closing'));
 			const result = Promise.resolve()
 				.then(action)
 				.finally(() => actions.delete(result));
