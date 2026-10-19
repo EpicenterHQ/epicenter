@@ -45,6 +45,11 @@ export function readablePath(path: string): boolean {
 	);
 }
 
+/** Existing nonportable names can be repaired, but Git's HEAD stays private. */
+export function writableExistingPath(path: string): boolean {
+	return readablePath(path) && !path.split('/').some((part) => part.toUpperCase() === 'HEAD');
+}
+
 /**
  * A name Windows reserves for a device, with or without an extension: the
  * part before the first dot, without trailing spaces (` `, U+0020 only), is a

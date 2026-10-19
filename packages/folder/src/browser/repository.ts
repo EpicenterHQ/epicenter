@@ -1,6 +1,6 @@
 import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { pathProblem, readablePath, rowAddressProblem } from '../paths.js';
+import { pathProblem, readablePath, rowAddressProblem, writableExistingPath } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
@@ -140,7 +140,7 @@ export async function openRepository<
 		const base = from instanceof Uint8Array ? from.slice() : from;
 		const change = content instanceof Uint8Array ? content.slice() : content;
 		return save(async () => {
-			if (!validPath(path) && (base === null || !readablePath(path)))
+			if (!validPath(path) && (base === null || !writableExistingPath(path)))
 				return SaveError.InvalidPath({ path });
 			if (
 				typeof change === 'string' &&

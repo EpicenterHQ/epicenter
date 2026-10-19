@@ -154,6 +154,16 @@ test('existing empty and nonportable row stems remain visible for repair', async
 	await folder.close();
 });
 
+test('an existing HEAD is readable but cannot be changed into Git state', async () => {
+	const root = await directory({ HEAD: 'notes\n' });
+	const folder = await open(root);
+	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe('notes\n');
+	expect(expectErr(await folder.files.write('HEAD', 'notes\n', 'ref: refs/heads/main\n')).name).toBe('InvalidPath');
+	expect(expectErr(await folder.files.delete('HEAD', 'notes\n')).name).toBe('InvalidPath');
+	expect(await text(root, 'HEAD')).toBe('notes\n');
+	await folder.close();
+});
+
 test('opening refuses what cannot hold a folder, before acquiring anything', async () => {
 	const root = await directory({ 'file.txt': 'x' });
 	expect(

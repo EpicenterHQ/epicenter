@@ -481,6 +481,22 @@ test('earlier nonportable browser paths remain readable for repair', async () =>
 	earlier.close();
 });
 
+test('an existing HEAD stays readable but cannot be changed into Git state', async () => {
+	const earlier = await openRepository('default');
+	const snapshot = await earlier.storage.capture([]);
+	expect(await earlier.storage.publish({
+		revision: snapshot.state.revision,
+		edits: new Map([['HEAD', 'notes\n']]),
+	})).toBe(true);
+	const folder = await open();
+	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe('notes\n');
+	expect(expectErr(await folder.files.write('HEAD', 'notes\n', 'ref: refs/heads/main\n')).name).toBe('InvalidPath');
+	expect(expectErr(await folder.files.delete('HEAD', 'notes\n')).name).toBe('InvalidPath');
+	expect(await expectOk(await folder.files.read('HEAD'))?.content.text()).toBe('notes\n');
+	await folder.close();
+	earlier.close();
+});
+
 test('the automatic opener opens the browser default and refuses a directory in a browser', async () => {
 	const folder = expectOk(await openAutomaticFolder({ tables: { notes } }));
 	expectOk(

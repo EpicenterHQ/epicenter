@@ -38,7 +38,7 @@ import type {
 import { folderHandle } from '../handle.js';
 import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
-import { pathProblem, readablePath, rowAddressProblem } from '../paths.js';
+import { pathProblem, readablePath, rowAddressProblem, writableExistingPath } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
@@ -229,7 +229,7 @@ export function createNativeFolder<
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
 		const change = content instanceof Uint8Array ? content.slice() : content;
-		if (!structural(path) || (pathProblem(path) !== undefined && base === null))
+		if (!structural(path) || (pathProblem(path) !== undefined && (base === null || !writableExistingPath(path))))
 			return SaveError.InvalidPath({ path });
 		if (
 			typeof change === 'string' &&

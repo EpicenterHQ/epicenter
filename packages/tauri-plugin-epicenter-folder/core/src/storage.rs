@@ -629,9 +629,13 @@ pub fn put<Turn>(
     turn: impl FnOnce() -> Result<Turn, String>,
 ) -> Result<PutOutcome, StorageError> {
     // An existing nonportable name may be changed only with its exact file
-    // witness. A new file must satisfy the portable path rule.
+    // witness. HEAD can make a plain directory a Git repository, so it stays
+    // private even when it exists. A new file must satisfy the portable rule.
     if if_match.is_some() {
-        if let Some(reason) = readable_path_problem(path) {
+        if let Some(reason) = readable_path_problem(path).or_else(|| {
+            path.split('/').any(|part| part.eq_ignore_ascii_case("head"))
+                .then_some("the path contains a segment named HEAD, which Git reads as a repository")
+        }) {
             return Err(StorageError::InvalidPath {
                 path: path.to_string(),
                 reason: reason.to_string(),

@@ -84,7 +84,8 @@ failure.
 New file and row names follow the portable path rule. Earlier files with a
 nonportable but structurally safe name remain readable. A save or deletion
 can change one of those files when it supplies the exact source it started
-from; a new file cannot be created under that name.
+from; a new file cannot be created under that name. `HEAD` remains read-only
+because changing it can turn a plain directory into Git state.
 
 ### Rows
 

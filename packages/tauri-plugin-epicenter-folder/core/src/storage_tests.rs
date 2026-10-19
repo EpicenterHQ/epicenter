@@ -201,6 +201,18 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
     assert_eq!(read(&root, "notes/a: b.md"), Err(StorageError::NotFound { path: "notes/a: b.md".into() }));
 }
 
+#[test]
+fn an_existing_head_is_readable_but_never_changed() {
+    let (_temp, root) = folder("storage-head-private", &[("HEAD", b"notes\n")]);
+    assert_eq!(read(&root, "HEAD").unwrap(), b"notes\n");
+    let witness = sha256(b"notes\n");
+    assert!(put_now(&root, "HEAD", b(b"ref: refs/heads/main\n"), Some(&witness))
+        .is_err_and(|error| invalid("HEAD")(&error)));
+    assert!(put_now(&root, "HEAD", None, Some(&witness))
+        .is_err_and(|error| invalid("HEAD")(&error)));
+    assert_eq!(read(&root, "HEAD").unwrap(), b"notes\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_link_is_never_followed_and_a_path_through_one_is_refused() {

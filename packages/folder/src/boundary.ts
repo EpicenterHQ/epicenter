@@ -28,7 +28,7 @@
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { FileError } from './errors.js';
-import { pathProblem, readablePath } from './paths.js';
+import { pathProblem, readablePath, writableExistingPath } from './paths.js';
 
 export type FileRead = {
 	readonly bytes: Uint8Array;
@@ -205,7 +205,7 @@ export function hostStorage(
 		},
 		async put(path, bytes, ifMatch) {
 			const refused =
-				ifMatch !== null && readablePath(path) ? undefined : refusal(path);
+				ifMatch !== null && writableExistingPath(path) ? undefined : refusal(path);
 			if (refused) return refused;
 			const owned = bytes === null ? null : new Uint8Array(bytes);
 			let result: Result<'landed' | 'stale', FileError>;
