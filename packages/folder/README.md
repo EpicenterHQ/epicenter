@@ -31,7 +31,7 @@ await folder.close();
 ```
 
 The call needs no app ID, authentication, remote, or network. A browser origin
-has one default local folder, kept in IndexedDB by `@epicenter/data` under a
+has one default local folder, kept in IndexedDB by the [browser repository engine](src/browser/README.md) under a
 fixed internal key that no app name, account, or remote changes. It reads none
 of the OPFS data of the older shape. A fresh profile starts empty.
 

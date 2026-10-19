@@ -4,7 +4,7 @@
  * change, and modes survive independent content changes.
  */
 import { expect, test } from 'bun:test';
-import { readRow } from '../row.js';
+import { readRow } from '../../shared/row.js';
 import { includesCommit } from './ancestry.js';
 import { mergeTrees } from './merge.js';
 import { type GitObject, hashObject, readTree, writeTree } from './objects.js';

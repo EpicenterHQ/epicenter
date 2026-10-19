@@ -1,8 +1,8 @@
 /**
  * The browser's default local folder: `openFolder({ tables })`.
  *
- * One folder per web origin, kept in IndexedDB by the `@epicenter/data`
- * engine and reopened under a fixed internal key. The key is independent of
+ * One folder per web origin, kept in IndexedDB by the browser repository
+ * engine (`./browser/`) and reopened under a fixed internal key. The key is independent of
  * any app name, account, or remote, and opening needs no authentication,
  * network, or schema file (ADR-0633, ADR-0636). The handle exposes rooted
  * `files`, table views that interpret Markdown rows through the caller's
@@ -23,18 +23,17 @@
  * `ReadError` and `SaveError` results; a failed save leaves earlier storage
  * unchanged.
  */
-import type {
-	FileContent,
-	Issue,
-	ReadError,
-	Row,
-	RowChange,
-	SaveError,
-	StorageChange,
-} from '@epicenter/data/internal';
-import { isTableName, openRepository } from '@epicenter/data/internal';
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
+import {
+	isTableName,
+	openRepository,
+	type ReadError,
+	type SaveError,
+} from './browser/repository.js';
+import type { StorageChange } from './browser/storage.js';
+import type { FileContent } from './shared/merge.js';
+import type { Issue, Row, RowChange } from './shared/row.js';
 import { OpenFolderError } from './errors.js';
 import { callObserver } from './observer.js';
 

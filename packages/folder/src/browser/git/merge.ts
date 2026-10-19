@@ -1,4 +1,4 @@
-import { merge, type Overridden } from '../merge.js';
+import { merge, type Overridden } from '../../shared/merge.js';
 import {
 	type GitObject,
 	hashObject,

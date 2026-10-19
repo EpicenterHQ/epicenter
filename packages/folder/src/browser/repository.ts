@@ -7,8 +7,8 @@ import {
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type GitObject, hashObject, writeCommit } from './git/objects.js';
 import { changeSnapshot } from './git/snapshot.js';
-import { type FileContent, merge, sameContent } from './merge.js';
-import { type Row, type RowChange, readRow, rowChange } from './row.js';
+import { type FileContent, merge, sameContent } from '../shared/merge.js';
+import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
 import {
 	openStorage,
 	type RepositorySnapshot,

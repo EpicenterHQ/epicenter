@@ -6,7 +6,7 @@
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createGitServer } from '../smoke/git-server.js';
+import { createGitServer } from '../../smoke/git-server.js';
 import { readCommit } from './git/objects.js';
 import type { HttpRequest } from './git/transfer.js';
 import { openRepository } from './repository.js';

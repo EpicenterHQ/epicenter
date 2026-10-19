@@ -25,10 +25,10 @@ history.
 The checks ran with:
 
 ```sh
-bun test --isolate packages/data/src
-bun run --cwd packages/data typecheck
-bun packages/data/smoke/local.ts
-bun packages/data/smoke/sync.ts
+bun test --isolate packages/folder/src/browser
+bun run --cwd packages/folder typecheck
+bun packages/folder/smoke/local.ts
+bun packages/folder/smoke/sync.ts
 ```
 
 The package suite passed 137 tests and 527 assertions. These are desktop

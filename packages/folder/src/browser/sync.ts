@@ -5,7 +5,7 @@ import {
 } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
-import { parseRowSource, sameValue } from './content/canonical.js';
+import { parseRowSource, sameValue } from '../shared/content/canonical.js';
 import { includesCommit } from './git/ancestry.js';
 import { snapshotObjects } from './git/closure.js';
 import { mergeTrees } from './git/merge.js';
@@ -24,7 +24,7 @@ import {
 	pushRemote,
 	TransferFailure,
 } from './git/transfer.js';
-import { sameContent } from './merge.js';
+import { sameContent } from '../shared/merge.js';
 import type { LocalRepository, SaveError } from './repository.js';
 import { StorageFailure } from './storage.js';
 

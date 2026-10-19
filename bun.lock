@@ -545,24 +545,6 @@
         "vite": "catalog:",
       },
     },
-    "packages/data": {
-      "name": "@epicenter/data",
-      "version": "0.0.1",
-      "dependencies": {
-        "buffer": "^6.0.3",
-        "diff": "^8.0.4",
-        "isomorphic-git": "1.38.5",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-        "yaml": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "fake-indexeddb": "^6.2.6",
-        "playwright": "^1.61.1",
-        "typescript": "catalog:",
-      },
-    },
     "packages/definition": {
       "name": "@epicenter/definition",
       "version": "0.0.1",
@@ -594,7 +576,9 @@
         "@tanstack/query-core": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
+        "fake-indexeddb": "^6.2.6",
         "jsdom": "26.1.0",
+        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "typescript": "catalog:",
@@ -979,8 +963,6 @@
     "@epicenter/client": ["@epicenter/client@workspace:packages/client"],
 
     "@epicenter/constants": ["@epicenter/constants@workspace:packages/constants"],
-
-    "@epicenter/data": ["@epicenter/data@workspace:packages/data"],
 
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
 

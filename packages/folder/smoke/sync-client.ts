@@ -1,8 +1,8 @@
 /** Exercise production storage and sync from actual pages, with one network fault. */
 import { unwrap } from 'wellcrafted/result';
-import { openRepository } from '../src/repository.js';
-import type { Row } from '../src/row.js';
-import { createSync } from '../src/sync.js';
+import { openRepository } from '../src/browser/repository.js';
+import type { Row } from '../src/shared/row.js';
+import { createSync } from '../src/browser/sync.js';
 
 const schema = {
 	type: 'object',

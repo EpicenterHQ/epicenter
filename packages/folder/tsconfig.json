@@ -5,6 +5,6 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true
 	},
-	"include": ["src/**/*.ts", "evidence/**/*.ts"],
+	"include": ["src/**/*.ts", "evidence/**/*.ts", "smoke/**/*.ts"],
 	"exclude": ["evidence/bundles/out"]
 }

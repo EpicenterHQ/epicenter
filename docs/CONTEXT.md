@@ -170,7 +170,7 @@ These names remain in source until their consumers are migrated.
 | Source | Names and current behavior |
 | --- | --- |
 | `@epicenter/folder` | Public `openFolder`, `defineFolder`, `Definition`, and `stem`; root, `/browser`, `/tauri`, and `/bun` package entry points. Apps still use declaration publication and opening checks. |
-| `@epicenter/data` | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. Its package exports are empty; it is not a published cross-host opening API. |
+| `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
 | CLI | Implemented `auth login`, `auth logout`, `generate`, `save-version`, and `app` commands remain distinct from the planned smaller command surface. External-schema flags are deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 

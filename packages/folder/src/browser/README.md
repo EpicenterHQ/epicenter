@@ -1,38 +1,40 @@
-# @epicenter/data
+# Browser repository engine
 
-The browser repository engine under construction for
-[ADR-0626](../../docs/adr/0626-an-app-reaches-a-repository-only-through-open.md)
-and [ADR-0628](../../docs/adr/0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md).
+The engine inside `@epicenter/folder` (`src/browser/`) under construction for
+[ADR-0626](../../../../docs/adr/0626-an-app-reaches-a-repository-only-through-open.md)
+and [ADR-0628](../../../../docs/adr/0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md).
 The internal implementation also follows proposed
-[ADR-0629](../../docs/adr/0629-a-local-save-refuses-a-file-directory-replacement.md),
-[ADR-0630](../../docs/adr/0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md),
-and [ADR-0631](../../docs/adr/0631-a-browser-observes-the-remote-before-making-a-commit.md).
+[ADR-0629](../../../../docs/adr/0629-a-local-save-refuses-a-file-directory-replacement.md),
+[ADR-0630](../../../../docs/adr/0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md),
+and [ADR-0631](../../../../docs/adr/0631-a-browser-observes-the-remote-before-making-a-commit.md).
 Those records remain Proposed; their implementation here does not settle the
 public contract.
-Current applications still use `@epicenter/folder`. The
-[implementation plan](../../specs/20261019T190000-browser-repository-engine.md)
+It is implementation, not a public package: apps reach it only through
+`@epicenter/folder`. The
+[implementation plan](../../../../specs/20261019T190000-browser-repository-engine.md)
 tracks transport, retention, app integration, and data-safe migration.
 
 ## Chosen integration direction
 
-[ADR-0633](../../docs/adr/0633-apps-open-local-data-before-connecting-services.md)
+[ADR-0633](../../../../docs/adr/0633-apps-open-local-data-before-connecting-services.md)
 requires desktop and browser apps to open local data before first sign-in.
 A local dataset has its own identity; optional synchronization later connects
 existing work to a chosen repository. No schema file or service grant is required for
 local opening. CLI check and query require root epicenter.json in v1
-([ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)).
+([ADR-0632](../../../../docs/adr/0632-a-lens-belongs-to-its-reader.md)).
 
 The internal constructors already separate local storage from Git exchange.
-`@epicenter/folder` now provides the public local opening API,
-`openFolder({ tables })`, over `openRepository` through the `./internal` entry,
-which only that package imports. Apps never see `Repository`. A persisted
+`openFolder({ tables })` is the public local opening API. It sits over
+`openRepository` in `src/browser/repository.ts`, which only
+`src/local-folder.ts` imports. Row parsing, canonical text, and merge rules
+live in `src/shared/` and carry no browser dependency. Apps never see `Repository`. A persisted
 connection, sync status, and first attachment of existing work are not built. Hosted inference is a separate
 service and adds no dependency to this package
-([ADR-0634](../../docs/adr/0634-hosted-inference-is-independent-of-repository-sync.md)).
+([ADR-0634](../../../../docs/adr/0634-hosted-inference-is-independent-of-repository-sync.md)).
 
 ## Implemented locally
 
-`src/repository.ts` opens the internal local engine. Files and rows save into
+`src/browser/repository.ts` opens the internal local engine. Files and rows save into
 IndexedDB before returning success, including before an initial fetch. A row
 retains its exact source and exposes raw fields with issues when the app's
 read schema does not fit. Writes do not validate against that schema.
@@ -89,9 +91,9 @@ still rejects publication if another tab saved in the meantime. It is not a
 backup or a complete object closure for collection. Future reconciliation must
 explicitly capture B and the remote inputs it needs; local operations need C.
 
-`src/git/snapshot.ts` rebuilds changed trees without a checkout or Git index.
+`src/browser/git/snapshot.ts` rebuilds changed trees without a checkout or Git index.
 It preserves unrelated raw names, native modes, symlinks, and gitlinks.
-`src/merge.ts` merges Markdown by frontmatter field and body region. Other
+`src/shared/merge.ts` merges Markdown by frontmatter field and body region. Other
 UTF-8 files, JSON included, merge by text region. Simultaneous insertions
 survive current first; an edit beats an unseen deletion. A competing change
 wins its field or text region. Invalid source stays available for file repair.
@@ -122,14 +124,14 @@ Previously acknowledged work remains saved.
 
 ## Git synchronization
 
-`src/sync.ts` provides the internal `createSync(repository, options).run()`
+`src/browser/sync.ts` provides the internal `createSync(repository, options).run()`
 trigger. It prepares a local commit when allowed, fetches `main`, establishes
 whether a pending commit landed, adopts incoming data under a revision check,
 and pushes at most one exact pending commit. Concurrent calls on that sync
 instance share its current promise. A successful push can leave newer edits
 waiting for the next trigger.
 
-`src/git/transfer.ts` uses public isomorphic-git operations over an isolated
+`src/browser/git/transfer.ts` uses public isomorphic-git operations over an isolated
 in-memory filesystem for each transfer. It handles ordinary smart HTTP and
 pack/delta decoding without a checkout or persistent Git index. Returned
 objects are inflated and hash-verified. Initial fetch uses depth 1; later
@@ -172,8 +174,8 @@ to settle; the scheduler need not force progress during uninterrupted typing.
 
 ## Integration boundary
 
-The package exports only `./internal`, for `@epicenter/folder`'s
-`openFolder({ tables })`. The internal constructor does not check a grant or
+The package exports nothing from this directory. `src/local-folder.ts` imports
+`repository.ts` for `openFolder({ tables })`. The internal constructor does not check a grant or
 start network sync. Do not migrate an application's stored data to it until
 the data-safe migration from the older OPFS folders is connected. A sync-enabled app also needs optional auth, remote attachment,
 and automatic scheduling; those do not gate local-only use.
@@ -186,7 +188,7 @@ After sync publishes a snapshot or acknowledges a push, storage collects
 objects outside the confirmed and pending snapshot closures. It checks
 liveness and deletes in one IndexedDB transaction; a failed collection leaves
 published work intact and costs space.
-The [retention evidence](evidence/retention/RESULTS.md) covers fake IndexedDB
+The [retention evidence](../../evidence/browser-engine/retention/RESULTS.md) covers fake IndexedDB
 and three desktop browser engines. Existing app data is untouched. Overwritten
 intermediate local saves need not have a recoverable version; the eventual
 recovery guarantee covers commits incorporated into server history.
@@ -196,10 +198,10 @@ recovery guarantee covers commits incorporated into server history.
 From the repository root:
 
 ```sh
-bun run --cwd packages/data test
-bun run --cwd packages/data typecheck
-bun run --cwd packages/data smoke:local
-bun run --cwd packages/data smoke:sync:local
+bun run --cwd packages/folder test:engine
+bun run --cwd packages/folder typecheck
+bun run --cwd packages/folder smoke:local
+bun run --cwd packages/folder smoke:sync:local
 ```
 
 The smoke check needs Playwright's Chromium, WebKit, and Firefox binaries.
@@ -218,10 +220,10 @@ a later native edit, graceful profile reopening, and ancestry recovery without
 replay. Neither check establishes forced termination, quota behavior, hosted
 service behavior, or phone durability. Those require separate release evidence.
 
-[Synchronization evidence](evidence/sync/RESULTS.md) separates native-wire
+[Synchronization evidence](../../evidence/browser-engine/sync/RESULTS.md) separates native-wire
 regressions from the three-browser workload and the remaining gates.
 
-[Recorded results](evidence/local/RESULTS.md) compare the full and scoped reads.
+[Recorded results](../../evidence/browser-engine/local/RESULTS.md) compare the full and scoped reads.
 A 500-folder probe captures 3 trees for one file, down from 502. A separate
 500-edit backlog still captures all affected trees and about 2 MB of pending
 text. Phone measurements must determine whether that remaining cost needs
