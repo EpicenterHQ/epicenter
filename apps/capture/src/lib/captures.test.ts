@@ -295,7 +295,7 @@ test('closing after a failed whole-file save returns its exact text for recovery
 	harness.captures.texts.text(PATH).change(HAND, changed);
 	const unsaved = await harness.context.close();
 	expect(unsaved).toMatchObject([
-		{ path: PATH, text: changed, error: { name: 'StorageFailed' } },
+		{ path: PATH, unsaved: changed, error: { name: 'StorageFailed' } },
 	]);
 	expect(await harness.text(PATH)).toBe(HAND);
 });

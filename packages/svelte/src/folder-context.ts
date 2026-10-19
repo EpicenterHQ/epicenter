@@ -21,7 +21,8 @@ import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
-import { createEdits, type Edits, type Unsaved } from './edits.svelte.js';
+import { createEdits, type Edits } from './edits.svelte.js';
+import type { WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
 
@@ -95,7 +96,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	});
 	const work = new Set<FolderWork>();
 	const actions = new SvelteSet<Promise<unknown>>();
-	let closing: Promise<(Unsaved | UnsavedFile)[]> | undefined;
+	let closing: Promise<WriteFailure[]> | undefined;
 
 	async function settleWork(): Promise<UnsavedFile[]> {
 		const [owners, actionResults] = await Promise.all([
@@ -186,20 +187,43 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		},
 		/**
 		 * Settle the edits, then stop listening, cancel reads, and close the
-		 * handle. Answers the drafts that did not save, which are also logged.
+		 * handle. Answers copyable failures for drafts that did not save, which
+		 * are also logged.
 		 * Every call answers the same completion.
 		 */
-		close(): Promise<(Unsaved | UnsavedFile)[]> {
+		close(): Promise<WriteFailure[]> {
 			closing ??= (async () => {
 				// `edits.close` fences new input synchronously; app work already
 				// started can then finish before the handle closes.
 				const rowSettling = edits.close();
 				const files = await settleWork();
-				const unsaved = [...(await rowSettling), ...files];
+				const missingSave = {
+					name: 'Unsaved',
+					message: 'The edit did not save.',
+				};
+				const unsaved: WriteFailure[] = [
+					...(await rowSettling).map((draft) => ({
+						path: `${draft.table}/${draft.id}.md`,
+						error: draft.error ?? missingSave,
+						unsaved: JSON.stringify(
+							{
+								fields: draft.fields,
+								...(draft.body === undefined ? {} : { body: draft.body }),
+							},
+							(_key, value) => value === undefined ? '[remove field]' : value,
+							2,
+						),
+					})),
+					...files.map((draft) => ({
+						path: draft.path,
+						error: draft.error ?? missingSave,
+						unsaved: draft.text,
+					})),
+				];
 				for (const draft of unsaved)
 					log.warn(
 						new Error(
-							`Closed with ${'path' in draft ? draft.path : `${draft.table}/${draft.id}`} unsaved: ${draft.error?.message ?? 'not sent'}`,
+							`Closed with ${draft.path} unsaved: ${draft.error.message}`,
 						),
 					);
 				stopChanges();

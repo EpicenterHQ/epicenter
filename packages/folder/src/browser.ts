@@ -29,6 +29,6 @@ export async function openFolder<const TTables extends Record<string, Schema>>(
 	options: DefaultFolderOptions<TTables>,
 ): Promise<Result<Folder<TTables>, OpenFolderError>> {
 	if (isTauri()) return OpenFolderError.InsideTauri();
-	if ('directory' in options) return OpenFolderError.NotTauri();
+	if (options.directory !== undefined) return OpenFolderError.NotTauri();
 	return openLocalFolder(options);
 }

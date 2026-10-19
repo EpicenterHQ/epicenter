@@ -80,32 +80,7 @@
 				if (opened.data === null) return;
 				const unsaved = await opened.data.close();
 				for (const draft of unsaved)
-					toastWriteFailure(
-						'path' in draft
-							? {
-								path: draft.path,
-								error: draft.error ?? {
-									name: 'Unsaved',
-									message: 'The edit did not save.',
-								},
-								unsaved: draft.text,
-							}
-							: {
-								path: `${draft.table}/${draft.id}.md`,
-								error: draft.error ?? {
-									name: 'Unsaved',
-									message: 'The edit did not save.',
-								},
-								unsaved: JSON.stringify(
-									{
-										fields: draft.fields,
-										...(draft.body === undefined ? {} : { body: draft.body }),
-									},
-									(_key, value) => value === undefined ? '[remove field]' : value,
-									2,
-								),
-							},
-					);
+					toastWriteFailure(draft);
 			})
 			.catch((cause: unknown) =>
 				log.error(new Error('The local folder did not close', { cause })),

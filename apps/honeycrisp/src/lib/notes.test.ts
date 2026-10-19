@@ -360,7 +360,7 @@ test('closing after a failed file save returns the exact text for recovery', asy
 	failSaves();
 	const unsaved = await local.close();
 	expect(unsaved).toMatchObject([
-		{ path: A, text: changed, error: { name: 'NotSaved' } },
+		{ path: A, unsaved: changed, error: { name: 'NotSaved' } },
 	]);
 	expect(await text(A)).not.toBe(changed);
 });

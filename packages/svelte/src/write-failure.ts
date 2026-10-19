@@ -58,15 +58,7 @@ export type WriteFailure = {
  * What a person is told about a failed save or action.
  */
 export function describeWriteError(error: DescribedError | OtherError): string {
-	// Narrowed by name. A field is checked where an error of another kind
-	// could share the name.
-	const known = error as DescribedError;
-	switch (known.name) {
-		case 'NotStarted':
-			return 'reason' in known ? known.reason : error.message;
-		case 'Occupied':
-			return 'Another file already has this name, so nothing was changed.';
-		default:
-			return known.message;
-	}
+	if (error.name === 'Occupied')
+		return 'Another file already has this name, so nothing was changed.';
+	return error.message;
 }

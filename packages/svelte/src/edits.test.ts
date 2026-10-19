@@ -306,8 +306,11 @@ test('close answers the typing whose save failed', async () => {
 	milk.change(cached(), { body: 'Oat, two litres' });
 	const unsaved = await context.close();
 	expect(unsaved).toMatchObject([
-		{ table: 'notes', id: 'milk', body: 'Oat, two litres' },
+		{ path: 'notes/milk.md' },
 	]);
+	expect(JSON.parse(unsaved[0]!.unsaved)).toMatchObject({
+		body: 'Oat, two litres',
+	});
 	expect(unsaved[0]?.error?.name).toBe('StorageFailed');
 });
 
