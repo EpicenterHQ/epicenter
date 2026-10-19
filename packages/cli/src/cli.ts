@@ -100,8 +100,6 @@ const HANDLERS: Record<string, Run> = {
 			action as string,
 			grant,
 		),
-	'declare-epicenter-folder': async ({ json }) =>
-		(await import('./epicenter-folder.ts')).declareEpicenterFolder(json),
 	'install-command': async ({ json }) =>
 		(await import('./install-command.ts')).installCommand({ json }),
 };

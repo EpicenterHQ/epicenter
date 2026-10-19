@@ -12,8 +12,12 @@
  * they were. Quitting the desktop app is
  * immediate: a recording and a run's result are in the folder from the moment
  * they start (ADR-0542, ADR-0543).
+ *
+ * The session's query cache, row drafts, and save status are the folder's
+ * local context (`@epicenter/svelte/folder`), built over the folder the
+ * workspace opened. The shell provides its query client to the pages.
  */
-import type { QueryClient } from '@tanstack/svelte-query';
+import { createFolderContext } from '@epicenter/svelte/folder';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createLibrary } from './library.svelte.js';
@@ -63,10 +67,11 @@ async function failOpening(
  */
 export async function createSession(
 	workspace: Workspace,
-	queryClient: QueryClient,
 	released?: AbortSignal,
+	{ saveAfterMs }: { saveAfterMs?: number } = {},
 ) {
-	const library = createLibrary(workspace, queryClient);
+	const local = createFolderContext(workspace.folder, { saveAfterMs });
+	const library = createLibrary(workspace, local);
 	try {
 		await library.start();
 		if (released?.aborted) throw new Error(RELEASED);
@@ -164,11 +169,11 @@ export async function createSession(
 		/**
 		 * Whether a navigation must be held back. A navigation between this app's
 		 * routes unloads nothing and is never held. One that unloads the document
-		 * is held while an edit is not in its file yet; in a browser tab that
-		 * raises the browser's own leave warning.
+		 * is held while typing is not in its file yet, or a save or action runs;
+		 * in a browser tab that raises the browser's own leave warning.
 		 */
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
-			return navigation.willUnload && library.unsaved;
+			return navigation.willUnload && library.busy;
 		},
 		/** Wait for what is being written, and release the folder. Runs once. */
 		close(): Promise<void> {
@@ -181,8 +186,7 @@ export async function createSession(
 export type Session = Awaited<ReturnType<typeof createSession>>;
 
 /**
- * Open the workspace this page was given and start a session over it, with
- * `queryClient` holding what it reads and running what it writes. Called
+ * Open the workspace this page was given and start a session over it. Called
  * by the app layout when it mounts; importing this module opens nothing. A
  * workspace that cannot be opened is returned as the reason, and no session
  * exists. A session that cannot start, or whose layout was released first,
@@ -190,7 +194,6 @@ export type Session = Awaited<ReturnType<typeof createSession>>;
  * itself passes through as it is.
  */
 export async function openSession(
-	queryClient: QueryClient,
 	open: () => Promise<Result<Workspace, WorkspaceError>> = openWorkspace,
 	released?: AbortSignal,
 ): Promise<Result<Session, WorkspaceError>> {
@@ -198,7 +201,7 @@ export async function openSession(
 	if (openError !== null) return Err(openError);
 	if (released?.aborted)
 		return failOpening(new Error(RELEASED), () => workspace.close());
-	return Ok(await createSession(workspace, queryClient, released));
+	return Ok(await createSession(workspace, released));
 }
 
 /**
@@ -207,11 +210,10 @@ export async function openSession(
  * opening closes what it opened by itself.
  */
 export function mountSession(
-	queryClient: QueryClient,
 	open: () => Promise<Result<Workspace, WorkspaceError>> = openWorkspace,
 ) {
 	const releasing = new AbortController();
-	const opening = openSession(queryClient, open, releasing.signal);
+	const opening = openSession(open, releasing.signal);
 	return {
 		opening,
 		release() {

@@ -46,7 +46,7 @@ const SHARED_FORBIDDEN =
 
 describe('#platform/workspace', () => {
 	test(
-		'the host build resolves the desktop workspace over the desktop adapter, never the browser workspace or its Git',
+		'the host build resolves the desktop workspace over the native folder',
 		async () => {
 			const modules = await bundledModules(
 				appDir,
@@ -57,7 +57,7 @@ describe('#platform/workspace', () => {
 			expect(reaches(modules, 'lib/workspace/desktop.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
-			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
+			expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);
 			expect(modules.some(recorderModule('tauri.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/workspace/desktop-microphone.ts')).toBe(
 				true,
@@ -76,18 +76,16 @@ describe('#platform/workspace', () => {
 	);
 
 	test(
-		'the browser build resolves the browser workspace over OPFS, never the desktop workspace or adapter',
+		'the browser build resolves the browser workspace over the IndexedDB repository',
 		async () => {
 			const modules = await bundledModules(appDir, SEAM_ENTRY, 'browser');
 
 			expect(reaches(modules, 'lib/workspace/browser.ts')).toBe(true);
 			expect(modules.some(folderModule('browser.ts'))).toBe(true);
-			expect(modules.some(folderModule('browser-adapter.ts'))).toBe(true);
+			expect(modules.some(folderModule('local-folder.ts'))).toBe(true);
+			expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
 			expect(modules.some(recorderModule('browser.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/webview-microphone.ts')).toBe(true);
-			expect(modules.some((path) => path.includes('isomorphic-git'))).toBe(
-				true,
-			);
 			expect(
 				modules.filter(
 					(path) =>

@@ -1,11 +1,11 @@
 # Epicenter desktop app
 
-This directory contains the existing Epicenter desktop app. Its Tauri runtime
-hosts application pages; host describes that role, not another product.
-[ADR-0635](../../docs/adr/0635-generic-desktop-data-tools-are-deferred.md)
-defers the desktop app's migration and possible local app runner. The sections
-below document the existing implementation, including installer and declaration
-behavior that the chosen direction retires. They do not expand delivery scope.
+Epicenter hosts installed application pages, Settings, and a Folders window in
+one Tauri runtime. The Folders window opens native directories through the
+public `@epicenter/folder` API. Installed apps supply their own table schemas;
+local opening and saving require no account or Git repository. Git commands
+still exist outside a Folder handle, but the current folder and product pages
+offer no Save version, Connect, or Sync action.
 
 The existing app owns one Tauri runtime, one native command API, and the short list of what it compiles in. It ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
@@ -99,11 +99,6 @@ ADR-0567). It never needs `sudo`. To run `epicenter` in a terminal, add
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
-Every launch, in every build, also runs `epicenter declare-epicenter-folder`,
-which publishes `so.epicenter`'s declaration; the shell opens no installed
-app before it finishes, so an app reading `connections` through its
-definition finds that table whichever window opened first.
-
 ## Configure the server
 
 A desktop build connects to one server. The default is Epicenter Cloud. Set
@@ -145,7 +140,7 @@ Files split by what they cost to lose (ADR-0539):
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
   so.epicenter/                               Epicenter's own folder
-    epicenter.json                            declares the connections table
+    epicenter.json                            optional older declaration, retained if present
     connections/<id>.md                       one row per AI connection
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   apps/<app-id>/                              an installed app's bare clone; its detached HEAD is the approved commit (the CLI writes it)
@@ -204,13 +199,8 @@ shows who the app is signed in as. Nothing restarts. It is a separate grant
 from a terminal's `epicenter auth login`, and signing one out leaves the
 other signed in.
 
-An installed app uses the same account. Todos' desktop leaf
-(`apps/todos/src/lib/platform/auth.epicenter-host.ts`, over
-`@epicenter/auth/desktop`) reads who is signed in with `auth_status`, sends
-`GET /api/repos` through `account_send` with the `git` resource, and
-sends the person to Settings with `open_home` to sign in; it signs out only
-from Settings. The shell has no account routes and stamps nothing into a
-page.
+An installed app opens its granted local directory before any account flow.
+Todos uses the same `Folder` table schema on desktop and in the browser.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
@@ -250,22 +240,14 @@ app is first opened; if the Folders window already holds it under the data
 scope, both scopes share the one root and publish under its one mutex
 (ADR-0568).
 
-The page opens the folder with `@epicenter/folder`'s own engine: its storage
-is the shell's commands, one per storage method (`read_folder_file`,
-`put_folder_file`, and the rest, ADR-0581), which reach only data paths
-beneath the root that the shared path rule accepts, never through a link and
-never Git's own state. Its history runs in the
-`epicenter` CLI: the shell's `status`, `history`, `save_version`, and `sync`
-(`src-tauri/src/history.rs`) each run one child over a folder the
-window was granted, granted to the Folders window and to every installed app's
-windows, and a reload or a closed window ends that window's children
-([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
-Without `git` on the computer, the Folders window says so and, on macOS,
-offers to install the Command Line Tools (`install_git`). A window close destroys an installed app's
-window; quitting or restarting Epicenter is immediate and asks nothing (see
-[Quitting Epicenter](#quitting-epicenter)). Two native processes cannot open the
-same directory. See Todos' [README](../todos/README.md) and Capture's
-[README](../capture/README.md) for each app's files.
+The page calls `openFolder({ directory, tables })`, where `directory` is
+the scope the shell handed to its window. The shell grants that scope and
+checks every file path. The native Folder reads ordinary files as they stand,
+merges row edits with current bytes, and lands one guarded file change per
+save. Opening writes nothing and does not start Git. The shell retains separate
+Git commands for CLI use; no current product page exposes them as a Folder
+action. See Todos' [README](../todos/README.md) and Capture's
+[README](../capture/README.md) for app-specific files.
 
 ## The Folders window
 
@@ -275,15 +257,12 @@ while the app is open. Its page source is `src/folders`, built by
 `build:folders` into `dist/folders`.
 It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
 
-The page asks the shell for `list_data_folders`, granted to this window alone
-(`folders.json`, beside `epicenter-folder:default`). The shell lists
-the direct children of the root that are real directories, not links or dot
-entries, holding a regular file `epicenter.json`, and answers each with
-`{ id, title, declaration }`: `title` is `epicenter.json`'s `title` when it is
-a string, else the directory name, and `declaration` is the text of
-`epicenter.json`. The page passes `id` to `openFolder({ id })` from
-`@epicenter/folder/tauri`. The reply carries no paths; the page learns a
-folder's root from the plugin's grant, as every app does.
+The page asks the shell for `list_data_folders`. The shell lists real,
+non-hidden child directories under the authored folder root, including ones
+without `epicenter.json`. An existing declaration can provide a display title;
+it is not required to open or edit files. Each listed directory has a
+registered scope. The page calls `openFolder({ directory: folder.id, tables:
+{} })` from `@epicenter/folder/tauri` and edits files through `folder.files`.
 
 - **An installed app's own folder**, a directory named by the id of an
   installed app, is listed under the app's scope (`so.epicenter.todos`), as
@@ -306,80 +285,19 @@ are not.
 
 ### What the view does
 
-The page lists the folders and opens the chosen one in place; choosing another
-closes the open handle first.
+The page lists directories and opens one at a time. It supplies no table
+schemas, so every source file appears in a file tree and opens as text when
+its bytes are editable text. The window subscribes to `folder.onChange` and
+invalidates the relevant TanStack Query reads. The shell watcher reports
+changes from other windows and processes. File drafts belong to the Folders
+window and survive switching files. A failed save keeps its text visible and
+prevents leaving the directory until the person retries or discards it.
 
-The open folder is read through TanStack Query with `folderOptions(folder)`
-from `@epicenter/folder/query` (ADR-0548). The page's root subscribes the
-folder's `onFilesChanged` when it opens it, before anything reads, and each
-report invalidates the queries `pathFilter` names; switching folders stops the
-subscription and drops the folder's cache. On the desktop the reports are the
-shell's file watcher's. Focus refetch is off and the view has no refresh of its
-own, so another window's save, an agent's edit, or Sync landing a change
-appears within the watcher's debounce. A changed `epicenter.json` opens the
-folder again once the writes running settle, so the grid follows the new
-declaration.
-
-Beside every folder, the page offers every installed app that can run
-(`src/folders/openers.ts`, ADR-0560): one shows "Open in <app>"; several show
-"Open with…". Epicenter does not check whether the app fits the folder. The
-app reads the folder through its definition (ADR-0538), which refuses a folder
-whose `epicenter.json` lacks a table or field the app reads, with a message
-naming the folder and what is missing. Opening it there hands
-the app that folder; the Apps list's Open hands it its own folder. Every button
-opens through `open_installed_app`, and the Settings button through
-`open_home`, both granted by `folders.json`; model
-administration stays in Settings. An opened folder shows the tables its `epicenter.json` declares
-(`folder.definition.tables`). The selected table is a grid of its rows read
-with `table.list()`: one column per declared field, in declared order. A row's
-stem opens a side panel with every field, keys the table does not declare
-(shown, kept, and not editable), and the Markdown body. A row that does not
-read (`InvalidRow`) shows its issues and text and cannot be edited. A folder
-that declares no tables says so and lists its files, read only.
-
-Each field gets the editor its schema and `x-field` hint resolve to
-(`fieldEditorOf`, mapped in `src/folders/field-input.ts`): a checkbox for
-`boolean`, a menu for `select`, toggles for `multiSelect`, comma-separated
-text for `tags`, a date input for `date`, JSON text for `json` and for any
-field whose hint does not fit its schema, and a text input for the rest.
-Instants and datetimes are edited as their ISO text. A field with no hint at
-all, as a hand-written JSON Schema declares it, gets the editor its type
-implies: a checkbox for `boolean`, a number input for `integer` and `number`,
-a menu for a string `enum`, a date input for a `date` string, ISO text for a
-`date-time` string, toggles for an array of a string `enum`, tags for an array
-of strings, and a text input for any other string. A hint that is present
-always wins. Clearing an optional field removes it from the row.
-
-### Saves and merges
-
-Each field editor sends its own writes (ADR-0576): `table.set` through the
-table's `set` mutation, which sets or removes that field on the file as it is
-now and keeps every field another window changed. A checkbox, menu, or
-toggle sends at the click. A text field holds what is typed, shows it whatever
-is read meanwhile, and sends it a second after the last keystroke, on Enter,
-when it loses focus, and when it goes away; Escape puts back the stored value.
-Text that does not parse as the field's value is not sent, and says why.
-Writes to one row run one at a time, in the order made. A field write that
-fails says why beside the field and keeps the typed text.
-
-A row's body is a document, so the side panel's Notes box holds a body editor
-(`createBodyEditor` from `@epicenter/folder/svelte`, in
-`src/folders/RowBody.svelte`) that keeps the row as it was at the first
-keystroke, and sends the change from that row to the typed body through the
-table's `write` mutation a second after the last keystroke, when the box
-loses focus, and when the panel goes away. The engine merges it by line with
-whatever changed since: lines only one side changed keep that side's change.
-Where both changed the same lines, the typing wins, with no notice. An edit
-of a row another window deleted writes nothing, since a delete beats an edit
-that never saw it (ADR-0576): the table shows the text typed, for a field or
-the notes, with **Copy your text** until you dismiss it. A row saved in a
-form that does not read as a row is not written. An edit not yet sent when Epicenter quits is lost, at most
-the last second of typing (see [Quitting Epicenter](#quitting-epicenter)).
-
-"Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`
-(ADR-0529), and reports a version saved, nothing new to save, or why none was
-saved; the header shows how many files changed since the last version, from
-the history's `status` query. The window never writes `epicenter.json`.
+Beside each directory, the page offers every installed app ready to run through
+"Open in". The shell hands that directory's scope to the app window; the app
+interprets its files through its own schemas. Opening an app from the Apps list
+hands it its own directory. The Folders view does not use `epicenter.json` to
+authorize either action.
 
 ## Installed apps
 
@@ -524,10 +442,9 @@ in", the folder it was opened on. The window is permitted into that folder's
 scope and into `so.epicenter`, whose `connections` table its AI commands
 name, and the folder plugin records which app the window runs and which
 folder it was handed. The page asks for it (`window_folder`), so its URL
-names no folder and its routes and reloads cannot change it, and the app's
-`openFolder({ app, definition })` opens it, through its definition unless it
-is the app's own (ADR-0583). Settings is handed `so.epicenter` as Epicenter's
-own; the Folders window runs no app and opens folders by ID.
+names no folder and its routes and reloads cannot change it, and the app opens it with `openFolder({ directory: handed.folder, tables })`.
+Settings opens `so.epicenter` with the connections schema; the Folders window
+opens each listed directory with no table schemas.
 
 ### Native commands for an installed app
 

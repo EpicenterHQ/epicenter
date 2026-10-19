@@ -21,15 +21,14 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick } from 'svelte';
-	import { TRANSFORMATIONS, type TransformationFields, whisperingDefinition } from '$lib/definition.js';
+	import { rowIdOf, TRANSFORMATIONS, type TransformationFields } from '$lib/definition.js';
 	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
-	import { committedState } from '$lib/status.js';
 	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
+	import SaveStatus from './SaveStatus.svelte';
 	import SettingsForm from './SettingsForm.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
@@ -67,17 +66,19 @@
 	const source = $derived(
 		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
 	);
-	/** The text on screen read as a recipe, or why it does not read. */
-	const parsed = $derived(
-		source === undefined ? undefined : parseRow(whisperingDefinition.tables.transformations, source),
-	);
-	const issues = $derived(parsed?.error ?? undefined);
+	/**
+	 * The file as last saved, while its text is what is edited: a recipe when
+	 * it reads, and why it does not when it does not. Typing saves after a
+	 * pause, and this follows.
+	 */
+	const saved = $derived(asText ? library.rowSource(TRANSFORMATIONS, path) : undefined);
+	const issues = $derived(saved?.issues ?? undefined);
 	// The parent keys this view by the file. While it replaces the view, the
 	// prop already reads the next file, so what is sent as the view goes away
 	// uses this one.
 	// svelte-ignore state_referenced_locally
 	const own = path;
-	const ownId = rowStemOf(TRANSFORMATIONS, own) ?? own;
+	const ownId = rowIdOf(TRANSFORMATIONS, own) ?? own;
 
 	/**
 	 * A field typed here and not yet saved: the transformation's field
@@ -100,16 +101,11 @@
 	}
 	// The drafts outlive the view; send now.
 	onDestroy(flush);
-	/** Whether a field typed here did not save. */
-	const fieldFailed = $derived(
-		(titleDraft.error !== undefined && !titleDraft.saving) ||
-			(modelDraft.error !== undefined && !modelDraft.saving),
-	);
-	const fieldsPending = $derived(titleDraft.saving || modelDraft.saving);
 
-	/** The recipe as typed: its fields with what is typed here, or its text when it reads. */
+	/** The recipe as typed: its fields with what is typed here, or its saved text when it reads. */
 	const recipe = $derived.by(() => {
-		if (row === undefined) return parsed?.data ?? undefined;
+		if (row === undefined)
+			return saved !== undefined && saved.issues === null ? { fields: saved.fields, body: saved.body } : undefined;
 		const fields: TransformationFields = { ...row.fields };
 		if (typedTitle !== undefined) fields.title = typedTitle;
 		if (typedModel !== undefined) fields.model = typedModel;
@@ -117,13 +113,12 @@
 	});
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
-	const saving = $derived(library.isSaving(path));
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
 	/** Set fields of the transformation as its file is now, at once. */
 	const set = (fields: Partial<TransformationFields>) => library.setFields(TRANSFORMATIONS, id, fields);
 	const text = (key: 'title' | 'model') => recipe?.fields[key] ?? '';
-	const id = $derived(rowStemOf(TRANSFORMATIONS, path) ?? path);
+	const id = $derived(rowIdOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
 	const resolved = $derived(library.resolve(recipe));
 	const connection = $derived(library.connections?.text);
@@ -134,7 +129,6 @@
 			...library.textOutputsOf(id).map((item) => ({ source: 'text' as const, entry: item })),
 		].sort((a, b) => b.entry.row.fields.createdAt.localeCompare(a.entry.row.fields.createdAt)),
 	);
-	const history = $derived(entry ? committedState(library.git, [entry.path]) : undefined);
 	/** The model a run would use: this transformation's own, or the text connection's. */
 	const model = $derived(text('model').trim() || connection?.model.trim() || undefined);
 	/** Whether the model and connection notes are open; a fix that needs them opens them. */
@@ -275,33 +269,15 @@
 		{:else}
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{text('title') || id}</h2>
 		{/if}
-		{#if history === 'uncommitted'}
-			<Badge variant="outline">Saved · not in history yet</Badge>
-		{:else if history === 'committed'}
-			<Badge variant="secondary">In history</Badge>
-		{/if}
 	</div>
 
-	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-		{saving || fieldsPending ? 'Saving…' : fieldFailed ? 'Not saved' : `Saved to ${path}`}
-		{#if fieldFailed}
-			<Button
-				variant="link"
-				size="xs"
-				class="h-auto p-0"
-				onclick={() => {
-					void titleDraft.save();
-					void modelDraft.save();
-				}}>Try again</Button
-			>
-		{/if}
-	</p>
+	<SaveStatus {library} {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This text does not read as a transformation yet. Fix it in Source; it saves when you pause.
+				This file does not read as a transformation yet. Fix it in Source; it saves when you pause.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each issues as issue, index (index)}

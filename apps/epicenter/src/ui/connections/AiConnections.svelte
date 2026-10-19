@@ -1,69 +1,52 @@
 <script lang="ts">
-	import {
-		folderOptions,
-		folderWrites,
-		type TableOptions,
-		type TableWrites,
-	} from '@epicenter/folder/query';
 	import { openFolder } from '@epicenter/folder/tauri';
-	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
-	import { onMount } from 'svelte';
 	import {
-		EPICENTER_FOLDER_ID,
-		epicenterDefinition,
-	} from '@epicenter/cli/epicenter-folder';
+		createFolderContext,
+		type FolderContext,
+	} from '@epicenter/svelte/folder';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
+	import { onMount } from 'svelte';
+	import { extractErrorMessage } from 'wellcrafted/error';
 	import ConnectionList from './ConnectionList.svelte';
-	import type { ConnectionFields } from './connections';
+	import { connectionTables, EPICENTER_FOLDER_ID } from './connections';
 
 	/**
 	 * Settings' AI connections (ADR-0557): the `connections` table of
 	 * Epicenter's own folder, opened with the page's own engine for as long as
-	 * Settings is open. Its cache follows the folder's changes, so an edit made
-	 * in the Folders window, by an agent, or by a sync shows here.
+	 * Settings is open. The shell registers `so.epicenter` for this window, so
+	 * the folder opens by that scope. Its cache follows the folder's changes,
+	 * so an edit made in the Folders window, by an agent, or by a sync shows
+	 * here. What is typed is held as each row's draft until it saves
+	 * (`edits`); leaving Settings sends it before the folder closes.
 	 */
-	const queryClient = new QueryClient();
-	setQueryClientContext(queryClient);
-
-	/** The connections table's reads and its writes, once the folder opened. */
-	let connections = $state.raw<{
-		readonly options: TableOptions<ConnectionFields>;
-		readonly writes: TableWrites<ConnectionFields>;
-	}>();
+	let local = $state.raw<FolderContext<typeof connectionTables>>();
 	let problem = $state<string>();
 
 	onMount(() => {
-		queryClient.mount();
 		let closed = false;
-		let release: (() => Promise<void>) | undefined;
-		void (async () => {
+		const opening = (async () => {
 			const { data: folder, error } = await openFolder({
-				app: EPICENTER_FOLDER_ID,
-				definition: epicenterDefinition,
+				directory: EPICENTER_FOLDER_ID,
+				tables: connectionTables,
 			});
-			if (closed) {
-				await folder?.close();
-				return;
-			}
 			if (error !== null) {
-				problem = error.message;
-				return;
+				if (!closed) problem = error.message;
+				return undefined;
 			}
-			const opened = folderOptions(folder);
-			// Subscribed before anything reads, so no change falls between them.
-			const stop = opened.invalidateOnChange(queryClient);
-			release = async () => {
-				stop();
-				await folder.close();
-			};
-			connections = {
-				options: opened.tables.connections,
-				writes: folderWrites(folder, queryClient).tables.connections,
-			};
-		})();
+			const context = createFolderContext(folder);
+			if (closed) {
+				await context.close();
+				return undefined;
+			}
+			local = context;
+			return context;
+		})().catch((cause: unknown) => {
+			if (!closed) problem = extractErrorMessage(cause);
+			return undefined;
+		});
 		return () => {
 			closed = true;
-			void release?.();
-			queryClient.unmount();
+			void opening.then((context) => context?.close());
 		};
 	});
 </script>
@@ -72,8 +55,10 @@
 	<h2 class="font-medium">AI connections</h2>
 	{#if problem}
 		<p role="alert" class="text-destructive">Epicenter's folder did not open: {problem}</p>
-	{:else if connections}
-		<ConnectionList options={connections.options} writes={connections.writes} />
+	{:else if local}
+		<QueryClientProvider client={local.queryClient}>
+			<ConnectionList {local} />
+		</QueryClientProvider>
 	{:else}
 		<p class="text-muted-foreground">Opening…</p>
 	{/if}

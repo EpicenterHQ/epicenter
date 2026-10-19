@@ -1,13 +1,16 @@
 /**
- * The browser workspace: a logical folder and its Git history in OPFS.
+ * The browser workspace: this site's local folder in the browser.
  *
- * The same tables, files, and history as the desktop folder, in a private browser
- * directory. Transcription requests go straight from the page, so the endpoint
- * must allow this origin.
+ * The same tables and files as the desktop folder, kept in this browser's
+ * storage for this site (`openFolder({ tables })`). Opening needs no account,
+ * remote, or network. Transcription requests go straight from the page, so
+ * the endpoint must allow this origin.
  *
  * The opener is the browser one, named explicitly. It refuses inside a
- * desktop app or when browser storage cannot be opened. Any refusal is what
- * the person is shown: nothing else is opened in its place.
+ * desktop app, when browser storage cannot be opened, and when this browser
+ * still holds an earlier version's recordings, which it leaves untouched.
+ * Any refusal is what the person is shown: nothing else is opened in its
+ * place.
  */
 import { openFolder } from '@epicenter/folder/browser';
 import { Err, Ok } from 'wellcrafted/result';
@@ -24,8 +27,9 @@ import {
 } from '../connections.js';
 import {
 	DEFAULT_TRANSCRIPTION_CONNECTION,
-	whisperingDefinition,
+	whisperingTables,
 } from '../definition.js';
+import { readBytes } from '../files.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
 	TransformationError,
@@ -102,11 +106,7 @@ function wantsToneFixture(): boolean {
 /** The `#platform/workspace` leaf of every build Epicenter does not serve. */
 export const openWorkspace: OpenWorkspace = async () => {
 	const { data: folder, error: openError } = await openFolder({
-		app: WHISPERING_FOLDER_ID,
-		definition: whisperingDefinition,
-		browser: {
-			author: { name: 'Whispering', email: 'whispering@localhost' },
-		},
+		tables: whisperingTables,
 	});
 	if (openError !== null)
 		return WorkspaceError.BrowserFolder({ refusal: openError });
@@ -115,7 +115,7 @@ export const openWorkspace: OpenWorkspace = async () => {
 		kind: 'browser',
 		folder,
 		folderId: WHISPERING_FOLDER_ID,
-		location: 'Private files for this site in this browser',
+		location: 'This browser’s storage for this site',
 		capture: wantsToneFixture()
 			? createFixtureDevice({
 					name: 'generated tone',
@@ -128,13 +128,14 @@ export const openWorkspace: OpenWorkspace = async () => {
 				async () => storedConnection('transcription'),
 				request,
 				async () => {
-					const { data: audio, error: readError } = await folder.files.read(
-						request.audioPath,
-					);
-					if (readError !== null) return Err(readError.message);
 					const { audioPath } = request;
+					const { data: bytes, error: readError } = await readBytes(
+						folder,
+						audioPath,
+					);
+					if (readError !== null) return Err(readError);
 					return Ok({
-						bytes: audio.bytes,
+						bytes,
 						filename: audioPath.slice(audioPath.lastIndexOf('/') + 1),
 						mimeType: audioMimeTypeOf(audioPath) ?? 'application/octet-stream',
 					});

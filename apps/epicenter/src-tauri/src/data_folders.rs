@@ -2,8 +2,8 @@
 //! opens them (ADR-0535).
 //!
 //! A data folder is a direct child of `folder_dir` that is a real directory,
-//! not a link or a dot entry, holding a regular file `epicenter.json`. The
-//! Folders window opens one with `openFolder({ id })`, so each listed
+//! not a link or a dot entry. The Folders window opens one with
+//! `openFolder({ directory: id, tables: {} })`, so each listed
 //! folder needs a scope that window may be granted:
 //!
 //! - An installed app's own folder is named by the app's id, and its scope is
@@ -17,8 +17,8 @@
 //! - Epicenter's own folder, `so.epicenter` (ADR-0539), is registered at
 //!   setup for the Folders window and Settings, which hold its AI
 //!   connections, and is listed under that scope. Settings runs Epicenter
-//!   itself: the shell hands it `so.epicenter` as its own folder, so its
-//!   `openFolder({ app: 'so.epicenter', definition })` publishes there.
+//!   itself: the shell hands it `so.epicenter` as its folder. Its tables
+//!   interpret the files there; opening publishes no declaration.
 //! - Any other folder gets a scope of its own, `data:<directory name>`, the
 //!   first time it is listed in a run, registered for the Folders window
 //!   alone as a data folder (`FolderConfig::data`): the shell never creates
@@ -67,7 +67,7 @@ const DECLARATION: &str = "epicenter.json";
 /// page runs `@epicenter/folder`'s own engine over its directory; the shell
 /// grants it to the windows registered for it, and owns nothing else.
 /// Settings runs Epicenter itself, so it is handed `so.epicenter` as its own
-/// folder; the Folders window runs no app and opens folders by ID.
+/// folder; the Folders window runs no app and opens folders by scope.
 pub fn register_epicenter_folder(folders: &Folders, folder_dir: &Path) -> Result<(), String> {
     folders.register(ScopeConfig {
         scope: EPICENTER_FOLDER.into(),
@@ -113,7 +113,7 @@ pub fn admit_installed_window(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DataFolder {
-    /// The scope to pass to `openFolder({ id })`.
+    /// The scope to pass as `directory` to `openFolder`.
     pub id: String,
     /// `epicenter.json`'s `title` when it is a string, else the directory name.
     pub title: String,
@@ -128,7 +128,8 @@ pub struct DataFolderScopes(Mutex<BTreeMap<String, String>>);
 /// window open each one.
 ///
 /// Granted to the `folders` window alone. Every scope it returns is one that
-/// window is registered or permitted for, so `openFolder({ id })` there
+/// window is registered or permitted for, so `openFolder({ directory: id,
+/// tables: {} })` there
 /// can be granted it. Off the main thread, since it reads the disk.
 #[tauri::command(async)]
 #[specta::specta]
@@ -212,11 +213,10 @@ fn list_in(
         }
         let root = entry.path();
         let declaration = root.join(DECLARATION);
-        if !fs::symlink_metadata(&declaration).is_ok_and(|stats| stats.is_file()) {
-            continue;
-        }
-        let title = fs::read_to_string(&declaration)
+        let title = fs::symlink_metadata(&declaration)
             .ok()
+            .filter(|stats| stats.is_file())
+            .and_then(|_| fs::read_to_string(&declaration).ok())
             .as_deref()
             .and_then(declared_title)
             .unwrap_or_else(|| name.clone());
@@ -283,8 +283,8 @@ pub struct DataFoldersWatch {
 
 /// Watch `folder_dir` and send `DATA_FOLDERS_CHANGED` to the Folders window
 /// when what `list_in` reads may have changed: an entry directly under the
-/// root, or a folder's `epicenter.json`. The watch is recursive because a
-/// declaration is one level down; every deeper change, such as a row saved
+/// root, or a folder's optional `epicenter.json` title. The watch is recursive
+/// because a declaration is one level down; every deeper change, such as a row saved
 /// in a folder, is ignored. A rescan or a watch error is reported too. A
 /// root that cannot be watched leaves the listing as the window last read it.
 pub fn watch_data_folders<R: Runtime>(
@@ -438,7 +438,7 @@ mod tests {
         }
     }
 
-    /// A data folder: a directory holding `epicenter.json`.
+    /// A data folder whose optional declaration supplies test metadata.
     fn data_folder(fixture: &Fixture, name: &str, declaration: &str) {
         let root = fixture.folder_dir.join(name);
         fs::create_dir_all(&root).unwrap();
@@ -529,13 +529,13 @@ mod tests {
     }
 
     #[test]
-    fn lists_only_real_directories_holding_epicenter_json() {
+    fn lists_real_directories_without_requiring_epicenter_json() {
         let fixture = fixture("listing");
         data_folder(&fixture, "vault", "{}");
-        // A directory without the declaration is not a data folder.
+        // A directory without a declaration remains available.
         fs::create_dir_all(fixture.folder_dir.join("plain")).unwrap();
-        // Nor is a dot directory, a file, a lock file, or a declaration
-        // that is itself a directory.
+        // A dot directory, file, or lock file is not listed. An unusable
+        // declaration does not hide the directory or supply a title.
         data_folder(&fixture, ".hidden", "{}");
         fs::write(fixture.folder_dir.join("loose.json"), "{}").unwrap();
         fs::write(fixture.folder_dir.join(".vault.epicenter-save-lock"), "").unwrap();
@@ -549,10 +549,11 @@ mod tests {
 
         assert_eq!(
             fixture.list(),
-            [DataFolder {
-                id: "data:vault".into(),
-                title: "vault".into(),
-            }]
+            [
+                DataFolder { id: "data:odd".into(), title: "odd".into() },
+                DataFolder { id: "data:plain".into(), title: "plain".into() },
+                DataFolder { id: "data:vault".into(), title: "vault".into() },
+            ]
         );
     }
 

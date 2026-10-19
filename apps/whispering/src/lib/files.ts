@@ -1,10 +1,12 @@
-/** App-owned file messages. */
+/** App-owned file messages, and reading a file's bytes. */
 import {
-	type FileError,
-	pathProblem,
-	type RowWriteError,
+	type FolderFiles,
+	type ReadError,
+	type SaveError,
 } from '@epicenter/folder';
-import { joinPath } from '@epicenter/folder/file-browser';
+import { joinPath, pathProblem } from '@epicenter/folder/file-browser';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export function nameProblem(
 	directory: string,
@@ -20,32 +22,63 @@ export function nameProblem(
 
 /**
  * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, and a lost reply leaves the outcome unknown.
+ * on. A save that failed changed nothing (ADR-0632).
  */
 export function describeError(
 	error:
-		| FileError
-		| RowWriteError
+		| SaveError
+		| ReadError
 		| { readonly name: string; readonly message: string },
 ): string {
-	const known = error as FileError | RowWriteError;
+	const known = error as SaveError | ReadError;
 	switch (known.name) {
-		case 'DirectoryNotEmpty':
-			return 'The folder is not empty, so nothing was deleted.';
-		case 'Unconfirmed':
-			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${known.message}`;
-		case 'Io': {
-			// A row write reports a lost reply as `Io` with the storage failure as its cause.
-			const cause = known.cause as FileError | undefined;
-			return cause?.name === 'Unconfirmed'
-				? describeError(cause)
-				: known.message;
-		}
-		case 'InvalidValues':
-			return known.issues.map((issue) => issue.message).join(' ');
+		case 'StorageFailed':
+			return `The folder’s storage refused it, so nothing was changed: ${extractErrorMessage(known.cause)}`;
+		case 'Unparseable':
+			return `Its fields could not be changed, because its frontmatter does not read: ${known.reason}. Fix it in Source.`;
+		case 'NotText':
+			return 'It is not text, so it was not changed.';
 		case 'Occupied':
-			return 'Another file already has this name, so nothing was changed.';
+			return `${known.existing} is a ${known.kind}, so nothing was saved at ${known.path}.`;
+		case 'CaseTwin':
+			return `${known.existing} differs only by case, so nothing was saved at ${known.path}.`;
 		default:
-			return known.message;
+			return error.message;
 	}
+}
+
+/**
+ * The folder's files as last listed: every file's path, and the directories
+ * those paths pass through. A folder keeps files, so a directory with no file
+ * in it is not listed.
+ */
+export type Listing = {
+	readonly files: readonly string[];
+	readonly paths: ReadonlySet<string>;
+	readonly directories: readonly string[];
+};
+
+export function listingOf(files: readonly string[]): Listing {
+	const directories = new Set<string>();
+	for (const path of files) {
+		const parts = path.split('/');
+		for (let end = 1; end < parts.length; end++)
+			directories.add(parts.slice(0, end).join('/'));
+	}
+	return {
+		files,
+		paths: new Set(files),
+		directories: [...directories].sort(),
+	};
+}
+
+/** The file at `path` as bytes, or why it could not be read. */
+export async function readBytes(
+	folder: { readonly files: Pick<FolderFiles, 'read'> },
+	path: string,
+): Promise<Result<Uint8Array, string>> {
+	const { data: file, error } = await folder.files.read(path);
+	if (error !== null) return Err(error.message);
+	if (file === undefined) return Err(`No file exists at '${path}'.`);
+	return Ok(new Uint8Array(await file.content.arrayBuffer()));
 }

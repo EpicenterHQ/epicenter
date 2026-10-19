@@ -11,13 +11,13 @@
  *   leaves the field
  * - a change made elsewhere shows once the folder reports it
  * - typing over a change made elsewhere merges with it, and the typing wins
- *   where both changed and says so; a recording deleted elsewhere stays
- *   deleted, the lost text is reported, and its view closes
+ *   where both changed; typing into a recording deleted elsewhere brings it
+ *   back, so nothing typed is lost
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
- * - a body from a CRLF file shows in LF, and any save writes the file in LF
- *   (ADR-0572); a title and a model save from their own controls, an emptied
- *   model as none
+ * - a body from a CRLF file shows in LF; a field save leaves its bytes as
+ *   they are, and typed instructions save in LF (ADR-0572); a title and a
+ *   model save from their own controls, an emptied model as none
  *
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
  */
@@ -25,9 +25,8 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { folderOptions } from '@epicenter/folder/query';
 import type { Library, WriteNotice } from '../../lib/library.svelte.js';
-import { createQueryClient, quiet } from '../../lib/query.test-support.js';
+import { quiet } from '../../lib/query.test-support.js';
 import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the workspace after the mounted loader registered its plugin.
@@ -35,7 +34,7 @@ const { openTestWorkspace } = await import(
 	'../../lib/workspace.test-support.js'
 );
 const { flushSync, mount, unmount } = await import('svelte');
-const { createLibrary } = await import('../../lib/library.svelte.js');
+const { createTestLibrary } = await import('../../lib/library.test-support.js');
 const { pageState } = await import('../page-state.test-support.svelte.js');
 const Host = (await import('./test-fixtures/SelectionHost.svelte')).default;
 
@@ -61,7 +60,7 @@ async function open(
 	const stubs = await openTestWorkspace();
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(stubs.root, path), text);
-	const library = createLibrary(stubs.workspace, createQueryClient());
+	const library = await createTestLibrary(stubs.workspace);
 	await library.start();
 	const notices: WriteNotice[] = [];
 	library.onWriteNotice((notice) => notices.push(notice));
@@ -91,11 +90,12 @@ async function settle(library: Library) {
 	flushSync();
 }
 
-/** Report that `path` changed, as the folder's change channel does, and let the views read it. */
-async function reportChanged(library: Library, path: string) {
-	await library.queryClient.invalidateQueries(
-		folderOptions(library.folder).pathFilter([path]),
-	);
+/**
+ * Read the folder again, as a change the folder reports makes it read: this
+ * process's directory opener has no watcher of other programs' edits.
+ */
+async function reportChanged(library: Library) {
+	await library.readAgain();
 	await settle(library);
 }
 
@@ -145,7 +145,7 @@ test('a change made elsewhere shows once the folder reports it', async () => {
 	// Nothing reads it until the folder says it changed.
 	await settle(library);
 	expect(body()?.value).toBe('Alpha.\n');
-	await reportChanged(library, A);
+	await reportChanged(library);
 	expect(body()?.value).toBe('Theirs.\n');
 });
 
@@ -169,7 +169,7 @@ test('typing over a change made elsewhere merges with it, and the typing wins wh
 	expect(body()?.value).toBe('Mine.\n');
 });
 
-test('a recording deleted elsewhere stays deleted: typing in it is refused, reported, and its view closes', async () => {
+test('typing into a recording deleted elsewhere brings it back with the typing: nothing typed is lost', async () => {
 	const { library, target, notices, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
@@ -180,15 +180,14 @@ test('a recording deleted elsewhere stays deleted: typing in it is refused, repo
 	leave(notes);
 	await settle(library);
 
-	expect(notices).toHaveLength(1);
+	expect(notices).toEqual([]);
+	expect(await readFile(join(root, RECORDING), 'utf8')).toEndWith(
+		'---\nMine.\n',
+	);
+	expect(library.selection?.path).toBe(RECORDING);
 	expect(
-		notices[0]?.kind === 'failed' &&
-			notices[0].retry === undefined &&
-			notices[0].unsaved,
-	).toContain('Mine.');
-	expect(library.selection).toBeUndefined();
-	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
-	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);
+		target.querySelector('[data-testid="recording-detail"]'),
+	).not.toBeNull();
 });
 
 test('a transformation that does not read opens as its text with its issues, and Instructions opens once it reads', async () => {
@@ -223,7 +222,7 @@ test('a transformation that does not read opens as its text with its issues, and
 	expect(await readFile(join(root, RECIPE), 'utf8')).toContain('model: null');
 });
 
-test('a transformation’s title, model, and instructions save from their own controls, and a CRLF file is written in LF (ADR-0572)', async () => {
+test('a transformation’s title, model, and instructions save from their own controls; a field leaves a CRLF body as it is, and typed instructions save in LF (ADR-0572)', async () => {
 	const seed = '---\ntitle: Clean up\nmodel: null\n---\nTidy.\r\n';
 	const { library, target, root } = await open(
 		{ [RECIPE]: seed },
@@ -247,7 +246,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	leave(model());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
-		'---\ntitle: Clean up\nmodel: chat-model\n---\nTidy.\n',
+		'---\ntitle: Clean up\nmodel: chat-model\n---\nTidy.\r\n',
 	);
 
 	// An emptied model is no model: the text connection's is used.
@@ -287,7 +286,7 @@ test('a recording whose audio is not in the folder says it is not on this device
 
 	// The audio is copied in: it is this device's to play and transcribe now.
 	await Bun.write(join(root, 'audio/take.wav'), 'RIFF');
-	await reportChanged(library, 'audio/take.wav');
+	await reportChanged(library);
 	expect(absent()).toBeNull();
 	expect(transcribe()?.disabled).toBe(false);
 	expect(runAgain()?.disabled).toBe(false);

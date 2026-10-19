@@ -1,12 +1,13 @@
 /**
- * A workspace for tests: a real directory and Git repository, a fixture
- * capture device, and stubbed endpoints. Nothing here reaches a network, a
- * microphone, or a provider.
+ * A workspace for tests: a real directory, a fixture capture device, and
+ * stubbed endpoints. Nothing here reaches a network, a microphone, or a
+ * provider.
  *
- * The folder is opened with the Bun directory opener: the same folder engine
- * the desktop page runs over a granted directory, over the same kind of
- * directory, and what a test can open without a shell. Nothing here
- * establishes how the Rust shell behaves.
+ * The folder is the native `Folder` over a directory, opened by this test
+ * process (`openBunFolder`): the same folder engine the desktop page runs
+ * over a granted directory, over the same kind of directory, and what a test
+ * can open without a shell. Nothing here establishes how the Rust shell
+ * behaves.
  *
  * The endpoint stubs are plain functions, so a test decides each answer and
  * counts each request.
@@ -15,9 +16,11 @@ import { mkdirSync, rmdirSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { FileError, type FileTable, openFolder } from '@epicenter/folder/bun';
+import type { FolderTable } from '@epicenter/folder';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
+// The Bun directory opener is not a public entry yet; tests reach it here.
+import { openBunFolder } from '../../../../packages/folder/src/native/bun.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
 	applyConnectionChange,
@@ -27,10 +30,14 @@ import {
 	type Operation,
 	type StoredConnection,
 } from './connections.js';
-import { whisperingDefinition } from './definition.js';
+import { whisperingTables } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import { WHISPERING_FOLDER_ID, type Workspace } from './workspace/types.js';
+import {
+	WHISPERING_FOLDER_ID,
+	type WhisperingFolder,
+	type Workspace,
+} from './workspace/types.js';
 
 type TransformRequest = Parameters<Workspace['transform']>[0];
 type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
@@ -125,43 +132,35 @@ export async function whisperingDirectory(prefix: string) {
 	return root;
 }
 
-/**
- * A real directory opened as Whispering's own folder, by this test process:
- * one named after Whispering (`whisperingDirectory`), where Whispering's
- * definition is published.
- */
-export async function openTestFolder(root: string) {
+/** A real directory opened with Whispering's tables, by this test process. */
+export async function openTestFolder(root: string): Promise<WhisperingFolder> {
 	return expectOk(
-		await openFolder({
-			root,
-			app: WHISPERING_FOLDER_ID,
-			definition: whisperingDefinition,
-			git: { author: { name: 'Test', email: 'test@localhost' } },
-		}),
+		await openBunFolder({ directory: root, tables: whisperingTables }),
 	);
 }
 
 /**
- * A table whose next creates find an empty directory where the row's file
+ * A table whose next new rows find an empty directory where the row's file
  * goes, as many times as `failures.creates` says. Nothing is answered on the
- * folder's behalf: the folder refuses the obstructed write itself, as it
- * would on a real disk, and the directory is removed after. A test may arm
- * more after opening.
+ * folder's behalf: the folder refuses the obstructed save itself, as it
+ * would on a real disk, and the directory is removed after. `directory` is
+ * the table's directory on disk. A test may arm more after opening.
  */
-export function withObstructedCreates<TFields>(
-	table: FileTable<TFields>,
-	root: string,
+export function withObstructedCreates<TTable extends FolderTable>(
+	table: TTable,
+	directory: string,
 	failures: { creates: number },
-): FileTable<TFields> {
+): TTable {
 	return {
 		...table,
-		async create(row, options) {
-			if (failures.creates === 0) return table.create(row, options);
+		async set(id, from, change) {
+			if (from !== null || failures.creates === 0)
+				return table.set(id, from, change);
 			failures.creates -= 1;
-			const obstacle = join(root, table.name, `${options?.stem}.md`);
+			const obstacle = join(directory, `${id}.md`);
 			mkdirSync(obstacle, { recursive: true });
 			try {
-				return await table.create(row, options);
+				return await table.set(id, from, change);
 			} finally {
 				rmdirSync(obstacle);
 			}
@@ -180,42 +179,57 @@ export type TestWorkspaceOptions = {
 	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
-	/** Open this folder instead of a directory with the Bun opener, such as a browser folder. */
-	folder?: Workspace['folder'] & { close(): Promise<void> };
+	/** Open this folder instead of a directory with the Bun opener. */
+	folder?: WhisperingFolder;
 };
 
 /** Result row writes still to fail: rows written when a run starts, and answers written into them. */
 export type ResultFailures = { starts: number; answers: number };
 
-const refusedResult = (path: string, operation: 'create' | 'write') =>
-	FileError.Io({
-		path,
-		operation,
-		cause: new Error('disk refused the result'),
-	});
-
 /**
- * A result table whose next creates fail before writing, as many times as
+ * A result table whose next new rows fail before writing, as many times as
  * `failures.starts` says, and whose next answers fail the same way, as many
- * times as `failures.answers` says. An answer fills its row through
- * `write`. A test may arm more after opening.
+ * times as `failures.answers` says. A run writes its row from none, and
+ * fills it from the row it wrote. A test may arm more after opening.
  */
-export function withResultFailures<TFields>(
-	table: FileTable<TFields>,
+export function withResultFailures<TTable extends FolderTable>(
+	table: TTable,
 	failures: ResultFailures,
-): FileTable<TFields> {
+): TTable {
 	return {
 		...table,
-		async create(row, options) {
-			if (failures.starts === 0) return table.create(row, options);
-			failures.starts -= 1;
-			return refusedResult(`${table.name}/${options?.stem}.md`, 'create');
+		async set(id, from, change) {
+			const counter = from === null ? 'starts' : 'answers';
+			if (failures[counter] === 0) return table.set(id, from, change);
+			failures[counter] -= 1;
+			return Err({
+				name: 'StorageFailed' as const,
+				message: 'Repository save failed: the disk refused the result',
+				cause: new Error('the disk refused the result'),
+			});
 		},
-		async write(stem, from, to) {
-			if (failures.answers === 0) return table.write(stem, from, to);
-			failures.answers -= 1;
-			return refusedResult(`${table.name}/${stem}.md`, 'write');
+	};
+}
+
+/**
+ * `folder` with some tables, and its files, replaced. Its status is read
+ * through, never copied, so the wrapper reports every save as the folder
+ * does.
+ */
+export function withTables(
+	folder: WhisperingFolder,
+	tables: Partial<WhisperingFolder['tables']>,
+	files: WhisperingFolder['files'] = folder.files,
+): WhisperingFolder {
+	return {
+		files,
+		tables: { ...folder.tables, ...tables },
+		onChange: (listener) => folder.onChange(listener),
+		get status() {
+			return folder.status;
 		},
+		onStatusChange: (listener) => folder.onStatusChange(listener),
+		close: () => folder.close(),
 	};
 }
 
@@ -233,15 +247,6 @@ export async function openTestWorkspace({
 		starts: failResultStarts,
 		answers: failAnswerWrites,
 	};
-	const tables = {
-		...folder.tables,
-		transcriptions: withResultFailures(folder.tables.transcriptions, failures),
-		transformation_runs: withResultFailures(
-			folder.tables.transformation_runs,
-			failures,
-		),
-		text_runs: withResultFailures(folder.tables.text_runs, failures),
-	};
 	const device = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];
@@ -251,10 +256,17 @@ export async function openTestWorkspace({
 
 	const workspace: Workspace = {
 		kind: 'native',
-		folder: {
-			...folder,
-			tables,
-		} as Workspace['folder'],
+		folder: withTables(folder, {
+			transcriptions: withResultFailures(
+				folder.tables.transcriptions,
+				failures,
+			),
+			transformation_runs: withResultFailures(
+				folder.tables.transformation_runs,
+				failures,
+			),
+			text_runs: withResultFailures(folder.tables.text_runs, failures),
+		}),
 		folderId: WHISPERING_FOLDER_ID,
 		location: root,
 		capture: createFixtureDevice({

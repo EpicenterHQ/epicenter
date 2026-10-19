@@ -42,7 +42,6 @@ import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
 import { settle, transcriptEditor } from './edits.test-support.js';
 import type { WriteNotice } from './library.svelte.js';
-import { createQueryClient } from './query.test-support.js';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
@@ -110,21 +109,18 @@ async function history(
 		body = '',
 	) => {
 		const audioPath = `audio/${stem}.wav`;
-		expectOk(await folder.write(audioPath, null, toneWav()));
+		expectOk(await folder.files.write(audioPath, null, toneWav()));
 		expectOk(
-			await folder.tables.recordings.create(
-				{
-					fields: {
-						title,
-						recordedAt: `2026-03-${day}T09:00:00.000Z`,
-						durationMs,
-						capture: 'microphone',
-						audioPath,
-					} as RecordingFields,
-					body,
-				},
-				{ stem },
-			),
+			await folder.tables.recordings.set(stem, null, {
+				fields: {
+					title,
+					recordedAt: `2026-03-${day}T09:00:00.000Z`,
+					durationMs,
+					capture: 'microphone',
+					audioPath,
+				} as RecordingFields,
+				body,
+			}),
 		);
 	};
 	const transcript = async (
@@ -134,18 +130,15 @@ async function history(
 		body: string,
 	) =>
 		expectOk(
-			await folder.tables.transcriptions.create(
-				{
-					fields: {
-						recordingId,
-						createdAt: `2026-03-${day}T10:00:00.000Z`,
-						model: 'verification-model',
-						endpoint: 'http://127.0.0.1:18080/v1',
-					} as TranscriptionFields,
-					body,
-				},
-				{ stem },
-			),
+			await folder.tables.transcriptions.set(stem, null, {
+				fields: {
+					recordingId,
+					createdAt: `2026-03-${day}T10:00:00.000Z`,
+					model: 'verification-model',
+					endpoint: 'http://127.0.0.1:18080/v1',
+				} as TranscriptionFields,
+				body,
+			}),
 		);
 
 	await recording('standup', 'Monday standup', '02', 300_000);
@@ -159,14 +152,18 @@ async function history(
 	await recording('walk', 'Walk ideas', '04', 300_000);
 	await recording('lecture', 'Lecture notes', '01', 3_000_000);
 	expectOk(
-		await folder.write(
+		await folder.files.write(
 			'recordings/orphan.md',
 			null,
 			'---\ntitle: Lost audio\nrecordedAt: 2026-03-03T09:00:00.000Z\ndurationMs: 60000\ncapture: microphone\n---\n',
 		),
 	);
 	expectOk(
-		await folder.write('recordings/broken.md', null, 'no frontmatter here\n'),
+		await folder.files.write(
+			'recordings/broken.md',
+			null,
+			'no frontmatter here\n',
+		),
 	);
 	await transcript(
 		'standup-t1',
@@ -188,7 +185,7 @@ async function history(
 	);
 
 	const session: Session = expectOk(
-		await openSession(createQueryClient(), async () =>
+		await openSession(async () =>
 			Ok({
 				...test.workspace,
 				folder: folderOf(test.workspace.folder),
@@ -844,7 +841,7 @@ test('typing in a transcript that was opened before closing is saved before the 
 
 test('closing while several are being transcribed sends nothing more: the one under way ends as it ends, the rest are reported as not sent', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { session, library, sent } = await history(() => first.promise);
+	const { session, library, sent, root } = await history(() => first.promise);
 
 	const running = transcribeRows(library, [
 		path('dentist'),
@@ -875,23 +872,33 @@ test('closing while several are being transcribed sends nothing more: the one un
 			reason: 'The app was closing, so it was not sent.',
 		},
 	]);
-	// The one that was sent is reported as it ended: its answer arrived, and
-	// with the folder closed its file could not be written. It is not called
-	// transcribed; its row stays without a body, unfinished on the next open.
+	// The one that was sent is not called transcribed: its answer arrived
+	// after the folder closed, so its file could not be written. Its row stays
+	// without a body, unfinished on the next open. The session released what
+	// it listed when it closed, so the row is read from disk.
 	expect(outcome.transcribed).toEqual([]);
-	expect(outcome.failed).toEqual([
-		{
-			title: 'Dentist reminder',
-			reason: expect.stringContaining('The folder is closed'),
-		},
+	expect(outcome.failed.map((item) => item.title)).toEqual([
+		'Dentist reminder',
 	]);
-	expect(library.resultsFor('dentist').map((item) => item.row.body)).toEqual([
-		'',
-	]);
-	// Asked again after closing, the library sends nothing.
-	await library.transcribe(
-		library.entries.find((entry) => entry.stem === 'lecture')!,
+	const written = (await readdir(join(root, 'transcriptions'))).filter(
+		(name) => !['standup-t1.md', 'walk-t1.md', 'walk-t2.md'].includes(name),
 	);
+	expect(written).toHaveLength(1);
+	expect(
+		await readFile(join(root, 'transcriptions', written[0]!), 'utf8'),
+	).toEndWith('---\n');
+	// Asked again after closing, the library sends nothing.
+	await library.transcribe({
+		stem: 'lecture',
+		row: {
+			fields: {
+				title: 'Lecture notes',
+				recordedAt: '2026-03-01T09:00:00.000Z',
+				capture: 'microphone',
+				audioPath: 'audio/lecture.wav',
+			} as RecordingFields,
+		},
+	});
 	expect(sent).toHaveLength(1);
 	expect(library.transcriptionRun('lecture')).toBeUndefined();
 });

@@ -95,7 +95,8 @@ export const commands = {
 	 *  window open each one.
 	 * 
 	 *  Granted to the `folders` window alone. Every scope it returns is one that
-	 *  window is registered or permitted for, so `openFolder({ id })` there
+	 *  window is registered or permitted for, so `openFolder({ directory: id,
+	 *  tables: {} })` there
 	 *  can be granted it. Off the main thread, since it reads the disk.
 	 */
 	listDataFolders: () => typedError<DataFolder[], string>(__TAURI_INVOKE("list_data_folders")),
@@ -405,7 +406,7 @@ export type CliExit = {
 
 /**  One data folder the Folders window can open. */
 export type DataFolder = {
-	/**  The scope to pass to `openFolder({ id })`. */
+	/**  The scope to pass as `directory` to `openFolder`. */
 	id: string,
 	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
 	title: string,

@@ -142,7 +142,7 @@
 		"dev:honeycrisp:ui": "bun run --cwd apps/honeycrisp dev:ui",
 		"dev:landing": "bun run --cwd apps/landing dev",
 		"dev:posthog-reverse-proxy": "bun run --cwd apps/posthog-reverse-proxy dev",
-		"dev:todos": "bun run --filter @epicenter/api --filter @epicenter/todos dev",
+		"dev:todos": "bun run --cwd apps/todos dev",
 		"dev:todos:ui": "bun run --cwd apps/todos dev:ui",
 		"dev:vocab": "bun run --filter @epicenter/api --filter @epicenter/vocab dev",
 		"dev:vocab:ui": "bun run --cwd apps/vocab dev",
@@ -170,8 +170,7 @@
 		"nuke": "bun run scripts/clean.ts --nuke",
 		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build",
-		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build",
-		"dev:git": "bun run --cwd apps/git dev"
+		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build"
 	},
 	"devDependencies": {
 		"@y/y": "14.0.0-rc.26",

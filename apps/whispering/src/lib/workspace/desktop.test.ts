@@ -3,30 +3,30 @@
  * Epicenter.
  *
  * The shell's replies are scripted here, so these pin what the page itself
- * decides: that the browser workspace refuses inside a desktop app, that it
- * names a folder and never a path, that a refusal is returned and nothing else is opened in its place,
- * and that the folder's changes go to the shell. The shell grants a real
- * directory, and the page's own folder engine opens it
- * (`granted-shell.test-support.ts` in the folder package); nothing here runs the Rust shell or a
- * WebView.
+ * decides: that the browser workspace refuses inside a desktop app, that the
+ * desktop one names a registered directory and never a path, that a refusal
+ * is returned and nothing else is opened in its place, and that the folder's
+ * changes go to the shell. The shell grants a real directory, and the page's
+ * own folder engine opens it (`granted-shell.test-support.ts` in the folder
+ * package); nothing here runs the Rust shell or a WebView.
+ *
+ * The desktop opener over a registered directory is the folder package's
+ * `openTauriFolder`, reached here by its module until a public entry
+ * exports it; the workspace takes it as `openDirectory`.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, opened
- * through `connectionsDefinition`. The AI commands are scripted with the code the
- * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
- * a stubbed endpoint, so a test about a key or a request runs against what
- * the CLI really checks and sends.
- * Local transcription answers with scripted shell commands.
+ * with Whispering's one table of it. The AI commands are scripted with the
+ * code the `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory
+ * keychain and a stubbed endpoint, so a test about a key or a request runs
+ * against what the CLI really checks and sends. Local transcription answers
+ * with scripted shell commands.
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { afterEach, expect, mock, test } from 'bun:test';
+import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsDefinition,
-} from '@epicenter/ai/connection-table';
+import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -35,24 +35,25 @@ import {
 	saveKey,
 	sendRequest,
 } from '@epicenter/ai/send';
-import { isStoredRow } from '@epicenter/folder';
-import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
 	grantedDirectory,
 	shellArguments,
 } from '../../../../../packages/folder/src/granted-shell.test-support.js';
+import { openBunFolder } from '../../../../../packages/folder/src/native/bun.js';
 import { toneWav } from '../capture.js';
-import type { ConnectionCommands } from './desktop-connections.js';
+import { readBytes } from '../files.js';
+import {
+	type ConnectionCommands,
+	connectionsTables,
+} from './desktop-connections.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
 import { WHISPERING_FOLDER_ID } from './types.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-let inShell = true;
 /** Every command the page sent the shell. */
 let calls: Call[] = [];
 /** The shell, once a test has one grant a directory. */
@@ -60,10 +61,10 @@ let shell: GrantedShell | undefined;
 
 mock.module('@tauri-apps/api/core', () => ({
 	// What Epicenter's generated bindings import beside `invoke`; nothing here
-	// listens for an event or opens a channel.
+	// opens a channel.
 	transformCallback: () => 0,
 	Channel: class {},
-	isTauri: () => inShell,
+	isTauri: () => true,
 	async invoke(
 		cmd: string,
 		body?: Record<string, unknown> | Uint8Array,
@@ -76,33 +77,25 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
+// The shell's watcher: nothing here changes the directory behind the page.
+mock.module('@tauri-apps/api/webviewWindow', () => ({
+	getCurrentWebviewWindow: () => ({ listen: async () => () => {} }),
+}));
+
 const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
-const { openDesktopWorkspace } = await import('./desktop.js');
+const { openDesktopWorkspace, openWorkspace } = await import('./desktop.js');
+const { openTauriFolder } = await import(
+	'../../../../../packages/folder/src/native/tauri.js'
+);
 
 const ORIGIN = 'epicenter-app://localhost';
 const SCOPE = 'so.epicenter.whispering';
 const ENDPOINT = 'http://127.0.0.1:18080/v1';
 
-const gitConfig = {
-	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
-	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
-};
-beforeAll(() => {
-	// No Git identity of this machine's user: the shell's author is the fallback.
-	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-	process.env.GIT_CONFIG_NOSYSTEM = '1';
-});
-afterAll(() => {
-	for (const [key, value] of Object.entries(gitConfig))
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
-});
-
 const cleanups: (() => Promise<void> | void)[] = [];
 
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
-	inShell = true;
 	calls = [];
 	shell = undefined;
 	const scope = globalThis as { location?: unknown; localStorage?: unknown };
@@ -114,11 +107,7 @@ afterEach(async () => {
 async function granted() {
 	const directory = await grantedDirectory();
 	cleanups.push(() => rm(directory, { recursive: true, force: true }));
-	// The window runs Whispering on its own folder.
-	shell = createGrantedShell(directory, {
-		app: WHISPERING_FOLDER_ID,
-		folder: WHISPERING_FOLDER_ID,
-	});
+	shell = createGrantedShell(directory);
 	// The recorder plugin beside the folder: no recording was ever cut off
 	// here, so there is nothing to repair.
 	const folderCommands = shell.invoke;
@@ -159,6 +148,16 @@ const noCommands: LocalTranscriptionCommands = {
 	openHome: unexpected,
 };
 
+/** The desktop workspace over the scripted shell. */
+const openDesktop = (
+	options: Parameters<typeof openDesktopWorkspace>[0] = {},
+) =>
+	openDesktopWorkspace({
+		openDirectory: openTauriFolder,
+		commands: noCommands,
+		...options,
+	});
+
 /** A provider's request, as the stubbed endpoint received it. */
 type ProviderCall = {
 	url: string;
@@ -175,7 +174,7 @@ type ProviderCall = {
  * page is never handed it.
  */
 async function epicenter() {
-	// Epicenter's own folder, named after it, where the CLI publishes.
+	// Epicenter's own folder, where its connections are rows.
 	const root = join(
 		await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-')),
 		CONNECTIONS_FOLDER_ID,
@@ -273,13 +272,7 @@ async function epicenter() {
 		provider,
 		lines,
 		ai,
-		open: () =>
-			openBunFolder({
-				root,
-				app: CONNECTIONS_FOLDER_ID,
-				definition: connectionsDefinition,
-				git: { author: { name: 'Test', email: 'test@localhost' } },
-			}),
+		open: () => openBunFolder({ directory: root, tables: connectionsTables }),
 		lose(next: boolean) {
 			losing = next;
 		},
@@ -290,8 +283,7 @@ type Epicenter = Awaited<ReturnType<typeof epicenter>>;
 
 /** The desktop workspace over `host`'s connections. */
 const openWith = (host: Epicenter) =>
-	openDesktopWorkspace({
-		commands: noCommands,
+	openDesktop({
 		connectionCommands: host.ai,
 		openConnectionsFolder: host.open,
 	});
@@ -300,54 +292,48 @@ const openWith = (host: Epicenter) =>
 // The browser workspace inside a desktop app
 // ============================================================================
 
-test('a browser folder that is refused is returned as that refusal', async () => {
+test('the browser workspace refuses inside a desktop app, and opens nothing in its place', async () => {
 	setup();
-	// This process has no origin private file system, as a server render has none.
-	inShell = false;
-	const none = expectErr(await openBrowserWorkspace());
-	expect(none.name).toBe('BrowserFolder');
-	if (none.name === 'BrowserFolder') {
-		expect(none.refusal.name).toBe('NoFileSystem');
-		expect(none.message).toBe(none.refusal.message);
-	}
-
-	// Inside a desktop app the browser opener refuses, even where storage exists.
-	inShell = true;
 	const inside = expectErr(await openBrowserWorkspace());
 	expect(inside.name).toBe('BrowserFolder');
 	if (inside.name === 'BrowserFolder')
 		expect(inside.refusal.name).toBe('InsideTauri');
 	expect(inside.message).toContain('Browser storage is not used');
+	expect(calls).toEqual([]);
 });
 
 // ============================================================================
 // Opening
 // ============================================================================
 
-test('the page names the folder by its ID and nothing else, and opens the directory the shell grants', async () => {
+test('the page names the registered directory by its ID and nothing else, and opening writes nothing', async () => {
 	setup();
 	const { root } = await granted();
 
-	const workspace = expectOk(
-		await openDesktopWorkspace({ commands: noCommands }),
-	);
+	const workspace = expectOk(await openDesktop());
 
-	// The window's folder comes from the shell, and then no root, author, or
-	// branch: the shell decided all of them.
-	expect(calls.slice(0, 2)).toEqual([
-		{ cmd: 'window_folder', args: {} },
-		{ cmd: 'grant_directory', args: { scope: SCOPE } },
-	]);
+	// The window asks for its directory by ID; no root, author, or branch.
+	expect(calls[0]).toEqual({ cmd: 'grant_directory', args: { scope: SCOPE } });
 	expect(sent('grant_directory')).toHaveLength(1);
 	// Everything after the grant names the folder, never another.
-	for (const call of calls.slice(2)) expect(call.args.scope).toBe(SCOPE);
-	expect(workspace.location).toBe(root);
-	expect(workspace.folder.git.snapshot.branch).toBe('main');
-	// Opening made no repository; the first commit does.
-	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(false);
-	expect((await workspace.folder.git.commit()).status).toBe('unchanged');
-	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
+	for (const call of calls.slice(1)) expect(call.args.scope).toBe(SCOPE);
+	expect(workspace.folderId).toBe(SCOPE);
+	expect(workspace.location).toContain(SCOPE);
 	expect(workspace.capture.source).toBe('microphone');
+	// No declaration, ignore file, or repository is made.
+	expect(await readdir(root)).toEqual([]);
+	await workspace.close();
+});
+
+test('the installed page opens the folder handed to its window', async () => {
+	setup();
+	const granting = await granted();
+	granting.control.window = { app: SCOPE, folder: 'data:other' };
+
+	const workspace = expectOk(await openWorkspace());
+	expect(calls[0]).toEqual({ cmd: 'window_folder', args: {} });
+	expect(sent('grant_directory')[0]?.args.scope).toBe('data:other');
+	expect(workspace.folderId).toBe('data:other');
 	await workspace.close();
 });
 
@@ -364,19 +350,14 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 			throw refusal;
 		};
 
-		const refused = expectErr(
-			await openDesktopWorkspace({ commands: noCommands }),
-		);
+		const refused = expectErr(await openDesktop());
 
 		expect(refused.name).toBe('DesktopFolder');
 		if (refused.name === 'DesktopFolder')
 			expect<string>(refused.refusal.name).toBe(
 				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
 			);
-		expect(calls.map((call) => call.cmd)).toEqual([
-			'window_folder',
-			'grant_directory',
-		]);
+		expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 	}
 });
 
@@ -398,35 +379,34 @@ test('opening repairs the recordings a quit cut off, and a repair that fails is 
 		return [];
 	};
 
-	const repaired = expectOk(
-		await openDesktopWorkspace({ commands: noCommands }),
-	);
+	const repaired = expectOk(await openDesktop());
 	expect(asked).toEqual([{ scope: repaired.folderId, under: 'audio' }]);
 	expect(repaired.captureNotice).toBeUndefined();
 	await repaired.close();
 
 	refuse = true;
-	const unrepaired = expectOk(
-		await openDesktopWorkspace({ commands: noCommands }),
-	);
+	const unrepaired = expectOk(await openDesktop());
 	expect(unrepaired.captureNotice).toContain('could not be checked');
 	expect(unrepaired.captureNotice).toContain('the disk is gone');
 	await unrepaired.close();
 });
 
-test('saves and history go through the shell', async () => {
+test('saves go through the shell: audio lands as its exact bytes, and a row as text', async () => {
 	setup();
 	const { root } = await granted();
-	const workspace = expectOk(
-		await openDesktopWorkspace({ commands: noCommands }),
-	);
+	const workspace = expectOk(await openDesktop());
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	expectOk(await workspace.folder.write('audio/a.wav', null, audio));
-	expectOk(await workspace.folder.write('notes.md', null, 'hello'));
-	expect((await workspace.folder.git.commit()).status).toBe('committed');
-	const { error: readError } = await workspace.folder.files.read('missing.md');
-	expect(readError?.name).toBe('NotFound');
+	expectOk(await workspace.folder.files.write('audio/a.wav', null, audio));
+	expectOk(
+		await workspace.folder.tables.transformations.set('clean', null, {
+			fields: { title: 'Clean up', model: null },
+			body: 'Tidy.\n',
+		}),
+	);
+	expect(expectOk(await workspace.folder.files.read('missing.md'))).toBe(
+		undefined,
+	);
 
 	// The recording's bytes reach the shell as a raw body, in the one call
 	// that puts them at their path, and land exactly.
@@ -437,81 +417,49 @@ test('saves and history go through the shell', async () => {
 	expect(new Uint8Array(await readFile(join(root, 'audio', 'a.wav')))).toEqual(
 		audio,
 	);
-	expect(await git(root, 'status', '--porcelain')).toBe('');
+	expect(expectOk(await readBytes(workspace.folder, 'audio/a.wav'))).toEqual(
+		audio,
+	);
+	expect(
+		await readFile(join(root, 'transformations', 'clean.md'), 'utf8'),
+	).toContain('title: Clean up');
 	await workspace.close();
 });
 
-test('a version is recorded as the person Git’s configuration names, and as Epicenter only when none is set', async () => {
-	setup();
-	const { root } = await granted();
-	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
-	expectOk(await first.folder.write('notes.md', null, 'first'));
-	expect((await first.folder.git.commit()).status).toBe('committed');
-	await first.close();
-	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
-		'Epicenter <epicenter@localhost>',
-	);
-
-	// The person sets who they are; the next opening records versions as them.
-	await git(root, 'config', 'user.name', 'Someone');
-	await git(root, 'config', 'user.email', 'someone@example.test');
-	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
-	expectOk(await second.folder.write('notes-2.md', null, 'second'));
-	expect((await second.folder.git.commit()).status).toBe('committed');
-	await second.close();
-	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
-		'Someone <someone@example.test>',
-	);
-});
-
-test('a row write whose reply the shell never sent is confirmed by what landed, and is unknown, not refused, when that cannot be read', async () => {
+test('a row save whose reply the shell never sent is confirmed by what landed, and is not reported saved when that cannot be read', async () => {
 	setup();
 	const granting = await granted();
 	const PATH = 'transformations/clean.md';
 	await granting.write(PATH, '---\ntitle: Clean up\nmodel: null\n---\nTidy.\n');
-	const workspace = expectOk(
-		await openDesktopWorkspace({ commands: noCommands }),
-	);
+	const workspace = expectOk(await openDesktop());
 	const table = workspace.folder.tables.transformations;
 	const stored = expectOk(await table.get('clean'))!;
 
 	// The shell writes, and its reply never reaches the page. The page reads
-	// the file back, finds exactly what it wrote, and the write is confirmed.
+	// the file back, finds exactly what it wrote, and the save is confirmed.
 	granting.control.loseReplies = 1;
 	const confirmed = expectOk(
-		await table.write('clean', stored.row, {
-			...stored.row,
-			body: 'Tidy it.\n',
-		}),
+		await table.set('clean', stored, { body: 'Tidy it.\n' }),
 	);
-	if (!isStoredRow(confirmed)) throw new Error('Expected the row to be there');
-	expect(confirmed.row.body).toBe('Tidy it.\n');
+	expect(confirmed.sent.body).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
 
 	// Again, and now the file cannot be read back either: nothing says
-	// whether the write landed, so it is unknown, never refused.
+	// whether the save landed, so it is a failure the person is told of.
 	granting.control.loseReplies = 1;
 	granting.control.beforeChange = async () => {
 		granting.control.beforeChange = undefined;
 		granting.control.failReads.add(PATH);
 	};
-	const lost = await table.write('clean', confirmed.row, {
-		...confirmed.row,
+	const lost = await table.set('clean', confirmed.sent, {
 		body: 'Tidy it again.\n',
 	});
-	expect(lost.error).toMatchObject({
-		name: 'Io',
-		cause: {
-			name: 'Unconfirmed',
-			message: expect.stringContaining('the reply never reached the window'),
-		},
-	});
+	expect(lost.error?.name).toBe('StorageFailed');
 	expect(granting.kinds).toEqual(['write', 'write']);
 
 	granting.control.failReads.delete(PATH);
 	const landed = expectOk(await table.get('clean'));
-	if (landed === undefined) throw new Error('Expected the row to be there');
-	expect(landed.row.body).toBe('Tidy it again.\n');
+	expect(landed?.body).toBe('Tidy it again.\n');
 	await workspace.close();
 });
 
@@ -586,6 +534,10 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	expect(await host.keychain.get('whispering-text')).toBe(
 		JSON.stringify({ endpoint: ENDPOINT, key: '' }),
 	);
+	// The row keeps its title and every field another program added.
+	expect(
+		await readFile(join(host.root, 'connections/whispering-text.md'), 'utf8'),
+	).toContain('title: Whispering text');
 	await second.close();
 
 	// A row synced from another computer is not set up here until this
@@ -594,6 +546,23 @@ test('a connection is a row of so.epicenter with its endpoint and key in the key
 	const third = expectOk(await openWith(host));
 	expect((await third.connections.read()).text).toBeUndefined();
 	await third.close();
+});
+
+test('a connection row that does not read is reported, never taken for none', async () => {
+	setup();
+	await granted();
+	const host = await epicenter();
+	await mkdir(join(host.root, 'connections'), { recursive: true });
+	await Bun.write(
+		join(host.root, 'connections/whispering-text.md'),
+		'---\nkind: [open\n---\n',
+	);
+	const workspace = expectOk(await openWith(host));
+
+	await expect(workspace.connections.read()).rejects.toThrow(
+		'does not read as a connection',
+	);
+	await workspace.close();
 });
 
 test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {
@@ -718,12 +687,12 @@ test('the chosen microphone is kept in the origin’s storage and survives a new
 	const stored = setup();
 	await granted();
 	const usb = { deviceId: 'usb-id', label: 'USB Microphone' };
-	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
+	const first = expectOk(await openDesktop());
 	expect(await first.preferences.microphone()).toBeUndefined();
 	expect(await first.preferences.setMicrophone(usb)).toBeUndefined();
 	await first.close();
 
-	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
+	const second = expectOk(await openDesktop());
 	expect(await second.preferences.microphone()).toEqual(usb);
 	expect(await second.preferences.setMicrophone(undefined)).toBeUndefined();
 	expect(stored.has('whispering.microphone')).toBe(false);
@@ -791,9 +760,7 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const local = localModel({ active: 'parakeet-tdt-0.6b-v3' });
-	const workspace = expectOk(
-		await openDesktopWorkspace({ commands: local.commands }),
-	);
+	const workspace = expectOk(await openDesktop({ commands: local.commands }));
 	const transcriber = workspace.localTranscription!;
 
 	expect(await transcriber.readiness()).toEqual({ ready: true });
@@ -821,9 +788,7 @@ test('with no active local model nothing is transcribed, and the reason names Se
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const local = localModel({ active: undefined });
-	const workspace = expectOk(
-		await openDesktopWorkspace({ commands: local.commands }),
-	);
+	const workspace = expectOk(await openDesktop({ commands: local.commands }));
 	const transcriber = workspace.localTranscription!;
 
 	expect(await transcriber.readiness()).toEqual({
@@ -857,9 +822,7 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		],
 	] as const) {
 		const local = localModel({ active: 'whisper-small', outcome });
-		const workspace = expectOk(
-			await openDesktopWorkspace({ commands: local.commands }),
-		);
+		const workspace = expectOk(await openDesktop({ commands: local.commands }));
 		const { error } =
 			await workspace.localTranscription!.transcribe('audio/take.wav');
 		expect(error?.name).toBe(expected);
@@ -871,9 +834,7 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		active: 'whisper-small',
 		outcome: { outcome: 'empty-audio' },
 	});
-	const workspace = expectOk(
-		await openDesktopWorkspace({ commands: empty.commands }),
-	);
+	const workspace = expectOk(await openDesktop({ commands: empty.commands }));
 	expect(
 		expectOk(await workspace.localTranscription!.transcribe('audio/take.wav')),
 	).toEqual({ text: '', model: 'whisper-small' });

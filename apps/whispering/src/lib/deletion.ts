@@ -2,11 +2,10 @@
  * Deleting from the folder: capture what a deletion removes from fresh reads,
  * tell the person exactly that, and delete those files.
  *
- * A file is deleted whatever it holds when the deletion runs, a row or not:
- * a delete beats edits that never saw it (ADR-0576). Edits being written land
- * first, and a deletion runs after the file's queued writes, so what this
- * window saved last goes with it. The person is told when a file has changes
- * that are in no saved version.
+ * A file is deleted as it is when the deletion runs: typing held for it is
+ * saved first, then the file is read and deleted as read. Each delete names
+ * the content it read (ADR-0632), so a file another program changes in that
+ * moment is kept, and the person is told.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -15,22 +14,21 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import {
-	type FileListing,
-	type FileTable,
-	rowPath,
-	rowStemOf,
-} from '@epicenter/folder';
+import type { Row, ReadError, SaveError } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	audioPathIn,
 	RECORDINGS,
+	type RecordingFields,
+	rowIdOf,
+	rowPath,
 	TRANSCRIPTIONS,
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
+	type TransformationFields,
 } from './definition.js';
-import { describeError } from './files.js';
+import { describeError, readBytes } from './files.js';
 import type { WhisperingFolder } from './workspace/types.js';
 
 /** What a confirmed deletion removes, captured when the person was asked. */
@@ -41,8 +39,6 @@ export type Deletion =
 			readonly title: string;
 			/** The recording's row file. */
 			readonly path: string;
-			/** Whether its files have changes in no saved version; undefined when the check failed. */
-			readonly unversioned: boolean | undefined;
 			/** The audio the row names. It is not deleted: it stays as an ordinary file. */
 			readonly audioPath: string | undefined;
 			/** Its transcripts, then the results made from them, by path. */
@@ -52,33 +48,54 @@ export type Deletion =
 			readonly kind: 'transformation';
 			readonly title: string;
 			readonly path: string;
-			readonly unversioned: boolean | undefined;
 			/** How many saved results name it. They are kept. */
 			readonly results: number;
 	  }
 	| {
 			readonly kind: 'file';
 			readonly path: string;
-			readonly unversioned: boolean | undefined;
 			/** Why a recording or transformation file does not read as one; only it goes. */
 			readonly problem?: string;
 			/** The recording a recording file's name makes it; nothing runs for it meanwhile. */
 			readonly recordingId?: string;
 			/** The recording that names this file as its audio, by title. */
 			readonly audioOf?: string;
-	  }
-	| { readonly kind: 'folder'; readonly path: string };
+	  };
+
+/** The tables a deletion removes rows from. */
+type DeletedTable =
+	| typeof RECORDINGS
+	| typeof TRANSCRIPTIONS
+	| typeof TRANSFORMATIONS
+	| typeof TRANSFORMATION_RUNS;
 
 export type DeletionContext = {
 	readonly folder: WhisperingFolder;
-	readonly listing: FileListing | undefined;
-	/** Resolves once the edits being written have landed. */
-	writesSettled(): Promise<void>;
+	/**
+	 * Delete a row as it is stored once the typing held for it saved: the
+	 * edit layer's delete. `deleted: false` when it changed meanwhile.
+	 */
+	deleteRow(
+		table: DeletedTable,
+		id: string,
+	): Promise<
+		Result<
+			{ deleted: boolean },
+			| SaveError
+			| ReadError
+			| { readonly name: string; readonly message: string }
+		>
+	>;
+	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
+	settle(path: string): Promise<boolean>;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
 	/** The title of the recording that names `path` as its audio, if one does. */
 	audioOf(path: string): string | undefined;
 };
+
+const UNSAVED =
+	'It has typing that did not save. Save or discard it, then delete it.';
 
 /** A recording's title, or its ID when the title is empty. */
 export function recordingTitle(entry: {
@@ -88,33 +105,15 @@ export function recordingTitle(entry: {
 }): string {
 	const { title } = entry.row.fields;
 	if (title.trim() !== '') return title;
-	// An empty ID (`recordings/.md`) is a real address but not a readable label.
 	return entry.stem === '' ? entry.path : entry.stem;
 }
 
-/**
- * Whether any of `paths` has changes in no saved version, by a status check
- * now; undefined when the check failed.
- */
-async function unversionedOf(
-	{ folder }: DeletionContext,
-	paths: readonly string[],
-): Promise<boolean | undefined> {
-	const { data: status, error } = await folder.git.status();
-	if (error !== null) return undefined;
-	return status.changes.some((change) => paths.includes(change.path));
-}
-
-/** Whether a file is at `path` now, by a fresh read; why not, if not. */
-async function presentNow(
-	{ folder }: DeletionContext,
-	path: string,
-): Promise<string | undefined> {
-	const { error: readError } = await folder.files.read(path);
-	if (readError === null) return undefined;
-	return readError.name === 'NotFound'
-		? `${basename(path)} is no longer in the folder.`
-		: readError.message;
+/** Why a row does not read, in the words the person is shown. */
+function problemOf(row: Row): string {
+	if (row.issues === null) return '';
+	return row.issues.some((issue) => issue.kind === 'not-text')
+		? 'it is not text'
+		: row.issues.map((issue) => issue.message).join(' ');
 }
 
 /**
@@ -134,14 +133,14 @@ async function resultsOf(
 	if (outputs.error !== null) return Err(outputs.error.message);
 	const found: string[] = [];
 	const unknown: string[] = [];
-	for (const [table, listed] of [
+	for (const [table, rows] of [
 		[TRANSCRIPTIONS, transcripts.data],
 		[TRANSFORMATION_RUNS, outputs.data],
 	] as const)
-		for (const { stem, result } of listed) {
-			if (result.error !== null) unknown.push(rowPath(table, stem));
-			else if (result.data.row.fields.recordingId === id)
-				found.push(result.data.path);
+		for (const row of rows) {
+			const path = rowPath(table, row.id);
+			if (row.issues !== null) unknown.push(path);
+			else if (row.fields.recordingId === id) found.push(path);
 		}
 	if (unknown.length > 0)
 		return Err(
@@ -151,50 +150,36 @@ async function resultsOf(
 }
 
 /**
- * Capture what deleting `path` would remove, for the person to confirm. The
- * edits being written land first. Only empty folders can be deleted.
+ * Capture what deleting `path` would remove, for the person to confirm.
+ * Typing held for it is saved first.
  */
 export async function captureDeletion(
 	context: DeletionContext,
 	path: string,
 ): Promise<Result<Deletion, string>> {
-	const { folder, listing } = context;
-	if (listing?.directories.includes(path)) {
-		const prefix = `${path}/`;
-		const occupied =
-			listing.files.some((file) => file.path.startsWith(prefix)) ||
-			listing.directories.some((directory) => directory.startsWith(prefix));
-		if (occupied)
-			return Err(
-				'Only empty folders can be deleted here. Delete or move what is inside first.',
-			);
-		return Ok({ kind: 'folder', path });
-	}
-	const recordingId = rowStemOf(RECORDINGS, path);
-	const transformationId = rowStemOf(TRANSFORMATIONS, path);
+	const { folder } = context;
+	const recordingId = rowIdOf(RECORDINGS, path);
+	const transformationId = rowIdOf(TRANSFORMATIONS, path);
 	if (recordingId !== undefined) {
 		const busy = context.busy(recordingId);
 		if (busy !== undefined) return Err(busy);
 	}
-	await context.writesSettled();
+	if (await context.settle(path)) return Err(UNSAVED);
 
 	if (recordingId !== undefined) {
-		const { data: stored, error: readError } =
+		const { data: stored, error } =
 			await folder.tables.recordings.get(recordingId);
-		if (readError?.name === 'InvalidRow' || readError?.name === 'InvalidUtf8')
+		if (error !== null) return Err(error.message);
+		if (stored === undefined)
+			return Err('This recording is no longer in the folder.');
+		if (stored.issues !== null)
 			return Ok({
 				kind: 'file',
 				path,
-				unversioned: await unversionedOf(context, [path]),
 				recordingId,
-				problem:
-					readError.name === 'InvalidRow'
-						? readError.issues.map((issue) => issue.message).join(' ')
-						: 'it is not text',
+				problem: problemOf(stored),
 			});
-		if (readError !== null) return Err(readError.message);
-		if (stored === undefined)
-			return Err('This recording is no longer in the folder.');
+		const fields: RecordingFields = stored.fields;
 		const { data: results, error: resultsError } = await resultsOf(
 			context,
 			recordingId,
@@ -203,10 +188,13 @@ export async function captureDeletion(
 		return Ok({
 			kind: 'recording',
 			id: recordingId,
-			title: recordingTitle({ ...stored, stem: recordingId }),
-			path: stored.path,
-			unversioned: await unversionedOf(context, [stored.path, ...results]),
-			audioPath: audioPathIn(stored.row.fields),
+			title: recordingTitle({
+				stem: recordingId,
+				path,
+				row: { fields },
+			}),
+			path,
+			audioPath: audioPathIn(fields),
 			results,
 		});
 	}
@@ -217,61 +205,66 @@ export async function captureDeletion(
 			folder.tables.transformation_runs.list(),
 			folder.tables.text_runs.list(),
 		]);
-		if (
-			stored.error?.name === 'InvalidRow' ||
-			stored.error?.name === 'InvalidUtf8'
-		)
-			return Ok({
-				kind: 'file',
-				path,
-				unversioned: await unversionedOf(context, [path]),
-				problem:
-					stored.error.name === 'InvalidRow'
-						? stored.error.issues.map((issue) => issue.message).join(' ')
-						: 'it is not text',
-			});
 		if (stored.error !== null) return Err(stored.error.message);
 		if (stored.data === undefined)
 			return Err('This transformation is no longer in the folder.');
+		if (stored.data.issues !== null)
+			return Ok({ kind: 'file', path, problem: problemOf(stored.data) });
+		const fields: TransformationFields = stored.data.fields;
 		const results = [...(outputs.data ?? []), ...(texts.data ?? [])].filter(
-			({ result }) =>
-				result.data?.row.fields.transformationId === transformationId,
+			(row) =>
+				row.issues === null && row.fields.transformationId === transformationId,
 		).length;
-		const { title } = stored.data.row.fields;
 		return Ok({
 			kind: 'transformation',
-			title: title.trim() === '' ? basename(path) : title,
-			path: stored.data.path,
-			unversioned: await unversionedOf(context, [path]),
+			title: fields.title.trim() === '' ? basename(path) : fields.title,
+			path,
 			results,
 		});
 	}
 
-	const gone = await presentNow(context, path);
-	if (gone !== undefined) return Err(gone);
-	return Ok({
-		kind: 'file',
-		path,
-		unversioned: await unversionedOf(context, [path]),
-		audioOf: context.audioOf(path),
-	});
+	const { data: found, error: readError } = await folder.files.read(path);
+	if (readError !== null) return Err(readError.message);
+	if (found === undefined)
+		return Err(`${basename(path)} is no longer in the folder.`);
+	return Ok({ kind: 'file', path, audioOf: context.audioOf(path) });
 }
 
-/**
- * Delete the file at `path`, whatever it holds now, through its table when
- * it is a row: a delete beats edits that never saw it (ADR-0576).
- */
-async function deleteOne(
+/** Why a delete kept what it was asked to delete: it changed while it was deleted. */
+const changedMeanwhile = (path: string) =>
+	`${path} changed while it was being deleted, so it was kept. Check it, then delete it again.`;
+
+/** Delete the row `id` of `table` as it is stored now. */
+async function deleteRow(
+	context: RunContext,
+	table: DeletedTable,
+	id: string,
+): Promise<string | undefined> {
+	const path = rowPath(table, id);
+	const { data, error } = await context.deleteRow(table, id);
+	if (error !== null) return describeError(error);
+	if (!data.deleted) {
+		// Kept because it changed, or already gone, here or elsewhere.
+		const { data: still } = await context.folder.tables[table].get(id);
+		if (still !== undefined) return changedMeanwhile(path);
+	}
+	context.deleted(path);
+	return undefined;
+}
+
+/** Delete the file at `path` as it holds now, row or not. */
+async function deleteFile(
 	context: RunContext,
 	path: string,
-	table?: Pick<FileTable<unknown>, 'name' | 'delete'>,
 ): Promise<string | undefined> {
-	const stem = table && rowStemOf(table.name, path);
-	const { error } =
-		table !== undefined && stem !== undefined
-			? await table.delete(stem)
-			: await context.folder.write(path, null, null);
+	const { data: bytes, error: readError } = await readBytes(
+		context.folder,
+		path,
+	);
+	if (readError !== null) return readError;
+	const { data, error } = await context.folder.files.delete(path, bytes);
 	if (error !== null) return describeError(error);
+	if (!data.deleted) return changedMeanwhile(path);
 	context.deleted(path);
 	return undefined;
 }
@@ -292,26 +285,20 @@ export async function runDeletion(
 	context: RunContext,
 	deletion: Deletion,
 ): Promise<string | undefined> {
-	const { folder } = context;
 	switch (deletion.kind) {
-		case 'folder': {
-			const { error } = await folder.files.rmdir(deletion.path);
-			return error === null ? undefined : describeError(error);
+		case 'transformation': {
+			const id = rowIdOf(TRANSFORMATIONS, deletion.path);
+			if (id === undefined) return deleteFile(context, deletion.path);
+			return deleteRow(context, TRANSFORMATIONS, id);
 		}
-		case 'transformation':
-			return deleteOne(
-				context,
-				deletion.path,
-				folder.tables.transformations as FileTable<unknown>,
-			);
 		case 'file': {
 			const id = deletion.recordingId;
-			if (id === undefined) return deleteOne(context, deletion.path);
+			if (id === undefined) return deleteFile(context, deletion.path);
 			const busy = context.busy(id);
 			if (busy !== undefined) return busy;
 			context.deleting.add(id);
 			try {
-				return await deleteOne(context, deletion.path);
+				return await deleteFile(context, deletion.path);
 			} finally {
 				context.deleting.delete(id);
 			}
@@ -328,41 +315,31 @@ export async function runDeletion(
 				return 'A new result was saved for this recording after you were asked. Check it, then delete the recording again.';
 			context.deleting.add(id);
 			try {
-				const refused = await deleteOne(
-					context,
-					deletion.path,
-					folder.tables.recordings as FileTable<unknown>,
-				);
+				const refused = await deleteRow(context, RECORDINGS, id);
 				if (refused !== undefined) return refused;
 				context.dropFailed(id);
 				// One file at a time: a refusal keeps that file, and what was
 				// deleted before it stays deleted.
 				const leftovers: string[] = [];
 				for (const result of deletion.results) {
-					const problem = await deleteOne(
-						context,
-						result,
-						(rowStemOf(TRANSCRIPTIONS, result) !== undefined
-							? folder.tables.transcriptions
-							: folder.tables.transformation_runs) as FileTable<unknown>,
-					);
+					const transcript = rowIdOf(TRANSCRIPTIONS, result);
+					const output = rowIdOf(TRANSFORMATION_RUNS, result);
+					const problem =
+						transcript !== undefined
+							? await deleteRow(context, TRANSCRIPTIONS, transcript)
+							: output !== undefined
+								? await deleteRow(context, TRANSFORMATION_RUNS, output)
+								: await deleteFile(context, result);
 					if (problem !== undefined) leftovers.push(result);
 				}
 				return leftovers.length > 0
-					? `The recording was deleted, but these files could not be: ${leftovers.join(', ')}`
+					? `The recording was deleted, but these files were not: ${leftovers.join(', ')}`
 					: undefined;
 			} finally {
 				context.deleting.delete(id);
 			}
 		}
 	}
-}
-
-/** What the person is told about history, by whether the files have changes in no saved version. */
-function historyNote(unversioned: boolean | undefined): string {
-	return unversioned
-		? 'It has changes that are in no saved version, and those are lost. Earlier saved versions stay in Git history.'
-		: 'Saved versions stay in Git history.';
 }
 
 const count = (n: number, one: string, many: string) =>
@@ -384,11 +361,11 @@ export function describeDeletion(deletion: Deletion): {
 			// The row is deleted. Its audio is a separate file that no row owns.
 			return {
 				title: `Delete “${deletion.title}”?`,
-				description: `This deletes ${removed.join(', ')} from the folder. ${
+				description: `This deletes ${removed.join(', ')} from the folder.${
 					deletion.audioPath
-						? `Its audio ${deletion.audioPath} is not deleted: it stays in the folder as an ordinary file, and you can delete it from Files. `
+						? ` Its audio ${deletion.audioPath} is not deleted: it stays in the folder as an ordinary file, and you can delete it from Files.`
 						: ''
-				}${historyNote(deletion.unversioned)}`,
+				}`,
 			};
 		}
 		case 'transformation':
@@ -398,7 +375,7 @@ export function describeDeletion(deletion: Deletion): {
 					deletion.results > 0
 						? `Its ${count(deletion.results, 'saved result stays', 'saved results stay')} in transformation_runs or text_runs, each with the prompt it used.`
 						: 'It has no saved results.'
-				} ${historyNote(deletion.unversioned)}`,
+				}`,
 			};
 		case 'file': {
 			const { path } = deletion;
@@ -415,15 +392,7 @@ export function describeDeletion(deletion: Deletion): {
 							? ` The recording “${deletion.audioOf}” names it as its audio and is kept, with no audio to play or transcribe.`
 							: ''
 					}`;
-			return {
-				title: `Delete ${basename(path)}?`,
-				description: `${what} ${historyNote(deletion.unversioned)}`,
-			};
+			return { title: `Delete ${basename(path)}?`, description: what };
 		}
-		case 'folder':
-			return {
-				title: `Delete the folder ${basename(deletion.path)}?`,
-				description: `${deletion.path} is empty. Deleting it removes only the folder.`,
-			};
 	}
 }

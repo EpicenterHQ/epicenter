@@ -14,17 +14,17 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import { TRANSCRIPTIONS, whisperingDefinition } from '$lib/definition.js';
+	import { rowIdOf, TRANSCRIPTIONS } from '$lib/definition.js';
 	import { type Library, rowTableOf } from '$lib/library.svelte.js';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, copyPath, lf, openItem } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
+	import SaveStatus from './SaveStatus.svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 
 	let {
@@ -59,16 +59,11 @@
 	const text = $derived(
 		opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
 	);
-	/** Why a row file's text is not a row yet, read live from what is typed. */
+	/** Why a row file, as last saved, is not a row yet. Typing saves after a pause, and this follows. */
 	const issues = $derived(
-		table === undefined || text === undefined
-			? undefined
-			: (parseRow(whisperingDefinition.tables[table], text).error ?? undefined),
+		table === undefined || text === undefined ? undefined : (library.rowSource(table, path)?.issues ?? undefined),
 	);
 	const locked = $derived(library.locked(path));
-	const saving = $derived(library.isSaving(path));
-	/** Typing here did not save: its notice offers Save again and Discard. */
-	const unsaved = $derived(library.isUnsaved(path));
 
 	async function show(source: boolean) {
 		const problem = source ? await library.editSource(path) : await library.useForm(path);
@@ -80,14 +75,14 @@
 
 	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
-	const size = $derived(library.listing?.files.find((file) => file.path === path)?.size ?? 0);
 	/** The recording whose row names this file as its audio, if one does. */
 	const owner = $derived(library.recordingNaming(path));
 
-	/** A file shown as details: its extension names the type, then its size. */
-	function details(size: number) {
+	/** A file shown as details: its extension names the type, then its size when it is known. */
+	function details(size?: number) {
 		const dot = name.lastIndexOf('.');
 		const kind = dot > 0 ? `${name.slice(dot + 1).toUpperCase()} file` : 'File';
+		if (size === undefined) return kind;
 		if (size < 1024) return `${kind} · ${size} ${size === 1 ? 'byte' : 'bytes'}`;
 		if (size < 1024 * 1024) return `${kind} · ${(size / 1024).toFixed(1)} KB`;
 		return `${kind} · ${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -120,7 +115,7 @@
 			<AudioPlayer source={{ kind: 'file', files: library.folder.files, path, generation: library.generation }} label="Audio in {name}" />
 			<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-muted-foreground">Type</dt>
-				<dd>{details(size)} · {audioMimeTypeOf(path)}</dd>
+				<dd>{details()} · {audioMimeTypeOf(path)}</dd>
 				<dt class="text-muted-foreground">Recording</dt>
 				<dd>
 					{#if owner}
@@ -134,10 +129,8 @@
 			</dl>
 		</div>
 	{:else if transcript}
-		{@const stem = rowStemOf(TRANSCRIPTIONS, path) ?? ''}
-		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{saving ? 'Saving…' : unsaved ? 'Not saved' : 'Saved'}
-		</p>
+		{@const stem = rowIdOf(TRANSCRIPTIONS, path) ?? ''}
+		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<p class="text-xs text-muted-foreground">
 				The transcript’s text, the body of its file. Its fields are kept as they are.
@@ -160,14 +153,12 @@
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
 		</Empty.Root>
 	{:else if text !== undefined}
-		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{saving ? 'Saving…' : unsaved ? 'Not saved' : 'Saved'}
-		</p>
+		<SaveStatus {library} {path} class="shrink-0 border-b px-4 py-1" />
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					This text does not read as a row yet. Fix it here; it saves as you type.
+					This file does not read as a row yet. Fix it here; it saves when you pause.
 				</p>
 				<ul class="space-y-0.5 text-muted-foreground">
 					{#each issues as issue, index (index)}

@@ -1,27 +1,20 @@
 /**
- * Plain-language status lines for the header and its details.
+ * The plain-language status line the header shows: whether what the person
+ * did is in the folder on this device.
  *
- * Saved files and history are separate facts and each line reports one: a
- * recording can be saved while its commit is pending, failed, or blocked, and
- * a failed commit never turns a saved file into an unsaved one. Times are the
- * absolute times an observation or attempt happened, so they never go stale on
- * screen.
+ * The folder keeps no versions and does not sync here, so the line reports
+ * saving alone: a save running, typing that did not save, an answer whose
+ * file could not be written yet, or the last save storage refused.
  */
-import type { CommitOutcome, GitSnapshot } from '@epicenter/folder';
-import {
-	changeList,
-	localTime,
-	mostSevere,
-	type StatusLine,
-	shortOid,
-	withTime,
-} from '@epicenter/svelte/status-line';
+import type { StatusLine } from '@epicenter/svelte/status-line';
 
-/** What is saved to files: edits being written or kept after a failed write, and answers whose write failed. */
+/** What is saved to files: saves running or kept after a failure, and answers whose write failed. */
 export function filesLine(state: {
 	readonly saving: boolean;
-	/** An edit is kept in this window because its write failed. */
+	/** Typing is kept in this window because its save failed. */
 	readonly unsaved?: boolean;
+	/** Why storage refused the last save, until a save lands. */
+	readonly storageFailure?: string;
 	/** Answers that arrived and whose result file could not be written yet. */
 	readonly unwrittenAnswers: number;
 }): StatusLine {
@@ -34,202 +27,24 @@ export function filesLine(state: {
 				'Whispering keeps writing it while this window is open. If the window closes first, its file stays without the answer, and you can run it again.',
 			tone: 'error',
 		};
-	if (state.saving) return { label: 'Saving…', tone: 'busy' };
 	if (state.unsaved)
 		return {
 			label: 'An edit is not saved yet',
 			short: 'Not saved',
 			detail:
-				'Its write failed. The edit is kept in this window and is saved again with your next change to it.',
+				'Its save failed. The edit is kept in this window and is saved again with your next change to it, or when you try again.',
 			tone: 'error',
 		};
-	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
-}
-
-function changesLabel(count: number) {
-	return count === 0
-		? 'No changes since the last version'
-		: `${count} ${count === 1 ? 'change' : 'changes'} since the last version`;
-}
-
-/**
- * Saved files that are in no saved version yet. A count is neutral detail,
- * not a warning (ADR-0529). Only a current, successful observation may say
- * there are none; a stale or failed one says it needs checking and names
- * what the last check saw.
- */
-export function uncommittedLine(git: GitSnapshot): StatusLine {
-	const files = git.files;
-	if (files.state === 'unknown')
-		return files.error
-			? {
-					label: 'Check failed',
-					detail: `Uncommitted changes are unknown: ${files.error}`,
-					tone: 'error',
-				}
-			: git.activity.scan.active
-				? { label: 'Checking…', tone: 'busy' }
-				: {
-						label: 'Changes not checked yet',
-						short: 'Not checked',
-						tone: 'neutral',
-					};
-	const count = files.value.changes.length;
-	const last = `Last check at ${localTime(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
-	if (files.error)
+	if (state.saving) return { label: 'Saving…', tone: 'busy' };
+	if (state.storageFailure !== undefined)
 		return {
-			label: 'Check failed',
-			detail: `${files.error}\n${last}`,
+			label: 'A save failed',
+			detail: state.storageFailure,
 			tone: 'error',
 		};
-	if (files.stale)
-		return git.activity.scan.active
-			? { label: 'Checking…', detail: last, tone: 'busy' }
-			: {
-					label: 'Changes need checking',
-					short: 'Needs check',
-					detail: `Files changed after the last check. ${last}`,
-					tone: 'neutral',
-				};
-	return withTime(
-		{
-			label: changesLabel(count),
-			short: count === 0 ? undefined : `${count} changed`,
-			detail: changeList(files.value.changes).join('\n') || undefined,
-			tone: count === 0 ? 'good' : 'neutral',
-		},
-		'Checked',
-		files.checkedAt,
-	);
-}
-
-/** One commit attempt, as the last-version line and the Save version toast report it. */
-export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
-	switch (outcome.status) {
-		case 'committed':
-			return outcome.indexWarning
-				? {
-						label: `Committed ${shortOid(outcome.oid)} · index not updated`,
-						short: 'Index issue',
-						detail: `${outcome.message}\nIndex not updated: ${outcome.indexWarning}`,
-						tone: 'warning',
-					}
-				: {
-						label: `Committed ${shortOid(outcome.oid)}`,
-						detail: outcome.message,
-						tone: 'good',
-					};
-		case 'unchanged':
-			return outcome.indexWarning
-				? {
-						label: 'Git index not updated',
-						short: 'Index issue',
-						detail: `${outcome.indexWarning}\nSave version retries it.`,
-						tone: 'warning',
-					}
-				: { label: 'Nothing new to commit', tone: 'neutral' };
-		case 'branchMoved':
-			return {
-				label: 'Commit not recorded',
-				short: 'Not committed',
-				detail:
-					'The branch changed while committing. Your files are saved; commit again.',
-				tone: 'warning',
-			};
-		case 'blocked':
-			return {
-				label: 'Commit blocked',
-				detail: `${outcome.reason}\nYour files are still saved.`,
-				tone: 'warning',
-			};
-		case 'failed':
-			return {
-				label: 'Commit failed',
-				detail: `${outcome.error}\nYour files are still saved. Save version tries again.`,
-				tone: 'error',
-			};
-		case 'unconfirmed':
-			return {
-				label: 'Commit not confirmed',
-				detail: outcome.error,
-				tone: 'warning',
-			};
-		case 'closed':
-			return { label: 'Closed', tone: 'neutral' };
-	}
-}
-
-export function commitLine(git: GitSnapshot): StatusLine {
-	if (git.activity.commit.active) return { label: 'Committing…', tone: 'busy' };
-	const last = git.lastCommit;
-	if (last === undefined)
-		return { label: 'No commit this session', tone: 'neutral' };
-	return withTime(commitOutcomeLine(last), 'Last attempt', last.at);
-}
-
-/** The committed head, as last observed. */
-export function headLine(git: GitSnapshot): StatusLine {
-	const files = git.files;
-	if (files.state === 'unknown')
-		return files.error
-			? { label: 'History unavailable', detail: files.error, tone: 'error' }
-			: { label: 'History not checked yet', tone: 'neutral' };
-	const line: StatusLine =
-		files.value.head === undefined
-			? { label: 'No commits yet', tone: 'neutral' }
-			: {
-					label: `${git.branch} at ${shortOid(files.value.head)}`,
-					tone: 'neutral',
-				};
-	if (!files.stale && !files.error) return line;
-	return withTime(
-		{
-			...line,
-			label: `Last observed: ${line.label}`,
-			detail: files.error,
-		},
-		'Checked',
-		files.checkedAt,
-	);
-}
-
-/**
- * The one line the header shows: the most severe current fact, the earlier one
- * on a tie. Unsaved files take priority over history. The last commit attempt
- * and the changes since the last version count only when they need attention.
- */
-export function summaryLine(lines: {
-	files: StatusLine;
-	uncommitted: StatusLine;
-	commit: StatusLine;
-}): StatusLine {
-	if (lines.files.tone === 'busy' || lines.files.tone === 'error')
-		return lines.files;
-	const needsAttention = (line: StatusLine) =>
-		line.tone !== 'neutral' && line.tone !== 'good';
-	const chosen = mostSevere([
-		lines.files,
-		needsAttention(lines.commit) ? lines.commit : undefined,
-		// How many files changed since the last version is detail, not news.
-		needsAttention(lines.uncommitted) ? lines.uncommitted : undefined,
-	]);
-	if (chosen === undefined || chosen.tone === 'good')
-		return { label: 'Saved', tone: 'good' };
-	if (chosen === lines.commit)
-		return { ...chosen, label: `Saved · ${chosen.label.toLowerCase()}` };
-	return chosen;
-}
-
-/**
- * Whether one saved file is in history. `undefined` when the last check cannot
- * answer, so a row never claims a commit it has not seen.
- */
-export function committedState(
-	git: GitSnapshot,
-	paths: readonly string[],
-): 'committed' | 'uncommitted' | undefined {
-	if (git.files.state !== 'observed' || git.files.stale || git.files.error)
-		return undefined;
-	const changed = new Set(git.files.value.changes.map((change) => change.path));
-	return paths.some((path) => changed.has(path)) ? 'uncommitted' : 'committed';
+	return {
+		label: 'All changes saved on this device',
+		short: 'Saved',
+		tone: 'good',
+	};
 }

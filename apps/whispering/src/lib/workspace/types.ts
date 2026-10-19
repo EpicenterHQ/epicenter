@@ -1,13 +1,16 @@
 /**
  * The one boundary between Whispering and where its files live.
  *
- * Inside Epicenter, Whispering reaches a real directory Epicenter's shell
- * grants it, and its connections and local transcription through Epicenter;
- * a browser tab keeps a logical folder in OPFS. Everything above this type
- * is the same code for both. Capabilities a storage cannot offer are
- * `undefined` here, not emulated: a browser has no local model.
+ * Inside Epicenter, Whispering reaches an ordinary directory Epicenter's
+ * shell grants it, and its connections and local transcription through
+ * Epicenter; a browser tab keeps this site's local folder in the browser.
+ * Both are the same `Folder` (`@epicenter/folder`): rows read through
+ * Whispering's tables, rooted files, change notification, and save status.
+ * Everything above this type is the same code for both. Capabilities a
+ * storage cannot offer are `undefined` here, not emulated: a browser has no
+ * local model.
  */
-import type { Definition, LegacyFolder, OpenFolderError } from '@epicenter/folder';
+import type { Folder, OpenFolderError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import manifest from '../../../epicenter.app.json';
@@ -18,7 +21,7 @@ import type {
 	ConnectionsInfo,
 	Operation,
 } from '../connections.js';
-import type { whisperingDefinition } from '../definition.js';
+import type { WhisperingTables } from '../definition.js';
 import type {
 	PreparedTranscription,
 	TranscriptionError,
@@ -29,20 +32,19 @@ import type {
 } from '../transformation.js';
 import type { LocalTranscription } from './local-transcription.js';
 
-/**
- * A folder read through Whispering's definition: Whispering's own, whose
- * declaration is that definition, or another folder read through it, whose
- * declaration is its own `epicenter.json`.
- */
-export type WhisperingFolder = LegacyFolder<typeof whisperingDefinition, Definition>;
+/** Whispering's folder: its files, read through Whispering's tables. */
+export type WhisperingFolder = Folder<WhisperingTables>;
 
 /**
- * The folder both workspaces open, named by Whispering's app id in
- * `epicenter.app.json`. The browser
- * names its scoped OPFS directory after it; Epicenter hands an installed app
- * its own folder, `<folder root>/<app-id>`, under this scope (ADR-0552).
+ * Whispering's app id in `epicenter.app.json`. Epicenter registers an
+ * installed app's own directory, `<folder root>/<app-id>`, under this ID
+ * (ADR-0552), and the desktop workspace opens that directory by it.
  */
 export const WHISPERING_FOLDER_ID = manifest.id;
+
+/** What a person is told when this browser still holds an earlier version's recordings. */
+const EARLIER_BROWSER_DATA =
+	'Your earlier Whispering recordings are still stored in this browser. This version cannot read them yet, so it stopped before showing an empty folder. They are left as they are.';
 
 /**
  * Why no workspace could be opened. The message is what the person is shown.
@@ -56,7 +58,9 @@ export const WorkspaceError = defineErrors({
 		message:
 			refusal.name === 'InsideTauri'
 				? 'This window is inside a desktop app. Browser storage is not used inside a desktop app, so there is no folder to open here.'
-				: refusal.message,
+				: refusal.name === 'LegacyDataPresent'
+					? EARLIER_BROWSER_DATA
+					: refusal.message,
 		refusal,
 	}),
 	/** The desktop shell refused this window its folder, or the folder could not be opened. */
@@ -71,11 +75,12 @@ export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
 	/**
-	 * The scope `folder` was opened under: `WHISPERING_FOLDER_ID`, or the
-	 * folder Epicenter handed the window. A recording is written under it.
+	 * The ID the folder was opened under: the directory Epicenter registered
+	 * for this window, or `WHISPERING_FOLDER_ID` in a browser. The desktop
+	 * recorder writes a recording's audio under it.
 	 */
 	readonly folderId: string;
-	/** Where the files are: an absolute directory, or a description of browser storage. */
+	/** Where the files are, as the person is told it. */
 	readonly location: string;
 	/** What this session records from. Fixed when the workspace opens. */
 	readonly capture: CaptureDevice;
@@ -133,6 +138,7 @@ export type Workspace = {
 			microphone: MicrophonePreference | undefined,
 		): Promise<string | undefined>;
 	};
+	/** Release the folder and everything else the workspace opened. Saves already started finish first. */
 	close(): Promise<void>;
 };
 

@@ -1,12 +1,18 @@
 /**
- * The browser workspace's own storage: microphone preference failures reach
- * the chooser rather than becoming System default, and connections keep their
- * keys in this browser, tell the page none, and send only to the base URL a
- * request was prepared for.
+ * The browser workspace's own storage: it opens this site's local folder
+ * with Whispering's tables and nothing else, a refusal from it is what the
+ * person is shown, microphone preference failures reach the chooser rather
+ * than becoming System default, and connections keep their keys in this
+ * browser, tell the page none, and send only to the base URL a request was
+ * prepared for.
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import { Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { OpenFolderError } from '@epicenter/folder';
+import { Ok, type Result } from 'wellcrafted/result';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import { toneWav } from '../capture.js';
+import { whisperingTables } from '../definition.js';
+import { readBytes } from '../files.js';
 import { openTestWorkspace } from '../workspace.test-support.js';
 import type { Workspace } from './types.js';
 
@@ -25,10 +31,13 @@ Bun.plugin({
 });
 
 let folder: Workspace['folder'];
+/** What the next opening answers instead of the folder, when set. */
+let refusal: Result<never, OpenFolderError> | undefined;
 mock.module('@epicenter/folder/browser', () => ({
-	openFolder: async (options: { app: string }) => {
-		expect(options.app).toBe('so.epicenter.whispering');
-		return Ok(folder);
+	openFolder: async (options: Record<string, unknown>) => {
+		// The tables alone: no app, ID, definition, author, or credentials.
+		expect(options).toEqual({ tables: whisperingTables });
+		return refusal ?? Ok(folder);
 	},
 }));
 const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
@@ -42,6 +51,7 @@ const originalLocation = Object.getOwnPropertyDescriptor(
 );
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
+	refusal = undefined;
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 	for (const [name, descriptor] of [
 		['localStorage', originalStorage],
@@ -70,6 +80,39 @@ async function preferences(getItem: (key: string) => string | null) {
 	});
 	return browser.preferences;
 }
+
+test('earlier browser data is reported as kept, and no empty folder is opened in its place', async () => {
+	refusal = OpenFolderError.LegacyDataPresent({
+		folders: ['so.epicenter.whispering'],
+	});
+
+	const refused = expectErr(await openBrowserWorkspace());
+
+	expect(refused.name).toBe('BrowserFolder');
+	expect(refused.message).toContain(
+		'Your earlier Whispering recordings are still stored in this browser',
+	);
+	expect(refused.message).toContain('left as they are');
+});
+
+test('a recording’s audio is read back from the folder as its exact bytes for transcription', async () => {
+	const workspace = await openTestWorkspace();
+	folder = workspace.workspace.folder;
+	Object.defineProperty(globalThis, 'location', {
+		configurable: true,
+		value: new URL('http://localhost:5199'),
+	});
+	expectOk(await folder.files.write('audio/take.webm', null, toneWav()));
+	const browser = expectOk(await openBrowserWorkspace());
+	cleanups.push(async () => {
+		await browser.close();
+		await workspace.remove();
+	});
+
+	expect(expectOk(await readBytes(browser.folder, 'audio/take.webm'))).toEqual(
+		toneWav(),
+	);
+});
 
 test('missing and valid microphone preferences retain their meaning', async () => {
 	let saved: string | null = null;

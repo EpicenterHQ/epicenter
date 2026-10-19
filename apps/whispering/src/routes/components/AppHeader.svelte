@@ -3,7 +3,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import StatusPopover, { toastStatus } from '@epicenter/svelte/status-popover';
+	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -13,14 +13,7 @@
 	import type { Library } from '$lib/library.svelte.js';
 	import RecorderClock from './RecorderClock.svelte';
 	import SettingsForm from './SettingsForm.svelte';
-	import {
-		commitLine,
-		commitOutcomeLine,
-		filesLine,
-		headLine,
-		summaryLine,
-		uncommittedLine,
-	} from '$lib/status.js';
+	import { filesLine } from '$lib/status.js';
 
 	let {
 		library,
@@ -32,24 +25,17 @@
 		onToggleFiles: () => void;
 	} = $props();
 
-	const files = $derived(filesLine(library));
+	/** Whether what the person did is in the folder on this device. The folder keeps no versions and does not sync here. */
+	const files = $derived(
+		filesLine({
+			saving: library.saving,
+			unsaved: library.unsaved,
+			storageFailure: library.storageFailure,
+			unwrittenAnswers: library.unwrittenAnswers,
+		}),
+	);
 	/** The home page has the large recorder; every other page gets this compact one. */
 	const onHome = $derived(page.route.id === '/');
-	const uncommitted = $derived(uncommittedLine(library.git));
-	const commit = $derived(commitLine(library.git));
-	const head = $derived(headLine(library.git));
-	const summary = $derived(summaryLine({ files, uncommitted, commit }));
-
-	/** Record a version of the saved files: the only thing in Whispering that commits. */
-	let committing = $state(false);
-	async function saveVersion() {
-		committing = true;
-		try {
-			toastStatus(commitOutcomeLine(await library.saveVersion()));
-		} finally {
-			committing = false;
-		}
-	}
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
@@ -78,22 +64,8 @@
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={library.recorderError}>{library.recorderError}</span>
 	{/if}
 
-	<StatusPopover
-		{summary}
-		details={[
-			{ name: 'Files', testid: 'status-files', line: files },
-			{ name: 'Changes', testid: 'status-history', line: uncommitted },
-			{ name: 'Last version', testid: 'status-last-commit', line: commit },
-			{ name: 'History', testid: 'status-head', line: head },
-		]}
-	>
-		<StatusRow name="Folder" class="font-mono text-xs break-all" data-testid="status-folder">{library.workspace.location}</StatusRow>
-		{#snippet footer()}
-			<Button size="sm" disabled={committing || library.git.activity.commit.active} onclick={saveVersion} data-testid="save-version">
-				{#if committing}<Spinner class="size-3.5" />{/if}
-				Save version
-			</Button>
-		{/snippet}
+	<StatusPopover summary={files} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
+		<StatusRow name="Folder" class="text-xs break-all" data-testid="status-folder">{library.workspace.location}</StatusRow>
 	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">

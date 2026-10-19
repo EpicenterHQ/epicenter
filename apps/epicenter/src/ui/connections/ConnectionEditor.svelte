@@ -1,54 +1,56 @@
 <script lang="ts">
-	import type { ConnectionKind } from '@epicenter/ai/send';
-	import type { StoredRow } from '@epicenter/folder';
-	import type { TableWrites } from '@epicenter/folder/query';
+	import type { FolderContext } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { resultMutationOptions } from 'wellcrafted/query';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
 	import { commands } from '../bindings.gen';
-	import DebouncedText from './DebouncedText.svelte';
-	import { type ConnectionFields, failureText, keyStateKey, KIND_LABELS } from './connections';
+	import {
+		type Connection,
+		type connectionTables,
+		failureText,
+		keyStateKey,
+		KIND_LABELS,
+		saveFailureText,
+	} from './connections';
 
 	/**
 	 * One AI connection: its row in `so.epicenter`, whose title and model are
-	 * edited in place, each change setting its field on the file as it is now
-	 * (ADR-0576), and, for an `openai-compatible` connection, the endpoint and
-	 * key this computer keeps for it in the keychain (ADR-0557). The page
-	 * hands a key to the keychain and never reads one back. The list keys
-	 * each editor by its stem.
+	 * edited in place as the row's draft (`edits.row`): what is typed shows at
+	 * once and saves a second after the last keystroke, when the field loses
+	 * focus, and when the editor goes away, merged with whatever was saved
+	 * meanwhile (ADR-0576). For an `openai-compatible` connection, the
+	 * endpoint and key this computer keeps for it are in the keychain
+	 * (ADR-0557). The page hands a key to the keychain and never reads one
+	 * back. The list keys each editor by its id.
 	 */
 	let {
-		stored,
-		writes,
+		row,
+		local,
 	}: {
-		stored: StoredRow<ConnectionFields> & { stem: string };
-		/** The connections table's writes, each in its row's turn. */
-		writes: TableWrites<ConnectionFields>;
+		/** The row as the folder holds it now. */
+		row: Connection;
+		local: FolderContext<typeof connectionTables>;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	const stem = stored.stem;
-	const fields = $derived(stored.row.fields);
+	const id = row.id;
+	// svelte-ignore state_referenced_locally
+	const draft = local.edits.row('connections', id);
+	const fields = $derived(draft.shown(row).fields);
 	const client = useQueryClient();
-	const setConnection = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['connections', 'set', stem],
-			mutationFn: (fields: Partial<ConnectionFields>) => writes.set(stem, fields),
-		}),
-	);
-	const deleteConnection = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['connections', 'delete', stem],
-			mutationFn: () => writes.delete(stem),
-		}),
-	);
+
+	// The draft outlives the editor; send what is typed now.
+	onDestroy(() => void draft.save());
 
 	const keyState = createQuery(() => ({
-		queryKey: keyStateKey(stem),
+		queryKey: keyStateKey(id),
 		enabled: fields.kind === 'openai-compatible',
+		// The keychain changes outside the folder, so read it again as before.
+		staleTime: 0,
+		refetchOnWindowFocus: true,
 		queryFn: async () => {
-			const { data, error } = await commands.aiKeyState(stem);
+			const { data, error } = await commands.aiKeyState(id);
 			if (error !== null) throw new Error(failureText(error));
 			return data;
 		},
@@ -57,17 +59,18 @@
 	let endpoint = $state('');
 	let key = $state('');
 	let keyProblem = $state<string>();
+	let deleteProblem = $state<string>();
 	let savingKey = $state(false);
 
-	async function save(field: 'title' | 'model', text: string) {
-		await setConnection.mutateAsync({ [field]: text.trim() });
+	function type(field: 'title' | 'model', text: string) {
+		draft.change(row, { fields: { [field]: text } });
 	}
 
 	async function saveKey() {
 		savingKey = true;
 		keyProblem = undefined;
 		try {
-			const { error } = await commands.aiKeySet(stem, endpoint, key);
+			const { error } = await commands.aiKeySet(id, endpoint, key);
 			if (error !== null) keyProblem = failureText(error);
 			else {
 				key = '';
@@ -75,43 +78,68 @@
 			}
 		} finally {
 			savingKey = false;
-			await client.invalidateQueries({ queryKey: keyStateKey(stem) });
+			await client.invalidateQueries({ queryKey: keyStateKey(id) });
 		}
 	}
 
 	async function removeKey() {
 		keyProblem = undefined;
-		const { error } = await commands.aiKeyRemove(stem);
+		const { error } = await commands.aiKeyRemove(id);
 		if (error !== null) keyProblem = failureText(error);
-		await client.invalidateQueries({ queryKey: keyStateKey(stem) });
+		await client.invalidateQueries({ queryKey: keyStateKey(id) });
 	}
 
 	async function removeConnection() {
 		keyProblem = undefined;
-		const { error } = await commands.aiKeyRemove(stem);
+		deleteProblem = undefined;
+		// Closing Settings refuses the row's delete; the key stays with its row.
+		if (local.edits.fenced) return;
+		const { error } = await commands.aiKeyRemove(id);
 		if (error !== null) {
 			keyProblem = `The key on this computer was not removed, so the connection was kept: ${failureText(error)}`;
 			return;
 		}
-		deleteConnection.mutate();
+		const removed = await local.edits.delete('connections', id);
+		if (removed.error !== null) deleteProblem = saveFailureText(removed.error);
+		else if (!removed.data.deleted)
+			deleteProblem = 'The connection changed while it was being deleted, so it was kept.';
 	}
 </script>
 
 <li class="grid gap-2 rounded-md border p-3">
 	<div class="flex items-center justify-between gap-2">
-		<p class="font-medium">{fields.title || stem}</p>
-		<span class="text-muted-foreground">{KIND_LABELS[fields.kind as ConnectionKind]} · {stem}</span>
+		<p class="font-medium">{fields.title || id}</p>
+		<span class="text-muted-foreground">{KIND_LABELS[fields.kind]} · {id}</span>
 	</div>
 	<div class="grid gap-2 sm:grid-cols-2">
-		<DebouncedText label="Title" value={fields.title} save={(text) => save('title', text)} />
-		<DebouncedText
-			label="Model"
-			value={fields.model}
-			placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
-			save={(text) => save('model', text)}
-		/>
+		<label class="grid gap-1">
+			<span class="text-muted-foreground">Title</span>
+			<Input
+				value={fields.title}
+				disabled={draft.locked}
+				aria-invalid={draft.error !== undefined}
+				oninput={(event) => type('title', event.currentTarget.value)}
+				onblur={() => void draft.save()}
+			/>
+		</label>
+		<label class="grid gap-1">
+			<span class="text-muted-foreground">Model</span>
+			<Input
+				value={fields.model}
+				placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
+				disabled={draft.locked}
+				aria-invalid={draft.error !== undefined}
+				oninput={(event) => type('model', event.currentTarget.value)}
+				onblur={() => void draft.save()}
+			/>
+		</label>
 	</div>
-	{#if setConnection.error}<p role="alert" class="text-destructive">{setConnection.error.message}</p>{/if}
+	{#if draft.error !== undefined && !draft.saving}
+		<p role="alert" class="text-destructive">
+			Not saved: {saveFailureText(draft.error)}
+			<button type="button" class="underline" onclick={() => void draft.save()}>Try again</button>
+		</p>
+	{/if}
 
 	{#if fields.kind === 'openai-compatible'}
 		{#if keyState.isPending}
@@ -148,8 +176,8 @@
 		<p class="text-muted-foreground">Runs on this computer with the local transcription model chosen below. Nothing is sent.</p>
 	{/if}
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
-	{#if deleteConnection.error}<p role="alert" class="text-destructive">{deleteConnection.error.message}</p>{/if}
+	{#if deleteProblem}<p role="alert" class="text-destructive">{deleteProblem}</p>{/if}
 	<div>
-		<Button variant="ghost" size="sm" onclick={() => void removeConnection()}>Delete connection</Button>
+		<Button variant="ghost" size="sm" disabled={draft.locked} onclick={() => void removeConnection()}>Delete connection</Button>
 	</div>
 </li>

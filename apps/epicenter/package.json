@@ -17,6 +17,7 @@
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"tauri": "tauri",
 		"test": "bun test",
+		"test:mounted": "bun test --conditions=browser --conditions=svelte src/folders/FolderView.mounted.test.ts",
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
@@ -29,6 +30,7 @@
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"runed": "catalog:",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

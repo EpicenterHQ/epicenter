@@ -2,9 +2,8 @@
  * Which installed apps the Folders window offers on a folder.
  *
  * Key behaviors:
- * - Every installed app that can run is offered, by title, whatever the
- *   folder declares; the app refuses a folder whose declaration does not
- *   contain its definition
+ * - Every installed app that can run is offered, by title, whatever files
+ *   the folder holds; each app supplies its own table schemas
  * - An app with an update waiting for approval is offered at its approved
  *   commit
  * - An installed app with no approved commit, or broken, is offered on no

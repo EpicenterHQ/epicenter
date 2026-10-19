@@ -21,17 +21,16 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { audioPathIn, RECORDINGS, whisperingDefinition } from '$lib/definition.js';
+	import { audioPathIn, RECORDINGS, rowIdOf } from '$lib/definition.js';
 	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
-	import { committedState } from '$lib/status.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, lf } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
+	import SaveStatus from './SaveStatus.svelte';
 	import TranscriptCard from './TranscriptCard.svelte';
 
 	let {
@@ -65,20 +64,19 @@
 	const text = $derived(
 		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.text) : undefined,
 	);
-	/** Why the text on screen is not a recording yet, read live from what is typed. */
-	const issues = $derived(text === undefined ? undefined : (parseRow(whisperingDefinition.tables.recordings, text).error ?? undefined));
-	const id = $derived(rowStemOf(RECORDINGS, path) ?? path);
+	/** Why the file, as last saved, is not a recording yet. Typing saves after a pause, and this follows. */
+	const issues = $derived(asText ? (library.rowSource(RECORDINGS, path)?.issues ?? undefined) : undefined);
+	const id = $derived(rowIdOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
-	const saving = $derived(library.isSaving(path));
 
 	// The parent keys this view by the file. While it replaces the view, the
 	// prop already reads the next file, so what is sent as the view goes away
 	// uses this one.
 	// svelte-ignore state_referenced_locally
 	const own = path;
-	const ownId = rowStemOf(RECORDINGS, own) ?? own;
+	const ownId = rowIdOf(RECORDINGS, own) ?? own;
 
 	/** The title typed and not yet saved: the recording's field draft. */
 	// svelte-ignore state_referenced_locally
@@ -95,9 +93,6 @@
 	const audioPath = $derived(entry ? audioPathIn(entry.row.fields) : undefined);
 	/** Whether the audio the row names is missing from this device's folder. */
 	const absent = $derived(entry !== undefined && library.audioOf(entry).kind === 'absent');
-	const history = $derived(
-		entry ? committedState(library.git, [entry.path, ...(audioPath ? [audioPath] : [])]) : undefined,
-	);
 
 	function when(value: string) {
 		const date = new Date(value);
@@ -136,22 +131,13 @@
 		{/if}
 	</div>
 
-	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-		{saving
-			? 'Saving…'
-			: typedTitle.error
-				? 'Not saved'
-				: `Saved to ${path}`}
-		{#if typedTitle.error && !typedTitle.saving}
-			<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void typedTitle.save()}>Try again</Button>
-		{/if}
-	</p>
+	<SaveStatus {library} {path} saved="Saved to {path}" class="shrink-0 border-b px-4 py-1" />
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This text does not read as a recording yet. Fix it here; it saves as you type.
+				This file does not read as a recording yet. Fix it here; it saves when you pause.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each issues as issue, index (index)}
@@ -269,10 +255,6 @@
 							{:else}
 								Not set up
 							{/if}
-						</dd>
-						<dt class="text-muted-foreground">History</dt>
-						<dd data-testid="recording-history">
-							{history === 'uncommitted' ? 'Saved · not in history yet' : history === 'committed' ? 'In history' : 'Unknown'}
 						</dd>
 						<dt class="text-muted-foreground">ID</dt>
 						<dd class="min-w-0 font-mono text-xs break-all">{id}</dd>

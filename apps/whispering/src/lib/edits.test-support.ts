@@ -1,18 +1,19 @@
 /**
  * What a view does to edit a file, for tests that drive the library without
  * mounting components: change the row or the text, and send it, as a view
- * does once the person pauses or leaves. A changed field is an update of the
- * file as it is now; a changed body or text is a draft saved over the
- * version it started from. `draft` reads what the view shows now: the body
- * typed while it is unsaved, else the cache. Type-only imports from the library, so this loads before the
- * Svelte compiler plugin is registered.
+ * does once the person pauses or leaves. A changed field or body is the
+ * row's draft, saved as a change from the row it started from; a changed
+ * text is a text draft saved over the text it started from. `draft` reads
+ * what the view shows now: what is typed over the cache. Type-only imports
+ * from the library, so this loads before the Svelte compiler plugin is
+ * registered.
  */
-import { type Row, rowStemOf } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
-import type {
-	RecordingFields,
-	TranscriptionFields,
-	TransformationFields,
+import {
+	type RecordingFields,
+	rowIdOf,
+	type TranscriptionFields,
+	type TransformationFields,
 } from './definition.js';
 import type { Library, RowTable } from './library.svelte.js';
 import { QueryObserver, quiet } from './query.test-support.js';
@@ -23,38 +24,45 @@ type FieldsOf<T extends RowTable> = T extends 'recordings'
 		? TranscriptionFields
 		: TransformationFields;
 
+/** A row as a view shows it: its fields and its body. */
+type Shown<T extends RowTable> = { fields: FieldsOf<T>; body: string };
+
 function rowEditor<T extends RowTable>(
 	library: Library,
 	table: T,
 	path: string | undefined,
 ) {
 	if (path === undefined) throw new Error(`Expected a ${table} file to edit`);
-	const stem = rowStemOf(table, path);
+	const stem = rowIdOf(table, path);
 	if (stem === undefined) throw new Error(`${path} is not a ${table} row`);
+	const shown = (): Shown<T> | undefined => {
+		const row = library.rowAt(table, path);
+		return row && { fields: row.fields as FieldsOf<T>, body: row.body };
+	};
 	return {
 		path,
 		/** The row shown now. Throws when there is none. */
-		get draft(): Row<FieldsOf<T>> {
-			const row = library.rowAt(table, path);
+		get draft(): Shown<T> {
+			const row = shown();
 			if (row === undefined) throw new Error(`No row for ${path} to show`);
-			return row as Row<FieldsOf<T>>;
+			return row;
 		},
 		/** Change the row as a person typing does, and send it. */
-		edit(change: (row: Row<FieldsOf<T>>) => void) {
-			const shown = library.rowAt(table, path) as Row<FieldsOf<T>> | undefined;
-			if (shown === undefined) return;
-			const next = structuredClone(shown);
+		edit(change: (row: Shown<T>) => void) {
+			const before = shown();
+			if (before === undefined) return;
+			const next = structuredClone(before);
 			change(next);
 			const set: Record<string, unknown> = {};
 			for (const [name, value] of Object.entries(next.fields))
 				if (
 					JSON.stringify(value) !==
-					JSON.stringify((shown.fields as Record<string, unknown>)[name])
+					JSON.stringify((before.fields as Record<string, unknown>)[name])
 				)
 					set[name] = value;
 			if (Object.keys(set).length > 0)
 				library.setFields(table, stem, set as never);
-			if (next.body !== shown.body) {
+			if (next.body !== before.body) {
 				library.editBody(table, stem, next.body);
 				void library.saveBody(path);
 			}
@@ -105,7 +113,7 @@ export async function openText(library: Library, path: string) {
 }
 
 /**
- * Let edits, writes, and actions land, then read the folder again, as a
+ * Let drafts, saves, and actions land, then read the folder again, as a
  * report that files changed does, and let that read land.
  */
 export async function settle(library: Library) {

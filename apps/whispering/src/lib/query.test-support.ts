@@ -14,23 +14,16 @@ import type { Library } from './library.svelte.js';
 
 export { QueryClient, QueryObserver };
 
-/** A fresh cache, mounted as the layout's provider mounts it. */
-export function createQueryClient() {
-	const client = new QueryClient();
-	client.mount();
-	return client;
-}
-
 /**
- * Wait until no write runs or waits, and nothing is mutating or fetching.
- * Typing that waits for its pause is not waited for.
+ * Wait until no save runs, and nothing is mutating or fetching. Typing that
+ * waits for its pause is not waited for.
  */
 export async function quiet({
 	queryClient,
-	edits,
-}: Pick<Library, 'queryClient' | 'edits'>) {
+	folder,
+}: Pick<Library, 'queryClient' | 'folder'>) {
 	const idle = () =>
-		edits.writes.pending() === 0 &&
+		!folder.status.saving &&
 		queryClient.isMutating() === 0 &&
 		queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {

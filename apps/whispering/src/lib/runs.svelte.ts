@@ -12,35 +12,30 @@
  * What lives only in this window is what is happening: a request under way,
  * why one failed, and an answer whose write failed. Such an answer is written
  * again while the page lives; a reload drops it and its row stays unfinished.
- * A fill writes the answer as an insertion into the empty body the run
- * started with (ADR-0576): the same answer filled elsewhere stands once, and
- * a different one, or text a person typed there, stays beside it. A row that
- * is gone was discarded, and is not written.
+ * A fill saves the answer as a change from the row with the empty body the
+ * run started with (ADR-0632): the same answer filled elsewhere stands once,
+ * and a field a person changed meanwhile is kept. A row that is gone was
+ * discarded, and is not written.
  */
-import {
-	type FileTable,
-	type Row,
-	rowPath,
-	rowStemOf,
-} from '@epicenter/folder';
+import type { Row, FolderTable } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
 	audioPathIn,
-	RECORDINGS,
 	type RecordingFields,
+	rowIdOf,
+	rowPath,
 	TEXT_RUNS,
 	type TextRunFields,
 	TRANSCRIPTIONS,
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 	type TranscriptionFields,
-	type TransformationFields,
 	type TransformationRunFields,
 } from './definition.js';
 import { describeError } from './files.js';
-import type { ResolvedRecipe } from './recipe.js';
+import type { RecipeRow, ResolvedRecipe } from './recipe.js';
 import type { Workspace } from './workspace/types.js';
 
 const describe = (cause: unknown) =>
@@ -117,6 +112,10 @@ const RETRY_LAST_MS = 30_000;
 
 const pathOf = (target: Target) => rowPath(target.table, target.stem);
 
+/** Why a row's text does not read, in the words the person is shown. */
+const unread = (row: Row) =>
+	row.issues?.map((issue) => issue.message).join(' ') ?? '';
+
 export function createRuns({
 	workspace,
 	makeId,
@@ -136,30 +135,26 @@ export function createRuns({
 		readonly info: ConnectionsInfo | undefined;
 		readonly error: string | undefined;
 	};
-	resolve: (recipe: Row<TransformationFields> | undefined) => ResolvedRecipe;
-	/** Resolves once the edits being written have landed, so what is read is what was typed. */
-	settle: () => Promise<void>;
+	resolve: (recipe: RecipeRow | undefined) => ResolvedRecipe;
+	/**
+	 * Resolves once the typing held for `path` saved, so what is read is what
+	 * was typed.
+	 */
+	settle: (path: string) => Promise<void>;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
 	capturing: ReadonlySet<string>;
 	/**
 	 * Run folder work as a mutation, so closing waits for it and the folder is
-	 * read again after it. `scope` names the file whose queue it joins: a
-	 * recording's results are written in order, after its writes. `file`
-	 * names the file the work writes, whose turn it takes first, so it is
-	 * ordered with the person's edits of that file too. Waiting on an
-	 * endpoint is not tracked.
+	 * read again after it. `scope` names the recording or file it is for.
+	 * Waiting on an endpoint is not tracked.
 	 */
-	track: <T>(
-		work: () => Promise<T>,
-		scope?: string,
-		file?: string,
-	) => Promise<T>;
+	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
 }) {
 	const { folder } = workspace;
-	const tableOf = (name: ResultTable) =>
-		folder.tables[name] as unknown as FileTable<unknown>;
+	/** A result table, read and written as rows whatever its fields. */
+	const tableOf = (name: ResultTable): FolderTable => folder.tables[name];
 	/** Transcribe presses, by recording ID: one under way, or why one sent nothing. */
 	const transcriptions = new SvelteMap<string, TranscriptionRun>();
 	/** Result rows with something happening in this window, by path. */
@@ -181,7 +176,7 @@ export function createRuns({
 	const scopeOf = (target: Target) =>
 		target.recording === undefined
 			? pathOf(target)
-			: rowPath(RECORDINGS, target.recording);
+			: rowPath('recordings', target.recording);
 
 	/** Run `work` as the folder work of `target`, counted as a write of its row. */
 	async function writeOf<T>(
@@ -191,7 +186,7 @@ export function createRuns({
 		const path = pathOf(target);
 		writing.set(path, target.recording);
 		try {
-			return await track(work, scopeOf(target), path);
+			return await track(work, scopeOf(target));
 		} finally {
 			writing.delete(path);
 		}
@@ -200,57 +195,56 @@ export function createRuns({
 	/**
 	 * Write a run's row with an empty body, before its request goes out. The
 	 * row shows as running from the moment it is listed. A recording deleted
-	 * while this waited its turn gets no row. Answers why the row was not
-	 * written.
+	 * meanwhile gets no row. Answers the row it wrote, to fill, or why it
+	 * wrote none.
 	 */
-	async function begin(target: Target, row: Row<unknown>) {
+	async function begin(
+		target: Target,
+		fields: Record<string, unknown>,
+	): Promise<Result<Row, string>> {
 		setLive(target, { kind: 'running' });
-		const problem = await writeOf(
+		const begun = await writeOf(
 			target,
-			async (): Promise<string | undefined> => {
+			async (): Promise<Result<Row, string>> => {
 				try {
 					if (target.recording !== undefined) {
 						const { data: recording, error } =
 							await folder.tables.recordings.get(target.recording);
 						// A recording file that needs repair is still there.
 						if (error === null && recording === undefined)
-							return 'The recording is no longer in the folder.';
+							return Err('The recording is no longer in the folder.');
 					}
-					const { error } = await tableOf(target.table).create(row, {
-						stem: target.stem,
-					});
-					return error === null ? undefined : describeError(error);
+					const { data, error } = await tableOf(target.table).set(
+						target.stem,
+						null,
+						{ fields, body: '' },
+					);
+					return error === null ? Ok(data.sent) : Err(describeError(error));
 				} catch (cause) {
-					// The folder host went away.
-					return describe(cause);
+					// The folder went away.
+					return Err(describe(cause));
 				}
 			},
 		);
-		if (problem !== undefined) live.delete(pathOf(target));
-		return problem;
+		if (begun.error !== null) live.delete(pathOf(target));
+		return begun;
 	}
 
 	/**
-	 * Fill the row's body with the answer: the change from the row with the
-	 * empty body the run wrote to the row with the answer (ADR-0576), merged
-	 * by line with whatever changed since. A fill elsewhere with the same
-	 * text is written once, and one with different text stays beside this
-	 * one. Each attempt reads the row for its fields. A row deleted meanwhile
-	 * stays deleted: a write over it writes nothing, and their deletion
-	 * stands.
+	 * Fill the row's body with the answer: the change from `from`, the row
+	 * with the empty body the run wrote, merged with whatever changed since
+	 * (ADR-0632). The same text filled elsewhere is written once. A row
+	 * deleted meanwhile stays deleted: nothing is written.
 	 */
-	async function fill(target: Target, body: string) {
+	async function fill(target: Target, from: Row, body: string) {
 		const table = tableOf(target.table);
 		try {
 			const { data: stored, error } = await table.get(target.stem);
 			if (error !== null) return describeError(error);
 			if (stored === undefined) return undefined;
-			const { fields } = stored.row;
-			const { error: writeError } = await table.write(
-				target.stem,
-				{ fields, body: '' },
-				{ fields, body },
-			);
+			const { error: writeError } = await table.set(target.stem, from, {
+				body,
+			});
 			return writeError === null ? undefined : describeError(writeError);
 		} catch (cause) {
 			return describe(cause);
@@ -261,7 +255,12 @@ export function createRuns({
 	 * Write a received answer into its row. A failed write is tried again
 	 * later, in the background, until it lands or this window closes.
 	 */
-	async function write(target: Target, text: string, attempt: number) {
+	async function write(
+		target: Target,
+		from: Row,
+		text: string,
+		attempt: number,
+	) {
 		const path = pathOf(target);
 		retries.delete(path);
 		const before = live.get(path)?.state;
@@ -270,7 +269,9 @@ export function createRuns({
 			text,
 			message: before?.kind === 'writing' ? before.message : undefined,
 		});
-		const error = await writeOf(target, () => fill(target, resultBody(text)));
+		const error = await writeOf(target, () =>
+			fill(target, from, resultBody(text)),
+		);
 		if (error === undefined) {
 			live.delete(path);
 			return;
@@ -280,15 +281,19 @@ export function createRuns({
 		const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_LAST_MS);
 		retries.set(
 			path,
-			setTimeout(() => void write(target, text, attempt + 1), wait),
+			setTimeout(() => void write(target, from, text, attempt + 1), wait),
 		);
 	}
 
 	/**
-	 * Send the request for a row already in the folder, then write its answer.
-	 * Ends when the answer's first write ends.
+	 * Send the request for a row already in the folder, then write its answer
+	 * as a change from `from`. Ends when the answer's first write ends.
 	 */
-	async function send(target: Target, request: () => Promise<Answer>) {
+	async function send(
+		target: Target,
+		from: Row,
+		request: () => Promise<Answer>,
+	) {
 		setLive(target, { kind: 'running' });
 		let answer: Answer;
 		try {
@@ -302,29 +307,31 @@ export function createRuns({
 			setLive(target, { kind: 'failed', message: answer.error.message });
 			return;
 		}
-		await write(target, answer.data.text, 0);
+		await write(target, from, answer.data.text, 0);
 	}
 
-	/** The saved transformation at `path`, read now, after the edits being written land. */
+	/** The saved transformation at `path`, read now, after the typing held for it saved. */
 	async function recipeAt(
 		path: string,
 	): Promise<Result<{ stem: string; resolved: ResolvedRecipe }, string>> {
-		const stem = rowStemOf(TRANSFORMATIONS, path);
+		const stem = rowIdOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
-		await settle();
+		await settle(path);
 		const { data: stored, error } =
 			await folder.tables.transformations.get(stem);
-		if (error !== null && error.name !== 'InvalidRow')
-			return Err(error.message);
-		if (error === null && stored === undefined)
+		if (error !== null) return Err(error.message);
+		if (stored === undefined)
 			return Err('This transformation is no longer in the folder.');
-		return Ok({ stem, resolved: resolve(stored?.row) });
+		return Ok({
+			stem,
+			resolved: resolve(stored.issues === null ? stored : undefined),
+		});
 	}
 
 	/**
 	 * What a transformation is made from, read now: the transcript's saved text
-	 * and the recording it names. The edits being written land first, so what
-	 * is sent is what the folder has.
+	 * and the recording it names. The typing held for the transcript saves
+	 * first, so what is sent is what the folder has.
 	 */
 	async function transcriptAt(
 		path: string,
@@ -334,29 +341,28 @@ export function createRuns({
 			string
 		>
 	> {
-		const transcriptionId = rowStemOf(TRANSCRIPTIONS, path);
+		const transcriptionId = rowIdOf(TRANSCRIPTIONS, path);
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
-		await settle();
+		await settle(path);
 		const { data: stored, error } =
 			await folder.tables.transcriptions.get(transcriptionId);
-		if (error?.name === 'InvalidRow')
-			return Err(
-				`${path} needs repair before it can be transformed. Fix it from Files.`,
-			);
 		if (error !== null) return Err(error.message);
 		if (stored === undefined)
 			return Err('This transcript is no longer in the folder.');
-		const input = stored.row.body;
-		const { recordingId } = stored.row.fields;
+		if (stored.issues !== null)
+			return Err(
+				`${path} needs repair before it can be transformed: ${unread(stored)} Fix it from Files.`,
+			);
+		const input = stored.body;
+		const { recordingId } = stored.fields;
 		if (input.trim() === '')
 			return Err('This transcript has no text to transform.');
 		const { data: recording, error: recordingError } =
 			await folder.tables.recordings.get(recordingId);
+		if (recordingError !== null) return Err(recordingError.message);
 		// A recording file that needs repair is still there.
-		if (recordingError !== null && recordingError.name !== 'InvalidRow')
-			return Err(recordingError.message);
-		if (recordingError === null && recording === undefined)
+		if (recording === undefined)
 			return Err(
 				'The recording this transcript was made from is no longer in the folder.',
 			);
@@ -398,10 +404,10 @@ export function createRuns({
 			const prepared = await track(prepare);
 			if (typeof prepared === 'string') return prepared;
 			const { target, fields } = prepared;
-			const problem = await begin(target, { fields, body: '' });
-			if (problem !== undefined)
+			const { data: from, error: problem } = await begin(target, fields);
+			if (problem !== null)
 				return `Nothing was sent: the result’s file could not be written. ${problem}`;
-			await send(target, () =>
+			await send(target, from, () =>
 				workspace.transform({
 					expectedBaseUrl: fields.endpoint,
 					model: fields.model,
@@ -419,23 +425,32 @@ export function createRuns({
 	 * What running a result row again sends, read from the row and the folder
 	 * now, or why it is not sent.
 	 */
-	async function againOf(
-		path: string,
-	): Promise<
-		Result<{ target: Target; request: () => Promise<Answer> }, string>
+	async function againOf(path: string): Promise<
+		Result<
+			{
+				target: Target;
+				from: Row;
+				request: () => Promise<Answer>;
+			},
+			string
+		>
 	> {
 		const table = (
 			[TRANSCRIPTIONS, TRANSFORMATION_RUNS, TEXT_RUNS] as const
-		).find((name) => rowStemOf(name, path) !== undefined);
+		).find((name) => rowIdOf(name, path) !== undefined);
 		if (table === undefined) return Err(`${path} is not a result.`);
-		const stem = rowStemOf(table, path) as string;
+		const stem = rowIdOf(table, path) as string;
 		const { data: stored, error } = await tableOf(table).get(stem);
 		if (error !== null) return Err(describeError(error));
 		if (stored === undefined) return Err(`${path} is no longer in the folder.`);
-		if (stored.row.body !== '')
+		if (stored.issues !== null)
+			return Err(
+				`${path} needs repair before it runs again: ${unread(stored)}`,
+			);
+		if (stored.body !== '')
 			return Err('This already has its answer, so nothing was sent.');
 		if (table === TRANSCRIPTIONS) {
-			const fields = stored.row.fields as TranscriptionFields;
+			const fields = stored.fields as TranscriptionFields;
 			const recording = fields.recordingId;
 			const moved = connectionMoved('transcription', fields.endpoint);
 			if (moved !== undefined) return Err(moved);
@@ -446,10 +461,15 @@ export function createRuns({
 			if (recordingError !== null) return Err(describeError(recordingError));
 			if (entry === undefined)
 				return Err('The recording is no longer in the folder.');
-			const audioPath = audioPathIn(entry.row.fields);
+			if (entry.issues !== null)
+				return Err(
+					`The recording needs repair before it is transcribed: ${unread(entry)}`,
+				);
+			const audioPath = audioPathIn(entry.fields);
 			if (audioPath === undefined) return Err(NO_AUDIO);
 			return Ok({
 				target: { table, stem, recording },
+				from: stored,
 				request: () =>
 					workspace.transcribe({
 						audioPath,
@@ -458,7 +478,7 @@ export function createRuns({
 					}),
 			});
 		}
-		const fields = stored.row.fields as TransformationRunFields | TextRunFields;
+		const fields = stored.fields as TransformationRunFields | TextRunFields;
 		const moved = connectionMoved('text', fields.endpoint);
 		if (moved !== undefined) return Err(moved);
 		const recording = 'recordingId' in fields ? fields.recordingId : undefined;
@@ -466,6 +486,7 @@ export function createRuns({
 			return Err(BEING_DELETED);
 		return Ok({
 			target: { table, stem, recording },
+			from: stored,
 			request: () =>
 				workspace.transform({
 					expectedBaseUrl: fields.endpoint,
@@ -511,7 +532,7 @@ export function createRuns({
 			if (transcriptions.get(id)?.kind === 'running') return transcribing;
 			for (const [path, { state, recording }] of live)
 				if (recording === id && state.kind === 'running')
-					return rowStemOf(TRANSCRIPTIONS, path) !== undefined
+					return rowIdOf(TRANSCRIPTIONS, path) !== undefined
 						? transcribing
 						: 'A transformation of this recording’s transcript is still running. Wait for it to finish, then delete the recording.';
 			if ([...writing.values()].includes(id))
@@ -538,7 +559,7 @@ export function createRuns({
 		 */
 		async transcribe(entry: {
 			readonly stem: string;
-			readonly row: Row<RecordingFields>;
+			readonly row: { readonly fields: RecordingFields };
 		}) {
 			if (refused() !== undefined) return;
 			const id = entry.stem;
@@ -567,20 +588,18 @@ export function createRuns({
 					stem: makeId(at),
 					recording: id,
 				};
-				const problem = await begin(target, {
-					fields: {
-						recordingId: id,
-						createdAt: at.toISOString(),
-						model: connection.model,
-						endpoint: connection.baseUrl,
-					} as TranscriptionFields,
-					body: '',
-				});
-				if (problem !== undefined)
+				const fields: TranscriptionFields = {
+					recordingId: id,
+					createdAt: at.toISOString() as TranscriptionFields['createdAt'],
+					model: connection.model,
+					endpoint: connection.baseUrl,
+				};
+				const { data: from, error: problem } = await begin(target, fields);
+				if (problem !== null)
 					return fail(
 						`Nothing was sent: the transcript’s file could not be written. ${problem}`,
 					);
-				await send(target, () =>
+				await send(target, from, () =>
 					workspace.transcribe({
 						audioPath,
 						expectedBaseUrl: connection.baseUrl,
@@ -610,9 +629,8 @@ export function createRuns({
 				key,
 				{
 					transformationId:
-						rowStemOf(TRANSFORMATIONS, transformationPath) ??
-						transformationPath,
-					transcriptionId: rowStemOf(TRANSCRIPTIONS, transcriptionPath),
+						rowIdOf(TRANSFORMATIONS, transformationPath) ?? transformationPath,
+					transcriptionId: rowIdOf(TRANSCRIPTIONS, transcriptionPath),
 				},
 				async () => {
 					const { data: recipe, error } = await recipeAt(transformationPath);
@@ -658,7 +676,7 @@ export function createRuns({
 			const why = refused();
 			if (why !== undefined) return why;
 			if (input.trim() === '') return 'Paste some text to run this on.';
-			const stem = rowStemOf(TRANSFORMATIONS, transformationPath);
+			const stem = rowIdOf(TRANSFORMATIONS, transformationPath);
 			if (stem === undefined)
 				return `${transformationPath} is not a transformation.`;
 			const key = JSON.stringify(['text', transformationPath]);
@@ -712,7 +730,7 @@ export function createRuns({
 				if (error !== null) return error;
 				const late = refused();
 				if (late !== undefined) return late;
-				await send(prepared.target, prepared.request);
+				await send(prepared.target, prepared.from, prepared.request);
 				return undefined;
 			} finally {
 				again.delete(path);

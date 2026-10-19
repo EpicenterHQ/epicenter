@@ -1,18 +1,39 @@
 /**
- * What Settings' AI connections share: the row's fields, how each kind is
- * named, the query key of a connection's keychain state, and a new
- * connection's id.
+ * What Settings' AI connections share: the table Settings reads them from,
+ * how each kind is named, the query key of a connection's keychain state, a
+ * new connection's id, and what a person is told when something failed.
  */
 
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsTables as connectionTables,
+} from '@epicenter/ai/connection-table';
+export { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
 import type { ConnectionKind } from '@epicenter/ai/send';
+import type { Row, ReadError, SaveError } from '@epicenter/folder';
+import type { ActionError } from '@epicenter/svelte/write-failure';
+import type { Static } from 'typebox';
 import type { CliError } from '../bindings.gen';
 
-/** A `connections` row's fields, as `so.epicenter`'s declaration reads them. */
-export type ConnectionFields = {
-	kind: ConnectionKind;
-	title: string;
-	model: string;
-};
+/** Epicenter's own folder, by the scope the shell registers it under. */
+export const EPICENTER_FOLDER_ID = CONNECTIONS_FOLDER_ID;
+
+/**
+ * The tables Settings opens `so.epicenter` with: one row per AI connection,
+ * `connections/<id>.md`. The schema only interprets: other fields survive a
+ * save, and a file that does not fit is listed with its source and issues.
+ */
+/** A `connections` row's fields. */
+export type ConnectionFields = Static<(typeof connectionTables)['connections']>;
+
+/** One file of `connections/`, read through the schema. */
+export type ConnectionRow = Row<(typeof connectionTables)['connections']>;
+
+/** A row that reads as a connection. */
+export type Connection = Extract<ConnectionRow, { issues: null }>;
+
+/** A row that does not read as a connection: its source stays, with why. */
+export type Unreadable = Extract<ConnectionRow, { issues: unknown[] }>;
 
 export const KIND_LABELS: Record<ConnectionKind, string> = {
 	'openai-compatible': 'OpenAI-compatible endpoint',
@@ -54,4 +75,36 @@ export function failureText(error: CliError) {
 	return error.name === 'NotGranted'
 		? 'This window was not granted the folder.'
 		: error.message;
+}
+
+/** What a person is told when a connection's file did not read or save. */
+export function saveFailureText(error: SaveError | ReadError | ActionError) {
+	switch (error.name) {
+		case 'NotStarted':
+			return error.reason;
+		case 'Unparseable':
+			return `Its file cannot be edited as a connection: ${error.reason}.`;
+		case 'NotText':
+			return 'Its file is not text, so Settings cannot change it.';
+		default:
+			return error.message;
+	}
+}
+
+/** Connections by title, then by file. */
+export function connectionsOf(rows: readonly ConnectionRow[]): Connection[] {
+	return rows
+		.filter((row): row is Connection => row.issues === null)
+		.sort(
+			(a, b) =>
+				a.fields.title.localeCompare(b.fields.title) ||
+				a.id.localeCompare(b.id),
+		);
+}
+
+/** Rows whose file is not a valid connection, by file. */
+export function unreadableOf(rows: readonly ConnectionRow[]): Unreadable[] {
+	return rows
+		.filter((row): row is Unreadable => row.issues !== null)
+		.sort((a, b) => a.id.localeCompare(b.id));
 }

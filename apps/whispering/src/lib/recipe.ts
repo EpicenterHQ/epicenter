@@ -12,12 +12,14 @@
  * edits being written have landed, and that answer is what is sent.
  */
 
-import type { Row } from '@epicenter/folder';
 import type { ConnectionInfo } from './connections.js';
 import type { TransformationFields } from './definition.js';
 
-/** A recipe as a row: a listed one, or its text as typed. Undefined when its text is not a valid row. */
-export type RecipeRow = Pick<Row<TransformationFields>, 'fields' | 'body'>;
+/** A recipe as a row: listed, or as typed. Undefined when its file does not read as one. */
+export type RecipeRow = {
+	readonly fields: TransformationFields;
+	readonly body: string;
+};
 
 export type ResolvedRecipe =
 	| {

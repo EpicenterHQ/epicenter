@@ -303,11 +303,6 @@ pub async fn open_installed_app(
         BuildReservation::take(&app, &id, &commit)
     })
     .await?;
-    // The app may read `so.epicenter` through a definition its declaration
-    // must contain, so it waits for this launch to publish it.
-    if let Some(declared) = app.try_state::<crate::cli::EpicenterFolderDeclared>() {
-        declared.finished().await;
-    }
     tauri::async_runtime::spawn_blocking(move || {
         let folder = match folder {
             Some(folder) => folder,

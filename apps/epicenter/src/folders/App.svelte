@@ -4,24 +4,27 @@
 	 * every data folder under the Epicenter folder, the apps that open each,
 	 * every other app, and the one folder opened. The shell lists the folders
 	 * (`list_data_folders`) and permits this window into each, so
-	 * `openFolder({ id })` opens one with its own `epicenter.json`, which
-	 * it never writes. One folder is open at a time; choosing another closes
-	 * it first. A folder whose `epicenter.json` changes while it is open is
-	 * opened again, so its grid follows the new declaration.
+	 * `openFolder({ directory, tables: {} })` opens one by the scope the
+	 * listing names. The window knows no app's schema, so it opens every
+	 * folder with no tables and edits its files as the text they hold; it
+	 * writes nothing on opening. One folder is open at a time
+	 * (`folder-switch.svelte.ts`): choosing another first sends what was
+	 * typed in the open one and waits for every save; a save that failed
+	 * keeps that folder open with its typing, and says which files.
 	 *
-	 * The open folder is read through TanStack Query (`folderOptions`), and
-	 * this root wires the folder's one channel of change to the cache
-	 * (ADR-0548): each `onFilesChanged` report invalidates exactly the
-	 * queries it names. The subscription lives exactly as long as the folder
-	 * is open. The folder's options turn focus refetch off: the channel is
-	 * the one detector of outside changes. The list of folders is read again when the shell
-	 * reports that one appeared, went, or changed its `epicenter.json`
-	 * (`DATA_FOLDERS_CHANGED`).
+	 * The open folder is read through TanStack Query, and this root wires the
+	 * folder's one channel of change to the cache (ADR-0548): each
+	 * `onChange` report invalidates the list and the files it names, or
+	 * everything when it names none. The subscription lives exactly as long
+	 * as the folder is open. Focus refetch is off: the channel is the one
+	 * detector of outside changes. The list of folders is read again when
+	 * the shell reports that one appeared, went, or changed its
+	 * `epicenter.json` (`DATA_FOLDERS_CHANGED`).
 	 *
 	 * "Open in" opens an installed app on that folder through the same verb
 	 * as the Apps list, which opens it on its own folder (ADR-0552). Every
 	 * installed app that can run is offered on every folder (`openers.ts`,
-	 * ADR-0560); the app refuses a folder its definition does not fit. The Settings button
+	 * ADR-0560); each app interprets it through its own table schemas. The Settings button
 	 * opens Settings with `open_home`.
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
@@ -30,16 +33,8 @@
 	 * fetched from upstream is shown with its log and diff stat while the
 	 * approved commit keeps opening (ADR-0597). The `epicenter` CLI installs, updates, approves,
 	 * and builds (`app-commands.ts`, ADR-0556), and each step it reports is
-	 * said while it runs. The shell publishes Epicenter's own folder's
-	 * declaration at launch, before it opens any app.
+	 * said while it runs.
 	 */
-	import type { Definition, LegacyFolder } from '@epicenter/folder';
-	import {
-		type FolderOptions,
-		type FolderWritesOf,
-		folderOptions,
-		folderWrites,
-	} from '@epicenter/folder/query';
 	import { openFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -47,6 +42,7 @@
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
+	import { createLogger } from 'wellcrafted/logger';
 	import { commands, type DataFolder } from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
 	import {
@@ -56,26 +52,16 @@
 		type Review,
 		updateApp,
 	} from './app-commands.ts';
+	import { fileKey, folderKey, listKey } from './files';
+	import { createFolderSwitch } from './folder-switch.svelte';
 	import FolderView from './FolderView.svelte';
 	import InstallApps from './InstallApps.svelte';
 	import { installedOpeners, type Opener } from './openers.ts';
 
+	const log = createLogger('epicenter/folders');
+
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
-	let openId = $state<string | undefined>(undefined);
-	let opened = $state.raw<
-		| {
-				readonly folder: LegacyFolder<Definition>;
-				readonly options: FolderOptions<Definition>;
-				readonly writes: FolderWritesOf<LegacyFolder<Definition>['tables']>;
-		  }
-		| undefined
-	>(undefined);
-	let openProblem = $state<string | undefined>(undefined);
-	let opening = $state(false);
-
-	/** Choices made while one is still opening keep only the newest. */
-	let openSeq = 0;
 
 	/**
 	 * The shell's event when the list of data folders may have changed:
@@ -84,14 +70,44 @@
 	 */
 	const DATA_FOLDERS_CHANGED = 'epicenter://data-folders-changed';
 
-	const queryClient = new QueryClient();
+	// Reads reach this computer's disk, and the folder's change channel is
+	// the one detector of outside change: a read is fresh until it reports
+	// one, and a failure is shown, not retried.
+	const queryClient = new QueryClient({
+		defaultOptions: {
+			queries: {
+				networkMode: 'always',
+				retry: false,
+				staleTime: Number.POSITIVE_INFINITY,
+				refetchOnWindowFocus: false,
+			},
+		},
+	});
 	setQueryClientContext(queryClient);
 
-	/**
-	 * Stops the open folder's channel and drops its cache: what the next
-	 * folder, or this one opened again with a new declaration, reads is its own.
-	 */
-	let release: (() => void) | undefined;
+	const current = createFolderSwitch({
+		open: (id) => openFolder({ directory: id, tables: {} }),
+		// Subscribed before anything reads, so no change falls between them.
+		// Leaving stops the channel and drops the cache: what the next folder
+		// reads is its own.
+		watch(id, folder) {
+			const stop = folder.onChange((change) => {
+				if (change.paths === null) {
+					void queryClient.invalidateQueries({ queryKey: folderKey(id) });
+					return;
+				}
+				void queryClient.invalidateQueries({ queryKey: listKey(id) });
+				for (const path of change.paths)
+					void queryClient.invalidateQueries({ queryKey: fileKey(id, path) });
+			});
+			return () => {
+				stop();
+				queryClient.removeQueries({ queryKey: folderKey(id) });
+			};
+		},
+		saved: (id, path) =>
+			queryClient.invalidateQueries({ queryKey: fileKey(id, path) }),
+	});
 
 	const launcher = createLaunch();
 	/** Why Settings did not open, when it did not. */
@@ -106,7 +122,7 @@
 	/** What the shell is doing for an app, said while it does it. */
 	let busy = $state<string | undefined>(undefined);
 
-	/** The apps every folder offers; each app refuses a folder its definition does not fit. */
+	/** The apps every folder offers; each interprets the opened files through its own schemas. */
 	const openers = $derived(installedOpeners(installed));
 	/** Each listed folder with the apps it offers. */
 	const listed = $derived(
@@ -208,38 +224,10 @@
 		}
 	}
 
-	/** Open folder `id`; `again` reopens the one already open. */
-	async function open(id: string, again = false) {
+	/** Open folder `id`, the scope the shell listed it under. */
+	function open(id: string) {
 		reviewing = undefined;
-		if (!again && id === openId && (opened !== undefined || opening)) return;
-		const seq = ++openSeq;
-		openId = id;
-		openProblem = undefined;
-		opening = true;
-		const previous = opened;
-		opened = undefined;
-		release?.();
-		release = undefined;
-		// One handle at a time: closing releases what this window holds.
-		await previous?.folder.close();
-		const { data, error } = await openFolder({ id });
-		if (seq !== openSeq) {
-			await data?.close();
-			return;
-		}
-		opening = false;
-		if (error !== null) {
-			openProblem = error.message;
-			return;
-		}
-		const options = folderOptions(data);
-		// Subscribed before anything reads, so no change falls between them.
-		const stop = options.invalidateOnChange(queryClient);
-		release = () => {
-			stop();
-			queryClient.removeQueries({ queryKey: options.key });
-		};
-		opened = { folder: data, options, writes: folderWrites(data, queryClient) };
+		void current.choose(id);
 	}
 
 	onMount(() => {
@@ -253,9 +241,15 @@
 		void listInstalled();
 		return () => {
 			void stopListing.then((stop) => stop());
-			release?.();
-			void opened?.folder.close();
-			queryClient.unmount();
+			void current.close().then((unsaved) => {
+				for (const draft of unsaved)
+					log.warn(
+						new Error(
+							`Closed with ${draft.path} unsaved: ${draft.error?.message ?? 'not sent'}`,
+						),
+					);
+				queryClient.unmount();
+			});
 		};
 	});
 </script>
@@ -286,7 +280,7 @@
 			<p class="px-4 text-sm text-muted-foreground">Reading…</p>
 		{:else if folders.length === 0}
 			<p class="px-4 text-sm text-muted-foreground">
-				No data folders yet. A folder in your Epicenter folder that has an epicenter.json shows up here.
+				No data folders yet. Add a directory under your Epicenter folder to open its files here.
 			</p>
 		{:else}
 			<ul class="flex flex-col gap-0.5 px-2 pb-3">
@@ -294,10 +288,10 @@
 					<li class="flex items-center gap-1">
 						<button
 							type="button"
-							aria-current={folder.id === openId ? 'page' : undefined}
+							aria-current={folder.id === current.chosen ? 'page' : undefined}
 							class={[
 								'min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted',
-								folder.id === openId && 'bg-muted font-medium',
+								folder.id === current.chosen && 'bg-muted font-medium',
 							]}
 							onclick={() => open(folder.id)}
 						>
@@ -437,25 +431,31 @@
 					</Button>
 				</div>
 			</section>
-		{:else if openProblem !== undefined}
+		{:else if current.problem !== undefined}
 			<div class="p-4">
 				<Alert.Root variant="destructive">
-					<Alert.Description>Could not open this folder: {openProblem}</Alert.Description>
+					<Alert.Description>Could not open this folder: {current.problem}</Alert.Description>
 				</Alert.Root>
 			</div>
-		{:else if opening}
+		{:else if current.opening}
 			<p class="p-4 text-sm text-muted-foreground">Opening…</p>
-		{:else if opened !== undefined}
-			{#key opened}
-				{@const shown = opened}
+		{:else if current.opened !== undefined}
+			{@const { id, folder, drafts } = current.opened}
+			{#if current.kept !== undefined}
+				<Alert.Root variant="destructive" class="rounded-none border-x-0 border-t-0">
+					<Alert.Description>
+						This folder stayed open because edits did not save:
+						{current.kept.map((draft) => draft.path).join(', ')}. Try again or discard
+						them, then choose the other folder again.
+					</Alert.Description>
+				</Alert.Root>
+			{/if}
+			{#key current.opened}
 				<FolderView
-					folder={shown.folder}
-					folder$={shown.options}
-					writes={shown.writes}
-					declarationChanged={() => {
-						// Only while this folder is still the one shown.
-						if (opened === shown && openId !== undefined) void open(openId, true);
-					}}
+					{folder}
+					{drafts}
+					scope={id}
+					title={folders?.find((listed) => listed.id === id)?.title ?? id}
 				/>
 			{/key}
 		{:else}

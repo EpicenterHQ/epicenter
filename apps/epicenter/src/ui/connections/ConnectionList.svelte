@@ -1,40 +1,32 @@
 <script lang="ts">
 	import type { ConnectionKind } from '@epicenter/ai/send';
-	import type { TableOptions, TableWrites } from '@epicenter/folder/query';
+	import type { FolderContext } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { resultMutationOptions } from 'wellcrafted/query';
-	import type { Row } from '@epicenter/folder';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { commands } from '../bindings.gen';
 	import ConnectionEditor from './ConnectionEditor.svelte';
-	import { type ConnectionFields, connectionId, failureText, KIND_LABELS, OFFERED_KINDS } from './connections';
+	import {
+		connectionId,
+		connectionsOf,
+		type connectionTables,
+		failureText,
+		KIND_LABELS,
+		OFFERED_KINDS,
+		saveFailureText,
+		unreadableOf,
+	} from './connections';
 
 	/**
-	 * Every AI connection in `so.epicenter`, each with its editor, and a form
-	 * that adds one: its row, then, for an endpoint, its endpoint and key in
-	 * this computer's keychain.
+	 * Every AI connection in `so.epicenter`, each with its editor, a file that
+	 * does not read as one shown as it is, and a form that adds one: its row,
+	 * then, for an endpoint, its endpoint and key in this computer's keychain.
 	 */
-	let {
-		options,
-		writes,
-	}: { options: TableOptions<ConnectionFields>; writes: TableWrites<ConnectionFields> } = $props();
+	let { local }: { local: FolderContext<typeof connectionTables> } = $props();
 
-	const list = createQuery(() => options.list.queryOptions());
-	const create = createMutation(() =>
-		resultMutationOptions({
-			mutationKey: ['connections', 'create'],
-			mutationFn: ({ stem, row }: { stem: string; row: Row<ConnectionFields> }) =>
-				writes.create(row, { stem }),
-		}),
-	);
-
-	const rows = $derived(
-		(list.data ?? [])
-			.flatMap(({ stem, result }) => (result.error === null ? [{ ...result.data, stem }] : []))
-			.sort((a, b) => a.row.fields.title.localeCompare(b.row.fields.title)),
-	);
-	const unreadable = $derived((list.data ?? []).filter(({ result }) => result.error !== null));
+	const list = createQuery(() => local.queries.rows('connections'));
+	const rows = $derived(connectionsOf(list.data ?? []));
+	const unreadable = $derived(unreadableOf(list.data ?? []));
 
 	let kind = $state<ConnectionKind>('openai-compatible');
 	let title = $state('');
@@ -48,19 +40,20 @@
 		adding = true;
 		problem = undefined;
 		try {
-			const stem = connectionId(title, new Set((list.data ?? []).map((item) => item.stem)));
-			const saved = await create
-				.mutateAsync({ stem, row: { fields: { kind, title: title.trim(), model: model.trim() }, body: '' } })
-				.then(
-					() => true,
-					(cause: unknown) => {
-						problem = cause instanceof Error ? cause.message : String(cause);
-						return false;
-					},
-				);
-			if (!saved) return;
+			const id = connectionId(title, new Set((list.data ?? []).map((row) => row.id)));
+			const { error } = await local.folder.tables.connections.set(id, null, {
+				fields: { kind, title: title.trim(), model: model.trim() },
+				body: '',
+			});
+			if (error !== null) {
+				problem = saveFailureText(error);
+				return;
+			}
+			await local.queryClient.invalidateQueries({
+				queryKey: local.queries.rows('connections').queryKey,
+			});
 			if (kind === 'openai-compatible') {
-				const { error } = await commands.aiKeySet(stem, endpoint, key);
+				const { error } = await commands.aiKeySet(id, endpoint, key);
 				if (error !== null) {
 					problem = `The connection was added, but its endpoint and key were not saved on this computer: ${failureText(error)}`;
 					return;
@@ -70,6 +63,8 @@
 			model = '';
 			endpoint = '';
 			key = '';
+		} catch (cause) {
+			problem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
 			adding = false;
 		}
@@ -85,12 +80,17 @@
 		<p class="text-muted-foreground">No AI connections yet. Each one is a file in so.epicenter/connections, so it follows you to every computer where that folder syncs.</p>
 	{/if}
 	<ul class="grid gap-2">
-		{#each rows as stored (stored.stem)}
-			<ConnectionEditor {stored} {writes} />
+		{#each rows as row (row.id)}
+			<ConnectionEditor {row} {local} />
 		{/each}
 	</ul>
-	{#each unreadable as { stem, result } (stem)}
-		<p role="alert" class="text-destructive">connections/{stem}.md does not read: {result.error?.message}</p>
+	{#each unreadable as row (row.id)}
+		<div role="alert" class="grid gap-1 text-destructive">
+			<p>connections/{row.id}.md does not read as a connection: {row.issues.map((issue) => issue.message).join(' ')}</p>
+			{#if row.text !== ''}
+				<pre class="max-h-32 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap text-foreground">{row.text}</pre>
+			{/if}
+		</div>
 	{/each}
 {/if}
 
@@ -123,6 +123,6 @@
 	{:else if kind === 'epicenter'}
 		<p class="text-muted-foreground">Sends to your Epicenter account with this app's sign-in, under Account above.</p>
 	{/if}
-	<div><Button type="submit" disabled={adding}>Add</Button></div>
+	<div><Button type="submit" disabled={adding || local.edits.fenced}>Add</Button></div>
 	{#if problem}<p role="alert" class="text-destructive">{problem}</p>{/if}
 </form>

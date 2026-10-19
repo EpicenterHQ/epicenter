@@ -1,8 +1,8 @@
 /**
  * Recipe and pasted-text playground tests
  *
- * Drives the real product state against a real directory and Git repository,
- * with stubbed endpoints that decide the connection as the host does and
+ * Drives the real product state against a real directory, opened as the
+ * native `Folder`, with stubbed endpoints that decide the connection as the host does and
  * count every request that would go out. No window, provider, key, or network
  * is involved.
  *
@@ -29,8 +29,7 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { FileError } from '@epicenter/folder/bun';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionInfo } from './connections.js';
 import {
@@ -39,7 +38,6 @@ import {
 } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
-import { createQueryClient } from './query.test-support.js';
 import { resolveRecipe } from './recipe.js';
 import { TransformationError } from './transformation.js';
 import {
@@ -48,6 +46,7 @@ import {
 	openTestWorkspace,
 	TEST_BASE_URL,
 	type TestWorkspaceOptions,
+	withTables,
 } from './workspace.test-support.js';
 
 const { createSession } = await import('./session.svelte.ts');
@@ -74,24 +73,17 @@ async function open(options: TestWorkspaceOptions = {}) {
 	const hooks: Hooks = {};
 	const { tables } = test.workspace.folder;
 	const textRuns = tables.text_runs;
-	const session = await createSession(
-		{
-			...test.workspace,
-			folder: {
-				...test.workspace.folder,
-				tables: {
-					...tables,
-					text_runs: {
-						...textRuns,
-						async list() {
-							return (await hooks.list?.()) ?? textRuns.list();
-						},
-					},
+	const session = await createSession({
+		...test.workspace,
+		folder: withTables(test.workspace.folder, {
+			text_runs: {
+				...textRuns,
+				async list() {
+					return (await hooks.list?.()) ?? textRuns.list();
 				},
-			} as Library['workspace']['folder'],
-		},
-		createQueryClient(),
-	);
+			},
+		}),
+	});
 	cleanups.push(async () => {
 		await session.close();
 		await test.remove();
@@ -291,7 +283,7 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 	]);
 	const { output, state } = newestText(library, stem);
 	expect(state.kind).toBe('running');
-	expect(output.row).toEqual({
+	expect({ fields: output.row.fields, body: output.row.body }).toEqual({
 		fields: {
 			transformationId: stem,
 			transformationTitle: 'Clean up',
@@ -484,9 +476,7 @@ test('a transcript’s failed run is not sent again over a connection that moved
 test('the pasted text stays with the session, and a result on it never holds the app open', async () => {
 	const { open: openWorkspace, remove } = await openTestWorkspace();
 	const { openSession } = await import('./session.svelte.ts');
-	const session = expectOk(
-		await openSession(createQueryClient(), openWorkspace),
-	);
+	const session = expectOk(await openSession(openWorkspace));
 	cleanups.push(async () => {
 		await session.close();
 		await remove();
@@ -532,9 +522,9 @@ test('a text_runs/ file that does not read never holds up a recording’s deleti
 	expect(await names(root, TEXT_RUNS)).toHaveLength(3);
 
 	hooks.list = async () =>
-		FileError.Io({
-			path: TEXT_RUNS,
-			operation: 'list',
+		Err({
+			name: 'StorageFailed' as const,
+			message: 'Repository read failed: the listing could not be read',
 			cause: new Error('the listing could not be read'),
 		});
 	await settle(library);

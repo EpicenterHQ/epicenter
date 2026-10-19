@@ -207,38 +207,6 @@ mod export_bindings {
         "../src/ui/bindings.gen.ts",
     ];
 
-    /// A package that calls a few of the shell's commands gets those alone,
-    /// generated from the same functions: `@epicenter/folder`'s desktop
-    /// history (`tauri-history.ts`) and Todos' account leaf.
-    fn subsets() -> [(&'static str, tauri_specta::Builder<Wry>); 2] {
-        let data_errors = |builder: tauri_specta::Builder<Wry>| {
-            builder.error_handling(tauri_specta::ErrorHandlingMode::DataError)
-        };
-        [
-            (
-                "../../../packages/folder/src/shell/bindings.gen.ts",
-                data_errors(tauri_specta::Builder::new().commands(
-                    tauri_specta::collect_commands![
-                        history::status::<Wry>,
-                        history::history::<Wry>,
-                        history::save_version::<Wry>,
-                        history::sync::<Wry>,
-                    ],
-                )),
-            ),
-            (
-                "../../todos/src/lib/tauri/bindings.gen.ts",
-                data_errors(
-                    tauri_specta::Builder::new().commands(tauri_specta::collect_commands![
-                        cli::auth_status,
-                        cli::account_send,
-                        open_home,
-                    ]),
-                ),
-            ),
-        ]
-    }
-
     /// The committed bindings are the default build's page API. A `dictation`
     /// build's commands are not part of it, so that build exports into a
     /// temporary directory, which only checks that its types export.
@@ -249,7 +217,7 @@ mod export_bindings {
         let whole = WHOLE_API
             .iter()
             .map(|target| (*target, make_specta_builder()));
-        for (target, builder) in whole.chain(subsets()) {
+        for (target, builder) in whole {
             #[cfg(feature = "dictation")]
             let target = scratch.path().join(target.replace(['/', '.'], "_"));
             builder
@@ -409,9 +377,6 @@ pub fn run() {
             // Git's configuration runs `~/.local/bin/epicenter`; point it
             // at this launch's binary, wherever the app now is (ADR-0566).
             cli::spawn_command_link_refresh(&desktop_paths);
-            // An installed app may read `so.epicenter` through a definition,
-            // so its declaration is published before any app opens.
-            app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
             // Every window's page comes from the scheme, which reads these.
             app.manage(scheme::Roots {
                 pages: scheme::pages_dir(app.handle())?,
@@ -800,9 +765,8 @@ impl Drop for BuildReservation {
 /// closed and opened again (ADR-0588). The
 /// window is permitted into the folder and into `so.epicenter`, and handed
 /// the folder (`data_folders::admit_installed_window`): the app's
-/// `openFolder({ app, definition })` asks the shell for it (`window_folder`)
-/// and opens it through the app's definition unless it is the app's own
-/// (ADR-0538, ADR-0583). The URL names no folder, so the page's navigation
+/// root asks the shell for it (`window_folder`) and passes its scope to
+/// `openFolder({ directory, tables })`. The URL names no folder, so the page's navigation
 /// and reloads cannot lose or change it. Approving an app trusts it fully
 /// (ADR-0540), so the shell does not check its shape against the folder.
 pub(crate) fn open_installed_window(

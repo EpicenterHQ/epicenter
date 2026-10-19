@@ -1,220 +1,119 @@
 <script lang="ts">
-	import {
-		type Definition,
-		DEFINITION_PATH,
-		type LegacyFolder,
-		type PreparedFolderTable,
-	} from '@epicenter/folder';
-	import { visibleRows } from '@epicenter/folder/file-browser';
-	import type {
-		FolderOptions,
-		FolderWritesOf,
-		TableOptions,
-		TableWrites,
-	} from '@epicenter/folder/query';
+	import type { Folder } from '@epicenter/folder';
 	import * as Alert from '@epicenter/ui/alert';
-	import { Button } from '@epicenter/ui/button';
-	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { untrack } from 'svelte';
-	import { commands } from '../ui/bindings.gen';
-	import TableGrid from './TableGrid.svelte';
-	import {
-		changesMessage,
-		gitMissingNotice,
-		type VersionLine,
-		versionMessage,
-	} from './version';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { createSubscriber } from 'svelte/reactivity';
+	import type { FileDrafts } from './drafts.svelte';
+	import FileEditor from './FileEditor.svelte';
+	import { fileTree, listKey } from './files';
 
 	/**
-	 * One opened data folder: its tables and their rows, or its files when it
-	 * declares no tables, and Save version. Everything shown is read through
-	 * `folder$`, the folder's query options, whose cache the app root keeps
-	 * fresh from `folder.onFilesChanged`; this view has no refresh of its own.
-	 * Everything written goes through `writes`, the folder's ordered writes.
-	 * Each field editor sets its own field, and a row's body is saved as a
-	 * change from the row it started from (`TableGrid`, ADR-0576).
-	 *
-	 * `declarationChanged` is called once the folder's `epicenter.json` reads
-	 * as other bytes than when this view first read it, after every write to
-	 * the folder settled: the folder must be opened again to use the new
-	 * declaration.
+	 * One opened data folder: its files as a tree, and the one chosen, edited
+	 * as the exact text it holds (`FileEditor`). The window knows no app's
+	 * schema, so it opened the folder with no tables and interprets no row;
+	 * a row is a file like any other. Everything shown is read through the
+	 * window's query cache, which the app root keeps fresh from
+	 * `folder.onChange`; this view has no refresh of its own. What is typed
+	 * is held by the window (`drafts`), so choosing another file keeps it:
+	 * the tree marks each file holding typing not saved, and the header says
+	 * whether a save is running or which files did not save.
 	 */
 	let {
 		folder,
-		folder$,
-		writes,
-		declarationChanged,
+		drafts,
+		scope,
+		title,
 	}: {
-		folder: LegacyFolder<Definition>;
-		folder$: FolderOptions<Definition>;
-		writes: FolderWritesOf<LegacyFolder<Definition>['tables']>;
-		declarationChanged: () => void;
+		folder: Folder<Record<never, never>>;
+		/** The typing held in the folder, which outlives each file's editor. */
+		drafts: FileDrafts;
+		/** The scope the folder was opened as, which its query keys name. */
+		scope: string;
+		title: string;
 	} = $props();
 
-	const client = useQueryClient();
-
-	// The folder's own declaration, as `openFolder({ id })` read it when it
-	// opened; the type does not carry the prepared mark.
-	const tables = $derived(
-		folder.definition.tables as Readonly<Record<string, PreparedFolderTable>>,
-	);
-	const tableNames = $derived(Object.keys(tables));
-	// This view is made again for each opened folder, so its tables are fixed.
-	let tableName = $state<string | undefined>(untrack(() => tableNames[0]));
-
-	/** A table's query options; every row is untyped in a folder opened by its declaration. */
-	const optionsOf = (name: string) =>
-		folder$.tables[name] as TableOptions<Record<string, unknown>>;
-	/** A table's writes, each in its row's turn. */
-	const writesOf = (name: string) =>
-		(writes.tables as Record<string, TableWrites<Record<string, unknown>>>)[name]!;
-
-	const files = createQuery(() => ({
-		...folder$.files.list.queryOptions(),
-		enabled: tableNames.length === 0,
-	}));
-	const status = createQuery(() => folder$.history.status.queryOptions());
-	const changes = $derived(
-		status.data && changesMessage(status.data, status.isFetching),
-	);
-	/** What to say when this computer has no `git` for the folder's history. */
-	const gitMissing = $derived(
-		status.error?.name === 'GitMissing'
-			? gitMissingNotice(status.error.install)
-			: undefined,
-	);
-	let installProblem = $state<string | undefined>(undefined);
-	async function installGit() {
-		installProblem = undefined;
-		const { error } = await commands.installGit();
-		if (error !== null) installProblem = error;
-	}
-	// The writes running land first, so the version holds them.
-	const saveVersion = createMutation(() => ({
-		mutationKey: ['folder', 'save-version'],
-		mutationFn: async () => {
-			await writes.idle();
-			const outcome = await folder.git.commit();
-			void client.invalidateQueries(folder$.pathFilter(['.git']));
-			return outcome;
+	const listing = createQuery(() => ({
+		queryKey: listKey(scope),
+		queryFn: async () => {
+			const listed = await folder.files.list();
+			if (listed.error !== null) throw listed.error;
+			return listed.data;
 		},
 	}));
-	let versionLine = $state<VersionLine | undefined>(undefined);
+	const tree = $derived(listing.data === undefined ? undefined : fileTree(listing.data));
+	const held = $derived(new Set(drafts.held));
+	let selected = $state<string | undefined>(undefined);
 
-	/** The declaration's version: its SHA-256, `null` for no file. */
-	const declaration = createQuery(() =>
-		folder$.files.read.queryOptions(DEFINITION_PATH),
-	);
-	/** The declaration's SHA-256 when this view first read it, `null` for no file. */
-	let declaredAs: string | null | undefined;
-	let reopening = false;
-	$effect(() => {
-		const now = declaration.isSuccess
-			? declaration.data.sha256
-			: declaration.error?.name === 'NotFound'
-				? null
-				: undefined;
-		if (now === undefined) return;
-		if (declaredAs === undefined) {
-			declaredAs = now;
-			return;
-		}
-		if (now === declaredAs || reopening) return;
-		reopening = true;
-		// Writes running finish against the declaration they were made with.
-		void writes.idle().then(declarationChanged);
+	// The root closes the folder only after this view is gone.
+	const trackStatus = createSubscriber((update) => folder.onStatusChange(update));
+	const status = $derived.by(() => {
+		trackStatus();
+		return folder.status;
 	});
-
-	async function saveNewVersion() {
-		versionLine = undefined;
-		versionLine = versionMessage(await saveVersion.mutateAsync());
-	}
 </script>
 
 <section class="flex min-h-0 flex-1 flex-col">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
-		<h2 class="text-lg font-semibold">{folder.definition.title ?? 'Folder'}</h2>
-		{#if tableNames.length > 0}
-			<nav class="flex flex-wrap gap-1" aria-label="Tables">
-				{#each tableNames as name (name)}
-					<Button
-						size="sm"
-						variant={name === tableName ? 'secondary' : 'ghost'}
-						aria-current={name === tableName ? 'page' : undefined}
-						onclick={() => (tableName = name)}
-					>
-						{name}
-					</Button>
-				{/each}
-			</nav>
-		{/if}
-		<div class="ml-auto flex items-center gap-3">
-			{#if changes !== undefined}
-				<span class="text-sm text-muted-foreground">{changes}</span>
+		<h2 class="text-lg font-semibold">{title}</h2>
+		<span class="ml-auto text-sm text-muted-foreground" role="status">
+			{#if status.saving}
+				Saving…
+			{:else if drafts.failures.length > 0}
+				<span class="text-destructive">
+					Not saved: {drafts.failures.map((failure) => failure.path).join(', ')}
+				</span>
+			{:else if status.storageFailure !== null}
+				<span class="text-destructive">A save failed: {status.storageFailure.message}</span>
 			{/if}
-			<Button
-				size="sm"
-				variant="outline"
-				disabled={saveVersion.isPending}
-				onclick={saveNewVersion}
-			>
-				{saveVersion.isPending ? 'Saving version…' : 'Save version'}
-			</Button>
-		</div>
+		</span>
 	</header>
 
-	{#if gitMissing !== undefined}
-		<Alert.Root class="rounded-none border-x-0 border-t-0">
-			<Alert.Description>
-				<p>{gitMissing.text}</p>
-				{#if installProblem !== undefined}
-					<p class="text-destructive">{installProblem}</p>
-				{/if}
-				{#if gitMissing.action !== undefined}
-					<Button size="sm" variant="outline" class="mt-2" onclick={installGit}>
-						{gitMissing.action}
-					</Button>
-				{/if}
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
-	{#if versionLine !== undefined}
-		<p
-			class={[
-				'border-b px-4 py-2 text-sm',
-				versionLine.problem ? 'text-destructive' : 'text-muted-foreground',
-			]}
-			role="status"
-		>
-			{versionLine.text}
-		</p>
-	{/if}
-	{#if tableName !== undefined}
-		{@const name = tableName}
-		{#key name}
-			<TableGrid {name} table={tables[name]!} options={optionsOf(name)} writes={writesOf(name)} />
-		{/key}
-	{:else}
-		<div class="min-h-0 flex-1 overflow-auto p-4">
-			<p class="mb-3 text-sm text-muted-foreground">No tables in this folder.</p>
-			{#if files.error}
+	<div class="flex min-h-0 flex-1">
+		<nav class="w-72 shrink-0 overflow-auto border-r p-2" aria-label="Files">
+			{#if listing.error}
 				<Alert.Root variant="destructive">
-					<Alert.Description>{files.error.message}</Alert.Description>
+					<Alert.Description>Could not list the files: {listing.error.message}</Alert.Description>
 				</Alert.Root>
-			{:else if files.data !== undefined}
-				{@const tree = visibleRows(files.data, new Set(files.data.directories))}
-				{#if tree.length === 0}
-					<p class="text-sm text-muted-foreground">This folder is empty.</p>
-				{:else}
-					<ul class="font-mono text-sm">
-						{#each tree as entry (entry.path)}
-							<li style:padding-left="{entry.depth * 1.25}rem" class="py-0.5">
-								{entry.kind === 'directory' ? `${entry.name}/` : entry.name}
-							</li>
-						{/each}
-					</ul>
-				{/if}
+			{:else if tree === undefined}
+				<p class="p-2 text-sm text-muted-foreground">Reading…</p>
+			{:else if tree.length === 0}
+				<p class="p-2 text-sm text-muted-foreground">This folder is empty.</p>
+			{:else}
+				<ul class="font-mono text-sm">
+					{#each tree as entry (entry.path)}
+						<li style:padding-left="{entry.depth * 1.25}rem">
+							{#if entry.kind === 'directory'}
+								<span class="block truncate px-2 py-0.5 text-muted-foreground">{entry.name}/</span>
+							{:else}
+								<button
+									type="button"
+									aria-current={entry.path === selected ? 'page' : undefined}
+									class={[
+										'block w-full truncate rounded px-2 py-0.5 text-left hover:bg-muted',
+										entry.path === selected && 'bg-muted font-medium',
+									]}
+									title={entry.path}
+									onclick={() => (selected = entry.path)}
+								>
+									{entry.name}{#if held.has(entry.path)}<span class="sr-only"> (not saved yet)</span><span class="text-muted-foreground" aria-hidden="true"> •</span>{/if}
+								</button>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</nav>
+
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+			{#if selected !== undefined}
+				{#key selected}
+					<FileEditor {folder} {drafts} {scope} path={selected} />
+				{/key}
+			{:else}
+				<div class="flex flex-1 items-center justify-center p-8 text-center text-muted-foreground">
+					Choose a file to open it.
+				</div>
 			{/if}
 		</div>
-	{/if}
+	</div>
 </section>

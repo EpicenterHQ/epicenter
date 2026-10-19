@@ -2,6 +2,7 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import * as Sheet from '@epicenter/ui/sheet';
 	import * as Sidebar from '@epicenter/ui/sidebar';
+	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import type { Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { beforeNavigate, goto } from '$app/navigation';
@@ -25,8 +26,10 @@
 	const { library, view } = session;
 	// svelte-ignore state_referenced_locally
 	setSession(session);
+	// The pages read the folder through the session's one cache.
+	setQueryClientContext(library.queryClient);
 
-	// A write that failed is told.
+	// A save of a file's text that failed is told, with the text to copy.
 	$effect(() => library.onWriteNotice(reportWriteNotice));
 
 	// Edits not yet saved live only in this window until they land.

@@ -1,17 +1,15 @@
 /**
  * Whether a recording's audio is in this device's folder.
  *
- * Audio is never committed (the definition's `local`), so Sync brings a
- * recording's row to another device without its audio. A row's `audioPath`
- * can then name a file the folder does not hold. That is all the folder can
- * say: the recording may have been made on another device, its capture may
- * have failed, or its file may have been deleted here. Nothing that needs the
+ * A row's `audioPath` can name a file the folder does not hold: the
+ * recording may have been made on another device, its capture may have
+ * failed, or its file may have been deleted here. Nothing that needs the
  * audio (playing it, transcribing it) can run. A missing file is told apart
  * from a row that names no audio at all, which the person repairs in its
  * Source.
  */
-import type { FileListing } from '@epicenter/folder';
 import { audioPathIn, type RecordingFields } from './definition.js';
+import type { Listing } from './files.js';
 
 export type RecordingAudio =
 	/** The row names no audio. */
@@ -20,18 +18,6 @@ export type RecordingAudio =
 	| { readonly kind: 'here'; readonly path: string }
 	/** The folder listing does not hold the audio the row names. */
 	| { readonly kind: 'absent'; readonly path: string };
-
-/** Each listing's file paths, computed once per listing. */
-const pathsOf = new WeakMap<FileListing, ReadonlySet<string>>();
-
-function listedPaths(listing: FileListing): ReadonlySet<string> {
-	let paths = pathsOf.get(listing);
-	if (paths === undefined) {
-		paths = new Set(listing.files.map((file) => file.path));
-		pathsOf.set(listing, paths);
-	}
-	return paths;
-}
 
 /**
  * Where the audio `fields` names is. `listing` is the folder's last file
@@ -46,11 +32,11 @@ export function recordingAudio(
 	{
 		listing,
 		settling,
-	}: { listing: FileListing | undefined; settling: boolean },
+	}: { listing: Pick<Listing, 'paths'> | undefined; settling: boolean },
 ): RecordingAudio {
 	const path = audioPathIn(fields);
 	if (path === undefined) return { kind: 'none' };
-	if (settling || listing === undefined || listedPaths(listing).has(path))
+	if (settling || listing === undefined || listing.paths.has(path))
 		return { kind: 'here', path };
 	return { kind: 'absent', path };
 }

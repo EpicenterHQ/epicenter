@@ -13,7 +13,6 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
-	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
@@ -29,14 +28,24 @@
 		onOpen: (path: string) => void;
 	} = $props();
 
-	const rows = $derived(library.listing ? visibleRows(library.listing, library.expanded) : []);
+	/**
+	 * The tree: folders before files at each level, into the expanded folders.
+	 * A folder is where files are, so a listing names files and no sizes.
+	 */
+	const rows = $derived(
+		library.listing
+			? visibleRows(
+					{
+						files: library.listing.files.map((path) => ({ path, size: 0 })),
+						directories: library.listing.directories,
+					},
+					library.expanded,
+				)
+			: [],
+	);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
-	let editing = $state<
-		| { kind: 'rename'; path: string }
-		| { kind: 'create'; directory: string; type: 'file' | 'folder' }
-		| undefined
-	>();
+	let editing = $state<{ kind: 'rename'; path: string } | { kind: 'create'; directory: string } | undefined>();
 	let committing = false;
 	/** The row whose action menu is open, so the keyboard can open it too. */
 	let menuPath = $state<string | undefined>();
@@ -59,28 +68,17 @@
 		void openItem(library, row.path).then((opened) => opened && onOpen(row.path));
 	}
 
-	function startCreate(directory: string, type: 'file' | 'folder') {
+	function startCreate(directory: string) {
 		if (directory !== '') library.expanded.add(directory);
-		editing = { kind: 'create', directory, type };
+		editing = { kind: 'create', directory };
 	}
 
 	/** The same actions back the right-click menu and the visible "…" menu. */
 	function actionGroups(row: TreeRow): Action[][] {
 		const copy: Action = { label: 'Copy path', run: () => void copyPath(row.path) };
 		const remove = () => void confirmDelete(library, row.path);
-		if (row.kind === 'directory')
-			return [
-				[
-					{ label: 'New file', run: () => startCreate(row.path, 'file') },
-					{ label: 'New folder', run: () => startCreate(row.path, 'folder') },
-				],
-				[copy],
-				[
-					row.children > 0
-						? { label: 'Delete (folder not empty)', destructive: true, disabled: true, run: remove }
-						: { label: 'Delete…', shortcut: 'Del', destructive: true, run: remove },
-				],
-			];
+		// A folder is where its files are: it goes when they do.
+		if (row.kind === 'directory') return [[{ label: 'New file', run: () => startCreate(row.path) }], [copy]];
 		return [
 			[
 				{ label: 'Open', shortcut: 'Enter', run: () => activate(row) },
@@ -132,6 +130,7 @@
 				break;
 			case 'Delete':
 			case 'Backspace':
+				if (row.kind !== 'file') return;
 				void confirmDelete(library, row.path);
 				break;
 			case 'ContextMenu':
@@ -161,18 +160,14 @@
 		const problem =
 			current.kind === 'rename'
 				? await library.rename(current.path, name)
-				: current.type === 'file'
-					? await library.createFile(directory, name)
-					: await library.createFolder(directory, name);
+				: await library.createFile(directory, name);
 		committing = false;
 		if (problem) {
-			const action =
-				current.kind === 'rename' ? 'rename' : `create the ${current.type}`;
-			toast.error(`Could not ${action}`, { description: problem });
+			toast.error(`Could not ${current.kind === 'rename' ? 'rename' : 'create the file'}`, { description: problem });
 			return;
 		}
 		editing = undefined;
-		if (current.kind === 'create' && current.type === 'file') onOpen(joinPath(directory, name));
+		if (current.kind === 'create') onOpen(joinPath(directory, name));
 		await tick();
 		focusRow(joinPath(directory, name));
 	}
@@ -231,9 +226,7 @@
 			{@render nameField(
 				'',
 				depth,
-				editing.type === 'file'
-					? `New file name in ${directory || 'the folder root'}`
-					: `New folder name in ${directory || 'the folder root'}`,
+				`New file name in ${directory || 'the folder root'}`,
 			)}
 		</li>
 	{/if}
@@ -244,11 +237,8 @@
 	<div class="flex h-11 shrink-0 items-center gap-1 border-b ps-3 pe-12 md:pe-1.5">
 		<h2 class="text-sm font-medium">Files</h2>
 		<div class="ml-auto flex items-center">
-			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('', 'file')}>
+			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('')}>
 				<FilePlusIcon />
-			</Button>
-			<Button variant="ghost" size="icon-sm" tooltip="New folder" aria-label="New folder" onclick={() => startCreate('', 'folder')}>
-				<FolderPlusIcon />
 			</Button>
 		</div>
 	</div>
@@ -361,7 +351,7 @@
 						<li>
 							<Empty.Root class="p-6">
 								<Empty.Title>No files yet</Empty.Title>
-								<Empty.Description>Record something, or create a file or folder above.</Empty.Description>
+								<Empty.Description>Record something, or create a file above.</Empty.Description>
 							</Empty.Root>
 						</li>
 					{/if}

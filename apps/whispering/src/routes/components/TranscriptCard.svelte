@@ -12,6 +12,7 @@
 	import { confirmDelete, copyText, formatTime, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ResultStatus from './ResultStatus.svelte';
+	import SaveStatus from './SaveStatus.svelte';
 	import { onDestroy } from 'svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
@@ -84,8 +85,8 @@
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"
 		/>
-		{#if library.isSaving(result.path)}
-			<p class="text-xs text-muted-foreground" role="status">Saving…</p>
+		{#if library.isSaving(result.path) || library.isUnsaved(result.path)}
+			<SaveStatus {library} path={result.path} />
 		{/if}
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>

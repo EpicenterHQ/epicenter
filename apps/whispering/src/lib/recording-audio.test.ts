@@ -10,13 +10,11 @@
  *   the recording, the audio is never reported absent
  */
 import { expect, test } from 'bun:test';
+import { listingOf } from './files.js';
 import { recordingAudio } from './recording-audio.js';
 
 const fields = { audioPath: 'audio/take.wav' };
-const listing = (...paths: string[]) => ({
-	files: paths.map((path) => ({ path, size: 1 })),
-	directories: ['recordings'],
-});
+const listing = (...paths: string[]) => listingOf(paths);
 
 test('the listing decides whether the audio a row names is here or absent', () => {
 	expect(

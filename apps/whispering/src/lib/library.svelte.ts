@@ -1,39 +1,26 @@
 /**
- * The Whispering product state over one opened workspace, kept in a TanStack
- * Query cache (ADR-0528, ADR-0548).
+ * The Whispering product state over one opened workspace, kept in the local
+ * folder context's TanStack Query cache (`@epicenter/svelte/folder`).
  *
- * Reads are the folder's queries (`folderOptions`): each table's rows, the
- * listing the file browser shows, Git status, and the text of each file
- * opened as text. The library
- * observes the listings and Git status for as long as it is open, so every
- * page shows them. They are read when the
- * page opens and after the app's own actions; changes
- * made anywhere else arrive on `folder.onFilesChanged`, which makes exactly
- * the queries they name stale. Rows that read are listed to edit; the rest
- * are named, with why, for repair as text.
+ * Reads are the context's row queries, one per table, and two of this
+ * library's own: the folder's file listing, and the text of each file opened
+ * as text. The library observes the rows and the listing for as long as it
+ * is open, so every page shows them. A change the folder reports makes the
+ * rows and files it names stale, and the ones shown are read again. Rows that
+ * read are listed to edit; the rest are named, with why, for repair as text.
  *
- * Every write and every draft goes through the folder's edit layer
- * (`edits`, `@epicenter/svelte/edits`). A field edit is a `set` of the file
- * as it is now (ADR-0576): it sets the field and keeps every field another
- * writer changed; a field typed is held as a field draft until it is sent.
- * A row's body (a recording's notes, a transcript, a transformation's
- * instructions) and a file edited as its exact text are documents, held
- * outside the cache as drafts: each holds where the edit started and what
- * is typed, is saved a second after the last change, or when the view
- * leaves it, as the change from where it started, merged by line with
- * whatever changed since (ADR-0576). A read never touches what is typed.
- * Writes to one file run one at a time. Where another writer changed the
- * same lines, the save wins, with no notice (ADR-0575). A save that fails
- * keeps what is typed and is reported. A file deleted elsewhere stays
- * deleted: a delete beats an edit that never saw it (ADR-0576), so nothing
- * typed into it is written, and what was typed is offered to copy.
+ * Typing is never lost to a reread. A row's fields and body typed in a view
+ * are the context's row drafts (`local.edits`); a file's whole text typed in
+ * Source or Files is a text draft (`text-drafts.svelte.ts`). Each saves a
+ * second after the last change, or when the view leaves it, as a change from
+ * what it started from, and the folder merges it with whatever was saved
+ * meanwhile (ADR-0632). A save that fails keeps what is typed and is
+ * reported.
  *
- * Every other action is a mutation: a recording's row and its length,
- * writing a transcript or a result (in the recording's file's turn, so they
- * write in order), create, rename, delete, Save version, and settings.
- * Closing stops new work, then waits for the edits and until nothing is
- * mutating. Saves never commit (ADR-0529); a version is recorded only by
- * Save version.
+ * Every other action is tracked work closing waits for: a recording's row and
+ * its length, a transcript or a result, create, rename, delete, and
+ * settings. Closing stops new work, then waits for the drafts and until
+ * nothing is under way.
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then, naming its audio, and on the desktop the audio is written
@@ -44,29 +31,19 @@
  */
 
 import { InstantString } from '@epicenter/definition';
-import type {
-	CommitOutcome,
-	FileListing,
-	FileTable,
-	Row,
-	RowReadError,
-	StoredRow,
-	TableListing,
-} from '@epicenter/folder';
-import { isStoredRow, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
 import {
 	ancestors,
 	dirname,
 	joinPath,
 	type OpenedFile,
+	openedFile,
 } from '@epicenter/folder/file-browser';
-import { folderOptions, type TableOptions } from '@epicenter/folder/query';
 import type { RecordingFolder } from '@epicenter/recorder';
-import { createEdits, UNSAVED } from '@epicenter/svelte/edits';
+import type { FolderContext } from '@epicenter/svelte/folder';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
-	type QueryClient,
 	type QueryFunctionContext,
 	QueryObserver,
 } from '@tanstack/query-core';
@@ -85,6 +62,8 @@ import {
 	RECORDINGS,
 	type RecordingFields,
 	recordingAudioStem,
+	rowIdOf,
+	rowPath,
 	TEXT_RUNS,
 	type TextRunFields,
 	TRANSCRIPTIONS,
@@ -93,7 +72,7 @@ import {
 	type TranscriptionFields,
 	type TransformationFields,
 	type TransformationRunFields,
-	whisperingDefinition,
+	type WhisperingTables,
 } from './definition.js';
 import {
 	captureDeletion,
@@ -102,7 +81,13 @@ import {
 	recordingTitle,
 	runDeletion,
 } from './deletion.js';
-import { describeError, nameProblem } from './files.js';
+import {
+	describeError,
+	type Listing,
+	listingOf,
+	nameProblem,
+	readBytes,
+} from './files.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import {
 	type RecipeRow,
@@ -111,6 +96,7 @@ import {
 } from './recipe.js';
 import { type RecordingAudio, recordingAudio } from './recording-audio.js';
 import { createRuns } from './runs.svelte.js';
+import { createTextDrafts } from './text-drafts.svelte.js';
 import type { Workspace } from './workspace/index.js';
 
 export type Library = ReturnType<typeof createLibrary>;
@@ -122,33 +108,38 @@ type QueryOptions = {
 };
 
 /** The fields of each table, by its name. */
-type Tables = {
+type FieldsOf = {
 	recordings: RecordingFields;
 	transcriptions: TranscriptionFields;
 	transformations: TransformationFields;
 	transformation_runs: TransformationRunFields;
 	text_runs: TextRunFields;
 };
-export type TableName = keyof Tables;
+export type TableName = keyof FieldsOf;
 /** The tables whose rows this window edits. */
 export type RowTable =
 	| typeof RECORDINGS
 	| typeof TRANSCRIPTIONS
 	| typeof TRANSFORMATIONS;
 
-export type RecordingEntry = StoredRow<RecordingFields> & {
+/** A row of `table` as listed: its exact source, its fields, and its issues. */
+export type ListedRow<T extends TableName> = Row<WhisperingTables[T]>;
+/** A row whose fields read through its table's schema. */
+export type ReadRow<T extends TableName> = Extract<
+	ListedRow<T>,
+	{ issues: null }
+>;
+/** A listed row that reads, with its file. `stem` is its ID. */
+export type Entry<T extends TableName> = {
 	readonly stem: string;
+	readonly path: string;
+	readonly row: ReadRow<T>;
 };
-export type TranscriptionEntry = StoredRow<TranscriptionFields> & {
-	readonly stem: string;
-};
-export type TransformationEntry = StoredRow<TransformationFields> & {
-	readonly stem: string;
-};
-export type TransformationRunEntry = StoredRow<TransformationRunFields> & {
-	readonly stem: string;
-};
-export type TextRunEntry = StoredRow<TextRunFields> & { readonly stem: string };
+export type RecordingEntry = Entry<'recordings'>;
+export type TranscriptionEntry = Entry<'transcriptions'>;
+export type TransformationEntry = Entry<'transformations'>;
+export type TransformationRunEntry = Entry<'transformation_runs'>;
+export type TextRunEntry = Entry<'text_runs'>;
 /** A row file that does not read as a row, and why, for the person to repair as text. */
 export type Repair = {
 	readonly path: string;
@@ -172,10 +163,8 @@ export type Selection = {
 };
 
 /**
- * What the person is told about an edit's write: it failed, as the shared
- * edit layer reports it (`WriteFailure`). An edit still on screen comes with
- * its text, Save again, and Discard; text in no file, such as typing into a
- * file deleted elsewhere, comes with its text alone.
+ * What the person is told about a save of a file's text that failed, as the
+ * shared failure toast shows it: the text, Save again, and Discard.
  */
 export type WriteNotice = WriteFailure & { readonly kind: 'failed' };
 
@@ -185,6 +174,9 @@ export type RecorderState =
 	| { readonly phase: 'recording'; readonly startedAt: number }
 	| { readonly phase: 'stopping' };
 
+const CLOSING = 'Whispering is closing, so nothing was changed.';
+const UNSAVED =
+	'Typing in this file did not save yet. Save or discard it first.';
 const RECORDING_NAME =
 	'A recording’s file is named by its ID, which its transcription results refer to. Change the title instead.';
 const RECORDING_AUDIO_NAME =
@@ -194,16 +186,14 @@ const TRANSFORMATION_NAME =
 const TRANSCRIPT_NAME = 'A transcript file keeps its .md extension.';
 const STILL_TEXT =
 	'Its text still does not read as a row. Fix what the notice names first.';
+const TAKEN = 'Another file already has this name, so nothing was changed.';
 
 const suffix = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 4);
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
-/**
- * Cache identity for the app's own actions. What the folder holds is cached
- * under the folder's keys (`folderOptions`).
- */
+/** Cache identity for the app's own actions. */
 export const whisperingKeys = defineKeys({
 	/** Every action the app runs. */
 	all: ['whispering'],
@@ -212,7 +202,7 @@ export const whisperingKeys = defineKeys({
 	action: (name: string) => ['whispering', 'action', name] as const,
 });
 
-/** A sortable id from the capture time: `20260102-030405-k3f9`. */
+/** A sortable id from a time: `20260102-030405-k3f9`. */
 export function recordingId(at: Date): string {
 	const stamp = at
 		.toISOString()
@@ -232,40 +222,39 @@ function defaultTitle(at: Date): string {
 /** The row table a path is a row of, if it is one this window edits. */
 export function rowTableOf(path: string): RowTable | undefined {
 	for (const table of [RECORDINGS, TRANSCRIPTIONS, TRANSFORMATIONS] as const)
-		if (rowStemOf(table, path) !== undefined) return table;
+		if (rowIdOf(table, path) !== undefined) return table;
 	return undefined;
 }
 
 /** Why a listed row file does not read as a row, in the words the person is shown. */
-export function repairReason(error: RowReadError): string {
-	if (error.name === 'InvalidRow')
-		return error.issues
-			.map((issue) =>
-				issue.line === undefined
-					? issue.message
-					: `Line ${issue.line}: ${issue.message}`,
-			)
-			.join(' ');
-	if (error.name === 'InvalidUtf8') return 'It is not text.';
-	return `It could not be read: ${error.message}`;
+export function repairReason(row: Pick<Row, 'issues'>): string {
+	if (row.issues === null) return '';
+	if (row.issues.some((issue) => issue.kind === 'not-text'))
+		return 'It is not text.';
+	return row.issues
+		.map((issue) => {
+			const [field] = issue.path;
+			const what =
+				field === undefined ? issue.message : `${field} ${issue.message}`;
+			return issue.line === undefined ? what : `Line ${issue.line}: ${what}`;
+		})
+		.join(' ');
 }
 
 /** A listing's rows that read, and the rest with why. */
-function split<TFields>(table: string, listed: TableListing<TFields>) {
-	const entries: (StoredRow<TFields> & { stem: string })[] = [];
+function split<T extends TableName>(table: T, rows: readonly ListedRow<T>[]) {
+	const entries: Entry<T>[] = [];
 	const repairs: Repair[] = [];
-	for (const { stem, result } of listed)
-		if (result.error === null) entries.push({ ...result.data, stem });
-		else
-			repairs.push({
-				path: rowPath(table, stem),
-				stem,
-				reason: repairReason(result.error),
-			});
+	for (const row of rows) {
+		const path = rowPath(table, row.id);
+		if (row.issues === null)
+			entries.push({ stem: row.id, path, row: row as ReadRow<T> });
+		else repairs.push({ path, stem: row.id, reason: repairReason(row) });
+	}
 	return {
 		entries,
 		repairs,
-		paths: new Set(listed.map(({ stem }) => rowPath(table, stem))),
+		paths: new Set(rows.map((row) => rowPath(table, row.id))),
 	};
 }
 
@@ -298,43 +287,34 @@ function perListing<TListing extends object, TValue>(
 	};
 }
 
-export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
+export function createLibrary(
+	workspace: Workspace,
+	local: FolderContext<WhisperingTables>,
+) {
 	const { folder } = workspace;
+	const { queryClient, edits } = local;
 	const keys = whisperingKeys;
-	const folder$ = folderOptions(folder);
 	const { defineMutation } = createQueryFactories(queryClient);
-	const tableOf = <T extends TableName>(name: T) =>
-		folder.tables[name] as unknown as FileTable<Tables[T]>;
-	const optionsOf = <T extends TableName>(name: T) =>
-		folder$.tables[name] as TableOptions<Tables[T]>;
 
 	const noticeListeners = new Set<(notice: WriteNotice) => void>();
 	function notify(notice: WriteNotice) {
 		for (const listener of noticeListeners) listener(notice);
 	}
-	// Every write and draft of the folder. Each failure is told as the edit
-	// layer reports it: the text, and Save again and Discard while the edit
-	// is still on screen.
-	const edits = createEdits({
-		folder,
-		queries: folder$,
-		queryClient,
-		writeFailed: (failure) => notify({ kind: 'failed', ...failure }),
-	});
 
-	/** Why nothing new starts now, if it does not. Work accepted before stays accepted. */
-	const refused = () => edits.refusal();
-
-	// The app's own actions are local like the folder's writes: nothing
-	// waits for a network, and one that failed is shown rather than retried.
-	queryClient.setMutationDefaults(keys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
-
-	// The one channel of outside change (ADR-0548): each report makes exactly
-	// the queries it names stale, and the ones shown are read again.
-	const stopChanges = folder$.invalidateOnChange(queryClient);
+	/** Set by `close`: nothing new starts from then on. Work accepted before finishes. */
+	let fenced = $state(false);
+	/** Why nothing new starts now, if it does not. */
+	const refused = () => (fenced ? CLOSING : undefined);
+	/** Files being renamed or deleted: typing into them waits. */
+	const busyPaths = new SvelteSet<string>();
+	/** Work closing waits for. */
+	const pending = new Set<Promise<unknown>>();
+	function hold<T>(work: Promise<T>): Promise<T> {
+		pending.add(work);
+		const done = () => pending.delete(work);
+		work.then(done, done);
+		return work;
+	}
 
 	const trackQueries = createSubscriber((update) =>
 		queryClient.getQueryCache().subscribe(update),
@@ -342,13 +322,25 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const trackMutations = createSubscriber((update) =>
 		queryClient.getMutationCache().subscribe(update),
 	);
-	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 
 	// --- reads -----------------------------------------------------------------
 
-	const listingOf = <T extends TableName>(table: T) =>
-		optionsOf(table).list.queryOptions();
-	const textKey = (path: string) => folder$.files.text.queryKey(path);
+	const rowsOptions = <T extends TableName>(table: T) =>
+		local.queries.rows(table);
+	const rowsKey = (table: TableName) => rowsOptions(table).queryKey;
+	const filesKey = [...local.queries.key, 'files'] as const;
+	const textRoot = [...local.queries.key, 'text'] as const;
+	const textKey = (path: string) => [...textRoot, path] as const;
+
+	const filesQuery = {
+		queryKey: filesKey,
+		queryFn: async (): Promise<Listing> => {
+			const { data, error } = await folder.files.list();
+			if (error !== null) throw error;
+			return listingOf(data);
+		},
+	};
+
 	/**
 	 * One file's complete text, or its type and size when it is not editable
 	 * text. The same options object for each path, so a view that asks again
@@ -356,55 +348,77 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	 */
 	const textQueries = new Map<
 		string,
-		ReturnType<typeof folder$.files.text.queryOptions>
+		{
+			queryKey: ReturnType<typeof textKey>;
+			queryFn: () => Promise<OpenedFile>;
+		}
 	>();
 	function textQuery(path: string) {
 		let options = textQueries.get(path);
 		if (options === undefined) {
-			options = folder$.files.text.queryOptions(path);
+			options = {
+				queryKey: textKey(path),
+				queryFn: async () => {
+					const { data: bytes, error } = await readBytes(folder, path);
+					if (error !== null) throw new Error(error);
+					return openedFile(bytes);
+				},
+			};
 			textQueries.set(path, options);
 		}
 		return options;
 	}
-	/** The listings every page shows: the tables and the files. */
-	const listingQueries = () => [
-		listingOf(RECORDINGS),
-		listingOf(TRANSCRIPTIONS),
-		listingOf(TRANSFORMATIONS),
-		listingOf(TRANSFORMATION_RUNS),
-		listingOf(TEXT_RUNS),
-		folder$.files.list.queryOptions(),
+
+	// The context makes the rows a change names stale; the listing and the
+	// text of the files it names are this library's to read again.
+	const stopChanges = folder.onChange((change) => {
+		void queryClient.invalidateQueries({ queryKey: filesKey, exact: true });
+		if (change.paths === null)
+			void queryClient.invalidateQueries({ queryKey: textRoot });
+		else
+			for (const path of change.paths)
+				void queryClient.invalidateQueries({
+					queryKey: textKey(path),
+					exact: true,
+				});
+	});
+
+	const tables = [
+		RECORDINGS,
+		TRANSCRIPTIONS,
+		TRANSFORMATIONS,
+		TRANSFORMATION_RUNS,
+		TEXT_RUNS,
+	] as const;
+	/** What the library observes while it is open: every table's rows and the files. */
+	const shownQueries = (): QueryOptions[] => [
+		...tables.map((table) => rowsOptions(table) as unknown as QueryOptions),
+		filesQuery,
 	];
-	/**
-	 * What the library observes while it is open: the listings, and Git
-	 * status, whose read updates the folder's history snapshot the header
-	 * shows. Observed, they are read again whenever they go stale.
-	 */
-	const shownQueries = () => [
-		...listingQueries(),
-		folder$.history.status.queryOptions(),
-	];
-	const listingKeys = listingQueries().map((options) => options.queryKey);
+	const listingKeys = shownQueries().map((options) => options.queryKey);
 	/** Stops observing what `start` began observing. */
 	let stopObserving: (() => void)[] = [];
 
-	/** A listing as the cache holds it, read reactively. */
+	/** A table's rows as the cache holds them, read reactively. */
 	function listed<T extends TableName>(table: T) {
 		trackQueries();
-		return queryClient.getQueryData<TableListing<Tables[T]>>(
-			optionsOf(table).list.queryKey(),
-		);
+		return queryClient.getQueryData<ListedRow<T>[]>(rowsKey(table));
 	}
 	/** Why the last read of a query failed, read reactively. */
 	function readError(queryKey: readonly unknown[]): string | undefined {
 		trackQueries();
 		return queryClient.getQueryState(queryKey)?.error?.message;
 	}
+	/** The folder's files as last listed, read reactively. */
+	function listing() {
+		trackQueries();
+		return queryClient.getQueryData<Listing>(filesKey);
+	}
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
-	const recordingsOf = perListing((listing: TableListing<RecordingFields>) => {
-		const read = split(RECORDINGS, listing);
+	const recordingsOf = perListing((rows: ListedRow<'recordings'>[]) => {
+		const read = split(RECORDINGS, rows);
 		return {
 			...read,
 			entries: read.entries.sort(
@@ -416,8 +430,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		};
 	});
 	const transformationsOf = perListing(
-		(listing: TableListing<TransformationFields>) => {
-			const read = split(TRANSFORMATIONS, listing);
+		(rows: ListedRow<'transformations'>[]) => {
+			const read = split(TRANSFORMATIONS, rows);
 			const key = (entry: TransformationEntry) =>
 				entry.row.fields.title || entry.path;
 			return {
@@ -432,38 +446,79 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 	);
 	const transcriptionsOf = perListing(
-		(listing: TableListing<TranscriptionFields>) =>
-			split(TRANSCRIPTIONS, listing).entries,
+		(rows: ListedRow<'transcriptions'>[]) =>
+			split(TRANSCRIPTIONS, rows).entries,
 	);
 	const resultsOf = perListing(
-		(listing: TableListing<TransformationRunFields>) =>
-			split(TRANSFORMATION_RUNS, listing).entries,
+		(rows: ListedRow<'transformation_runs'>[]) =>
+			split(TRANSFORMATION_RUNS, rows).entries,
 	);
-	const textResultsOf = perListing((listing: TableListing<TextRunFields>) =>
-		split(TEXT_RUNS, listing),
+	const textResultsOf = perListing((rows: ListedRow<'text_runs'>[]) =>
+		split(TEXT_RUNS, rows),
 	);
 
 	const recordingsRead = () => {
-		const listing = listed(RECORDINGS);
-		return listing && recordingsOf(listing);
+		const rows = listed(RECORDINGS);
+		return rows && recordingsOf(rows);
 	};
 	const entries = () => recordingsRead()?.entries ?? [];
 
+	/** The row the cache holds for `stem`, whether or not it reads. */
+	function listedRow<T extends TableName>(
+		table: T,
+		stem: string,
+	): ListedRow<T> | undefined {
+		return queryClient
+			.getQueryData<ListedRow<T>[]>(rowsKey(table))
+			?.find((row) => row.id === stem);
+	}
 	/** The row the cache holds for `stem`, if it reads. */
 	function rowOf<T extends RowTable>(
 		table: T,
 		stem: string,
-	): StoredRow<Tables[T]> | undefined {
-		const result = queryClient
-			.getQueryData<TableListing<Tables[T]>>(optionsOf(table).list.queryKey())
-			?.find((entry) => entry.stem === stem)?.result;
-		return result?.error === null ? result.data : undefined;
+	): ReadRow<T> | undefined {
+		const row = listedRow(table, stem);
+		return row?.issues === null ? (row as ReadRow<T>) : undefined;
 	}
 
-	/** Read again what an action may have changed: every folder query a view shows, Git status with them. */
+	/** Read again everything the folder shows. */
 	async function invalidate() {
-		if (edits.fenced) return;
-		await queryClient.invalidateQueries({ queryKey: folder$.key });
+		if (fenced) return;
+		await queryClient.invalidateQueries({ queryKey: local.queries.key });
+	}
+
+	// --- drafts ----------------------------------------------------------------
+
+	const texts = createTextDrafts({
+		files: folder.files,
+		saved: async (path) => {
+			await queryClient.invalidateQueries({
+				queryKey: textKey(path),
+				exact: true,
+			});
+		},
+		failed: ({ path, text, error }) =>
+			notify({
+				kind: 'failed',
+				path,
+				error: error ?? { name: 'NotSaved', message: 'It did not save.' },
+				unsaved: text,
+				retry: () => {
+					if (fenced) return false;
+					void texts.save(path);
+					return true;
+				},
+				discard: () => texts.discard(path),
+			}),
+	});
+
+	/** The row draft of `path`, if it is a row this window edits. */
+	function rowDraft(path: string) {
+		const table = rowTableOf(path);
+		const stem = table === undefined ? undefined : rowIdOf(table, path);
+		return table === undefined || stem === undefined
+			? undefined
+			: edits.row(table, stem);
 	}
 
 	/** Row files the person chose to edit as their exact text. */
@@ -477,9 +532,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const table = rowTableOf(path);
 		if (table === undefined) return true;
 		if (asText.has(path)) return true;
-		const stem = rowStemOf(table, path) as string;
-		const result = listed(table)?.find((entry) => entry.stem === stem)?.result;
-		return result !== undefined && result.error !== null;
+		const stem = rowIdOf(table, path) as string;
+		const row = listed(table)?.find((item) => item.id === stem);
+		return row !== undefined && row.issues !== null;
 	}
 
 	/** The text of `path` as the cache holds it, when it opens as text. */
@@ -488,52 +543,28 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		return opened?.kind === 'text' ? opened.text : undefined;
 	}
 
-	/** The body draft of the row at `path`, if it is a row this window edits. */
-	function bodyAt(path: string) {
-		const table = rowTableOf(path);
-		const stem = table === undefined ? undefined : rowStemOf(table, path);
-		return table === undefined || stem === undefined
-			? undefined
-			: edits.body(table, stem);
+	/** Send the typing held for `path`, row or text; answers whether some still did not save. */
+	async function settlePath(path: string): Promise<boolean> {
+		const draft = rowDraft(path);
+		if (draft !== undefined) await draft.save();
+		await texts.save(path);
+		return (draft?.held ?? false) || texts.held(path);
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
 	function moved(from: string, to: string) {
-		const stem = rowStemOf(TRANSCRIPTIONS, from);
-		const nextStem = rowStemOf(TRANSCRIPTIONS, to);
-		if (stem !== undefined)
-			queryClient.setQueryData<TableListing<TranscriptionFields>>(
-				optionsOf(TRANSCRIPTIONS).list.queryKey(),
-				(listing) =>
-					listing?.flatMap((entry) => {
-						if (entry.stem !== stem) return [entry];
-						if (nextStem === undefined) return [];
-						const result =
-							entry.result.error === null
-								? Ok({ ...entry.result.data, path: to })
-								: entry.result;
-						return [{ stem: nextStem, result }];
-					}),
-			);
 		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
 		if (asText.delete(from)) asText.add(to);
 		if (selectedPath === from) selectedPath = to;
 	}
 
-	/** After a delete: the caches, the edits, and the selection let the file go. */
+	/** After a delete: the caches and the selection let the file go. */
 	function deleted(path: string) {
-		for (const table of [
-			RECORDINGS,
-			TRANSCRIPTIONS,
-			TRANSFORMATIONS,
-			TRANSFORMATION_RUNS,
-			TEXT_RUNS,
-		] as const) {
-			const stem = rowStemOf(table, path);
+		for (const table of tables) {
+			const stem = rowIdOf(table, path);
 			if (stem !== undefined)
-				queryClient.setQueryData<TableListing<unknown>>(
-					optionsOf(table).list.queryKey(),
-					(listing) => listing?.filter((entry) => entry.stem !== stem),
+				queryClient.setQueryData<Row[]>(rowsKey(table), (rows) =>
+					rows?.filter((row) => row.id !== stem),
 				);
 		}
 		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
@@ -545,31 +576,18 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	/**
 	 * Run `work` as a mutation, so closing waits for it. `scope` names the
-	 * file whose turn a write takes (`inTurn`): a recording's lifecycle steps
-	 * run in order, after its edits, and the folder is read again after each.
-	 * `file`, when it is another file, is the one `work` writes: its turn is
-	 * taken first, so a result's write is ordered with the person's edits of
-	 * the result as well as with its recording. Work with no scope only
-	 * reads.
+	 * recording or file it is for; the folder is read again after it. Work
+	 * with no scope only reads.
 	 */
-	async function track<T>(
-		work: () => Promise<T>,
-		scope?: string,
-		file?: string,
-	): Promise<T> {
-		const inScope = () =>
-			scope === undefined ? work() : edits.writes.inTurn(scope, work);
-		const ran = await defineMutation({
-			mutationKey:
-				scope === undefined ? keys.action('read') : keys.recording(scope),
-			mutationFn: async () =>
-				Ok(
-					await (file === undefined || file === scope
-						? inScope()
-						: edits.writes.inTurn(file, inScope)),
-				),
-			onSettled: () => (scope === undefined ? undefined : invalidate()),
-		})();
+	async function track<T>(work: () => Promise<T>, scope?: string): Promise<T> {
+		const ran = await hold(
+			defineMutation({
+				mutationKey:
+					scope === undefined ? keys.action('read') : keys.recording(scope),
+				mutationFn: async () => Ok(await work()),
+				onSettled: () => (scope === undefined ? undefined : invalidate()),
+			})(),
+		);
 		if (ran.error !== null) throw ran.error;
 		return ran.data as T;
 	}
@@ -606,11 +624,17 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** The recording being captured, by stem. No request starts for it until it stops. */
 	const capturing = new SvelteSet<string>();
 	/**
+	 * The save of each recording's row at its start, by stem, settled or not.
+	 * Its length at stop and its deletion at cancel wait for it, so neither
+	 * reads the folder before the row is there.
+	 */
+	const startRows = new Map<string, Promise<unknown>>();
+	/**
 	 * A recording this window just finished, by stem, with the file listing
 	 * read when its capture ended. Until the folder is listed again, that
 	 * listing may predate its audio, so the audio is not reported absent.
 	 */
-	const finishedOver = new Map<string, FileListing | undefined>();
+	const finishedOver = new Map<string, Listing | undefined>();
 	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
 	let starting: AbortController | undefined;
 	/** Folders open in the file browser; kept while the browser is hidden. */
@@ -619,7 +643,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const deleting = new Set<string>();
 	/** Told the recording files a listing found, each time one is read. */
 	const recordingsListed = new Set<(present: ReadonlySet<string>) => void>();
-	const recordingsHash = hashKey(optionsOf(RECORDINGS).list.queryKey());
+	const recordingsHash = hashKey(rowsKey(RECORDINGS));
 	const stopListening = queryClient.getQueryCache().subscribe((event) => {
 		if (event.type !== 'updated' || event.action.type !== 'success') return;
 		if (event.query.queryHash !== recordingsHash) return;
@@ -634,8 +658,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		refused,
 		connections: () => ({ info: connections, error: connectionsError }),
 		resolve,
-		settle: async () => {
-			await edits.settled();
+		settle: async (path) => {
+			await settlePath(path);
 		},
 		deleting,
 		capturing,
@@ -650,7 +674,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	/** Show `path`: a transformation on its page, anything else beside the recordings. Opening never waits or asks. */
 	function open(path: string) {
-		if (edits.fenced) return;
+		if (fenced) return;
 		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (rowTableOf(path) === TRANSFORMATIONS) selectedTransformationPath = path;
 		else selectedPath = path;
@@ -661,7 +685,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** The folder a capture writes its audio into. */
 	const recordingFolder = (): RecordingFolder => ({
 		id: workspace.folderId,
-		write: folder.write,
+		write: folder.files.write,
 	});
 
 	/**
@@ -683,10 +707,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const stopping = capture.stop();
 		const { data: stopped, error: stopError } = await track(() => stopping);
 		if (stopError === null)
-			finishedOver.set(
-				id,
-				queryClient.getQueryData<FileListing>(folder$.files.list.queryKey()),
-			);
+			finishedOver.set(id, queryClient.getQueryData<Listing>(filesKey));
 		capturing.delete(id);
 		recorder = { phase: 'idle' };
 		if (stopError !== null) {
@@ -694,12 +715,17 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return;
 		}
 		const lengthError = await track(async () => {
-			// A field edit: set the length on the file as it is now (ADR-0576).
-			// A row deleted meanwhile stays deleted: the set writes nothing.
-			const { error } = await tableOf(RECORDINGS).set(id, {
-				durationMs: stopped.durationMs,
+			await startRows.get(id);
+			startRows.delete(id);
+			const recordings = folder.tables.recordings;
+			const { data: stored, error } = await recordings.get(id);
+			if (error !== null) return describeError(error);
+			// A row deleted meanwhile stays deleted.
+			if (stored === undefined) return undefined;
+			const { error: saveError } = await recordings.set(id, stored, {
+				fields: { durationMs: stopped.durationMs },
 			});
-			return error === null ? undefined : describeError(error);
+			return saveError === null ? undefined : describeError(saveError);
 		}, path);
 		if (lengthError !== undefined)
 			recorderError = `The recording is saved, but its length could not be written: ${lengthError}`;
@@ -708,12 +734,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	const deletionContext = (): DeletionContext => ({
 		folder,
-		listing: queryClient.getQueryData<FileListing>(
-			folder$.files.list.queryKey(),
-		),
-		writesSettled: async () => {
-			await edits.settled();
-		},
+		deleteRow: (table, id) => edits.delete(table, id),
+		settle: settlePath,
 		busy: (id) =>
 			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
 		audioOf: (path) => {
@@ -739,9 +761,18 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			// Refused when asked; once accepted, it runs, and closing waits for it.
 			const why = refused();
 			if (why !== undefined) return why;
-			const ran = await mutation(args);
+			const ran = await hold(mutation(args));
 			return ran.error === null ? (ran.data ?? undefined) : describe(ran.error);
 		};
+	}
+
+	/** Whether `path` is taken by a file, or by a directory files are in, as last listed. */
+	function taken(path: string) {
+		const files = listing();
+		return (
+			files?.paths.has(path) === true ||
+			files?.directories.includes(path) === true
+		);
 	}
 
 	const saveConnection = action(
@@ -759,12 +790,28 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		() => undefined,
 	);
 
+	/** Delete row `stem` of a result table as it is stored, after its typing saved. */
+	function deleteResult(table: typeof TRANSFORMATION_RUNS | typeof TEXT_RUNS) {
+		return async (entry: { readonly stem: string; readonly path: string }) => {
+			const { data, error } = await edits.delete(table, entry.stem);
+			if (error !== null) return describeError(error);
+			if (!data.deleted) {
+				// Kept because it changed, or already gone, here or elsewhere.
+				const { data: still } = await folder.tables[table].get(entry.stem);
+				if (still !== undefined)
+					return `${entry.path} changed meanwhile, so it was kept.`;
+			}
+			deleted(entry.path);
+			return undefined;
+		};
+	}
+
 	return {
 		workspace,
 		folder,
 		queryClient,
-		/** The folder's edit layer: every draft and write. */
-		edits,
+		/** The local folder context: row drafts, rows, and save status. */
+		local,
 		/** The microphone the next recording uses, and the test of it. */
 		input,
 		/** Whether a listing is being read now; the lists show the last read until it ends. */
@@ -783,27 +830,20 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return recordingsRead()?.repairs ?? [];
 		},
 		get transcriptions() {
-			const listing = listed(TRANSCRIPTIONS);
-			return listing ? transcriptionsOf(listing) : [];
+			const rows = listed(TRANSCRIPTIONS);
+			return rows ? transcriptionsOf(rows) : [];
 		},
 		get listError() {
-			return readError(optionsOf(RECORDINGS).list.queryKey());
+			return readError(rowsKey(RECORDINGS));
 		},
-		/** Every file and directory in the folder, as last listed. */
+		/** Every file in the folder, as last listed. */
 		get listing() {
-			trackQueries();
-			return queryClient.getQueryData<FileListing>(
-				folder$.files.list.queryKey(),
-			);
+			return listing();
 		},
 		get listingError() {
-			return readError(folder$.files.list.queryKey());
+			return readError(filesKey);
 		},
 		expanded,
-		get git() {
-			trackGit();
-			return folder.git.snapshot;
-		},
 		/** What this device has set up for requests, never a key. */
 		get connections() {
 			return connections;
@@ -814,7 +854,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/**
 		 * Whether a recipe can run now, and with what: the one decision the Run
 		 * button, the post-processing choice, a transcript's menu, and the run
-		 * itself all use. Undefined is a recipe whose text is not a valid row.
+		 * itself all use. Undefined is a recipe whose file does not read.
 		 */
 		resolve,
 
@@ -849,8 +889,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		get selectedTransformation() {
 			const path = selectedTransformationPath;
 			if (path === undefined) return undefined;
-			const listing = listed(TRANSFORMATIONS);
-			const read = listing && transformationsOf(listing);
+			const rows = listed(TRANSFORMATIONS);
+			const read = rows && transformationsOf(rows);
 			if (read !== undefined && !read.paths.has(path)) return undefined;
 			return {
 				path,
@@ -863,109 +903,212 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 
 		// ------------------------------------------------------------------
-		// Edits and writes
+		// Drafts
 		// ------------------------------------------------------------------
 
 		textQuery,
 		/**
 		 * The row of `table` at `path` as shown, read reactively: as the cache
-		 * holds it, with the body typed while one is unsaved.
+		 * holds it, with what is typed over it.
 		 */
-		rowAt<T extends RowTable>(
+		rowAt<T extends RowTable>(table: T, path: string): ReadRow<T> | undefined {
+			const stem = rowIdOf(table, path);
+			if (stem === undefined) return undefined;
+			trackQueries();
+			const row = rowOf(table, stem);
+			return row && edits.row(table, stem).shown(row);
+		},
+		/**
+		 * The row of `table` at `path` as last read, whether or not it reads:
+		 * its exact source and, when it does not read, its issues.
+		 */
+		rowSource<T extends RowTable>(
 			table: T,
 			path: string,
-		): Row<Tables[T]> | undefined {
-			const stem = rowStemOf(table, path);
+		): ListedRow<T> | undefined {
+			const stem = rowIdOf(table, path);
 			if (stem === undefined) return undefined;
-			const result = listed(table)?.find(
-				(entry) => entry.stem === stem,
-			)?.result;
-			if (result?.error !== null || result === undefined) return undefined;
-			const body = edits.body(table, stem).typed;
-			return body === undefined
-				? result.data.row
-				: { fields: result.data.row.fields, body };
+			return listed(table)?.find((row) => row.id === stem);
 		},
-		/** The text typed into `path` that is not written yet, read reactively. */
-		editedText: (path: string): string | undefined => edits.text(path).typed,
+		/** The text typed into `path` that is not saved yet, read reactively. */
+		editedText: (path: string): string | undefined => texts.typed(path),
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);
 		},
-		/** The field `name` of the row at `stem` of `table`, typed and not yet saved: its field draft. */
-		fieldOf: edits.field,
-		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
-		canEdit: (path: string) => !edits.locked(path),
 		/**
-		 * Set fields of the row at `stem` as its file is now, at once.
-		 * Refused, changing nothing, while closing, and while a rename or
-		 * delete of the file runs. Inputs commit only values the schema
-		 * accepts.
+		 * One field of the row at `stem` of `table`, as a view edits it: what
+		 * is typed over the value shown, sent with the row's draft.
+		 */
+		fieldOf<T extends RowTable, K extends keyof FieldsOf[T] & string>(
+			table: T,
+			stem: string,
+			name: K,
+		) {
+			type Value = FieldsOf[T][K];
+			const draft = () => edits.row(table, stem);
+			const typed = (): { value: Value } | undefined => {
+				const fields = draft().pending?.fields;
+				return fields !== undefined && Object.hasOwn(fields, name)
+					? { value: fields[name] as Value }
+					: undefined;
+			};
+			return {
+				/** `value` with what is typed over it. */
+				shown: (value: Value): Value => {
+					const held = typed();
+					return held === undefined ? value : held.value;
+				},
+				/** What is typed and not saved, or undefined when nothing is. */
+				get typed(): Value | undefined {
+					return typed()?.value;
+				},
+				/** Type `value`; it saves after a pause. */
+				change(value: Value) {
+					const row = rowOf(table, stem);
+					if (row === undefined) return;
+					draft().change(row, { fields: { [name]: value } } as never);
+				},
+				/** Save what is typed now. */
+				save: () => draft().save(),
+				get error() {
+					return draft().error;
+				},
+				get saving() {
+					return draft().saving;
+				},
+			};
+		},
+		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
+		canEdit: (path: string) =>
+			!fenced && !busyPaths.has(path) && !(rowDraft(path)?.locked ?? false),
+		/**
+		 * Set fields of the row at `stem` at once, merged with whatever was
+		 * saved meanwhile. Refused, changing nothing, while closing, and while
+		 * a rename or delete of the file runs. Inputs commit only values the
+		 * schema accepts.
 		 */
 		setFields<T extends RowTable>(
 			table: T,
 			stem: string,
-			set: Partial<Tables[T]>,
+			set: Partial<FieldsOf[T]>,
 		): void {
-			if (rowOf(table, stem) === undefined) return;
-			edits.set(table, stem, set as never);
+			const row = rowOf(table, stem);
+			if (row === undefined) return;
+			const draft = edits.row(table, stem);
+			if (draft.change(row, { fields: set } as never)) void draft.save();
 		},
 		/**
-		 * Type `body` as the body of the row at `stem`. The first change
-		 * takes the row the cache holds as the row the body started from; it
-		 * is saved as the change from it a second after the last change, or
-		 * at once with `saveBody`, merged by line with whatever changed since.
-		 * Refused, changing nothing, while closing, and while a rename or
-		 * delete of the file runs.
+		 * Type `body` as the body of the row at `stem`. The first change takes
+		 * the row the cache holds as the row the body started from; it saves a
+		 * second after the last change, or at once with `saveBody`, merged with
+		 * whatever changed since.
 		 */
 		editBody<T extends RowTable>(table: T, stem: string, body: string): void {
-			edits.body(table, stem).change(body);
+			const row = rowOf(table, stem);
+			if (row === undefined) return;
+			edits.row(table, stem).change(row, { body });
 		},
-		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
-		saveBody: (path: string) => bodyAt(path)?.save() ?? Promise.resolve(),
+		/** Send what is typed into the row at `path` now, as leaving it does. */
+		saveBody: (path: string) => rowDraft(path)?.save() ?? Promise.resolve(),
 		/**
-		 * Replace the text of `path`, over the version the edit started from;
-		 * it is written a second after the last change, or at once with
-		 * `saveText`.
+		 * Replace the text of `path`, over the text the edit started from; it
+		 * saves a second after the last change, or at once with `saveText`.
 		 */
 		editText(path: string, text: string): void {
-			const draft = edits.text(path);
-			// The first change starts from the file shown; later ones keep theirs.
-			if (draft.typed === undefined && shownText(path) === undefined) return;
-			draft.change(text);
+			if (fenced || busyPaths.has(path)) return;
+			const from = shownText(path);
+			// The first change starts from the text shown; later ones keep theirs.
+			if (texts.typed(path) === undefined && from === undefined) return;
+			texts.change(path, from ?? '', text);
 		},
-		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
-		saveText: (path: string) => edits.text(path).save(),
-		/** Hear each edit's write that failed, which the person is told. */
+		/** Save the text typed into `path` now, as leaving it does; resolves once no save of it runs. */
+		saveText: (path: string) => texts.save(path),
+		/** Hear each save of a file's text that failed, which the person is told. */
 		onWriteNotice(listener: (notice: WriteNotice) => void): () => void {
 			noticeListeners.add(listener);
 			return () => noticeListeners.delete(listener);
 		},
-		/** Whether a write of `path` runs or waits, or typing there waits to be sent; read reactively. */
-		isSaving: (path: string) => edits.writing(path),
-		/** Whether text typed at `path` did not save, with no save running or waiting; read reactively. */
-		isUnsaved: (path: string) => edits.unsaved(path),
-		/** Whether a write of any file runs, or typing waits to be sent; read reactively. */
-		get saving() {
-			return edits.writing();
+		/** Whether a save of `path` runs or waits, or typing there waits to be sent; read reactively. */
+		isSaving(path: string) {
+			if (busyPaths.has(path) || texts.writing(path)) return true;
+			const draft = rowDraft(path);
+			return (
+				draft !== undefined &&
+				(draft.saving || (draft.held && draft.error === undefined))
+			);
 		},
-		/** Whether an edit is not in its file yet: a write running, or text typed and waiting, being written, or kept after its write failed. */
+		/** Whether typing at `path` did not save, with no save running; read reactively. */
+		isUnsaved(path: string) {
+			if (texts.error(path) !== undefined && !texts.writing(path)) return true;
+			const draft = rowDraft(path);
+			return draft !== undefined && draft.error !== undefined && !draft.saving;
+		},
+		/** Save again what is typed into `path` and did not save: its fields, body, or text. */
+		retry: async (path: string) => {
+			await settlePath(path);
+		},
+		/**
+		 * Let go of what is typed into `path` and did not save, leaving the file
+		 * as it is. Answers what was let go, for the person to copy, or
+		 * undefined when nothing was held or a save of it is running.
+		 */
+		discard(path: string): string | undefined {
+			const text = texts.discard(path);
+			const row = rowDraft(path)?.discard();
+			if (row === undefined) return text;
+			const fields = Object.entries(row.fields).map(
+				([name, value]) => `${name}: ${JSON.stringify(value)}`,
+			);
+			return [text, ...fields, row.body]
+				.filter((part) => part !== undefined && part !== '')
+				.join('\n');
+		},
+		/** Whether a save runs, or typing waits to be sent; read reactively. */
+		get saving() {
+			return local.saveState === 'saving' || texts.writing();
+		},
+		/** Whether typing did not save, here or in a file's text; read reactively. */
 		get unsaved() {
-			return edits.writing() || edits.unsaved();
+			return local.saveState === 'failed' || texts.failures.length > 0;
+		},
+		/** Why the last save failed in storage, until a save lands; read reactively. */
+		get storageFailure(): string | undefined {
+			const failure = local.status.storageFailure;
+			return failure === null ? undefined : describeError(failure);
+		},
+		/**
+		 * Whether leaving the page now could lose something: typing held, a
+		 * save running, or work under way; read reactively.
+		 */
+		get busy() {
+			trackMutations();
+			return (
+				local.busy ||
+				texts.writing() ||
+				texts.failures.length > 0 ||
+				queryClient.isMutating() > 0
+			);
 		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
 		locked: (path?: string) =>
-			path === undefined ? edits.fenced : edits.locked(path),
+			path === undefined
+				? fenced
+				: fenced || busyPaths.has(path) || (rowDraft(path)?.locked ?? false),
 		/**
-		 * Edit a row file's whole text instead of its fields. Its writes land
-		 * first, and its text is read then. A body or field typed there that
-		 * did not save refuses the switch, so the file never has two edits
-		 * at once. Answers why not.
+		 * Edit a row file's whole text instead of its fields. What is typed into
+		 * its fields saves first, and its text is read then. Typing that did not
+		 * save refuses the switch, so the file never has two edits at once.
+		 * Answers why not.
 		 */
 		async editSource(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
-			if ((await edits.settled(path)).length > 0) return UNSAVED;
+			const draft = rowDraft(path);
+			if (draft !== undefined) {
+				await draft.save();
+				if (draft.held) return UNSAVED;
+			}
 			await queryClient
 				.fetchQuery({ ...textQuery(path), staleTime: 0 })
 				.catch(() => undefined);
@@ -973,31 +1116,24 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return undefined;
 		},
 		/**
-		 * Edit a row file's fields again after editing its text. Its writes
-		 * land, and its row is read then. Text that does not read as a row
-		 * stays as text, and this says so; so does text whose save failed,
-		 * until it saves or is discarded.
+		 * Edit a row file's fields again after editing its text. Its text saves,
+		 * and its row is read then. Text that does not read as a row stays as
+		 * text, and this says so; so does text whose save failed, until it
+		 * saves or is discarded.
 		 */
 		async useForm(path: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
 			const table = rowTableOf(path);
 			if (table === undefined) return undefined;
-			const typed = edits.text(path).typed ?? shownText(path);
-			if (
-				typed !== undefined &&
-				parseRow(whisperingDefinition.tables[table], typed).error !== null
-			)
-				return STILL_TEXT;
-			if ((await edits.settled(path)).length > 0) return UNSAVED;
+			await texts.save(path);
+			if (texts.held(path)) return UNSAVED;
 			await queryClient
-				.fetchQuery({ ...listingOf(table), staleTime: 0 })
+				.fetchQuery({ ...rowsOptions(table), staleTime: 0 })
 				.catch(() => undefined);
-			const stem = rowStemOf(table, path);
-			const result = listed(table)?.find(
-				(entry) => entry.stem === stem,
-			)?.result;
-			if (result !== undefined && result.error !== null) return STILL_TEXT;
+			const stem = rowIdOf(table, path);
+			const row = listed(table)?.find((item) => item.id === stem);
+			if (row !== undefined && row.issues !== null) return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
 		},
@@ -1007,7 +1143,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// ------------------------------------------------------------------
 
 		get closing() {
-			return edits.fenced;
+			return fenced;
 		},
 		/** Hear which recording files each successful listing found. */
 		onRecordingsListed(
@@ -1036,12 +1172,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				shownQueries().map((options) =>
 					queryClient
 						.fetchQuery({
-							...(options as unknown as QueryOptions),
+							...options,
 							queryFn: async (context) => {
 								try {
-									return await (options as unknown as QueryOptions).queryFn(
-										context,
-									);
+									return await options.queryFn(context);
 								} catch (cause) {
 									if (cause instanceof Error) thrown.push(cause);
 									throw cause;
@@ -1054,9 +1188,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			if (thrown.length > 0) throw thrown[0];
 			// Observed from now on, so what the folder reports changed is read again.
 			stopObserving = shownQueries().map((options) =>
-				new QueryObserver(queryClient, options as QueryOptions).subscribe(
-					() => {},
-				),
+				new QueryObserver(queryClient, options).subscribe(() => {}),
 			);
 			await readConnections();
 			// The saved choice only: no microphone is opened or listed at launch.
@@ -1073,76 +1205,73 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** Saved transcripts of one recording, newest first. */
 		resultsFor(id: string): TranscriptionEntry[] {
-			const listing = listed(TRANSCRIPTIONS);
+			const rows = listed(TRANSCRIPTIONS);
 			return byNewest(
-				(listing ? transcriptionsOf(listing) : []).filter(
+				(rows ? transcriptionsOf(rows) : []).filter(
 					(entry) => entry.row.fields.recordingId === id,
 				),
 			);
 		},
 		/** Transformations that read, by title. */
 		get transformations() {
-			const listing = listed(TRANSFORMATIONS);
-			return listing ? transformationsOf(listing).entries : [];
+			const rows = listed(TRANSFORMATIONS);
+			return rows ? transformationsOf(rows).entries : [];
 		},
 		get transformationsError() {
-			return readError(optionsOf(TRANSFORMATIONS).list.queryKey());
+			return readError(rowsKey(TRANSFORMATIONS));
 		},
 		/** Transformation files that do not read as transformations, with why. */
 		get transformationRepairs() {
-			const listing = listed(TRANSFORMATIONS);
-			return listing ? transformationsOf(listing).repairs : [];
+			const rows = listed(TRANSFORMATIONS);
+			return rows ? transformationsOf(rows).repairs : [];
 		},
 		isTransformation(path: string) {
-			const listing = listed(TRANSFORMATIONS);
-			return listing ? transformationsOf(listing).paths.has(path) : false;
+			const rows = listed(TRANSFORMATIONS);
+			return rows ? transformationsOf(rows).paths.has(path) : false;
 		},
 		get transformationResults() {
-			const listing = listed(TRANSFORMATION_RUNS);
-			return byNewest(listing ? resultsOf(listing) : []);
+			const rows = listed(TRANSFORMATION_RUNS);
+			return byNewest(rows ? resultsOf(rows) : []);
 		},
 		/** Saved results made from one transcription, newest first. */
 		outputsFor(transcriptionId: string): TransformationRunEntry[] {
-			const listing = listed(TRANSFORMATION_RUNS);
+			const rows = listed(TRANSFORMATION_RUNS);
 			return byNewest(
-				(listing ? resultsOf(listing) : []).filter(
+				(rows ? resultsOf(rows) : []).filter(
 					(entry) => entry.row.fields.transcriptionId === transcriptionId,
 				),
 			);
 		},
 		/** Saved results one transformation produced, newest first. They outlive it. */
 		outputsOf(transformationId: string): TransformationRunEntry[] {
-			const listing = listed(TRANSFORMATION_RUNS);
+			const rows = listed(TRANSFORMATION_RUNS);
 			return byNewest(
-				(listing ? resultsOf(listing) : []).filter(
+				(rows ? resultsOf(rows) : []).filter(
 					(entry) => entry.row.fields.transformationId === transformationId,
 				),
 			);
 		},
 		/** Saved results on pasted text one recipe produced, newest first. */
 		textOutputsOf(transformationId: string): TextRunEntry[] {
-			const listing = listed(TEXT_RUNS);
+			const rows = listed(TEXT_RUNS);
 			return byNewest(
-				(listing ? textResultsOf(listing).entries : []).filter(
+				(rows ? textResultsOf(rows).entries : []).filter(
 					(entry) => entry.row.fields.transformationId === transformationId,
 				),
 			);
 		},
 		get textResultsError() {
-			return readError(optionsOf(TEXT_RUNS).list.queryKey());
+			return readError(rowsKey(TEXT_RUNS));
 		},
 		/** Files in `text_runs/` that do not read as results. */
 		get textRepairs() {
-			const listing = listed(TEXT_RUNS);
-			return listing ? textResultsOf(listing).repairs : [];
+			const rows = listed(TEXT_RUNS);
+			return rows ? textResultsOf(rows).repairs : [];
 		},
 		/** Changes each time the folder listing is read; audio players recheck their file on it. */
 		get generation() {
 			trackQueries();
-			return (
-				queryClient.getQueryState(folder$.files.list.queryKey())
-					?.dataUpdateCount ?? 0
-			);
+			return queryClient.getQueryState(filesKey)?.dataUpdateCount ?? 0;
 		},
 		/** The recording whose row names `path` as its audio, if one does. */
 		recordingNaming(path: string): RecordingEntry | undefined {
@@ -1154,18 +1283,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		 * still capturing or writing is never reported absent.
 		 */
 		audioOf(entry: RecordingEntry): RecordingAudio {
-			trackQueries();
 			trackMutations();
-			const listing = queryClient.getQueryData<FileListing>(
-				folder$.files.list.queryKey(),
-			);
+			const files = listing();
 			// A listing read since the recording finished says where its audio is.
 			const unlisted =
-				finishedOver.has(entry.stem) &&
-				finishedOver.get(entry.stem) === listing;
+				finishedOver.has(entry.stem) && finishedOver.get(entry.stem) === files;
 			if (!unlisted) finishedOver.delete(entry.stem);
 			return recordingAudio(entry.row.fields, {
-				listing,
+				listing: files,
 				settling:
 					unlisted ||
 					capturing.has(entry.stem) ||
@@ -1222,22 +1347,21 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			recorder = { phase: 'recording', startedAt: capture.startedAt };
 			// Facts only: when it started and where its audio is. Its length
 			// follows when it stops.
-			const created = await track(
-				() =>
-					tableOf(RECORDINGS).create(
-						{
-							fields: {
-								title: defaultTitle(at),
-								recordedAt: InstantString.fromDate(at),
-								capture: workspace.capture.source,
-								audioPath: capture.audioPath,
-							},
-							body: '',
-						},
-						{ stem: id },
-					),
+			const fields: RecordingFields = {
+				title: defaultTitle(at),
+				recordedAt: InstantString.fromDate(at),
+				capture: workspace.capture.source,
+				audioPath: capture.audioPath,
+			};
+			const creating = track(
+				() => folder.tables.recordings.set(id, null, { fields, body: '' }),
 				rowPath(RECORDINGS, id),
 			);
+			startRows.set(
+				id,
+				creating.catch(() => undefined),
+			);
+			const created = await creating;
 			if (created.error !== null)
 				recorderError = `The recording is running, but its file could not be written, so it is not listed: ${describeError(created.error)}. Its audio is ${capture.audioPath}.`;
 		},
@@ -1257,11 +1381,13 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const { id, capture } = cancelled;
 			await capture.cancel();
 			capturing.delete(id);
-			await track(
-				() => tableOf(RECORDINGS).delete(id),
-				rowPath(RECORDINGS, id),
-			);
-			deleted(rowPath(RECORDINGS, id));
+			await startRows.get(id);
+			startRows.delete(id);
+			const path = rowPath(RECORDINGS, id);
+			const { error } = await track(() => edits.delete(RECORDINGS, id), path);
+			if (error !== null)
+				recorderError = `The recording was stopped, but its file was not deleted: ${describeError(error)}`;
+			else deleted(path);
 		},
 
 		// ------------------------------------------------------------------
@@ -1294,41 +1420,24 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		createTransformation: action(
 			'create-transformation',
 			async ({ title, prompt }: { title: string; prompt: string }) => {
-				const { data: created, error } = await tableOf(TRANSFORMATIONS).create({
+				const id = recordingId(new Date());
+				const { error } = await folder.tables.transformations.set(id, null, {
 					fields: { title, model: null },
 					body: prompt,
 				});
 				if (error !== null) return describeError(error);
-				// A new stem holds no other file, so the write leaves this row.
-				if (!isStoredRow(created)) return undefined;
-				const stem = rowStemOf(TRANSFORMATIONS, created.path);
-				if (stem !== undefined)
-					queryClient.setQueryData<TableListing<TransformationFields>>(
-						optionsOf(TRANSFORMATIONS).list.queryKey(),
-						(listing) => listing && [...listing, { stem, result: Ok(created) }],
-					);
-				open(created.path);
+				await queryClient
+					.fetchQuery({ ...rowsOptions(TRANSFORMATIONS), staleTime: 0 })
+					.catch(() => undefined);
+				open(rowPath(TRANSFORMATIONS, id));
 				return undefined;
 			},
 		),
 		deleteTransformationResult: action(
 			'delete-result',
-			async (entry: TransformationRunEntry) => {
-				const { error } = await tableOf(TRANSFORMATION_RUNS).delete(entry.stem);
-				if (error !== null) return describeError(error);
-				deleted(entry.path);
-				return undefined;
-			},
+			deleteResult(TRANSFORMATION_RUNS),
 		),
-		deleteTextResult: action(
-			'delete-text-result',
-			async (entry: TextRunEntry) => {
-				const { error } = await tableOf(TEXT_RUNS).delete(entry.stem);
-				if (error !== null) return describeError(error);
-				deleted(entry.path);
-				return undefined;
-			},
-		),
+		deleteTextResult: action('delete-text-result', deleteResult(TEXT_RUNS)),
 
 		/**
 		 * Save one connection on this device. Nothing is sent to the endpoint
@@ -1339,12 +1448,12 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		readConnections,
 
 		/**
-		 * Rename a file within its folder, through the folder's one move
-		 * (`folder$.move`): a transcript and any other file alike move as exact
-		 * bytes. Recording and transformation files keep their names, and so
-		 * does audio a recording names. The edits being written land first,
-		 * and it moves what the last one confirmed; edits of the file wait
-		 * meanwhile.
+		 * Rename a file within its directory: its exact bytes are saved at the
+		 * new name, then the old name is deleted as it was copied. Recording
+		 * and transformation files keep their names, and so does audio a
+		 * recording names. Typing held for the file saves first; edits of it
+		 * wait meanwhile. A file changed during the rename is kept at both
+		 * names, and the person is told.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1354,69 +1463,70 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			if (problem !== undefined) return problem;
 			const to = joinPath(directory, name);
 			if (to === path) return undefined;
-			if (rowStemOf(RECORDINGS, path) !== undefined) return RECORDING_NAME;
-			if (rowStemOf(TRANSFORMATIONS, path) !== undefined)
+			if (rowIdOf(RECORDINGS, path) !== undefined) return RECORDING_NAME;
+			if (rowIdOf(TRANSFORMATIONS, path) !== undefined)
 				return TRANSFORMATION_NAME;
 			if (entries().some((entry) => audioPathIn(entry.row.fields) === path))
 				return RECORDING_AUDIO_NAME;
-			const stem = rowStemOf(TRANSCRIPTIONS, path);
-			const nextStem = rowStemOf(TRANSCRIPTIONS, to);
-			if (stem !== undefined && nextStem === undefined && !showsText(path))
+			if (
+				rowIdOf(TRANSCRIPTIONS, path) !== undefined &&
+				rowIdOf(TRANSCRIPTIONS, to) === undefined &&
+				!showsText(path)
+			)
 				return TRANSCRIPT_NAME;
-			// The file's edits land first; edits of it, and of the name it
-			// takes, wait meanwhile.
-			const { error } = await edits.exclusive([path, to], () =>
-				edits.writes.move(path, to),
-			);
-			if (error === null) moved(path, to);
-			void invalidate();
-			return error === null ? undefined : describeError(error);
+			if (taken(to)) return TAKEN;
+			if (busyPaths.has(path) || busyPaths.has(to))
+				return 'This file is being changed. Try again when it is done.';
+			busyPaths.add(path);
+			busyPaths.add(to);
+			try {
+				return await hold(
+					(async () => {
+						if (await settlePath(path)) return UNSAVED;
+						const { data: bytes, error: readError } = await readBytes(
+							folder,
+							path,
+						);
+						if (readError !== null) return readError;
+						const { error: copyError } = await folder.files.write(
+							to,
+							null,
+							bytes,
+						);
+						if (copyError !== null) return describeError(copyError);
+						const { data: removed, error: removeError } =
+							await folder.files.delete(path, bytes);
+						if (removeError !== null)
+							return `${to} was saved, but ${path} was not deleted, so both are in the folder: ${describeError(removeError)}`;
+						if (!removed.deleted)
+							return `${to} was saved, but ${path} changed meanwhile, so both are kept. Check them.`;
+						moved(path, to);
+						return undefined;
+					})(),
+				);
+			} finally {
+				busyPaths.delete(path);
+				busyPaths.delete(to);
+				void invalidate();
+			}
 		},
-		/** A new empty text file, shown; it never replaces an existing one. */
+		/** A new empty text file, shown; it is never made where a file is listed. */
 		createFile: action(
 			'create-file',
 			async (directory: string, name: string) => {
 				const problem = nameProblem(directory, name);
 				if (problem !== undefined) return problem;
 				const path = joinPath(directory, name);
-				const listing = queryClient.getQueryData<FileListing>(
-					folder$.files.list.queryKey(),
-				);
-				if (
-					listing?.directories.includes(path) ||
-					listing?.files.some((file) => file.path === path)
-				)
-					return `"${name}" already exists here.`;
-				// A write from no file places it only where none is.
-				const { error } = await folder.write(path, null, '');
+				if (taken(path)) return `"${name}" already exists here.`;
+				const { error } = await folder.files.write(path, null, '');
 				if (error !== null) return describeError(error);
 				open(path);
 				return undefined;
 			},
 		),
-		createFolder: action(
-			'create-folder',
-			async (directory: string, name: string) => {
-				const problem = nameProblem(directory, name);
-				if (problem !== undefined) return problem;
-				const path = joinPath(directory, name);
-				const listing = queryClient.getQueryData<FileListing>(
-					folder$.files.list.queryKey(),
-				);
-				if (
-					listing?.directories.includes(path) ||
-					listing?.files.some((file) => file.path === path)
-				)
-					return `"${name}" already exists here.`;
-				const { error } = await folder.files.mkdir(path);
-				if (error !== null) return describeError(error);
-				if (directory !== '') expanded.add(directory);
-				return undefined;
-			},
-		),
 		/**
 		 * Capture what deleting `path` would remove, for the person to confirm.
-		 * Queued writes land first.
+		 * Typing held for it saves first.
 		 */
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			const why = refused();
@@ -1424,9 +1534,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return captureDeletion(deletionContext(), path);
 		},
 		/**
-		 * Delete what was confirmed, after the edits being written land: what
-		 * this window saved since goes with it. A file goes whatever another
-		 * program changed in it since (ADR-0576).
+		 * Delete what was confirmed, as it is stored: a file that changed after
+		 * the person was asked is kept, and the answer says so.
 		 */
 		async delete(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();
@@ -1441,57 +1550,36 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 						: undefined;
 			const busy = recording && deletionContext().busy(recording);
 			if (busy) return busy;
-			const { path } = deletion;
-			// Typed while the person was asked: written first, and deleted with
-			// it. A recording's transcripts and results go with it, so typing
-			// in any of them that did not save refuses the deletion.
-			const result = await edits
-				.exclusive(
-					deletion.kind === 'recording' ? [path, ...deletion.results] : path,
-					async () => {
-						await edits.settled();
-						const problem = await runDeletion(
-							{
-								...deletionContext(),
-								deleting,
-								dropFailed: runs.dropFailed,
-								deleted,
-							},
-							deletion,
-						);
-						return problem === undefined ? Ok(undefined) : Err(problem);
-					},
-				)
-				.catch((cause: unknown) => Err(describe(cause)));
-			void invalidate();
-			if (result.error === null) return undefined;
-			return typeof result.error === 'string'
-				? result.error
-				: describeError(result.error);
+			const paths =
+				deletion.kind === 'recording'
+					? [deletion.path, ...deletion.results]
+					: [deletion.path];
+			for (const path of paths) busyPaths.add(path);
+			try {
+				return await hold(
+					runDeletion(
+						{
+							...deletionContext(),
+							deleting,
+							dropFailed: runs.dropFailed,
+							deleted,
+						},
+						deletion,
+					).catch((cause: unknown) => describe(cause)),
+				);
+			} finally {
+				for (const path of paths) busyPaths.delete(path);
+				void invalidate();
+			}
 		},
 		/**
-		 * Record a version: commit the saved files (ADR-0529). Writes still
-		 * running land first. Nothing else commits.
-		 */
-		async saveVersion(): Promise<CommitOutcome> {
-			const why = refused();
-			if (why !== undefined) return { status: 'blocked', reason: why };
-			const saved = await defineMutation({
-				mutationKey: keys.action('save-version'),
-				mutationFn: () => edits.saveVersion(),
-			})();
-			if (saved.error === null) return saved.data;
-			return saved.error.name === 'NotStarted'
-				? { status: 'blocked', reason: saved.error.reason }
-				: { status: 'failed', error: describe(saved.error) };
-		},
-		/**
-		 * Stop new work, finish a recording that is running, write the edits,
-		 * wait until nothing is mutating, then release the folder. An answer whose file could not
-		 * be written ends with the page, and its row stays unfinished.
+		 * Stop new work, finish a recording that is running, save what is
+		 * typed, wait until nothing is under way, then release the folder. An
+		 * answer whose file could not be written ends with the page, and its
+		 * row stays unfinished.
 		 */
 		async close() {
-			edits.fence();
+			fenced = true;
 			runs.stop();
 			// The microphone first: nothing still being written may keep it open.
 			input.close();
@@ -1499,14 +1587,16 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			starting = undefined;
 			// Kept, never deleted: a recording is in the folder from its start.
 			await finishRecording();
-			await edits.close();
+			await texts.close();
+			await Promise.allSettled([...pending]);
 			await input.saved();
 			stopChanges();
 			for (const stop of stopObserving) stop();
-			await queryClient.cancelQueries({ queryKey: folder$.key });
 			stopListening();
 			recordingsListed.clear();
 			noticeListeners.clear();
+			// Saves the row drafts, then closes the folder and clears the cache.
+			await local.close();
 			await workspace.close();
 		},
 	};

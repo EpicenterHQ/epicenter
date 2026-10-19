@@ -5,7 +5,7 @@
  * `so.epicenter`: `whispering-transcription` and `whispering-text`, holding
  * the kind, a title, and the model, so they follow the person to every
  * computer where that folder syncs. Opening Whispering's window permits it
- * into that folder, which it reads through `connectionsDefinition`.
+ * into that folder, which it opens with that one table (`connectionsTables`).
  *
  * The endpoint and key are not in the row. They live in this computer's
  * keychain under the row's id, and only the `epicenter` CLI reads them: the
@@ -30,10 +30,10 @@
 
 import {
 	CONNECTIONS_FOLDER_ID,
-	type connectionsDefinition,
+	connectionsTables,
 } from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
-import type { Definition, LegacyFolder } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -45,7 +45,10 @@ import {
 	type Operation,
 	type StoredConnection,
 } from '../connections.js';
+import { describeError } from '../files.js';
 import type { commands } from '../tauri/bindings.gen.js';
+
+export { CONNECTIONS_FOLDER_ID, connectionsTables };
 
 /** The rows Whispering uses, by operation: their stems in `so.epicenter/connections`. */
 export const CONNECTION_IDS: Record<Operation, string> = {
@@ -82,7 +85,7 @@ type Resolved = {
 
 /** `so.epicenter` as Whispering opens it: through its `connections` table alone. */
 export type ConnectionsFolder = Pick<
-	LegacyFolder<typeof connectionsDefinition, Definition>,
+	Folder<typeof connectionsTables>,
 	'tables' | 'close'
 >;
 
@@ -132,7 +135,7 @@ export function createDesktopConnections({
 	openConnections,
 }: {
 	commands: ConnectionCommands;
-	/** Open `so.epicenter` through `connectionsDefinition`; injected for tests. */
+	/** Open `so.epicenter` with `connectionsTables`; injected for tests. */
 	openConnections: () => Promise<
 		Result<ConnectionsFolder, { readonly message: string }>
 	>;
@@ -164,7 +167,12 @@ export function createDesktopConnections({
 		);
 		if (error !== null) throw new Error(error.message);
 		if (row === undefined) return undefined;
-		const { kind, model } = row.row.fields;
+		// A row that does not read is never taken for none.
+		if (row.issues !== null)
+			throw new Error(
+				`${CONNECTIONS_FOLDER_ID}/connections/${id}.md does not read as a connection: ${row.issues.map((issue) => issue.message).join('; ')}`,
+			);
+		const { kind, model } = row.fields;
 		if (kind === 'epicenter') {
 			const { data: status, error: statusError } = await native.authStatus();
 			if (statusError !== null) throw new Error(failureOf(statusError));
@@ -252,24 +260,23 @@ export function createDesktopConnections({
 				const table = (await folder()).tables.connections;
 				const { data: row, error: readError } = await table.get(id);
 				if (readError !== null) return Err(readError.message);
-				const { error: writeError } =
+				// A new row has a title; an existing one keeps its own, and every
+				// field another program added.
+				const { error: writeError } = await table.set(
+					id,
+					row ?? null,
 					row === undefined
-						? await table.create(
-								{
-									fields: {
-										kind: 'openai-compatible',
-										title: TITLES[operation],
-										model: next.model,
-									},
-									body: '',
+						? {
+								fields: {
+									kind: 'openai-compatible',
+									title: TITLES[operation],
+									model: next.model,
 								},
-								{ stem: id },
-							)
-						: await table.set(id, {
-								kind: 'openai-compatible',
-								model: next.model,
-							});
-				if (writeError !== null) return Err(writeError.message);
+								body: '',
+							}
+						: { fields: { kind: 'openai-compatible', model: next.model } },
+				);
+				if (writeError !== null) return Err(describeError(writeError));
 				return Ok(await read());
 			} catch (cause) {
 				return Err(describe(cause));

@@ -327,10 +327,15 @@ export async function transcribeRows(
 		failed: [],
 	};
 	let done = 0;
+	// What each row is called when the run starts, for a row the folder no
+	// longer lists by its turn, such as after the app closed.
+	const titles = new Map(
+		library.entries.map((entry) => [entry.path, recordingTitle(entry)]),
+	);
 	for (const path of paths) {
 		// Read again for each row: the folder may have changed while the last one ran.
 		const entry = library.entries.find((item) => item.path === path);
-		const title = entry ? recordingTitle(entry) : path;
+		const title = entry ? recordingTitle(entry) : (titles.get(path) ?? path);
 		const skip = (reason: string) => outcome.skipped.push({ title, reason });
 		const running = entry && library.transcriptionRun(entry.stem);
 		const before = entry && newestState(library, entry.stem)?.kind;
@@ -429,14 +434,10 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 	const names = deletions.map((item) => `“${item.title}”`).join(', ');
 	return {
 		title: `Delete ${count(deletions.length, 'recording', 'recordings')}?`,
-		description: `This deletes ${removed.join(', ')} from the folder: ${names}. ${
+		description: `This deletes ${removed.join(', ')} from the folder: ${names}.${
 			audio > 0
-				? `${audio === 1 ? 'The audio file is' : `The ${audio} audio files are`} not deleted: audio stays in the folder as ordinary files, and you can delete it from Files. `
+				? ` ${audio === 1 ? 'The audio file is' : `The ${audio} audio files are`} not deleted: audio stays in the folder as ordinary files, and you can delete it from Files.`
 				: ''
-		}${
-			deletions.some((item) => item.unversioned)
-				? 'Some have changes that are in no saved version, and those are lost. Earlier saved versions stay in Git history.'
-				: 'Saved versions stay in Git history.'
 		}${
 			refused.length > 0
 				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${refused

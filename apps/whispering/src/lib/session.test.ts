@@ -16,11 +16,10 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
-import { OpenFolderError } from '@epicenter/folder/bun';
+import { OpenFolderError } from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { recordingEditor, settle } from './edits.test-support.js';
-import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import { type Workspace, WorkspaceError } from './workspace/types.js';
 import {
@@ -28,6 +27,7 @@ import {
 	eventually,
 	openTestWorkspace,
 	type TestWorkspaceOptions,
+	withTables,
 } from './workspace.test-support.js';
 
 const { mountSession, openSession } = await import('./session.svelte.ts');
@@ -39,9 +39,7 @@ afterEach(async () => {
 
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
-	const session: Session = expectOk(
-		await openSession(createQueryClient(), test.open),
-	);
+	const session: Session = expectOk(await openSession(test.open));
 	cleanups.push(async () => {
 		await session.close();
 		await test.remove();
@@ -104,18 +102,17 @@ test('a session whose first read fails releases the folder it opened', async () 
 	const lost = new Error('the folder host went away');
 	const unreadable: Workspace = {
 		...test.workspace,
-		folder: {
-			...folder,
-			files: {
+		folder: withTables(
+			folder,
+			{},
+			{
 				...folder.files,
 				list: () => Promise.reject(lost),
 			},
-		},
+		),
 	};
 
-	const rejected = await openSession(createQueryClient(), async () =>
-		Ok(unreadable),
-	).then(
+	const rejected = await openSession(async () => Ok(unreadable)).then(
 		() => undefined,
 		(cause: unknown) => cause,
 	);
@@ -128,7 +125,7 @@ test('a session whose first read fails releases the folder it opened', async () 
 test('a workspace that cannot be opened is returned as the refusal, and no session exists', async () => {
 	let opens = 0;
 	const refused = expectErr(
-		await openSession(createQueryClient(), async () => {
+		await openSession(async () => {
 			opens += 1;
 			const { error: insideTauri } = OpenFolderError.InsideTauri();
 			return WorkspaceError.BrowserFolder({ refusal: insideTauri });
@@ -148,7 +145,7 @@ test('a workspace that cannot be opened is returned as the refusal, and no sessi
 test('a mounted session is released once, however often the layout releases it', async () => {
 	const test = await openTestWorkspace();
 	cleanups.push(test.remove);
-	const mounted = mountSession(createQueryClient(), test.open);
+	const mounted = mountSession(test.open);
 	expectOk(await mounted.opening);
 
 	mounted.release();
@@ -226,7 +223,7 @@ async function startingUnreleasable() {
 
 test('a start that fails and cannot release what it opened says both, without the release failure\u2019s details', async () => {
 	const { test, open, begun, failWith } = await startingUnreleasable();
-	const mounted = mountSession(createQueryClient(), open);
+	const mounted = mountSession(open);
 	await begun();
 
 	const startup = new Error('the first read failed');
@@ -248,7 +245,7 @@ test('a start that fails and cannot release what it opened says both, without th
 
 test('a layout released while its session is starting leaves nothing open', async () => {
 	const { test, open, begun, finish } = await starting();
-	const mounted = mountSession(createQueryClient(), open);
+	const mounted = mountSession(open);
 	await begun();
 
 	mounted.release();
@@ -279,7 +276,7 @@ test('a layout released while its workspace is still opening closes that workspa
 		},
 	};
 	const opened = deferred<void>();
-	const mounted = mountSession(createQueryClient(), async () => {
+	const mounted = mountSession(async () => {
 		await opened.promise;
 		return Ok(counted);
 	});

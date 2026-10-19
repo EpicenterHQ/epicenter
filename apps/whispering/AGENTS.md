@@ -1,8 +1,8 @@
 # Whispering App
 
 Shared UI and workflows for Whispering installed in Epicenter (ADR-0493,
-ADR-0552) and for the browser build. Recordings, transcripts, and settings are files in one
-Git-versioned folder; those files are the data. Read `README.md` for current
+ADR-0552) and for the browser build. Recordings, transcripts, and transformations
+are files in one folder; those files are the data. Read `README.md` for current
 behavior and delivery status, and `ARCHITECTURE.md` for structure.
 
 ## Constraints
@@ -48,31 +48,33 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   `apps/epicenter/src-tauri/capabilities/installed-app.json` (ADR-0570), and
   exposed through the workspace with a browser
   implementation or an explicit `undefined`. Load the `tauri` skill before
-  changing a grant. Nothing native opens the folder, takes its lock, or
-  initializes Git for the page; a failed desktop acquisition is visible and
+  changing a grant. No other native service opens the folder or initializes
+  Git for the page; a failed desktop acquisition is visible and
   never selects browser storage.
 - **A lost reply is not a refusal.** When Epicenter does not answer, the page
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person
   asking. A stopped Epicenter host does not stop saving: do not tell the
   person it does.
-- **Files are authoritative.** The TanStack Query cache holds only the folder
-  as last read and edits on their way to it (ADR-0528); do not add another
+- **Files are authoritative.** The local folder context's TanStack Query
+  cache (`@epicenter/svelte/folder`) holds only the folder as last read,
+  and its drafts hold typing on its way to it (ADR-0528); do not add another
   cache, mirror, or second store of recordings. Do not add Yjs, the
-  `@epicenter/app` store, accounts, or sync to this workflow.
+  `@epicenter/app` store, or accounts to this workflow.
 - **A recording's audio is the file its row names.** `audioPath` is the only
   link. Do not infer audio from a file that shares the row's stem, do not
   fill in a missing `audioPath`, and do not delete audio because its row was
   deleted: a table owns one Markdown file per row.
-- **A save is never reported by its commit.** Keep saved-file state and history
-  state separate in code and in copy.
+- **A saved status follows publication.** The header says a save landed only
+  after the folder confirms it. A failed save keeps the person's typing and
+  shows the failure beside it.
 - **A recording is in the folder from its start, and its row holds facts
   only** (ADR-0543). The row is created when the recording starts, naming its
   audio; its length is written when it stops. Never add a status, pending, or
   interrupted field, and never hold a recording's audio in the page to save
   later on the desktop: the shell writes it as it captures. Only `cancel`
-  deletes a recording. Never use `overwrite` for a recording's row or audio,
-  and never serialize a row by hand.
+  deletes a recording. Save a row through its table (`set`) as a change from
+  the row as read, never as text the app serialized by hand.
 - **Fixture audio is debug-only, and failure injection is test-only.** Fixture
   audio is a development browser build's, and the UI says so while it is
   active. No build offers failure injection; a test that fails a recording

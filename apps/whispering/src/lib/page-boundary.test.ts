@@ -76,6 +76,7 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 	).toEqual([
 		'lib/workspace/desktop-connections.ts imports @tauri-apps/api/core',
 		'lib/workspace/desktop-microphone.ts imports @tauri-apps/plugin-opener',
+		'lib/workspace/desktop.ts imports @tauri-apps/api/core',
 	]);
 });
 
@@ -98,7 +99,6 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 		'@epicenter/folder',
 		'@epicenter/folder/browser',
 		'@epicenter/folder/file-browser',
-		'@epicenter/folder/query',
 		'@epicenter/folder/tauri',
 	]);
 	// Each build points the exact bare specifier at its workspace's entry
@@ -138,20 +138,20 @@ test('the build picks the workspace: nothing imports either one but through the 
 	);
 });
 
-test('the page imports no Yjs store, sync, or account module', () => {
+test('the page imports no Yjs store, sync, history, or account module', () => {
 	expect(
 		importers(
 			(specifier) =>
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// Files are edited through the query cache and the folder's one
-				// edit layer (ADR-0528, ADR-0576): no edit session, open-item
-				// slot, admission, or save bar. The other shared views are the
-				// header status and the failed-save toast.
+				// Rows are edited through the local folder context's cache and
+				// drafts (ADR-0528, ADR-0632): no edit session, open-item slot,
+				// admission, or save bar. The other shared views are the header
+				// status and the failed-save toast.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
-						'@epicenter/svelte/edits',
+						'@epicenter/svelte/folder',
 						'@epicenter/svelte/write-failure',
 						'@epicenter/svelte/write-failure-toast',
 						'@epicenter/svelte/status-line',

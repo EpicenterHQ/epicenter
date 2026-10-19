@@ -25,13 +25,11 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { folderOptions } from '@epicenter/folder/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
-import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
 import {
@@ -55,7 +53,7 @@ async function open(
 	const test = await openTestWorkspace(options);
 	const workspace = change(test.workspace);
 	const session: Session = expectOk(
-		await openSession(createQueryClient(), async () => Ok(workspace)),
+		await openSession(async () => Ok(workspace)),
 	);
 	cleanups.push(async () => {
 		await session.close();
@@ -168,10 +166,10 @@ test('the folder being read is reported while it is read, and not after', async 
 	const { library } = await open();
 	expect(library.refreshing).toBe(false);
 
-	// A change the folder reports, as its change channel reports one.
-	const reading = library.queryClient.invalidateQueries(
-		folderOptions(library.folder).pathFilter(['recordings/elsewhere.md']),
-	);
+	// A change the folder reports makes the recordings stale, and they are read again.
+	const reading = library.queryClient.invalidateQueries({
+		queryKey: library.local.queries.rows('recordings').queryKey,
+	});
 	expect(library.refreshing).toBe(true);
 	await reading;
 

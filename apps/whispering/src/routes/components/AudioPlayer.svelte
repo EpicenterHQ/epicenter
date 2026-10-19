@@ -9,13 +9,13 @@
 	 * desktop app and a browser tab play it the same way.
 	 *
 	 * `generation` is the folder refresh count. Each new one rereads the file
-	 * and compares content versions, so audio replaced by another program is
+	 * and compares its bytes' hash, so audio replaced by another program is
 	 * picked up even when its length is unchanged, and unchanged audio keeps
 	 * playing.
 	 */
 	let { source, label }: {
 		source:
-			| { readonly kind: 'file'; readonly files: FolderFiles; readonly path: string; readonly generation: number }
+			| { readonly kind: 'file'; readonly files: Pick<FolderFiles, 'read'>; readonly path: string; readonly generation: number }
 			| { readonly kind: 'bytes'; readonly bytes: Uint8Array; readonly mimeType: string };
 		label: string;
 	} = $props();

@@ -53,10 +53,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
-| `epicenter declare-epicenter-folder` | built, hidden | `src/epicenter-folder.ts` |
 
 `send`, `history`, `save-version`, `install-command`,
-`declare-epicenter-folder`, `app update --restore`, `sync --allow-unrelated`,
+`app update --restore`, `sync --allow-unrelated`,
 and `--desktop` are left out of `--help`: the desktop app runs them.
 `--commit` is listed, and `--approve` requires it.
 
@@ -168,11 +167,6 @@ as it is and says so, and a regular file at the link's path is refused. Run
 from source under `bun`, it refuses, since it would link `bun` itself. A
 terminal finds `epicenter` once `~/.local/bin` is on `PATH`: add
 `export PATH="$HOME/.local/bin:$PATH"` to your shell profile once.
-
-`declare-epicenter-folder` publishes `so.epicenter`'s declaration
-(`src/epicenter-folder.ts`), which the desktop app runs at every launch so an
-installed app reading its `connections` table through its definition finds
-the table before any app opens.
 
 ## Signing in
 
@@ -307,7 +301,6 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
 | `src/install-command.ts` | `install-command`: the one link Git's configuration runs. |
-| `src/epicenter-folder.ts` | `so.epicenter`'s definition and `declare-epicenter-folder`. |
 | `src/stop.ts` | The one stop-signal handler: cleanups at once, then unfinished refreshes, then exit. |
 | `src/repository-commands.ts` | `clone`, `repos`, and the hosted side of `sync`: the remote `--to` names and the token for the deployment's Git. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |

@@ -1,152 +1,42 @@
 /**
- * Header status keeps file publication separate from Git history.
- * Unsaved work cannot be reported as saved because a commit failed, and an
- * unavailable or stale observation cannot establish that history is empty.
+ * The header's status line reports whether what the person did is in the
+ * folder on this device. Nothing here speaks of versions or sync: the folder
+ * keeps neither.
  */
 import { expect, test } from 'bun:test';
-import type { GitSnapshot } from '@epicenter/folder';
-import {
-	commitLine,
-	filesLine,
-	headLine,
-	summaryLine,
-	uncommittedLine,
-} from './status.js';
+import { filesLine } from './status.js';
 
-function snapshot(): GitSnapshot {
-	return {
-		branch: 'main',
-		remote: undefined,
-		files: { state: 'unknown', error: undefined },
-		sync: { state: 'unknown', error: undefined },
-		activity: {
-			scan: { active: false },
-			commit: { active: false },
-			push: { active: false },
-			fetch: { active: false },
-		},
-		lastCommit: undefined,
-		lastPush: undefined,
-		closed: false,
-	};
-}
-
-for (const state of [
-	{ saving: true, unwrittenAnswers: 0, expected: 'Saving…' },
-	{ saving: false, unwrittenAnswers: 1, expected: '1 answer not written yet' },
-]) {
-	test(`${state.expected} takes priority over a failed commit`, () => {
-		const git = snapshot();
-		const failed = {
-			...git,
-			lastCommit: { status: 'failed' as const, error: 'branch locked', at: 1 },
-		};
-		const files = filesLine(state);
-		expect(
-			summaryLine({
-				files,
-				uncommitted: uncommittedLine(failed),
-				commit: commitLine(failed),
-			}).label,
-		).toBe(state.expected);
-		expect(commitLine(failed).label).toBe('Commit failed');
-	});
-}
-
-test('a failed commit still needs attention after all files are saved', () => {
-	const git = {
-		...snapshot(),
-		lastCommit: { status: 'failed' as const, error: 'branch locked', at: 1 },
-	};
-	const files = filesLine({
-		saving: false,
-		unwrittenAnswers: 0,
-	});
-	expect(
-		summaryLine({
-			files,
-			uncommitted: uncommittedLine(git),
-			commit: commitLine(git),
-		}).label,
-	).toBe('Saved · commit failed');
+test('everything saved says so, and names no history', () => {
+	const line = filesLine({ saving: false, unwrittenAnswers: 0 });
+	expect(line).toMatchObject({ short: 'Saved', tone: 'good' });
+	expect(JSON.stringify(line)).not.toMatch(/version|commit|sync|history/i);
 });
 
-test('changes since the last version are neutral detail: the summary says Saved', () => {
-	const git: GitSnapshot = {
-		...snapshot(),
-		files: {
-			state: 'observed',
-			value: {
-				head: 'abcdef123456',
-				changes: [{ path: 'recordings/a.md', kind: 'modify' }],
-			},
-			checkedAt: 1,
-			stale: false,
-			error: undefined,
-		},
-	};
-	const uncommitted = uncommittedLine(git);
-	expect(uncommitted).toMatchObject({
-		label: '1 change since the last version',
-		tone: 'neutral',
-	});
-	const files = filesLine({
-		saving: false,
-		unwrittenAnswers: 0,
-	});
+test('an answer not written outranks a save running, and typing that did not save outranks both', () => {
+	expect(filesLine({ saving: true, unwrittenAnswers: 1 }).label).toBe(
+		'1 answer not written yet',
+	);
 	expect(
-		summaryLine({ files, uncommitted, commit: commitLine(git) }).label,
-	).toBe('Saved');
+		filesLine({ saving: true, unsaved: true, unwrittenAnswers: 0 }),
+	).toMatchObject({
+		short: 'Not saved',
+		tone: 'error',
+	});
+	expect(filesLine({ saving: true, unwrittenAnswers: 0 }).label).toBe(
+		'Saving…',
+	);
 });
 
-test('an unobserved head does not claim empty history', () => {
-	expect(headLine(snapshot()).label).toBe('History not checked yet');
+test('a save storage refused is reported until a save lands', () => {
 	expect(
-		headLine({
-			...snapshot(),
-			files: { state: 'unknown', error: 'scan refused' },
+		filesLine({
+			saving: false,
+			storageFailure: 'The disk is full.',
+			unwrittenAnswers: 0,
 		}),
 	).toEqual({
-		label: 'History unavailable',
-		detail: 'scan refused',
+		label: 'A save failed',
+		detail: 'The disk is full.',
 		tone: 'error',
 	});
 });
-
-test('a current successful observation distinguishes empty history from a commit', () => {
-	const git = snapshot();
-	const files = {
-		state: 'observed' as const,
-		value: { head: undefined, changes: [] },
-		checkedAt: 1,
-		stale: false,
-		error: undefined,
-	};
-	expect(headLine({ ...git, files }).label).toBe('No commits yet');
-	expect(
-		headLine({
-			...git,
-			files: { ...files, value: { ...files.value, head: 'abcdef123456' } },
-		}).label,
-	).toBe('main at abcdef1');
-});
-
-for (const observation of [
-	{ stale: true, error: undefined },
-	{ stale: false, error: 'refresh refused' },
-]) {
-	test(`a ${observation.error ? 'failed refresh' : 'stale observation'} labels the previous head as historical`, () => {
-		const line = headLine({
-			...snapshot(),
-			files: {
-				state: 'observed',
-				value: { head: 'abcdef123456', changes: [] },
-				checkedAt: 1,
-				...observation,
-			},
-		});
-		expect(line.label).toBe('Last observed: main at abcdef1');
-		expect(line.detail).toContain('Checked at');
-		if (observation.error) expect(line.detail).toContain(observation.error);
-	});
-}

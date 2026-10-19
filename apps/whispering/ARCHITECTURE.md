@@ -13,14 +13,14 @@ epicenter.app.json          the manifest  id so.epicenter.whispering and the tit
 ```text
 ┌───────────── Epicenter's shell (Rust) ─────────────┐
 │ grants so.epicenter.whispering to Whispering's     │
-│ window; tauri-plugin-epicenter-folder holds the    │
-│ lock and makes checked reads, changes, `git` runs  │
+│ window; tauri-plugin-epicenter-folder makes        │
+│ checked reads and changes under its save lock      │
 │ tauri-plugin-epicenter-recorder: audio into folder │
 │ local transcription with the one active model      │
 └──────────────────────▲─────────────────┬───────────┘
-                       │ invoke          │ reads, changes, git, audio
+                       │ invoke          │ reads, changes, audio
              ┌─────────┴── page ───┐     ▼
-             │ the folder engine   │   the data folder and its .git
+             │ the folder engine   │   the data folder
              └─────────┬───────────┘
                        │ invoke ai_send
 ┌──────────────────────▼─────────────────────────────┐
@@ -31,16 +31,16 @@ epicenter.app.json          the manifest  id so.epicenter.whispering and the tit
 ```
 
 The page opens the folder with `@epicenter/folder/tauri` and names only the
-folder's ID. The shared Rust plugin (`tauri-plugin-epicenter-folder`), in
-Epicenter's process, grants Whispering's window the directory and holds the
-folder's lock. The page's own folder engine then makes every read
-(`read_folder_file` and the rest) and every change (`put_folder_file` and
-the rest) through the folder plugin, one command per storage method; its history runs in the `epicenter` CLI
-through Epicenter's history commands (ADR-0559). It reads
-only inside the granted directory and never through a link; it checks each
-change against the shared path rule and keeps it out of Git's private state.
-This app has no folder code of its own on the desktop: no copy of the plugin's
-bindings and no second transport.
+ID Epicenter registered its directory under. The shared Rust plugin
+(`tauri-plugin-epicenter-folder`), in Epicenter's process, grants
+Whispering's window the directory. The page's own folder engine, the native
+`Folder`, then makes every read (`read_folder_file` and the rest) and every
+change (`put_folder_file`) through the folder plugin, one command per storage
+method. It reads only inside the granted directory and never through a link;
+the plugin checks each change against the shared path rule, keeps it out of
+Git's private state, and lands it only while the path still holds the bytes
+the save read. This app has no folder code of its own on the desktop: no copy
+of the plugin's bindings and no second transport.
 
 Every other native service is Epicenter's, granted to every installed app's
 windows (`installed-app.json` in `apps/epicenter/src-tauri/capabilities`):
@@ -56,14 +56,21 @@ was out.
 
 ## The data model
 
-`src/lib/definition.ts` declares the folder with the shared vocabulary
-(`@epicenter/definition`): five tables. `@epicenter/folder` turns that into
-Markdown rows at `<table>/<stem>.md`. A table owns exactly
-one Markdown file per row; any other file is an ordinary file reached through
-`folder.files` and written with `folder.write`. The package's
-[README](../../packages/folder/README.md) is the contract for entries, the one
-write and its merge, one-file-per-save publication and its outcomes, and
-history.
+`src/lib/definition.ts` names five tables and the schema each row's
+frontmatter reads through (`whisperingTables`), built from the shared field
+vocabulary (`@epicenter/definition`). The local `Folder` from
+`@epicenter/folder` reads them as Markdown rows at `<table>/<id>.md`. A
+schema only interprets (ADR-0632): a row that does not fit comes back with its
+exact source and its issues, and a save never validates, so a field another
+program added survives every edit. A table owns exactly one Markdown file per
+row; any other file is an ordinary file reached through `folder.files`. Each
+save names the content it started from, and the folder merges it with
+whatever was saved meanwhile. The package's
+[README](../../packages/folder/README.md) is the contract.
+
+`definition.ts` builds each schema as the JSON Schema object TypeBox's
+`Type.Object` builds, typed by hand, because Whispering does not depend on
+`typebox` directly.
 
 What Whispering adds on top:
 
@@ -107,11 +114,10 @@ What Whispering adds on top:
   (`src/lib/workspace/microphone-preference.ts`). Epicenter serves
   every app from one fixed loopback origin, so it lasts between launches.
 
-Every file command, including settings saves, file creation, rename, and
-deletion, is a TanStack mutation. Closing the session waits until the
-mutation cache is idle. A request to an endpoint is not waited for: its result
-row is in the folder before it goes out (ADR-0542), and an answer that has not
-arrived when the app quits is lost.
+Every file action, including settings saves, file creation, rename, and
+deletion, is tracked work, and closing the session waits for it. A request to
+an endpoint is not waited for: its result row is in the folder before it goes
+out (ADR-0542), and an answer that has not arrived when the app quits is lost.
 
 ## The storage boundary
 
@@ -123,27 +129,22 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The real directory Epicenter's shell grants, opened by the page's engine (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
+| Folder | The directory Epicenter registered as `so.epicenter.whispering`, opened by that ID with Whispering's tables (`openFolder({ directory, tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); a browser that still holds an earlier build's OPFS folders refuses to open, and that data is left as it was |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
 | Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
 | Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 
-The desktop workspace opens the folder the window is handed, which the shell
-answers the page (`window_folder`), with `openFolder({ app, definition })`
-from `@epicenter/folder/tauri`. Moving between Whispering's routes or
-reloading keeps that folder. Whispering's
-own folder asks the shell for the scope `so.epicenter.whispering`
-(`grant_directory`), the folder Epicenter hands an installed app opened from
-its Apps list, and publishes `whisperingDefinition` there. Any other handed
-folder is read through `whisperingDefinition`, which never writes its
-`epicenter.json` and refuses one that lacks Whispering's tables with
-"Whispering cannot open the folder '<name>': …". Recordings are written under
-the scope opened (`Workspace.folderId`); in a folder that is not
-Whispering's own, `audio/`, which Whispering's definition keeps `local`, is
-never committed to that folder's history. The shell's refusal (an unknown scope, a window the
-scope does not list, a folder another process holds, a missing permission) is
+The desktop workspace asks the shell for the directory registered as
+`so.epicenter.whispering` (`grant_directory`), Whispering's own folder, and
+opens it with Whispering's tables. Moving between Whispering's routes or
+reloading keeps that folder. It writes nothing on opening: no declaration, no
+ignore file, no repository. The folder another window was handed with "Open
+in Whispering" is not consulted, because no public helper names it yet; this
+build opens Whispering's own folder in every window. Recordings are written
+under the ID opened (`Workspace.folderId`). The shell's refusal (an unknown
+scope, a window the scope does not list, a missing permission) is
 `DesktopFolder`, with the shell's own reason, as is a granted folder the
 engine cannot open.
 
@@ -165,7 +166,7 @@ bundles both builds and reads what each pulls in.
 folder, imports a workspace other than through `#platform/workspace`, imports
 a Node or Bun module, imports a Tauri module other than the `Channel` the
 desktop connections stream on, imports the bindings outside the desktop
-workspace, or imports the Yjs store.
+workspace, or imports the Yjs store, sync, or an account module.
 
 ## Installed in Epicenter
 
@@ -190,10 +191,11 @@ the rule.
 Opening Whispering's window permits it into Epicenter's own folder,
 `so.epicenter`. `src/lib/workspace/desktop-connections.ts` reads and changes
 the two rows of its `connections` table, which sync with that folder, over
-the folder `src/lib/workspace/desktop.ts` opens by ID with
-`openFolder({ id, definition })` through `connectionsDefinition` from
-`@epicenter/ai/connection-table`. That never publishes: the folder is
-Epicenter's, which publishes its declaration. The endpoint and key are
+the folder `src/lib/workspace/desktop.ts` opens by ID with that one table
+(`connectionsTables`, the schema of `connectionsTable` from
+`@epicenter/ai/connection-table`). Opening writes nothing there. A row that
+does not read is reported, never taken for none, and a save keeps the row's
+title and every field another program added. The endpoint and key are
 in this computer's keychain under the row's id, and only the `epicenter` CLI
 reads or writes them (`epicenter auth key set|remove|state`), through the
 Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page
@@ -420,19 +422,18 @@ connection's base URL. A transcription fixes its row the same way: the
 recording, the time, the model, and the transcription connection's base URL.
 Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
 
-1. Its result row is created with those fields and an empty body, in its
-   recording's write queue (or its own, for pasted text), before the request
-   goes out. A row that cannot be created refuses, and nothing is sent.
+1. Its result row is saved with those fields and an empty body
+   (`table.set(id, null, …)`) before the request goes out. A row that cannot
+   be saved refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
-3. The answer is written into the row with `table.write`, as the change
-   from the row with the empty body the run wrote to the row with the
-   answer (ADR-0576), merged by line into the file as it is now. Text
-   someone put in the body meanwhile, by hand or by another fill, stays
-   before the answer, and the same answer is written once. A row that is
-   gone was discarded and is not written: a write over a row deleted since
-   writes nothing (ADR-0576). A write that
-   fails is tried again after a wait that doubles from half a second to thirty
-   seconds, for as long as the window is open.
+3. The answer is saved into the row with `table.set(id, from, { body })`,
+   where `from` is the row with the empty body the run wrote, so the folder
+   merges it into the file as it is now (ADR-0632): a field someone changed
+   meanwhile stays, and the same answer filled elsewhere is written once. A
+   row that is gone was discarded and is not written: the fill reads the row
+   first and writes nothing when it is gone. A save that fails is tried again
+   after a wait that doubles from half a second to thirty seconds, for as long
+   as the window is open.
 
 Nothing that says what is happening is written. What a row shows is derived
 from its body and this window's live state:
@@ -460,9 +461,8 @@ A listing of `text_runs/` that fails keeps the last list and reports why; a
 file there that does not read is listed apart.
 
 Deleting a recording (`src/lib/deletion.ts`) deletes its row, its
-transcripts, and the results made from them, whatever each holds when the
-deletion runs (a delete beats edits that never saw it, ADR-0576), and keeps
-its audio: an ordinary file the table
+transcripts, and the results made from them, each as it is when the deletion
+runs, and keeps its audio: an ordinary file the table
 does not own, which Files can delete. What goes is read from
 the folder then, never taken from a listing; a result file that does not read
 refuses the deletion, since it might be this recording's. It must not race
@@ -475,89 +475,77 @@ recording. Results on pasted text name no recording, so they are neither
 deleted with one nor in the way of deleting one, readable or not.
 
 What a deletion of a recording or transformation path removes is decided by
-its file as read after the edits being written have landed, not by the last
-listing. The dialog says when the files have changes that are in no saved
-version. Deleting is a mutation in the file's queue, after its recording's
-lifecycle work; it writes the edits first, then deletes the rows. A row that
-reads is deleted as above. A file that is there and does not read as a row
-(bytes that are not text, say) is deleted alone, whatever it holds by then,
-and the person is told its results are kept: nothing in the file says which
-results are its own, so none is deleted with it. Any other file is deleted the
-same way, with the folder's one write to no file. For a recording, the same
-guards hold by its name: the capture and the confirmation both refuse while
-work for that recording is running, and nothing new starts for it while it
-is deleted.
+its file as read after the typing held for it saved, not by the last
+listing. A row that reads is deleted through the local edits
+(`local.edits.delete`), which waits for the row's running save and deletes it
+as stored then. A file that is there and does not read as a row (bytes that
+are not text, say) is deleted alone, as the bytes read then, and the person is
+told its results are kept: nothing in the file says which results are its
+own, so none is deleted with it. Any other file is deleted the same way,
+`files.delete(path, bytes)`. Each delete names what it read (ADR-0632), so a
+file another program changes in that very moment is kept, and the person is
+told. For a recording, the same guards hold by its name: the capture and the
+confirmation both refuse while work for that recording is running, and
+nothing new starts for it while it is deleted.
 
-## Editing through the query cache
+## Editing through the local folder context
 
-Files are read through the TanStack Query cache (ADR-0528, ADR-0548), with
-the folder's own query options (`folderOptions` from
-`@epicenter/folder/query`). The library observes each table's listing, the
-folder listing, and Git status for as long as it is
-open, and a view that shows a file's exact text reads it with its own query,
-keyed beside the folder's read of that file. A row that does not read is an
-`Err(InvalidRow)` entry in the same listing, shown as text with its issues
-(`parseRow`) until it reads. A row the person opens in Source is shown as
-text too; its fields open again once the text reads.
+The session builds the folder's local context
+(`createFolderContext` from `@epicenter/svelte/folder`) over the
+folder the workspace opened, and the library works through it. Its TanStack
+Query cache (ADR-0528) holds each table's rows (`local.queries.rows`); the
+library adds two queries of its own under the same root, the folder's file
+listing and the text of each file opened as text. The library observes the
+rows and the listing for as long as it is open. A row that does not read
+comes back in the same listing with its exact source and issues, shown as text
+until it reads. A row the person opens in Source is shown as text too; its
+fields open again once its saved text reads.
 
 - **Reads** happen when the page opens, after the app's own actions, and
-  when the folder reports a change. The library wires
-  `folder.onFilesChanged` to the cache in one line, invalidating exactly the
-  queries a report names (`pathFilter`); TanStack's focus refetch is off and
-  nothing goes stale on its own. The page's own saves are not reported to it:
-  a save puts its row in the cache, and Git status is read again after it.
-- **Every write and draft** goes through the folder's edit layer
-  (`createEdits` from `@epicenter/svelte/edits`), which the library builds
-  over its folder and query client.
-- **A field edit** (a title, a model, removing an endpoint) is a set of the
-  table's row: it sets the field on the file as it is now and keeps every
-  field another writer changed (ADR-0576). A field typed is the row's field
-  draft (`library.fieldOf`), sent a second after the last keystroke, when
-  the person leaves it, and when the view goes away; Run sends it first.
-- **A body edit** (a recording's notes, a transcript, a transformation's
-  instructions) holds the row it started from, outside the cache: the row's
-  body draft, held by the edit layer so it outlives the view it was typed
-  in, and saved a second after the last change or when the view leaves it.
-  A read never touches what is typed; the detail shows it. Its save is the
-  table's `write`, the change from the row it started from, one at a time
-  per file; text typed while one runs is sent next, from what the last one
-  sent. A save over a row deleted since writes nothing (ADR-0576). A file changed since is merged by line in the engine: where both
-  changed the same lines the typing wins, with no notice (ADR-0575).
-- **Writes to one file** run one at a time, in the order made, whichever
-  control made them, a recording's lifecycle steps and results included
-  (`inTurn`).
-- **Text** edited as a whole file holds the text it started from in a text
-  draft, saved the same way with the folder's write and merged by line with
-  whatever changed since (ADR-0576). A failed write keeps the typed text on
-  screen; a file deleted elsewhere drops it, and the shell shows a toast
-  that can copy it.
-- **A failed body save** keeps what is typed, or the field typed in its view;
-  it is saved again with the next change, and a body before anything that reads
-  files (a run, a rename, a deletion, Save version, closing). A recording or
-  transcript deleted elsewhere stays deleted: its save writes nothing, the
-  listing reads it gone, and what was typed is handed to a notice that
-  offers to copy it until the person dismisses it.
-- **A value the schema refuses** is never written: the folder refuses it as
-  `InvalidValues`. Text typed into a field or a body is sent as typed; the
-  folder writes a lone surrogate as U+FFFD, and a body reads and writes with
-  LF line endings (ADR-0572).
-- **A recording's lifecycle** writes in its file's queue: its row at start,
-  its length at stop, saving a transcript, and saving a transformation result
-  are mutations scoped by the recording's path, so they run in order.
-  Waiting on an endpoint is not a mutation, so a request that does not answer
-  never keeps the app from asking to close. A scoped mutation waiting its
-  turn would pause while TanStack thinks the page is unfocused, so the layout
-  tells TanStack the page is always focused.
+  when the folder reports a change (`folder.onChange`). The context makes the
+  rows of the tables a report names stale; the library makes the listing and
+  the text of the files it names stale. TanStack's focus refetch is off and
+  nothing goes stale on its own.
+- **Row typing** (a title, a model, a recording's notes, a transcript, a
+  transformation's instructions) is the row's draft in the context's edits
+  (`local.edits.row(table, id)`): one draft per row holding the fields and
+  body typed and the row they started from. A read never replaces it; views
+  show the row with the draft over it (`library.rowAt`). It saves a second
+  after the last change, when the person leaves the field, and when the view
+  goes away, as `table.set(id, from, change)`; the folder merges it with
+  whatever was saved meanwhile, keeping fields only the other side changed,
+  and the typing wins where both changed. The saves of one row run one at a
+  time; typing during a save is sent next, from the row that save sent.
+- **Text** edited as a whole file (Source, or a text file from Files) is a
+  text draft (`src/lib/text-drafts.svelte.ts`) holding the text it started
+  from, saved the same way with `files.write(path, from, text)` and merged by
+  line. Switching between fields and Source saves the side being left first,
+  and refuses while it did not save.
+- **A failed save** keeps the typing. The file's status line says **Not
+  saved** with **Try again** and **Discard** (`SaveStatus.svelte`); further
+  typing saves it too, and so does anything that reads the file first: a run,
+  a rename, a deletion, closing. Discard leaves the file as it is and offers
+  what was typed to copy. A failed save of a file's whole text is also told
+  with the shared failure toast.
+- **A row deleted elsewhere** with typing held for it comes back with that
+  typing: an unseen deletion never erases an edit (ADR-0632). With nothing
+  typed it stays deleted.
+- **A value the schema does not accept** is saved as written, and the row is
+  listed for repair. A field change leaves the rest of the file's bytes as
+  they were; text typed into a body saves with LF line endings (ADR-0572).
+- **A recording's lifecycle** (its row at start, its length at stop, saving
+  a transcript or a result) is tracked work scoped by the recording's path,
+  which the audio's "settling" state reads. Waiting on an endpoint is not
+  tracked, so a request that does not answer never keeps the app from
+  closing.
 
-`$state` holds only input that is not in a file: an edit not yet saved, a
+`$state` holds only input that is not in a file: typing not yet saved, a
 typed connection form, the pasted text, a captured recording, and an answer
-whose file is not written. Renaming a file is a mutation in its queue, after
-the edits are written; the selection follows it.
-Recording and transformation files keep their names. Once the session is
-closing, edits change nothing; closing waits until the mutation cache is idle
-and never asks to discard. Nothing commits on its own: a
-version is recorded only by **Save version** (`folder.git.commit()`,
-ADR-0529) or by `git commit` in the folder.
+whose file is not written. Renaming a file saves its typing, saves its exact
+bytes under the new name, then deletes the old name as read; the selection
+follows it. Recording and transformation files keep their names. Once the
+session is closing, typing changes nothing; closing waits for tracked work and
+the drafts, and never asks to discard.
 
 ## Closing
 
@@ -578,11 +566,9 @@ Nothing that matters lives only in the page:
 - Every edit is written as it is typed. One cut off mid-save is lost like a
   dropped keystroke.
 
-On exit Epicenter's folder plugin releases the folder's lock. A save is two commands, its bytes
-staged under `.git/epicenter/scratch` and then renamed over the path, so one
-cut off between them leaves the path as it was and a staged copy, which a
-later opening sweeps. Shutdown makes no commit, so saves can remain
-uncommitted.
+A save is staged and then renamed over its path by the shell, so one cut off
+between them leaves the path as it was and a staged copy, which a later
+opening sweeps.
 
 A window whose folder could not be opened closes the same way: nothing is
 open in it.
@@ -592,29 +578,22 @@ holds an unload while a change is still being written, which raises the
 browser's own leave warning. A recording in a browser tab is held in the page
 until it stops, so reloading or closing the tab loses it.
 
-## History
+## Saving and status
 
-Whispering offers no sync, so nothing is pushed. A save never commits
-(ADR-0529): a version is recorded only when the person presses **Save
-version**, a mutation that waits for the writes in flight and then calls
-`folder.git.commit()`, or runs `git commit` in the folder. A failed commit
-stays visible and is not retried on its own. `src/lib/status.ts` turns the
-folder's Git snapshot into separate lines for saved files, changes since the
-last version (neutral detail, not a warning), and the last commit attempt,
-and never lets a commit outcome change what it says about a save. A commit's
-author is `user.name` and `user.email` from Git's configuration, the
-repository's or the person's global settings, and
-`Whispering <whispering@localhost>` only where neither is set.
+Whispering keeps no versions and does not sync its folder: Save version,
+Connect, and Sync were removed with the move to the local `Folder`.
+`src/lib/status.ts` words the header's one line from what the library knows
+about saving: an answer whose file is not written yet, typing that did not
+save, a save running, or the last save storage refused (the folder's
+`status.storageFailure`), and otherwise "All changes saved on this device".
 
 ## Noticing outside changes
 
-The folder's change channel (`folder.onFilesChanged`) is the one detector of
+The folder's change channel (`folder.onChange`) is the one detector of
 changes the page did not make (ADR-0548). On the desktop the shell's file
-watcher on the granted directory reports changed paths, or everything after
-it starts, after the computer wakes, and when it dropped events; in a browser
-tab the folder's relay reports other tabs' writes, and everything when a tab
-resumes. Each report invalidates exactly the queries it names. Returning to
-the window reads nothing.
+watcher on the granted directory reports changed paths, or everything; in a
+browser tab the folder reports other tabs' saves. Each report invalidates
+exactly the queries it names. Returning to the window reads nothing.
 
 ## Debug builds
 
@@ -622,29 +601,32 @@ A development browser build opened with `?fixture=tone` records a generated
 tone instead of the microphone (`src/lib/capture.ts`); a production build and
 Epicenter never do.
 
-No build offers failure injection. Tests fail a write by wrapping a table
+No build offers failure injection. Tests fail a save by wrapping a table
 in `src/lib/workspace.test-support.ts`: `withObstructedCreates` puts a real
-obstacle where a row's file goes, so the folder itself fails the write, and
-`withResultFailures` refuses a result write before it reaches the folder.
+obstacle where a new row's file goes, so the folder itself fails the save,
+and `withResultFailures` refuses a result save before it reaches the folder.
+Tests open a directory with the folder package's Bun and Tauri openers by
+their modules until public entries export them.
 
 ## Where things are
 
 | Path | Role |
 | --- | --- |
-| `src/lib/definition.ts` | The inert folder declaration. |
+| `src/lib/definition.ts` | The tables, each row's schema, and row paths. |
 | `src/lib/workspace/` | The storage seam, its two implementations, Epicenter's connections, local transcription, and microphone, and the microphone preference. |
 | `src/lib/session.svelte.ts` | The one session a mounted layout owns, and its context. It holds what the shell shows, the post-processing choice, the pasted text, and the settings draft. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | The post-processing choice type and how a transformation is named. The session reads the current choice (`session.postProcessing`). It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held in text editors and their saves, selections, the live recording, settings, and every action as a mutation. |
+| `src/lib/library.svelte.ts` | Product state over the local folder context: the rows and listings, the change channel, row drafts and text drafts and their saves, selections, the live recording, settings, and every action as tracked work. |
+| `src/lib/text-drafts.svelte.ts` | Typing into a file's whole text, held until it saves. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
-| `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
-| `src/lib/status.ts`, `files.ts` | Status lines and the file tree. |
+| `src/lib/audio-source.ts` | What a player holds, reloaded by the bytes' hash on each folder refresh. |
+| `src/lib/status.ts`, `files.ts` | The header's status line; file messages, the listing, and reading a file's bytes. |
 | `src/routes/` | The layout that owns the session, and the three pages. |
 | `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |

@@ -1,8 +1,9 @@
 /**
  * Transformation workflow tests
  *
- * Drives the real product state against a real directory and Git repository,
- * with a fixture capture device and stubbed transcription and chat endpoints.
+ * Drives the real product state against a real directory, opened as the
+ * native `Folder`, with a fixture capture device and stubbed transcription
+ * and chat endpoints.
  * No window, provider, key, or network is involved, so these establish the
  * workflow's logic and what it leaves on disk, not that a provider accepts the
  * request.
@@ -27,8 +28,8 @@
  *   a deleted or malformed transcript or a deleted recording refuses
  * - A recording cannot be deleted while a request for it runs, including work
  *   that began after the deletion was confirmed
- * - A transformation is edited in its own draft: a save writes the whole row
- *   and keeps unknown fields; a row that does not read is named for repair
+ * - A transformation is edited in its own draft: a save keeps unknown fields
+ *   and the person's own lines; a row that does not read is named for repair
  *   and repaired as text
  * - Two asks for the same transcript and transformation at once are one
  *   request and one result, while another pair and a later run stay separate;
@@ -36,7 +37,6 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { execFileSync } from 'node:child_process';
 import { chmodSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -49,18 +49,16 @@ import {
 	transcriptEditor,
 	transformationEditor,
 } from './edits.test-support.js';
-import type { Library, WriteNotice } from './library.svelte.js';
-import { createQueryClient } from './query.test-support.js';
-import { filesLine } from './status.js';
+import type { Library } from './library.svelte.js';
+import { createTestLibrary, headerLine } from './library.test-support.js';
 import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	eventually,
 	openTestWorkspace,
 	type TestWorkspaceOptions,
+	withTables,
 } from './workspace.test-support.js';
-
-const { createLibrary } = await import('./library.svelte.ts');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -72,7 +70,7 @@ const CLEANUP = STARTER_TRANSFORMATIONS[0]!;
 
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
-	const library = createLibrary(test.workspace, createQueryClient());
+	const library = await createTestLibrary(test.workspace);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -147,7 +145,7 @@ test('a new transformation copies no model from another one', async () => {
 	expect(created.row.fields).toEqual({ title: 'Summarize', model: null });
 });
 
-test('editing a transformation saves the whole row in one form and keeps fields the app does not know', async () => {
+test('editing a transformation keeps fields the app does not know and the person’s own lines', async () => {
 	const { library, root } = await open();
 	await mkdir(join(root, 'transformations'));
 	const source =
@@ -171,15 +169,15 @@ test('editing a transformation saves the whole row in one form and keeps fields 
 	const row = expectOk(
 		await library.folder.tables.transformations.get('mine'),
 	)!;
-	expect<Record<string, unknown>>(row.row.fields).toEqual({
+	expect<Record<string, unknown>>(row.fields).toEqual({
 		title: 'Renamed',
 		model: 'chat-model',
 		temperature: 0.2,
 	});
-	expect(row.row.body).toBe('A new prompt\n');
-	// A field the app does not declare is kept; a comment is not part of the row.
+	expect(row.body).toBe('A new prompt\n');
+	// A field the app does not declare is kept, and so is the person's comment.
 	expect(written).toContain('temperature: 0.2');
-	expect(written).not.toContain('# a comment');
+	expect(written).toContain('# a comment');
 	expect(await library.rename(editor.path, 'other.md')).toContain(
 		'named by its ID',
 	);
@@ -267,16 +265,6 @@ test('applying a transformation writes a new result row and leaves the transcrip
 	expect(await readFile(join(root, transcript.path))).toEqual(transcriptBytes);
 	expect(await names(root, 'transcriptions')).toHaveLength(1);
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
-
-	// The result is an ordinary file in ordinary history.
-	const committed = await library.saveVersion();
-	expect(['committed', 'unchanged']).toContain(committed.status);
-	const tree = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], {
-		cwd: root,
-		encoding: 'utf8',
-	});
-	expect(tree).toContain(output.path);
-	expect(tree).toContain(profile.path);
 });
 
 test('what is sent is the saved transformation: a save still running settles first', async () => {
@@ -429,8 +417,6 @@ test('a transcript whose save failed keeps the edit, and a run saves it before i
 	const { library, root, transformed } = await open();
 	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	const notices: WriteNotice[] = [];
-	library.onWriteNotice((notice) => notices.push(notice));
 	const source = await openedTranscript(library, transcript.path);
 	chmodSync(join(root, 'transcriptions'), 0o555);
 	try {
@@ -441,14 +427,8 @@ test('a transcript whose save failed keeps the edit, and a run saves it before i
 	} finally {
 		chmodSync(join(root, 'transcriptions'), 0o755);
 	}
-	expect(notices).toMatchObject([
-		{
-			kind: 'failed',
-			path: transcript.path,
-			retry: expect.any(Function),
-			discard: expect.any(Function),
-		},
-	]);
+	// The typing is kept, and the transcript says it did not save.
+	expect(library.isUnsaved(transcript.path)).toBe(true);
 	expect(source.draft.body).toBe('Mine.\n');
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
@@ -718,7 +698,6 @@ test('an answer whose write fails is written again while the page lives', async 
 	const { library, root, transformed, failures } = await open();
 	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	await library.saveVersion();
 	await settle(library);
 	failures.answers = 2;
 
@@ -729,7 +708,7 @@ test('an answer whose write fails is written again while the page lives', async 
 		text: 'Transformed: um so a steady tone',
 		message: expect.stringContaining('disk refused the result'),
 	});
-	expect(filesLine(library).label).toBe('1 answer not written yet');
+	expect(headerLine(library).label).toBe('1 answer not written yet');
 
 	await eventually(() => library.unwrittenAnswers === 0);
 	await settle(library);
@@ -738,7 +717,7 @@ test('an answer whose write fails is written again while the page lives', async 
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe(
 		'Transformed: um so a steady tone\n',
 	);
-	expect(filesLine(library).tone).toBe('good');
+	expect(headerLine(library).tone).toBe('good');
 });
 
 test('an answer for a row someone filled meanwhile stands after their text, and one for a row deleted meanwhile writes nothing', async () => {
@@ -858,26 +837,19 @@ async function openHoldingReads(
 	const reads: { hold?: Promise<void>; waiting: number } = { waiting: 0 };
 	const { tables } = test.workspace.folder;
 	const table = tables[held];
-	const library = createLibrary(
-		{
-			...test.workspace,
-			folder: {
-				...test.workspace.folder,
-				tables: {
-					...tables,
-					[held]: {
-						...table,
-						async get(stem: string) {
-							reads.waiting += 1;
-							await reads.hold;
-							return table.get(stem);
-						},
-					},
+	const library = await createTestLibrary({
+		...test.workspace,
+		folder: withTables(test.workspace.folder, {
+			[held]: {
+				...table,
+				async get(stem: string) {
+					reads.waiting += 1;
+					await reads.hold;
+					return table.get(stem);
 				},
-			} as Library['workspace']['folder'],
-		},
-		createQueryClient(),
-	);
+			},
+		}),
+	});
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();

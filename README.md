@@ -37,58 +37,38 @@
 
 ## The Folder
 
-The example below uses the current `@epicenter/folder` API. The chosen direction
-lets apps open local data with their own schemas, without required metadata
-files; integration is unfinished. The Epicenter desktop app and its runner
-are deferred. See [shared vocabulary](docs/CONTEXT.md) and
-[application composition](apps/README.md) for the distinction between current
-code and the chosen direction.
-
-A data folder is a directory: one Markdown file per row, with settings as
-rows of a `settings` table, `epicenter.json` describing the tables, and Git
-history beside them. The
-files are the data. There is no database behind them for an app to own.
+`@epicenter/folder` opens one rooted set of local files. Tables interpret
+Markdown files through schemas an app supplies. Opening needs no account,
+remote, Git repository, or declaration file. A browser stores its default
+folder in IndexedDB; a desktop app opens a directory the shell grants.
 
 ```ts
-import { defineFolder, defineTable, field, openFolder } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder';
+import { Type } from 'typebox';
 
-const definition = defineFolder({
-  tables: {
-    todos: defineTable({ fields: { title: field.string(), done: field.boolean() } }),
-    settings: defineTable({ fields: { theme: field.optional(field.string()) } }),
-  },
+const { data: folder, error } = await openFolder({
+  tables: { todos: Type.Object({ title: Type.String(), done: Type.Boolean() }) },
 });
-
-// `app` is your app's id. Its own folder is named after it.
-const { data: folder, error } = await openFolder({ app: 'so.epicenter.todos', definition });
 if (error !== null) throw error;
 
-const listed = await folder.tables.todos.list();   // one { stem, result } per row file
-await folder.tables.todos.create({ fields: { title: 'Milk', done: false }, body: '' });
+const listed = await folder.tables.todos.list();
+await folder.tables.todos.set('milk', null, { fields: { title: 'Milk', done: false } });
+await folder.close();
 ```
 
-The current opener decides what to do with your definition this way: a folder's
-`epicenter.json` is written only by the app the folder is named after. In a
-browser your app opens its own folder. In the desktop app it opens the folder
-a person chose "Open in" on, or its own; `folder.own` says which. Any other
-folder is read through your definition: it must declare your tables, and its
-`epicenter.json` is never written.
-
-The same handle opens in a browser tab (the origin's private file system), a
-desktop page (`~/Epicenter/<folder-id>/`, through the desktop shell), and a Bun
-script (any directory), as
-[ADR-0533](docs/adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)
-records. A folder syncs when a person syncs: it fetches and pushes plain Git, with
-a token, to the remote in its own `remote.origin.url`
-([ADR-0521](docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
+In a desktop page or Bun script, pass `directory` with `tables`. In a desktop
+page it is the shell's registered directory ID; in Bun it is a directory path.
+Schemas change interpretation, not write authority. Local saves use the same
+row and merge rules on both hosts. Git exchange is separate from opening the
+Folder.
 
 [Read the folder API](packages/folder/README.md)
 
 ## Status
 
 Apps run in the browser and as desktop apps, over folders. Todos opens at once
-with no account and syncs through Connect; Whispering, Capture, Vocab, and
-Honeycrisp keep their data in folders too. The Yjs store and its sync were
+with no account; Whispering, Capture, Vocab, and Honeycrisp use local folders
+too. The Yjs store and its sync were
 removed, with the Local Mail, Skills, and sync-lab apps built on them; Git
 history keeps them for a return.
 
@@ -117,13 +97,13 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes, installed in Epicenter or in a browser tab. Metadata stays in frontmatter, logical folders preserve note identity, and Git records saved files. |
+| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes, installed in Epicenter or in a browser tab. Metadata stays in frontmatter and logical folders preserve note identity. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
-| [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are files in one Git-versioned folder. |
-| [Todos](apps/todos) | Runs, development milestone | Opens at once over a folder; Connect sets its Git remote. |
+| [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are local files. |
+| [Todos](apps/todos) | Runs, development milestone | Opens a local folder without sign-in; saves on this device. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
-| [Epicenter](apps/epicenter) | Runs, development | Epicenter desktop app; existing installer and application runtime, with migration deferred. |
+| [Epicenter](apps/epicenter) | Runs, development | Desktop host for installed apps and a generic native file view. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages

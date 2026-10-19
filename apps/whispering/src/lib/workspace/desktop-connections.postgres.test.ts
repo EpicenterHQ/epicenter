@@ -17,10 +17,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-	CONNECTIONS_FOLDER_ID,
-	connectionsDefinition,
-} from '@epicenter/ai/connection-table';
+import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	base64ToBytes,
 	createMemorySecrets,
@@ -28,7 +25,6 @@ import {
 	sendRequest,
 } from '@epicenter/ai/send';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
-import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import {
 	type AuthContext,
 	accountAccess,
@@ -37,6 +33,7 @@ import {
 	loginWithLoopback,
 	resolveDeployment,
 } from '../../../../../packages/cli/src/auth.js';
+import { openBunFolder } from '../../../../../packages/folder/src/native/bun.js';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -49,7 +46,10 @@ import {
 import { startDisposablePostgres } from '../../../../../packages/server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../../../packages/server/src/test-helpers/oauth-client.js';
 import type { AuthStatus } from '../tauri/bindings.gen.js';
-import type { ConnectionCommands } from './desktop-connections.js';
+import {
+	type ConnectionCommands,
+	connectionsTables,
+} from './desktop-connections.js';
 
 mock.module('@tauri-apps/api/core', () => ({
 	transformCallback: () => 0,
@@ -228,19 +228,18 @@ test('a transcription over an Epicenter connection reaches the deployment’s /v
 	const root = join(scratch, CONNECTIONS_FOLDER_ID);
 	await mkdir(root);
 	const opened = await openBunFolder({
-		root,
-		app: CONNECTIONS_FOLDER_ID,
-		definition: connectionsDefinition,
-		git: { author: { name: 'Test', email: 'test@localhost' } },
+		directory: root,
+		tables: connectionsTables,
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const folder = opened.data;
-	const { error: created } = await folder.tables.connections.create(
+	const { error: created } = await folder.tables.connections.set(
+		CONNECTION_IDS.transcription,
+		null,
 		{
 			fields: { kind: 'epicenter', title: 'Epicenter', model: 'whisper-1' },
 			body: '',
 		},
-		{ stem: CONNECTION_IDS.transcription },
 	);
 	expect(created).toBeNull();
 
