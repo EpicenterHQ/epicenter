@@ -49,8 +49,9 @@ of the OPFS data of the older shape. A fresh profile starts empty.
   `other-handle`. A listener that throws is logged and does not affect the save.
 - `status.state` is `local` while there is no sync destination. `saving` is
   true while a save is between its call and its commit or refusal.
-  `storageFailure` records a storage failure until a later publication commits
-  on this handle. Each caller owns its failed draft and any structural refusal.
+  `storageFailure` records a storage failure until a later successful save on
+  this handle, including a no-op retry. Each caller owns its failed draft and
+  any structural refusal.
   A save counts as saved only after IndexedDB committed it.
 - A failed save returns `StorageFailed` with the browser's reason, such as
   `QuotaExceededError`, and leaves earlier storage unchanged. Structural

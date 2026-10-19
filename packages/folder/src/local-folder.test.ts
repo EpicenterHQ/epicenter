@@ -15,7 +15,7 @@ import { IDBFactory as FakeIndexedDB } from 'fake-indexeddb';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder } from './browser.js';
-import type { FolderChange, FolderStatus } from './contract.js';
+import type { Folder, FolderChange, FolderStatus } from './contract.js';
 import { openFolder as openAutomaticFolder } from './index.js';
 
 const notes = Type.Object({
@@ -63,6 +63,8 @@ function nextChange(folder: {
 
 test('a fresh profile opens empty without an app, account, remote, or network', async () => {
 	const folder = await open();
+	const publicFolder: Folder<{ notes: typeof notes }> = folder;
+	void publicFolder;
 	expect(expectOk(await folder.files.list())).toEqual([]);
 	expect(expectOk(await folder.tables.notes.list())).toEqual([]);
 	expect(expectOk(await folder.tables.notes.get('missing'))).toBeUndefined();
@@ -233,21 +235,19 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 	expect(await kept?.content.text()).toBe('first');
 	expect(expectOk(await folder.files.list())).toEqual(['keep.md']);
 
-	// Neither an unchanged save nor a structural refusal proves storage works.
+	// A successful no-op retry confirms the desired content is already stored.
 	expectOk(await folder.files.write('keep.md', 'first', 'first'));
 	expect(expectErr(await folder.files.write('keep.md/child', null, 'x')).name).toBe('Occupied');
-	expect(folder.status.storageFailure).toBe(failure);
-	// A committed save clears the storage failure.
+	expect(folder.status.storageFailure).toBeNull();
 	expectOk(await folder.files.write('keep.md', 'first', 'third'));
 	expect(folder.status).toEqual(idle);
 	expect(seen.map((status) => [status.saving, status.storageFailure?.name ?? null])).toEqual([
 		[true, null],
 		[false, 'StorageFailed'],
 		[true, 'StorageFailed'],
-		[false, 'StorageFailed'],
-		[true, 'StorageFailed'],
-		[false, 'StorageFailed'],
-		[true, 'StorageFailed'],
+		[false, null],
+		[true, null],
+		[false, null],
 		[true, null],
 		[false, null],
 	]);

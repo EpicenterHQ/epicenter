@@ -55,8 +55,9 @@ export type FolderChange = StorageChange;
  * What the handle can truthfully say about saving. `'local'` is the normal
  * state of data without a sync destination, not a connection fault. A save
  * counts as saved only after IndexedDB committed it. `storageFailure` is the
- * last storage failure, cleared by a later committed publication on this
- * handle. Individual refusals and unsaved drafts belong to their callers.
+ * last storage failure, cleared by a later successful save on this handle,
+ * including a retry whose desired content is already stored. Individual
+ * refusals and unsaved drafts belong to their callers.
  */
 export type FolderStatus = {
 	readonly state: 'local';
@@ -242,9 +243,11 @@ export async function openLocalFolder<
 			}
 			saves--;
 			publishStatus(
-				result.error?.name === 'StorageFailed'
-					? result.error
-					: status.storageFailure,
+				result.error === null
+					? null
+					: result.error.name === 'StorageFailed'
+						? result.error
+						: status.storageFailure,
 			);
 			return result;
 		});
