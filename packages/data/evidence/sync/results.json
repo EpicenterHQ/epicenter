@@ -1,0 +1,96 @@
+{
+	"recordedAt": "2026-10-19T08:22:37.501Z",
+	"scope": "Production browser engine and Git transport against local native smart HTTP. Graceful profile reopen; no forced process crash, phone, quota, or hosted-service gate.",
+	"results": [
+		{
+			"browser": "chromium",
+			"version": "153.0.8010.12",
+			"acknowledgedSaves": 54,
+			"initial": "2392f17acbf9fd09146eb9bc8b187207055b855b",
+			"uncertain": "8f13b0611f090d9dd456277577c111bda23dc98a",
+			"lostReply": {
+				"status": 200,
+				"bytes": 50
+			},
+			"laterNative": "6fe805506c15bac010f76622896c70dde8c01bad",
+			"final": "6529401b245df3b33b6c8e2987a2eb470298a1b9",
+			"fields": {
+				"a": 888,
+				"b": 25,
+				"extra": 999
+			},
+			"acceptedCommitOccurrences": 1,
+			"checks": [
+				"initial native fetch",
+				"two tabs saving during network sync",
+				"independent paragraphs",
+				"native readback",
+				"accepted push with lost reply",
+				"later native edit",
+				"pending and newer edit survive profile reopen",
+				"ancestry recovery without replay",
+				"native fsck --strict"
+			]
+		},
+		{
+			"browser": "webkit",
+			"version": "26.5",
+			"acknowledgedSaves": 54,
+			"initial": "f81d37c57b50345af3935b9e0b29cbc789d3b2cf",
+			"uncertain": "d1aeac10cec8f6a77d51ea217c4eab8f065b60f5",
+			"lostReply": {
+				"status": 200,
+				"bytes": 50
+			},
+			"laterNative": "264c410c5a0cb61c8280e109a5bd57ee338a8214",
+			"final": "1da05ca9d9c987db86c36a0c6c818cc037322847",
+			"fields": {
+				"a": 888,
+				"b": 25,
+				"extra": 999
+			},
+			"acceptedCommitOccurrences": 1,
+			"checks": [
+				"initial native fetch",
+				"two tabs saving during network sync",
+				"independent paragraphs",
+				"native readback",
+				"accepted push with lost reply",
+				"later native edit",
+				"pending and newer edit survive profile reopen",
+				"ancestry recovery without replay",
+				"native fsck --strict"
+			]
+		},
+		{
+			"browser": "firefox",
+			"version": "151.0",
+			"acknowledgedSaves": 54,
+			"initial": "daa5e6f5df829e2154666603ae112900418eed4c",
+			"uncertain": "03c519750a2c79da0c740e0ce2281a3621040740",
+			"lostReply": {
+				"status": 200,
+				"bytes": 50
+			},
+			"laterNative": "67ad53d964de384ee1a502c3c67b1e85951b4841",
+			"final": "de01e6274f9611edb7f880d0add82989b11e2468",
+			"fields": {
+				"a": 888,
+				"b": 25,
+				"extra": 999
+			},
+			"acceptedCommitOccurrences": 1,
+			"checks": [
+				"initial native fetch",
+				"two tabs saving during network sync",
+				"independent paragraphs",
+				"native readback",
+				"accepted push with lost reply",
+				"later native edit",
+				"pending and newer edit survive profile reopen",
+				"ancestry recovery without replay",
+				"native fsck --strict"
+			]
+		}
+	]
+}

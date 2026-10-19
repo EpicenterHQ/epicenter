@@ -1,3 +1,4 @@
+import { snapshotObjects } from './git/closure.js';
 import type { GitObject } from './git/objects.js';
 import { readSnapshot } from './git/snapshot.js';
 
@@ -126,7 +127,8 @@ export async function openStorage(id: string) {
 				| readonly string[]
 				| { prefix: string }
 				| { rows: string }
-				| 'commit',
+				| 'commit'
+				| 'sync',
 		): Promise<RepositorySnapshot> {
 			return transact('readonly', async (transaction) => {
 				const meta = transaction.objectStore('meta');
@@ -154,7 +156,14 @@ export async function openStorage(id: string) {
 					return object;
 				}
 				const full =
-					scope === undefined || (Array.isArray(scope) && scope.length === 0);
+					scope === undefined ||
+					scope === 'sync' ||
+					(Array.isArray(scope) && scope.length === 0);
+				if (scope === 'sync')
+					await snapshotObjects(
+						[state.base, state.head].filter((oid) => oid !== null),
+						read,
+					);
 				const editAncestors = new Set<string>();
 				for (const path of edits.keys()) {
 					for (
@@ -166,7 +175,8 @@ export async function openStorage(id: string) {
 				}
 				function descend(path: string): boolean {
 					if (editAncestors.has(path)) return true;
-					if (scope === 'commit' || scope === undefined) return false;
+					if (scope === 'commit' || scope === 'sync' || scope === undefined)
+						return false;
 					if ('prefix' in scope)
 						return (
 							path.startsWith(scope.prefix) ||

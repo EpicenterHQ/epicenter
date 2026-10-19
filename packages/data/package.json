@@ -9,7 +9,8 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test --isolate src",
-		"smoke:local": "bun smoke/local.ts"
+		"smoke:local": "bun smoke/local.ts",
+		"smoke:sync:local": "bun smoke/sync.ts"
 	},
 	"dependencies": {
 		"buffer": "^6.0.3",

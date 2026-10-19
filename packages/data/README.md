@@ -45,6 +45,18 @@ The persisted `remoteKnown` flag distinguishes an unopened remote from one
 successfully fetched as empty. Preparation leaves E alone until that first
 observation, then returns an exact pending `{ base, head }` pair or null.
 
+Each repository database has three object stores:
+
+| Store | Key | Value |
+| --- | --- | --- |
+| `objects` | Git object hash | `{ type, bytes }`, with uncompressed content |
+| `edits` | Repository path | Newer text, or null for a deletion |
+| `meta` | `state` | B, C, shallow boundaries, revision and remote knowledge |
+
+Rows are views of Markdown files. There is no separately persisted table
+database. Tabs of the same origin share this database; different app origins
+keep separate copies and exchange their changes through the Git service.
+
 Capture reads the current commit C. Point reads open its ancestor trees and
 load only the requested blob. File lists walk the matching prefix; table lists
 open the table directory and load its immediate Markdown rows. Commit preparation
@@ -82,6 +94,56 @@ Closing a handle prevents new operations. A call made after close throws;
 an already-running operation that cannot publish returns `StorageFailed`.
 Previously acknowledged work remains saved.
 
+## Git synchronization
+
+`src/sync.ts` provides the internal `createSync(repository, options).run()`
+trigger. It prepares a local commit when allowed, fetches `main`, establishes
+whether a pending commit landed, adopts incoming data under a revision check,
+and pushes at most one exact pending commit. Concurrent calls on that sync
+instance share its current promise. A successful push can leave newer edits
+waiting for the next trigger.
+
+`src/git/transfer.ts` uses public isomorphic-git operations over an isolated
+in-memory filesystem for each transfer. It handles ordinary smart HTTP and
+pack/delta decoding without a checkout or persistent Git index. Returned
+objects are inflated and hash-verified. Initial fetch uses depth 1; later
+fetches negotiate from B with no new depth limit. An unresolved ancestry gap
+can trigger one full-history recovery fetch. Temporary history stays outside
+the durable object publication.
+
+If the server still holds B, retry exact C. If it contains C, merge only newer
+E onto the incoming snapshot. Proven rejection permits replacing C; missing
+parents do not prove rejection. The ancestry walk follows every parent.
+A late fetch whose base changed locally is discarded. The push checks its
+expected base against the same advertisement used to send the update, and
+the server must enforce conditional, fast-forward updates.
+
+Rejection reconciles two local generations. A transient snapshot D applies
+E's deletions to C before merging B, the remote, and D. The second merge
+applies the remaining D-to-current-local changes. This preserves a newer
+reversal while preventing a deletion from resurrecting C's rejected text.
+Adoption atomically publishes complete remote and candidate snapshots, a new
+one-parent commit when needed, both refs, and removal of captured E. A save
+during computation makes the revision check fail and leaves the save intact.
+
+## Why the library is narrower than a Git client
+
+Apps edit current rows and files on one `main` branch. They need no staging,
+branch switching or browser history interface. Pending edits batch into
+commits, so an overwritten intermediate save may have no history. Automatic
+field and paragraph resolution removes conflict review from apps. Independent
+edits still survive; competing edits follow the merge policy above.
+
+The whole active repository is available offline. This avoids selective-fetch
+and offline-cache rules, but the repository must fit browser storage. Retained
+history can be small while recovery traffic is large. Inflated objects avoid
+pack lookups during ordinary reads, at the cost of more space. Transfers still
+create temporary packs and filesystem metadata in memory.
+
+One repository revision avoids per-edit base records and cross-tab ownership.
+It can reject useful work after an unrelated save. Sync may wait for editing
+to settle; the scheduler need not force progress during uninterrupted typing.
+
 ## Integration boundary
 
 The package has no public opening API yet. The internal constructor does not
@@ -89,9 +151,12 @@ check a grant or start network sync. Do not migrate an application to it until
 the public `open`, auth, subscriptions, sync status, and automatic scheduling
 are connected.
 
-Git fetch/push, uncertain-push ancestry recovery, isolated fetch workspaces,
-and collection remain unbuilt. The current object store therefore grows as
-commits are prepared. Existing app data is untouched. Overwritten intermediate
+Ordinary Git exchange and uncertain-push recovery now have local native-server
+and browser evidence. Hosted-service checks, collection, network deadlines and
+automatic triggers remain unfinished. The eventual scheduler must respect
+`Retry-After`; the current internal trigger provides no retry scheduler.
+The current object store grows as commits are prepared because collection is
+unbuilt. Existing app data is untouched. Overwritten intermediate
 local saves need not have a recoverable version; the eventual recovery
 guarantee covers commits incorporated into server history.
 
@@ -103,6 +168,7 @@ From the repository root:
 bun run --cwd packages/data test
 bun run --cwd packages/data typecheck
 bun run --cwd packages/data smoke:local
+bun run --cwd packages/data smoke:sync:local
 ```
 
 The smoke check needs Playwright's Chromium, WebKit, and Firefox binaries.
@@ -112,12 +178,17 @@ and `--firefox <path>` to the smoke script. `--output <path>` records JSON.
 Every run creates and removes its own temporary profiles and native Git
 repository. It contacts only a temporary loopback server.
 
-Unit tests use in-memory IndexedDB. The browser check runs the production
+Unit tests use in-memory IndexedDB. The local-only browser check runs the production
 engine in two pages, races saves with commit publication, retains newer edits
 after a simulated acknowledgement, reopens persistent profiles, and checks
-the emitted objects with native Git. It does not exercise network sync,
-forced browser termination, quota exhaustion, or a phone. Those require
-separate evidence before release.
+the emitted objects with native Git. The sync browser check uses actual native
+Git HTTP requests, concurrent pages, a reply lost after server acceptance,
+a later native edit, graceful profile reopening, and ancestry recovery without
+replay. Neither check establishes forced termination, quota behavior, hosted
+service behavior, or phone durability. Those require separate release evidence.
+
+[Synchronization evidence](evidence/sync/RESULTS.md) separates native-wire
+regressions from the three-browser workload and the remaining gates.
 
 [Recorded results](evidence/local/RESULTS.md) compare the full and scoped reads.
 A 500-folder probe captures 3 trees for one file, down from 502. A separate

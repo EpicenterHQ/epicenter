@@ -14,7 +14,8 @@ preserves offline saves and merges independent edits across tabs and devices.
 `packages/folder/src/git/browser-backend.ts` still uses OPFS, a Git index,
 publishing refs, and Web Locks. The first local engine exists in
 `packages/data/`; its browser checks exercise production storage, merge and
-commit preparation. Network exchange and migration remain unbuilt.
+commit preparation. An internal sync trigger now exchanges ordinary Git with a
+local native server; automatic app integration and migration remain unbuilt.
 
 Build `@epicenter/data` under `packages/data/` against ADR-0626 and ADR-0628.
 Keep existing applications on their current backend until the replacement and
@@ -42,13 +43,24 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
    directory occupancy and E prefix tombstones remain protected. All E values
    and their ancestor trees are still read. A 500-edit, 2 MB backlog captures
    502 trees in 19 to 38 ms on desktop; measure this on phones before adding
-   another storage mechanism. Next exchange normal Git with
-   a local native server. Preserve exact
-   uncertain commits; recover connecting ancestry through all parents and name
-   sync's competing units in `Overrode:` trailers. Prove
-   lost replies, later native edits, saves during sync, and resumed stale work.
+   another storage mechanism. Ordinary Git exchange, exact uncertain commits,
+   all-parent ancestry, and isolated transfer workspaces now have
+   [native-server evidence](../packages/data/evidence/sync/RESULTS.md).
+   Native tests exercise actual incoming deltas, ordinary shallow push, lost
+   replies, later edits, stale operations and incomplete recovery. Three real
+   browser engines preserve fields and paragraphs while two pages save and
+   synchronize, then recover a lost acknowledgement after profile reopening.
+   Adoption commits the merged raw snapshot atomically instead of translating
+   it back into text-only E. Proven rejection first applies E's tombstones to
+   C as transient D, then merges B/remote/D and D/intermediate/local. This keeps
+   newer reversals and removes already-deleted rejected contributions.
+   Continue with full engine retention and hosted protocol gates. Multi-stage
+   body-region trailer positions still need projection validation before app
+   recovery tooling relies on their coordinates.
 3. **Retention.** Isolate candidate/fetch objects and collect only unreachable
-   snapshot objects with publication checks. Prove shared blobs, interrupted
+   snapshot objects with publication checks. Transfer workspaces are currently
+   isolated in memory; candidate objects stay private until publication.
+   Prove shared blobs, interrupted
    work, and concurrent publications survive collection.
 4. **Todos.** Integrate `open`, typed/raw rows, `from`/`sent`, raw file repair,
    subscription and status, and automatic scheduled sync through account auth.
@@ -62,9 +74,10 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
 
 The local repository slice passes focused tests and real Chromium, WebKit and
 Firefox checks. In-memory IndexedDB tests establish transaction behavior in the
-test implementation, not phone durability. Scoped capture passes 89 tests and
-the repeated browser workload; the next slice proves ordinary Git exchange
-against a local native server.
+test implementation, not phone durability. The cumulative focused suite passes
+133 tests with 502 assertions. The latest browser sync workload acknowledges
+162 saves against native Git. Retention is the next implementation slice;
+hosted protocol and phone gates remain separate.
 
 Claude Sonnet 5.5 delivered the object codec in an isolated clone. Codex reviewed
 and integrated it and reran its native Git checks. Independent Codex agents
@@ -89,6 +102,14 @@ contains several; refusal remains the same. An operation no longer checks
 unrelated subtrees for corruption. Capture is not an integrity audit.
 ADR-0629 through
 ADR-0631 record these local API and bootstrap clarifications as proposals.
+
+The sync checkpoint preserved outcome-first independent GPT-6.1 Sol and Claude
+Opus 5.5 designs, followed by an informed challenge. Both retained B/C/E and
+revision checks. The deletion counterexample led to transient D; native
+regressions establish that correction alongside title reversal and namespace
+undo. Public isomorphic-git operations were chosen over a new packet/pack
+implementation for the first real transport. Reconsider bundle and temporary
+memory cost using measurements, without making a second transport path now.
 
 Hosted Git must separately establish conditional ref updates, initial shallow
 fetches, and recovery negotiation in an isolated test repository. Do not run
