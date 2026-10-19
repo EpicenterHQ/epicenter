@@ -4,8 +4,8 @@
  * commands on the desktop.
  *
  * Every change lands whole and checked where it lands. A file's bytes are
- * written to a scratch file under `.git/epicenter/scratch` and renamed over
- * the path, carrying what the change expects there (`Expectation`), which
+ * written to a scratch file, under `.git/epicenter/scratch` unless the host
+ * names another scratch directory, and renamed over the path, carrying what the change expects there (`Expectation`), which
  * the host checks under the directory's save lock: another program sees the
  * old file or the new one, never part of either, and never an empty file
  * first. A removal carries its expectation too. A host that refuses one
@@ -23,7 +23,7 @@
  * land on the other file.
  *
  * `.git` at the root is private Git state, which only `git` changes; the
- * scratch files are this storage's own.
+ * scratch files are this storage's own, wherever they are staged.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -78,23 +78,32 @@ type Hold = {
  * desktop page's shell takes it for each change itself). With `hold`, where
  * Sync publishes (Bun), `lock` takes that lock and changes files through
  * `held`, the same calls without it.
+ *
+ * `scratch` is the absolute directory a put stages its bytes in, made at the
+ * first put: `.git/epicenter/scratch` under `root` unless named. One outside
+ * `root` must be on its file system, so the rename over the path is one
+ * step; listings never show it.
  */
 export function createDirectoryStorage(options: {
 	root: string;
 	primitives: DirectoryPrimitives;
+	scratch?: string;
 }): FolderStorage;
 export function createDirectoryStorage(options: {
 	root: string;
 	primitives: DirectoryPrimitives;
+	scratch?: string;
 	hold: Hold;
 }): LockingStorage;
 export function createDirectoryStorage({
 	root,
 	primitives,
+	scratch: scratchDirectory = `${root}/${SCRATCH_DIRECTORY}`,
 	hold,
 }: {
 	root: string;
 	primitives: DirectoryPrimitives;
+	scratch?: string;
 	hold?: Hold;
 }): FolderStorage | LockingStorage {
 	const absolute = (path: string) => (path === '' ? root : `${root}/${path}`);
@@ -200,7 +209,7 @@ export function createDirectoryStorage({
 			}
 			if (found.kind === 'underFile')
 				return FileError.NotADirectory({ path: found.ancestor });
-			const scratch = `${root}/${SCRATCH_DIRECTORY}/${scratchName()}`;
+			const scratch = `${scratchDirectory}/${scratchName()}`;
 			/** The parent directories this put made, shallowest first. */
 			const made: string[] = [];
 			/** Remove what this put left: its staged file and the directories it made. */
@@ -225,7 +234,7 @@ export function createDirectoryStorage({
 						made.push(at);
 					}
 				}
-				await files.mkdir(`${root}/${SCRATCH_DIRECTORY}`);
+				await files.mkdir(scratchDirectory);
 				await files.writeFile(scratch, bytes, { createNew: true });
 			} catch (cause) {
 				await abandon();
@@ -338,8 +347,9 @@ export function createDirectoryStorage({
 }
 
 /**
- * Remove the files staged under the directory at absolute path `root` that
- * a stopped write (a crash, a quit) left an hour or more ago. Another handle
+ * Remove the files staged for the directory at absolute path `root`, in
+ * `scratch` as its storage names it, that a stopped write (a crash, a quit)
+ * left an hour or more ago. Another handle
  * or process may be writing the directory now, so younger ones stay. What
  * cannot be removed stays; it is inert, and an open that cannot clear it
  * still opens. The desktop shell sweeps its own at each grant.
@@ -347,8 +357,8 @@ export function createDirectoryStorage({
 export async function sweepStaleScratch(
 	root: string,
 	files: DirectoryPrimitives,
+	scratch = `${root}/${SCRATCH_DIRECTORY}`,
 ): Promise<void> {
-	const scratch = `${root}/${SCRATCH_DIRECTORY}`;
 	try {
 		if ((await files.lstat(scratch))?.kind !== 'directory') return;
 		const now = Date.now();
