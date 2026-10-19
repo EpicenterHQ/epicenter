@@ -15,6 +15,17 @@ similarity to an approved example. Use fresh context where possible and record
 the relevant instructions, inputs, runtime, and outputs so the comparison can
 be understood later. Repeat when variability affects the conclusion.
 
+Use material that did not shape the proposed instruction when testing whether
+it transfers. The motivating example can explain the change, but success on
+that example alone does not establish improvement on fresh work.
+
+For user-judged comparisons, shuffle the labels and withhold the version key
+and your recommendation until the user has formed a preference. Show enough
+context to judge the changed passages and make full outputs available. Keep
+the original available as a choice, and record the user's reason alongside
+their pick. A preference for one passage does not establish that its whole
+version is better.
+
 A mechanically valid skill can still be unhelpful. Report unnecessary work,
 missed conventions, or burden transferred to the user. If no meaningful benefit
 appears, narrow or remove the guidance instead of accumulating exceptions.

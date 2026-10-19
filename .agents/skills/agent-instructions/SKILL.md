@@ -1,6 +1,6 @@
 ---
 name: agent-instructions
-description: Write and maintain repository guidance across AGENTS.md, CLAUDE.md, and .agents/skills. Use when creating or editing skills, deciding where instructions belong, or diagnosing instruction sprawl and skill selection. Do not use merely because another skill is being executed.
+description: Write and maintain repository guidance across AGENTS.md, CLAUDE.md, and .agents/skills. Use whenever the user asks to create, edit, improve, review, or troubleshoot a skill or agent instruction, including changes to another named skill. Also use when deciding where instructions belong or diagnosing instruction sprawl and skill selection. Do not use merely because another skill is being executed.
 ---
 
 # Agent Instructions
@@ -73,6 +73,28 @@ tools or credentials the workflow needs; instructions cannot grant access.
 
 ## Check what changed
 
+**Make changed behavior reviewable.** Whenever creating or editing a skill,
+show a realistic request and concrete samples of what using the skill would
+produce. For an existing skill, compare the current and proposed behavior on
+the same input. For a new skill, show the intended interaction.
+
+Present prose samples in blockquotes, **bolding only the passages that deserve
+comparison**. Include enough surrounding context to judge their meaning and
+movement. Use the appropriate surface for other outputs, such as caller code,
+a rendered screen, or an action sequence.
+
+**Preserve unrelated content and conditions across the comparison.** Do not
+make the proposed version look better by removing material, weakening the
+baseline, or changing the task.
+
+Label illustrative samples as proposals. Call something an observed result
+only when it was actually run, and describe the conditions of that comparison.
+Use the user's reaction to develop the instruction; one preferred sample does
+not establish a general improvement.
+
+Samples support review without introducing another approval step for work
+already authorized.
+
 Choose checks that answer a concrete uncertainty. Check affected links after
 moving references; check frontmatter and intended-host discovery after changing
 skill names, locations, or discovery metadata. A prose correction does not by
@@ -81,8 +103,7 @@ itself require an installation CLI or an audit of the whole library.
 Review the motivating request and a materially different use to see whether the
 judgment transfers, including when direct action is appropriate. When behavior
 is uncertain or regresses, compare actual work with the previous version, or
-without the skill for a new capability. Report what was observed separately
-from what the wording is intended to improve.
+without the skill for a new capability.
 
 Read [evaluation](references/evaluation.md) when investigating selection or
 behavior, comparing versions, or asked for evidence of improvement. Read
