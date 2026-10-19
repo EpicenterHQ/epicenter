@@ -50,6 +50,10 @@ a save        the from the app passed, or    the file the clone       the file t
 | binary, or a side absent | the whole file |
 
 - Units only one side changed all survive.
+- **Two insertions at one place both stay**, current's first. An insertion
+  that holds the other at its start or end stands alone, so an insertion
+  sent again, or extended since, is not doubled. Frontmatter merges by
+  field, so it has no insertions to join.
 - **An edit beats a delete it never saw.** A file one side deleted and the
   other changed is kept, with the change.
 - **Epicenter never writes a conflict marker or a conflict file.** Where a
@@ -66,8 +70,8 @@ a save        the from the app passed, or    the file the clone       the file t
   no commit.
 
 **The merge takes named roles:** `merge(path, { base, current, change })`.
-Deleted: `ours`, `theirs`, and `winner`, and `mergeLines` with its union of
-insertions.
+Deleted: `ours`, `theirs`, and `winner`. Kept: `mergeLines` with its union
+of insertions.
 
 **One merge implementation runs on every host.** A browser sync and
 `epicenter sync` on disk run the same TypeScript `merge`, `epicenter sync`
@@ -101,8 +105,12 @@ to it appended alphabetically
 - A row folder edited on one clone while its row was deleted on another
   comes back without its `.md`, since the edit beats the delete; `check`
   lists it as a row folder that has no row.
-- Two different insertions at one place in a body compete: the change's
-  stands, and the other is in the losing parent.
+- Two thoughts added at the end of one capture on two devices both stand,
+  in the order the merge met them. Two edits to one thought compete, and
+  the change's stands.
+- A `.json` file two sides each added a key to at one place can come out
+  invalid, with a missing comma; `check` names it, and an edit repairs
+  it.
 - `epicenter sync` and a browser sync merge the same two commits the same
   way; only plain `git pull` leaves conflict markers.
 - Two tabs that edit different paragraphs of one row both keep their
@@ -118,9 +126,11 @@ to it appended alphabetically
 
 - **A delete beats an edit it never saw (ADR-0576).** An edit made without
   knowing of the delete disappears from the working tree.
-- **Epicenter's own line merge that joins insertions (ADR-0591).** A second
-  text algorithm Git does not have, so the two merges disagree on more than
-  who wins.
+- **Two insertions at one place competing.** Two thoughts added on two
+  devices before a sync lose one, the most common concurrent edit
+  Epicenter Captures makes.
+- **Git's `merge-file --union`.** It also keeps both sides of a region both
+  sides changed, so two edits of one thought stand as two thoughts.
 - **A `.json` file merged key by key (ADR-0591).** A third algorithm for one
   kind of file, kept to avoid a rare invalid merge that `check` already
   names.
