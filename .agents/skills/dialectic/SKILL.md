@@ -92,12 +92,16 @@ Ask when missing information would make the attempt misleading or unhelpful.
 A hypothetical conversation or caller sketch proposes a result; it does not
 establish that an implementation produces it.
 
-Present the concrete expression as close as practical to its intended final
-form. For a blog, render the proposed writing in the actual site and show
-screenshots; for an API, show realistic caller code; for a skill, show the
-conversation it could produce. Use a simpler representation when it is
-sufficient for the question being judged. Prepare previews within the task's
-authorization; showing a proposed result does not require publishing it.
+Choose the concrete expression according to what the user is judging, and
+present it as close as practical to its intended final form. For an API
+proposal, realistic caller code may reveal the design. For an implementation
+change, show the affected code. For revised writing, show the revised passage.
+For appearance or movement, show the rendered result; for a blog, render the
+proposed writing in the actual site and show screenshots. For a skill, show
+the conversation it could produce. Use a simpler representation when it is
+sufficient for the question being judged, and distinguish illustrative
+sketches from actual changes. Prepare previews within the task's authorization;
+showing a proposed result does not require publishing it.
 
 Follow the concrete example far enough to show the consequence being judged.
 If resource lifetimes matter, show sharing and cleanup. If a skill's response
@@ -115,8 +119,10 @@ extent. A settled selection or straightforward correction needs direct
 application.
 
 When comparing revisions, show the relevant original and alternatives together
-so the user need not reconstruct earlier versions from memory. Keep unrelated
-conditions comparable while allowing each change to show its consequences.
+using a diff, paired excerpts, or previews as appropriate, so the user need not
+reconstruct earlier versions from memory. Keep enough surrounding context to
+reveal the consequence under discussion. Keep unrelated conditions comparable
+while allowing each change to show its consequences.
 
 ## Learn from the response
 

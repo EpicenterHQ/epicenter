@@ -15,11 +15,16 @@ what the person needs to understand or judge.
 
 ## The test
 
-> What is the smallest representation that lets this person recognize,
-> correct, or act on the model?
+> Given this conversation, what does the person need to see to understand and
+> judge the thing itself? Make that presentation as simple as possible while
+> preserving the evidence their judgment depends on.
 
-Add detail only when leaving it out would change the person's next judgment.
-When the person can respond intelligently, stop.
+When discussing a concrete change, show the relevant change alongside the
+explanation. Brevity should remove incidental details, not the material the
+person is trying to inspect. A summary, file link, or description of an effect
+may help orient them; include the actual code, wording, or visible result when
+that is what they are judging. Let the scope of their judgment determine how
+much to show, including the complete change when requested.
 
 ## Keep the load-bearing parts
 
@@ -37,8 +42,9 @@ When viewpoints differ, show them separately. A compact `reader / author`,
 ## Reveal progressively
 
 Lead with the governing relationship. Then add only the context, example, or
-qualification needed to make it recognizable. Keep hidden detail available for
-the next turn rather than placing it in the first one.
+qualification needed to make it recognizable. Defer background and machinery
+that do not affect the current judgment. Include the requested material in the
+current response, with enough context to understand it.
 
 If an omission could make something look absent, automatic, or settled, name
 that boundary briefly. Do not hide uncertainty just to make the surface clean.
@@ -52,8 +58,8 @@ that boundary briefly. Do not hide uncertainty just to make the surface clean.
    paired viewpoint.
 4. Check that separate owners have not been collapsed and deferred decisions
    have not been presented as settled.
-5. Remove one more layer. Keep it only if the person could no longer judge the
-   model without it.
+5. Remove incidental detail while preserving the requested material and the
+   evidence needed to learn, recognize, correct, express, or act.
 
 ## With dialectic
 
@@ -91,4 +97,4 @@ or other side effect.
 
 Stop when the person can say what the model is for, what they experience, what
 they decide, and what remains separate—and can make the next correction without
-seeing the hidden machinery.
+having to ask for the material needed to judge it.
