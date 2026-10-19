@@ -73,24 +73,23 @@ tools or credentials the workflow needs; instructions cannot grant access.
 
 ## Check what changed
 
-**Make changed behavior reviewable.** Whenever creating or editing a skill,
-show a realistic request and concrete samples of what using the skill would
-produce. For an existing skill, compare the current and proposed behavior on
-the same input. For a new skill, show the intended interaction.
+When changing a skill, **show how the revised skill would handle a realistic
+request compared with the current skill**. Include enough of the interaction
+or result for the user to judge the difference.
 
-Present prose samples in blockquotes, **bolding only the passages that deserve
-comparison**. Include enough surrounding context to judge their meaning and
-movement. Use the appropriate surface for other outputs, such as caller code,
-a rendered screen, or an action sequence.
+Alongside that comparison, **show the actual skill wording being changed**.
+Put prose comparisons in blockquotes and bold the consequential differences
+in both the skill wording and the example.
 
-**Preserve unrelated content and conditions across the comparison.** Do not
-make the proposed version look better by removing material, weakening the
-baseline, or changing the task.
+Keep the request and unrelated material consistent. Clearly identify examples
+you are illustrating versus results you actually obtained by running the skill.
 
-Label illustrative samples as proposals. Call something an observed result
-only when it was actually run, and describe the conditions of that comparison.
-Use the user's reaction to develop the instruction; one preferred sample does
-not establish a general improvement.
+For a new skill, show the proposed instructions and intended interaction. Use
+the appropriate surface for other outputs, such as caller code, a rendered
+screen, or an action sequence.
+
+Describe the conditions of actual runs. Use the user's reaction to develop the
+instruction; one preferred sample does not establish a general improvement.
 
 Samples support review without introducing another approval step for work
 already authorized.
