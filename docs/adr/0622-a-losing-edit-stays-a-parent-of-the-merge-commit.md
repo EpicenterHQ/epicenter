@@ -37,7 +37,8 @@ merge named roles, where `change` wins:
 
 ```txt
               base                           current                  change
-sync          the merge base                 what main holds          this clone's commits
+sync          the merge base; in a browser   what main holds          this clone's commits; in a
+              clone, origin/main                                      browser clone, its unsent edits
 a save        the from the app passed, or    the file the clone       the file the save writes
               no file for from: null         holds now
 ```
@@ -53,9 +54,16 @@ a save        the from the app passed, or    the file the clone       the file t
   other changed is kept, with the change.
 - **Epicenter never writes a conflict marker or a conflict file.** Where a
   file and a directory collide at one path, the change wins the path.
-- **The losing version stays a parent of the merge commit**, and an
-  `Overrode:` trailer names it, such as
-  `Overrode: <losing-oid> field="title" "cards/abc.md"`.
+- **The losing version stays a parent of the commit that overrode it**,
+  and an `Overrode:` trailer in that commit names it, such as
+  `Overrode: <losing-oid> field="title" "cards/abc.md"`. On disk that
+  commit is a merge commit. A browser clone commits its rebased edits on the
+  server's `main`, so the loser is that commit's one parent; a trailer
+  carried from a commit that never landed names an ancestor by its oid
+  ([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)).
+- **A save names nothing it overrode.** What it overrode stays in the
+  clone's last commit, unless it was another tab's unsent edit, which is in
+  no commit.
 
 **The merge takes named roles:** `merge(path, { base, current, change })`.
 Deleted: `ours`, `theirs`, and `winner`, and `mergeLines` with its union of
@@ -117,7 +125,7 @@ to it appended alphabetically
   kind of file, kept to avoid a rare invalid merge that `check` already
   names.
 - **Conflict files beside the path (`<path>~<side>`).** Every app has to
-  show and resolve a state that one parent of the merge commit already
+  show and resolve a state that a parent of the overriding commit already
   records.
 - **The person decides each conflict.** Sync then stops until someone
   answers.

@@ -46,15 +46,16 @@ governs where the two differ.
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613).
 5. Every place that edits is its own clone: each app origin keeps its own
-   in IndexedDB, where reads and saves are transactions and only sync
-   takes turns between tabs. On disk, the person and their agents write
+   in IndexedDB, holding no history, where reads and saves are transactions
+   and only sync takes turns between tabs. On disk, the person and their agents write
    files with last-write-wins, the data browser saves through the merge,
    and commits happen at `epicenter sync` (ADR-0611, ADR-0622, ADR-0623).
 6. One TypeScript merge runs wherever Epicenter merges, in a sync on every
    host and in a save, and the edit that reaches `main` last wins each unit
    both sides changed, an edit beats a delete it never
    saw, Epicenter writes no conflict marker, and the losing version of a
-   sync stays a parent of the merge commit (ADR-0622, ADR-0626).
+   sync stays a parent of the commit that overrode it, named by an
+   `Overrode:` trailer (ADR-0622, ADR-0623, ADR-0626).
 7. The library writes text; binary files come later, through Git LFS
    (ADR-0621).
 8. An app is a program you let into a repository, and a website is
