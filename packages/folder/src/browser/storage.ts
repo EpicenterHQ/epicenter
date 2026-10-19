@@ -4,22 +4,18 @@ import type { FileContent } from '../shared/merge.js';
 import { snapshotObjects } from './git/closure.js';
 import { readSnapshot } from './git/snapshot.js';
 
-/** B, C and the explicit boundary beyond which retained snapshots need no parents. */
-export type RepositoryRefs = {
-	base: string | null;
-	head: string | null;
-	shallow: readonly string[];
-};
-
-export type RepositoryState = RepositoryRefs & {
+/** The remote tip last incorporated locally and one exact unsettled commit. */
+export type RepositoryState = {
+	/** undefined means no successful remote observation; null means observed empty. */
+	remoteBase: string | null | undefined;
+	pendingCommit: string | null;
 	revision: number;
-	remoteKnown: boolean;
 };
 
 export type RepositorySnapshot = {
 	state: RepositoryState;
 	edits: Map<string, FileContent | null>;
-	/** Operation-scoped C: unexpanded directories retain occupancy, not children. */
+	/** Operation-scoped committed head: unexpanded directories retain occupancy. */
 	head: Awaited<ReturnType<typeof readSnapshot>>;
 	/** Captured bytes remain usable after a later publication or collection. */
 	objects: Map<string, GitObject>;
@@ -55,11 +51,9 @@ export class StorageFailure extends Error {
 }
 
 const initialState = (): RepositoryState => ({
-	base: null,
-	head: null,
-	shallow: [],
+	remoteBase: undefined,
+	pendingCommit: null,
 	revision: 0,
-	remoteKnown: false,
 });
 
 function requested<T>(request: IDBRequest<T>): Promise<T> {
@@ -217,7 +211,9 @@ export async function openStorage(id: string) {
 					(Array.isArray(scope) && scope.length === 0);
 				if (scope === 'sync')
 					await snapshotObjects(
-						[state.base, state.head].filter((oid) => oid !== null),
+						[state.remoteBase, state.pendingCommit].filter(
+							(oid): oid is string => typeof oid === 'string',
+						),
 						read,
 					);
 				const editAncestors = new Set<string>();
@@ -242,7 +238,7 @@ export async function openStorage(id: string) {
 					return scope.some((selected) => selected.startsWith(`${path}/`));
 				}
 				const head = await readSnapshot(
-					state.head,
+					state.pendingCommit ?? state.remoteBase ?? null,
 					read,
 					full ? undefined : descend,
 				);
@@ -270,9 +266,7 @@ export async function openStorage(id: string) {
 		/** Hashes and merges happen before this transaction, never inside it. */
 		async publish(input: {
 			revision: number;
-			refs?: RepositoryRefs;
-			/** Set only alongside a successful first-fetch adoption (empty included). */
-			remoteKnown?: true;
+			refs?: { remoteBase: string | null; pendingCommit: string | null };
 			objects?: ReadonlyMap<string, GitObject>;
 			/** undefined folds an incorporated edit into the published snapshot. */
 			edits?: ReadonlyMap<string, FileContent | null | undefined>;
@@ -296,7 +290,6 @@ export async function openStorage(id: string) {
 					{
 						...state,
 						...input.refs,
-						remoteKnown: input.remoteKnown ?? state.remoteKnown,
 						revision: state.revision + 1,
 					},
 					'state',
@@ -316,7 +309,7 @@ export async function openStorage(id: string) {
 			return true;
 		},
 
-		/** A network acknowledgement is about exact B/C, independent of newer E. */
+		/** A network acknowledgement settles the exact pending commit, not newer edits. */
 		acknowledge(base: string | null, head: string): Promise<boolean> {
 			return transact('readwrite', async (transaction) => {
 				const meta = transaction.objectStore('meta');
@@ -324,13 +317,13 @@ export async function openStorage(id: string) {
 					((await requested(meta.get('state'))) as
 						| RepositoryState
 						| undefined) ?? initialState();
-				if (state.base !== base || state.head !== head) return false;
-				if (state.base === head) return true;
+				if (state.remoteBase !== base || state.pendingCommit !== head)
+					return false;
 				meta.put(
 					{
 						...state,
-						base: head,
-						shallow: [head],
+						remoteBase: head,
+						pendingCommit: null,
 						revision: state.revision + 1,
 					},
 					'state',
@@ -349,8 +342,8 @@ export async function openStorage(id: string) {
 						| RepositoryState
 						| undefined) ?? initialState();
 				const live = new Set<string>();
-				const pending = [state.base, state.head]
-					.filter((oid): oid is string => oid !== null)
+				const pending = [state.remoteBase, state.pendingCommit]
+					.filter((oid): oid is string => typeof oid === 'string')
 					.map((oid) => ({ oid, type: 'commit' as GitObject['type'] }));
 				for (
 					let next = pending.pop();
@@ -426,7 +419,7 @@ export function snapshotObject(
 	return object;
 }
 
-/** Pending edits are relative to head, including null tombstones. */
+/** Saved edits are relative to the committed head, including null tombstones. */
 export function snapshotContent(
 	snapshot: RepositorySnapshot,
 	path: string,

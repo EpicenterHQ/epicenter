@@ -362,15 +362,10 @@ export async function openRepository<
 			return save(async () => {
 				for (;;) {
 					const snapshot = await storage.capture('commit');
-					const { base, head, revision, shallow } = snapshot.state;
-					if (!snapshot.state.remoteKnown) return Ok(null);
-					if (head !== base) {
-						if (head === null)
-							throw new StorageFailure(
-								'Repository has a confirmed base without a current commit',
-							);
-						return Ok({ base, head });
-					}
+					const { remoteBase, pendingCommit, revision } = snapshot.state;
+					if (remoteBase === undefined) return Ok(null);
+					if (pendingCommit !== null)
+						return Ok({ base: remoteBase, head: pendingCommit });
 					if (snapshot.edits.size === 0) return Ok(null);
 					const candidate = await changeSnapshot({
 						root: snapshot.head.root,
@@ -381,7 +376,7 @@ export async function openRepository<
 						type: 'commit',
 						bytes: writeCommit({
 							tree: candidate.tree,
-							parents: head === null ? [] : [head],
+							parents: remoteBase === null ? [] : [remoteBase],
 							author,
 							message: 'Save repository changes\n',
 						}),
@@ -392,13 +387,13 @@ export async function openRepository<
 						await storage.publish({
 							revision,
 							objects: candidate.objects,
-							refs: { base, head: oid, shallow },
+							refs: { remoteBase, pendingCommit: oid },
 							edits: new Map(
 								[...snapshot.edits.keys()].map((path) => [path, undefined]),
 							),
 						})
 					)
-						return Ok({ base, head: oid });
+						return Ok({ base: remoteBase, head: oid });
 				}
 			});
 		},

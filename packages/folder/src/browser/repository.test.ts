@@ -22,7 +22,7 @@ async function observeEmpty(repository: LocalRepository) {
 	expect(
 		await repository.storage.publish({
 			revision: state.revision,
-			remoteKnown: true,
+			refs: { remoteBase: null, pendingCommit: null },
 		}),
 	).toBe(true);
 }

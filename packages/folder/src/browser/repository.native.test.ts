@@ -88,8 +88,7 @@ async function nativeFixture(repository: LocalRepository) {
 		await repository.storage.publish({
 			revision: 0,
 			objects,
-			refs: { base: commit, head: commit, shallow: [commit] },
-			remoteKnown: true,
+			refs: { remoteBase: commit, pendingCommit: null },
 		}),
 	).toBe(true);
 	return { objects, binary, root, folder, commit };

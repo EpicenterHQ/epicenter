@@ -57,28 +57,56 @@ capture refs, edits, required bytes and revision
         recompute              publish and acknowledge
 ```
 
-`src/storage.ts` stores inflated Git objects, B (last incorporated server
-commit), C (that commit or one exact pending commit), E (newer text and
-deletions relative to C), shallow-boundary metadata, and one repository
-revision. Every mutation publishes atomically with a revision increment.
-A push acknowledgement checks exact B/C and preserves newer E.
-The persisted `remoteKnown` flag distinguishes an unopened remote from one
-successfully fetched as empty. Preparation leaves E alone until that first
-observation, then returns an exact pending `{ base, head }` pair or null.
+`src/browser/storage.ts` persists `remoteBase`, `pendingCommit`, and saved
+`edits`. `remoteBase` is the last server commit incorporated locally. It is
+`undefined` before a successful fetch and `null` after observing an empty
+remote. `pendingCommit` is null while idle; otherwise it is the exact commit
+prepared for push or awaiting an outcome. `edits` contains the latest saved text or
+deletion at each path since the current commit. That current commit is derived
+as `pendingCommit ?? remoteBase ?? null`. Every mutation publishes atomically
+with a revision increment. A push acknowledgement checks the exact remote base
+and pending commit, then preserves newer edits.
+
+Commit preparation leaves edits alone until the first successful fetch, then
+returns an exact pending `{ base, head }` request or null. Git transfer derives
+its shallow boundary from `remoteBase`; the boundary is not another durable
+state value.
 
 Each repository database has three object stores:
 
-| Store | Key | Value |
+| Store | Key | Ownership |
 | --- | --- | --- |
-| `objects` | Git object hash | `{ type, bytes }`, with uncompressed content |
-| `edits` | Repository path | Newer text, or null for a deletion |
-| `meta` | `state` | B, C, shallow boundaries, revision and remote knowledge |
+| `meta` | `state` | `remoteBase`, nullable `pendingCommit`, and the publication revision. It coordinates sync and holds no file content. |
+| `edits` | Repository path | The latest locally saved text or null deletion relative to the current commit. It is the current overlay, not a log of every save. |
+| `objects` | Git object hash | Immutable `{ type, bytes }` Git commits, trees, and blobs, with uncompressed content. It retains the snapshots needed by `remoteBase` and `pendingCommit`, not the newer overlay. |
+
+The three states remain separate when a reply goes missing:
+
+```txt
+                         server    remoteBase  pendingCommit  edits
+fetch                    R         R           null           empty
+save Blue                R         R           null           Blue
+prepare and push         P         R           P              empty
+reply lost               P         R           P              empty
+save local: 1            P         R           P              local: 1
+fetch proves P landed    P         R           P              local: 1
+reconcile and push M     M         M           null           empty
+```
+
+The last save stores the complete newer file, but its changes are measured
+against P. If the server then advances to Q, sync preserves Q's independent
+changes and applies only what the later save changed after P. If the server
+instead advances from R without P, sync rebases P and then the later save onto
+that server state. Until the server proves which happened, it keeps the exact P
+and the newer edit. The revision guards a publication against another tab's
+save. These details stay inside the browser sync engine, outside the public
+`Folder` API.
 
 Rows are views of Markdown files. There is no separately persisted table
 database. Tabs of the same origin share this database; different app origins
 keep separate copies and exchange their changes through the Git service.
 
-Capture reads the current commit C. Point reads open its ancestor trees and
+Capture reads the derived current commit. Point reads open its ancestor trees and
 load only the requested blob. File lists walk the matching prefix; table lists
 open the table directory and load its immediate Markdown rows. Commit preparation
 opens trees along pending-edit paths and loads no existing blobs. Unexpanded
@@ -89,7 +117,8 @@ the directory. All pending edit values are still read in each capture.
 A captured view holds consistent inputs for one operation. Its revision check
 still rejects publication if another tab saved in the meantime. It is not a
 backup or a complete object closure for collection. Future reconciliation must
-explicitly capture B and the remote inputs it needs; local operations need C.
+explicitly capture `remoteBase` and the remote inputs it needs; local operations
+need only the current commit.
 
 `src/browser/git/snapshot.ts` rebuilds changed trees without a checkout or Git index.
 It preserves unrelated raw names, native modes, symlinks, and gitlinks.

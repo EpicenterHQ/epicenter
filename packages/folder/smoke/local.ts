@@ -82,7 +82,7 @@ try {
 			const reopened = await a.evaluate(() => dataSmoke.state());
 			check(
 				reopened.row?.fields.a === 0 &&
-					reopened.state.head === null &&
+					reopened.state.pendingCommit === null &&
 					reopened.edits.length === 1,
 				'Offline save missing after full browser reopen',
 			);
@@ -118,7 +118,7 @@ try {
 			);
 			const afterPendingCollection = await a.evaluate(() => dataSmoke.state());
 			check(
-				afterPendingCollection.state.head === pending.head &&
+				afterPendingCollection.state.pendingCommit === pending.head &&
 					afterPendingCollection.edits.length > 0 &&
 					afterPendingCollection.row?.fields.b === 101 &&
 					(await a.evaluate(() => dataSmoke.sharedText())) ===
@@ -230,7 +230,8 @@ try {
 					final.row?.fields.b === 101 &&
 					final.row?.body === 'From tab A\n\nFrom tab B\n' &&
 					final.edits.length === 0 &&
-					final.state.base === final.state.head,
+					final.state.remoteBase !== undefined &&
+					final.state.pendingCommit === null,
 				'Committed current data missing after browser reopen',
 			);
 			check(
@@ -261,7 +262,8 @@ try {
 				dataSmoke.state(),
 			);
 			check(
-				afterCollection.state.head === final.state.head &&
+				afterCollection.state.remoteBase === final.state.remoteBase &&
+					afterCollection.state.pendingCommit === null &&
 					afterCollection.row?.fields.a === 102 &&
 					afterCollection.edits.length > 0,
 				'Collection lost a concurrent saved edit or changed the committed head',

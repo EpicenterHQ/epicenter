@@ -62,12 +62,12 @@ export const client = {
 	},
 	async observeEmpty() {
 		const { state } = await repository.storage.capture([]);
-		if (state.base !== null || state.head !== null)
+		if (state.remoteBase !== undefined || state.pendingCommit !== null)
 			throw new Error('Not a new empty repository');
 		if (
 			!(await repository.storage.publish({
 				revision: state.revision,
-				remoteKnown: true,
+				refs: { remoteBase: null, pendingCommit: null },
 			}))
 		)
 			throw new Error('Empty observation raced a save');
@@ -120,6 +120,8 @@ export const client = {
 	/** Compute a candidate and abandon it before any persistent publication. */
 	async abandonCandidate() {
 		const snapshot = await repository.storage.capture([]);
+		const current =
+			snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null;
 		const candidate = await changeSnapshot({
 			root: snapshot.head.root,
 			edits: snapshot.edits,
@@ -129,21 +131,21 @@ export const client = {
 			type: 'commit',
 			bytes: writeCommit({
 				tree: candidate.tree,
-				parents: snapshot.state.head === null ? [] : [snapshot.state.head],
+				parents: current === null ? [] : [current],
 				author: author(),
 				message: 'Unpublished\n',
 			}),
 		};
 		return {
 			candidate: await hashObject(object),
-			persisted: snapshot.state.head,
+			persisted: current,
 			edits: snapshot.edits.size,
 		};
 	},
 	async nativeObjects() {
 		const snapshot = await repository.storage.capture();
 		return {
-			head: snapshot.state.head,
+			head: snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null,
 			objects: [...snapshot.objects].map(([oid, object]) => ({
 				oid,
 				type: object.type,
@@ -217,8 +219,7 @@ export const client = {
 			!(await repository.storage.publish({
 				revision: 0,
 				objects: candidate.objects,
-				refs: { base: head, head, shallow: [head] },
-				remoteKnown: true,
+				refs: { remoteBase: head, pendingCommit: null },
 			}))
 		)
 			throw new Error('Archive seed raced');

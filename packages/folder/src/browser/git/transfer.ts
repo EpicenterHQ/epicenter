@@ -30,13 +30,19 @@ import {
 	readCommit,
 	readTree,
 } from '../../git/raw-objects.js';
-import type { RepositoryRefs } from '../storage.js';
 import { createScratchFs, type ScratchFs } from './transfer-fs.js';
 
-/** Every inflated object the caller holds for B and C, and where history stops. */
+/** Git transfer refs derived from the durable browser state. */
+type TransferRefs = {
+	base: string | null;
+	head: string | null;
+	shallow: readonly string[];
+};
+
+/** Every inflated object the caller holds for both snapshots. */
 export type TransferInput = {
 	objects: ReadonlyMap<string, GitObject>;
-	refs: RepositoryRefs;
+	refs: TransferRefs;
 };
 
 /**

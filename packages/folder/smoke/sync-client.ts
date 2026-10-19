@@ -1,8 +1,8 @@
 /** Exercise production storage and sync from actual pages, with one network fault. */
 import { unwrap } from 'wellcrafted/result';
 import { openRepository } from '../src/browser/repository.js';
-import type { Row } from '../src/shared/row.js';
 import { createSync } from '../src/browser/sync.js';
+import type { Row } from '../src/shared/row.js';
 
 const schema = {
 	type: 'object',
@@ -100,7 +100,10 @@ export const client = {
 	async state() {
 		const snapshot = await repository.storage.capture('commit');
 		return {
-			refs: snapshot.state,
+			refs: {
+				base: snapshot.state.remoteBase,
+				head: snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null,
+			},
 			edits: snapshot.edits.size,
 			row: unwrap(await repository.tables.notes.get('one')),
 			lostReply,

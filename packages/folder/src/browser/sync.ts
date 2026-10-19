@@ -26,7 +26,17 @@ import {
 	TransferFailure,
 } from './git/transfer.js';
 import type { LocalRepository, SaveError } from './repository.js';
-import { StorageFailure } from './storage.js';
+import { type RepositoryState, StorageFailure } from './storage.js';
+
+/** Git needs a head and shallow boundary; storage derives both from its refs. */
+function transferRefs(state: RepositoryState) {
+	const base = state.remoteBase ?? null;
+	return {
+		base,
+		head: state.pendingCommit ?? base,
+		shallow: base === null ? [] : [base],
+	};
+}
 
 async function fileAt(
 	root: string | null,
@@ -109,16 +119,19 @@ export function createSync(
 			const anchor = await repository.storage.capture('sync');
 			let incoming = await fetchRemote({
 				url,
-				input: { objects: anchor.objects, refs: anchor.state },
-				initial: !anchor.state.remoteKnown,
+				input: { objects: anchor.objects, refs: transferRefs(anchor.state) },
+				initial: anchor.state.remoteBase === undefined,
 				signal,
 				request,
 			});
 			for (let recovery = 0; recovery < 2; recovery++) {
 				// Transfer/unpacking finished before this revision validation window.
 				const snapshot = await repository.storage.capture('sync');
-				const { base, head, revision } = snapshot.state;
-				if (base !== anchor.state.base) return Ok({ outcome: 'pending' });
+				const { remoteBase, pendingCommit, revision } = snapshot.state;
+				if (remoteBase !== anchor.state.remoteBase)
+					return Ok({ outcome: 'pending' });
+				const base = remoteBase ?? null;
+				const head = pendingCommit ?? base;
 				const objects = new Map([...incoming.objects, ...snapshot.objects]);
 				const read = async (oid: string) => {
 					const object = objects.get(oid);
@@ -129,15 +142,13 @@ export function createSync(
 				const rootOf = (oid: string | null) =>
 					oid === null ? null : readCommit(objects.get(oid)!.bytes).tree;
 				const remote = incoming.head;
-				const pending = head !== base;
+				const pending = pendingCommit !== null;
 				if (pending && remote === base) {
-					if (head === null)
-						throw new Error('Confirmed base without a current commit');
 					return await push({
 						base,
-						head,
+						head: pendingCommit,
 						objects: snapshot.objects,
-						shallow: snapshot.state.shallow,
+						shallow: transferRefs(snapshot.state).shallow,
 					});
 				}
 				const baseProof =
@@ -151,7 +162,10 @@ export function createSync(
 					if (recovery > 0) return SyncError.UnknownAncestry();
 					incoming = await fetchRemote({
 						url,
-						input: { objects: snapshot.objects, refs: snapshot.state },
+						input: {
+							objects: snapshot.objects,
+							refs: transferRefs(snapshot.state),
+						},
 						initial: false,
 						recover: true,
 						signal,
@@ -161,7 +175,7 @@ export function createSync(
 				}
 				if (baseProof === 'excluded') return SyncError.RewrittenHistory();
 				if (
-					snapshot.state.remoteKnown &&
+					remoteBase !== undefined &&
 					remote === head &&
 					snapshot.edits.size === 0 &&
 					!pending
@@ -275,11 +289,9 @@ export function createSync(
 					!(await repository.storage.publish({
 						revision,
 						objects: retained,
-						remoteKnown: true,
 						refs: {
-							base: remote,
-							head: next,
-							shallow: remote === null ? [] : [remote],
+							remoteBase: remote,
+							pendingCommit: next === remote ? null : next,
 						},
 						edits: new Map(
 							[...snapshot.edits.keys()].map((path) => [path, undefined]),

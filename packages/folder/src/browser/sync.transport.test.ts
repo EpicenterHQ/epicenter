@@ -96,7 +96,7 @@ test('actual incoming deltas inflate and an ordinary shallow push passes native 
 					line.trim().split(/\s+/).length === 7 && /^[0-9a-f]{40} /.test(line),
 			);
 		expect(deltas.length).toBeGreaterThan(0);
-		const base = (await repository.storage.capture('sync')).state.base!;
+		const base = (await repository.storage.capture('sync')).state.remoteBase!;
 		expect(requests[0]).toContain('deepen 1');
 		expectOk(
 			await repository.files.write(
@@ -154,7 +154,7 @@ test('a fetched snapshot held while another tab advances cannot rewind its newer
 		expectOk(await fresh.run());
 		release.resolve();
 		expect(expectOk(await old).outcome).toBe('pending');
-		expect((await a.storage.capture()).state.base).toBe(newest);
+		expect((await a.storage.capture()).state.remoteBase).toBe(newest);
 		expect(await expectOk(await a.files.read('file.txt'))!.content.text()).toBe(
 			'three',
 		);

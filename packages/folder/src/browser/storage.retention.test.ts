@@ -107,7 +107,7 @@ test('collection keeps shared snapshots, an uncertain commit, and unsent edits b
 			await storage.publish({
 				revision: 0,
 				objects: new Map(entries.map(({ oid, object }) => [oid, object])),
-				refs: { base: base.oid, head: head.oid, shallow: [base.oid] },
+				refs: { remoteBase: base.oid, pendingCommit: head.oid },
 				edits: new Map([['draft.md', 'saved but unsent']]),
 			}),
 		).toBe(true);
@@ -125,11 +125,9 @@ test('collection keeps shared snapshots, an uncertain commit, and unsent edits b
 		);
 		const snapshot = await storage.capture('sync');
 		expect(snapshot.state).toEqual({
-			base: base.oid,
-			head: head.oid,
-			shallow: [base.oid],
+			remoteBase: base.oid,
+			pendingCommit: head.oid,
 			revision: 1,
-			remoteKnown: false,
 		});
 		expect(snapshot.edits.get('draft.md')).toBe('saved but unsent');
 	} finally {
@@ -151,11 +149,7 @@ test('collection and another handle publishing a new head leave its complete sna
 				await first.publish({
 					revision: 0,
 					objects: new Map(oldObjects.map(({ oid, object }) => [oid, object])),
-					refs: {
-						base: oldHead.oid,
-						head: oldHead.oid,
-						shallow: [oldHead.oid],
-					},
+					refs: { remoteBase: oldHead.oid, pendingCommit: null },
 				}),
 			).toBe(true);
 			const newFile = await blob('new');
@@ -167,11 +161,7 @@ test('collection and another handle publishing a new head leave its complete sna
 					objects: new Map(
 						[newFile, newTree, newHead].map(({ oid, object }) => [oid, object]),
 					),
-					refs: {
-						base: oldHead.oid,
-						head: newHead.oid,
-						shallow: [oldHead.oid],
-					},
+					refs: { remoteBase: oldHead.oid, pendingCommit: newHead.oid },
 				});
 			const [collected, published] = collectFirst
 				? await Promise.all([first.collect(), publish()])
@@ -182,7 +172,7 @@ test('collection and another handle publishing a new head leave its complete sna
 			expect(collected).toBeGreaterThanOrEqual(0);
 			expect(published).toBe(true);
 			const snapshot = await first.capture('sync');
-			expect(snapshot.state.head).toBe(newHead.oid);
+			expect(snapshot.state.pendingCommit).toBe(newHead.oid);
 			expect([...snapshot.objects.keys()]).toContain(newFile.oid);
 		} finally {
 			first.close();
@@ -205,7 +195,7 @@ test('an incomplete live snapshot leaves every stored object untouched', async (
 					[orphan.oid, orphan.object],
 					[broken.oid, broken.object],
 				]),
-				refs: { base: broken.oid, head: broken.oid, shallow: [broken.oid] },
+				refs: { remoteBase: broken.oid, pendingCommit: null },
 			}),
 		).toBe(true);
 		await expect(storage.collect()).rejects.toThrow(/is missing/);

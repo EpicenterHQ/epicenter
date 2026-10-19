@@ -37,8 +37,7 @@ async function seed(repository: LocalRepository, files: [string, string][]) {
 		await repository.storage.publish({
 			revision: 0,
 			objects: candidate.objects,
-			refs: { base: head, head, shallow: [head] },
-			remoteKnown: true,
+			refs: { remoteBase: head, pendingCommit: null },
 		}),
 	).toBe(true);
 	return { head };
@@ -157,9 +156,8 @@ test('a pending current commit can be read without decoding its incorporated bas
 			await repository.storage.publish({
 				revision: state.revision,
 				refs: {
-					base: 'a'.repeat(40),
-					head: state.head,
-					shallow: state.shallow,
+					remoteBase: 'a'.repeat(40),
+					pendingCommit: fixture.head,
 				},
 			}),
 		).toBe(true);

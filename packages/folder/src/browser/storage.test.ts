@@ -44,18 +44,15 @@ test('a stale publication installs neither objects, refs, nor edit cleanup', asy
 			await first.publish({
 				revision: stale.state.revision,
 				objects: new Map([['unpublished', candidate]]),
-				refs: { base: null, head: 'unpublished', shallow: [] },
-				remoteKnown: true,
+				refs: { remoteBase: null, pendingCommit: 'unpublished' },
 				edits: new Map([['new.md', undefined]]),
 			}),
 		).toBe(false);
 		const after = await first.capture();
 		expect(after.state).toEqual({
-			base: null,
-			head: null,
-			shallow: [],
+			remoteBase: undefined,
+			pendingCommit: null,
 			revision: 1,
-			remoteKnown: false,
 		});
 		expect([...after.edits]).toEqual([['new.md', 'other tab']]);
 	} finally {
@@ -127,8 +124,7 @@ test('acknowledgement uses exact B/C and retains edits saved after the request b
 					[treeId, tree],
 					[head, commit],
 				]),
-				refs: { base: null, head, shallow: [] },
-				remoteKnown: true,
+				refs: { remoteBase: null, pendingCommit: head },
 			}),
 		).toBe(true);
 		expect(
@@ -140,11 +136,9 @@ test('acknowledgement uses exact B/C and retains edits saved after the request b
 		expect(await first.acknowledge(null, head)).toBe(true);
 		const snapshot = await second.capture();
 		expect(snapshot.state).toEqual({
-			base: head,
-			head,
-			shallow: [head],
+			remoteBase: head,
+			pendingCommit: null,
 			revision: 3,
-			remoteKnown: true,
 		});
 		expect([...snapshot.edits]).toEqual([['late.md', 'newer input']]);
 		expect(await first.acknowledge(null, head)).toBe(false);
