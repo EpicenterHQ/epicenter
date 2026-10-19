@@ -130,8 +130,8 @@ export type FolderTables = Record<string, Schema>;
 
 /**
  * `openFolder({ tables })`: the runtime's default local folder. In a browser
- * it is this origin's one local folder, reopened under a fixed internal key
- * that no app name, account, or remote changes.
+ * it is this origin's one local folder, reopened under a fixed internal key.
+ * In Tauri it is the directory the shell assigned to this window.
  */
 export type DefaultFolderOptions<TTables extends FolderTables> = {
 	readonly tables: TTables;
@@ -148,7 +148,7 @@ export type DirectoryFolderOptions<TTables extends FolderTables> = {
 	readonly tables: TTables;
 };
 
-/** Either opening: the runtime's default, or a directory. */
+/** Either opening: the runtime's default, or an explicitly selected directory. */
 export type FolderOptions<TTables extends FolderTables> =
 	| DefaultFolderOptions<TTables>
 	| DirectoryFolderOptions<TTables>;

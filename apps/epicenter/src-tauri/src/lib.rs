@@ -765,8 +765,8 @@ impl Drop for BuildReservation {
 /// closed and opened again (ADR-0588). The
 /// window is permitted into the folder and into `so.epicenter`, and handed
 /// the folder (`data_folders::admit_installed_window`): the app's
-/// root asks the shell for it (`window_folder`) and passes its scope to
-/// `openFolder({ directory, tables })`. The URL names no folder, so the page's navigation
+/// Folder opener asks the shell for it (`window_folder`) when the app calls
+/// `openFolder({ tables })`. The URL names no folder, so the page's navigation
 /// and reloads cannot lose or change it. Approving an app trusts it fully
 /// (ADR-0540), so the shell does not check its shape against the folder.
 pub(crate) fn open_installed_window(

@@ -2,8 +2,9 @@
  * `@epicenter/folder/tauri`: a directory the desktop shell registered, and
  * nothing else.
  *
- * `openFolder({ directory, tables })` asks the shell to grant this window the
- * directory registered as `directory`, an ID, never a path, and reads and
+ * `openFolder({ tables })` opens the folder the shell assigned to this window.
+ * `openFolder({ directory, tables })` opens another registered folder;
+ * `directory` is an ID, never a path. Both read and
  * saves its files through the shell's storage commands (`native/tauri.ts`).
  * A build that imports this entry, or aliases the bare specifier to it,
  * carries no browser storage. Outside the desktop app the opener refuses; it

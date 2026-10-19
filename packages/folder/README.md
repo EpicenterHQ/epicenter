@@ -10,11 +10,12 @@ selects the folder when it opens:
 | Runtime | Opening | Folder |
 | --- | --- | --- |
 | Browser | `openFolder({ tables })` | This origin's default local folder in IndexedDB, under a fixed internal key. |
-| Desktop app (Tauri) | `openFolder({ directory, tables })` | The directory the shell registered as `directory`, an ID, never a path. |
+| Desktop app (Tauri) | `openFolder({ tables })` | The directory the shell assigned to this window. An explicit `directory` opens another registered folder by ID, never by path. |
 | Bun | `openFolder({ directory, tables })` | The existing directory at the path `directory`. |
 
 Opening needs no app ID, account, remote, network, or schema file. It
-creates no Git history and writes nothing. See
+creates no Git history or authored files. The desktop shell may create its
+fixed default directory before granting it. See
 [shared vocabulary](../../docs/CONTEXT.md).
 
 ```ts
@@ -37,9 +38,9 @@ await folder.close();
 
 | Import | Exports | Use it when |
 | --- | --- | --- |
-| `@epicenter/folder` | `openFolder` with either form: `{ directory, tables }` in the desktop app, `{ tables }` in a browser. Decided when it is called; only the chosen engine is loaded. | Ordinary application code that runs in both. |
+| `@epicenter/folder` | Acts as `/browser` in a browser and `/tauri` in the desktop app. `openFolder({ tables })` opens the origin's or window's default; an explicit `directory` selects another registered desktop folder. Only the chosen engine is loaded. | Ordinary application code that runs in both. |
 | `@epicenter/folder/browser` | `openFolder({ tables })`. Refuses inside the desktop app. | A web-only build. |
-| `@epicenter/folder/tauri` | `openFolder({ directory, tables })`. Refuses outside the desktop app. | A desktop-only build. |
+| `@epicenter/folder/tauri` | `openFolder({ tables })` for this window's assignment, or `{ directory, tables }` for another registered folder. Refuses outside the desktop app. | A desktop-only build. |
 | `@epicenter/folder/bun` | `openFolder({ directory, tables })` over a path, and the `epicenter` CLI's tools ([below](#cli-tools)). | Command-line tools, scripts, and tests given a directory. |
 | `@epicenter/folder/file-browser` | Path helpers, visible tree rows, newline preservation, and `readTextFile`. Opens nothing. | A file tree or a file view. |
 
@@ -58,9 +59,9 @@ returned, never thrown, and no opener opens other storage instead.
 | `Unavailable` | Storage could not be reached: no IndexedDB, or a shell that cannot answer. |
 | `InsideTauri` | The browser entry was called in the desktop app. |
 | `NotTauri` | A desktop directory was asked for outside the desktop app. |
-| `DirectoryRequired` | The automatic entry was called in the desktop app without `directory`. |
+| `NotAssigned` | The desktop shell assigned no folder to this window. |
 | `InvalidId` | Desktop: an empty registered ID. |
-| `UnknownScope`, `WindowNotPermitted`, `Missing`, `ShuttingDown` | Desktop: the shell refused the grant, or the registered directory is gone. A missing directory is never replaced with an empty one. |
+| `UnknownScope`, `WindowNotPermitted`, `Missing`, `ShuttingDown` | Desktop: the shell refused the grant, or an explicitly chosen directory is gone. The shell may create its fixed default before assigning it. |
 | `InvalidRoot` | Bun: the path is not a directory, or has no parent to hold its save lock. |
 
 Each handle has one root. A caller may open several handles, of one folder or

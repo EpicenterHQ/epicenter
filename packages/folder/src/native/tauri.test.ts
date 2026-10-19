@@ -7,7 +7,7 @@
  * Key behaviors:
  * - The shell grants the registered ID; opening reads existing files and writes none
  * - Every refused grant is an `OpenFolderError` and opens nothing
- * - The automatic opener needs a directory here, and browser storage is refused
+ * - The automatic opener uses this window's assigned folder; no assignment refuses
  * - A save is one guarded put; a put another writer overtook reads and merges again
  * - A lost reply is the save landing only when the path holds what was sent
  * - The shell's watcher reaches listeners as `other-handle`; history moving does not
@@ -94,6 +94,27 @@ test('the shell grants the registered ID, and opening writes nothing', async () 
 	await folder.close();
 });
 
+test('the default opener opens the folder assigned to this window', async () => {
+	shell = createGrantedShell(await grantedDirectory('native-tauri-'));
+	shell.control.window = { app: 'so.epicenter.todos', folder: SCOPE };
+	const { openFolder } = await import('../index.js');
+	const folder = expectOk(await openFolder({ tables: { notes } }));
+	expect(shell.calls.slice(0, 2)).toEqual([
+		{ cmd: 'window_folder', args: {} },
+		{ cmd: 'grant_directory', args: { scope: SCOPE } },
+	]);
+	await folder.close();
+});
+
+test('a window without an assigned folder opens no storage', async () => {
+	shell.control.window = null;
+	expect(expectErr(await openTauriFolder({ tables: { notes } })).name).toBe(
+		'NotAssigned',
+	);
+	expect(shell.calls).toEqual([{ cmd: 'window_folder', args: {} }]);
+	expect(changeHandlers.size).toBe(0);
+});
+
 test('every refused grant is a refusal, and nothing opens', async () => {
 	shell.control.grant = () => {
 		throw { name: 'UnknownScope', scope: SCOPE };
@@ -118,11 +139,8 @@ test('every refused grant is a refusal, and nothing opens', async () => {
 	expect(changeHandlers.size).toBe(0);
 });
 
-test('in the desktop app the automatic opener needs a directory, and browser storage is refused', async () => {
+test('an explicit registered folder bypasses the assignment, and browser storage is refused', async () => {
 	const { openFolder } = await import('../index.js');
-	expect(expectErr(await openFolder({ tables: { notes } })).name).toBe(
-		'DirectoryRequired',
-	);
 	const { openFolder: openBrowserFolder } = await import('../browser.js');
 	expect(expectErr(await openBrowserFolder({ tables: { notes } })).name).toBe(
 		'InsideTauri',

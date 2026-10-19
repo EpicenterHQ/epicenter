@@ -240,8 +240,8 @@ app is first opened; if the Folders window already holds it under the data
 scope, both scopes share the one root and publish under its one mutex
 (ADR-0568).
 
-The page calls `openFolder({ directory, tables })`, where `directory` is
-the scope the shell handed to its window. The shell grants that scope and
+The app page calls `openFolder({ tables })`; the native opener asks the shell
+for the scope assigned to its window. The shell grants that scope and
 checks every file path. The native Folder reads ordinary files as they stand,
 merges row edits with current bytes, and lands one guarded file change per
 save. Opening writes nothing and does not start Git. The shell retains separate
@@ -442,7 +442,7 @@ in", the folder it was opened on. The window is permitted into that folder's
 scope and into `so.epicenter`, whose `connections` table its AI commands
 name, and the folder plugin records which app the window runs and which
 folder it was handed. The page asks for it (`window_folder`), so its URL
-names no folder and its routes and reloads cannot change it, and the app opens it with `openFolder({ directory: handed.folder, tables })`.
+names no folder and its routes and reloads cannot change it. The app opens it with `openFolder({ tables })`.
 Settings opens `so.epicenter` with the connections schema; the Folders window
 opens each listed directory with no table schemas.
 

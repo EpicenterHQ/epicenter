@@ -102,7 +102,7 @@ export function createGrantedShell(root: string) {
 	const changes: DataChange[] = [];
 	const control = {
 		/** The installed app and directory handed to this window. */
-		window: undefined as { app: string; folder: string } | undefined,
+		window: undefined as { app: string; folder: string } | null | undefined,
 		/** The shell's answer to `grant_directory`; throw to refuse. */
 		grant: (): unknown => ({ root }),
 		/** Runs before each data change is checked and made; await in it to hold the change. */

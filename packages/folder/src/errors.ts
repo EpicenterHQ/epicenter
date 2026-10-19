@@ -197,7 +197,8 @@ export const OpenFolderError = defineErrors({
 	}),
 	/**
 	 * A registered folder's directory is not there, perhaps moved or removed
-	 * since it was chosen. Nothing replaces it with an empty one (ADR-0636).
+	 * since it was chosen. A fixed application default may be created on its
+	 * first grant; a later grant does not switch to an empty directory.
 	 */
 	Missing: ({ root }: { root: string }) => ({
 		message: `There is no folder at ${root}; it may have been moved or removed.`,
@@ -211,13 +212,9 @@ export const OpenFolderError = defineErrors({
 		message: `'${table}' cannot name a table: a table is one top-level directory`,
 		table,
 	}),
-	/**
-	 * `openFolder({ tables })` opens the runtime's default local folder, which
-	 * only a browser page has. A desktop app opens a directory.
-	 */
-	DirectoryRequired: () => ({
-		message:
-			'The default local folder belongs to a browser page; a desktop app opens a directory',
+	/** The desktop shell assigned no folder to this window. */
+	NotAssigned: () => ({
+		message: 'The desktop shell did not assign this window a folder',
 	}),
 	/** The folder's storage could not be reached or made ready. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({

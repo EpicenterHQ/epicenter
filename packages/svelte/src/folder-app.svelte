@@ -1,7 +1,7 @@
 <!--
-	The root of an app over its local folder: opens the browser default with
-	`openFolder({ tables })` or the desktop window's handed directory with
-	`openFolder({ directory, tables })` when it mounts, shows one loading screen and one
+	The root of an app over its local folder: opens the browser origin's or
+	desktop window's assigned folder with `openFolder({ tables })` when it mounts,
+	shows one loading screen and one
 	refusal screen, provides the opened folder to its children
 	(`getFolder()`), and closes it when it unmounts.
 
@@ -16,12 +16,11 @@
 	Importing this component opens nothing.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
-	import { OpenFolderError, openFolder } from '@epicenter/folder';
+	import { openFolder } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { invoke, isTauri } from '@tauri-apps/api/core';
 	import { onDestroy, type Snippet } from 'svelte';
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
@@ -51,17 +50,7 @@
 	let active: FolderContext<TTables> | undefined;
 	// svelte-ignore state_referenced_locally
 	async function open() {
-		let opened;
-		if (isTauri()) {
-			const handed = await invoke<{ app: string; folder: string } | null>(
-				'plugin:epicenter-folder|window_folder',
-			);
-			if (handed === null)
-				return OpenFolderError.Unavailable({
-					cause: new Error('The desktop shell did not hand this window a folder'),
-				});
-			opened = await openFolder({ directory: handed.folder, tables });
-		} else opened = await openFolder({ tables });
+		const opened = await openFolder({ tables });
 		if (opened.error) return opened;
 		active = createFolderContext(opened.data, { saveAfterMs });
 		return Ok(active);

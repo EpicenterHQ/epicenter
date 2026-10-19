@@ -1,6 +1,6 @@
 /**
  * Every entry opens the one `Folder`: the browser entry with `{ tables }`,
- * the desktop and Bun entries with `{ directory, tables }`, and the automatic
+ * the desktop entry with either form, the Bun entry with `{ directory, tables }`, and the automatic
  * entry with either. Rows are typed by the caller's TypeBox schemas, and the
  * removed declaration-dependent shapes do not type-check.
  */
@@ -31,6 +31,7 @@ type Opened = Promise<Result<Folder<Tables>, OpenFolderError>>;
 
 // Each entry's opener answers the same `Folder`.
 expectTypeOf(browser.openFolder({ tables: { notes } })).toEqualTypeOf<Opened>();
+expectTypeOf(tauri.openFolder({ tables: { notes } })).toEqualTypeOf<Opened>();
 expectTypeOf(
 	tauri.openFolder({ directory: 'data:Notes', tables: { notes } }),
 ).toEqualTypeOf<Opened>();
@@ -41,12 +42,11 @@ expectTypeOf(root.openFolder({ tables: { notes } })).toEqualTypeOf<Opened>();
 expectTypeOf(
 	root.openFolder({ directory: 'data:Notes', tables: { notes } }),
 ).toEqualTypeOf<Opened>();
+expectTypeOf(root.openFolder).toEqualTypeOf(tauri.openFolder);
 
-// A browser has no directory to open, and a directory entry needs one.
+// A browser has no directory to open, and Bun needs one.
 // @ts-expect-error The browser entry opens this origin's default folder.
 browser.openFolder({ directory: '/tmp/notes', tables: { notes } });
-// @ts-expect-error The desktop entry opens a registered directory.
-tauri.openFolder({ tables: { notes } });
 // @ts-expect-error The Bun entry opens a directory by its path.
 bun.openFolder({ tables: { notes } });
 

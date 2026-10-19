@@ -50,7 +50,6 @@ afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 	document.body.replaceChildren();
 	resetUrl();
-	Reflect.deleteProperty(navigator, 'storage');
 });
 
 const DETAIL = 'section[aria-label="Todo"]';
@@ -368,13 +367,17 @@ test('a row that does not fit is listed with its source, and an edit keeps unnam
 
 test('a failed storage check opens nothing, and Try again checks again', async () => {
 	freshProfile();
-	let check: () => Promise<unknown> = () =>
-		Promise.reject(
-			new DOMException('Storage access is blocked', 'SecurityError'),
-		);
-	Object.defineProperty(navigator, 'storage', {
-		configurable: true,
-		value: { getDirectory: () => check() },
+	const database = indexedDB;
+	let blocked = true;
+	globalThis.indexedDB = {
+		open: (name: string, version?: number) => {
+			if (blocked)
+				throw new DOMException('Storage access is blocked', 'SecurityError');
+			return database.open(name, version);
+		},
+	} as IDBFactory;
+	cleanup.push(() => {
+		globalThis.indexedDB = database;
 	});
 	const opened = mountPage();
 	await until(
@@ -384,9 +387,9 @@ test('a failed storage check opens nothing, and Try again checks again', async (
 		'the refusal',
 	);
 	expect(opened.target.querySelector(LIST)).toBeNull();
-	expect(await indexedDB.databases()).toEqual([]);
+	expect(await database.databases()).toEqual([]);
 
-	check = async () => ({ async *values() {} });
+	blocked = false;
 	press(button(opened.target, 'Try again'));
 	await until(
 		() => opened.target.querySelector('[aria-label="Todos"]') !== null,
