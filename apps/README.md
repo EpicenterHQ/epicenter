@@ -1,5 +1,13 @@
 # Apps
 
+This page documents the current `@epicenter/folder` application composition.
+The chosen direction opens local data before sign-in, uses app-supplied
+schemas without required metadata files, and defers the Epicenter desktop app
+and its runner. See [shared vocabulary](../docs/CONTEXT.md) and
+[ADR-0633](../docs/adr/0633-apps-open-local-data-before-connecting-services.md).
+The declaration publication and desktop installer below remain implementation
+details awaiting migration, rather than requirements for new local apps.
+
 An application keeps its data in a data folder: Markdown rows,
 `epicenter.json`, and Git history beside them (`@epicenter/folder`). The files
 are the data. A recording is a file in the folder from its start
@@ -163,5 +171,5 @@ Whispering is an installed app in Epicenter, and a browser build, over a
 folder; see its [README](whispering/README.md). Honeycrisp is too: its
 [README](honeycrisp/README.md) explains its Markdown notes folder, the folder
 Epicenter hands it, and its editing drafts. Vocab keeps words and chats in a browser folder and its inference in
-`@epicenter/ai`. Epicenter owns the desktop host and Home session for
-applications that use that host.
+`@epicenter/ai`. The existing Epicenter desktop app owns the Tauri runtime and
+Home session for application pages running inside it.

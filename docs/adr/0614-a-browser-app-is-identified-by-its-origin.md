@@ -25,7 +25,7 @@ app is an ordinary client
 
 ## Decision
 
-**An app is its origin, and its origin is its OAuth `client_id`; no
+**A web app is identified by its web origin, which is its OAuth `client_id`; no
 developer registers anything.** The first sign-in from an origin creates its
 client row: a public client using PKCE `S256`. First-party apps get no row
 of their own. Withdrawn before it was built: client ID metadata documents
@@ -36,17 +36,19 @@ browser apps.
 path: the redirect is the calling page's URL, accepted when it is on the
 client's origin.
 
-**A grant is (account, origin, repository), and the grant is the consent
-record.** It names one repository by id, never `*`. One grant exists per
-tuple. Access tokens stay stored rows checked on every request
+**A repository grant records consent for an account, web origin, and hosted repository.**
+It names one repository by id, never `*`. One repository grant exists per
+tuple. Inference authorization is independent under ADR-0634. Local data
+opens without either grant under ADR-0633. Access tokens stay stored rows
+checked on every request
 ([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)),
 so revoking a grant retires its tokens at once. A refresh token per grant
 renews access without leaving the page. Cost: a site that works in two
 repositories holds two grants.
 
 **A signed-in device holds an account grant.** `epicenter login` gives the
-CLI a grant that reaches every repository the person is on, and the data
-browser reaches the Git service through the CLI's credential helper
+CLI a grant that reaches every repository the person is on. The deferred
+Epicenter desktop app reaches Git through the CLI's credential helper
 ([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
 Only browser apps hold per-repository grants.
 
@@ -70,13 +72,13 @@ It suggests: studio
 
 **Native app identity is deferred to Whispering's desktop app.** A native
 app would claim its website's origin; how Epicenter verifies that claim is
-not decided. The desktop data browser is no OAuth client: it reaches the
+not decided. The Epicenter desktop app is no OAuth client: it reaches the
 Git service through the CLI's credential helper
 ([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
 
 ## Consequences
 
-- The client table grows by one row per origin, each `localhost` port
+- The client table grows by one row per web origin, each `localhost` port
   included.
 - Two tabs of one site on two repositories hold two grants and two tokens,
   and neither overwrites the other.

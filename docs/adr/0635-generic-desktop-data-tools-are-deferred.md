@@ -1,10 +1,10 @@
-# 0635. Generic desktop data tools are deferred
+# 0635. The Epicenter desktop app is deferred
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at treating the desktop data browser and minimal runner as current delivery scope, and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at the desktop browser and runner in principle 9.
-- **Relates:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (reader-selected descriptions), [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (independent local apps), and [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) (optional hosted inference).
-- **Unbuilt:** a generic desktop browser using reader-selected lenses, an optional personal-tool runner, and the shared disk reader and writer needed by those later clients.
+- **Relates:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (reader-selected schemas), [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (independent local apps), and [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) (optional hosted inference).
+- **Unbuilt:** the Epicenter desktop app using selected schema files, an optional personal-tool runner, and the shared disk reader and writer needed by those later clients.
 
 ## Context
 
@@ -14,21 +14,26 @@ code remain implementation material. The local-first app opening API and
 standalone Whispering are still unfinished.
 
 The chosen first delivery is useful apps over local files, with optional
-Git synchronization and inference. A generic folder viewer and personal
-tool runner can follow without becoming dependencies of that delivery.
+Git synchronization and inference. The Epicenter desktop app and its personal
+app runner can follow without becoming dependencies of that delivery.
 
 ## Decision
 
-**The generic desktop data browser and runner are later, optional clients.**
+**The Epicenter desktop app and its runner are later, optional clients.**
+Epicenter desktop app is the product name. Host app and desktop host describe
+its possible runtime role, not a separate product. Runner names its capability
+to open built local interfaces; launcher is an ordinary description of opening
+an app. None introduces another required component.
+
 Do not make their migration, window model, or app-opening workflow a gate
 for the local data toolkit, standalone apps, browser apps, CLI, or hosted
 services. Deferral does not restore the older full app platform.
 
-**Generic desktop browsing adds structured views through a selected lens.**
-A person can open ordinary data folders and select a JSON lens, including
-one saved as `epicenter.json`. Without a lens, files remain browsable. The
+**The Epicenter desktop app can add structured views through a selected schema file.**
+A person can open any ordinary data folder and select a separately obtained
+schema file kept outside it. Without a schema file, files remain browsable. The
 filename grants no permissions and creates no requirement for apps to
-write metadata. Lens selection and editing follow ADR-0632; the browser's
+write metadata. Schema-file selection and editing follow ADR-0632; the app's
 interface and packaging can be designed when that client is built.
 
 **A later runner may open built personal interfaces over selected folders.**
@@ -45,8 +50,8 @@ catalogs, and a general native API remain outside the minimal runner.
   browser apps without first shipping a replacement Epicenter desktop shell.
 - Existing runner and file-serving code can be evaluated for reuse later;
   retaining it is not a commitment to its present grants or installer.
-- Generic inspection still benefits from the lens contract. No runner
-  must exist for the CLI to read ordinary files or select a lens.
+- Generic inspection still benefits from the schema-file contract. No runner
+  must exist for the CLI to read ordinary files or select a schema file.
 - A future runner must verify coordinated saves when it shares a disk
   folder with a standalone app. That work belongs to its implementation.
 

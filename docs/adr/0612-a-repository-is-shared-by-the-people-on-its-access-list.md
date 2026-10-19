@@ -30,7 +30,7 @@ and several people share, which leaves the namespace naming nothing.
 
 ## Decision
 
-**A repository is one Git repository at `https://git.epicenter.so/<id>.git`,
+**A hosted repository is one Git repository at `https://git.epicenter.so/<id>.git`,
 with one branch, `main`.** Every clone commits to `main` and syncs it, and
 the Git service refuses a push to any other branch
 ([ADR-0620](0620-history-in-a-repository-only-grows.md)). Its
@@ -79,8 +79,8 @@ repositories the signed-in person is on, each by id and name, from
 
 ## Consequences
 
-- Several apps and several people share one repository, one history, and
-  one sync.
+- Several apps and several people can exchange history through one hosted
+  repository. Each clone keeps its own local saves and sync attempts.
 - Renaming a repository changes what people see and nothing a clone, a
   grant, or a URL holds.
 - Two repositories with one name are told apart by their ids, and

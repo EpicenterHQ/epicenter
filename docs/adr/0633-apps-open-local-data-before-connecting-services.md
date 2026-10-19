@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at apps entering through hosted repositories; [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at repository consent as a prerequisite for browser use; [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at every browser dataset having a remote; [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) with a `local` state for data without a sync destination; [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at `open` returning `undefined` without a hosted grant and its use of hosted identity to select local data; and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at local opening and optional synchronization in principles 1, 3, 5, and 8.
-- **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (hosted repository IDs), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text writes), [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) (local publication), and [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (optional descriptions).
+- **Relates:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (hosted repository IDs), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text writes), [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) (local publication), and [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (optional schema files).
 - **Unbuilt:** the public local opening API, persisted local-to-remote connections, first connection of existing local work, the `local` status, account-change handling, native app integration, and migration from current application storage.
 
 ## Context
@@ -29,7 +29,7 @@ sign in. The local dataset must survive each of those choices.
 Desktop apps use ordinary local folders. Browser apps use their origin's
 durable local storage. Opening and saving require no account, remote,
 `epicenter.json`, or `table.json`. App code supplies its own read schemas;
-generic tools may select a lens (ADR-0632). Browser storage guarantees and
+generic tools may select a schema file (ADR-0632). Browser storage guarantees and
 phone release checks remain those of ADR-0628.
 
 **A local dataset has an identity independent of its sync destination.**
@@ -78,7 +78,7 @@ remove its local contents when needed on a shared device.
 - Migration carries saved and unsent work before deleting old storage.
   Connecting, disconnecting, and reauthenticating do not recreate the dataset.
 - The text-write boundary of ADR-0621 remains: full text files can travel,
-  including content outside a lens; managed audio and attachment sync is
+  including content outside a schema file; managed audio and attachment sync is
   deferred. Existing binary Git content is not filtered out.
 
 ## Considered alternatives

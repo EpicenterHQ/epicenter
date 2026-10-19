@@ -36,77 +36,37 @@ configures it after a connecting sync and after `epicenter clone`.
 
 ## Decision
 
-**`merge` takes three versions and a path:**
+**merge takes a path and three content versions, without consulting a schema.**
+Its named roles are base, current, and change, with ADR-0622 defining the
+winner when both sides replace the same unit.
 
-| File | Unit |
+| File | Merge unit |
 | --- | --- |
-| a `.md` file whose present versions all have frontmatter `parseRowSource` reads | one frontmatter field; one region of body lines |
-| a `.json` file, `epicenter.json` included | one key of an object, recursing into nested objects |
-| other UTF-8 text | one region of lines |
-| binary, or a side absent | the whole file |
+| Markdown with readable frontmatter | One complete frontmatter field value, then one diff3 region of body lines |
+| Other UTF-8 text, JSON included | One diff3 region |
+| Binary content or an absent side | The whole file under the existing merge rules |
 
-- No table classifies a path and no depth rule applies: `notes/a.md`,
-  `notes/2026/a.md`, and a `README.md` with frontmatter at the root merge
-  alike.
-- A `.json` file merges object by object, key by key. A nested object
-  recurses; an array or a scalar is one unit per key; a key both sides
-  changed differently goes to the writer acting. A byte-order mark is read
-  past and kept. A version that does not parse, or holds a number a rewrite
-  would change (an integer past 2^53, `1.0`, `1e3`), merges by line, two
-  insertions at one place competing so no key is written twice; JSON that
-  is not an object merges whole.
-- A merged Markdown file keeps its frontmatter as a side wrote it. When the
-  merged fields equal ours' fields or theirs', that side's frontmatter bytes
-  stand as they are, comments and quoting included. Only when the merged
-  fields differ from both sides' is the frontmatter written with
-  `formatRowSource`, keys in ours' order, then keys only theirs added.
-- A merge that does not format, and a version whose frontmatter does not
-  read, takes the frontmatter and body line merge (`rowTextWins`), as an
-  invalid row does today.
-- Sync and the one write call the same `merge`; history and Sync read no
-  definition.
+A JSON schema file merges as ordinary text. It has no special object-key
+merge and no influence over how other files merge. Two insertions at one
+location both survive under ADR-0622's insertion rule.
 
-**The plain-Git merge driver is deleted.** Plain Git run on a folder shows
-Git's ordinary conflicts; Epicenter's merge by unit runs in Sync. Deleted:
-<!-- doc-path-check: ignore-next-line -->
-`packages/folder/src/merge-driver.ts` and `packages/cli/src/merge-driver.ts`
-with their tests, the `epicenter merge-driver` command, and the
-configuration written after a connecting sync
-(`packages/cli/src/history-commands.ts:238-249`) and after `epicenter
-clone` (`packages/cli/src/repository-commands.ts:182-184`). The command
-link `~/.local/bin/epicenter` stays, for the credential helper.
+When a Markdown merge keeps one side's fields, that side's frontmatter
+bytes can remain intact. Combining fields uses the source-preserving
+formatter's key order. A malformed frontmatter version remains text for
+repair; it is not a reason to consult a table schema.
+
+**Local saves and synchronization use the same content merge.**
+The inputs differ as specified by ADR-0622. Paths identify file kinds; no
+owning app, table marker, or declaration classifies them.
+
+**Epicenter registers no plain-Git merge driver.**
+Epicenter's save and sync operations use its merge. Plain git retains its
+own conflict behavior. A file containing unresolved conflict markers needs
+repair before an Epicenter disk sync can commit it. The CLI's credential
+helper is independent of merge-driver installation.
 
 ## Consequences
 
-- Depth no longer matters to the merge, so nested tables (a note group as a
-  real directory, in the open nested-tables spec) merge by field with no new
-  rule.
-- A field theirs added sits last in a merged row until the app's next save
-  of that row moves it: one line of churn in the next commit.
-- A hand-written `.md` file with frontmatter outside any table merges by
-  field. Its frontmatter is rewritten canonically, losing YAML comments,
-  only when both sides changed its fields, as rows already are; history
-  keeps the old version.
-- A `.json` key both sides changed keeps the writer acting's value; the
-  other side's value is in its commit. An edit to one key of
-  `epicenter.json` does not stop a template update from changing the others.
-- A person or agent running `git pull` or `git merge` on a folder resolves
-  Git's ordinary conflict markers.
-- Deleted: `FileKind`, `fileKindOf`, `tableAt`, the `definition` merge kind
-  with `definitionWins` and `localPatterns`, `kindOf` in `git/history.ts`,
-  and the merge driver.
-
-## Considered alternatives
-
-- **Keep the definition in the merge.** Its only effect was demoting an
-  invalid side to a line merge; it tied rows to one directory level, which
-  nested tables break, and made the merge driver find and prepare a file.
-- **Merge `.json` by line.** A line merge joins two different insertions at
-  one place (`mergeLines`, `packages/folder/src/git/merge-lines.ts:202-209`),
-  so two items added to an empty array on two devices would merge into JSON
-  with no comma between them.
-- **Merge `.json` as a whole file, the writer acting winning.** One edit to
-  `epicenter.json` would then win every later template update whole.
-- **Keep the plain-Git merge driver.** It needs configuring per clone and a
-  working command link, and gives plain Git a second conflict policy beside
-  Git's own, for merges Sync already makes by unit.
+- A missing or stale schema does not change merge results.
+- JSON does not receive a separate structural merge implementation.
+- Invalid schema JSON remains visible as source and can be repaired.

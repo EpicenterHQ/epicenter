@@ -1,10 +1,21 @@
 # @epicenter/cli
 
+This README describes implemented commands. `check` and `query` currently require
+root `epicenter.json`, and `generate` produces it from `epicenter.ts`. The
+chosen direction accepts independently selected schema files; schema-file input
+is not implemented yet. It obtains schemas separately from data, including from
+a registry; no generated metadata file accompanies the data. The old generation
+workflow is preserved in superseded
+[ADR-0527](../../docs/adr/0527-a-data-folder-may-keep-its-declaration-as-typescript.md).
+See [shared vocabulary](../../docs/CONTEXT.md) and
+[ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md).
+
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
 logic a page or the browser also needs (ADR-0556). Desktop-only work, such as
 installing apps and `install-command`, lives in the CLI's own modules. The
-command surface is ADR-0558's.
+implemented command surface retains ADR-0558's groups; ADR-0611 describes its
+planned reduction.
 
 ```sh
 bun run epicenter check path/to/folder          # from the repository root

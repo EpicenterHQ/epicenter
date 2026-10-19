@@ -1,11 +1,11 @@
-# 0624. A repository reports synced, pending, disconnected, or stuck
+# 0624. Local data reports its synchronization state
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amended by:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) with a local state for datasets that have no synchronization destination; the four existing values apply after connection.
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Sync still refuses, as `SyncError.Unrepresentable`" and its list: the only refusals are a non-text write from the library, a push that would rewrite history, and what Git cannot represent; a browser clone carries untouched any tree entry it cannot represent, and on a disk clone what its file system cannot represent is a cause of `stuck`.
 - **Relates:** [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the sync whose state this reports), [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter status`), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`status`, `subscribe`, and `connect`).
-- **Unbuilt:** all of it: the four words in `@epicenter/data`, `epicenter status` reporting each cause, and the full list of what a disk clone's file system cannot represent.
+- **Unbuilt:** public reporting of the five states, actionable same-origin browser diagnostics and recovery, `epicenter status` reporting disk causes, and the full list of what a disk clone's file system cannot represent. The public diagnostic shape remains undecided.
 
 ## Context
 
@@ -24,16 +24,18 @@ to know what is wrong.
 
 ## Decision
 
-**An app sees one of four words for a repository:**
+**An app sees one synchronization state for its open local data:**
 
 ```txt
+local          no sync destination is configured; local saves work normally
 synced         no unsent edits, and the clone matched the server at its last check
 pending        edits not yet pushed, a sync on its way, or the Git service unreachable
 disconnected   the Git service refused or expired this origin's sign-in; the app calls connect()
 stuck          sync cannot finish until someone fixes a cause in the repository or the clone
 ```
 
-An unreachable server is `pending`, because the next sync needs nothing
+The local state is normal under ADR-0633 and does not mean work awaits upload.
+An unreachable configured server is `pending`, because the next sync needs nothing
 from the person. A refused or expired sign-in is `disconnected`, because
 only `connect()` mends it
 ([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)).
@@ -47,42 +49,52 @@ unresolved state   a sync that cannot settle what the clone holds against main; 
                    holding conflict markers or a path plain Git left unresolved (ADR-0611)
 ```
 
-**Apps learn whether; the CLI and agents learn why.** `@epicenter/data`
-gives an app the word and nothing else. `epicenter status` says why: the
-causes of `stuck`, the changes not yet synced, and the age of the last
-fetch
-([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)).
+**A state summarizes progress; recovery also needs an actionable cause.**
+The app must be able to explain `stuck`, name the affected path when known,
+and offer recovery where the local data lives. A desktop CLI or agent can
+inspect disk files but cannot open another origin's private browser database.
+Browser recovery therefore stays within that origin. Depending on the cause,
+it can offer source repair, retry after storage becomes available, or export
+of readable saved data. It does not require discarding unsent work or
+reopening an empty dataset. Storage failure does not guarantee every byte
+can still be read or edited.
 
-**The only refusals are a non-text write from the library
-([ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md)),
-a push that would rewrite history
-([ADR-0620](0620-history-in-a-repository-only-grows.md)), what Git cannot
-represent, and a new id or path that differs from an existing one only by case
-([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md));
-everything else is accepted.** Nothing about a file's
-content, a table's description, or an app's schema is a refusal. A browser
-clone carries untouched any tree entry it cannot represent, such as a
-symlink, an executable, or a submodule, anywhere in the tree (ADR-0623).
-On a disk clone, what its file system cannot represent, such as two names
-that differ only by case where the file system folds case, is a cause of
-`stuck`; the library never writes such a pair, because it refuses a new id
-or path that differs from an existing one only by case
-([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)).
+The public diagnostic shape remains undecided. A state badge does not require
+every app to handle a closed union of synchronization errors or a general
+issue-list API. On disk, `epicenter status` can also report the cause, changes
+not yet synced, and the age of the last fetch (ADR-0611).
+
+**Local save checks and synchronization prerequisites have different owners.**
+A selected schema's disagreement never refuses a save. Local file-operation
+errors belong to ADR-0626; the text-write boundary belongs to ADR-0621.
+History protection belongs to ADR-0620, and unresolved native Git content
+belongs to ADR-0622: plain Git conflict markers can block an Epicenter commit
+without blocking source repair. This state contract does not repeat an
+exhaustive refusal list.
+
+A browser clone preserves untouched tree entries it cannot expose as ordinary
+files under ADR-0623. On disk, incoming names the filesystem cannot hold
+separately cause `stuck`; the local path checks still prevent creating case
+twins under ADR-0626.
 
 ## Consequences
 
-- An app renders one badge from four values, and every app means the same
+- An app renders one badge from five values, and every app means the same
   thing by each.
 - An app offers to reconnect only on `disconnected`; going offline is
   `pending`, and edits keep landing as working files.
-- An app cannot tell a person why a repository is `stuck`; the person runs
-  `epicenter status` or asks an agent.
-- A malformed row never makes a repository `stuck`; it is a `check` line.
+- A browser app explains its local failure without depending on a desktop tool
+  that cannot inspect its data. Disk clients can also use the CLI or an agent.
+- Schema nonconformance is a row issue, not `stuck`. Unresolved native Git
+  content can block a commit while source remains available for repair.
 
 ## Considered alternatives
 
-- **Typed sync errors in the app API.** Every app then renders and words
-  each cause itself, and a new cause is a breaking change to every app.
+- **A closed union of sync causes every app must render.** Couples every app
+  to every new cause. Keep the state stable and leave diagnostic presentation
+  and its public shape separate.
+- **Only the CLI explains failures.** It cannot inspect an origin-private
+  browser database, leaving its person without a usable repair route.
 - **Refusing writes a description does not allow.** A repository becomes
   `stuck` because one app is a field behind another.
 - **An unreachable server as `disconnected`.** Every app then offers a

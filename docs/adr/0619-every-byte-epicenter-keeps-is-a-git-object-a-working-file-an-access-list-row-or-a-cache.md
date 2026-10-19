@@ -1,4 +1,4 @@
-# 0619. Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache
+# 0619. Repository data has one content history in Git
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
@@ -28,48 +28,41 @@ with Git.
 
 ## Decision
 
-**Every byte Epicenter keeps is one of four things:**
+**Repository content has one committed history: Git.**
+Locally saved changes newer than a commit remain working content. On disk
+that content is working files; in the browser it is the durable unsent-edit
+map. Neither is a second edit history or a disposable cache.
 
-```txt
-Git object        commits, trees, and blobs, and the refs naming them, in a clone or on the Git service
-working file      a path's uncommitted bytes, wherever the clone keeps them: a file in a disk
-                  clone's working tree, or an unsent edit in a browser clone (ADR-0623)
-access-list row   accounts, repositories, members, grants, and token rows on the Git service
-cache             anything rebuilt from the three above, and lost without loss of data
-```
+| State | Meaning |
+| --- | --- |
+| Git objects and refs | Commits, trees, blobs, and the pointers selecting retained snapshots |
+| Working content | Acknowledged local text or deletions awaiting incorporation into commits |
+| Operational metadata | Revision checks, retained-history boundaries, and sync bookkeeping under ADR-0628 |
+| Access records | Hosted repository membership, grants, and token records |
+| Cache | Derived data that can be rebuilt without losing saved or unsent content |
 
-A browser clone holds Git objects, refs, and its unsent edits, and no
-cache
-([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)).
+**Operational bookkeeping does not introduce another content authority.**
+The browser stores enough information to publish atomically and settle
+uncertain pushes. Collection retains the snapshots that still own content.
+A pending commit and unsent edits cannot be discarded on the assumption
+that the server can restore them.
 
-The four kinds cover what Epicenter keeps for a repository. Credentials
-held on a device, such as an access token or a bring-your-own provider key
-in the keychain
-([ADR-0618](0618-epicenter-hosts-no-ai-service.md)), are caches of
-access-list rows or the person's own secrets, outside any repository.
+**Device credentials and hosted inference accounting have separate lifetimes.**
+Provider keys and device tokens stay outside synchronized data. Inference
+usage and billing records follow ADR-0634; they are not forced into Git
+merely because repository content uses Git.
 
-**Nothing records history Git cannot read.** A client's unsent changes are
-working files awaiting commit, never a second record of edits. Deleted:
-`refs/epicenter/publishing`, which sync points at an unfinished publish, and
-the rule that the next commit finishes that publish first;
-`refs/epicenter/builds`; and `neutralizeAttributes` with the
-`info/attributes` line it writes.
+**Epicenter writes no private Git history or attributes for app publication.**
+The old publishing/build refs and attribute neutralization are retired.
+Ordinary repository attributes apply to native Git checkouts. Recovery of
+an interrupted disk checkout still needs implementation evidence; it is not
+solved by calling its state a cache.
 
 ## Consequences
 
-- A clone that plain `git` opens holds everything Epicenter knows about its
-  history; a clone copied with ordinary tools loses nothing but caches.
-- A repository's `.gitattributes` applies to Epicenter's checkouts as it
-  does to Git's, so an attribute that changes bytes can make a checked-out
-  file differ from its blob.
-- A browser clone has no checkout to cut off. On disk, a checkout cut off
-  partway has no ref recording it; how the next `epicenter sync` tells
-  such a file from an edit, from the working files and Git alone, is not
-  decided.
-
-## Considered alternatives
-
-- **A ref naming an unfinished publish (ADR-0576).** History that plain
-  Git shows as a stray ref and cannot interpret.
-- **A private database of sync state beside the clone.** A second record
-  that can disagree with the working files and that no other tool reads.
+- A query projection can be rebuilt. An unsent edit might hold the only
+  copy of a successful save.
+- A browser snapshot need not retain all parent history, but sync can
+  fetch ancestry when required under ADR-0628.
+- Copying ordinary Git history preserves its commits; copying a live
+  client's complete saved state also requires its working content.

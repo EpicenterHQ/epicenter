@@ -1,9 +1,10 @@
 # @epicenter/definition
 
-The definition vocabulary every Epicenter storage reads: the field helpers,
-table definitions, the table name grammar, the preparation that checks a
-definition and owns its field schemas, and the one read over a prepared
-definition.
+Schema helpers and preparation used by the current `@epicenter/folder`
+implementation. The exported `Definition` type is the current API name for
+an app's table schemas and related settings. The new browser engine accepts
+table schemas directly. See [shared vocabulary](../../docs/CONTEXT.md) for
+the chosen terminology; the existing package name and exports remain current.
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its only
 dependencies are `typebox` and `wellcrafted`.
@@ -77,7 +78,7 @@ silent `false`.
 | --- | --- |
 | `@epicenter/folder` | `defineFolder`, which prepares a `Definition`. A folder's row body is the file's Markdown text. The opener names the folder. |
 
-It gets the `defineTable` brand, the `CreateRowOf` lens, and `check` over the prepared fields. It does not copy a validator.
+It gets the `defineTable` brand, the `CreateRowOf` type, and `check` over the prepared fields. It does not copy a validator.
 
 ## Why this name
 
@@ -86,7 +87,7 @@ prepares one. Its import closure is those modules and nothing else:
 
 ```text
 src/field/        the field.* helpers, the editor hint, and fieldEditorOf (./field)
-src/declaration   FieldMap, TableDeclaration, Definition, row lenses
+src/declaration   FieldMap, TableDeclaration, Definition, row types
 src/define        defineTable and the declared-table brand
 src/prepare       prepareDefinition, check, isOptional
 src/shape         mismatches, containment, requiredOutside
@@ -94,8 +95,9 @@ src/table-name    the table name grammar
 src/json          JsonValue and its guards
 ```
 
-There is no store, schema migration, or query code here, so `definition` says
-what it is more exactly than `schema`, `data`, or `core` would.
+There is no store, schema migration, or query code here. The package retains
+its existing name and exports during migration; its name does not introduce
+another data-domain concept alongside schema.
 
 ## A field is one native schema
 

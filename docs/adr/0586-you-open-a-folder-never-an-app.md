@@ -1,4 +1,4 @@
-# 0586. You open a folder, never an app
+# 0586. An app is independent of its data location
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
@@ -8,7 +8,7 @@
 - **Amended by:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at "On the desktop every app window is handed a folder and never looks for one", `openFolder({ definition })` opening the folder `window_folder` answers, the admit rule's handed folder, "Kept: `Folders::hand` and `window_folder`", a browser app's one fixed folder directory per origin, and "the app gets the folder it is handed": an app window is admitted to every data folder, the launcher names the folder on the app's URL as `?folder=<id>`, and a browser origin holds several folders.
 - **Amended by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at mandatory app association, source installation, and its generic editor as an installed app: the data browser lists disk clones and may open a chosen local built app over a selected clone.
 - **Relates:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (`app` in `epicenter.json`, templates, the folder listing); [ADR-0587](0587-epicenter-has-no-folder-of-its-own.md) (Epicenter keeps no folder, so `admit` names none); [ADR-0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) (every commit that runs is approved); [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) (an app is named by its address).
-- **Unbuilt:** all of it.
+- **Unbuilt:** independent app integration and migration of the legacy launcher; the Epicenter desktop app and its runner remain deferred under ADR-0635.
 
 ## Context
 
@@ -49,162 +49,26 @@ directory in the Epicenter folder as a folder, which would list `Apps/`.
 
 ## Decision
 
-**A new opening of a folder chooses the app its `epicenter.json` names.** A
-folder with no `epicenter.json`, or one that names no `app`, opens in the
-generic editor, which is the default app, not an exception. A folder whose
-`app` is not installed on this machine, as after a clone, offers to install
-it from that address (ADR-0589). "Open in" and "Open with…" go:
-`installedOpeners` and `apps/epicenter/src/folders/openers.ts` with its
-test, the menu in `apps/epicenter/src/folders/App.svelte`, and the Apps
-list's opening of an app with no folder. "Open in…" may return later as a
-file association.
+**An app and the local data it opens have independent locations and lifetimes.**
+An app can open compatible data chosen by the person. Making local data does
+not install an app, and launching an app does not require an Epicenter-owned
+data root. A directory name, reverse-domain app ID, or schema file does not
+establish ownership of that data.
 
-**The generic editor is its own app, and the Folders window holds no
-folder grant.** The editor moves out of `apps/epicenter/src/folders/`
-(`FolderView.svelte` and the files it uses) into `apps/editor`, and runs in
-an ordinary app window handed one folder. Every folder has a fixed "Show
-files" action that opens it in the editor, whatever its `epicenter.json`
-names. The Folders window lists folders, reading each `epicenter.json` in
-Rust as it does today
-(`apps/epicenter/src-tauri/src/data_folders.rs:219-226`), and opens each
-folder in its app's window or the editor's.
+**A local dataset is selected independently of any hosted repository.**
+Its identity survives sign-in, sign-out, remote selection, and an app update
+(ADR-0633). On disk its folder can have any name; a hosted repository's label
+is not its local path or stable service ID (ADR-0612).
 
-**On the desktop every app window is handed a folder and never looks for
-one.** `openFolder({ definition })` opens the folder `window_folder`
-answers. Deleted:
-
-- the `{ app }` option of `openFolder`, the window check in `handedFolder`,
-  and `AppMismatch`;
-- `WindowFolder.app`: `window_folder` answers the folder alone;
-- `TODOS_FOLDER_ID` and `WHISPERING_FOLDER_ID`, and ADR-0560's app ids as
-  folder ids;
-- `<FolderApp>`'s `app` prop: the root page is
-  `<FolderApp definition={todosDefinition}>`.
-
-**The shell admits a window to a folder by one rule, `admit(label,
-name)`, in place of the per-window scope registry:** an app window opens
-the folder it was handed. A folder's id is its directory name, such as
-`todos`; the `data:` prefix goes. Every storage and history command takes
-that name as its folder id (today `scope`; renamed before the first
-release by ADR-0584).
-
-```txt
-admit(label, name):
-  name is one path segment, not a dot entry, naming a real directory directly in the Epicenter folder
-  label "app:..."            its handed folder
-  otherwise                  refused
-```
-
-- Deleted: `FolderKind`, `FolderConfig`, `ScopeConfig`, `register`,
-  `permit`, `windows`, `permitted`, and `UnknownScope`
-  (`packages/tauri-plugin-epicenter-folder/core/src/registry.rs`); the
-  plugin's `register` and `permit` wrappers
-  (`packages/tauri-plugin-epicenter-folder/src/lib.rs:91-97`);
-  `DataFolderScopes`, `own_folder`, `register_own_folder`, and the
-  registration branches of `list_in` (`data_folders.rs`), so the listing is
-  a `read_dir` of names and descriptions; the own-folder fallback in
-  `installed_apps.rs:234`; `epicenter-folder:default` in the Folders
-  window's capability file.
-- Kept: `Folders::hand` and `window_folder`; `grant`, which never creates a
-  directory, so a missing folder is `Missing` and `prepare_directory` loses
-  its `create` parameter (`core/src/root.rs:30`); `resolve_root` and
-  `verify_layout`; the canonical-root cache; `admit_page_work`; one
-  publishing mutex per canonical root, since `Todos` and `todos` name one
-  directory on a case-insensitive disk; the shutdown fence.
-- New: the change watcher sends a folder's changes to the windows granted
-  that folder, recorded at grant and dropped when the page ends or the
-  window closes, in place of `registry.windows(scope)`
-  (`changed_reporter`, `packages/tauri-plugin-epicenter-folder/src/lib.rs:150-161`).
-
-No window that can reach folders loads content Epicenter did not build:
-the capability files that grant `epicenter-folder:default` are
-`"local": true` with no remote URLs, every window loads
-`epicenter-app://localhost`, and the scheme serves every document with
-`default-src 'self'` (`apps/epicenter/src-tauri/src/scheme.rs:268`). The
-label is a sufficient key for the rule.
-
-**Installing an app makes its first folder from its template,** named by
-the last segment of its address: installing `github.com/EpicenterHQ/todos`
-makes `~/Epicenter/todos/`. When a directory of that name exists,
-installing offers "New todos folder" under another name. "New todos
-folder" makes a folder from the template under a name the person gives.
-Two folders of one app are two entries in the Folders window. Nothing
-searches for an app's folder or remembers a last-opened folder.
-`epicenter clone` whose default directory is taken, including by a name
-that differs only in case (`packages/cli/src/repository-commands.ts:155-157`),
-clones into a free name.
-
-**A standalone browser app opens first, because its origin is its only
-folder's address** (ADR-0165): it opens the folder in its origin's storage,
-or makes one from its template when there is none. It uses one fixed
-folder directory per origin, where `openAnyFolder` names the directory by
-the app id today (`packages/folder/src/browser-adapter.ts:136`). Several
-folders in one browser origin are deferred.
-
-**An app is named by its address and installed as a repository of built
-files** (ADR-0589). The manifest, reverse-domain ids, and the install-time
-build go there.
-
-**Installed apps live in app data:**
-
-```txt
-~/Library/Application Support/so.epicenter/   <data_dir>
-  approvals.json
-  apps/<encoded address>/                     a clone of the app's built repository
-```
-
-What only Epicenter writes and only this machine needs lives in app data
-(ADR-0539). The clones qualify: the CLI writes them, and ADR-0569 removed
-the rows that carried a person's apps to another machine. `apps_dir`
-becomes `data_dir.join("apps")` in `app_data.rs`, and `appsDir` becomes
-`join(dataDir, 'apps')` in `app-paths.ts`.
-
-**A repository's name is its folder's name.** Connect proposes the directory
-name (ADR-0546), so `~/Epicenter/todos/` proposes
-`git.epicenter.so/<namespace>/todos.git`, and no app id appears in the URL.
+**The Epicenter desktop app is an optional later client.**
+Its browsing and runner workflow follow ADR-0635. Independent desktop apps,
+web apps, and the CLI require neither the Folders window nor an installed-app
+association to open data.
 
 ## Consequences
 
-- A person names their folders, and the names reach their repositories.
-  Two Todos lists are two folders, with no `so.epicenter.todos.work`.
-- Opening a folder needs no ownership, search, or recency rule: the folder
-  says which app it wants, and the app gets the folder it is handed.
-- The Epicenter folder holds only folders a person reads; every app clone
-  leaves it.
-- The `window_folder` change lands before the first release, with
-  ADR-0584's renames (ADR-0589).
-- Whispering's global shortcut records while its window is hidden
-  (ADR-0563). Today a person has one Whispering folder; which folder the
-  shortcut records into once there are two is deferred to Whispering's move
-  onto `<FolderApp>`.
-- Follow-up: the shell stops naming Whispering. It serves the dictation
-  overlay from a hard-coded path (`NAVIGATION_PREFIX`,
-  `apps/epicenter/src-tauri/src/overlay.rs:26`), keeps the overlay's label
-  in step with Whispering's window manager (`overlay.rs:22-24`), and
-  generates its whole page API into
-  `apps/whispering/src/lib/tauri/bindings.gen.ts` (`WHOLE_API`,
-  `apps/epicenter/src-tauri/src/lib.rs:183-186`); all three go.
-- Forks: a person forks an app's source, publishes it to their own
-  address, and maps the original address to it with ADR-0589's machine-local
-  substitution, so their folders, which keep the original `app`, open in
-  the fork.
-- No released build reads these directories, so nothing moves an existing
-  `Apps/` or renames an app-named folder; a development machine reinstalls
-  its apps.
-
-## Considered alternatives
-
-- **The folder name is the link: one folder per app, named by its
-  reverse-domain id.** A person cannot name their folder, a second folder
-  of one app needs an invented id, and the app id becomes every repository's
-  name.
-- **Search folders by `app`, open the most recent, prompt on collision.**
-  Opening an app would open a folder the person did not choose, the last
-  opened folder is per-machine state to keep, and two folders of one app
-  mean a prompt or a hidden choice on every launch.
-- **Keep "Open with…" for any installed app.** No app reads another app's
-  folder today, and a second way to choose an app for a folder is not worth
-  keeping until a viewer app exists.
-- **Keep `Apps/` in the Epicenter folder and skip it in the listing.** An
-  exception to "every directory is a folder", and app clones stay in a
-  directory a person browses and backs up.
+- Whispering can save local data before choosing a remote or an account.
+- Several compatible apps can use the same files without being installed
+  through Epicenter. Web origins retain separate local storage.
+- No app association, source installer, build approval, or template is
+  inferred from the contents of epicenter.json.

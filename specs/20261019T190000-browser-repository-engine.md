@@ -70,9 +70,10 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
    account, offline saves and reopening unsent work, explicit combination with a
    nonempty remote, sign-out
    preserving local work, account replacement, reconnect, and native Git round-trip.
-   Apps supply read schemas without publishing descriptions; generic lenses follow
+   Apps supply read schemas without publishing schema files; explicit schema-file
+   selection in the CLI follows
    [ADR-0632](../docs/adr/0632-a-lens-belongs-to-its-reader.md).
-   Inference authorization is independent. The deferred desktop browser and runner
+   Inference authorization is independent. The deferred Epicenter desktop app and its runner
    are not integration gates (ADR-0634 and ADR-0635).
 5. **Migration and deletion.** Transfer committed and unsent legacy work, verify
    readback, then remove the replaced OPFS/index/publication/locking machinery

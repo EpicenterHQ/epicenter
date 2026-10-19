@@ -1,6 +1,13 @@
-# Epicenter desktop host
+# Epicenter desktop app
 
-Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
+This directory contains the existing Epicenter desktop app. Its Tauri runtime
+hosts application pages; host describes that role, not another product.
+[ADR-0635](../../docs/adr/0635-generic-desktop-data-tools-are-deferred.md)
+defers the desktop app's migration and possible local app runner. The sections
+below document the existing implementation, including installer and declaration
+behavior that the chosen direction retires. They do not expand delivery scope.
+
+The existing app owns one Tauri runtime, one native command API, and the short list of what it compiles in. It ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
 ```text
 page source                        build output            served at

@@ -73,7 +73,7 @@ a save        the from the app passed, or    the file the clone       the file t
 Deleted: `ours`, `theirs`, and `winner`. Kept: `mergeLines` with its union
 of insertions.
 
-**One merge implementation runs on every host.** A browser sync and
+**One merge implementation runs in browser and disk clients.** A browser sync and
 `epicenter sync` on disk run the same TypeScript `merge`, `epicenter sync`
 over the local `.git`
 ([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)),
@@ -92,7 +92,7 @@ text the app's edit started from
 the save did not change keeps what `current` holds, so two tabs editing
 different paragraphs of one row both keep their edits; with `from: null`,
 the save wins every unit it changes.
-The data browser saves the same way and writes no file last-write-wins.
+The Epicenter desktop app saves the same way and writes no file last-write-wins.
 Whole-file inputs give the merge the context to identify changed units;
 they do not choose one whole-file winner. Independent frontmatter fields
 and non-overlapping body regions survive both saves and synchronization.
@@ -122,7 +122,7 @@ to it appended alphabetically
 - Two tabs that edit different paragraphs of one row both keep their
   edits. Two that edit one line keep the later save's line, and the earlier
   one survives only if a sync committed it first.
-- The data browser's save keeps an agent's edit to another unit of the
+- The Epicenter desktop app's save keeps an agent's edit to another unit of the
   file it saves, where it used to overwrite the whole file.
 - A `.json` file two clones edited in one region keeps the change's
   region; the rare merge that leaves invalid JSON, such as a `table.json`,

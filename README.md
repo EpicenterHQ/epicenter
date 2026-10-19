@@ -4,7 +4,7 @@
   </a>
   <h1 align="center">Epicenter</h1>
   <p align="center"><strong>Local-first apps over files you own.</strong></p>
-  <p align="center">An app's data is a folder of Markdown and JSON files with Git history beside it, whole on every device you use. It syncs over plain Git with a server you choose, and any editor, Git tool, or agent can work on the same files.</p>
+  <p align="center">Apps keep local data and can synchronize it over plain Git with a server you choose. On disk, ordinary Markdown and JSON files can also be opened by an editor, Git tool, or agent.</p>
   <p align="center"><a href="apps/todos">Todos</a>, <a href="apps/whispering">Whispering</a>, and <a href="apps/honeycrisp">Honeycrisp</a> are built on it today.</p>
   <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
@@ -37,6 +37,13 @@
 
 ## The Folder
 
+The example below uses the current `@epicenter/folder` API. The chosen direction
+lets apps open local data with their own schemas, without required metadata
+files; integration is unfinished. The Epicenter desktop app and its runner
+are deferred. See [shared vocabulary](docs/CONTEXT.md) and
+[application composition](apps/README.md) for the distinction between current
+code and the chosen direction.
+
 A data folder is a directory: one Markdown file per row, with settings as
 rows of a `settings` table, `epicenter.json` describing the tables, and Git
 history beside them. The
@@ -60,7 +67,7 @@ const listed = await folder.tables.todos.list();   // one { stem, result } per r
 await folder.tables.todos.create({ fields: { title: 'Milk', done: false }, body: '' });
 ```
 
-One rule decides what the folder does with your definition: a folder's
+The current opener decides what to do with your definition this way: a folder's
 `epicenter.json` is written only by the app the folder is named after. In a
 browser your app opens its own folder. In the desktop app it opens the folder
 a person chose "Open in" on, or its own; `folder.own` says which. Any other
@@ -116,7 +123,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are files in one Git-versioned folder. |
 | [Todos](apps/todos) | Runs, development milestone | Opens at once over a folder; Connect sets its Git remote. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
-| [Epicenter](apps/epicenter) | Runs, development | The desktop host for compiled and installed apps. |
+| [Epicenter](apps/epicenter) | Runs, development | Epicenter desktop app; existing installer and application runtime, with migration deferred. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages

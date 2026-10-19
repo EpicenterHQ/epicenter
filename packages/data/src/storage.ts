@@ -57,7 +57,7 @@ function completed(transaction: IDBTransaction): Promise<void> {
 	});
 }
 
-/** One database per origin/repository; no page owns its writes or synchronization. */
+/** The key selects local data within this origin, independently of a Git remote. */
 export async function openStorage(id: string) {
 	let opening: IDBOpenDBRequest;
 	try {

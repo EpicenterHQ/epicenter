@@ -147,8 +147,8 @@ function editPatch(
 }
 
 /**
- * Internal local engine. The eventual app-facing open owns grants and network
- * lifetime; this constructor is deliberately absent from the package exports.
+ * Internal local engine, absent from the package exports. The public opener will
+ * own the local handle; optional sync integration owns credentials and network work.
  */
 export async function openRepository<
 	const TTables extends Record<string, Schema> = Record<never, never>,

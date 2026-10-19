@@ -1,4 +1,4 @@
-# 0584. Each concept has one noun in code, on the wire, and in prose
+# 0584. Names preserve the distinctions callers need
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
@@ -8,7 +8,7 @@
 - **Amended by:** [ADR-0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) at the rename of `WindowFolder.folder` to `folderId`: `WindowFolder` is deleted, so nothing is renamed.
 - **Amended by:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at the Folder noun: what a person shares and an app opens is a repository.
 - **Amended by:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) at "A row is addressed by its stem, never by an id": the address is unchanged and its name is `id`.
-- **Unbuilt:** every rename below except the glossary in `docs/CONTEXT.md` and the per-rule `adr` field in `scripts/check-vocabulary.ts`; pull requests P1 to P10 build the rest in the order under Consequences.
+- **Unbuilt:** application migration from the legacy folder API to the public local-data API; this terminology pass changes no exported function, stored field, CLI command, or lock name.
 - **Relates:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) decided the opener (`openFolder`, `folder.own`, no `lens`); [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) is the one write; [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) pins installed apps to the shell commands they were built against; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) addresses a row by its stem.
 
 ## Context
@@ -33,154 +33,82 @@ missed the others.
 
 ## Decision
 
-**Each concept below has one noun, and identifiers, wire names, CLI commands,
-log sources, and prose use it.** What a person reads on screen keeps the word a
-person already has: "Save version", "Rename", "folder".
+**Use one domain name for one concept within its context.**
+Use ordinary words in product explanations and accurate technical names in
+code and developer documentation. Qualify an overloaded word when its
+meaning affects behavior. The maintained vocabulary is [shared vocabulary](../CONTEXT.md).
 
-| Noun | What it is | Code and wire |
-| --- | --- | --- |
-| App | an installed program, named by its reverse-domain id (`so.epicenter.todos`) | `app` (`openFolder({ app, definition })`, `WindowFolder.app`); `application` retires |
-| Folder | a directory a person owns, named by its id, with or without `epicenter.json` | `Folder`, `folder.id`, `folder.isOwn` (was `folder.own`), `queries` for the query layer over it (was `folder$`/`folderOptions`); `folderId` on the wire (Rust `folder_id`); "data folder" and the folder sense of `scope` retire |
-| Definition | what `epicenter.json` holds and `defineFolder` returns | `Definition`, `prepareDefinition`, `DEFINITION_PATH`, `InvalidDefinition`, `DefinitionMismatch`; folder-level "schema", "declaration", and "shape" retire |
-| Table | a directory of rows a definition names | `TableDefinition` (from `defineTable`), `PreparedTable`, `Table<TFields>` (the handle) |
-| Row, stem | one `<table>/<stem>.md`; the stem is its address | `stem`; `FieldsOf` (was `CreateRowOf`) |
-| File, path | any file in a folder, at a folder-relative path | `folder.files`, `path`; a directory inside a folder is `directory` |
-| Write | the one verb that changes files (ADR-0576) | `folder.write`, `folder.move`, `table.write`, `table.set`, `table.create`, `table.move`, `table.delete`; messages and the logger source (`folder/write`) say "write"; the write lock |
-| Version, History | a version is a commit; history is the commits | `commit` (`folder.git.commit()`, wire op, shell command, `epicenter commit`), `folder.git.history(depth)`; the history lock |
-| Sync, Remote | Sync commits, fetches, merges, and pushes; the remote is `remote.origin.url` | `folder.sync`, `folder$.sync.run`; `SyncOutcome` `'unpushed'` |
+| Name | Meaning |
+| --- | --- |
+| Local dataset | The local data selected by an app, with identity independent of sign-in and a sync destination; say "local data" in ordinary explanations. |
+| Folder or directory | A filesystem location. A data folder is an ordinary folder containing app data. Browser IndexedDB storage is not a filesystem folder. |
+| Repository | A Git repository. Qualify a hosted repository when discussing its service ID, membership, or grants. |
+| Clone | A separate local copy of a repository. Two web origins can have separate clones of one hosted repository. |
+| Remote | A configured Git synchronization destination. A Git remote URL is neither local identity nor authorization. |
+| Schema | JSON Schema expectations for a row's frontmatter object. A table schema contains field schemas. |
+| Schema file | A JSON file whose tables map supplies named table schemas to a reader. Its filename supplies no authority. |
+| Table, row, field, body | A named directory interpreted as immediate Markdown rows, their frontmatter values, and their Markdown bodies. |
+| Row id | The filename segment without .md, addressed within its table. Renaming it changes that address; it is not an immutable identity promise. |
+| Save, commit, sync | A save acknowledges local persistence; a commit records a Git snapshot; sync exchanges commits and merges changes. |
+| App, CLI, agent | Clients that use the same file formats. Reader and writer describe their roles. |
+| Epicenter desktop app | The deferred app at apps/epicenter, with possible file browsing and a local app runner. A web browser is a runtime. |
 
-**A row is addressed by its stem, never by an id.** A stem changes when the row
-moves, so it is not an identity. Vocab's `Entry.id` and `Chat.id`, Honeycrisp's
-`NoteId` and `noteIdOf`, and Whispering's `recordingId(at)` and `active.id`
-become stem forms. A persisted field that names another row is named for that
-row's table in the singular, as Vocab's `messages.chat` already is:
+**Schema is the current term for field expectations.**
+Retire lens, description, declaration, and shape as competing domain names
+for those expectations. The ordinary verb "describe" remains useful.
+Definition remains the exact name of a type in the legacy folder package;
+it does not require another concept in the destination architecture.
+A schema file contains a map of schemas, not one JSON Schema for the whole
+repository. It does not configure permissions, identity, or ignored files.
 
-```txt
-Whispering  transcriptions.recordingId            -> recording
-            transformation_runs.recordingId       -> recording
-            transformation_runs.transcriptionId   -> transcription
-            transformation_runs.transformationId  -> transformation
-            text_runs.transformationId            -> transformation
-Vocab       chats.focus[].entryId                 -> entry
-```
+**Names do not erase distinctions in storage, identity, or authorization.**
+A local dataset can exist before connection. A folder is its possible disk
+location. A hosted repository is a possible sync destination. Save does not
+mean commit or upload. A query projection is derived data; an unsent edit
+can be the only saved copy and is not a disposable cache.
+Use web origin for the browser storage/client boundary and Git remote
+origin for Git configuration. Use sync destination and inference provider
+for their different settings. A grant names permission, not a connection.
 
-Honeycrisp's note groups, the `folders` table and `notes.folderId`, collide
-with Folder. They are not renamed here: a note group is likely to become a
-real directory inside a nested table, which removes both the table and the
-field, so that design decides them.
+**Existing identifiers remain exact until their implementation is migrated.**
+Current applications use openFolder, defineFolder, Definition, and stem in
+@epicenter/folder. The internal @epicenter/data engine uses openRepository,
+LocalRepository, schemas, and Row.id; it has no public exports yet.
+The CLI still uses auth login and save-version. Documentation distinguishes
+these implementation names from planned contracts. Do not rename persisted
+recordingId fields, exports, or cross-process locks merely to match a glossary.
 
-**Each verb has one error union.** Opening a folder fails with `OpenError`
-(was `OpenFolderError`), reading with `ReadError` (was `RowReadError`), writing
-with `WriteError` (absorbs `RowWriteError`), Git with `GitError`, committing
-with `CommitError`, and syncing with `SyncError`. A narrower method returns a
-subset of its verb's union: `folder.write` cannot fail `InvalidValues`, and
-`files.read` cannot fail `InvalidRow`. `FileError` becomes the internal
-`StorageError`. `InvalidDeclaration` merges into `InvalidDefinition { reason,
-path? }`; `UnknownScope` becomes `UnknownFolder`; `NotDataFolder` becomes
-`NoDefinition`; `SyncError.Publish` and `SyncError.Checkpoint` become
-`SyncError.Write` and `SyncError.Commit`.
+A package entry point is an import path such as @epicenter/folder/bun.
+An executable entry point starts a process, such as the CLI's bin.ts.
+An opening function opens data. These are roles, not additional data objects.
 
-**`folder.git.commit()` returns a `Result`.** `Result<Commit, CommitError>`
-replaces the seven-status `CommitOutcome`; `CommitError` is `BranchMoved`,
-`Blocked`, `Failed`, `Unconfirmed`, or `Closed`. A folder's last commit is
-`{ at, result }`.
+**A product name and its technical roles do not create separate components.**
+Use Epicenter desktop app for the product. Its runner is a possible capability;
+host and shell describe qualified runtime responsibilities. Host app, desktop
+host, launcher, and generic browser are not competing product names.
 
-**Absence is `null`; `undefined` means not given.** `Table.get` returns
-`StoredRow | null`, in the engine, the query layer, and on the wire.
-
-**The rest of the vocabulary:**
-
-- `table.rename` is `table.move`; the query layer is `folder$.git.{status,
-  history, commit}` and `folder$.sync.run`.
-- The two locks are named by role: the write lock (was the save lock or files
-  lock) and the history lock (was the Git lock).
-- Git settings sit under one option on every opener, `git?: { author?,
-  credentials?, httpFetch? }`; a Bun opener requires `git.author`; browser test
-  injection is a top-level `opfs?`. `runHistory` takes `{ git, own? }`, and the
-  CLI's `isApplicationFolder` is `isOwnFolder`: whether a folder is its app's
-  own is the same question `folder.isOwn` answers.
-- `storage.children()` answers `{ fileNames, directoryNames }`; `list()` keeps
-  `{ files, directories }`.
-- "Schema" keeps its field-level meaning: `TSchema`, `FieldMap`, `$schema`,
-  `objectSchema`.
-- "Publish" stays for `epicenter.json` (`publishDefinition`,
-  `refs/epicenter/publishing`); `put` stays the storage port's verb.
-- Source file names stay, and accepted records keep the names they were
-  written with.
-
-**Handle names.** The opened handle is `folder`. Its query layer, the cached
-queries and the mutations that invalidate them, is `queries` (was `folder$`,
-built by `folderOptions`): the `$` suffix borrowed an observable convention for
-something that is not one. `folder.own` is `folder.isOwn`, a boolean read as
-one. `isOwn` is publication eligibility (ADR-0583); once Todos' Connect works
-per folder and Honeycrisp needs no own-folder setup, no app reads it and it
-leaves the public handle.
-
-**Two pairs stay separate.** The write lock and the history lock serialize
-different work: a write holds the write lock for one checked change to one
-file, and a commit or sync holds the history lock for a whole Git operation,
-which can wait on a network. One lock would stall every write behind a fetch.
-A stem and a path address different things: a table method takes a stem and
-supplies its table's directory and `.md`; a `files` method takes any
-folder-relative path.
+Repository names Git. Repo is shorthand, including exact CLI commands such as
+`repos`; app repository and data repository describe contents, not new types.
+An app can save local data before a repository or remote exists. Local dataset
+describes that selection without requiring a universal ID or registry. Record
+can explain a row to a person, and workspace adds no alias for opened data.
 
 ## Consequences
 
-- A reader learns one word per concept, and `scripts/check-vocabulary.ts`
-  refuses a retired identifier once its rename lands, citing ADR-0584
-  through the rule's `adr` field.
-- The shell-to-page commands change: `save_version` is `commit`,
-  `list_data_folders` is `list_folders`, every `scope` argument and the
-  `put_folder_file` header are `folderId`, `FolderChanged.scope` and
-  `WindowFolder.folder` are `folderId`, `GrantError` names `UnknownFolder`,
-  `children` answers `fileNames` and `directoryNames`, and
-  `epicenter://data-folders-changed` is `epicenter://folders-changed`. The CLI-to-page JSON ops are `commit` and
-  `history`. The shell's CLI arguments `save-version` and
-  `declare-epicenter-folder` are `commit` and `write-epicenter-definition`.
-- Installed apps are pinned to the commit they were built from (ADR-0581), so
-  P5a, P5b, and P10 ship in one desktop release, and each installed app runs
-  `epicenter app update`.
-- The logger source `folder/save` is `folder/write`, so durable logs change
-  source name at that release.
-- The CLI prints "Committed", "Nothing was committed", and "Merged at ...; not
-  pushed yet" in place of its "Saved version" lines.
-- Row files written before the field renames still hold `recordingId`,
-  `entryId`, and the rest. No released build reads these folders, so nothing
-  maps the old names: a development folder's old rows read as invalid rows, for
-  repair (ADR-0503).
-- Unchanged on disk: `epicenter.json` keys, commit trailers and subjects, refs,
-  `.git/epicenter/`, the merge driver's name, `approvals.json`, manifests,
-  window labels, and the OPFS directory. The lock files
-  `.<name>.epicenter-save-lock` and `.<name>.epicenter-history-lock` and the
-  Web Locks `epicenter-folder:<id>:open`, `:files`, and `:git` keep their old
-  words until the locks move into `.git/epicenter/`.
-- The AI connection's names (ADR-0557) wait for their own pull request, which
-  also decides whether `sync.connect` is `sync.setRemote`. "Connection" also
-  names a client's transport to a deployment in `docs/CONTEXT.md`; that pull
-  request settles which sense keeps the word.
-- The renames land in this order, each pull request passing alone:
-
-  ```txt
-  P1  Definition nouns            after the single opener
-  P2  Table and row nouns         after P1
-  P3  Version and history         beside P1 and P2; no wire change
-  P4  Errors per verb, locks      after P1 and P2
-  P5a History wire                after P3
-  P5b Folder-address wire         after P4 and P5a
-  P6  Option shapes               beside P5a
-  P7  App row stems and fields    after the shared app component
-  P9  Absence is null             after P2 and P7
-  P10 commit() returns a Result   after P5a; ships with P5a and P5b
-  ```
+- The old P1 to P10 blanket rename plan is withdrawn. Migrations follow
+  actual callers and completed replacement behavior.
+- The vocabulary check continues guarding retired identifiers in the
+  existing implementation; it does not select future API names.
+- Standard technical names such as principal, replica, and projection keep
+  their precise meanings where used. Product text explains the person's task.
+- Historical and superseded records can quote their original nouns.
+  A filename, example identifier, or old source symbol is not a current term.
 
 ## Considered alternatives
 
-- **Keep the persisted `...Id` fields and map them at the read boundary.** It
-  keeps a name that says identity on a value that changes on move, and every
-  app carries a mapping for folders no released build reads.
-- **One lock for writes and history.** Writes would wait behind a fetch.
-- **Rename the lock files and Web Lock names now.** A shell and a CLI from
-  different builds would then hold different locks on one folder; the names
-  change once, when the locks move into `.git/epicenter/`.
-- **"Save" as the write verb.** The UI already uses "Save version" for a
-  commit, so "save" would name both a file write and a commit.
+- **One word across every context.** Calling IndexedDB a folder or every
+  local dataset a hosted repository conceals storage and identity differences.
+- **A domain name for every source of schemas.** Lens, description, and
+  definition make readers learn several names for the same expectations.
+- **Rename every legacy identifier first.** Adds a migration campaign for
+  an implementation whose consumers still need replacement behavior.

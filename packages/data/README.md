@@ -3,10 +3,12 @@
 The browser repository engine under construction for
 [ADR-0626](../../docs/adr/0626-an-app-reaches-a-repository-only-through-open.md)
 and [ADR-0628](../../docs/adr/0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md).
-Local implementation clarifications are recorded in
+The internal implementation also follows proposed
 [ADR-0629](../../docs/adr/0629-a-local-save-refuses-a-file-directory-replacement.md),
 [ADR-0630](../../docs/adr/0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md),
 and [ADR-0631](../../docs/adr/0631-a-browser-observes-the-remote-before-making-a-commit.md).
+Those records remain Proposed; their implementation here does not settle the
+public contract.
 Current applications still use `@epicenter/folder`. The
 [implementation plan](../../specs/20261019T190000-browser-repository-engine.md)
 tracks transport, retention, app integration, and data-safe migration.
@@ -16,8 +18,8 @@ tracks transport, retention, app integration, and data-safe migration.
 [ADR-0633](../../docs/adr/0633-apps-open-local-data-before-connecting-services.md)
 requires desktop and browser apps to open local data before first sign-in.
 A local dataset has its own identity; optional synchronization later connects
-existing work to a chosen repository. No lens or service grant is required for
-local opening. Generic readers can select a separate lens
+existing work to a chosen repository. No schema file or service grant is required for
+local opening. Generic CLI readers can select a separate schema file
 ([ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)).
 
 The internal constructors already separate local storage from Git exchange.
