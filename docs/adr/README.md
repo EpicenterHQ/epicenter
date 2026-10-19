@@ -840,3 +840,4 @@ When you add an ADR, add its row here.
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Accepted (amends 0592) |
 | [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Accepted (amends 0585 and 0608) |
 | [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590) |
+| [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Proposed |
