@@ -52,3 +52,16 @@ test('a window opened for another app says which', () => {
 		).retry,
 	).toBe(true);
 });
+
+test('older browser data is named as retained without offering an empty retry', () => {
+	expect(
+		describeOpenRefusal(
+			OpenFolderError.LegacyDataPresent({ folders: ['so.epicenter.todos'] }).error,
+			'Todos',
+		),
+	).toEqual({
+		description:
+			'Your earlier Todos files are still stored in this browser. This version cannot read them yet, so it stopped before showing an empty workspace.',
+		retry: false,
+	});
+});

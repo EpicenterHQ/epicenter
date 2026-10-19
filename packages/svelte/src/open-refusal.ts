@@ -24,6 +24,11 @@ export function describeOpenRefusal(
 	title: string,
 ): OpenRefusal {
 	switch (error.name) {
+		case 'LegacyDataPresent':
+			return {
+				description: `Your earlier ${title} files are still stored in this browser. This version cannot read them yet, so it stopped before showing an empty workspace.`,
+				retry: false,
+			};
 		case 'DefinitionMismatch':
 			return {
 				description: `${error.message} Open this folder with an app that reads it.`,
