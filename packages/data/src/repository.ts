@@ -270,12 +270,7 @@ export async function openRepository<
 		return {
 			list() {
 				return read(async () => {
-					const snapshot = await storage.capture(
-						(path) =>
-							path.startsWith(`${name}/`) &&
-							path.endsWith('.md') &&
-							!path.slice(name.length + 1).includes('/'),
-					);
+					const snapshot = await storage.capture({ rows: name });
 					const rows: Row<TSchema>[] = [];
 					for (const path of [...snapshotPaths(snapshot)].sort()) {
 						if (!path.startsWith(`${name}/`) || !path.endsWith('.md')) continue;
@@ -356,7 +351,9 @@ export async function openRepository<
 						const changes = new Map<string, null>([[path, null]]);
 						if (directories.has(`${name}/${id}`))
 							changes.set(`${name}/${id}`, null);
-						for (const child of snapshotPaths(snapshot))
+						// The folder tombstone removes committed children, including raw
+						// names. Only pending children need individual cleanup.
+						for (const child of snapshot.edits.keys())
 							if (child.startsWith(`${name}/${id}/`)) changes.set(child, null);
 						if (
 							await storage.publish({
@@ -384,7 +381,7 @@ export async function openRepository<
 						(prefix !== '' && !validPath(prefix.replace(/\/$/, '')))
 					)
 						return [];
-					const snapshot = await storage.capture([]);
+					const snapshot = await storage.capture({ prefix: root + prefix });
 					return [...snapshotPaths(snapshot)]
 						.filter(
 							(path) =>
@@ -456,7 +453,7 @@ export async function openRepository<
 		}): Promise<Result<PendingCommit | null, SaveError>> {
 			return save(async () => {
 				for (;;) {
-					const snapshot = await storage.capture([]);
+					const snapshot = await storage.capture('commit');
 					const { base, head, revision, shallow } = snapshot.state;
 					if (!snapshot.state.remoteKnown) return Ok(null);
 					if (head !== base) {

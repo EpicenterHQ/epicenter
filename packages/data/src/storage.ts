@@ -16,7 +16,7 @@ export type RepositoryState = RepositoryRefs & {
 export type RepositorySnapshot = {
 	state: RepositoryState;
 	edits: Map<string, string | null>;
-	base: Awaited<ReturnType<typeof readSnapshot>>;
+	/** Operation-scoped C: unexpanded directories retain occupancy, not children. */
 	head: Awaited<ReturnType<typeof readSnapshot>>;
 	/** Captured bytes remain usable after a later publication or collection. */
 	objects: Map<string, GitObject>;
@@ -115,12 +115,18 @@ export async function openStorage(id: string) {
 
 	return {
 		/**
-		 * Read refs, edits and required snapshot bytes in one transaction. Undefined
-		 * paths captures every file; [] captures only trees and commit bytes.
+		 * Read refs, edits and required current-snapshot bytes in one transaction.
+		 * Omitted scope captures all files; [] captures all trees without blobs.
+		 * Point, prefix, row-list and commit scopes avoid unrelated subtrees. Every
+		 * pending-edit ancestor is expanded so deletions can remove its occupancy.
 		 * Only IndexedDB request promises are awaited while the transaction is live.
 		 */
 		capture(
-			paths?: readonly string[] | ((path: string) => boolean),
+			scope?:
+				| readonly string[]
+				| { prefix: string }
+				| { rows: string }
+				| 'commit',
 		): Promise<RepositorySnapshot> {
 			return transact('readonly', async (transaction) => {
 				const meta = transaction.objectStore('meta');
@@ -147,28 +153,51 @@ export async function openStorage(id: string) {
 					objects.set(oid, object);
 					return object;
 				}
-				const base = await readSnapshot(state.base, read);
-				const head =
-					state.head === state.base
-						? base
-						: await readSnapshot(state.head, read);
-				const selected =
-					typeof paths === 'function' || paths === undefined
-						? new Set(
-								[...base.files.keys(), ...head.files.keys()].filter(
-									paths ?? (() => true),
-								),
-							)
-						: new Set(paths);
-				for (const path of selected) {
-					for (const snapshot of [base, head]) {
-						const entry = snapshot.files.get(path);
-						// A gitlink names another repository, not a local blob to load.
-						if (entry !== undefined && entry.mode !== '160000')
-							await read(entry.oid);
-					}
+				const full =
+					scope === undefined || (Array.isArray(scope) && scope.length === 0);
+				const editAncestors = new Set<string>();
+				for (const path of edits.keys()) {
+					for (
+						let end = path.lastIndexOf('/');
+						end > 0;
+						end = path.lastIndexOf('/', end - 1)
+					)
+						editAncestors.add(path.slice(0, end));
 				}
-				return { state, edits, base, head, objects };
+				function descend(path: string): boolean {
+					if (editAncestors.has(path)) return true;
+					if (scope === 'commit' || scope === undefined) return false;
+					if ('prefix' in scope)
+						return (
+							path.startsWith(scope.prefix) ||
+							scope.prefix.startsWith(`${path}/`)
+						);
+					if ('rows' in scope) return path === scope.rows;
+					return scope.some((selected) => selected.startsWith(`${path}/`));
+				}
+				const head = await readSnapshot(
+					state.head,
+					read,
+					full ? undefined : descend,
+				);
+				let selected: Iterable<string> = [];
+				if (scope === undefined) selected = head.files.keys();
+				else if (typeof scope === 'object' && 'rows' in scope)
+					selected = [...head.files.keys()].filter(
+						(path) =>
+							path.startsWith(`${scope.rows}/`) &&
+							path.endsWith('.md') &&
+							!path.slice(scope.rows.length + 1).includes('/'),
+					);
+				else if (typeof scope === 'object' && !('prefix' in scope))
+					selected = scope;
+				for (const path of selected) {
+					const entry = head.files.get(path);
+					// A gitlink names another repository, not a local blob to load.
+					if (entry !== undefined && entry.mode !== '160000')
+						await read(entry.oid);
+				}
+				return { state, edits, head, objects };
 			});
 		},
 
@@ -287,7 +316,7 @@ export function shadowed(
 	return false;
 }
 
-/** Raw directory occupancy survives even when none of its names are app-readable. */
+/** Raw or unexpanded occupancy survives when files alone cannot describe it. */
 export function snapshotDirectories(snapshot: RepositorySnapshot): Set<string> {
 	const directories = new Set<string>();
 	function addParents(path: string) {

@@ -36,11 +36,13 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
    [local evidence](../packages/data/evidence/local/RESULTS.md) covers two pages,
    reopening, native objects, and the distinction between an unknown and empty
    remote. This is an internal engine, not the public app opening API.
-2. **Narrow capture, then Git sync.** The current capture walks every tree in
-   B/C and reads all E values, even for one path. The 500-folder browser probe
-   captures 502 trees. Measure and implement path-scoped reads against that
-   evidence; preserve raw directory occupancy and E prefix tombstones without
-   adding a durable Git index or per-edit bases. Then exchange normal Git with
+2. **Git sync after scoped capture.** Point, prefix, immediate-row and commit
+   scopes now capture only C and the trees needed by the operation or E.
+   The 500-folder probe captures 3 trees for one path, down from 502; raw
+   directory occupancy and E prefix tombstones remain protected. All E values
+   and their ancestor trees are still read. A 500-edit, 2 MB backlog captures
+   502 trees in 19 to 38 ms on desktop; measure this on phones before adding
+   another storage mechanism. Next exchange normal Git with
    a local native server. Preserve exact
    uncertain commits; recover connecting ancestry through all parents and name
    sync's competing units in `Overrode:` trailers. Prove
@@ -60,8 +62,9 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
 
 The local repository slice passes focused tests and real Chromium, WebKit and
 Firefox checks. In-memory IndexedDB tests establish transaction behavior in the
-test implementation, not phone durability. The next slice narrows capture and
-proves ordinary Git exchange against a local native server.
+test implementation, not phone durability. Scoped capture passes 89 tests and
+the repeated browser workload; the next slice proves ordinary Git exchange
+against a local native server.
 
 Claude Sonnet 5.5 delivered the object codec in an isolated clone. Codex reviewed
 and integrated it and reran its native Git checks. Independent Codex agents
@@ -78,7 +81,13 @@ These were informed implementation reviews, not blind design proposals.
 
 Keep the three operation-specific retry loops; each owns a distinct transition.
 A generic planner protocol does not yet remove enough work to justify its new
-types and callbacks. Narrow capture before introducing caches. ADR-0629 through
+types and callbacks. Scoped capture adds no persistent index or cache. A focused
+Claude Opus 5.5 read-only pass found no missed-input or occupancy counterexample;
+Codex reproduced the covered behaviors and browser checks. Directory collision
+diagnostics may name a different existing case twin when native Git already
+contains several; refusal remains the same. An operation no longer checks
+unrelated subtrees for corruption. Capture is not an integrity audit.
+ADR-0629 through
 ADR-0631 record these local API and bootstrap clarifications as proposals.
 
 Hosted Git must separately establish conditional ref updates, initial shallow

@@ -62,12 +62,15 @@ function entriesOf(oid: string, object: GitObject): TreeEntry[] {
 }
 
 /**
- * Walk every nested tree, including trees whose paths cannot be exposed. Only
- * valid UTF-8 paths outside .git enter files; links remain leaves with their modes.
+ * With no descent filter, walk every nested tree, including raw hidden paths.
+ * A filtered read retains unexpanded directory occupancy without reading its
+ * children. It is an operation's view, not a complete object closure for GC.
+ * Only valid UTF-8 paths outside .git enter files; links remain leaves.
  */
 export async function readSnapshot(
 	commit: string | null,
 	read: (oid: string) => Promise<GitObject>,
+	descend?: (path: string) => boolean,
 ): Promise<{
 	root: string | null;
 	files: Map<string, SnapshotFile>;
@@ -76,7 +79,7 @@ export async function readSnapshot(
 }> {
 	const files = new Map<string, SnapshotFile>();
 	const directories = new Set<string>();
-	// These directories cannot be reconstructed from the exposed file paths.
+	// Raw or unexpanded occupancy cannot be reconstructed from exposed files.
 	const opaqueDirectories = new Set<string>();
 	if (commit === null)
 		return { root: null, files, directories, opaqueDirectories };
@@ -112,7 +115,9 @@ export async function readSnapshot(
 				opaqueDirectories.add(prefix.slice(0, -1));
 			if (isTree(entry.mode)) {
 				if (path !== undefined) directories.add(path);
-				await visit(entry.oid, path === undefined ? undefined : `${path}/`);
+				if (descend === undefined || (path !== undefined && descend(path)))
+					await visit(entry.oid, path === undefined ? undefined : `${path}/`);
+				else if (path !== undefined) opaqueDirectories.add(path);
 			} else if (path !== undefined)
 				files.set(path, { oid: entry.oid, mode: entry.mode });
 		}

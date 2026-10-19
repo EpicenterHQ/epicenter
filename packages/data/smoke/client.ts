@@ -186,11 +186,48 @@ export const client = {
 		unwrap(
 			await repository.files.write('archive/0/file.txt', '0\n', 'edited\n'),
 		);
+		const saveMs = performance.now() - start;
+		// Distinguish current-tree scaling from the remaining cost of loading E
+		// and evaluating folders affected by a prolonged offline backlog.
+		const backlog = new Map(
+			Array.from(
+				{ length: folders },
+				(_, index) =>
+					[
+						`archive/${index}/file.txt`,
+						`${index}: ${'x'.repeat(4096)}\n`,
+					] as const,
+			),
+		);
+		const { state } = await repository.storage.capture('commit');
+		if (
+			!(await repository.storage.publish({
+				revision: state.revision,
+				edits: backlog,
+			}))
+		)
+			throw new Error('Backlog seed raced');
+		const backlogStart = performance.now();
+		const backlogSnapshot = await repository.storage.capture([
+			'archive/0/file.txt',
+		]);
+		const backlogCaptureMs = performance.now() - backlogStart;
 		return {
 			folders,
 			capturedTrees,
 			captureMs: captures,
-			saveMs: performance.now() - start,
+			saveMs,
+			backlog: {
+				edits: backlog.size,
+				utf8Bytes: [...backlog.values()].reduce(
+					(size, text) => size + new TextEncoder().encode(text).length,
+					0,
+				),
+				capturedTrees: [...backlogSnapshot.objects.values()].filter(
+					(object) => object.type === 'tree',
+				).length,
+				captureMs: backlogCaptureMs,
+			},
 		};
 	},
 	close() {

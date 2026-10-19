@@ -45,6 +45,19 @@ The persisted `remoteKnown` flag distinguishes an unopened remote from one
 successfully fetched as empty. Preparation leaves E alone until that first
 observation, then returns an exact pending `{ base, head }` pair or null.
 
+Capture reads the current commit C. Point reads open its ancestor trees and
+load only the requested blob. File lists walk the matching prefix; table lists
+open the table directory and load its immediate Markdown rows. Commit preparation
+opens trees along pending-edit paths and loads no existing blobs. Unexpanded
+directories retain occupancy, so a narrow read still protects unseen contents.
+Every pending-edit ancestor is also opened: deleting its final child may remove
+the directory. All pending edit values are still read in each capture.
+
+A captured view holds consistent inputs for one operation. Its revision check
+still rejects publication if another tab saved in the meantime. It is not a
+backup or a complete object closure for collection. Future reconciliation must
+explicitly capture B and the remote inputs it needs; local operations need C.
+
 `src/git/snapshot.ts` rebuilds changed trees without a checkout or Git index.
 It preserves unrelated raw names, native modes, symlinks, and gitlinks.
 `src/merge.ts` merges Markdown by frontmatter field and body region. Other
@@ -106,8 +119,9 @@ the emitted objects with native Git. It does not exercise network sync,
 forced browser termination, quota exhaustion, or a phone. Those require
 separate evidence before release.
 
-[Recorded results](evidence/local/RESULTS.md) include the current limitations:
-snapshot capture still walks both complete trees and reads all pending edit
-values. A 500-folder probe captures 502 trees for one file. Narrowing capture
-is the next performance task; these measurements justify no pack cache or
-per-edit base store.
+[Recorded results](evidence/local/RESULTS.md) compare the full and scoped reads.
+A 500-folder probe captures 3 trees for one file, down from 502. A separate
+500-edit backlog still captures all affected trees and about 2 MB of pending
+text. Phone measurements must determine whether that remaining cost needs
+further narrowing. No persistent path index, pack cache or per-edit base store
+has been added.
