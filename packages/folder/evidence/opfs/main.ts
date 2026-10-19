@@ -39,7 +39,7 @@ import {
 	DEFINITION_PATH,
 	defineFolder,
 	defineTable,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 	formatDefinition,
 	hashBytes,

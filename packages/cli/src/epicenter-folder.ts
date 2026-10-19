@@ -22,7 +22,7 @@ import {
 	CONNECTIONS_FOLDER_ID,
 	connectionsTable,
 } from '@epicenter/ai/connection-table';
-import { defineFolder, type Folder } from '@epicenter/folder';
+import { defineFolder, type LegacyFolder } from '@epicenter/folder';
 import { resolveAppPaths } from './app-paths.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
 
@@ -49,7 +49,7 @@ export const epicenterDefinition = defineFolder({
  * that already holds the definition's bytes.
  */
 export async function declare(
-	folder: Folder<typeof epicenterDefinition>,
+	folder: LegacyFolder<typeof epicenterDefinition>,
 ): Promise<string | undefined> {
 	const { error } = await folder.files.mkdir('connections');
 	return error?.message;

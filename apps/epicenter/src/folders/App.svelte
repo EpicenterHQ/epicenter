@@ -33,7 +33,7 @@
 	 * said while it runs. The shell publishes Epicenter's own folder's
 	 * declaration at launch, before it opens any app.
 	 */
-	import type { Definition, Folder } from '@epicenter/folder';
+	import type { Definition, LegacyFolder } from '@epicenter/folder';
 	import {
 		type FolderOptions,
 		type FolderWritesOf,
@@ -65,9 +65,9 @@
 	let openId = $state<string | undefined>(undefined);
 	let opened = $state.raw<
 		| {
-				readonly folder: Folder<Definition>;
+				readonly folder: LegacyFolder<Definition>;
 				readonly options: FolderOptions<Definition>;
-				readonly writes: FolderWritesOf<Folder<Definition>['tables']>;
+				readonly writes: FolderWritesOf<LegacyFolder<Definition>['tables']>;
 		  }
 		| undefined
 	>(undefined);

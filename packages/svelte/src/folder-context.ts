@@ -12,7 +12,7 @@
  * Plain module: a store imports the types and `createFolderContext` without
  * loading Svelte components.
  */
-import type { Definition, Folder } from '@epicenter/folder';
+import type { Definition, LegacyFolder } from '@epicenter/folder';
 import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 import { QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
@@ -26,7 +26,7 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	 * folder, and the folder's declaration in any other the desktop handed
 	 * the window.
 	 */
-	readonly folder: Folder<TDefinition, Definition>;
+	readonly folder: LegacyFolder<TDefinition, Definition>;
 	/**
 	 * Whether this is the app's own folder, the one named after it: the
 	 * handle's `folder.own`, true exactly when it publishes the app's
@@ -45,7 +45,7 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
 	 * drafts, field sets, renames and deletes, Save version, and Sync
 	 * (`createEdits` in `@epicenter/svelte/edits`).
 	 */
-	readonly edits: Edits<Folder<TDefinition, Definition>['tables']>;
+	readonly edits: Edits<LegacyFolder<TDefinition, Definition>['tables']>;
 	/**
 	 * The page's one cache. svelte-query's `useQueryClient()` answers it
 	 * inside `<FolderProvider>`; a store built outside a component takes it
@@ -78,7 +78,7 @@ export type FolderContext<TDefinition extends Definition = Definition> = {
  * 'always'`); and a failure is shown, not retried (`retry: false`).
  */
 export function createFolderContext<TDefinition extends Definition>(
-	folder: Folder<TDefinition, Definition>,
+	folder: LegacyFolder<TDefinition, Definition>,
 	{
 		writeFailed = () => {},
 	}: {

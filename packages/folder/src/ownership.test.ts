@@ -23,7 +23,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
 	defineTable,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 	openFolder,
 } from './browser.js';

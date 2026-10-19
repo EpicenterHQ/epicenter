@@ -55,7 +55,7 @@ import {
 	type CommitOutcome,
 	type Definition,
 	FileError,
-	type Folder,
+	type LegacyFolder,
 	type Row,
 	rowPath,
 	type SyncError,
@@ -158,7 +158,7 @@ export type FieldDraft<TValue> = {
 /** What `createEdits` builds over: the opened folder and its cache. */
 export type EditsSource<TTables> = {
 	readonly folder: Pick<
-		Folder<Definition>,
+		LegacyFolder<Definition>,
 		'location' | 'write' | 'move' | 'git' | 'sync'
 	> & { readonly tables: TTables };
 	readonly queries: FolderOptionsOf<TTables>;

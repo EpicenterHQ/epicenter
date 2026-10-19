@@ -6,7 +6,7 @@
  * OPFS, locks, and hint channel as another tab would. It does what the page
  * asks and replies with what the production folder returned.
  */
-import { defineFolder, type Folder, openFolder } from '../../src/browser.js';
+import { defineFolder, type LegacyFolder as Folder, openFolder } from '../../src/browser.js';
 
 export type PeerRequest =
 	| { readonly kind: 'open'; readonly id: string }

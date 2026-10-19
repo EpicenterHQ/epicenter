@@ -13,7 +13,7 @@ import {
 	type Definition,
 	defineFolder,
 	defineTable,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 } from './contract.js';
 import { formatDefinition } from './declaration.js';

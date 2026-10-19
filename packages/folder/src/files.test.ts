@@ -48,7 +48,7 @@ import {
 	defineFolder,
 	defineTable,
 	type FilesChanged,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';

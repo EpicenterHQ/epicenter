@@ -46,7 +46,7 @@ import {
 import {
 	defineFolder,
 	defineTable,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 	type SyncOutcome,
 } from './contract.js';

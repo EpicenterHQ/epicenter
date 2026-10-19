@@ -32,7 +32,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { defineFolder, type Folder, openFolder } from '../browser.js';
+import { defineFolder, type LegacyFolder as Folder, openFolder } from '../browser.js';
 import { formatDefinition } from '../declaration.js';
 import {
 	createBareRemote,

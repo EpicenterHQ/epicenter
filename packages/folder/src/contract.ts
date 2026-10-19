@@ -13,7 +13,7 @@ import type { TSchema as Schema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type { Definition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
-import type { Folder } from './folder.js';
+import type { Folder as LegacyFolder } from './folder.js';
 import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import type { LocalFolder, LocalFolderOptions } from './local-folder.js';
@@ -38,7 +38,7 @@ export {
 export type { FolderFiles } from './files.js';
 export type {
 	FilesChanged,
-	Folder,
+	Folder as LegacyFolder,
 	FolderGit,
 	FolderGitOptions,
 	FolderLocation,
@@ -70,7 +70,6 @@ export type {
 	FolderChange,
 	FolderStatus,
 	LocalFiles,
-	LocalFolder,
 	LocalFolderOptions,
 	LocalIssue,
 	LocalRow,
@@ -79,6 +78,8 @@ export type {
 	ReadError,
 	SaveError,
 } from './local-folder.js';
+/** The rooted, schema-interpreted local files returned by `openFolder({ tables })`. */
+export type Folder<TTables extends Record<string, Schema>> = LocalFolder<TTables>;
 export type { FileContent, Overridden } from './merge-file.js';
 export {
 	DEFINITION_PATH,
@@ -155,11 +156,11 @@ type HostOptions = {
  * in OPFS (browser), a granted directory (desktop), or a path (Bun), and they
  * publish or read `epicenter.json`. They exist so apps that predate
  * ADR-0632/0633/0636 keep building. The chosen contract is
- * `openFolder({ tables })` (`LocalFolderOptions`), which returns a
- * `LocalFolder`. Remove `OpenFolderOptions`, `DefinedFolderOptions`,
- * `DeclaredFolderOptions`, the first two `OpenFolder` overloads, and the
- * OPFS/declaration adapters when no app or tool calls them; then rename
- * `LocalFolder` to `Folder`. Old stored data is not read by the new shape.
+ * `openFolder({ tables })` (`LocalFolderOptions`), which returns a `Folder`.
+ * The previous type is exported as `LegacyFolder` until its remaining apps
+ * and tools move to the new contract. Remove the legacy options, overloads,
+ * type, and OPFS/declaration adapters when no caller uses them. Old stored
+ * data is not read by the new shape.
  *
  * Which folder to open, and the definition to read it through.
  *
@@ -225,10 +226,10 @@ export type AnyFolderOptions =
 export type OpenLegacyFolder = {
 	<const TDefinition extends Definition>(
 		options: DefinedFolderOptions<TDefinition>,
-	): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>>;
+	): Promise<Result<LegacyFolder<TDefinition, Definition>, OpenFolderError>>;
 	(
 		options: DeclaredFolderOptions,
-	): Promise<Result<Folder<Definition>, OpenFolderError>>;
+	): Promise<Result<LegacyFolder<Definition>, OpenFolderError>>;
 };
 
 /**
@@ -245,5 +246,5 @@ export type OpenLegacyFolder = {
 export type OpenFolder = {
 	<const TTables extends Record<string, Schema>>(
 		options: LocalFolderOptions<TTables>,
-	): Promise<Result<LocalFolder<TTables>, OpenFolderError>>;
+	): Promise<Result<Folder<TTables>, OpenFolderError>>;
 } & OpenLegacyFolder;

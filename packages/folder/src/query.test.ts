@@ -39,7 +39,7 @@ import {
 	createTestStorage,
 	type TestStorage,
 } from './browser-storage.test-support.js';
-import { defineFolder, defineTable, type Folder, field } from './contract.js';
+import { defineFolder, defineTable, type LegacyFolder as Folder, field } from './contract.js';
 import { folderOptions, folderWrites } from './query.js';
 import { mustRow } from './row-write.test-support.js';
 import { isStoredRow, type TableListing } from './table.js';

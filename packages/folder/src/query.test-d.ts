@@ -10,7 +10,7 @@ import {
 	defineTable,
 	type FileContent,
 	type FileError,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 	type Row,
 	type RowWriteError,

@@ -43,7 +43,7 @@ import {
 	createTestStorage,
 	dumpStorage,
 } from './browser-storage.test-support.js';
-import { defineFolder, type Folder } from './contract.js';
+import { defineFolder, type LegacyFolder as Folder } from './contract.js';
 import { formatDefinition } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {

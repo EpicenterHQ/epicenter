@@ -4,7 +4,7 @@ import {
 	defineFolder,
 	defineTable,
 	type FileTable,
-	type Folder,
+	type LegacyFolder as Folder,
 	field,
 	type RowReadError,
 	rowPath,

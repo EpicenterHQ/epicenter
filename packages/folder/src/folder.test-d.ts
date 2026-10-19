@@ -20,7 +20,7 @@ import {
 	type FileError,
 	type FileRead,
 	type FileTable,
-	type Folder,
+	type LegacyFolder as Folder,
 	type FolderGit,
 	type FolderLocation,
 	field,

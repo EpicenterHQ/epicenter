@@ -45,7 +45,7 @@
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
-import { type Folder, parseRow } from '@epicenter/folder';
+import { type LegacyFolder as Folder, parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { expectOk } from 'wellcrafted/testing';

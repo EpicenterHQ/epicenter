@@ -33,7 +33,7 @@ import {
 	type connectionsDefinition,
 } from '@epicenter/ai/connection-table';
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
-import type { Definition, Folder } from '@epicenter/folder';
+import type { Definition, LegacyFolder } from '@epicenter/folder';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -82,7 +82,7 @@ type Resolved = {
 
 /** `so.epicenter` as Whispering opens it: through its `connections` table alone. */
 export type ConnectionsFolder = Pick<
-	Folder<typeof connectionsDefinition, Definition>,
+	LegacyFolder<typeof connectionsDefinition, Definition>,
 	'tables' | 'close'
 >;
 

@@ -2,7 +2,7 @@
 	import {
 		type Definition,
 		DEFINITION_PATH,
-		type Folder,
+		type LegacyFolder,
 		type PreparedFolderTable,
 	} from '@epicenter/folder';
 	import { visibleRows } from '@epicenter/folder/file-browser';
@@ -45,9 +45,9 @@
 		writes,
 		declarationChanged,
 	}: {
-		folder: Folder<Definition>;
+		folder: LegacyFolder<Definition>;
 		folder$: FolderOptions<Definition>;
-		writes: FolderWritesOf<Folder<Definition>['tables']>;
+		writes: FolderWritesOf<LegacyFolder<Definition>['tables']>;
 		declarationChanged: () => void;
 	} = $props();
 

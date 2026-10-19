@@ -1,15 +1,15 @@
 # @epicenter/folder
 
-This package has two open shapes. `openFolder({ tables })` is the chosen
-contract ([ADR-0636](../../docs/adr/0636-an-app-opens-local-files-through-one-folder-handle.md),
+`openFolder({ tables })` returns the public `Folder` contract
+([ADR-0636](../../docs/adr/0636-an-app-opens-local-files-through-one-folder-handle.md),
 [ADR-0633](../../docs/adr/0633-apps-open-local-data-before-connecting-services.md),
-[ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)); it is built
-for browsers only. The declaration-dependent forms (`{ app, definition }`,
+[ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)). This shape
+is built for browsers only. The declaration-dependent forms (`{ app, definition }`,
 `{ id, definition }`, `{ id }`) are a **temporary migration boundary**: they
 keep apps that predate those records building, and the sections below
 document them. Remove them, their OPFS and `epicenter.json` adapters, and the
-`OpenLegacyFolder` type when no app or tool calls them, then rename
-`LocalFolder` to `Folder`. CLI checking and queries still require root
+`OpenLegacyFolder` and `LegacyFolder` types when no app or tool calls them.
+CLI checking and queries still require root
 `epicenter.json`. See [shared vocabulary](../../docs/CONTEXT.md).
 
 ## Default browser folder
@@ -283,20 +283,20 @@ openFolder({
   definition,
   credentials, // optional: (url, signal) => Promise<{ username, password } | undefined>
   browser,     // optional: { author, httpFetch, opfs }
-}): Promise<Result<Folder<typeof definition, Definition>, OpenFolderError>>
+}): Promise<Result<LegacyFolder<typeof definition, Definition>, OpenFolderError>>
 
 openFolder({
   id,          // any folder by its ID, such as 'data:Groceries'. Never a path.
   definition,  // the definition to read it through
   credentials,
   browser,
-}): Promise<Result<Folder<typeof definition, Definition>, OpenFolderError>>
+}): Promise<Result<LegacyFolder<typeof definition, Definition>, OpenFolderError>>
 
 openFolder({
   id,          // any folder, read with its own epicenter.json
   credentials,
   browser,
-}): Promise<Result<Folder<Definition>, OpenFolderError>>
+}): Promise<Result<LegacyFolder<Definition>, OpenFolderError>>
 ```
 
 `credentials` is asked right before each push and fetch with the exact URL
