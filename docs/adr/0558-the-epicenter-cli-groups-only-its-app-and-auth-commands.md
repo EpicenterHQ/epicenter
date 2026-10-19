@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-16
+- **Amended by:** [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) at the machine-local `folders` group and `open <directory>` without the former `--app` selector; [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at private bundled executables and explicit public terminal selection.
 - **Amends:** [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) at "The CLI has no account or transfer commands": it has `auth`, `sync`, `clone`, and `repos`, every command that acts on a local folder still takes its path, and exit code 2 also covers a program a command needs that is missing.
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at the command names `epicenter login` and `epicenter git-credential`, which are `epicenter auth login` and `epicenter auth git-credential`.
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at the command names, which are `epicenter auth login` and `epicenter auth git-credential`, and at its refusal of "Loopback login for the CLI", narrowed so that `so.epicenter.cli` keeps only the device grant while `epicenter auth login --loopback` is the desktop client `so.epicenter` signing in from the bundled binary.

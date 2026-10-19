@@ -761,7 +761,7 @@ When you add an ADR, add its row here.
 | [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
 | [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Accepted (amends 0209) |
 | [0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) | An app opens any folder whose declaration contains its shape | Superseded by 0585 |
-| [0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) | Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose | Accepted (amended by 0587; amended by 0586; amended by 0605) |
+| [0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) | Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose | Accepted (amended by 0587; amended by 0586; amended by 0605 and 0636) |
 | [0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) | An app is installed by building its source, and approving a commit trusts it fully | Superseded by 0589 |
 | [0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) | A desktop folder needs no Web Locks, and a commit that loses a race retries | Superseded by 0611 |
 | [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Accepted |
@@ -780,7 +780,7 @@ When you add an ADR, add its row here.
 | [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Superseded by 0611 |
 | [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Superseded by 0611 |
 | [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Superseded by 0618 |
-| [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549; amended by 0565, 0605, and 0611) |
+| [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549; amended by 0565, 0605, 0611, 0641, and 0642) |
 | [0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) | All desktop Git runs in the epicenter CLI, over system git | Superseded by 0611 |
 | [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Superseded by 0611 |
 | [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Superseded by 0611 |
@@ -803,7 +803,7 @@ When you add an ADR, add its row here.
 | [0580](0580-a-local-model-is-pinned-by-commit-and-content-hash-under-a-frozen-id.md) | A local model is pinned by commit and content hash under a frozen id | Superseded by 0618 |
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Superseded by 0611 |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
-| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Names preserve the distinctions callers need | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612 and 0613) |
+| [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Names preserve the distinctions callers need | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612, 0613, and 0636) |
 | [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | Schema files describe tables without owning them | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626; amended by 0632) |
 | [0586](0586-you-open-a-folder-never-an-app.md) | An app is independent of its data location | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597, 0605, 0607, and 0611) |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
@@ -838,18 +838,20 @@ When you add an ADR, add its row here.
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Accepted (supersedes 0576; amends 0591) |
 | [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Accepted (amends 0529; amended by 0633) |
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633) |
-| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632 and 0633) |
+| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632, 0633, and 0636) |
 | [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635) |
 | [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Accepted (amends 0619, 0623, and 0627) |
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Proposed (amends 0626) |
 | [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
 | [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Accepted (amends 0585, 0611, 0613, 0626, and 0627) |
-| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627) |
+| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627; amended by 0636) |
 | [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
 | [0635](0635-generic-desktop-data-tools-are-deferred.md) | The Epicenter desktop app is deferred | Accepted (amends 0611 and 0627) |
-| [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Proposed (amends 0584, 0626, and 0633) |
+| [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Accepted (amends 0539, 0584, 0626, and 0633) |
 | [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Proposed (amends 0592, 0611, and 0621) |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
 | [0639](0639-automatic-commits-refuse-new-non-text-content.md) | Automatic commits refuse new non-text content | Proposed (amends 0592 and 0624) |
 | [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Proposed |
+| [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Accepted (amends 0558) |
+| [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |

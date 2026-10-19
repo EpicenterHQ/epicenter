@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
+- **Amended by:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) only at the public `Folder` handle: it names rooted local paths and contents; a directory remains a physical filesystem location.
 - **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at `folder.isOwn`, "`isOwn` is publication eligibility", `runHistory`'s `own?`, `isOwnFolder`, "Publish stays for `epicenter.json` (`publishDefinition`)", and the rename of `declare-epicenter-folder` to `write-epicenter-definition`: each is deleted.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at `openFolder({ app, definition })` and `WindowFolder.app`: the opener takes no `app`, and `window_folder` answers the folder alone.
 - **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at the App noun, "named by its reverse-domain id", and at its wire renames: an app is named by its address, and the renames land before the first release, after which the page API changes only by addition.

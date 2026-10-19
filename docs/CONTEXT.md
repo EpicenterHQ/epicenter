@@ -10,8 +10,11 @@ remain exact; this vocabulary does not claim that the new public API has shipped
 The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md),
 [ADR-0632](adr/0632-a-lens-belongs-to-its-reader.md),
 [ADR-0633](adr/0633-apps-open-local-data-before-connecting-services.md),
-[ADR-0634](adr/0634-hosted-inference-is-independent-of-repository-sync.md), and
-[ADR-0635](adr/0635-generic-desktop-data-tools-are-deferred.md).
+[ADR-0634](adr/0634-hosted-inference-is-independent-of-repository-sync.md),
+[ADR-0635](adr/0635-generic-desktop-data-tools-are-deferred.md),
+[ADR-0636](adr/0636-an-app-opens-local-files-through-one-folder-handle.md),
+[ADR-0641](adr/0641-epicenter-remembers-folders-as-machine-local-paths.md), and
+[ADR-0642](adr/0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md).
 
 ## Data and locations
 
@@ -19,7 +22,9 @@ The decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-th
 | --- | --- |
 | Epicenter | The toolkit and optional hosted services. It does not name one person's body of data. |
 | Local dataset | The local data selected by an app, with identity independent of account, remote URL, or hosted repository ID. Say "local data" in ordinary explanations. |
-| Folder or directory | A physical filesystem location. Use folder in ordinary explanations and directory where filesystem operations matter. A data folder is an ordinary folder containing data. |
+| Folder handle | The planned public `Folder`: one opened lifetime over rooted local paths and contents, on disk or in browser-private storage. A caller may open several handles. |
+| Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory; qualify a browser folder when its private storage matters. |
+| Remembered path | An optional machine-local shortcut shared by Epicenter desktop and CLI. It grants no access and does not configure where a standalone app saves. |
 | Repository | A Git repository; repo is its shorthand, not another concept. A hosted repository also has a stable service ID, a changeable label, and membership. |
 | Clone | An independent local copy of a repository. Different web origins can keep separate clones of the same repository. |
 | Remote or sync destination | The Git endpoint configured for synchronization. The remote URL does not identify the local dataset or grant access to it. |
@@ -35,6 +40,18 @@ Browser local data lives in IndexedDB under its web origin. It is not an
 ordinary folder that another app origin or desktop editor can open. Disk data
 can be shared by cooperating clients at the same path. Connected copies on
 different origins meet through Git synchronization.
+
+The planned `openFolder` opens one rooted local selection. On native targets,
+the app supplies a directory, normally its durable app-data `work/` default,
+without requiring a picker. A missing established location is reported rather
+than silently replaced. Browser opening reuses the origin's local default;
+a later runner opens only the directory granted to its window.
+
+Epicenter's machine-local `folders.json` remembers absolute paths. The planned
+`folders add`, `folders list`, and `folders forget` commands manage that list;
+`open <directory>` requests desktop opening. They do not replace explicit path
+arguments for file or Git operations. A data directory's `epicenter.json` has
+the separate schema-file role described below.
 
 Local dataset is a countable way to describe the local data an app selected,
 not a required public object, universal ID, or registry. Stable local identity
@@ -128,6 +145,11 @@ Avoid unqualified connection and host when their roles affect behavior. Name the
 sync destination, inference provider, runtime, or grant involved. Reserve generic
 browser for no product: say web browser for the runtime and Epicenter desktop
 app for the deferred client.
+
+A native app that needs CLI operations invokes its matched private bundled
+executable. The public terminal command is installed explicitly; ordinary app
+launches do not repoint it. Executable selection grants no access to another
+app's session. Shared files and credentials still require compatible protocols.
 
 Host is a qualified technical role: a runtime can host an app, a Git service
 hosts repositories, and a deployment hosts services. Hosting an app does not
