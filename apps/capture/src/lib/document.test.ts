@@ -19,15 +19,15 @@
  */
 import { expect, test } from 'bun:test';
 import { frameRowText } from '@epicenter/folder';
-import { fromTextarea } from './document.js';
 import {
 	type CaptureBody,
 	type CaptureBodyReading,
 	captureBody,
 	composeBody,
+	fromTextarea,
 	normalizeThought,
 	type Refusal,
-} from './index.js';
+} from './document.js';
 
 type Edit =
 	| { ok: true; source: string }

@@ -12,7 +12,8 @@
 	values the file does not have, and Edit as text is the way to repair it.
 -->
 <script lang="ts">
-	import { captureBody, captureDefinition } from '@epicenter/capture';
+	import { captureDefinition } from '$lib/definition.js';
+	import { captureBody } from '$lib/document.js';
 	import { formatRow, rowPath } from '@epicenter/folder';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';

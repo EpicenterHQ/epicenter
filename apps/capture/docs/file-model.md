@@ -4,10 +4,10 @@ A capture is one Markdown file, `captures/<stem>.md`, in a folder opened with
 `@epicenter/folder`. The file's bytes are the saved data. There is no Yjs
 document, no thought rows, and no IDs for thoughts.
 
-`captureDefinition` is declared with `defineFolder` from `@epicenter/folder`
-and the `defineTable` and `field` vocabulary of `@epicenter/definition`. This
-package opens nothing and names no folder; an application passes the
-definition and the folder's ID to an opener.
+`captureDefinition` (`src/lib/definition.ts`) is declared with `defineFolder`
+from `@epicenter/folder` and the `defineTable` and `field` vocabulary of
+`@epicenter/definition`. It opens nothing and names no folder; the page passes
+it to `<FolderApp>`. The body codec is `src/lib/document.ts`.
 
 ```markdown
 ---
@@ -33,7 +33,7 @@ Unknown frontmatter keys are kept.
 The captures table reads a file as a row: its `fields` and its Markdown
 `body`. `captureBody.decode(row.body)` reads the body as the capture text and
 its ordered thoughts. markdown-it decides what the blocks are and which lines each owns;
-this package maps those ranges to offsets in the source.
+the codec maps those ranges to offsets in the source.
 
 | Part | Rule |
 | --- | --- |
@@ -59,7 +59,7 @@ text)` reads typed text the same way.
 
 ## Changing a capture
 
-An app holds the open row and saves it; this package owns only the body.
+The store holds the open row and saves it; the codec owns only the body.
 Decode the row's body, compose the complete desired value, encode it over the
 current body, and save the row with that body. The folder formats the
 frontmatter and keeps keys Capture does not declare.
@@ -125,10 +125,6 @@ read as thoughts. The text's bytes are whole and in order in every row.
 
 ## Checks
 
-```sh
-bun test packages/capture
-bun run --cwd packages/capture typecheck
-```
-
-The document tests compare every operation's output with literal expected
-bytes.
+`src/lib/document.test.ts`, `compose.test.ts`, and `body-codec.test.ts` run
+with the app's `bun run --cwd apps/capture test`. The document tests compare
+every operation's output with literal expected bytes.

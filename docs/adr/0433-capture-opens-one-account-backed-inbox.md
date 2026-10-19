@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-23
+- **Amended:** 2026-10-17, at "A small private, AGPL package at `packages/capture`": Whispering no longer imports Capture's definition or operations, so they moved into the app (`apps/capture/src/lib/definition.ts` and `document.ts`) and the package is gone.
 - **Implementation:** The signed-in web app, current capture and thought model, retained earlier writing, and explicit Whispering text promotion are implemented.
 
 ## Context

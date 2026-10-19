@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { captureDefinition } from '@epicenter/capture';
+	import { captureDefinition } from '$lib/definition.js';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import manifest from '../../epicenter.app.json';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';

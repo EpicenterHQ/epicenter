@@ -4,7 +4,7 @@ Capture keeps dated captures, newest first. Each capture is one Markdown file:
 its text, then its thoughts as a bullet list under `## Thoughts`. The files
 are the saved data, and Git records their history. There is no account and no
 sign-in on this path. The file format and its rules are in
-[`packages/capture`](../../packages/capture/README.md).
+[`apps/capture/docs/file-model.md`](docs/file-model.md).
 
 There are two builds of the same UI, and the build decides where the folder is:
 
@@ -271,6 +271,8 @@ write runs.
 | Path | Role |
 | --- | --- |
 | `src/routes/+page.svelte` | `<FolderApp>` over Capture's manifest and definition, with `CaptureApp` inside it. |
+| `src/lib/definition.ts` | `captureDefinition`: the `captures` table and its `capturedAt` field. |
+| `src/lib/document.ts` | The body codec: a body read as the capture text and its thoughts, and written back preserving the bytes an edit did not touch ([file model](docs/file-model.md)). |
 | `src/lib/captures.svelte.ts` | The store over the folder `getFolder()` answers, keyed by its query layer: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` typing a file's text into its draft, each action (create, delete, Save version), and which capture is open. Drafts, saves, and the fence before the folder closes are the folder's edit layer's (`edits`). |
 | `src/lib/capture-form.svelte.ts` | One capture's edit over its body draft (`edits.body`), saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
@@ -281,9 +283,7 @@ The package exports nothing. No host imports a part of this app.
 ## Checks
 
 ```sh
-bun test packages/capture
-bun run --cwd apps/capture test             # unit tests, then the mounted components
-bun run --cwd packages/capture typecheck
+bun run --cwd apps/capture test             # unit tests (the body codec among them), then the mounted components
 bun run --cwd apps/capture typecheck        # both seam leaves and the scripts
 bun run --cwd apps/capture build            # browser
 bun run --cwd apps/capture build:installed  # the build Epicenter installs

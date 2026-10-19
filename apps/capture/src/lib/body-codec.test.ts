@@ -1,7 +1,7 @@
 /** Capture's body codec preserves surrounding Markdown and composes thought strings. */
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { captureBody } from './index.js';
+import { captureBody } from './document.js';
 
 const BODY =
 	'\r\nText\r\n\r\n## Thoughts\r\n\r\n* same\r\n\r\n*   same\r\n\r\n## Later\r\n\r\nUntouched.\r\n';
