@@ -152,13 +152,12 @@ function createWorld({
 			fetch,
 			log: createLogger('auth/browser-oauth', logs.sink),
 			now: () => clock,
-			setTimeout(callback, ms) {
+			schedule(callback, ms) {
 				const timer = { callback, at: clock + ms, cleared: false };
 				timers.push(timer);
-				return timer;
-			},
-			clearTimeout(handle) {
-				(handle as { cleared: boolean }).cleared = true;
+				return () => {
+					timer.cleared = true;
+				};
 			},
 			watchStorage(onChange) {
 				watchers.add(onChange);
@@ -196,7 +195,7 @@ function createWorld({
 	};
 }
 
-/** Sign one tab in through the full redirect, landing back on the callback. */
+/** Sign one tab in through the callback, then open its working page. */
 async function signIn(world: ReturnType<typeof createWorld>, path = '/notes') {
 	const tab = world.openTab(path);
 	const auth = tab.create();
@@ -205,7 +204,9 @@ async function signIn(world: ReturnType<typeof createWorld>, path = '/notes') {
 	const callbackAuth = tab.create();
 	const result = await callbackAuth.completeSignIn();
 	auth[Symbol.dispose]();
-	return { tab, auth: callbackAuth, result };
+	callbackAuth[Symbol.dispose]();
+	tab.location.href = `${APP}${expectOk(result).returnTo ?? '/'}`;
+	return { tab, auth: tab.create(), result };
 }
 
 test('sign-in navigates to the authorize endpoint with PKCE as the app client', async () => {
@@ -409,11 +410,64 @@ test('the renewal timer navigates with prompt=none ten minutes before expiry', a
 	world.advance(8 * HOUR - 11 * MINUTE);
 	expect(tab.assigned).toHaveLength(before);
 	world.advance(1 * MINUTE);
+	world.notify();
+	const account = auth.getState().account;
+	if (!account) throw new Error('Expected a signed-in account');
+	await account.fetch('/api/repos');
 	await Bun.sleep(0);
 
 	expect(tab.assigned).toHaveLength(before + 1);
 	expect(new URL(tab.assigned.at(-1)!).searchParams.get('prompt')).toBe('none');
+	world.advance(0);
+	await Bun.sleep(0);
+	expect(tab.assigned).toHaveLength(before + 1);
+	expect(world.pendingTimers()).toEqual([]);
 	auth[Symbol.dispose]();
+});
+
+test('a callback with the previous token near expiry never starts another renewal', async () => {
+	const world = createWorld();
+	const { auth: first } = await signIn(world);
+	first[Symbol.dispose]();
+	world.advance(8 * HOUR - 9 * MINUTE);
+	const tab = world.openTab('/notes');
+	const leaving = tab.create();
+	await Bun.sleep(0);
+	expect(tab.assigned).toHaveLength(1);
+	tab.location.href = world.server.authorize(tab.assigned[0]!);
+	leaving[Symbol.dispose]();
+	using callback = tab.create();
+	world.advance(0);
+	await Bun.sleep(0);
+	expect(tab.assigned).toHaveLength(1);
+	expectOk(await callback.completeSignIn());
+});
+
+test('a failed automatic renewal is logged and an explicit sign-in can retry', async () => {
+	const world = createWorld();
+	const { auth: first } = await signIn(world);
+	first[Symbol.dispose]();
+	world.advance(8 * HOUR - 9 * MINUTE);
+	const tab = world.openTab('/notes');
+	const storage = tab.options.attemptStorage;
+	if (!storage) throw new Error('Expected attempt storage');
+	const save = storage.setItem;
+	let refuse = true;
+	storage.setItem = (key, value) => {
+		if (refuse) {
+			refuse = false;
+			throw new Error('Storage unavailable');
+		}
+		save(key, value);
+	};
+	using auth = tab.create();
+	await Bun.sleep(0);
+	expect(tab.assigned).toEqual([]);
+	expect(world.logs.map((event) => event.message)).toEqual([
+		'Silent access-token renewal failed.',
+	]);
+	expectOk(await auth.startSignIn());
+	expect(tab.assigned).toHaveLength(1);
 });
 
 test('the renewal timer reschedules instead of navigating when another tab already renewed', async () => {

@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { PrincipalId } from '@epicenter/principal';
+import { asPrincipalId, PrincipalId } from '@epicenter/principal';
 import { type } from 'arktype';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
@@ -62,8 +62,8 @@ export type CreateBrowserOAuthOptions = {
 	watchStorage?: (onChange: () => void) => () => void;
 	fetch?: AuthFetch;
 	now?: () => number;
-	setTimeout?: (callback: () => void, ms: number) => unknown;
-	clearTimeout?: (handle: unknown) => void;
+	/** Schedule renewal and return the function that cancels it. */
+	schedule?: (callback: () => void, ms: number) => () => void;
 	log?: Logger;
 };
 
@@ -93,6 +93,10 @@ const TokenResponse = type({
 const UserInfo = type({ sub: 'string > 0' });
 
 const BrowserOAuthDiagnostic = defineErrors({
+	RenewalFailed: ({ cause }: { cause: unknown }) => ({
+		message: 'Silent access-token renewal failed.',
+		cause,
+	}),
 	RevokeFailed: ({ cause }: { cause: unknown }) => ({
 		message: 'Access token revocation failed.',
 		cause,
@@ -127,14 +131,11 @@ async function challengeFor(verifier: string) {
 	return base64url(new Uint8Array(digest));
 }
 
-function defaultWatchStorage() {
-	return (onChange: () => void) => {
-		if (typeof window === 'undefined') return () => {};
-		// Reconciling reads the one cell, so every storage event may trigger it.
-		const listener = () => onChange();
-		window.addEventListener('storage', listener);
-		return () => window.removeEventListener('storage', listener);
-	};
+function watchWindowStorage(onChange: () => void) {
+	if (typeof window === 'undefined') return () => {};
+	// Reconciling reads the one cell, so every storage event may trigger it.
+	window.addEventListener('storage', onChange);
+	return () => window.removeEventListener('storage', onChange);
 }
 
 /**
@@ -161,12 +162,13 @@ export function createBrowserOAuth({
 	storage = globalThis.localStorage,
 	attemptStorage = globalThis.sessionStorage,
 	location = globalThis.location,
-	watchStorage = defaultWatchStorage(),
+	watchStorage = watchWindowStorage,
 	fetch: fetchImpl = globalThis.fetch.bind(globalThis),
 	now = Date.now,
-	setTimeout: setTimer = (callback, ms) => globalThis.setTimeout(callback, ms),
-	clearTimeout: clearTimer = (handle) =>
-		globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>),
+	schedule = (callback, ms) => {
+		const timer = globalThis.setTimeout(callback, ms);
+		return () => globalThis.clearTimeout(timer);
+	},
 	log = createLogger('auth/browser-oauth'),
 }: CreateBrowserOAuthOptions): CallbackAuthClient {
 	const { baseURL, authorityId } = server;
@@ -183,13 +185,16 @@ export function createBrowserOAuth({
 	if (scope.split(/\s+/).includes('offline_access'))
 		throw new TypeError('A browser app holds no refresh token.');
 	const redirectUri = new URL(callbackPath, location.origin).href;
+	const onCallback =
+		new URL(location.href).href.split(/[?#]/)[0] === redirectUri;
 	const tokenKey = `${clientId}.oauth:${serverOrigin}`;
 	const attemptKey = `${clientId}.oauth-attempt:${serverOrigin}`;
 
 	let attachment: Attachment | null = null;
 	let state: AuthState = { status: 'signed-out' };
-	let renewalTimer: unknown;
+	let cancelRenewal: (() => void) | undefined;
 	let completion: ReturnType<CallbackAuthClient['completeSignIn']> | undefined;
+	let authorization: Promise<void> | undefined;
 	let disposed = false;
 	const listeners = new Set<(state: AuthState) => void>();
 
@@ -249,18 +254,23 @@ export function createBrowserOAuth({
 		stored.expiresAt - RENEW_BEFORE_MS <= now();
 
 	function scheduleRenewal(stored: StoredToken | null) {
-		if (renewalTimer !== undefined) clearTimer(renewalTimer);
-		renewalTimer = undefined;
-		if (!stored || disposed) return;
+		cancelRenewal?.();
+		cancelRenewal = undefined;
+		if (!stored || disposed || onCallback || authorization) return;
+		if (needsRenewal(stored)) {
+			void authorizeOnce(true).catch((cause) => {
+				log.error(BrowserOAuthDiagnostic.RenewalFailed({ cause }));
+			});
+			return;
+		}
 		const delay = Math.min(
-			Math.max(stored.expiresAt - RENEW_BEFORE_MS - now(), 0),
+			stored.expiresAt - RENEW_BEFORE_MS - now(),
 			MAX_TIMER_MS,
 		);
-		renewalTimer = setTimer(() => {
-			renewalTimer = undefined;
+		cancelRenewal = schedule(() => {
+			cancelRenewal = undefined;
 			// Another tab may have renewed while this timer waited.
-			const current = sync();
-			if (current && needsRenewal(current)) void navigateToAuthorize(true);
+			sync();
 		}, delay);
 	}
 
@@ -347,6 +357,14 @@ export function createBrowserOAuth({
 	}
 
 	/** Save one PKCE attempt in this tab and leave for the authorize endpoint. */
+	function authorizeOnce(silent: boolean) {
+		authorization ??= navigateToAuthorize(silent).catch((cause) => {
+			authorization = undefined;
+			throw cause;
+		});
+		return authorization;
+	}
+
 	async function navigateToAuthorize(silent: boolean) {
 		const verifier = randomToken();
 		const attempt: Attempt = {
@@ -450,7 +468,7 @@ export function createBrowserOAuth({
 		});
 		if (!response.ok)
 			throw new Error(`The userinfo request failed (${response.status}).`);
-		return UserInfo.assert(await response.json()).sub as PrincipalId;
+		return asPrincipalId(UserInfo.assert(await response.json()).sub);
 	}
 
 	async function complete(): ReturnType<CallbackAuthClient['completeSignIn']> {
@@ -504,17 +522,8 @@ export function createBrowserOAuth({
 		}
 	}
 
-	const unwatch = watchStorage(() => {
-		sync();
-	});
-
-	const initial = sync();
-	const onCallback =
-		new URL(location.href).href.split(/[?#]/)[0] === redirectUri;
-	// A token near expiry renews now, unless this page is the callback that is
-	// about to store a new one. A person who never signed in stays signed out.
-	if (initial && needsRenewal(initial) && !onCallback)
-		void navigateToAuthorize(true);
+	const unwatch = watchStorage(sync);
+	sync();
 
 	return {
 		getState: () => state,
@@ -533,7 +542,7 @@ export function createBrowserOAuth({
 			// its own session is gone, and reauthentication needs nothing more.
 			try {
 				if (disposed) throw new Error('Auth client disposed.');
-				await navigateToAuthorize(false);
+				await authorizeOnce(false);
 				return Ok(undefined);
 			} catch (cause) {
 				return AuthError.StartSignInFailed({ cause });
@@ -568,8 +577,8 @@ export function createBrowserOAuth({
 		[Symbol.dispose]() {
 			if (disposed) return;
 			disposed = true;
-			if (renewalTimer !== undefined) clearTimer(renewalTimer);
-			renewalTimer = undefined;
+			cancelRenewal?.();
+			cancelRenewal = undefined;
 			unwatch();
 			retire();
 			publish();
