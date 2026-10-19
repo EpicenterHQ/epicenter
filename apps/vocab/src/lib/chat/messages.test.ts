@@ -42,7 +42,7 @@ import { createChatMessageStore, startChat } from './messages.js';
 const { createFolderContext } = await import(
 	'@epicenter/svelte/folder'
 );
-const { createActions, createVocab } = await import('../vocab.svelte.ts');
+const { createVocab } = await import('../vocab.svelte.ts');
 
 const question: AgentMessage = {
 	id: 'question',
@@ -90,10 +90,10 @@ function chatsOver(
 	tables: Partial<VocabFolder['tables']> = {},
 ) {
 	const context = createFolderContext(folder);
-	const chats = createChats(
-		{ ...context, folder: { ...folder, tables: { ...folder.tables, ...tables } } },
-		createActions(),
-	);
+	const chats = createChats({
+		...context,
+		folder: { ...folder, tables: { ...folder.tables, ...tables } },
+	});
 	const rows = context.queries.rows('chats');
 	// The history screen observes the list, so a change reads it again.
 	new QueryObserver(context.queryClient, chats.chatsQuery()).subscribe(() => {});

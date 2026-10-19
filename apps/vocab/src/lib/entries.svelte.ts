@@ -39,7 +39,7 @@ import {
 } from './data.js';
 import { CLOSING, untilClosed } from './failure.js';
 import { createRepair } from './repair.svelte.js';
-import type { Actions, VocabContext } from './vocab.svelte.js';
+import type { VocabContext } from './vocab.svelte.js';
 
 export const EntryError = defineErrors({
 	Empty: () => ({ message: 'There is no text to save.' }),
@@ -81,10 +81,13 @@ export function repairsOf(rows: EntryRows): UnreadableFile[] {
 	);
 }
 
-export function createEntries(
-	{ folder, queries, queryClient, edits }: VocabContext,
-	actions: Actions,
-) {
+export function createEntries({
+	folder,
+	queries,
+	queryClient,
+	edits,
+	run,
+}: VocabContext) {
 	const table = folder.tables.entries;
 	const rowsKey = queries.rows('entries').queryKey;
 	const repair = createRepair(folder, { fenced: () => edits.fenced });
@@ -161,7 +164,7 @@ export function createEntries(
 			if (edits.fenced) return ActionError.NotStarted({ reason: CLOSING });
 			const exact = text.trim().toWellFormed();
 			if (exact === '') return EntryError.Empty();
-			return actions.track(() =>
+			return run(() =>
 				untilClosed(
 					() => addWord(exact),
 					(cause) => EntryError.NotSaved({ cause }),

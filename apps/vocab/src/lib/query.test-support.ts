@@ -56,13 +56,12 @@ export function observe(vocab: Vocab) {
 }
 
 /**
- * Wait until no save, action, or read runs. Typing that waits for its pause
- * is not waited for.
+ * Wait until no save or read runs. Typing that waits for its pause is not
+ * waited for; tests await actions they start.
  */
 export async function quiet(vocab: Vocab) {
 	const idle = () =>
 		!vocab.folder.status.saving &&
-		!vocab.actions.running &&
 		!vocab.entries.repair.saving &&
 		vocab.queryClient.isFetching() === 0;
 	for (let tries = 0; tries < 400; tries++) {

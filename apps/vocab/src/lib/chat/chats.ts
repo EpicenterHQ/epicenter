@@ -22,7 +22,7 @@ import {
 	type UnreadableFile,
 } from '../data.js';
 import { CLOSING } from '../failure.js';
-import type { Actions, VocabContext } from '../vocab.svelte.js';
+import type { VocabContext } from '../vocab.svelte.js';
 import {
 	byRecency,
 	ChatHistoryError,
@@ -49,10 +49,13 @@ export function listingOf(rows: readonly RowOf<'chats'>[]): ChatListing {
 	};
 }
 
-export function createChats(
-	{ folder, queries, queryClient, edits }: VocabContext,
-	actions: Actions,
-) {
+export function createChats({
+	folder,
+	queries,
+	queryClient,
+	edits,
+	run,
+}: VocabContext) {
 	const rowsKey = queries.rows('chats').queryKey;
 	/** The last message save of each chat, which the next one waits for. */
 	const turns = new Map<string, Promise<unknown>>();
@@ -75,7 +78,7 @@ export function createChats(
 		start(focus: readonly FocusItem[]): Promise<Result<Chat, ChatHistoryError>> {
 			if (edits.fenced)
 				return Promise.resolve(ChatHistoryError.NotSaved({ cause: CLOSING }));
-			return actions.track(async () => {
+			return run(async () => {
 				const started = await startChat(folder.tables.chats, focus);
 				if (started.error === null)
 					await queryClient.invalidateQueries({ queryKey: rowsKey });
@@ -94,7 +97,7 @@ export function createChats(
 						AgentMessageStoreError.WriteFailed({ cause: CLOSING }),
 					);
 				const previous = turns.get(chatId) ?? Promise.resolve();
-				const saved = actions.track(async () => {
+				const saved = run(async () => {
 					await previous.catch(() => {});
 					return save();
 				});
