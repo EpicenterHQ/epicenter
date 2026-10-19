@@ -35,6 +35,7 @@ import type { StorageChange } from './browser/storage.js';
 import type { FileContent } from './shared/merge.js';
 import type { Issue, Row, RowChange } from './shared/row.js';
 import { OpenFolderError } from './errors.js';
+import { legacyOpfsFolders } from './browser/legacy-data.js';
 import { callObserver } from './observer.js';
 
 export type { ReadError, SaveError };
@@ -119,7 +120,7 @@ export type LocalTable<TSchema extends Schema = Schema> = {
  * Subscribe before reading: a notification means a read may now differ, and
  * `change.paths` says where (`null` when unknown).
  */
-export type LocalFolder<TTables extends Record<string, Schema>> = {
+export type Folder<TTables extends Record<string, Schema>> = {
 	readonly files: LocalFiles;
 	readonly tables: { [TName in keyof TTables]: LocalTable<TTables[TName]> };
 	/**
@@ -166,7 +167,7 @@ export async function openLocalFolder<
 	const TTables extends Record<string, Schema>,
 >(
 	options: LocalFolderOptions<TTables>,
-): Promise<Result<LocalFolder<TTables>, OpenFolderError>> {
+): Promise<Result<Folder<TTables>, OpenFolderError>> {
 	const { tables } = options;
 	for (const table of Object.keys(tables))
 		if (!isTableName(table)) return OpenFolderError.InvalidTable({ table });
@@ -174,6 +175,12 @@ export async function openLocalFolder<
 		return OpenFolderError.Unavailable({
 			cause: new Error('IndexedDB is not available in this page'),
 		});
+	try {
+		const legacy = await legacyOpfsFolders();
+		if (legacy.length > 0) return OpenFolderError.LegacyDataPresent({ folders: legacy });
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
 	let repository: Awaited<ReturnType<typeof openRepository>>;
 	try {
 		repository = await openRepository(DEFAULT_KEY, tables);
@@ -272,7 +279,7 @@ export async function openLocalFolder<
 		};
 	}
 
-	const folder: LocalFolder<Record<string, Schema>> = {
+	const folder: Folder<Record<string, Schema>> = {
 		files: wrapFiles(repository.files),
 		tables: Object.fromEntries(
 			Object.keys(tables).map((name) => [
@@ -303,5 +310,5 @@ export async function openLocalFolder<
 			return closing;
 		},
 	};
-	return Ok(folder as unknown as LocalFolder<TTables>);
+	return Ok(folder as unknown as Folder<TTables>);
 }

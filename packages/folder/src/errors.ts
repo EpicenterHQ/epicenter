@@ -329,6 +329,10 @@ export const OpenFolderError = defineErrors({
 		message: `'${table}' cannot name a table: a table is one top-level directory`,
 		table,
 	}),
+	LegacyDataPresent: ({ folders }: { folders: readonly string[] }) => ({
+		message: `This browser still has earlier folder data in OPFS (${folders.join(', ')}). The local opener cannot read it yet, so it left that data untouched and did not open an empty folder.`,
+		folders,
+	}),
 	/**
 	 * `openFolder({ tables })` opens this origin's default local folder, which
 	 * only a browser page has. A desktop app opens a directory.

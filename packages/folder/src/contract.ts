@@ -16,7 +16,7 @@ import type { OpenFolderError } from './errors.js';
 import type { Folder as LegacyFolder } from './folder.js';
 import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
-import type { LocalFolder, LocalFolderOptions } from './local-folder.js';
+import type { Folder, LocalFolderOptions } from './local-folder.js';
 import type { OpfsEnvironment } from './opfs-store.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
@@ -71,6 +71,7 @@ export type {
 	FolderStatus,
 	LocalFiles,
 	LocalFolderOptions,
+	Folder,
 	LocalIssue,
 	LocalRow,
 	LocalRowChange,
@@ -78,8 +79,6 @@ export type {
 	ReadError,
 	SaveError,
 } from './local-folder.js';
-/** The rooted, schema-interpreted local files returned by `openFolder({ tables })`. */
-export type Folder<TTables extends Record<string, Schema>> = LocalFolder<TTables>;
 export type { FileContent, Overridden } from './merge-file.js';
 export {
 	DEFINITION_PATH,

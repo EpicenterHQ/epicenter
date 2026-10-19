@@ -72,6 +72,33 @@ test('a fresh profile opens empty without an app, account, remote, or network', 
 	await folder.close();
 });
 
+test('an earlier OPFS folder is left untouched and never replaced with an empty local view', async () => {
+	const storage = Object.getOwnPropertyDescriptor(navigator, 'storage');
+	let opened = 0;
+	Object.defineProperty(navigator, 'storage', {
+		configurable: true,
+		value: {
+			async getDirectory() {
+				opened++;
+				return {
+					async *values() {
+						yield { kind: 'directory', name: 'so.epicenter.todos' };
+					},
+				};
+			},
+		},
+	});
+	try {
+		const refusal = expectErr(await openFolder({ tables: { notes } }));
+		expect(refusal.name).toBe('LegacyDataPresent');
+		expect(opened).toBe(1);
+		expect(await indexedDB.databases()).toEqual([]);
+	} finally {
+		if (storage === undefined) Reflect.deleteProperty(navigator, 'storage');
+		else Object.defineProperty(navigator, 'storage', storage);
+	}
+});
+
 test('files and rows saved before close are there after reopening', async () => {
 	const first = await open();
 	expectOk(await first.files.write('readme.md', null, 'hello'));
