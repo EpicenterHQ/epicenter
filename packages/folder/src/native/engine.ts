@@ -230,7 +230,7 @@ export function createNativeFolder<
 	}
 
 	/**
-	 * Save `text` at `path`, or remove it for `null`, merged with whatever
+	 * Save `content` at `path`, or remove it for `null`, merged with whatever
 	 * landed since `from`. `deleted` says the path holds no file afterward.
 	 * `rowFields` refuses to edit fields in a file whose current frontmatter
 	 * does not parse.
@@ -238,27 +238,28 @@ export function createNativeFolder<
 	async function saveFile(
 		path: string,
 		from: FileContent | null,
-		text: string | null,
+		content: FileContent | null,
 		rowFields = false,
 	): Promise<Result<{ deleted: boolean }, SaveError>> {
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
+		const change = content instanceof Uint8Array ? content.slice() : content;
 		if (!structural(path) || pathProblem(path) !== undefined)
 			return SaveError.InvalidPath({ path });
 		if (
-			text !== null &&
-			(typeof text !== 'string' || text.includes('\0') || !text.isWellFormed())
+			typeof change === 'string' &&
+			(change.includes('\0') || !change.isWellFormed())
 		)
 			return SaveError.NotText();
 		for (let attempt = 0; attempt < SAVE_ATTEMPTS; attempt++) {
 			const { data: found, error } = await current(path);
 			if (error !== null) {
 				// Nothing to remove where a directory stands.
-				if (text === null && error.name === 'NotAFile')
+				if (change === null && error.name === 'NotAFile')
 					return Ok({ deleted: false });
 				return Err(await refusal(path, error));
 			}
-			if (text !== null && found === null) {
+			if (change !== null && found === null) {
 				const twin = await caseTwin(path);
 				if (twin !== undefined)
 					return SaveError.CaseTwin({ path, existing: twin });
@@ -271,14 +272,15 @@ export function createNativeFolder<
 				if (problem?.kind === 'frontmatter')
 					return SaveError.Unparseable({ reason: problem.message });
 			}
-			const merged = await merge(path, { base, current: stored, change: text });
+			const merged = await merge(path, { base, current: stored, change });
 			if (sameContent(merged.content, stored))
 				return Ok({ deleted: merged.content === null });
-			// A library write starts as text; a retained binary side is a no-op.
-			if (merged.content !== null && typeof merged.content !== 'string')
-				throw new Error('Text save produced new binary content');
 			const bytes =
-				merged.content === null ? null : encoder.encode(merged.content);
+				merged.content === null
+					? null
+					: typeof merged.content === 'string'
+						? encoder.encode(merged.content)
+						: merged.content;
 			const { data: outcome, error: putError } = await put(
 				path,
 				bytes,
@@ -516,11 +518,11 @@ export function createNativeFolder<
 					return Ok({ path, content: new Blob([new Uint8Array(found.bytes)]) });
 				});
 			},
-			async write(path, from, text) {
+			async write(path, from, content) {
 				if (invalidId !== undefined)
 					return SaveError.InvalidId({ id: invalidId });
 				if (!structural(path)) return SaveError.InvalidPath({ path });
-				const saved = await saveFile(root + path, from, text);
+				const saved = await saveFile(root + path, from, content);
 				return saved.error !== null ? Err(saved.error) : Ok(undefined);
 			},
 			async delete(path, from) {
@@ -651,7 +653,8 @@ function handle<const TTables extends Record<string, Schema>>(
 		return {
 			list: (prefix) => track(() => files.list(prefix)),
 			read: (path) => track(() => files.read(path)),
-			write: (path, from, text) => save(() => files.write(path, from, text)),
+			write: (path, from, content) =>
+				save(() => files.write(path, from, content)),
 			delete: (path, from) => save(() => files.delete(path, from)),
 		};
 	}

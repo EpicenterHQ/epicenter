@@ -74,6 +74,21 @@ test('null commit reads an empty snapshot without touching storage', async () =>
 	expect(store.reads).toEqual([]);
 });
 
+test('a pending binary edit becomes an exact Git blob', async () => {
+	const bytes = new Uint8Array([0, 1, 255]);
+	const changed = await changeSnapshot({
+		root: null,
+		edits: new Map([['audio/clip.bin', bytes]]),
+		read: async () => {
+			throw new Error('No prior object exists');
+		},
+	});
+	const file = readTree(changed.objects.get(changed.tree)!.bytes)[0]!;
+	const directory = changed.objects.get(file.oid)!;
+	const clip = readTree(directory.bytes)[0]!;
+	expect(changed.objects.get(clip.oid)).toEqual({ type: 'blob', bytes });
+});
+
 test('reads complete nested trees, preserving leaf modes and BOM names without following links', async () => {
 	const store = createObjects();
 	const blob = await store.add('blob', 'text');

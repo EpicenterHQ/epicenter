@@ -1,4 +1,5 @@
 import { createLogger } from 'wellcrafted/logger';
+import type { FileContent } from '../shared/merge.js';
 import { snapshotObjects } from './git/closure.js';
 import { type GitObject, readCommit, readTree } from './git/objects.js';
 import { readSnapshot } from './git/snapshot.js';
@@ -17,7 +18,7 @@ export type RepositoryState = RepositoryRefs & {
 
 export type RepositorySnapshot = {
 	state: RepositoryState;
-	edits: Map<string, string | null>;
+	edits: Map<string, FileContent | null>;
 	/** Operation-scoped C: unexpanded directories retain occupancy, not children. */
 	head: Awaited<ReturnType<typeof readSnapshot>>;
 	/** Captured bytes remain usable after a later publication or collection. */
@@ -162,7 +163,8 @@ export async function openStorage(id: string) {
 			notify({
 				origin: 'other-handle',
 				paths:
-					Array.isArray(paths) && paths.every((path) => typeof path === 'string')
+					Array.isArray(paths) &&
+					paths.every((path) => typeof path === 'string')
 						? paths
 						: null,
 			});
@@ -191,7 +193,7 @@ export async function openStorage(id: string) {
 				const [storedState, keys, values] = await Promise.all([
 					requested(meta.get('state')) as Promise<RepositoryState | undefined>,
 					requested(editStore.getAllKeys()),
-					requested(editStore.getAll()) as Promise<(string | null)[]>,
+					requested(editStore.getAll()) as Promise<(FileContent | null)[]>,
 				]);
 				const state = storedState ?? initialState();
 				const edits = new Map(
@@ -273,7 +275,7 @@ export async function openStorage(id: string) {
 			remoteKnown?: true;
 			objects?: ReadonlyMap<string, GitObject>;
 			/** undefined folds an incorporated edit into the published snapshot. */
-			edits?: ReadonlyMap<string, string | null | undefined>;
+			edits?: ReadonlyMap<string, FileContent | null | undefined>;
 		}): Promise<boolean> {
 			const published = await transact('readwrite', async (transaction) => {
 				const meta = transaction.objectStore('meta');

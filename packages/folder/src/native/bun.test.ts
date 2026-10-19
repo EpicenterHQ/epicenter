@@ -70,6 +70,19 @@ const open = async (root: string) =>
 const text = (root: string, path: string) =>
 	readFile(join(root, path), 'utf8').catch(() => undefined);
 
+test('binary saves keep exact bytes and preserve the input captured at call time', async () => {
+	const root = await directory();
+	const folder = await open(root);
+	const bytes = new Uint8Array([0, 1, 255]);
+	const saving = folder.files.write('audio/clip.bin', null, bytes);
+	bytes[1] = 9;
+	expectOk(await saving);
+	expect(new Uint8Array(await readFile(join(root, 'audio/clip.bin')))).toEqual(
+		new Uint8Array([0, 1, 255]),
+	);
+	await folder.close();
+});
+
 test('opening an existing directory reads its files as they are and writes none', async () => {
 	const binary = new Uint8Array([0, 1, 2, 255]);
 	const root = await directory({

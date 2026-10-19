@@ -1,15 +1,15 @@
 import type { TSchema as Schema } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type GitObject, hashObject, writeCommit } from './git/objects.js';
-import { changeSnapshot } from './git/snapshot.js';
+import { ReadError, SaveError } from '../shared/errors.js';
 import { type FileContent, merge, sameContent } from '../shared/merge.js';
 import { type Row, type RowChange, readRow, rowChange } from '../shared/row.js';
-import { ReadError, SaveError } from '../shared/errors.js';
+import { type GitObject, hashObject, writeCommit } from './git/objects.js';
+import { changeSnapshot } from './git/snapshot.js';
 import {
 	openStorage,
 	type RepositorySnapshot,
-	StorageFailure,
 	type StorageChange,
+	StorageFailure,
 	shadowed,
 	snapshotContent,
 	snapshotDirectories,
@@ -67,9 +67,9 @@ function caseTwin(
 /** Normalize E against C, so restoring C removes a pending edit rather than adding work. */
 function editPatch(
 	snapshot: RepositorySnapshot,
-	changes: ReadonlyMap<string, string | null>,
+	changes: ReadonlyMap<string, FileContent | null>,
 ) {
-	const patch = new Map<string, string | null | undefined>();
+	const patch = new Map<string, FileContent | null | undefined>();
 	const prospective = new Map([...snapshot.edits, ...changes]);
 	for (const [path, text] of changes) {
 		const entry = snapshot.head.files.get(path);
@@ -142,25 +142,24 @@ export async function openRepository<
 	async function saveFile(
 		path: string,
 		from: FileContent | null,
-		text: string | null,
+		content: FileContent | null,
 		rowFields = false,
 	) {
 		// A mutable caller buffer must not change the edit's witness during retries.
 		const base = from instanceof Uint8Array ? from.slice() : from;
+		const change = content instanceof Uint8Array ? content.slice() : content;
 		return save(async () => {
 			if (!validPath(path)) return SaveError.InvalidPath({ path });
 			if (
-				text !== null &&
-				(typeof text !== 'string' ||
-					text.includes('\0') ||
-					!text.isWellFormed())
+				typeof change === 'string' &&
+				(change.includes('\0') || !change.isWellFormed())
 			)
 				return SaveError.NotText();
 			for (;;) {
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
 				const paths = snapshotPaths(snapshot);
-				if (text !== null) {
+				if (change !== null) {
 					const directories = snapshotDirectories(snapshot);
 					const twin = caseTwin(path, new Set([...paths, ...directories]));
 					if (twin !== undefined)
@@ -193,7 +192,7 @@ export async function openRepository<
 					if (problem?.kind === 'frontmatter')
 						return SaveError.Unparseable({ reason: problem.message });
 				}
-				const merged = await merge(path, { base, current, change: text });
+				const merged = await merge(path, { base, current, change });
 				if (sameContent(merged.content, current))
 					return Ok({
 						deleted:
@@ -201,10 +200,7 @@ export async function openRepository<
 							!paths.has(path) &&
 							!snapshotDirectories(snapshot).has(path),
 					});
-				// A library write starts as text; a retained binary side is a no-op.
-				if (merged.content !== null && typeof merged.content !== 'string')
-					throw new Error('Text save produced new binary content');
-				const changes = new Map<string, string | null>([
+				const changes = new Map<string, FileContent | null>([
 					[path, merged.content],
 				]);
 				if (
@@ -363,12 +359,12 @@ export async function openRepository<
 			async write(
 				path: string,
 				from: FileContent | null,
-				text: string,
+				content: FileContent,
 			): Promise<Result<void, SaveError>> {
 				assertOpen();
 				if (invalidId) return SaveError.InvalidId({ id: rowId });
 				if (!validPath(path)) return SaveError.InvalidPath({ path });
-				const result = await saveFile(root + path, from, text);
+				const result = await saveFile(root + path, from, content);
 				return result.error !== null ? Err(result.error) : Ok(undefined);
 			},
 			delete(path: string, from: FileContent | null) {

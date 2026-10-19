@@ -42,7 +42,11 @@ async function withFullDisk<T>(work: () => Promise<T>): Promise<T> {
 	}
 }
 
-const idle: FolderStatus = { state: 'local', saving: false, storageFailure: null };
+const idle: FolderStatus = {
+	state: 'local',
+	saving: false,
+	storageFailure: null,
+};
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 function nextChange(folder: {
@@ -136,6 +140,41 @@ test('files and rows saved before close are there after reopening', async () => 
 	expect(deleted).toEqual({ deleted: true });
 	expect(expectOk(await second.files.list())).toEqual(['readme.md']);
 	await second.close();
+});
+
+test('binary files persist exact bytes and a competing binary save keeps its whole change', async () => {
+	const first = await open();
+	const base = new Uint8Array([0, 1, 255]);
+	const saving = first.files.write('audio/clip.bin', null, base);
+	base[1] = 9;
+	expectOk(await saving);
+	const second = await open();
+	const observed = expectOk(await second.files.read('audio/clip.bin'))!;
+	expect(new Uint8Array(await observed.content.arrayBuffer())).toEqual(
+		new Uint8Array([0, 1, 255]),
+	);
+	expectOk(
+		await first.files.write(
+			'audio/clip.bin',
+			new Uint8Array([0, 1, 255]),
+			new Uint8Array([0, 2, 255]),
+		),
+	);
+	expectOk(
+		await second.files.write(
+			'audio/clip.bin',
+			new Uint8Array([0, 1, 255]),
+			new Uint8Array([0, 3, 255]),
+		),
+	);
+	await first.close();
+	await second.close();
+	const reopened = await open();
+	const stored = expectOk(await reopened.files.read('audio/clip.bin'))!;
+	expect(new Uint8Array(await stored.content.arrayBuffer())).toEqual(
+		new Uint8Array([0, 3, 255]),
+	);
+	await reopened.close();
 });
 
 test('a schema that does not fit never refuses a save or discards unknown fields', async () => {
@@ -253,9 +292,13 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 		expectErr(await folder.files.write('keep.md', 'first', 'second')),
 	);
 	expect(failure.name).toBe('StorageFailed');
-	if (failure.name !== 'StorageFailed') throw new Error('Expected a storage failure');
+	if (failure.name !== 'StorageFailed')
+		throw new Error('Expected a storage failure');
 	expect(failure.message).toContain('QuotaExceededError');
-	expect(folder.status).toMatchObject({ saving: false, storageFailure: failure });
+	expect(folder.status).toMatchObject({
+		saving: false,
+		storageFailure: failure,
+	});
 	await settle();
 	expect(changes).toEqual([]);
 	const kept = expectOk(await folder.files.read('keep.md'));
@@ -264,11 +307,15 @@ test('a failed save returns the reason, leaves storage unchanged, and shows in s
 
 	// A successful no-op retry confirms the desired content is already stored.
 	expectOk(await folder.files.write('keep.md', 'first', 'first'));
-	expect(expectErr(await folder.files.write('keep.md/child', null, 'x')).name).toBe('Occupied');
+	expect(
+		expectErr(await folder.files.write('keep.md/child', null, 'x')).name,
+	).toBe('Occupied');
 	expect(folder.status.storageFailure).toBeNull();
 	expectOk(await folder.files.write('keep.md', 'first', 'third'));
 	expect(folder.status).toEqual(idle);
-	expect(seen.map((status) => [status.saving, status.storageFailure?.name ?? null])).toEqual([
+	expect(
+		seen.map((status) => [status.saving, status.storageFailure?.name ?? null]),
+	).toEqual([
 		[true, null],
 		[false, 'StorageFailed'],
 		[true, 'StorageFailed'],

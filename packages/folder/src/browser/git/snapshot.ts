@@ -1,4 +1,6 @@
 /** Current files from a commit, and path edits applied without a checkout or index. */
+
+import type { FileContent } from '../../shared/merge.js';
 import {
 	type GitObject,
 	hashObject,
@@ -128,7 +130,7 @@ export async function readSnapshot(
 }
 
 type PathEdit = {
-	value: string | null | undefined;
+	value: FileContent | null | undefined;
 	children: Map<string, PathEdit>;
 };
 
@@ -143,7 +145,7 @@ export async function changeSnapshot({
 	read,
 }: {
 	root: string | null;
-	edits: ReadonlyMap<string, string | null>;
+	edits: ReadonlyMap<string, FileContent | null>;
 	read: (oid: string) => Promise<GitObject>;
 }): Promise<{ tree: string; objects: Map<string, GitObject> }> {
 	const patch: PathEdit = { value: undefined, children: new Map() };
@@ -160,7 +162,11 @@ export async function changeSnapshot({
 		node.value = value;
 	}
 	function validate(node: PathEdit, prefix: string, fileAncestor?: string) {
-		if (typeof node.value === 'string' && fileAncestor !== undefined)
+		if (
+			node.value !== null &&
+			node.value !== undefined &&
+			fileAncestor !== undefined
+		)
 			throw new Error(
 				`Conflicting snapshot edits: file ${fileAncestor} also has descendant ${prefix}`,
 			);
@@ -168,7 +174,7 @@ export async function changeSnapshot({
 			validate(
 				child,
 				prefix === '' ? name : `${prefix}/${name}`,
-				typeof node.value === 'string' ? prefix : fileAncestor,
+				node.value !== null && node.value !== undefined ? prefix : fileAncestor,
 			);
 	}
 	validate(patch, '');
@@ -196,10 +202,13 @@ export async function changeSnapshot({
 			const index = entries.findIndex((entry) => nameOf(entry.name) === name);
 			const existing = entries[index];
 			let next: TreeEntry | undefined;
-			if (typeof child.value === 'string') {
+			if (child.value !== null && child.value !== undefined) {
 				const object: GitObject = {
 					type: 'blob',
-					bytes: encoder.encode(child.value),
+					bytes:
+						typeof child.value === 'string'
+							? encoder.encode(child.value)
+							: child.value,
 				};
 				const blob = await hashObject(object);
 				objects.set(blob, object);

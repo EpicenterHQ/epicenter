@@ -25,6 +25,7 @@
  */
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
+import { legacyOpfsFolders } from './browser/legacy-data.js';
 import {
 	isTableName,
 	openRepository,
@@ -32,11 +33,10 @@ import {
 	type SaveError,
 } from './browser/repository.js';
 import type { StorageChange } from './browser/storage.js';
+import { OpenFolderError } from './errors.js';
+import { callObserver } from './observer.js';
 import type { FileContent } from './shared/merge.js';
 import type { Issue, Row, RowChange } from './shared/row.js';
-import { OpenFolderError } from './errors.js';
-import { legacyOpfsFolders } from './browser/legacy-data.js';
-import { callObserver } from './observer.js';
 
 export type { ReadError, SaveError };
 export type LocalRow<TSchema extends Schema = Schema> = Row<TSchema>;
@@ -75,15 +75,14 @@ export type LocalFiles = {
 		path: string,
 	): Promise<Result<{ path: string; content: Blob } | undefined, ReadError>>;
 	/**
-	 * Save `text` at `path`. `from` is the content the edit started from, or
+	 * Save `content` at `path`. `from` is the content the edit started from, or
 	 * `null` for a new file; it lets the engine keep other saves that landed
-	 * meanwhile. Pass bytes to retain a byte-order mark or replace binary
-	 * content.
+	 * meanwhile. Pass bytes for binary files or to retain a byte-order mark.
 	 */
 	write(
 		path: string,
 		from: FileContent | null,
-		text: string,
+		content: FileContent,
 	): Promise<Result<void, SaveError>>;
 	delete(
 		path: string,
@@ -177,7 +176,8 @@ export async function openLocalFolder<
 		});
 	try {
 		const legacy = await legacyOpfsFolders();
-		if (legacy.length > 0) return OpenFolderError.LegacyDataPresent({ folders: legacy });
+		if (legacy.length > 0)
+			return OpenFolderError.LegacyDataPresent({ folders: legacy });
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
@@ -191,7 +191,11 @@ export async function openLocalFolder<
 	let closing: Promise<void> | undefined;
 	const inflight = new Set<Promise<unknown>>();
 	let saves = 0;
-	let status: FolderStatus = { state: 'local', saving: false, storageFailure: null };
+	let status: FolderStatus = {
+		state: 'local',
+		saving: false,
+		storageFailure: null,
+	};
 	const statusListeners = new Set<(status: FolderStatus) => void>();
 
 	function assertOpen() {
@@ -199,8 +203,15 @@ export async function openLocalFolder<
 	}
 
 	function publishStatus(storageFailure = status.storageFailure) {
-		const next: FolderStatus = { state: 'local', saving: saves > 0, storageFailure };
-		if (next.saving === status.saving && next.storageFailure === status.storageFailure)
+		const next: FolderStatus = {
+			state: 'local',
+			saving: saves > 0,
+			storageFailure,
+		};
+		if (
+			next.saving === status.saving &&
+			next.storageFailure === status.storageFailure
+		)
 			return;
 		status = next;
 		for (const listener of [...statusListeners])
@@ -264,7 +275,8 @@ export async function openLocalFolder<
 		return {
 			list: (prefix) => read(() => files.list(prefix)),
 			read: (path) => read(() => files.read(path)),
-			write: (path, from, text) => save(() => files.write(path, from, text)),
+			write: (path, from, content) =>
+				save(() => files.write(path, from, content)),
 			delete: (path, from) => save(() => files.delete(path, from)),
 		};
 	}
