@@ -18,11 +18,12 @@
  * - A failed save keeps the draft and its error; `save()` tries again, and so
  *   does further typing, after its pause.
  *
- * The local folder's context closes the folder without knowing these
- * drafts, so the page sends them when it goes away (`settle`).
+ * The local folder's context settles these drafts on close and returns any
+ * text that still did not save for copying after the editor goes away.
  */
 import type { FolderFiles, SaveError } from '@epicenter/folder';
 import { SAVE_AFTER_MS } from '@epicenter/svelte/edits';
+import type { UnsavedFile } from '@epicenter/svelte/folder';
 import type { QueryClient } from '@tanstack/query-core';
 import { SvelteMap } from 'svelte/reactivity';
 import { createLogger } from 'wellcrafted/logger';
@@ -181,11 +182,16 @@ export function createTextDrafts({
 		/** Whether `path` holds typing that has not saved. */
 		held: (path: string) => drafts.has(path),
 
-		/** Send every draft once and wait; answers the paths still not saved. */
-		async settle(): Promise<string[]> {
+		/** Send every draft once and answer the exact text still not saved. */
+		async settle(): Promise<UnsavedFile[]> {
 			const paths = [...drafts.keys()];
 			await Promise.allSettled(paths.map((path) => flush(path)));
-			return paths.filter((path) => drafts.has(path));
+			return paths.flatMap((path) => {
+				const draft = drafts.get(path);
+				return draft === undefined
+					? []
+					: [{ path, text: draft.text, error: draft.error }];
+			});
 		},
 
 		/** Whether any typing is held, or a save runs. */

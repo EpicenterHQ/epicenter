@@ -56,9 +56,11 @@ refuses to discard a failed draft.
 A view that edits whole files keeps its own draft and calls
 `context.registerWork({ busy, failed, settle })`. Use `context.run(action)`
 for started file actions. The context counts both in `saveState` and waits
-for them before it closes the Folder handle. `close()` fences row input,
-sends drafts, waits for work already started, releases the change listener,
-and clears the query cache. It returns row drafts that did not save.
+for them before it closes the Folder handle. Whole-file work returns the path,
+exact unsaved text, and error from `settle()` when a save fails. `close()`
+fences row input, sends drafts, waits for work already started, releases the
+change listener, and clears the query cache. It returns row and whole-file
+drafts that did not save; `<FolderApp>` offers them for copying after unmount.
 
 The status UI helpers (`status-line`, `status-popover`, `status-row`) render
 app-owned status text. `write-failure` and `write-failure-toast` offer the

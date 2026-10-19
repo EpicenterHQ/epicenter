@@ -95,7 +95,13 @@ test('the timeline orders by instant and names files to repair', async () => {
 	});
 	const { rows, repairs, unreadable } = timelineOf(harness.rows());
 
-	expect(rows.map(({ stem, preview, thoughtCount }) => ({ stem, preview, thoughtCount }))).toEqual([
+	expect(
+		rows.map(({ stem, preview, thoughtCount }) => ({
+			stem,
+			preview,
+			thoughtCount,
+		})),
+	).toEqual([
 		{ stem: 'a', preview: 'Later', thoughtCount: 0 },
 		{ stem: 'b', preview: 'Earlier', thoughtCount: 2 },
 	]);
@@ -132,7 +138,10 @@ test("another tab's change shows without replacing typing, and the save merges w
 	await hold.held;
 
 	// Another tab adds a key while this save is held.
-	await harness.writeElsewhere(PATH, HAND.replace('custom: kept', 'custom: kept\nmood: calm'));
+	await harness.writeElsewhere(
+		PATH,
+		HAND.replace('custom: kept', 'custom: kept\nmood: calm'),
+	);
 	await until(
 		() => harness.cached('one')?.text.includes('mood: calm') ?? false,
 		'the other tab’s change',
@@ -154,7 +163,10 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 	harness.failNextRowSave();
 	form.inputNewThought('kept');
 	form.addThought();
-	await until(() => form.draft.error !== undefined && !form.saving, 'the failure');
+	await until(
+		() => form.draft.error !== undefined && !form.saving,
+		'the failure',
+	);
 
 	expect(form.body).toContain('- kept');
 	expect(harness.captures.saveLabel).toBe('Not saved');
@@ -181,7 +193,9 @@ test('thought commands save at once; one on a changed list is refused', async ()
 	const form = formOfOne(harness);
 	expect(form.swapThoughts(0, 1, ['a', 'b', 'c'])).toBe(true);
 	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n- a\n- c\n'));
+	expect(await harness.text(PATH)).toBe(
+		withBody('Text\n\n## Thoughts\n\n- b\n- a\n- c\n'),
+	);
 
 	// The view still shows the list from before the move.
 	expect(form.deleteThought(0, ['a', 'b', 'c'])).toBe(false);
@@ -195,7 +209,9 @@ test('thought commands save at once; one on a changed list is refused', async ()
 	form.inputEditing('C', edit.id);
 	expect(form.commitEditing(edit.id)).toBe(true);
 	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n- a\n- C\n'));
+	expect(await harness.text(PATH)).toBe(
+		withBody('Text\n\n## Thoughts\n\n- b\n- a\n- C\n'),
+	);
 });
 
 test('a thought typed and not added stays with its capture', async () => {
@@ -228,7 +244,10 @@ test('Edit as text saves the exact text and merges with another tab', async () =
 	// Another tab changes the frontmatter while more is typed below.
 	const again = typed.replace('nested line', 'nested line, again');
 	draft.change(typed, again);
-	await harness.writeElsewhere(PATH, typed.replace('custom: kept', 'custom: changed'));
+	await harness.writeElsewhere(
+		PATH,
+		typed.replace('custom: kept', 'custom: changed'),
+	);
 	await draft.save();
 	await harness.quiet();
 	expect(await harness.text(PATH)).toBe(
@@ -267,6 +286,18 @@ test('a failed text save keeps the typing until saved again', async () => {
 	await harness.quiet();
 	expect(draft.typed).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(`${HAND}more\n`);
+});
+
+test('closing after a failed whole-file save returns its exact text for recovery', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const changed = HAND.replace('Text', 'Text kept after close');
+	harness.failNextFileWrite();
+	harness.captures.texts.text(PATH).change(HAND, changed);
+	const unsaved = await harness.context.close();
+	expect(unsaved).toMatchObject([
+		{ path: PATH, text: changed, error: { name: 'StorageFailed' } },
+	]);
+	expect(await harness.text(PATH)).toBe(HAND);
 });
 
 test('deleting waits for the edit and removes the file', async () => {

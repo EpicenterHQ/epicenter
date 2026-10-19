@@ -50,6 +50,9 @@ function reload() {
 
 const { flushSync, mount, tick, unmount } = await import('svelte');
 const { default: PageHost } = await import('./fixtures/PageHost.svelte');
+const { default: PageLeavingHost } = await import(
+	'./fixtures/PageLeavingHost.svelte'
+);
 
 setWide(true);
 
@@ -87,10 +90,10 @@ function opfsWith(...names: string[]) {
 }
 
 /** Mount the page; `close` unmounts it, which closes its folder. */
-function mountPage() {
+function mountPage(host: typeof PageHost | typeof PageLeavingHost = PageHost) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(PageHost, { target });
+	const view = mount(host, { target });
 	let mounted = true;
 	const close = async () => {
 		if (!mounted) return;
@@ -169,9 +172,7 @@ test('a capture added here is in the folder once the page closes; a reload waits
 	const rows = await listed();
 	expect(rows).toHaveLength(1);
 	expect(rows[0]?.issues).toBeNull();
-	expect(rows[0]?.body).toBe(
-		'\nKept in this browser, edited\n\n## Thoughts\n',
-	);
+	expect(rows[0]?.body).toBe('\nKept in this browser, edited\n\n## Thoughts\n');
 });
 
 test('text typed with Edit as text is in the folder once the page closes', async () => {
@@ -198,11 +199,56 @@ test('text typed with Edit as text is in the folder once the page closes', async
 	const folder = expectOk(await openFolder({ tables: captureTables }));
 	cleanup.push(() => folder.close());
 	const read = async () =>
-		(await expectOk(await folder.files.read('captures/one.md'))?.content.text()) ??
-		'';
+		(await expectOk(
+			await folder.files.read('captures/one.md'),
+		)?.content.text()) ?? '';
 	for (let tries = 0; tries < 200; tries++) {
 		if ((await read()).includes('After')) break;
 		await Bun.sleep(5);
 	}
 	expect(await read()).toBe(file.replace('Before', 'After'));
+});
+
+test('a failed text save remains copyable after the page unmounts', async () => {
+	freshProfile();
+	const path = 'captures/one.md';
+	const file = '---\ncapturedAt: 2026-10-04T20:49:23Z\n---\n\nBefore\n';
+	const draft = file.replace('Before', 'Typed but not saved');
+	{
+		const folder = expectOk(await openFolder({ tables: captureTables }));
+		expectOk(await folder.files.write(path, null, file));
+		await folder.close();
+	}
+	const page = mountPage(PageLeavingHost);
+	await until(() => page.text().includes('Before'), 'the timeline');
+	page.target
+		.querySelector<HTMLButtonElement>('[aria-label="Timeline captures"] button')
+		?.click();
+	await until(() => page.text().includes('Edit as text'), 'the capture');
+	click(page.target, 'Edit as text');
+	const contents = 'textarea[aria-label^="Contents of"]';
+	await until(() => page.target.querySelector(contents) !== null, 'the text');
+	type(page.target.querySelector(contents), draft);
+
+	const put = IDBObjectStore.prototype.put;
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Disk is full', 'QuotaExceededError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	click(page.target, 'Leave page');
+	await until(
+		() =>
+			document.querySelector<HTMLTextAreaElement>(
+				'[data-testid="unsaved-text"]',
+			) !== null,
+		'the copyable unsaved text',
+	);
+	expect(
+		document.querySelector<HTMLTextAreaElement>('[data-testid="unsaved-text"]')
+			?.value,
+	).toBe(draft);
+	expect(page.text()).toContain(`Could not save ${path}`);
+	expect(page.text()).toContain('Copy your text');
 });

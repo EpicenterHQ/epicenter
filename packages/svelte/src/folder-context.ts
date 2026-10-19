@@ -15,17 +15,13 @@
  * Plain module, so a store imports the types without loading components; the
  * edit layer it builds is a runes module.
  */
-import type { FolderStatus, Folder, Row } from '@epicenter/folder';
+import type { Folder, FolderStatus, Row } from '@epicenter/folder';
 import { QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
-import {
-	createEdits,
-	type Edits,
-	type Unsaved,
-} from './edits.svelte.js';
+import { createEdits, type Edits, type Unsaved } from './edits.svelte.js';
 
 const log = createLogger('svelte/folder');
 
@@ -38,16 +34,24 @@ const KEY = ['folder'] as const;
  */
 export type SaveState = 'saved' | 'saving' | 'failed' | 'recent-failure';
 
+/** Whole-file typing that remained after its owner settled. */
+export type UnsavedFile = {
+	readonly path: string;
+	readonly text: string;
+	readonly error?: { readonly name: string; readonly message: string };
+};
+
 /** App-owned file work that must settle before the folder handle closes. */
 export type FolderWork = {
 	readonly busy: boolean;
 	readonly failed: boolean;
-	settle(): Promise<unknown>;
+	settle(): Promise<void | readonly UnsavedFile[]>;
 };
 
-export function createFolderContext<
-	TTables extends Record<string, TSchema>,
->(folder: Folder<TTables>, { saveAfterMs }: { saveAfterMs?: number } = {}) {
+export function createFolderContext<TTables extends Record<string, TSchema>>(
+	folder: Folder<TTables>,
+	{ saveAfterMs }: { saveAfterMs?: number } = {},
+) {
 	// Reads reach this device's storage, not a network, and the change
 	// channel is the one detector of outside change: a read is fresh until it
 	// reports one, and a failure is shown, not retried.
@@ -91,18 +95,22 @@ export function createFolderContext<
 	});
 	const work = new Set<FolderWork>();
 	const actions = new SvelteSet<Promise<unknown>>();
-	let closing: Promise<Unsaved[]> | undefined;
+	let closing: Promise<(Unsaved | UnsavedFile)[]> | undefined;
 
-	async function settleWork() {
-		const results = await Promise.allSettled([
-			...[...work].map((item) => item.settle()),
-			...actions,
+	async function settleWork(): Promise<UnsavedFile[]> {
+		const [owners, actionResults] = await Promise.all([
+			Promise.allSettled([...work].map((item) => item.settle())),
+			Promise.allSettled([...actions]),
 		]);
-		for (const result of results)
+		const files = owners.flatMap((result) =>
+			result.status === 'fulfilled' ? (result.value ?? []) : [],
+		);
+		for (const result of [...actionResults, ...owners])
 			if (result.status === 'rejected')
 				log.error(
 					new Error('Folder work did not settle', { cause: result.reason }),
 				);
+		return files;
 	}
 
 	return {
@@ -181,17 +189,17 @@ export function createFolderContext<
 		 * handle. Answers the drafts that did not save, which are also logged.
 		 * Every call answers the same completion.
 		 */
-		close(): Promise<Unsaved[]> {
+		close(): Promise<(Unsaved | UnsavedFile)[]> {
 			closing ??= (async () => {
 				// `edits.close` fences new input synchronously; app work already
 				// started can then finish before the handle closes.
 				const rowSettling = edits.close();
-				await settleWork();
-				const unsaved = await rowSettling;
+				const files = await settleWork();
+				const unsaved = [...(await rowSettling), ...files];
 				for (const draft of unsaved)
 					log.warn(
 						new Error(
-							`Closed with ${draft.table}/${draft.id} unsaved: ${draft.error?.message ?? 'not sent'}`,
+							`Closed with ${'path' in draft ? draft.path : `${draft.table}/${draft.id}`} unsaved: ${draft.error?.message ?? 'not sent'}`,
 						),
 					);
 				stopChanges();

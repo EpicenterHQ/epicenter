@@ -363,8 +363,19 @@ export function createNotes(local: NotesFolder) {
 		async settle() {
 			await saveTexts();
 			await Promise.allSettled([...running.values()]);
+			return [...texts].map(([path, draft]) => ({
+				path,
+				text: draft.text,
+				...(draft.error === undefined
+					? {}
+					: { error: { name: 'NotSaved', message: draft.error } }),
+			}));
 		},
 	});
+	/** Give a refused action its app-level reason even after the context closes. */
+	function runAction(action: () => Promise<string | undefined>) {
+		return edits.fenced ? Promise.resolve(CLOSING) : local.run(action);
+	}
 
 	// ------------------------------------------------------------------
 	// Opening
@@ -753,7 +764,7 @@ export function createNotes(local: NotesFolder) {
 
 		/** Create a note in the folder being shown and open it. */
 		createNote: () =>
-			local.run(async () => {
+			runAction(async () => {
 				if (edits.fenced) return CLOSING;
 				const id = newId();
 				const created = await folder.tables.notes.set(id, null, {
@@ -772,7 +783,7 @@ export function createNotes(local: NotesFolder) {
 				return undefined;
 			}),
 		createFolder: (name: string) =>
-			local.run(async () => {
+			runAction(async () => {
 				if (edits.fenced) return CLOSING;
 				const created = await folder.tables.folders.set(newId(), null, {
 					fields: { name, icon: null },
@@ -784,7 +795,7 @@ export function createNotes(local: NotesFolder) {
 			}),
 		/** A new empty text file, opened; it never replaces an existing one. */
 		createFile: (directory: string, name: string) =>
-			local.run(async () => {
+			runAction(async () => {
 				const why = placeProblem(directory, name);
 				if (why !== undefined) return why;
 				const path = joinPath(directory, name);
@@ -797,7 +808,7 @@ export function createNotes(local: NotesFolder) {
 				open(path, 'text');
 				return undefined;
 			}),
-		deleteFolder: (entry: FolderEntry) => local.run(() => deleteFolder(entry)),
+		deleteFolder: (entry: FolderEntry) => runAction(() => deleteFolder(entry)),
 		/** What deleting `path` would remove, for the person to confirm. */
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			if (edits.fenced) return Err(CLOSING);
@@ -812,7 +823,7 @@ export function createNotes(local: NotesFolder) {
 				title: shown && displayTitle(shown.fields.title, shown.body),
 			});
 		},
-		delete: (deletion: Deletion) => local.run(() => deleteConfirmed(deletion)),
+		delete: (deletion: Deletion) => runAction(() => deleteConfirmed(deletion)),
 
 		/** Send the text still typed, and stop following the folder's changes; the context closes the folder. */
 		stop() {

@@ -289,7 +289,9 @@ test("a folder's name is a set of its row, saved at once", async () => {
 	const { notes, text } = await setup({
 		'folders/work.md': '---\nname: Work\nicon: null\ncolor: red\n---\n',
 	});
-	expect(notes.patchFolder('folders/work.md', { name: 'Play' })).toBeUndefined();
+	expect(
+		notes.patchFolder('folders/work.md', { name: 'Play' }),
+	).toBeUndefined();
 	await until(() => !notes.isWriting('folders/work.md'), 'the name to save');
 	expect(await text('folders/work.md')).toBe(
 		'---\nname: Play\nicon: null\ncolor: red\n---\n',
@@ -346,4 +348,19 @@ test('close sends typing still waiting, and takes no input from then on', async 
 	expect(notes.fenced).toBe(true);
 	expect(note.edit('late\n')).toBe(false);
 	expect(await notes.createNote()).toContain('closing');
+});
+
+test('closing after a failed file save returns the exact text for recovery', async () => {
+	const { notes, local, observe, failSaves, text } = await setup();
+	notes.open(A, 'text');
+	observe(A);
+	await quiet(notes);
+	const changed = noteText({ title: 'Keep this draft' });
+	expect(notes.editText(A, changed)).toBe(true);
+	failSaves();
+	const unsaved = await local.close();
+	expect(unsaved).toMatchObject([
+		{ path: A, text: changed, error: { name: 'NotSaved' } },
+	]);
+	expect(await text(A)).not.toBe(changed);
 });

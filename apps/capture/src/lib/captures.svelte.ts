@@ -379,6 +379,8 @@ export function createCaptures(context: CaptureFolder) {
 		create(
 			text: string,
 		): Promise<Result<{ stem: string }, SaveError | ActionError>> {
+			if (edits.fenced)
+				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
 			return context.run(async () => {
 				if (edits.fenced) return ActionError.NotStarted({ reason: CLOSING });
 				// Blank text is refused and stays in the form: only the person clears it.
@@ -418,6 +420,8 @@ export function createCaptures(context: CaptureFolder) {
 		 * result says so (`deleted: false`).
 		 */
 		delete(deletion: Deletion): Promise<Result<{ deleted: boolean }, Failure>> {
+			if (edits.fenced)
+				return Promise.resolve(ActionError.NotStarted({ reason: CLOSING }));
 			return context.run(async () => {
 				if (edits.fenced) return ActionError.NotStarted({ reason: CLOSING });
 				const { stem, path } = deletion;
