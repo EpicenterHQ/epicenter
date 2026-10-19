@@ -844,3 +844,4 @@ When you add an ADR, add its row here.
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Proposed (amends 0626) |
 | [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
+| [0632](0632-a-lens-belongs-to-its-reader.md) | A lens belongs to its reader | Proposed (amends 0585, 0611, 0613, 0626, and 0627) |
