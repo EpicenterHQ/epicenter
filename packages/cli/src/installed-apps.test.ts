@@ -1089,18 +1089,22 @@ test('app install and update stream progress and end with the app, exiting 1 whi
 		BOARD,
 	);
 	expect(opened.exitCode).toBe(0);
-	expect((opened.lines.at(-1)?.app as InstalledApp).state).toEqual({
-		kind: 'ready',
-	});
+	expect((opened.lines.at(-1)?.app as InstalledApp | undefined)?.state).toEqual(
+		{
+			kind: 'ready',
+		},
+	);
 
 	const listed = run(f.env, 'app', 'list', '--json');
 	expect(listed.exitCode).toBe(0);
 	expect(listed.lines).toHaveLength(1);
 	expect(
-		(listed.lines[0]?.apps as InstalledApp[]).map(({ id, state }) => ({
-			id,
-			state,
-		})),
+		(listed.lines[0]?.apps as InstalledApp[] | undefined)?.map(
+			({ id, state }) => ({
+				id,
+				state,
+			}),
+		),
 	).toEqual([{ id: BOARD, state: { kind: 'ready' } }]);
 	expect(run(f.env, 'app', 'list').stdout).toStartWith(
 		`${BOARD}\tBoard\tready`,
@@ -1143,7 +1147,9 @@ test('app update exits 0 for an approved app with an update waiting, and says ho
 		BOARD,
 	);
 	expect(damaged.exitCode).toBe(0);
-	expect((damaged.lines.at(-1)?.app as InstalledApp).state).toEqual({
+	expect(
+		(damaged.lines.at(-1)?.app as InstalledApp | undefined)?.state,
+	).toEqual({
 		kind: 'damaged',
 	});
 	const text = run(f.env, 'app', 'update', '--commit', first, '--', BOARD);
@@ -1184,12 +1190,14 @@ describe.skipIf(monorepoClone === undefined)(
 						'--json',
 					);
 					const found = (
-						listed.lines[0]?.apps as {
-							folder: string;
-							id: string;
-							problem: string | null;
-						}[]
-					).find((app) => app.folder === folder);
+						listed.lines[0]?.apps as
+							| {
+									folder: string;
+									id: string;
+									problem: string | null;
+							  }[]
+							| undefined
+					)?.find((app) => app.folder === folder);
 					expect(found).toMatchObject({ id, problem: null });
 
 					const installed = run(

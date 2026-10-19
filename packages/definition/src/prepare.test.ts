@@ -1473,7 +1473,7 @@ test('a prepared definition and its records cannot be changed', () => {
 		() => Object.assign(notes?.fields ?? {}, { title: field.integer() }),
 		() => Object.assign(notes?.fields.title ?? {}, { minLength: 9 }),
 		() => {
-			delete (notes?.fields as Record<string, unknown>).title;
+			delete (notes?.fields as Record<string, unknown> | undefined)?.title;
 		},
 	];
 	for (const write of writes) expect(write).toThrow(TypeError);

@@ -67,7 +67,7 @@
 			"wellcrafted": "^0.44.0",
 			"@ricky0123/vad-web": "^0.0.30",
 			"date-fns": "^4.1.0",
-			"@biomejs/biome": "^2.4.10",
+			"@biomejs/biome": "^2.5.15",
 			"wrangler": "^4.71.0",
 			"@standard-schema/spec": "^1.1.0",
 			"hono": "^4.12.25",

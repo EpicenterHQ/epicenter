@@ -200,7 +200,7 @@ test('mcp: tools/list, query rows, the two error channels, and a clean stream', 
 	expect(badSql.error).toBeUndefined();
 	expect(badSql.result?.isError).toBe(true);
 	expect(
-		(badSql.result?.content as Array<{ text: string }>)[0]?.text,
+		(badSql.result?.content as Array<{ text: string }> | undefined)?.[0]?.text,
 	).toContain('query failed');
 
 	// Invalid arguments: schema validation rejects with a protocol error.
