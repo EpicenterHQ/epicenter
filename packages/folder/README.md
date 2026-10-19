@@ -282,7 +282,7 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | `src/native/` | The directory engine (`engine.ts`), its Bun host and save lock (`bun.ts`, `directory.ts`), and its desktop host (`tauri.ts`, with `bindings.gen.ts` generated from the folder plugin; do not edit). |
 | `src/shared/` | The content merge and row reading every engine uses. |
 | `src/boundary.ts`, `directory-store.ts`, `directory-node.ts`, `directory-primitives.ts`, `tauri-files.ts`, `changes-tauri.ts` | Directory storage over `node:fs` and over the shell's commands, and the shell's change watcher. |
-| `src/check-folder.ts`, `query-folder.ts`, `read-folder.ts`, `projection.ts`, `declaration.ts`, `definition.ts`, `row-text.ts`, `canonical.ts`, `generate-declaration.ts` | The CLI's readers of `epicenter.json` and its row codec. |
+| `src/check-folder.ts`, `query-folder.ts`, `read-folder.ts`, `projection.ts`, `declaration.ts`, `definition.ts`, `row-text.ts`, `generate-declaration.ts` | The CLI's readers of `epicenter.json`; `row-text.ts` uses the shared row codec. |
 | `src/git/`, `history-wire.ts`, `write.ts` | Shared Git object and tree rules, the directory history engine `runHistory` runs, and the one write its Sync publishes through. |
 | `src/file-browser.ts` | File-browser helpers. |
 | `evidence/` | Bundle and dependency-closure tests, and recorded browser-engine experiments. |

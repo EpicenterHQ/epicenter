@@ -21,7 +21,7 @@ import {
 	type CanonicalDocument,
 	formatRowSource,
 	parseRowSource,
-} from './canonical.js';
+} from './shared/content/canonical.js';
 import { defineFolder } from './definition.js';
 import { parseRow } from './row-text.js';
 

@@ -22,13 +22,13 @@
 
 import { type CheckMode, type CreateRowOf, check } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { PreparedFolderTable } from './definition.js';
 import {
 	type CanonicalDocument,
 	type CanonicalRefusal,
 	formatRowSource,
 	parseRowSource,
-} from './canonical.js';
-import type { PreparedFolderTable } from './definition.js';
+} from './shared/content/canonical.js';
 
 /**
  * The editable part of a row: every frontmatter field, unknown keys
