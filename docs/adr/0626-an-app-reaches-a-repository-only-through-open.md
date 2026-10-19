@@ -4,7 +4,7 @@
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "`openFolder({ definition })` (ADR-0586) validates every table read and write against `definition`" and "`openFolder({ id })` and `openFolder({ root, git })`": an app opens a repository with `open({ id?, tables })`, and its schemas check what it reads and refuse no write; [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) at "The library resolves paths and lists folders" and "`openFolder` refuses an `id` that names no directory": the library has no `resolve` or `listFolders`, and `open` returns `undefined` when this origin holds no grant; [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) at "One opened data folder exposes `tables`, `kv`, `files`, and `git`": a repository exposes `tables` and `files`, `files` writes only text, and `kv` and `git` leave the app API.
 - **Relates:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (tables and rows), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (grants and consent), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text only), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the merge, and every save), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the clone behind `open`), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) (the four words).
-- **Unbuilt:** all of it: `open`, `connect`, `newId`, `subscribe`, the table methods, a row's `version`, and the repository's and each table's `files` in `@epicenter/data`.
+- **Unbuilt:** all of it: `open`, `connect`, `newId`, `subscribe`, the table methods and `files` with a `from` on every save, a row's `text` and `issues`, and the Result each operation returns, in `@epicenter/data`.
 
 ## Context
 
@@ -39,73 +39,90 @@ Repository
   id                                                                        v1
   name               the label as of the last fetch                         later
   status             'synced' | 'pending' | 'disconnected' | 'stuck'        v1
-  subscribe(listener)  the event carries status, the changed rows, each
-                       by table and id, and the changed paths; returns
-                       an unsubscribe                                       v1
+  subscribe(listener)  listener({ status, rows, paths }): rows maps each table
+                       to the ids that changed, paths lists every path that
+                       changed; returns an unsubscribe                      v1
   close()                                                                   v1
   tables.<t>         one Table per name in tables                           v1
-  files              list(prefix?) · read(path): Blob | undefined ·
-                     write(path, text) · delete(path)                       v1
-                     text only; path is relative to the repository's root,
-                     may contain '/', and may name any file, a table's rows
-                     and its table.json included
+  files              Files with the repository's root as their root         v1
 
 Table
-  list()             every row, sorted by id                                v1
-  get(id)            one row, or undefined                                  v1
-  set(id, { fields?, body?, version? })                                     v1
-                     creates a missing row; a field set to undefined is removed;
-                     one merge of the whole file, with version as its base
-  delete(id)         removes the row and its folder <id>/                   v1
-  files(id)          the repository's files with <t>/<id>/ as their root   v1
+  list()                  Result<Row[]>, sorted by id                       v1
+  get(id)                 Result<Row | undefined>                           v1
+  set(id, from, change)   Result<{ sent: Row }>                             v1
+                          from: Row | null; change: { fields?, body? };
+                          creates a missing row; a field set to undefined is removed
+  delete(id, from)        Result<{ deleted: boolean }>                      v1
+                          removes the row and its folder <id>/
+  files(id)               Files with <t>/<id>/ as their root                v1
   rename(id, next)                                                          later
 
-Row  { id, version, ok: true,  fields, body }    fields typed by the app's schema
-   | { id, version, ok: false, fields, body }    fields raw; unparseable frontmatter
-                                                 gives fields {} and body the raw text
+Files
+  list(prefix?)           Result<string[]>, every path under prefix         v1
+  read(path)              Result<{ path, content: Blob } | undefined>       v1
+  write(path, from, text) Result<void>; from: string | null; text only      v1
+  delete(path, from)      Result<{ deleted: boolean }>                      v1
+                          a path is relative to the root, may contain '/', and may
+                          name any file, a table's rows and its table.json included
+
+Row  { id, text, fields: Static<schema>,         body, issues: null }
+   | { id, text, fields: Record<string, unknown>, body, issues: Issue[] }
+     text is the file's exact source. issues says why fields are raw. Unparseable
+     frontmatter gives fields {} and body the whole text; a file that is not UTF-8
+     gives text and body '' and an issue saying so.
 ```
 
 **`tables` maps each table name to the app's JSON Schema for its rows**,
 written with TypeBox or as a literal `as const` schema, and a row's type is
-its `Static`. A row that fits comes back `ok` with typed fields; one that
-does not comes back with its raw fields, never dropped. The app's schema is
-the only one it reads rows with, and no save reads a table's `table.json`:
-a save keeps the file's key order and appends new keys alphabetically
+its `Static`. A row that fits comes back with `issues: null` and typed
+fields; one that does not comes back with its raw fields and the issues
+that say why, never dropped. `issues` alone tells the two apart, as `error`
+does in a Result. The app's schema is the only one it reads rows with, and
+no save reads a table's `table.json`: a save keeps the file's key order and
+appends new keys alphabetically
 ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
 
-**A row's `version` is opaque: the blob id the row was read at.** Every
-`set` is one merge of the whole file,
-`merge(path, { base: version ?? current, current, change })`
-([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
-Given `version`, two tabs editing different paragraphs or different fields
-both keep their edits; without it, the save's fields and body win every
-unit they change.
+**Every save names what its edit started from.** `from` is the row, or for
+`files` the text, that the edit began with, and every save is one merge of
+the whole file, `merge(path, { base: from, current, change })`
+([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)),
+where `current` is what the clone holds now. A row's base is `from.text`,
+its exact source. A field or region only another writer changed keeps their
+change: a thought the phone added while the laptop types survives the
+laptop's next save. `from: null` means the file did not exist for this
+edit, a create or a deliberate overwrite, and the save wins every unit it
+changes. `set` returns `sent`, the row as this save sent it, which is the
+`from` of the next save of the same draft; the row that lands can hold
+another writer's change the draft never showed, and a draft based on it
+would undo that change. A delete is a save of nothing: an edit made since
+`from` beats it, and it returns `deleted: false`. A row and its folder
+`<id>/` are deleted together or not at all.
 
-**Only these throw:**
+**Every operation returns a Result, and only a call on a closed repository
+throws.**
 
 ```txt
-an id that is not one filename segment
-a path with an empty, '.', '..', or '.git' segment, or a leading '/'
-a new id or path that differs from an existing one only by case
-content that is not text (ADR-0621)
-a storage failure, or a call on a closed repository
+ReadError   StorageFailed
+SaveError   InvalidId       an id that is not one filename segment
+            InvalidPath     a path with an empty, '.', '..', or '.git' segment, or a leading '/'
+            CaseTwin        a new id or path that differs from an existing one only by case
+            NotText         content that is not text (ADR-0621)
+            Unparseable     fields set on a row whose frontmatter does not parse; its text
+                            is repaired through files
+            StorageFailed
 ```
 
-Everything else is a `status` or an `ok: false` row. No write is refused
-for not fitting a schema: the only refusals are a non-text write from the
-library, a push that would rewrite history, and what Git cannot represent
+No write is refused for not fitting a schema: the only refusals are a
+non-text write from the library, a push that would rewrite history, and
+what Git cannot represent
 ([ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md)).
 The case rule keeps a disk clone on a file system that folds case from
 holding two paths as one file.
 
-**`files` reaches every path, and a row is a file.** A write through
-`files` is one merge of the whole file with the file's current blob as its
-base, as a `set` without `version` is
-([ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md)).
-Writing `<t>/<id>.md` saves that row, and a row whose frontmatter does not
-parse comes back `ok: false`. `open` and `set` never write a `table.json`;
-an app that writes one through `files` authors it, as a person or an agent
-does
+**`files` reaches every path, and a row is a file.** Writing `<t>/<id>.md`
+through `files` saves that row, and a row whose frontmatter does not parse
+comes back with issues. `open` and `set` never write a `table.json`; an app
+that writes one through `files` authors it, as a person or an agent does
 ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
 
 **One subscription per repository.** `subscribe` reports the status, the
@@ -130,11 +147,17 @@ revoked on the consent page
   those rows raw and can still set fields on them.
 - A field the app does not name in `set` keeps what the file holds, so two
   apps setting different fields of one row never undo each other.
+- An app keeps the row or text an edit started from and passes it to each
+  save of that edit, advancing it to `sent`. Two tabs or two devices
+  editing different fields or paragraphs of one row both keep their edits.
+- A delete of a row someone edited since leaves the row and its folder in
+  place, returns `deleted: false`, and the row stays in `list()`.
+- An app handles a failed save as a value, as it handles any Result.
 - Opening a repository writes no file into it, so two clones that open
   one repository never race to describe a table.
 - An app reads and writes any path of a repository it holds a grant for,
   such as `docs/` or another app's table, as an agent can.
-- A malformed row an app writes through `files` is an `ok: false` row and
+- A malformed row an app writes through `files` is a row with issues and
   a `check` line; a `table.json` it overwrites is a commit in history that
   a revert repairs.
 - A file reads as a `Blob`, so Git LFS files later need no change to
@@ -153,8 +176,24 @@ revoked on the consent page
   apps on one origin race each other's schedule.
 - **A subscription per table.** An app watching three tables holds three
   listeners for one sync's changes.
-- **A save whose body always replaces.** Two tabs editing different
-  paragraphs of one row lose one tab's edit.
+- **A save whose body always replaces, or that writes what the app holds
+  now.** A draft that never showed the phone's new thought erases it at
+  its next save, and the commit that records the loss names nothing.
+- **A row's blob id as the base (`version`).** An id read from an unsent
+  edit names bytes no store keeps once the next save replaces them, and an
+  id of an old commit's blob names bytes the clone no longer keeps
+  ([ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md));
+  keeping them takes a blob per save or memory in every tab.
+- **The library remembering what each tab last read as the base.** After a
+  sync the tab has read the copy with the phone's thought, so the draft's
+  save still erases it.
+- **`ok: true | false` on a row, or a Result per row.** `ok` reads as a
+  Result's success flag though both kinds of row carry the row, and a Result
+  per row puts a row that does not fit, which
+  [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)
+  accepts, inside an error.
+- **Operations that throw.** An app catches a storage failure or a
+  case-twin id that it would otherwise handle as a value.
 - **Files only inside a row's folder.** An app cannot read or write the
   documents people and agents keep beside tables, and an app whose notes
   nest in directories cannot exist.

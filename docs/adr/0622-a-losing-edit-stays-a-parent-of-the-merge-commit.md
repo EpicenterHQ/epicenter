@@ -38,8 +38,8 @@ merge named roles, where `change` wins:
 ```txt
               base                           current                  change
 sync          the merge base                 what main holds          this clone's commits
-a save        the file at the version the    the file the clone       the file the save writes
-              app read, or current           holds now
+a save        the from the app passed, or    the file the clone       the file the save writes
+              no file for from: null         holds now
 ```
 
 | File | Unit |
@@ -72,13 +72,13 @@ Plain `git pull` stays plain Git; the conflict markers it leaves are
 `check` lines, and `epicenter sync` refuses to commit a file holding them.
 
 **Every Epicenter save is one merge of the whole file:**
-`merge(path, { base: version ?? current, current, change })`. `current` is
-the file the clone holds, `change` is the file the save writes, and
-`version` is the blob id the app read the row at
-([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)). Given
-`version`, a unit the save did not change keeps what `current` holds, so
-two tabs editing different paragraphs of one row both keep their edits;
-given none, `base` is `current`, and the save wins every unit it changes.
+`merge(path, { base: from, current, change })`. `current` is the file the
+clone holds, `change` is the file the save writes, and `from` is the row or
+text the app's edit started from
+([ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md)). A unit
+the save did not change keeps what `current` holds, so two tabs editing
+different paragraphs of one row both keep their edits; with `from: null`,
+the save wins every unit it changes.
 The data browser saves the same way and writes no file last-write-wins.
 The file a save writes keeps the existing file's key order, with keys new
 to it appended alphabetically
