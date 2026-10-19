@@ -141,10 +141,7 @@ export function rowChange(
 				configurable: true,
 			});
 	}
-	const formatted = formatRowSource(
-		{ fields: fields as CanonicalDocument['fields'], body },
-		parsed.data.keyOrder,
-	);
+	const formatted = formatRowSource({ fields, body }, parsed.data.keyOrder);
 	if (formatted.error !== null) return Err(formatted.error);
 	if (sameValue(document.fields, formatted.data.document.fields))
 		return replaceBody(source, body);
@@ -179,7 +176,10 @@ export function rowChange(
 		!sameValue(reread.data.document.fields, formatted.data.document.fields) ||
 		reread.data.document.body !== body
 	)
-		return Err({ reason: 'The edited source does not read back as the change', path: [] });
+		return Err({
+			reason: 'The edited source does not read back as the change',
+			path: [],
+		});
 	return checkedText(changed);
 }
 

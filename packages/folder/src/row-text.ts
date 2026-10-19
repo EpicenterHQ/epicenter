@@ -24,7 +24,6 @@ import { type CheckMode, type CreateRowOf, check } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { PreparedFolderTable } from './definition.js';
 import {
-	type CanonicalDocument,
 	type CanonicalRefusal,
 	formatRowSource,
 	parseRowSource,
@@ -125,8 +124,10 @@ export function formatRow<const TTable extends PreparedFolderTable>(
 	table: TTable,
 	row: Row<CreateRowOf<TTable>>,
 ): Result<string, Issue> {
+	const body = wellFormed(lineFeeds(row.body));
+	const fields = storableValue(row.fields);
 	const { data: written, error: refusal } = formatRowSource(
-		storable(row) as unknown as CanonicalDocument,
+		{ fields, body },
 		Object.keys(table.fields),
 	);
 	if (refusal === null) return Ok(written.text);
@@ -148,20 +149,6 @@ export function wellFormed(text: string): string {
 /** Text with each `\r\n` and lone `\r` as `\n`. */
 export function lineFeeds(text: string): string {
 	return text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text;
-}
-
-/**
- * `row` as a file holds it: the body with `\n` line endings, and every
- * string, at any depth, well-formed. A row that needs neither is returned
- * as it is.
- */
-function storable<TRow extends { fields: object; body: string }>(
-	row: TRow,
-): TRow {
-	const body = wellFormed(lineFeeds(row.body));
-	const fields = storableValue(row.fields) as TRow['fields'];
-	if (body === row.body && fields === row.fields) return row;
-	return { ...row, fields, body };
 }
 
 /** `value` with every string well-formed; the same value when none changes. */

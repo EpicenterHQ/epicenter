@@ -398,13 +398,13 @@ function defineOwn(
  * value in a mapping is an absent key, as in JSON.
  */
 export function formatRowSource(
-	document: CanonicalDocument,
+	document: unknown,
 	declaredKeys: readonly string[],
 ): Result<{ text: string; document: CanonicalDocument }, CanonicalRefusal> {
-	const supplied: unknown = document;
-	if (typeof supplied !== 'object' || supplied === null)
+	if (typeof document !== 'object' || document === null)
 		return refuse('The document is not an object');
-	const { fields, body } = supplied as Record<'fields' | 'body', unknown>;
+	const fields = 'fields' in document ? document.fields : undefined;
+	const body = 'body' in document ? document.body : undefined;
 	if (typeof body !== 'string')
 		return refuse('The body is not a string', ['body']);
 	if (!body.isWellFormed())

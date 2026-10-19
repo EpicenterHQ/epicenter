@@ -153,7 +153,6 @@ async function keptHead(
 	current: Framed,
 	change: Framed,
 	kept: Framed,
-	fields: CanonicalDocument['fields'],
 ) {
 	if (
 		base === null ||
@@ -168,7 +167,7 @@ async function keptHead(
 	);
 	if (merged.regions.length === 0) {
 		const read = framed(merged.content);
-		if (read !== undefined && sameValue(read.fields, fields))
+		if (read !== undefined && sameValue(read.fields, kept.fields))
 			return { head: merged.content, overridden: [] as Overridden[] };
 	}
 	// Field conflicts already name semantic changes. Report a dropped current
@@ -237,13 +236,7 @@ async function mergeMarkdown(
 	overridden.push(...body.regions.map((region) => linesOf('body', region)));
 	const kept = [c, n].find((side) => sameValue(fields, side.fields));
 	if (kept !== undefined) {
-		const head = await keptHead(
-			b,
-			c,
-			n,
-			kept,
-			fields as CanonicalDocument['fields'],
-		);
+		const head = await keptHead(b, c, n, kept);
 		const units = [...head.overridden, ...overridden];
 		if (head.head === kept.head && body.content === kept.body)
 			return { content: kept.text, overridden: units };
@@ -260,7 +253,10 @@ async function mergeMarkdown(
 	// Patch the merged values into the current source so its comments and
 	// unrecognized presentation survive independent field edits.
 	const patch: Record<string, unknown> = {};
-	for (const key of new Set([...Object.keys(c.fields), ...Object.keys(fields)])) {
+	for (const key of new Set([
+		...Object.keys(c.fields),
+		...Object.keys(fields),
+	])) {
 		if (sameValue(c.fields[key], fields[key])) continue;
 		Object.defineProperty(patch, key, {
 			value: fields[key],
@@ -271,11 +267,10 @@ async function mergeMarkdown(
 		{ text: c.text, issues: null },
 		{ fields: patch, body: body.content },
 	);
-	if (edited.error === null)
-		return { content: edited.data.text, overridden };
+	if (edited.error === null) return { content: edited.data.text, overridden };
 	// Existing keys keep current's order. All newly introduced keys sort together.
 	const { data, error } = formatRowSource(
-		{ fields, body: body.content } as CanonicalDocument,
+		{ fields, body: body.content },
 		c.keyOrder,
 	);
 	return error === null ? { content: data.text, overridden } : undefined;

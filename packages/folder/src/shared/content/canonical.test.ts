@@ -6,11 +6,7 @@
  */
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import {
-	type CanonicalDocument,
-	formatRowSource,
-	parseRowSource,
-} from './canonical.js';
+import { formatRowSource, parseRowSource } from './canonical.js';
 
 test('source key order retains integer-looking names that objects reorder', () => {
 	const parsed = expectOk(
@@ -78,12 +74,7 @@ test('formatting refuses values that serialization would silently discard or alt
 		'\ud800',
 	]) {
 		expect(
-			expectErr(
-				formatRowSource(
-					{ fields: { value }, body: '' } as unknown as CanonicalDocument,
-					[],
-				),
-			).field,
+			expectErr(formatRowSource({ fields: { value }, body: '' }, [])).field,
 		).toBe('value');
 	}
 });

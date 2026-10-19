@@ -17,13 +17,13 @@
 import { expect, test } from 'bun:test';
 import { defineTable, field } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { defineFolder } from './definition.js';
+import { parseRow } from './row-text.js';
 import {
 	type CanonicalDocument,
 	formatRowSource,
 	parseRowSource,
 } from './shared/content/canonical.js';
-import { defineFolder } from './definition.js';
-import { parseRow } from './row-text.js';
 
 /** A todos table's declared field order. */
 const DECLARED = ['title', 'done', 'priority'] as const;
@@ -222,7 +222,7 @@ test('format refuses values that have no exact JSON form', () => {
 		[1, , 3],
 	]) {
 		const result = formatRowSource(
-			{ fields: { x: value } as never, body: '' },
+			{ fields: { x: value }, body: '' },
 			DECLARED,
 		);
 		expectErr(result);
@@ -239,8 +239,7 @@ test('format refuses a malformed document shape instead of throwing, and reads o
 		{ fields: null, body: '' },
 	];
 	const reasons = malformed.map(
-		(document) =>
-			expectErr(formatRowSource(document as never, DECLARED)).reason,
+		(document) => expectErr(formatRowSource(document, DECLARED)).reason,
 	);
 	expect(reasons).toEqual([
 		'The document is not an object',
@@ -250,9 +249,9 @@ test('format refuses a malformed document shape instead of throwing, and reads o
 		'The fields are not a plain object',
 		'The fields are not a plain object',
 	]);
-	expect(
-		expectErr(formatRowSource({ fields: {} } as never, DECLARED)).path,
-	).toEqual(['body']);
+	expect(expectErr(formatRowSource({ fields: {} }, DECLARED)).path).toEqual([
+		'body',
+	]);
 
 	// Other properties, such as a public row's status and text, are not input.
 	const row = {

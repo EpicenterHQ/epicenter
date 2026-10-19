@@ -439,3 +439,28 @@ test('formatting a row leaves the row it was given unchanged', () => {
 		body: 'one\r\n',
 	});
 });
+
+test('formatting snapshots the body and fields once, without reading other properties', () => {
+	let bodyReads = 0;
+	let fieldReads = 0;
+	const row = {
+		get fields() {
+			fieldReads += 1;
+			return { title: 'Milk', done: false, tags: [] };
+		},
+		get body() {
+			bodyReads += 1;
+			return 'one\r\n';
+		},
+		get unrelated() {
+			throw new Error('Only the row content should be read');
+		},
+	};
+	const text = expectOk(formatRow(todos, row));
+	expect(bodyReads).toBe(1);
+	expect(fieldReads).toBe(1);
+	expect(expectOk(parseRow(todos, text))).toEqual({
+		fields: { title: 'Milk', done: false, tags: [] },
+		body: 'one\n',
+	});
+});
