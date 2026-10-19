@@ -2,6 +2,7 @@
 import type { TSchema as Schema, Static } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import { parseDocument } from 'yaml';
 import {
 	type CanonicalDocument,
 	type CanonicalRefusal,
@@ -105,8 +106,8 @@ export type RowChange = {
 };
 
 /** Build the draft's sent source. Schema validation never refuses a write. */
-export function rowChange<TSchema extends Schema>(
-	from: Row<TSchema> | null,
+export function rowChange(
+	from: Pick<Row, 'text' | 'issues'> | null,
 	change: RowChange,
 ): Result<{ text: string }, CanonicalRefusal> {
 	if (from?.issues?.some((issue) => issue.kind === 'not-text'))
@@ -147,7 +148,39 @@ export function rowChange<TSchema extends Schema>(
 	if (formatted.error !== null) return Err(formatted.error);
 	if (sameValue(document.fields, formatted.data.document.fields))
 		return replaceBody(source, body);
-	return checkedText(formatted.data.text);
+	const frame = frameRowText(source);
+	if (frame.kind !== 'frontmatter')
+		throw new Error('A parsed row has no frontmatter frame');
+	const yaml = parseDocument(source.slice(frame.yamlStart, frame.yamlEnd), {
+		prettyErrors: false,
+		uniqueKeys: true,
+		version: '1.2',
+		intAsBigInt: true,
+	});
+	for (const key of parsed.data.keyOrder) {
+		if (sameValue(document.fields[key], fields[key])) continue;
+		if (Object.hasOwn(fields, key)) yaml.set(key, fields[key]);
+		else yaml.delete(key);
+	}
+	for (const key of Object.keys(fields).sort()) {
+		if (Object.hasOwn(document.fields, key)) continue;
+		yaml.set(key, fields[key]);
+	}
+	const header = yaml.toString().replaceAll('\n', frame.newline);
+	const changed = joinRowText(
+		source.slice(0, frame.yamlStart) +
+			header +
+			source.slice(frame.yamlEnd, frame.bodyStart),
+		body,
+	);
+	const reread = parseRowSource(changed);
+	if (
+		reread.error !== null ||
+		!sameValue(reread.data.document.fields, formatted.data.document.fields) ||
+		reread.data.document.body !== body
+	)
+		return Err({ reason: 'The edited source does not read back as the change', path: [] });
+	return checkedText(changed);
 }
 
 function replaceBody(source: string, body: string) {

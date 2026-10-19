@@ -10,6 +10,7 @@ import {
 } from './content/canonical.js';
 import { frameRowText, joinRowText } from './content/markdown.js';
 import { type CompetingRegion, mergeLines } from './content/merge-lines.js';
+import { rowChange } from './row.js';
 
 export type FileContent = string | Uint8Array;
 
@@ -256,6 +257,22 @@ async function mergeMarkdown(
 			overridden: units,
 		};
 	}
+	// Patch the merged values into the current source so its comments and
+	// unrecognized presentation survive independent field edits.
+	const patch: Record<string, unknown> = {};
+	for (const key of new Set([...Object.keys(c.fields), ...Object.keys(fields)])) {
+		if (sameValue(c.fields[key], fields[key])) continue;
+		Object.defineProperty(patch, key, {
+			value: fields[key],
+			enumerable: true,
+		});
+	}
+	const edited = rowChange(
+		{ text: c.text, issues: null },
+		{ fields: patch, body: body.content },
+	);
+	if (edited.error === null)
+		return { content: edited.data.text, overridden };
 	// Existing keys keep current's order. All newly introduced keys sort together.
 	const { data, error } = formatRowSource(
 		{ fields, body: body.content } as CanonicalDocument,

@@ -111,6 +111,21 @@ test('an unchanged fields patch keeps comments, BOM, quoting and line endings', 
 	expect(expectOk(rowChange(row, {})).text).toBe(text);
 });
 
+test('editing a field retains unrelated comments, source fields, and body', () => {
+	const source = '---\ntitle: Seed # title note\ndone: false\nextra: keep\n# source note\n---\nBody';
+	const row = readRow('note', source, schema);
+	const changed = expectOk(rowChange(row, { fields: { title: 'After' } })).text;
+	expect(changed).toContain('title: After # title note');
+	expect(changed).toContain('extra: keep');
+	expect(changed).toContain('# source note');
+	expect(changed.endsWith('---\nBody')).toBe(true);
+	expect(expectOk(parseRowSource(changed)).document.fields).toEqual({
+		title: 'After',
+		done: false,
+		extra: 'keep',
+	});
+});
+
 test('a changed field preserves undeclared fields and source key order then appends alphabetically', () => {
 	const row = readRow(
 		'note',

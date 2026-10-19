@@ -69,6 +69,21 @@ test('independent fields and paragraphs survive together', async () => {
 	expect(result.overridden).toEqual([]);
 });
 
+test('independent field edits retain the current source comment and unknown field', async () => {
+	const base = row('title: Seed\ndone: false\nextra: keep\n# source note\n', 'Body');
+	const result = await merge('todos/a.md', {
+		base,
+		current: base.replace('title: Seed', 'title: Edited'),
+		change: base.replace('done: false', 'done: true'),
+	});
+	expect(result.content).toContain('title: Edited\ndone: true\nextra: keep');
+	expect(result.content).toContain('# source note');
+	expect(document(result.content)).toEqual({
+		fields: { title: 'Edited', done: true, extra: 'keep' },
+		body: 'Body',
+	});
+});
+
 test('arrays and nested mappings compete as whole fields', async () => {
 	const result = await merge('a.md', {
 		base: row('tags: [a, b]\noptions: {left: 0, right: 0}\n'),
