@@ -12,7 +12,9 @@
 		"smoke:local": "bun smoke/local.ts"
 	},
 	"dependencies": {
+		"buffer": "^6.0.3",
 		"diff": "^8.0.4",
+		"isomorphic-git": "1.38.5",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"
