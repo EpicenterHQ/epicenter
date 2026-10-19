@@ -1,11 +1,69 @@
 # @epicenter/folder
 
-This README documents the current declaration-dependent implementation. App
-openers still publish or read root `epicenter.json`; CLI checking and queries
-require it. The chosen direction uses app-supplied schemas and root
-epicenter.json for CLI check and query. Apps need no metadata file. That
-migration is unbuilt; the APIs below remain current. See [shared vocabulary](../../docs/CONTEXT.md)
-and [ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md).
+This package has two open shapes. `openFolder({ tables })` is the chosen
+contract ([ADR-0636](../../docs/adr/0636-an-app-opens-local-files-through-one-folder-handle.md),
+[ADR-0633](../../docs/adr/0633-apps-open-local-data-before-connecting-services.md),
+[ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)); it is built
+for browsers only. The declaration-dependent forms (`{ app, definition }`,
+`{ id, definition }`, `{ id }`) are a **temporary migration boundary**: they
+keep apps that predate those records building, and the sections below
+document them. Remove them, their OPFS and `epicenter.json` adapters, and the
+`OpenLegacyFolder` type when no app or tool calls them, then rename
+`LocalFolder` to `Folder`. CLI checking and queries still require root
+`epicenter.json`. See [shared vocabulary](../../docs/CONTEXT.md).
+
+## Default browser folder
+
+```ts
+import { openFolder } from '@epicenter/folder';
+import { Type } from 'typebox';
+
+const notes = Type.Object({ title: Type.String(), done: Type.Optional(Type.Boolean()) });
+const { data: folder, error } = await openFolder({ tables: { notes } });
+if (error !== null) return show(error.message);
+
+const stop = folder.onChange((change) => refresh(change.paths));  // subscribe, then read
+const row = (await folder.tables.notes.get('milk')).data;
+const saved = await folder.tables.notes.set('milk', row ?? null, { fields: { title: 'Milk' } });
+if (saved.error !== null) show(saved.error.message);              // nothing was saved
+folder.status;                                                    // { state: 'local', saving, storageFailure }
+await folder.close();
+```
+
+The call needs no app ID, authentication, remote, or network. A browser origin
+has one default local folder, kept in IndexedDB by `@epicenter/data` under a
+fixed internal key that no app name, account, or remote changes. It reads none
+of the OPFS data of the older shape. A fresh profile starts empty.
+
+- `files` lists, reads, writes, and deletes rooted paths. A write names the
+  content it started from (`from`, or `null` for a new file), so the engine can
+  keep other saves that landed meanwhile.
+- `tables.<name>` interprets `<name>/<id>.md` through the supplied TypeBox
+  schema. A row keeps its exact `text`, raw `fields`, and `issues`; `set` and
+  `delete` take the row they started from. A schema never authorizes or refuses
+  a write, and unknown fields and malformed frontmatter survive. `files(id)`
+  reaches the files beside a row.
+- `onChange` runs after a save commits, from this handle or any other handle of
+  the origin, including another tab. `change.paths` lists the paths written, or
+  is `null` when any path may differ; `change.origin` is `this-handle` or
+  `other-handle`. A listener that throws is logged and does not affect the save.
+- `status.state` is `local` while there is no sync destination. `saving` is
+  true while a save is between its call and its commit or refusal.
+  `storageFailure` records a storage failure until a later publication commits
+  on this handle. Each caller owns its failed draft and any structural refusal.
+  A save counts as saved only after IndexedDB committed it.
+- A failed save returns `StorageFailed` with the browser's reason, such as
+  `QuotaExceededError`, and leaves earlier storage unchanged. Structural
+  refusals (`Occupied`, `CaseTwin`, `InvalidPath`) are also results.
+- `close()` makes new calls throw, lets saves already started finish with their
+  real outcome, releases every listener, and closes the database. Saved work
+  stays saved. Calling it again returns the same promise.
+
+Unbuilt: native defaults and `directory`, sync and its status states, account
+flows, schema-file reading, and bringing data from the older OPFS folders.
+`openFolder({ tables })` in the desktop app returns `DirectoryRequired`.
+
+## Declaration-dependent folders (temporary migration boundary)
 
 A folder whose current files are the saved data: Markdown rows and any other
 file, with Git history beside them. There is no document store
@@ -208,7 +266,7 @@ its directory's name.
 | Import | Opens | Use it when |
 | --- | --- | --- |
 | `@epicenter/folder` | The desktop app's folder when the page runs in Tauri, this browser's storage otherwise. Decided when `openFolder` is called, and only the chosen adapter is loaded. | Ordinary application code. |
-| `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
+| `@epicenter/folder/browser` | The browser's default local folder in IndexedDB, or an older named folder in OPFS. Refuses inside the desktop app. | A web-only build. Older-shape tests may inject an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 | `@epicenter/folder/query` | Nothing: TanStack Query option factories over a folder already open ([Queries](#queries)), and its writes in one order per file ([Writes](#writes)). | A page that reads and writes a folder through TanStack Query. |
@@ -432,8 +490,8 @@ stay after the path is replaced.
 Opening requires `navigator.storage.getDirectory`, writable file streams, file
 moves, and Web Locks; without one it returns `NoFileSystem` and never falls
 back.
-IndexedDB is not required and is never read or written. A folder an earlier
-version kept in IndexedDB is not opened, copied, or removed.
+This older OPFS path does not read or write IndexedDB. The default local
+folder uses IndexedDB and does not open, copy, or remove OPFS data.
 
 Storage is one port on every host (`boundary.ts`): `read`, `list`,
 `children`, `put(path, bytes | null, ifMatch)`, `mkdir`, and `rmdir`, and

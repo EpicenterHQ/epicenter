@@ -29,7 +29,11 @@
 
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { OpenFolder, OpenFolderOptions } from './contract.js';
+import type {
+	AnyFolderOptions,
+	OpenFolder,
+	OpenFolderOptions,
+} from './contract.js';
 import type { Definition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
@@ -111,7 +115,7 @@ async function handedFolder(
  * or one that does not contain the definition. Opening creates no
  * repository; the first commit does.
  */
-export async function openAnyFolder<
+async function openGrantedAnyFolder<
 	const TDefinition extends Definition = Definition,
 >(
 	options: OpenFolderOptions<TDefinition>,
@@ -137,6 +141,15 @@ export async function openAnyFolder<
 	const { openGrantedFolder } = await import('./tauri-directory.js');
 	return openGrantedFolder<TDefinition>({ opening: target, granted });
 }
+
+/**
+ * The opener. The default local folder of `{ tables }` is a browser feature;
+ * a desktop app will open a directory (ADR-0636), which is not built.
+ */
+export const openAnyFolder = ((options: AnyFolderOptions) =>
+	'tables' in options
+		? Promise.resolve(OpenFolderError.DirectoryRequired())
+		: openGrantedAnyFolder(options)) as unknown as OpenFolder;
 
 /** The opener, every form typed (`OpenFolder`). */
 export const openFolder: OpenFolder = openAnyFolder;

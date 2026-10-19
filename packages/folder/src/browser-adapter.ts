@@ -1,5 +1,6 @@
 /**
- * The browser adapter: a folder in this browser's origin private file system.
+ * The browser adapter: the default local folder in IndexedDB and older
+ * declaration-dependent folders in the origin private file system.
  *
  * A folder is the directory named by its ID at the root of the origin's
  * private file system: every literal path is one stored file, every directory
@@ -12,7 +13,8 @@
  * and its first commit or remote creates its repository, as on
  * every host; reads never write. A folder nobody wrote to lists no files
  * and has no history. Its remote is `remote.origin.url` in its Git configuration, which
- * `folder.sync.connect` sets. IndexedDB is never required, read, or written.
+ * `folder.sync.connect` sets. This OPFS path does not read IndexedDB; the
+ * `{ tables }` path below does.
  *
  * `browser.ts` is the public entry; the automatic entry loads this module
  * directly, so choosing an adapter at run time never drags the other
@@ -24,13 +26,18 @@ import { isTauri } from '@tauri-apps/api/core';
 import { Buffer } from 'buffer/';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { browserChangeDetector } from './changes-browser.js';
-import type { OpenFolder, OpenFolderOptions } from './contract.js';
+import type {
+	AnyFolderOptions,
+	OpenFolder,
+	OpenFolderOptions,
+} from './contract.js';
 import type { Definition } from './definition.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory } from './git/history.js';
 import type { Author } from './git/objects.js';
+import { openLocalFolder } from './local-folder.js';
 import { openAtRoot } from './open-at-root.js';
 import { opening } from './opening.js';
 import {
@@ -116,7 +123,7 @@ function folderAddress(id: string): FolderAddress {
 }
 
 /**
- * Open a folder in this browser's storage: for `app`, the app's own folder,
+ * Open a folder in this browser's origin private file system: for `app`, the app's own folder,
  * named after it, since a browser is handed no other; for `id`, the folder
  * named `id`. Refusals are returned, not thrown: a definition a folder
  * cannot keep, a page inside the desktop app, an ID that cannot name a
@@ -127,7 +134,7 @@ function folderAddress(id: string): FolderAddress {
  * first write creates its directory, and its first commit or remote creates
  * its repository.
  */
-export async function openAnyFolder<
+async function openOpfsFolder<
 	const TDefinition extends Definition = Definition,
 >(
 	options: OpenFolderOptions<TDefinition>,
@@ -197,6 +204,19 @@ export async function openAnyFolder<
 		},
 	});
 }
+
+/**
+ * The opener. `{ tables }` opens this origin's default local folder in
+ * IndexedDB. The remaining forms are the temporary migration boundary of
+ * `contract.ts`: a folder named by app or ID in OPFS.
+ */
+export const openAnyFolder = ((options: AnyFolderOptions) => {
+	if ('tables' in options) {
+		if (isTauri()) return Promise.resolve(OpenFolderError.InsideTauri());
+		return openLocalFolder(options);
+	}
+	return openOpfsFolder(options);
+}) as unknown as OpenFolder;
 
 /** The opener, every form typed (`OpenFolder`). */
 export const openFolder: OpenFolder = openAnyFolder;

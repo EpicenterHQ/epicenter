@@ -4,7 +4,9 @@
 	"private": true,
 	"type": "module",
 	"description": "Git-backed repository data for browser apps.",
-	"exports": {},
+	"exports": {
+		"./internal": "./src/internal.ts"
+	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"typecheck": "tsc --noEmit",

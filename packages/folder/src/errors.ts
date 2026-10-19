@@ -321,6 +321,22 @@ export const OpenFolderError = defineErrors({
 		message: `There is no folder at ${root}; it may have been moved or removed.`,
 		root,
 	}),
+	/**
+	 * `openFolder({ tables })` named a table that cannot be one top-level
+	 * directory: empty, `.`, `..`, containing a slash or NUL, or `.git`.
+	 */
+	InvalidTable: ({ table }: { table: string }) => ({
+		message: `'${table}' cannot name a table: a table is one top-level directory`,
+		table,
+	}),
+	/**
+	 * `openFolder({ tables })` opens this origin's default local folder, which
+	 * only a browser page has. A desktop app opens a directory.
+	 */
+	DirectoryRequired: () => ({
+		message:
+			'The default local folder belongs to a browser page; a desktop app opens a directory',
+	}),
 	/** The folder's storage could not be reached or made ready. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({
 		message: `The folder could not be opened: ${describe(cause)}`,

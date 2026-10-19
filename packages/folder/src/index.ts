@@ -3,7 +3,8 @@
  * is running.
  *
  * A folder's current files are its saved data: Markdown rows and any other
- * file. In a browser tab they are files in the origin private file system.
+ * file. In a browser tab the default local folder uses IndexedDB; older
+ * named folders use the origin private file system until migration.
  * In the desktop app they are files in a directory the shell grants the
  * page, and an app opens the folder the shell handed its window.
  *
@@ -13,25 +14,25 @@
  * or `@epicenter/folder/tauri`, or alias this exact specifier to one of them.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import type { Definition, OpenFolder, OpenFolderOptions } from './contract.js';
+import type { AnyFolderOptions, OpenFolder } from './contract.js';
 
 export * from './contract.js';
 
 /**
  * Open a folder in the desktop app when the page runs there, and in this
- * browser's storage otherwise. On the desktop an app opens the folder the
+ * browser's storage otherwise. `openFolder({ tables })` opens the browser
+ * origin's default local folder. The other forms are the temporary migration
+ * boundary of `contract.ts`: on the desktop an app opens the folder the
  * shell handed its window; in a browser, its own. A desktop page
  * whose folder cannot be opened gets that refusal; it is never given browser
  * storage instead.
  */
-export const openFolder: OpenFolder = async <
-	const TDefinition extends Definition = Definition,
->(
-	options: OpenFolderOptions<TDefinition>,
-) =>
+export const openFolder = (async (options: AnyFolderOptions) =>
 	// The adapters are loaded by themselves, not through the explicit entries:
 	// those re-export the whole contract, which would tie each adapter's chunk
 	// to everything the other one shares with it.
 	isTauri()
-		? (await import('./tauri-adapter.js')).openAnyFolder(options)
-		: (await import('./browser-adapter.js')).openAnyFolder(options);
+		? (await import('./tauri-adapter.js')).openAnyFolder(options as never)
+		: (await import('./browser-adapter.js')).openAnyFolder(
+				options as never,
+			)) as unknown as OpenFolder;

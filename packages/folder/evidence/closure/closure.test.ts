@@ -46,7 +46,7 @@ describe('what the TypeScript program loads', () => {
 				.filter((file) => file.startsWith(`${PACKAGES}/`))
 				.map((file) => relative(PACKAGES, file).split('/')[0]);
 			expect([...new Set(workspace)].sort()).toEqual(
-				name === 'folder' ? ['definition', 'folder'] : ['definition'],
+				name === 'folder' ? ['data', 'definition', 'folder'] : ['definition'],
 			);
 			const forbidden = files.filter(
 				(file) =>

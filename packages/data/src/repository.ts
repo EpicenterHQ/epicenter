@@ -13,6 +13,7 @@ import {
 	openStorage,
 	type RepositorySnapshot,
 	StorageFailure,
+	type StorageChange,
 	shadowed,
 	snapshotContent,
 	snapshotDirectories,
@@ -95,6 +96,9 @@ function validPath(path: string): boolean {
 
 const validId = (id: string) => validPath(id) && !id.includes('/');
 
+/** A table is one top-level directory. */
+export const isTableName = validId;
+
 function caseTwin(
 	path: string,
 	paths: ReadonlySet<string>,
@@ -153,6 +157,10 @@ function editPatch(
 export async function openRepository<
 	const TTables extends Record<string, Schema> = Record<never, never>,
 >(id: string, schemas: TTables = {} as TTables) {
+	// Refuse before opening a database connection that would then leak.
+	for (const name of Object.keys(schemas))
+		if (!isTableName(name))
+			throw new Error(`Table name must be one filename segment: ${name}`);
 	const storage = await openStorage(id);
 	let closed = false;
 	function assertOpen() {
@@ -264,8 +272,6 @@ export async function openRepository<
 	}
 
 	function table<const TSchema extends Schema>(name: string, schema: TSchema) {
-		if (!validPath(name) || name.includes('/'))
-			throw new Error(`Table name must be one filename segment: ${name}`);
 		const rowPath = (id: string) => `${name}/${id}.md`;
 		return {
 			list() {
@@ -493,6 +499,15 @@ export async function openRepository<
 						return Ok({ base, head: oid });
 				}
 			});
+		},
+
+		/**
+		 * Listen for committed changes to file contents, from this handle or
+		 * another connection. The returned function stops it; `close` stops all.
+		 */
+		onChange(listener: (change: StorageChange) => void): () => void {
+			assertOpen();
+			return storage.subscribe(listener);
 		},
 
 		close() {

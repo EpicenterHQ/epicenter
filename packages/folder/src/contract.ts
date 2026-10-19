@@ -9,12 +9,14 @@
  * This module is inert. Importing it opens nothing and loads no storage, no
  * Git implementation, and no runtime-specific module.
  */
+import type { TSchema as Schema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type { Definition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
+import type { LocalFolder, LocalFolderOptions } from './local-folder.js';
 import type { OpfsEnvironment } from './opfs-store.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
@@ -64,6 +66,19 @@ export type { Author, CommitSummary } from './git/objects.js';
 export type { SyncOptions, SyncOutcome } from './git/sync.js';
 export { hashBytes } from './hash.js';
 export { frameRowText } from './markdown.js';
+export type {
+	FolderChange,
+	FolderStatus,
+	LocalFiles,
+	LocalFolder,
+	LocalFolderOptions,
+	LocalIssue,
+	LocalRow,
+	LocalRowChange,
+	LocalTable,
+	ReadError,
+	SaveError,
+} from './local-folder.js';
 export type { FileContent, Overridden } from './merge-file.js';
 export {
 	DEFINITION_PATH,
@@ -134,6 +149,18 @@ type HostOptions = {
 };
 
 /**
+ * TEMPORARY MIGRATION BOUNDARY: the declaration-dependent open shapes.
+ *
+ * `{ app, definition }`, `{ id, definition }`, and `{ id }` open a folder kept
+ * in OPFS (browser), a granted directory (desktop), or a path (Bun), and they
+ * publish or read `epicenter.json`. They exist so apps that predate
+ * ADR-0632/0633/0636 keep building. The chosen contract is
+ * `openFolder({ tables })` (`LocalFolderOptions`), which returns a
+ * `LocalFolder`. Remove `OpenFolderOptions`, `DefinedFolderOptions`,
+ * `DeclaredFolderOptions`, the first two `OpenFolder` overloads, and the
+ * OPFS/declaration adapters when no app or tool calls them; then rename
+ * `LocalFolder` to `Folder`. Old stored data is not read by the new shape.
+ *
  * Which folder to open, and the definition to read it through.
  *
  * One rule decides what the handle does with the definition: a folder's
@@ -186,14 +213,16 @@ export type DeclaredFolderOptions = HostOptions & {
 	readonly app?: never;
 };
 
+/** Every shape an opener may receive, for the adapters that dispatch on it. */
+export type AnyFolderOptions =
+	| OpenFolderOptions
+	| LocalFolderOptions<Record<string, Schema>>;
+
 /**
- * The one opener signature. Every entry but `/bun`, which opens a directory
- * by its path, exports an `openFolder` of exactly this type. The handle's
- * `definition` is the folder's own definition wherever the folder is not
- * the app's own, so it is typed as any definition. Without a definition the
- * tables are the folder's own, typed as any, whatever a caller claims.
+ * The temporary migration boundary's two call signatures (see
+ * `DefinedFolderOptions`). Removed with it.
  */
-export type OpenFolder = {
+export type OpenLegacyFolder = {
 	<const TDefinition extends Definition>(
 		options: DefinedFolderOptions<TDefinition>,
 	): Promise<Result<Folder<TDefinition, Definition>, OpenFolderError>>;
@@ -201,3 +230,20 @@ export type OpenFolder = {
 		options: DeclaredFolderOptions,
 	): Promise<Result<Folder<Definition>, OpenFolderError>>;
 };
+
+/**
+ * The one opener signature. Every entry but `/bun`, which opens a directory
+ * by its path, exports an `openFolder` of exactly this type.
+ *
+ * `{ tables }` is the chosen shape: this origin's default local folder
+ * (browser only for now), needing no app ID, authentication, remote, or
+ * network. For the legacy forms, the handle's `definition` is the folder's
+ * own definition wherever the folder is not the app's own, so it is typed as
+ * any definition. Without a definition the tables are the folder's own,
+ * typed as any, whatever a caller claims.
+ */
+export type OpenFolder = {
+	<const TTables extends Record<string, Schema>>(
+		options: LocalFolderOptions<TTables>,
+	): Promise<Result<LocalFolder<TTables>, OpenFolderError>>;
+} & OpenLegacyFolder;

@@ -9,7 +9,7 @@
  * - The automatic entry puts neither adapter in the code that loads first.
  *   Both adapters are separate chunks, loaded only when a folder is opened
  * - Aliasing the exact bare specifier to `/browser` emits no desktop adapter
- *   and no IndexedDB access anywhere; aliasing it to `/tauri` loads only the
+ *   and includes the local IndexedDB engine; aliasing it to `/tauri` loads only the
  *   desktop adapter first. The directory folder a page runs over a granted
  *   directory, reading through the folder plugin and recording history with
  *   the shell's Git, is a lazy chunk the desktop adapter loads only when the
@@ -154,6 +154,7 @@ describe('what a Vite build of the same application emits', () => {
 		expect(desktop[0]).not.toContain(BROWSER);
 		// Loading the browser adapter loads no desktop commands.
 		expect(browser[0]).toContain(GIT);
+		expect(browser[0]).toContain('IndexedDB could not be opened');
 		expect(browser[0]).not.toContain(DESKTOP);
 	}, 120_000);
 
@@ -164,9 +165,8 @@ describe('what a Vite build of the same application emits', () => {
 		expect(built.everything).toContain(GIT);
 		expect(built.everything).not.toContain(DESKTOP);
 		expect(built.everything).not.toContain('plugin:epicenter-folder|');
-		// Browser folders are OPFS only: nothing emitted reaches IndexedDB.
-		expect(built.everything).not.toContain('indexedDB');
-		expect(built.everything).not.toContain('IDBKeyRange');
+		// The browser entry includes the local repository engine.
+		expect(built.everything).toContain('IndexedDB could not be opened');
 		// With one adapter there is nothing to choose, so it loads with the page.
 		expect(built.initial).toContain(BROWSER);
 		expect(built.everything).not.toContain(SHELL);

@@ -29,6 +29,7 @@ import {
 	type Issues,
 	type OpenFolder,
 	type OpenFolderError,
+	type OpenLegacyFolder,
 	type OpenFolderOptions,
 	type PreparedFolderTable,
 	parseRow,
@@ -224,15 +225,15 @@ expectTypeOf(root.openFolder).toEqualTypeOf<OpenFolder>();
 expectTypeOf(browser.openFolder).toEqualTypeOf<OpenFolder>();
 expectTypeOf(tauri.openFolder).toEqualTypeOf<OpenFolder>();
 expectTypeOf<keyof Opened['git']>().toEqualTypeOf<keyof FolderGit>();
-expectTypeOf(root.openFolder<typeof definition>).returns.toEqualTypeOf<
+expectTypeOf((root.openFolder as OpenLegacyFolder)<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Opened, OpenFolderError>>
 >();
-expectTypeOf(root.openFolder<typeof definition>)
+expectTypeOf((root.openFolder as OpenLegacyFolder)<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<DefinedFolderOptions<typeof definition>>();
 // Without a definition the tables are the folder's own, whatever is claimed.
 // @ts-expect-error A definition-less open takes no definition type.
-void root.openFolder<typeof definition>({ id: 'empty' });
+void (root.openFolder as OpenLegacyFolder)<typeof definition>({ id: 'empty' });
 // An app names itself; the definition names no folder.
 expectTypeOf<
 	Extract<OpenFolderOptions<typeof definition>, { app: string }>['app']
@@ -270,10 +271,10 @@ const board = defineFolder({
 	},
 });
 type ReadThrough = Folder<typeof board, Definition>;
-expectTypeOf(root.openFolder<typeof board>).returns.toEqualTypeOf<
+expectTypeOf((root.openFolder as OpenLegacyFolder)<typeof board>).returns.toEqualTypeOf<
 	Promise<Result<ReadThrough, OpenFolderError>>
 >();
-expectTypeOf(browser.openFolder<typeof board>).returns.toEqualTypeOf<
+expectTypeOf((browser.openFolder as OpenLegacyFolder)<typeof board>).returns.toEqualTypeOf<
 	Promise<Result<ReadThrough, OpenFolderError>>
 >();
 expectTypeOf(bun.openFolder<typeof board>).returns.toEqualTypeOf<

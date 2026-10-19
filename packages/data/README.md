@@ -23,8 +23,10 @@ local opening. CLI check and query require root epicenter.json in v1
 ([ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)).
 
 The internal constructors already separate local storage from Git exchange.
-The public local opening API, persisted connection, local status, and first
-attachment of existing work are not built. Hosted inference is a separate
+`@epicenter/folder` now provides the public local opening API,
+`openFolder({ tables })`, over `openRepository` through the `./internal` entry,
+which only that package imports. Apps never see `Repository`. A persisted
+connection, sync status, and first attachment of existing work are not built. Hosted inference is a separate
 service and adds no dependency to this package
 ([ADR-0634](../../docs/adr/0634-hosted-inference-is-independent-of-repository-sync.md)).
 
@@ -107,6 +109,13 @@ and are excluded from the file list; deletion does not claim an unseen gitlink
 was removed. Writing text over a symlink or gitlink creates a regular file.
 Untouched native modes and raw entries stay intact.
 
+`onChange` reports each committed publication: the paths a save wrote or
+deleted, or null when a snapshot change may touch any path. It reaches every
+handle of the database, including other tabs, through a `BroadcastChannel`
+named after the database. A save that fails or changes nothing notifies no one.
+A transaction failure, including a synchronous request error such as a
+`QuotaExceededError`, becomes `StorageFailed` and names the browser's reason.
+
 Closing a handle prevents new operations. A call made after close throws;
 an already-running operation that cannot publish returns `StorageFailed`.
 Previously acknowledged work remains saved.
@@ -163,10 +172,10 @@ to settle; the scheduler need not force progress during uninterrupted typing.
 
 ## Integration boundary
 
-The package has no public opening API yet. The internal constructor does not
-check a grant or start network sync. Do not migrate an application to it until
-the public local opening API, subscriptions, status, and data-safe migration
-are connected. A sync-enabled app also needs optional auth, remote attachment,
+The package exports only `./internal`, for `@epicenter/folder`'s
+`openFolder({ tables })`. The internal constructor does not check a grant or
+start network sync. Do not migrate an application's stored data to it until
+the data-safe migration from the older OPFS folders is connected. A sync-enabled app also needs optional auth, remote attachment,
 and automatic scheduling; those do not gate local-only use.
 
 Ordinary Git exchange and uncertain-push recovery now have local native-server

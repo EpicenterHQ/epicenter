@@ -1,3 +1,4 @@
+import { createLogger } from 'wellcrafted/logger';
 import { snapshotObjects } from './git/closure.js';
 import { type GitObject, readCommit, readTree } from './git/objects.js';
 import { readSnapshot } from './git/snapshot.js';
@@ -23,10 +24,31 @@ export type RepositorySnapshot = {
 	objects: Map<string, GitObject>;
 };
 
+const log = createLogger('data/storage');
+
+/**
+ * A committed change to what the repository's files contain. `paths` lists the
+ * paths a save wrote or deleted; null means any path may differ (a snapshot
+ * was adopted). `origin` separates this handle's own publication from one
+ * made through another handle, in this page or in another tab.
+ */
+export type StorageChange = {
+	readonly paths: readonly string[] | null;
+	readonly origin: 'this-handle' | 'other-handle';
+};
+
+/** The browser's own name for a failure (QuotaExceededError, AbortError) and its text. */
+function reason(cause: unknown): string {
+	if (typeof cause !== 'object' || cause === null) return '';
+	const { name, message } = cause as { name?: unknown; message?: unknown };
+	if (typeof name !== 'string' || name === 'Error') return '';
+	return `: ${name}${typeof message === 'string' && message !== '' ? ` (${message})` : ''}`;
+}
+
 /** Only failures at the IndexedDB boundary become ordinary storage errors. */
 export class StorageFailure extends Error {
 	constructor(message: string, cause?: unknown) {
-		super(message, { cause });
+		super(`${message}${reason(cause)}`, { cause });
 		this.name = 'StorageFailure';
 	}
 }
@@ -110,9 +132,41 @@ export async function openStorage(id: string) {
 				/* Already completed or aborted. */
 			}
 			await completion.catch(() => {});
+			// A synchronous request error (DataError, DataCloneError, an inactive
+			// transaction) is the same storage failure as an aborted transaction.
+			if (cause instanceof DOMException)
+				throw new StorageFailure('IndexedDB request was refused', cause);
 			throw cause;
 		}
 	}
+
+	const listeners = new Set<(change: StorageChange) => void>();
+	function notify(change: StorageChange) {
+		for (const listener of [...listeners]) {
+			try {
+				listener(change);
+			} catch (cause) {
+				log.error(new Error('A repository change listener threw.', { cause }));
+			}
+		}
+	}
+	// Connections of one origin hear each other's publications. A channel does
+	// not deliver to itself, so this connection notifies its own listeners.
+	const channel =
+		typeof BroadcastChannel === 'undefined'
+			? undefined
+			: new BroadcastChannel(`epicenter.data.${id}`);
+	if (channel !== undefined)
+		channel.onmessage = (event: MessageEvent) => {
+			const { paths } = (event.data ?? {}) as { paths?: unknown };
+			notify({
+				origin: 'other-handle',
+				paths:
+					Array.isArray(paths) && paths.every((path) => typeof path === 'string')
+						? paths
+						: null,
+			});
+		};
 
 	return {
 		/**
@@ -212,7 +266,7 @@ export async function openStorage(id: string) {
 		},
 
 		/** Hashes and merges happen before this transaction, never inside it. */
-		publish(input: {
+		async publish(input: {
 			revision: number;
 			refs?: RepositoryRefs;
 			/** Set only alongside a successful first-fetch adoption (empty included). */
@@ -221,7 +275,7 @@ export async function openStorage(id: string) {
 			/** undefined folds an incorporated edit into the published snapshot. */
 			edits?: ReadonlyMap<string, string | null | undefined>;
 		}): Promise<boolean> {
-			return transact('readwrite', async (transaction) => {
+			const published = await transact('readwrite', async (transaction) => {
 				const meta = transaction.objectStore('meta');
 				const state =
 					((await requested(meta.get('state'))) as
@@ -247,6 +301,17 @@ export async function openStorage(id: string) {
 				);
 				return true;
 			});
+			if (!published) return false;
+			// Without refs, only the paths in E can differ (an undefined entry is a
+			// save that restored C). A snapshot change may differ anywhere.
+			const changed =
+				input.refs === undefined ? [...(input.edits?.keys() ?? [])] : null;
+			// A close during the transaction already released the channel.
+			if (!closed && (changed === null || changed.length > 0)) {
+				channel?.postMessage({ paths: changed });
+				notify({ origin: 'this-handle', paths: changed });
+			}
+			return true;
 		},
 
 		/** A network acknowledgement is about exact B/C, independent of newer E. */
@@ -327,8 +392,21 @@ export async function openStorage(id: string) {
 			});
 		},
 
+		/** Delivered after a publication commits, never before it is durable. */
+		subscribe(listener: (change: StorageChange) => void): () => void {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
+		},
+
 		close() {
 			closed = true;
+			listeners.clear();
+			if (channel !== undefined) {
+				channel.onmessage = null;
+				channel.close();
+			}
 			database.close();
 		},
 	};
