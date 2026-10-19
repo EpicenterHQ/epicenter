@@ -1,35 +1,18 @@
-/**
- * The `connections` table of Epicenter's own folder, `so.epicenter`
- * (ADR-0557): one file per AI connection, `connections/<id>.md`, whose stem
- * is the connection's id. A row holds what may follow a person to every
- * machine: the kind, a title, and the model. It never holds an endpoint or
- * a key; those live in this computer's keychain under the same id
- * (`send.ts`), so an edit synced from elsewhere cannot send a key somewhere
- * new.
- *
- * `so.epicenter`'s declaration (`epicenterDefinition` in
- * `packages/cli/src/epicenter-folder.ts`) includes this table. Epicenter
- * publishes it; an installed app that uses connections reads `so.epicenter`
- * through {@link connectionsDefinition}, by ID, which never publishes.
- */
+/** The rows of Epicenter's local AI connections folder. */
+import { Type } from 'typebox';
 
-import { defineFolder, defineTable, field } from '@epicenter/folder';
-import { CONNECTION_KINDS } from './send.js';
-
-/** Epicenter's own folder, by its scope. */
+/** The shell's scope for its own connection files. */
 export const CONNECTIONS_FOLDER_ID = 'so.epicenter';
 
-export const connectionsTable = defineTable({
-	fields: {
-		kind: field.select(CONNECTION_KINDS),
-		title: field.string(),
-		/** The model a request names when its caller names none. Empty for a local connection, which uses the active local model. */
-		model: field.string(),
-	},
-});
-
-/** `so.epicenter` read through its `connections` table alone. */
-export const connectionsDefinition = defineFolder({
-	title: 'Epicenter',
-	tables: { connections: connectionsTable },
-});
+/** Keychain endpoints and keys stay outside these Markdown rows. */
+export const connectionsTables = {
+	connections: Type.Object({
+		kind: Type.Union([
+			Type.Literal('openai-compatible'),
+			Type.Literal('epicenter'),
+			Type.Literal('local'),
+		]),
+		title: Type.String(),
+		model: Type.String(),
+	}),
+};

@@ -1,78 +1,65 @@
+<!--
+	Capture inside `<FolderApp>`: builds the store over the local
+	folder's context, and shows the timeline or the one open capture under a
+	header that says whether everything is saved in this browser.
+
+	The folder keeps no history and syncs nowhere yet: the header offers no
+	Save version, Sync, or Connect.
+-->
 <script lang="ts">
+	import type { captureTables } from '@epicenter/capture';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
+	import { onDestroy } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import { createMutation } from '@tanstack/svelte-query';
-	import type { CommitOutcome } from '@epicenter/folder';
-	import type { captureDefinition } from '@epicenter/capture';
-	import { getFolder } from '@epicenter/svelte/folder';
-	import { describeWriteError } from '@epicenter/svelte/write-failure';
 	import { createCaptures } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	// The captures over the folder `<FolderApp>` opened.
-	const captures = createCaptures(getFolder<typeof captureDefinition>());
+	const captures = createCaptures(getFolder<typeof captureTables>());
 
 	// One page: the timeline or the one open capture.
 	const item = $derived(captures.opened);
 	/** The capture just added from the timeline, so its view starts at Add a thought. */
 	let created = $state<string>();
 
-	// Leaving would lose something: a write or action still running, or text not saved or added.
+	// Leaving would lose something: a save running or held, or text not added.
 	const mustStay = $derived(captures.unsettled);
 
-	// Text not added lives only in this page. A reload, a tab close, or a navigation out
-	// of the app is held back here; quitting the desktop app asks nothing (ADR-0542).
+	// Text not added lives only in this page. A reload, a tab close, or a
+	// navigation out of the app is held back here.
 	beforeNavigate((navigation) => {
 		if (mustStay && navigation.willUnload) navigation.cancel();
 	});
 
-	/** Save version: commit the saved files. Capture has no remote, so nothing is pushed. */
-	const saveVersion = createMutation(() => captures.saveVersion.options);
-	function told(outcome: CommitOutcome) {
-		switch (outcome.status) {
-			case 'committed':
-				return toast.success('Version saved', { description: outcome.indexWarning });
-			case 'unchanged':
-				return toast.info('No changes since the last version');
-			case 'branchMoved':
-				return toast.warning('Version not saved', {
-					description: 'The history changed while saving. Your captures are saved; save the version again.',
-				});
-			case 'blocked':
-				return toast.error('Version not saved', { description: outcome.reason });
-			case 'failed':
-				return toast.error('Version not saved', { description: outcome.error });
-			case 'unconfirmed':
-				return toast.warning('The version was not confirmed', { description: outcome.error });
-			default:
-				return toast.error('Version not saved');
-		}
-	}
-	function runSaveVersion() {
-		saveVersion.mutate(undefined, {
-			onSuccess: told,
-			onError: (error) => toast.error('Version not saved', { description: describeWriteError(error) }),
-		});
-	}
+	// `<FolderApp>` sends the capture drafts when the page hides or goes
+	// away; text typed with Edit as text is this page's to send.
+	const sendTexts = () => void captures.texts.settle();
+	onDestroy(sendTexts);
 </script>
 
 <svelte:window
+	onpagehide={sendTexts}
 	onbeforeunload={(event) => {
 		if (mustStay) event.preventDefault();
 	}}
 	onkeydown={(event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && mustStay) {
-			// The leave prompt is the webview's to show or not; refusing the
+			// The leave prompt is the browser's to show or not; refusing the
 			// shortcut does not depend on it.
 			event.preventDefault();
 			toast.warning('Reload stopped: some text is not saved', {
 				description: 'Wait for saving to finish, and add or clear text you typed, then reload.',
 			});
 		}
+	}}
+/>
+<svelte:document
+	onvisibilitychange={() => {
+		if (document.visibilityState === 'hidden') sendTexts();
 	}}
 />
 
@@ -84,17 +71,9 @@
 			class="-ml-2.5"
 			onclick={() => captures.leave()}>Capture</Button
 		>
-		<div class="flex items-center gap-3">
-			<span role="status" class="text-xs text-muted-foreground"
-				>{captures.saving ? 'Saving…' : 'Saved'}</span
-			>
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={saveVersion.isPending || captures.fenced}
-				onclick={runSaveVersion}>{saveVersion.isPending ? 'Saving version…' : 'Save version'}</Button
-			>
-		</div>
+		<span role="status" aria-label="Saving" class="text-xs text-muted-foreground"
+			>{captures.saveLabel}</span
+		>
 	</div>
 </header>
 

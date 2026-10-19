@@ -1,23 +1,16 @@
+<!--
+	The header over the local folder: the app's name, whether
+	everything typed is saved on this device, the theme, and Files. It
+	offers no Save version, Sync, or Connect: this storage keeps no versions
+	and syncs nowhere yet.
+-->
 <script lang="ts">
-	import type { CommitSummary } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
-	import { toast } from '@epicenter/ui/sonner';
-	import StatusPopover, { toastStatus } from '@epicenter/svelte/status-popover';
+	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
-	import HistoryIcon from '@lucide/svelte/icons/history';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { getAbortSignal } from 'svelte';
-	import { describeWriteError } from '@epicenter/svelte/write-failure';
-	import { type Notes, notesKeys } from '$lib/notes.svelte.js';
-	import {
-		changesLine,
-		commitOutcomeLine,
-		historyLine,
-		savesLine,
-		summaryLine,
-	} from '$lib/status.js';
+	import type { Notes } from '$lib/notes.svelte.js';
 
 	let {
 		notes,
@@ -29,84 +22,22 @@
 		onToggleFiles: () => void;
 	} = $props();
 
-	// Observed so Git status is read again when the folder reports a change and
-	// after the app's own saves and actions; the lines below read the snapshot
-	// that read updates.
-	createQuery(() => notes.queries.history.status.queryOptions());
-
-	const saves = $derived(savesLine({ saving: notes.saving, unsaved: notes.unsaved }));
-	const changes = $derived(changesLine(notes.git));
-	const history = $derived(historyLine(notes.git));
-	const summary = $derived(summaryLine({ saves, changes, history }));
-	const savingVersion = $derived(notes.mutating({ mutationKey: notesKeys.saveVersion }) > 0);
-
-	let open = $state(false);
-	let log = $state.raw<CommitSummary[] | string>([]);
-
-	// Read the recent versions whenever the details open or history moves.
-	$effect(() => {
-		if (!open) return;
-		notes.git.lastCommit;
-		const signal = getAbortSignal();
-		void notes.folder.git.log(8).then(
-			({ data: commits, error: historyError }) => {
-				if (signal.aborted) return;
-				log = historyError ? historyError.message : commits;
-			},
-			(cause) => {
-				if (signal.aborted) return;
-				log = cause instanceof Error ? cause.message : String(cause);
-			},
-		);
-	});
-
-	/** Record a version of every saved file (ADR-0529). */
-	async function saveVersion() {
-		const { data: outcome, error } = await notes.saveVersion();
-		if (error !== null) {
-			toast.warning('Version not saved', { description: describeWriteError(error) });
-			return;
-		}
-		toastStatus(commitOutcomeLine(outcome));
-	}
+	const saves = $derived(notes.saves);
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 	<h1 class="text-sm font-semibold">Honeycrisp</h1>
 
-	<StatusPopover
-		bind:open
-		{summary}
-		details={[
-			{ name: 'Saves', testid: 'status-saves', line: saves },
-			{ name: 'Changes', testid: 'status-changes', line: changes },
-			{ name: 'Versions', testid: 'status-history', line: history },
-		]}
-	>
-		<StatusRow name="Recent versions" class="font-mono text-xs" data-testid="status-log">
-			{#if typeof log === 'string'}
-				<span class="text-destructive">{log}</span>
-			{:else}
-				{#each log as commit (commit.oid)}
-					<span class="block truncate">{commit.oid.slice(0, 7)} {commit.message.split('\n')[0]}</span>
-				{:else}
-					<span class="font-sans text-muted-foreground">No versions yet</span>
-				{/each}
-			{/if}
+	<StatusPopover summary={saves} details={[{ name: 'Saves', testid: 'status-saves', line: saves }]}>
+		<StatusRow name="Where">
+			<span class="font-medium" data-testid="status-folder">This device</span>
+			<span class="mt-0.5 block text-xs text-muted-foreground">
+				Notes are saved on this device. Honeycrisp keeps no versions and does not sync them to other devices yet.
+			</span>
 		</StatusRow>
 	</StatusPopover>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
-		<Button
-			variant="ghost"
-			size="sm"
-			tooltip="Record every saved file as a version in Git history"
-			disabled={savingVersion || notes.fenced}
-			onclick={saveVersion}
-		>
-			<HistoryIcon />
-			Save version
-		</Button>
 		<LightSwitch variant="ghost" />
 		<Button
 			variant={filesOpen ? 'secondary' : 'ghost'}

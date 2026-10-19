@@ -28,9 +28,9 @@
  * - A read that lands while an edit is held does not replace the typing,
  *   and the save merges the change it brought
  */
+import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
 import { toggleMark } from 'prosemirror-commands';
 import {
 	closeHistory,
@@ -46,15 +46,14 @@ import {
 	type Transaction,
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
-import { noteText, openNotesFolder } from '../folder.test-support.js';
-import { observe, quiet } from '../query.test-support.js';
+import { expectOk } from 'wellcrafted/testing';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
-
-const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 // The notes state is a runes module: load it, and the rules, after the
 // compiler plugin.
-const { createNotes } = await import('../notes.svelte.ts');
+const { openNotes, quiet, until, noteText, rows } = await import(
+	'../local.test-support.ts'
+);
 const { editingPlugins, marks, nodes, stateAfter, stateShowing } = await import(
 	'./rich-text.js'
 );
@@ -69,29 +68,23 @@ const PATH = 'notes/a.md';
 
 /** The notes state over a folder holding one note with `text`, open as a note. */
 async function noteOver(text: string) {
-	const folder = await openNotesFolder();
-	await folder.write(PATH, text);
-	const failures: WriteFailure[] = [];
-	const context = createFolderContext(folder.folder, {
-		writeFailed: (failure) => failures.push(failure),
-	});
-	const notes = createNotes(context);
-	cleanup.push(() => folder.close());
-	cleanup.push(() => context.close());
-	cleanup.push(() => folder.release({ all: true }));
-	cleanup.push(observe(notes));
+	const fixture = await openNotes();
+	cleanup.push(() => fixture.close());
+	await fixture.write(PATH, text);
+	const { notes, local } = fixture;
 	await notes.load();
+	fixture.observe();
 	notes.open(PATH);
 	await quiet(notes);
 	const note = notes.noteBody(PATH);
-	const attempts = () => folder.writes().filter((at) => at === PATH).length;
-	const opened = attempts();
+	const opened = fixture.saves(PATH);
 	return {
-		folder,
+		fixture,
 		notes,
 		note,
-		failures,
-		/** The note as shown now: with its body draft while one is held. */
+		/** The saves that failed and still hold their typing. */
+		failures: () => local.edits.failures,
+		/** The note as shown now: with what is typed over it. */
 		draft: () => {
 			const row = note.row;
 			if (row === undefined) throw new Error('The note is not in the cache');
@@ -99,13 +92,15 @@ async function noteOver(text: string) {
 		},
 		/** Send the body typed, as leaving the note does, and let every save and the reads after them land. */
 		settled: async () => {
-			await notes.saveBody(PATH);
+			await notes.saveRow(PATH);
 			await quiet(notes);
 		},
-		/** Write attempts at the note since it opened. */
-		writes: () => attempts() - opened,
+		/** Saves of the note since it opened. */
+		writes: () => fixture.saves(PATH) - opened,
+		/** The note's text in storage now. */
+		stored: () => fixture.text(PATH),
 		/** Close the notes: from now on the note takes no edit. */
-		closeNotes: () => context.close(),
+		closeNotes: () => local.close(),
 	};
 }
 
@@ -289,18 +284,18 @@ describe('every displayed edit is in the note', () => {
 	test('an edit saves the body once, and every field stays as it was (ADR-0573)', async () => {
 		// An earlier Honeycrisp wrote `updatedAt`; it is now a key it does not declare.
 		const edited = '"updatedAt": "2026-10-01T00:00:00.000Z"';
-		const { type, draft, settled, failures, folder } = await open('one\n', {
+		const { type, draft, settled, failures, stored } = await open('one\n', {
 			text: noteText({ body: 'one\n', extra: `${edited}\n"owner": "sam"\n` }),
 		});
 		const before = JSON.parse(JSON.stringify(draft()));
 		type('x');
 		expect(draft().body).toBe('xone\n');
 		await settled();
-		expect(failures).toEqual([]);
+		expect(failures()).toEqual([]);
 		const row = draft();
 		expect(row.body).toBe('xone\n');
 		expect(row.fields).toEqual(before.fields);
-		const saved = folder.text('notes/a.md') ?? '';
+		const saved = (await stored()) ?? '';
 		expect(saved).toContain('xone');
 		expect(saved).toMatch(/^"?updatedAt"?: "2026-10-01T00:00:00\.000Z"$/m);
 		expect(saved).toMatch(/^"?owner"?: "?sam"?$/m);
@@ -308,16 +303,17 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, settled, failures, folder } = await open('', {
+		const { type, end, body, settled, failures, stored, writes } = await open('', {
 			text: crlf,
 		});
 		expect(body()).toBe('\none\n\ntwo\n');
+		expect(writes()).toBe(0);
 		end();
 		type('!');
 		expect(body()).toBe('\none\n\ntwo!\n');
 		await settled();
-		expect(failures).toEqual([]);
-		const saved = folder.text(PATH) ?? '';
+		expect(failures()).toEqual([]);
+		const saved = (await stored()) ?? '';
 		// The body after the closing `---` line has line feeds only.
 		const savedBody = saved.slice(
 			saved.indexOf('\n', saved.lastIndexOf('---')) + 1,
@@ -382,7 +378,7 @@ describe('an edit that cannot be written', () => {
 			body,
 			settled,
 			failures,
-			folder,
+			stored,
 			expectNoteHoldsScreen,
 			...view
 		} = await open('Body.\n');
@@ -395,8 +391,8 @@ describe('an edit that cannot be written', () => {
 		expect(view.shown().doc.textContent).toBe('\uFFFDxBody.');
 		expectNoteHoldsScreen();
 		await settled();
-		expect(failures).toEqual([]);
-		expect(folder.text('notes/a.md')).toContain('\uFFFDxBody.');
+		expect(failures()).toEqual([]);
+		expect(await stored()).toContain('\uFFFDxBody.');
 		expect(undoDepth(view.shown())).toBe(2);
 		expect(run(undo)).toBe(true);
 		expect(body()).toBe('xBody.\n');
@@ -558,32 +554,26 @@ describe('a body that changed under the view', () => {
 
 describe('the editor follows the note', () => {
 	test('a save landing keeps the state, its cursor, and its undo history', async () => {
-		const { type, end, follow, settled, failures, folder, ...view } =
+		const { type, end, follow, settled, failures, stored, ...view } =
 			await open('one\n');
 		end();
 		type('!');
 		const state = view.shown();
 		await settled();
-		expect(failures).toEqual([]);
-		expect(folder.text(PATH)).toContain('one!\n');
+		expect(failures()).toEqual([]);
+		expect(await stored()).toContain('one!\n');
 		follow();
 		expect(view.shown()).toBe(state);
 		expect(undoDepth(view.shown())).toBe(1);
 	});
 
 	test('a change another tab saved replaces a clean editor', async () => {
-		const { folder, follow, settled, body, ...view } = await open('one\n');
-		const tab = await folder.otherTab();
-		const theirs = await tab.tables.notes.get('a');
-		if (theirs.data == null) throw new Error('No note a');
-		await tab.tables.notes.write('a', theirs.data.row, {
-			...theirs.data.row,
-			body: 'theirs\n',
-		});
-		for (let tries = 0; body() !== 'theirs\n' && tries < 500; tries++)
-			await Bun.sleep(2);
+		const { fixture, follow, settled, body, ...view } = await open('one\n');
+		const tab = await fixture.otherTab();
+		const theirs = expectOk(await tab.tables.notes.get('a'));
+		expectOk(await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }));
+		await until(() => body() === 'theirs\n', 'their save');
 		await settled();
-		expect(body()).toBe('theirs\n');
 		follow();
 		expect(view.shown().doc.textContent).toBe('theirs');
 		expect(undoDepth(view.shown())).toBe(0);
@@ -591,7 +581,7 @@ describe('the editor follows the note', () => {
 
 	test('typing in flight is not replaced by a read, and its save merges what the read brought', async () => {
 		const {
-			folder,
+			fixture,
 			notes,
 			type,
 			end,
@@ -599,23 +589,31 @@ describe('the editor follows the note', () => {
 			settled,
 			body,
 			failures,
+			stored,
 			...view
 		} = await open('one\n');
-		// Another program added a line; the report has not arrived yet.
-		folder.put(PATH, noteText({ body: 'one\n\ntheirs\n' }));
 		end();
-		folder.hold();
 		type('!');
 		const state = view.shown();
-		// The report arrives while the save is held, and the read lands.
-		await notes.queryClient.invalidateQueries(notes.queries.pathFilter([PATH]));
+		// Another tab adds a line. Its report arrives and the read lands while
+		// the typing is held.
+		const tab = await fixture.otherTab();
+		const theirs = expectOk(await tab.tables.notes.get('a'));
+		expectOk(
+			await tab.tables.notes.set('a', theirs ?? null, {
+				body: 'one\n\ntheirs\n',
+			}),
+		);
+		await until(
+			() => rows(notes)[0]?.body === 'one\n\ntheirs\n',
+			'their save to be read',
+		);
 		follow();
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');
-		folder.release({ all: true });
 		await settled();
-		expect(failures).toEqual([]);
-		expect(folder.text(PATH)).toContain('one!\n\ntheirs\n');
+		expect(failures()).toEqual([]);
+		expect(await stored()).toContain('one!\n\ntheirs\n');
 		// The merged body is new content: the view shows it.
 		expect(body()).toBe('one!\n\ntheirs\n');
 		follow();
@@ -623,13 +621,15 @@ describe('the editor follows the note', () => {
 	});
 
 	test('a save that meets a change made elsewhere to the same line keeps the typing', async () => {
-		const { folder, type, end, settled, body, failures } = await open('one\n');
-		folder.put(PATH, noteText({ body: 'theirs\n' }));
+		const { fixture, type, end, settled, body, failures } = await open('one\n');
 		end();
 		expect(type('!')).toBe(true);
+		const tab = await fixture.otherTab();
+		const theirs = expectOk(await tab.tables.notes.get('a'));
+		expectOk(await tab.tables.notes.set('a', theirs ?? null, { body: 'theirs\n' }));
 		await settled();
 		// Both changed the one line: the typing is the fresher intent.
-		expect(failures).toEqual([]);
+		expect(failures()).toEqual([]);
 		expect(body()).toBe('one!\n');
 	});
 });

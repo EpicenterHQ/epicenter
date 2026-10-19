@@ -7,11 +7,11 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { getLocalFolder } from '@epicenter/svelte/local-folder';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import type { todosTables } from '$lib/definition.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
 
-	const { edits } = getLocalFolder<typeof todosTables>();
+	const { edits } = getFolder<typeof todosTables>();
 
 	let {
 		todo,

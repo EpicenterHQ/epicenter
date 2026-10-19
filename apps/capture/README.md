@@ -2,22 +2,36 @@
 
 Capture keeps dated captures, newest first. Each capture is one Markdown file:
 its text, then its thoughts as a bullet list under `## Thoughts`. The files
-are the saved data, and Git records their history. There is no account and no
-sign-in on this path. The file format and its rules are in
-[`packages/capture`](../../packages/capture/README.md).
+are the saved data. There is no account and no sign-in. The file format and
+its rules are in [`packages/capture`](../../packages/capture/README.md).
 
-There are two builds of the same UI, and the build decides where the folder is:
+Capture opens one local folder with
+`openFolder({ tables: captureTables })` from `@epicenter/folder`. The browser
+build uses IndexedDB; the installed build uses a granted directory. The folder
+keeps no history and syncs nowhere yet: there is no
+Save version, Sync, or Connect.
 
-| Build | Folder | History |
-| --- | --- | --- |
-| Desktop, inside Epicenter | An ordinary directory the Epicenter desktop shell grants to the Capture window. | Real Git in that directory's `.git`, through the system `git`, which the `epicenter` CLI runs for the page, one child per operation. Nothing is fetched or pushed. |
-| Browser | One directory in this browser's origin private file system (OPFS), `Epicenter/local/so.epicenter.capture`. | Git in that directory's `.git`, in OPFS beside the files. No remote. |
-
-The browser opens the OPFS directory alone. It does not read, copy, or delete
-a folder an earlier version kept in IndexedDB.
+| Build | Folder |
+| --- | --- |
+| Browser | This origin's local folder, in IndexedDB. A fresh profile starts empty. |
+| Desktop, inside Epicenter | The directory the shell grants this window, opened through the native Folder adapter. |
 
 Run the browser build with `bun dev:capture` (or `bun dev:capture:ui`) from
 the repository root. It starts the app and nothing else.
+
+## Captures from an earlier version
+
+Earlier browser builds kept captures in the origin private file system
+(OPFS): the build before this one in `so.epicenter.capture` at its root, and
+older ones in `Epicenter/local/so.epicenter.capture` or
+`Epicenter Dev/local/so.epicenter.capture`. This build reads none of them.
+
+Before opening anything, the page looks for those directories
+through the Folder opener's read-only OPFS guard. While one exists, Capture opens nothing and
+says where those captures are, rather than show an empty timeline as if they
+were lost. When the check itself fails, Capture opens nothing either, and
+offers Check again. The check only looks: it creates, moves, and deletes
+nothing. Bringing those captures across is separate work.
 
 ## What you can do
 
@@ -32,14 +46,13 @@ the repository root. It starts the app and nothing else.
   holds Edit, Move up, Move down, Copy text, and Delete.
 - **Edit as text** opens the capture's file, frontmatter included, as
   Markdown to edit directly. Anything Markdown allows can go there. **Open as
-  capture** goes back once the text reads as a capture.
+  capture** goes back once the file reads as a capture.
 - **More** holds Copy capture text, Download file, and **Delete capture**.
-  Deleting asks first, and says when the capture has changes that are in no
-  saved version. It waits for your edit to be saved and deletes the file
-  this window wrote last, along with anything another program wrote to it
-  since: a delete beats edits that never saw it (ADR-0576).
-- **Save version** in the header records every saved capture in the folder's
-  Git history. Nothing else records a version.
+  Download saves the edit first and downloads the file as saved. Deleting
+  asks first and says a deleted capture cannot be brought back: there is no
+  history. It waits for your edits to be saved, then deletes the file as it
+  is stored then; a file another tab changed in that moment is kept, and a
+  notice says so.
 
 One capture is open at a time. Moving a thought to another capture has no
 control: cut it from one capture and paste it into the other.
@@ -49,232 +62,110 @@ The timeline lists only files that read as captures. A file that does not
 time, or an ambiguous layout: two "Thoughts" headings, text between the
 heading and the list, two lists) is named below the timeline with its path
 and why, and opens as text. Nothing is rewritten to make it fit. Files that
-are not UTF-8 text are listed apart and not opened.
+are not text are listed apart and not opened.
 
 ## Editing
 
-- A capture's text and thoughts are its document, so an edit holds the
-  version of the file it started from, taken at your first change, and the
-  body you typed (ADR-0548, ADR-0576). What the window reads from the
-  folder never replaces it. A thought you add, edit, delete, or move is
-  saved at once. The capture text, and a file edited as text, is saved a
-  second after you stop typing, when you leave the text box, and when you
-  open something else; quitting loses at most that last second. Saves run
-  one at a time, and what you typed while one ran goes in the next.
+- A capture's text and thoughts are its document, so an edit is the row's
+  draft in the local folder's edit layer (`edits.row`): the row it started
+  from, taken at your first change, and the body you typed. What the page
+  reads from the folder never replaces it; another tab's change shows once
+  your edit is saved. A thought you add, edit, delete, or move is saved at
+  once. The capture text is saved a second after you stop typing, when you
+  leave the text box, and when you open something else. Saves of one
+  capture run one at a time, and what you typed while one ran goes in the
+  next.
 - The capture view edits text and thoughts; each change is checked to read
   back as written before it is saved. A change Markdown would not keep
   (text that opens a code fence and would absorb the Thoughts section, say)
   is not applied, the reason is shown, and the text returns to what it was.
   Edit as text to write unfinished Markdown.
-- When the file changed elsewhere since the edit started, the save merges
-  with it: what only the other writer changed stays, and where you both
-  changed the same field or line, your edit wins, with no notice
-  (ADR-0576). Text edited as text merges the same way, by line. When the
-  file was deleted elsewhere, the edit writes nothing: the capture leaves
-  the list, and a notice says your change was not saved and offers **Copy
-  your text** until you dismiss it.
-- A save that fails for another reason keeps your edit on screen, the
-  capture says Not saved, and the notice names the failure, offers your
-  text to copy, and offers Save again. Your next change saves it again too. A save whose reply was lost
-  is one of these failures: the notice says the change may or may not have
-  happened.
-- A save from the capture view writes the row in its standard form
-  (ADR-0576): keys Capture does not declare stay, while comments, quoting,
-  and line endings in the frontmatter take the standard spelling.
-- A capture's body is written with line feeds (ADR-0572): a file written
-  with `\r\n` gets `\n` on its first save from the capture view. Half a character (a lone
-  surrogate) is written as U+FFFD, so it shows as `�` once the save lands.
-  Otherwise the body is written exactly.
-- Edit as text writes exactly what is typed, valid or not, and keeps the
-  file's line endings. Issues are read live from the text, each with its
-  line. It writes the whole file over the version you started typing on,
-  and does not merge: when the file changed elsewhere since, nothing is
-  written, the view shows the file as it is now, and a notice offers your
-  text to copy.
+- Each save sends the change from where the edit started, and the folder
+  merges it with whatever was saved since: what only the other tab changed
+  stays, and where you both changed the same field or line, your edit wins,
+  with no notice. An edit to a capture another tab deleted brings the file
+  back with your edit: an unseen delete never erases an edit.
+- A save that fails keeps your edit on screen. The capture says **Your edit
+  is not saved** with the reason, and offers Save again, Copy your text, and
+  Discard edit. The header says Not saved, and the timeline names every
+  capture with a failed save. Your next change saves it again too.
+- A save writes the row with only its body replaced: frontmatter keys
+  Capture does not declare, and their spelling, stay.
+- Edit as text saves the whole text over the file it started from, a second
+  after you stop typing, when you leave the text box, and when you open
+  something else, valid or not, and keeps the file's line endings. It merges
+  with a change another tab saved since, the same way. What keeps the file
+  from reading as a capture is read from the file as saved, so it follows
+  the text a moment after typing pauses. Open as capture saves the text
+  first and opens the capture view only when the saved file reads as one.
 - Thought commands name the list they were shown. A thought edit names the
-  thought it started from. If that changed before you save (a newer version
-  another program wrote, say), nothing is applied and the edit's text stays
-  in the form to copy.
-- Capture reads a capture's file when a view first needs it, and keeps it
-  until the folder reports that the file changed: on the desktop, the
-  shell's watcher of the directory; in the browser, another tab of Capture
-  writing the same folder. Returning to the window reads nothing. Your own
-  saves update what the window shows from their result.
+  thought it started from. If that changed before you save (another tab's
+  change, say), nothing is applied and the edit's text stays in the form to
+  copy.
+- Every view reads the one rows query of the captures table. Another tab of
+  Capture that saves reaches this page on the folder's change channel, which
+  marks those rows stale; returning to the window reads nothing.
 - Opening and listing captures write nothing.
-- **Git is separate.** Writing a file never commits. A version is recorded
-  only when you press Save version, and the notice after it says what
-  happened, with Git's own message when it fails. Save version waits for
-  edits still being saved, and is refused, like every other action, while
-  Capture closes or Epicenter quits or restarts.
 
 ## Text not added yet
 
-Text you typed and did not add lives only in the open window: the New
-capture text, a thought typed in Add a thought, and a thought being edited.
-Any typed character counts, spaces included, until you add it or clear it.
+Text you typed and did not add lives only in the open page: the New capture
+text, a thought typed in Add a thought, and a thought being edited. Any
+typed character counts, spaces included, until you add it or clear it.
 
 - Each capture keeps its own Add a thought text and thought edit while you
   open other captures. Leaving a capture never asks anything.
 - The New capture text stays in its form while you open and leave captures.
 - Reloading, closing the tab, or leaving the app asks first while any of it
-  exists, a save is still running, or an edit could not be saved. The
-  reload shortcut is refused with a message.
-- On the desktop, closing the Capture window destroys it, as Epicenter does
-  any installed app's window. Quitting or restarting Epicenter asks nothing,
-  and text not added is lost, as it is when any app quits.
-- If Epicenter's background service stops, the window is closed, and text not
-  added is lost; open Capture again from the Folders window.
+  exists, a save is still running or waiting, or an edit could not be saved.
+  The reload shortcut is refused with a message.
 
-Nothing persists text not added across a reload or a quit you confirm.
+Nothing persists text not added across a reload you confirm.
 
-## Desktop, inside Epicenter
-
-Capture installs into Epicenter as an app, from this folder of the Epicenter
-repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
-names the id `so.epicenter.capture` and the title; Epicenter runs
-`bun run build:installed`, which writes `dist`. In the Folders
-window, "Install from a repository…" with Epicenter's repository lists Capture
-with its folder, `apps/capture`; installing clones the repository bare into
-Epicenter's app data, and approving it runs `bun install` at the
-repository's root and the build here. Opened from the Folders window's
-Apps list, Capture opens its own folder, `so.epicenter.capture`. Opened with
-"Open in Capture" beside another folder whose declaration contains its shape,
-it opens that folder and reads its captures through its shape (ADR-0538): it
-never rewrites that folder's `epicenter.json`, and a folder whose declaration
-lacks the shape is refused with a message naming the folder.
-
-The captures are files in `so.epicenter.capture/captures` under Epicenter's
-working-copy directory (`~/Epicenter/so.epicenter.capture` in production).
-The timeline shows the directory. Edit the files with any program: the
-shell watches the directory, and an open capture shows another program's
-edit as soon as it lands. A save from Capture that meets an edit it has not
-read yet merges with it.
-
-The page opens that directory with the same folder engine the browser
-build runs, over a directory the Epicenter desktop shell grants it
-([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-The shell's side is the shared folder plugin in
-[`packages/tauri-plugin-epicenter-folder`](../../packages/tauri-plugin-epicenter-folder/README.md),
-whose README states what a grant allows. What that means for Capture:
-
-- Every Epicenter process, a second build or the `epicenter` CLI, takes turns
-  with this window under the folder's save lock,
-  `.so.epicenter.capture.epicenter-save-lock`, across each check and change
-  (ADR-0562, ADR-0568).
-- Other programs are not asked to take the lock. Every write and delete
-  names the version of the file this window last wrote or read. A row write
-  merges with another program's edit, keeping what only they changed; a text
-  write is refused if the file is no longer that version. A new capture is
-  created only where no file is. An edit in the instant
-  between the folder's last check and its change can still be overwritten:
-  none of these is an operating-system compare-and-swap.
-- The shell watches the directory and tells the window which paths
-  changed; the page marks exactly those reads stale
-  (`folder.onFilesChanged`, wired once by `<FolderApp>`).
-  Nothing is read again on focus.
-- Writes never request history. The folder commits only when the window
-  asks with Save version.
-- History is local. Git's own configuration, global included, names the
-  commit author (otherwise `Epicenter <epicenter@localhost>`, which the
-  shell registers) and any `origin`. Capture has no control that fetches, pulls, or
-  pushes, so nothing is fetched or pushed, whatever remote the directory
-  names.
-- The shell refuses a directory whose `.git` is a symbolic link or a
-  `gitdir:` file (a linked worktree or submodule).
-
-### How it is wired
+## How it is wired
 
 ```text
-Capture window (WebView)
-   <FolderApp>: openFolder({ app,     the folder it is handed, or its own,
-     definition })                    from @epicenter/folder/tauri
-   the folder engine, in the page
-        |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
-        |  plugin:epicenter-folder|list_folder, read_folder_children,
-        |    read_folder_file                        -> reads under <root>
-        |  plugin:epicenter-folder|put_folder_file, make_folder_directory,
-        |    remove_folder_directory                 -> changes, path-checked
-        |  status, history, save_version             -> one `epicenter` child over <root>
-        v
-Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
++page.svelte
+  findEarlierCaptures()            looks in OPFS, writes nothing
+  <FolderApp title="Capture" tables={captureTables}>
+    openFolder({ tables })         this origin's local folder, in IndexedDB
+    createFolderContext       rows query, change channel, edit layer, close
+    <CaptureApp>
+      createCaptures(getFolder())
 ```
 
-The page names the folder by its scope and nothing else. The shell opens the
-window on one folder and answers the page which (`window_folder`,
-`open_installed_app`): Capture's own, `so.epicenter.capture`
-(the `id` in `epicenter.app.json`), or the scope the
-Folders window listed for another folder. The shell registers
-Capture's own scope with its directory and a fallback author as an installed
-app's own folder, and permits the Capture window into the folder it hands it
-(ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
-its files.
+`<FolderApp>` (from `@epicenter/svelte/folder-app`) opens the
+folder, shows one loading screen and one refusal screen, provides the
+folder's context, sends the edits held when the page is hidden, and closes
+the folder when the page goes away: the edit layer refuses input, sends
+every draft once, and waits for the saves, then the folder closes.
 
-`src/routes/+page.svelte` mounts `<FolderApp>` from `@epicenter/svelte` with
-the manifest and `captureDefinition`, and `CaptureApp` inside it. `<FolderApp>`
-calls `openFolder({ app, definition: captureDefinition })` from the bare
-`@epicenter/folder`, which publishes `captureDefinition` only to Capture's
-own folder and reads any other through it, never writing that folder's
-declaration and refusing one without Capture's tables. In Epicenter it asks
-the shell for the directory and opens it; in a browser it opens the OPFS
-folder, with a local author, `Capture <so.epicenter.capture@localhost>`
-(before `<FolderApp>`, `capture@localhost`), and no remote. A folder that cannot open is
-`<FolderApp>`'s refusal screen. `installedAppViteConfig` (from
-`@epicenter/vite-config`) points the bare `@epicenter/folder` specifier at
-the build's one entry, so a build emits one adapter, and each entry refuses
-in the other environment.
+The edit layer drafts a row's fields and body. Edit as text changes the
+whole file, so its drafts are Capture's own (`src/lib/text-drafts.ts`),
+saved through the folder's files. The context's close does not know them,
+so `CaptureApp` sends them when the page hides and when it goes away.
 
-Capture uses the folder's captures table (`list`, `create`, `write`, and
-`delete`; a write merges with whatever changed since and writes nothing
-to a file deleted since, and a delete removes whatever is there), its files for editing a capture as text (`read`
-and `write`), the Git snapshot, `status`,
-and `commit`, and `onFilesChanged`. Reads and saves go through the folder's
-query layer (`queries` in `getFolder()`, `folderOptions` from
-`@epicenter/folder/query`), so every read is keyed under the folder. The
-opened folder is the `CaptureFolder` type in `src/lib/captures.svelte.ts`. A
-grant lets the
-Capture window read the Capture directory and nothing outside it; the shell
-checks the whole path of every change on disk before making it, and runs
-only the Git operations the folder engine uses.
+`installedAppViteConfig` (from `@epicenter/vite-config`) points the bare
+`@epicenter/folder` specifier at one entry per build, so each build emits
+one adapter.
 
-Capture opens no terminal. A folder loads its terminal with a dynamic
-import, so each build emits that chunk, and the page never requests or runs
-it.
+## Desktop
 
-The build Epicenter serves resolves `@epicenter/folder` to the desktop
-entry, which opens no browser folder, so it cannot fall back to browser
-storage. Outside the shell, in a window the folder does not allow,
-with no folder registered, with the directory held by another Epicenter, or
-with no plugin installed, opening fails and the page shows the reason.
-
-### What closing and stopping mean
-
-| Event | What happens |
-| --- | --- |
-| The page is destroyed or reloaded | `<FolderApp>` closes the folder: the edit layer refuses input and sends every edit held, then it waits until no write or action is running, stops hearing the folder's changes, and closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
-| The Capture window is closed | The shell destroys it, as it does any installed app's window. Text typed and not added is lost. |
-| Epicenter's Bun service stops | The shell destroys the window; open Capture again from the Folders window. Text typed and not added is lost. |
-
-### Quitting and restarting
-
-Quitting Epicenter, or restarting it for an account change, is immediate and
-asks this page nothing
-([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
-Every save is a rename into the folder, so a write cut off at exit leaves the
-old file or the new one. The New capture text, a thought typed and not added,
-and a thought edit not saved live only in the page, and a quit drops them, as
-people expect. In the browser, `captures.unsettled` holds back a reload, a
-tab close, or a navigation out of the app while any of them is there or a
-write runs.
+The installed build opens the directory Epicenter's shell grants its window.
+It uses the same Folder row and merge rules as the browser, with guarded
+directory writes. A missing grant is shown as a refusal. Git and remote
+actions remain absent.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `src/routes/+page.svelte` | `<FolderApp>` over Capture's manifest and definition, with `CaptureApp` inside it. |
-| `src/lib/captures.svelte.ts` | The store over the folder `getFolder()` answers, keyed by its query layer: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` typing a file's text into its draft, each action (create, delete, Save version), and which capture is open. Drafts, saves, and the fence before the folder closes are the folder's edit layer's (`edits`). |
-| `src/lib/capture-form.svelte.ts` | One capture's edit over its body draft (`edits.body`), saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
+| `src/routes/+page.svelte` | `<FolderApp>` over `captureTables`, with `CaptureApp` inside it. The Folder opener checks earlier OPFS data before opening IndexedDB. |
+| `src/lib/captures.svelte.ts` | The store over the context `getFolder()` answers: the timeline from the rows query, each capture's form (`formOf`), the text drafts (`texts`), create, delete, which capture is open, and what the header says about saving. |
+| `src/lib/capture-form.svelte.ts` | One capture's edit over its row draft (`edits.row`), its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
+| `src/lib/text-drafts.ts` | Edit as text: whole-file drafts saved through the folder's files, one save at a time. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
-| `src/lib/components/` | `CaptureApp.svelte` builds the store over `getFolder()` and shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
+| `src/lib/components/` | `CaptureApp.svelte` builds the store and shows the timeline or the open capture under the save status; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 
 The package exports nothing. No host imports a part of this app.
 
@@ -284,7 +175,7 @@ The package exports nothing. No host imports a part of this app.
 bun test packages/capture
 bun run --cwd apps/capture test             # unit tests, then the mounted components
 bun run --cwd packages/capture typecheck
-bun run --cwd apps/capture typecheck        # both seam leaves and the scripts
+bun run --cwd apps/capture typecheck        # the app and the scripts
 bun run --cwd apps/capture build            # browser
 bun run --cwd apps/capture build:installed  # the build Epicenter installs
 bun scripts/check-ui-boundary.ts
@@ -293,71 +184,41 @@ bun scripts/check-ui-boundary.ts
 The browser build writes `build/` and serves a fallback page. The installed
 build writes `dist/` here and prerenders each page with relative asset paths,
 so it runs below whatever path the host serves it at. The two builds share
-SvelteKit's output directory, so run them one after the other. The mounted tests run with `--conditions=browser --conditions=svelte`
-(`test:mounted`), so Svelte and the UI kit resolve as a page build resolves
-them.
+SvelteKit's output directory, so run them one after the other. The mounted
+tests run with `--conditions=browser --conditions=svelte` (`test:mounted`),
+so Svelte and the UI kit resolve as a page build resolves them. Tests run
+the real local folder over `fake-indexeddb`; a second handle of the same
+profile stands in for another tab.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved keeping undeclared metadata, saves one at a time with text typed meanwhile in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere, a failed save kept and sent again, a deleted file, a change the body cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
-| `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, OPFS store, or Node module; the browser bundle has the browser adapter and no desktop adapter. |
-| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
-
-The granted opener and the directory engine are tested in
-`packages/folder/src/tauri-directory.test.ts` and
-`packages/folder/src/directory-folder.test.ts`; the grant, the lock, the path
-checks, and the Git checks in `packages/tauri-plugin-epicenter-folder`. The
-desktop window itself is checked by hand in the Epicenter shell.
+| `src/lib/captures.test.ts` | The store over a real local folder: creating and listing, blank text refused, timeline order and repairs, an edit saved keeping undeclared frontmatter, another tab's change merged with a held save, a failed save kept and saved again, thought commands and stale ones, thought text kept per capture, Edit as text saved exactly and merged with another tab, repair as text, a failed text save, delete after the edits land, and close. |
+| `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, local folder engine, OPFS store, or Node module; the browser bundle has the browser adapter and the local folder engine; neither has the older `FolderApp`. |
+| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: text and thoughts saved, another tab's change merged with typing held here, a failed save with Save again, a thought not added kept to copy, repair as text and Open as capture, CRLF kept, input refused while closing, the New capture text box and Add capture, the failed-save list, an earlier OPFS folder opening nothing and touching nothing, a failed check, a fresh browser with no Save version, and edits sent when the page closes. jsdom has no layout, focus, selection, or IME. |
 
 | Script | What it checks |
 | --- | --- |
-| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a write merged with another page's change, Save version, leave warnings, and deletion. Needs a free local port and `bun x playwright install chromium`. |
+| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one profile's local folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a save merged with another page's change, no Save version, leave warnings, deletion, and a profile with an earlier OPFS folder opening nothing. Needs a free local port and `bun x playwright install chromium`. |
 
 ## Changed promises
 
-This version reads the files through a query cache that the folder's
-change channel keeps current (ADR-0528, ADR-0548), and records versions
-only on request (ADR-0529). It dropped several promises of the version
-before it:
+This version moves Capture to the local folder (`openFolder({ tables })`)
+and drops these promises of the version before it:
 
-- There is no review with Your edit and Saved elsewhere. A write that meets
-  a change made elsewhere merges with it, and your edit wins where you both
-  changed the same lines. A write to a file deleted elsewhere writes
-  nothing and never creates it again; a notice offers the text that was
-  lost to copy.
-- A delete no longer refuses a file changed elsewhere since you confirmed
-  it: it removes the file as it is then (ADR-0576).
-- A failed save keeps your edit on screen, in the capture view and in Edit
-  as text alike: your next change saves it again, and the notice offers
-  your text and Save again.
-- Leaving a capture never asks to discard anything. A thought typed and not
-  added, and a thought edit, stay with their capture until you add or clear
-  them.
-- Writes no longer commit. History was recorded after every save; now it is
-  recorded only by Save version, so a folder whose person never saves a
-  version has no history. The "History was not recorded" notice is gone.
-- A newer version of the open capture is shown when the folder reports it,
-  even when a thought is typed there and not added. Returning to the window
-  reads nothing.
-- The save bar is gone. The header says Saving… or Saved, and the capture
-  says where it is saved.
-
-The version before that one dropped these:
-
-- The Files workspace is gone. There is one timeline. A capture's
-  Markdown is edited with Edit as text, and a file that is not a valid
-  capture opens that way from the timeline's repair list.
-- One capture is open at a time.
-- A capture has no address of its own. The page no longer puts the open
-  capture in the URL; reloading returns to the timeline.
-- Save as a copy, Put the file back, Let it go, Discard my changes, and
-  Check again for a removed file are gone.
-- Unconfirmed-delete choices are gone. A delete whose reply was lost is
-  reported once, and the timeline reads the folder again.
-- The 30-second relisting is gone.
-- An edit no longer rewrites a hand-written file's frontmatter: only the
-  body is replaced, and the frontmatter keeps its comments and quoting.
-- Captures from before the file version can no longer be imported. The
-  recovery screen and the export format it read are gone.
-- A commit is refused while Capture closes or Epicenter quits or restarts,
-  and says so, as every other action does.
+- There is no Save version and no Git history. A deleted capture cannot be
+  brought back, and the delete dialog no longer says whether the latest
+  changes are in a saved version.
+- The desktop build uses the native Folder over its granted directory.
+- Captures an earlier browser build kept in OPFS are not shown; Capture
+  opens nothing while they exist.
+- An edit beats a delete it has not seen: an edit to a capture another tab
+  deleted brings it back (the folder's merge rule), where before the edit
+  wrote nothing and offered its text.
+- Edit as text merges with a change saved since, where before it wrote
+  nothing and offered the text to copy.
+- What keeps a file edited as text from reading as a capture is read from
+  the file as saved, a moment after typing pauses, not live from the text.
+- A failed save is shown in the capture and listed on the timeline, not as a
+  toast.
+- A capture's frontmatter keeps its own spelling on a body save, where
+  before it took the standard form.

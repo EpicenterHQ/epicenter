@@ -4,8 +4,9 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
+	import { onDestroy } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import type { honeycrispDefinition } from '$lib/data.js';
+	import type { HoneycrispTables } from '$lib/data.js';
 	import { createNotes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
@@ -14,17 +15,18 @@
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
-	// The notes over the folder `<FolderApp>` opened. Its listings and Git
-	// status are read before the views show, so none starts empty.
-	const notes = createNotes(getFolder<typeof honeycrispDefinition>());
+	// The notes over the folder `<FolderApp>` opened. The note and
+	// folder rows are read before the views show, so none starts empty.
+	const notes = createNotes(getFolder<HoneycrispTables>());
 	const loading = notes.load();
+	onDestroy(() => notes.stop());
 
 	let filesOpen = $state(false);
 
-	// Saves and actions run in this window. A reload or in-page navigation
-	// waits while one runs: it is cancelled here, and the webview asks first.
-	// Closing the desktop window quits at once (ADR-0542). Once the notes are
-	// closing, `notes.fenced` holds back every input and action here.
+	// Typing not yet saved, or a save or action still running, lives only in
+	// this page. A reload or in-page navigation is cancelled then, and the
+	// browser asks before it leaves. Once the notes are closing,
+	// `notes.fenced` holds back every input and action here.
 	beforeNavigate(({ cancel }) => {
 		if (notes.busy) cancel();
 	});
@@ -34,11 +36,12 @@
 	onbeforeunload={(event) => {
 		if (notes.busy) event.preventDefault();
 	}}
+	onpagehide={() => void notes.saveTexts()}
 	onkeydown={async (event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.busy) {
-			// A reload would stop a write in flight. The leave prompt below is
-			// the webview's to show or not; refusing the shortcut does not depend on it.
+			// A reload would stop a save in flight. The leave prompt below is
+			// the browser's to show or not; refusing the shortcut does not depend on it.
 			event.preventDefault();
 			toast.warning('Reload stopped: a change is still being saved', {
 				description: 'Reload again once it finishes.',
@@ -51,6 +54,11 @@
 			const problem = await notes.createNote();
 			if (problem) toast.error('Could not create the note', { description: problem });
 		}
+	}}
+/>
+<svelte:document
+	onvisibilitychange={() => {
+		if (document.visibilityState === 'hidden') void notes.saveTexts();
 	}}
 />
 
@@ -78,7 +86,7 @@
 		<Resizable.Pane id="detail" order={3} defaultSize={filesOpen ? 40 : 60} minSize={30}>
 			{@const shown = notes.selected}
 			{#if shown?.as === 'note'}
-				<!-- One mount per opening: a rename keeps it, and its undo history. -->
+				<!-- One mount per opening, so the rich-text undo history lasts while the note is open. -->
 				{#key shown.id}
 					<NoteDetail {notes} path={shown.path} />
 				{/key}

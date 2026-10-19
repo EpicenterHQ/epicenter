@@ -4,10 +4,9 @@ A capture is one Markdown file, `captures/<stem>.md`, in a folder opened with
 `@epicenter/folder`. The file's bytes are the saved data. There is no Yjs
 document, no thought rows, and no IDs for thoughts.
 
-`captureDefinition` is declared with `defineFolder` from `@epicenter/folder`
-and the `defineTable` and `field` vocabulary of `@epicenter/definition`. This
-package opens nothing and names no folder; an application passes the
-definition and the folder's ID to an opener.
+`captureTables` is the tables an application passes to
+`openFolder({ tables: captureTables })`: one TypeBox schema per table. This
+package opens nothing and names no folder.
 
 ```markdown
 ---
@@ -23,17 +22,20 @@ The original capture text.
   It can continue across multiple lines.
 ```
 
-`captureDefinition` declares the one table, `captures`, with one field:
-`capturedAt`, an RFC 3339 datetime. A UTC time and a time with an offset are
-both valid, so order captures by the parsed instant, never by the string.
-Unknown frontmatter keys are kept.
+`captureTables` declares the one table, `captures`, with one field:
+`capturedAt`, an RFC 3339 datetime (`Type.String({ format: 'date-time' })`).
+A UTC time and a time with an offset are both valid, so order captures by
+the parsed instant, never by the string. The schema only interprets:
+unknown frontmatter keys are kept, and a save is never refused by it.
 
 ## Reading a capture
 
-The captures table reads a file as a row: its `fields` and its Markdown
-`body`. `captureBody.decode(row.body)` reads the body as the capture text and
-its ordered thoughts. markdown-it decides what the blocks are and which lines each owns;
-this package maps those ranges to offsets in the source.
+The captures table reads a file as a row (`CaptureRow`): its exact source
+`text`, its `fields`, its Markdown `body`, and `issues`, which is `null` when
+the frontmatter fits the schema. `captureBody.decode(row.body)` reads the
+body as the capture text and its ordered thoughts. markdown-it decides what
+the blocks are and which lines each owns; this package maps those ranges to
+offsets in the source.
 
 | Part | Rule |
 | --- | --- |
@@ -47,9 +49,8 @@ quote, or a list item is not the heading.
 A body is refused, with the refusal saying why, when its layout is
 ambiguous. Its text and thoughts are then not offered, and the file stays
 editable as text. A file whose frontmatter does not parse, or whose
-`capturedAt` is not valid, is not a row at all: the table reports it as
-`InvalidRow` with its issues, and `parseRow(captureDefinition.tables.captures,
-text)` reads typed text the same way.
+`capturedAt` is not valid, is still listed as a row, with its source and
+its `issues`; it is not a capture until those are repaired.
 
 | `refusal.code` | Cause |
 | --- | --- |
@@ -61,8 +62,8 @@ text)` reads typed text the same way.
 
 An app holds the open row and saves it; this package owns only the body.
 Decode the row's body, compose the complete desired value, encode it over the
-current body, and save the row with that body. The folder formats the
-frontmatter and keeps keys Capture does not declare.
+current body, and save the row with that body. The folder replaces only the
+body and keeps the frontmatter as written.
 
 ```text
 row.body -> decode -> { text, thoughts }
@@ -131,4 +132,5 @@ bun run --cwd packages/capture typecheck
 ```
 
 The document tests compare every operation's output with literal expected
-bytes.
+bytes. `definition.test.ts` checks `captureTables` the way the folder applies
+it, with TypeBox's `Check`.

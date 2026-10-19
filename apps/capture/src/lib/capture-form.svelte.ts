@@ -3,23 +3,21 @@
  * input not committed yet, and the commands that turn a change of text or
  * thoughts into a new body.
  *
- * A capture's body is a document, so the form types into its body draft
- * (`edits.body`, ADR-0576): the edit layer holds the row the edit started
- * from and the body typed, outside the cache, so reading the folder again
- * never replaces it, and each save is the change from that row, which the
- * folder merges by line with whatever changed since.
+ * A capture's body is a document, so the form types into the row's draft
+ * in the local folder's edit layer (`edits.row`): it holds the row the edit
+ * started from and the body typed, outside the cache, so reading the folder
+ * again never replaces it, and each save is the change from that row, which
+ * the folder merges with whatever was saved since.
  * A thought added, edited, deleted, or moved saves at once; the capture
  * text saves a second after the last keystroke, or when the person leaves
  * it (`flush`). Saves run one at a time; text typed while one runs goes in
- * the next. A failed save keeps the draft. An edit of a capture deleted
- * elsewhere writes nothing (a delete beats an edit it never saw, ADR-0576):
- * the edit layer lets it go and offers its text.
+ * the next. A failed save keeps the draft and its error.
  *
  * Every structured change reads the body the form shows now (the typed
- * body, or the cache's), composes the complete `{ text, thoughts }`, encodes it
- * over that body (`captureBody.encode`), and puts it in the draft. A change
- * the body cannot hold exactly is refused with the reason, and nothing
- * changes.
+ * body, or the cache's), composes the complete `{ text, thoughts }`, encodes
+ * it over that body (`captureBody.encode`), and puts it in the draft. A
+ * change the body cannot hold exactly is refused with the reason, and
+ * nothing changes.
  *
  * A new thought and a thought being edited are typed here until they are
  * added or saved; they are `$state`, kept while the person moves between
@@ -30,11 +28,19 @@
  */
 import {
 	type CaptureBody,
-	type CaptureFields,
+	type CaptureRow,
 	captureBody,
+	type captureTables,
 } from '@epicenter/capture';
-import type { StoredRow } from '@epicenter/folder';
-import type { Draft } from '@epicenter/svelte/edits';
+import type { Edits } from '@epicenter/svelte/edits';
+
+/** A capture file that reads as a capture's frontmatter. */
+export type StoredCapture = Extract<CaptureRow, { issues: null }>;
+
+/** One row's draft in the local folder's edit layer. */
+export type CaptureDraft = ReturnType<
+	Edits<typeof captureTables>['row']
+>;
 
 /** One edit of a thought, from Edit until it is saved or cancelled. */
 export type ThoughtEdit = {
@@ -56,12 +62,10 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 	a.length === b.length && a.every((item, index) => item === b[index]);
 
 export function createCaptureForm(capture: {
-	/** The capture as the cache holds it now, if it reads as a row. */
-	row(): StoredRow<CaptureFields> | undefined;
-	/** The capture's body draft (`edits.body`). */
-	draft: Draft;
-	/** Whether input is refused now: closing, or deleting. */
-	locked(): boolean;
+	/** The capture as the cache holds it now, if it reads as one. */
+	row(): StoredCapture | undefined;
+	/** The capture's draft (`edits.row('captures', stem)`). */
+	draft: CaptureDraft;
 }) {
 	const { draft } = capture;
 	let newThought = $state('');
@@ -69,16 +73,22 @@ export function createCaptureForm(capture: {
 	/** Why the last change was not taken; the next change clears it. */
 	let refusal = $state<string | undefined>();
 
+	/** Whether input is refused now: the folder closes, or the capture is deleted. */
+	const locked = () => draft.locked;
+
 	/** The body the form shows: the typed body, or the cache's. */
-	const shown = () => draft.text;
+	function shown(): string | undefined {
+		const row = capture.row();
+		return row === undefined ? draft.pending?.body : draft.shown(row).body;
+	}
 
 	/**
 	 * Put `body` in the draft, and save it at once unless `later`, when it
 	 * saves after a pause; answers whether the change was taken.
 	 */
 	function edit(body: string, { later = false } = {}): boolean {
-		if (capture.locked() || capture.row() === undefined) return false;
-		if (!draft.change(body)) return false;
+		const row = capture.row();
+		if (row === undefined || !draft.change(row, { body })) return false;
 		if (!later) void draft.save();
 		return true;
 	}
@@ -93,7 +103,7 @@ export function createCaptureForm(capture: {
 
 	/** Encode a complete value over the body now and put it in the draft. */
 	function write(value: CaptureBody, options?: { later?: boolean }): boolean {
-		if (capture.locked()) return false;
+		if (locked()) return false;
 		const now = current();
 		if (now === undefined) return false;
 		const { data: body, error } = captureBody.encode(value, now.body);
@@ -106,9 +116,10 @@ export function createCaptureForm(capture: {
 	}
 
 	return {
+		draft,
 		/** The edited body, until its saves land; `undefined` with no edit. */
 		get body() {
-			return draft.typed;
+			return draft.pending?.body;
 		},
 		/** Whether a save of the edit is running. */
 		get saving() {
@@ -141,11 +152,11 @@ export function createCaptureForm(capture: {
 			return newThought;
 		},
 		inputNewThought(value: string) {
-			if (!capture.locked()) newThought = value;
+			if (!locked()) newThought = value;
 		},
 		/** Add the new thought after the last one. The text stays if refused. */
 		addThought(): boolean {
-			if (capture.locked()) return false;
+			if (locked()) return false;
 			if (newThought.trim() === '') {
 				refusal = 'Write something first.';
 				return false;
@@ -169,11 +180,7 @@ export function createCaptureForm(capture: {
 		/** Begin editing the thought at `index` of the list `shown`. */
 		startEditing(index: number, shown: readonly string[]) {
 			const now = current();
-			if (
-				capture.locked() ||
-				now === undefined ||
-				!sameList(shown, now.thoughts)
-			)
+			if (locked() || now === undefined || !sameList(shown, now.thoughts))
 				return;
 			const original = shown[index];
 			if (original === undefined) return;
@@ -182,7 +189,7 @@ export function createCaptureForm(capture: {
 		},
 		/** Type into the edit `id`; refused unless that is the edit open now. */
 		inputEditing(text: string, id: object) {
-			if (capture.locked() || editing?.id !== id) return;
+			if (locked() || editing?.id !== id) return;
 			editing = { ...editing, text };
 		},
 		/**
@@ -190,7 +197,7 @@ export function createCaptureForm(capture: {
 		 * started from is no longer at its position.
 		 */
 		commitEditing(id: object): boolean {
-			if (capture.locked() || editing?.id !== id) return false;
+			if (locked() || editing?.id !== id) return false;
 			const { index, original, text: edited } = editing;
 			const now = current();
 			if (now === undefined || now.thoughts[index] !== original) {
@@ -220,7 +227,7 @@ export function createCaptureForm(capture: {
 		},
 		/** Delete the thought at `index` of the list `shown`. */
 		deleteThought(index: number, shown: readonly string[]): boolean {
-			if (capture.locked()) return false;
+			if (locked()) return false;
 			const now = current();
 			if (
 				now === undefined ||
@@ -237,7 +244,7 @@ export function createCaptureForm(capture: {
 		},
 		/** Swap two neighbouring thoughts of the list `shown`. */
 		swapThoughts(from: number, to: number, shown: readonly string[]): boolean {
-			if (capture.locked()) return false;
+			if (locked()) return false;
 			const now = current();
 			const next = [...shown];
 			const first = next[from];

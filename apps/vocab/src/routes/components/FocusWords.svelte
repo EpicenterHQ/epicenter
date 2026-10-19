@@ -1,6 +1,6 @@
 <!--
-	A chat's focus words and their stages. A stage press is sent at once, an
-	update of the word's file as it is now.
+	A chat's focus words and their stages. A stage press is saved at once,
+	through the word's row draft, so it keeps a note still being typed.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -18,14 +18,14 @@
 
 <h2 class="mb-3 text-sm font-semibold">Focus words</h2>
 {#each focus as item (item.entryId)}
-	{@const listed = focusWord(words.data ?? [], item)}
-	{@const entry = listed}
+	{@const entry = focusWord(words.data ?? [], item)}
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
+			{@const stage = entries.draftOf(entry.id).shown(entry.row).fields.stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
-				{#each STAGES as stage}
-					<Button size="sm" variant={entry.stage === stage ? 'default' : 'outline'} aria-pressed={entry.stage === stage} disabled={entries.isLocked(entry.id)} onclick={() => entries.setStage(entry.id, stage)}>{STAGE_LABELS[stage]}</Button>
+				{#each STAGES as option}
+					<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} disabled={entries.isLocked(entry.id)} onclick={() => entries.setStage(entry, option)}>{STAGE_LABELS[option]}</Button>
 				{/each}
 			</div>
 		{/if}

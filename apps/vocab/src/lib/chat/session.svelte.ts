@@ -32,7 +32,7 @@ export function createVocabChat({
 }: {
 	/** The folder whose `messages/` holds every chat's finished messages. */
 	folder: Pick<VocabFolder, 'tables' | 'files'>;
-	/** Runs each message's save: in the app, a mutation scoped to this chat, so closing waits for it. */
+	/** Runs each message's save: in the app, in this chat's turn, so leaving the page waits for it. */
 	write?: MessageWrite;
 	chatId: string;
 	focus: readonly { text: string }[];

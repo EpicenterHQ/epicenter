@@ -1,9 +1,9 @@
 <!--
-	One saved word: its text, the learner's note, and the stage. A stage
-	press is sent at once. The note is the word's field draft: sent a second
-	after the last keystroke, when the learner leaves it, and when the card
-	goes away; a read that lands meanwhile never replaces it. Each sets its
-	field on the word's file as it is now (ADR-0576).
+	One saved word: its text, the learner's note, and the stage. The note and
+	the stage are the word's row draft: a stage press is saved at once, a note
+	a second after the last keystroke, when the learner leaves it, and when
+	the card goes away. A read that lands meanwhile never replaces the typing.
+	Each save merges with whatever was saved to the word's file meanwhile.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -14,6 +14,7 @@
 	import { onDestroy } from 'svelte';
 	import { type Entry, STAGE_LABELS, STAGES } from '$lib/data.js';
 	import type { Entries } from '$lib/entries.svelte.js';
+	import { describeFailure } from '$lib/failure.js';
 	import { confirmDelete } from './word-actions.js';
 
 	let { entry, entries, chosen, canChoose, onToggle }: {
@@ -30,15 +31,17 @@
 	const id = entry.id;
 	/** Edits wait while the word is deleted or open as text, and once Vocab closes. */
 	const locked = $derived(entries.isLocked(id));
-	/** The note typed and not yet saved. */
+	/** The note and stage typed and not yet saved. */
 	// svelte-ignore state_referenced_locally
-	const note = entries.noteOf(id);
+	const draft = entries.draftOf(id);
+	/** The word with what is typed over it. */
+	const shown = $derived(draft.shown(entry.row).fields);
 	// The draft outlives the card; send what is typed now.
-	onDestroy(() => void note.save());
+	onDestroy(() => void draft.save());
 
 	/** Delete once the note typed here is sent, so the delete removes what was saved last. */
 	function remove() {
-		void note.save();
+		void draft.save();
 		confirmDelete(entries, entry);
 	}
 </script>
@@ -53,21 +56,16 @@
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
 		readonly={locked}
-		bind:value={
-			() => note.shown(entry.note),
-			(typed) => {
-				if (entries.canEdit(id)) note.change(typed);
-			}
-		}
-		onblur={() => void note.save()}
+		bind:value={() => shown.note, (typed) => entries.setNote(entry, typed)}
+		onblur={() => void draft.save()}
 	/>
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} disabled={locked} onclick={() => entries.setStage(id, option)}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={shown.stage === option ? 'default' : 'outline'} aria-pressed={shown.stage === option} disabled={locked} onclick={() => entries.setStage(entry, option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">
-			{#if note.saving}
+			{#if draft.saving}
 				Saving…
-			{:else if note.error}
-				Not saved. <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void note.save()}>Try again</Button>
+			{:else if draft.error}
+				Not saved: {describeFailure(draft.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void draft.save()}>Try again</Button>
 			{/if}
 		</span>
 	</div>

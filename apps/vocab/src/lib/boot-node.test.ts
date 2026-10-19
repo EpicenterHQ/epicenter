@@ -60,16 +60,29 @@ describe('the callback opens nothing', () => {
 });
 
 describe('the working page needs no account', () => {
-	test('the page opens the folder and mounts the shell with no sign-in gate', async () => {
+	test('the page opens the local folder and mounts the shell with no sign-in gate', async () => {
 		const page = await Bun.file(join(routes, '+page.svelte')).text();
 		expect(page).toContain('<FolderApp ');
+		expect(page).toContain('tables={vocabTables}');
 		expect(page).toContain('<VocabShell />');
 		expect(page).not.toMatch(/AppBoot|SignInScreen|\$lib\/auth/);
 	});
 
-	test('the folder declares no account', async () => {
+	test('the tables declare no account', async () => {
 		const declaration = await Bun.file(join(source, 'lib/data.ts')).text();
 		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
+	});
+
+	test('no shipped source opens the declared folder of the older shape', async () => {
+		const files = await shippedSources();
+		const legacy = files
+			.filter(({ text }) =>
+				/\bdefineFolder\b|\bLegacyFolder\b|openFolder\(\{\s*(app|id)\b/.test(
+					text,
+				),
+			)
+			.map(({ path }) => path);
+		expect(legacy).toEqual([]);
 	});
 
 	test('no shipped source opens a store: the folder is the only saved data', async () => {

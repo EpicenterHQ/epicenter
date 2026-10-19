@@ -1,50 +1,27 @@
 /**
  * Open Refusal Tests
  *
- * The refusal screen's words for the refusals a person meets in the desktop
- * app, where a window can be handed a folder the app does not read.
+ * The refusal screen's words for browser data retained by the earlier
+ * opener and for native storage that might become available again.
  *
  * Key behaviors:
- * - A folder that does not declare the app's tables keeps the library's
- *   message, which names the app, the folder, and each missing table
- * - A window opened for another app says which, and how to open this one
- * - Only a refusal that may pass offers "Try again"
+ * - Earlier data is named and never replaced by an empty workspace
+ * - A transient storage failure offers "Try again"
+ * - A permanently invalid table name does not
  */
 import { expect, test } from 'bun:test';
 import { OpenFolderError } from '@epicenter/folder';
 import { describeOpenRefusal } from './open-refusal.js';
 
-test('a folder without the app tables names them, and opening again would not help', () => {
-	const { error } = OpenFolderError.DefinitionMismatch({
-		app: 'Todos',
-		folder: 'Recipes',
-		problems: [
-			{
-				kind: 'missingTable',
-				table: 'todos',
-				message: "The folder declares no 'todos' table",
-			},
-		],
-	});
+test('an invalid table name cannot be fixed by opening again', () => {
+	const { error } = OpenFolderError.InvalidTable({ table: 'bad/name' });
 	expect(describeOpenRefusal(error, 'Todos')).toEqual({
-		description:
-			"Todos cannot open the folder 'Recipes': The folder declares no 'todos' table. Open this folder with an app that reads it.",
+		description: error.message,
 		retry: false,
 	});
 });
 
-test('a window opened for another app says which', () => {
-	expect(
-		describeOpenRefusal(
-			OpenFolderError.AppMismatch({
-				app: 'so.epicenter.todos',
-				windowApp: 'so.epicenter.honeycrisp',
-			}).error,
-			'Todos',
-		).description,
-	).toBe(
-		"This window was opened for 'so.epicenter.honeycrisp', so Todos cannot open a folder in it.",
-	);
+test('a storage failure can be retried', () => {
 	expect(
 		describeOpenRefusal(
 			OpenFolderError.Unavailable({ cause: new Error('disk') }).error,
@@ -61,7 +38,7 @@ test('older browser data is named as retained without offering an empty retry', 
 		),
 	).toEqual({
 		description:
-			'Your earlier Todos files are still stored in this browser. This version cannot read them yet, so it stopped before showing an empty workspace.',
+			'Earlier folder files are still stored in this browser (so.epicenter.todos). Todos cannot read them yet, so it stopped before showing an empty workspace.',
 		retry: false,
 	});
 });

@@ -4,9 +4,11 @@
  *   bun run --cwd apps/capture smoke:browser
  *
  * Starts the Capture dev server on a free loopback port and drives two pages
- * of one browser profile, which share the OPFS folder: the second page
- * is the "other program" that edits a file behind the first. No account, no
- * server besides Vite, and no data outside the disposable profile.
+ * of one browser profile, which share its local folder in IndexedDB: the
+ * second page is the other tab that edits a file behind the first. A third,
+ * fresh profile holds a folder an earlier build kept in OPFS, and opens
+ * nothing. No account, no server besides Vite, and no data outside the
+ * disposable profiles.
  *
  * It needs to bind a local port and launch Chromium (`bun x playwright
  * install chromium` once). It does not cover the desktop build: see
@@ -169,12 +171,12 @@ try {
 	);
 	// The file is in the form a save writes: plain YAML frontmatter.
 	const created = await source(first);
-	const at =
-		/^---\ncapturedAt: "(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)"\n---\n\nDinner with Sebastian\nFriday at seven\nBring the invitation\.\n\n## Thoughts\n$/.exec(
+	const line =
+		/^---\n(capturedAt: "?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z"?)\n---\n\nDinner with Sebastian\nFriday at seven\nBring the invitation\.\n\n## Thoughts\n$/.exec(
 			created,
 		)?.[1];
-	assert(at, `unexpected created source:\n${created}`);
-	const head = `---\ncapturedAt: "${at}"\n---`;
+	assert(line, `unexpected created source:\n${created}`);
+	const head = `---\n${line}\n---`;
 
 	// 3. Multiline thoughts: add, edit, reorder, delete. The file is the list.
 	for (const thought of [
@@ -237,9 +239,10 @@ try {
 	await openFromTimeline(first, 'Dinner with Sebastian');
 	assert.equal(await source(first), edited);
 
-	// 6. Another page edits the file. Its save is reported to the first page,
-	// and the first page's next save merges with whatever it has not read
-	// yet: where both changed the text, the first page's text wins (ADR-0548).
+	// 6. Another page edits the file. Its save reaches the first page on the
+	// folder's change channel, and the first page's next save merges with
+	// whatever it has not read yet: where both changed the text, the first
+	// page's text wins.
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);
@@ -258,9 +261,11 @@ try {
 	assert(
 		(await fileText(first).inputValue()).includes('\n\nSaved over it\n\n'),
 	);
-	// Save version records what is saved; nothing was committed before.
-	await first.getByRole('button', { name: 'Save version' }).click();
-	await first.getByText('Version saved').waitFor();
+	// The local folder keeps no history and syncs nowhere: no Save version.
+	assert.equal(
+		await first.getByRole('button', { name: 'Save version' }).count(),
+		0,
+	);
 	await first.getByRole('button', { name: 'Back to timeline' }).click();
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
@@ -316,9 +321,34 @@ try {
 			fullPage: true,
 		});
 
+	// 12. A profile holding a folder an earlier build kept in OPFS opens
+	// nothing, and the folder stays.
+	const earlier = await (await browser.newContext()).newPage();
+	earlier.on('pageerror', (error) => errors.push(`earlier: ${error.message}`));
+	await earlier.goto(app);
+	await earlier.getByRole('heading', { name: 'Timeline' }).waitFor();
+	await earlier.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		await root.getDirectoryHandle('so.epicenter.capture', { create: true });
+	});
+	await earlier.reload();
+	await earlier
+		.getByText('This browser has captures from an earlier version of Capture')
+		.waitFor();
+	assert.equal(
+		await earlier.getByRole('heading', { name: 'Timeline' }).count(),
+		0,
+	);
+	assert(
+		await earlier.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			return Boolean(await root.getDirectoryHandle('so.epicenter.capture'));
+		}),
+	);
+
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a write merged with a change from another page, Save version, a leave warning for unadded text, an ambiguous capture opened as text, and deletion.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that opens nothing.',
 	);
 } catch (cause) {
 	console.error(cause);

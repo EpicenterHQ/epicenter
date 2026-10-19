@@ -13,10 +13,9 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
-	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import NotebookTextIcon from '@lucide/svelte/icons/notebook-text';
 	import { tick } from 'svelte';
-	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
+	import { dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { noteIdOf } from '$lib/data.js';
 	import type { Notes } from '$lib/notes.svelte.js';
@@ -24,19 +23,24 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const listing = createQuery(() => notes.queries.files.list.queryOptions());
-	const rows = $derived(listing.data ? visibleRows(listing.data, notes.expanded) : []);
-	/** Where the notes are, in words a person can act on: a path, or the browser. */
-	const where = $derived(
-		notes.folder.location.kind === 'directory' ? notes.folder.location.root : 'This browser',
-	);
+	const listing = createQuery(() => notes.filesQuery());
+	/**
+	 * The tree over the listing. The folder lists file paths only: a directory
+	 * is there while a file is in it, and no size is listed, so none is shown.
+	 */
+	const rows = $derived.by(() => {
+		if (listing.data === undefined) return [];
+		const directories = new Set<string>();
+		for (const path of listing.data)
+			for (let at = dirname(path); at !== ''; at = dirname(at)) directories.add(at);
+		return visibleRows(
+			{ files: listing.data.map((path) => ({ path, size: 0 })), directories: [...directories] },
+			notes.expanded,
+		);
+	});
 
-	/** The inline name field: renaming a file, or creating one in a folder. */
-	let editing = $state<
-		| { kind: 'rename'; path: string }
-		| { kind: 'create'; directory: string; type: 'file' | 'folder' }
-		| undefined
-	>();
+	/** The inline name field: creating a file in a folder. */
+	let editing = $state<{ directory: string } | undefined>();
 	let committing = false;
 	/** The row whose action menu is open, so the keyboard can open it too. */
 	let menuPath = $state<string | undefined>();
@@ -59,35 +63,26 @@
 		notes.open(row.path);
 	}
 
-	function startCreate(directory: string, type: 'file' | 'folder') {
+	function startCreate(directory: string) {
 		if (directory !== '') notes.expanded.add(directory);
-		editing = { kind: 'create', directory, type };
+		editing = { directory };
 	}
 
 	/** The same actions back the right-click menu and the visible "…" menu. */
 	function actionGroups(row: TreeRow): Action[][] {
 		const copy: Action = { label: 'Copy path', run: () => void copyPath(row.path) };
-		const remove = () => void confirmDelete(notes, row.path);
 		if (row.kind === 'directory')
-			return [
-				[
-					{ label: 'New file', run: () => startCreate(row.path, 'file') },
-					{ label: 'New folder', run: () => startCreate(row.path, 'folder') },
-				],
-				[copy],
-				[
-					row.children > 0
-						? { label: 'Delete (folder not empty)', destructive: true, disabled: true, run: remove }
-						: { label: 'Delete…', shortcut: 'Del', destructive: true, run: remove },
-				],
-			];
+			return [[{ label: 'New file', run: () => startCreate(row.path) }], [copy]];
 		return [
+			[{ label: 'Open', shortcut: 'Enter', run: () => activate(row) }, copy],
 			[
-				{ label: 'Open', shortcut: 'Enter', run: () => activate(row) },
-				{ label: 'Rename…', shortcut: 'F2', run: () => (editing = { kind: 'rename', path: row.path }) },
-				copy,
+				{
+					label: 'Delete…',
+					shortcut: 'Del',
+					destructive: true,
+					run: () => void confirmDelete(notes, row.path),
+				},
 			],
-			[{ label: 'Delete…', shortcut: 'Del', destructive: true, run: remove }],
 		];
 	}
 
@@ -96,7 +91,7 @@
 		tree?.querySelector<HTMLElement>(`[data-row="${CSS.escape(path)}"]`)?.focus();
 	}
 
-	/** Arrow keys move between rows and open or close folders; F2 renames; Delete asks to delete. */
+	/** Arrow keys move between rows and open or close folders; Delete asks to delete a file. */
 	function navigate(event: KeyboardEvent) {
 		if (editing !== undefined || !(event.target instanceof HTMLElement)) return;
 		const path = event.target.dataset.row;
@@ -126,12 +121,9 @@
 				if (open) notes.expanded.delete(row.path);
 				else focusRow(dirname(row.path) || undefined);
 				break;
-			case 'F2':
-				if (row.kind !== 'file') return;
-				editing = { kind: 'rename', path: row.path };
-				break;
 			case 'Delete':
 			case 'Backspace':
+				if (row.kind !== 'file') return;
 				void confirmDelete(notes, row.path);
 				break;
 			case 'ContextMenu':
@@ -147,35 +139,27 @@
 		event.preventDefault();
 	}
 
-	/** Enter or leaving the field applies the name; Escape or an unchanged name cancels. */
-	async function commit(value: string) {
+	/** Enter or leaving the field creates the file; Escape or an empty name cancels. */
+	async function commit(name: string) {
 		const current = editing;
 		if (current === undefined || committing) return;
-		const name = value;
-		const directory = current.kind === 'rename' ? dirname(current.path) : current.directory;
-		if (name === '' || (current.kind === 'rename' && name === basename(current.path))) {
+		const { directory } = current;
+		if (name === '') {
 			await cancel();
 			return;
 		}
 		committing = true;
 		try {
-			const problem =
-				current.kind === 'rename'
-					? await notes.rename(current.path, name)
-					: current.type === 'file'
-						? await notes.createFile(directory, name)
-						: await notes.createDirectory(directory, name);
+			const problem = await notes.createFile(directory, name);
 			if (problem) {
-				const action =
-					current.kind === 'rename' ? 'rename' : `create the ${current.type}`;
-				toast.error(`Could not ${action}`, { description: problem });
+				toast.error('Could not create the file', { description: problem });
 				return;
 			}
 			editing = undefined;
 			await tick();
 			focusRow(joinPath(directory, name));
 		} catch (cause) {
-			toast.error(current.kind === 'rename' ? 'Could not rename the file' : `Could not create the ${current.type}`, {
+			toast.error('Could not create the file', {
 				description: cause instanceof Error ? cause.message : String(cause),
 			});
 		} finally {
@@ -187,7 +171,7 @@
 		const current = editing;
 		editing = undefined;
 		await tick();
-		focusRow(current?.kind === 'rename' ? current.path : current?.directory || undefined);
+		focusRow(current?.directory || undefined);
 	}
 
 	/** Keep focus in a name field a menu item just opened. */
@@ -215,12 +199,7 @@
 			aria-label={label}
 			autocomplete="off"
 			spellcheck={false}
-			{@attach (node: HTMLInputElement) => {
-				node.focus();
-				// Select the name before its extension, as file managers do.
-				const dot = initial.lastIndexOf('.');
-				node.setSelectionRange(0, dot > 0 ? dot : initial.length);
-			}}
+			{@attach (node: HTMLInputElement) => node.focus()}
 			onkeydown={(event) => {
 				if (event.key !== 'Escape') return;
 				event.preventDefault();
@@ -232,16 +211,8 @@
 {/snippet}
 
 {#snippet createField(directory: string, depth: number)}
-	{#if editing?.kind === 'create' && editing.directory === directory}
-		<li>
-			{@render nameField(
-				'',
-				depth,
-				editing.type === 'file'
-					? `New file name in ${directory || 'the folder root'}`
-					: `New folder name in ${directory || 'the folder root'}`,
-			)}
-		</li>
+	{#if editing?.directory === directory}
+		<li>{@render nameField('', depth, `New file name in ${directory || 'the folder root'}`)}</li>
 	{/if}
 {/snippet}
 
@@ -249,18 +220,13 @@
 	<div class="flex h-11 shrink-0 items-center gap-1 border-b ps-3 pe-1.5">
 		<h2 class="text-sm font-medium">Files</h2>
 		<div class="ml-auto flex items-center">
-			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('', 'file')}>
+			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('')}>
 				<FilePlusIcon />
-			</Button>
-			<Button variant="ghost" size="icon-sm" tooltip="New folder" aria-label="New folder" onclick={() => startCreate('', 'folder')}>
-				<FolderPlusIcon />
 			</Button>
 		</div>
 	</div>
 
-	<p class="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground" title={where}>
-		{where}
-	</p>
+	<p class="truncate border-b px-3 py-1 text-[11px] text-muted-foreground">This folder</p>
 	{#if listing.data === undefined}
 		{#if listing.isError}
 			<Empty.Root class="flex-1 p-6">
@@ -284,80 +250,76 @@
 					{@const selected = notes.selected?.path === row.path}
 					{@const open = row.kind === 'directory' && notes.expanded.has(row.path)}
 					<Sidebar.MenuItem>
-						{#if editing?.kind === 'rename' && editing.path === row.path}
-							{@render nameField(row.name, row.depth, `New name for ${row.name}`)}
-						{:else}
-							<ContextMenu.Root>
-								<ContextMenu.Trigger>
-									{#snippet child({ props })}
-										<Sidebar.MenuButton
-											{...props}
-											size="sm"
-											isActive={selected}
-											data-row={row.path}
-											aria-expanded={row.kind === 'directory' ? open : undefined}
-											aria-current={selected ? 'true' : undefined}
-											title={row.path}
-											style="padding-inline-start: {indent(row.depth)}"
-											onclick={() => activate(row)}
+						<ContextMenu.Root>
+							<ContextMenu.Trigger>
+								{#snippet child({ props })}
+									<Sidebar.MenuButton
+										{...props}
+										size="sm"
+										isActive={selected}
+										data-row={row.path}
+										aria-expanded={row.kind === 'directory' ? open : undefined}
+										aria-current={selected ? 'true' : undefined}
+										title={row.path}
+										style="padding-inline-start: {indent(row.depth)}"
+										onclick={() => activate(row)}
+									>
+										{#if row.kind === 'directory'}
+											{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}
+										{:else if noteIdOf(row.path) !== undefined}
+											<NotebookTextIcon />
+										{:else if /\.(md|txt|json|ya?ml|csv)$/i.test(row.name) || row.name.startsWith('.')}
+											<FileTextIcon />
+										{:else}
+											<FileIcon />
+										{/if}
+										<span>{row.name}</span>
+									</Sidebar.MenuButton>
+								{/snippet}
+							</ContextMenu.Trigger>
+							<ContextMenu.Content class="min-w-44" onCloseAutoFocus={keepFieldFocus}>
+								{#each actionGroups(row) as group, index (index)}
+									{#if index > 0}<ContextMenu.Separator />{/if}
+									{#each group as action (action.label)}
+										<ContextMenu.Item
+											variant={action.destructive ? 'destructive' : 'default'}
+											disabled={action.disabled || notes.fenced}
+											onSelect={action.run}
 										>
-											{#if row.kind === 'directory'}
-												{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}
-											{:else if noteIdOf(row.path) !== undefined}
-												<NotebookTextIcon />
-											{:else if /\.(md|txt|json|ya?ml|csv)$/i.test(row.name) || row.name.startsWith('.')}
-												<FileTextIcon />
-											{:else}
-												<FileIcon />
-											{/if}
-											<span>{row.name}</span>
-										</Sidebar.MenuButton>
-									{/snippet}
-								</ContextMenu.Trigger>
-								<ContextMenu.Content class="min-w-44" onCloseAutoFocus={keepFieldFocus}>
-									{#each actionGroups(row) as group, index (index)}
-										{#if index > 0}<ContextMenu.Separator />{/if}
-										{#each group as action (action.label)}
-											<ContextMenu.Item
-												variant={action.destructive ? 'destructive' : 'default'}
-												disabled={action.disabled || notes.fenced}
-												onSelect={action.run}
-											>
-												{action.label}
-												{#if action.shortcut}<ContextMenu.Shortcut>{action.shortcut}</ContextMenu.Shortcut>{/if}
-											</ContextMenu.Item>
-										{/each}
+											{action.label}
+											{#if action.shortcut}<ContextMenu.Shortcut>{action.shortcut}</ContextMenu.Shortcut>{/if}
+										</ContextMenu.Item>
 									{/each}
-								</ContextMenu.Content>
-							</ContextMenu.Root>
-							<DropdownMenu.Root
-								open={menuPath === row.path}
-								onOpenChange={(value) => (menuPath = value ? row.path : undefined)}
-							>
-								<DropdownMenu.Trigger>
-									{#snippet child({ props })}
-										<Sidebar.MenuAction {...props} showOnHover aria-label="Actions for {row.name}">
-											<EllipsisIcon />
-										</Sidebar.MenuAction>
-									{/snippet}
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content class="min-w-44" align="start" onCloseAutoFocus={keepFieldFocus}>
-									{#each actionGroups(row) as group, index (index)}
-										{#if index > 0}<DropdownMenu.Separator />{/if}
-										{#each group as action (action.label)}
-											<DropdownMenu.Item
-												variant={action.destructive ? 'destructive' : 'default'}
-												disabled={action.disabled || notes.fenced}
-												onSelect={action.run}
-											>
-												{action.label}
-												{#if action.shortcut}<DropdownMenu.Shortcut>{action.shortcut}</DropdownMenu.Shortcut>{/if}
-											</DropdownMenu.Item>
-										{/each}
+								{/each}
+							</ContextMenu.Content>
+						</ContextMenu.Root>
+						<DropdownMenu.Root
+							open={menuPath === row.path}
+							onOpenChange={(value) => (menuPath = value ? row.path : undefined)}
+						>
+							<DropdownMenu.Trigger>
+								{#snippet child({ props })}
+									<Sidebar.MenuAction {...props} showOnHover aria-label="Actions for {row.name}">
+										<EllipsisIcon />
+									</Sidebar.MenuAction>
+								{/snippet}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content class="min-w-44" align="start" onCloseAutoFocus={keepFieldFocus}>
+								{#each actionGroups(row) as group, index (index)}
+									{#if index > 0}<DropdownMenu.Separator />{/if}
+									{#each group as action (action.label)}
+										<DropdownMenu.Item
+											variant={action.destructive ? 'destructive' : 'default'}
+											disabled={action.disabled || notes.fenced}
+											onSelect={action.run}
+										>
+											{action.label}
+											{#if action.shortcut}<DropdownMenu.Shortcut>{action.shortcut}</DropdownMenu.Shortcut>{/if}
+										</DropdownMenu.Item>
 									{/each}
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
-						{/if}
+								{/each}
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
 					</Sidebar.MenuItem>
 					{#if open}{@render createField(row.path, row.depth + 1)}{/if}
 				{:else}
@@ -365,7 +327,7 @@
 						<li>
 							<Empty.Root class="p-6">
 								<Empty.Title>No files yet</Empty.Title>
-								<Empty.Description>Create a note, or a file or folder above.</Empty.Description>
+								<Empty.Description>Create a note, or a file above.</Empty.Description>
 							</Empty.Root>
 						</li>
 					{/if}

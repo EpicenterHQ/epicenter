@@ -1,299 +1,63 @@
 # @epicenter/svelte
 
-Svelte utilities for synchronizing state with external systems.
+Svelte state around an opened `@epicenter/folder` handle. The Folder package
+owns files, row parsing, merging, storage, change reports, and local save
+status. This package owns the page's query cache, drafts, pending actions,
+recovery, and close sequence. It also has separate agent conversation and
+status UI helpers.
 
-## Overview
+## Folder app root
 
-This package holds the roots folder apps mount: `<LocalFolderApp>` over this
-browser's local folder (`openFolder({ tables })`), and `<FolderApp>` over a
-declared folder, the temporary migration boundary of `@epicenter/folder`. It
-also adapts agent conversations into Svelte reactivity, and words Sync's
-result and a folder's state for the header.
-
-## Installation
-
-This package is part of the Epicenter monorepo and is used internally. To use it in your app:
-
-```json
-{
-  "dependencies": {
-    "@epicenter/svelte": "workspace:*"
-  }
-}
-```
-
-## Available utilities
-
-### The local folder root (`local-folder-app`, `local-folder`, `local-edits`)
-
-An app over this browser's local folder mounts `<LocalFolderApp>` with its
-name and its tables, and everything below it reads the opened folder through
-`getLocalFolder()`:
-
-```svelte
-<script lang="ts">
-	import LocalFolderApp from '@epicenter/svelte/local-folder-app';
-	import { todosTables } from '$lib/definition.js';
-	import TodosView from './local/TodosView.svelte';
-</script>
-
-<LocalFolderApp title="Todos" tables={todosTables}><TodosView /></LocalFolderApp>
-```
-
-`<LocalFolderApp>` calls `openFolder({ tables })` from `@epicenter/folder`
-when it mounts. Opening needs no account, remote, or network. It shows one
-loading screen and one refusal screen (`describeOpenRefusal`), provides the
-context, sends what is typed when the page is hidden, and closes the context
-when it unmounts.
-
-`createLocalFolderContext(folder, { saveAfterMs? })` builds the context over
-an opened `Folder`; a test builds it over a folder it opened. It owns:
-
-- One query client, with the policy `<FolderApp>` uses: fresh until the
-  folder reports a change, no refetch on focus, no retry.
-  `queries.rows(table)` lists a table's rows, each with its source, fields,
-  and issues; a view adds `select`.
-- One subscription to `folder.onChange`, wired before anything reads. A
-  committed change from this handle or another tab marks the tables it names
-  stale; `paths: null` marks every table.
-- `edits`, described below.
-- `status`, the handle's status, and `saveState`: `saved` only when no typing
-  is held, no save runs, and no failure is outstanding. A held failed draft is
-  `failed`; a storage failure with no held row is `recent-failure`. `busy`
-  says whether leaving the page could lose something.
-- `close()`: settle the edits, stop the subscription, cancel reads, close the
-  handle, clear the cache. It answers the drafts that did not save and logs
-  them.
-
-`createLocalEdits` (`@epicenter/svelte/local-edits`) holds typing per row:
-
-```ts
-const { edits } = getLocalFolder<typeof todosTables>();
-const draft = edits.row('todos', id);
-draft.shown(row);                                  // the row with the typing over it
-draft.change(row, { fields: { title } });          // saves SAVE_AFTER_MS after the last change
-await draft.save();                                // now; resolves once no save of it runs
-draft.held; draft.saving; draft.error; draft.pending; draft.locked;
-draft.discard();                              // explicit user choice, never on failure
-await edits.delete('todos', id);
-```
-
-- A draft keeps the fields and body typed since the row last saved, and the
-  row it started from. A reread never replaces it, including while its save
-  runs. The engine merges the save with whatever was saved meanwhile.
-- A save that landed lets the draft go once the cache was read again, unless
-  typing changed it meanwhile; that typing stays and saves from the row the
-  save sent. A row's saves run one at a time.
-- A failed save keeps the typing and its error (`draft.error`,
-  `edits.failures`). `save()` tries again, and so does further typing. The
-  pending change remains available when the stored row stops reading as a
-  valid row; the app can show it for copying before an explicit discard.
-- `delete` waits for the row's running save, deletes the row as stored, and
-  lets its typing go. It refuses while any typing still failed to save. A row
-  changed in that moment is kept (`deleted: false`).
-- `settled(table?)` sends every draft once and answers the ones that did not
-  save. `close()` refuses input from the moment it is called, sends every
-  draft, and waits for every save and delete.
-
-### The folder app root (`folder-app`, `folder-provider`, `folder`, `write-failure`)
-
-The declared-folder root, kept while apps still open declared folders.
-
-An app's root page mounts `<FolderApp>` with its manifest and its
-definition, and everything below it reads the opened folder through
-`getFolder()` ([ADR-0574](../../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md)):
+Mount one `<FolderApp>` at the route that owns an app's folder:
 
 ```svelte
 <script lang="ts">
 	import FolderApp from '@epicenter/svelte/folder-app';
-	import manifest from '../../epicenter.app.json';
-	import { todosDefinition } from '$lib/definition.js';
-	import TodosView from './components/TodosView.svelte';
+	import { todosTables } from '$lib/definition.js';
+	import TodosView from './local/TodosView.svelte';
 </script>
 
-<FolderApp app={manifest} definition={todosDefinition}><TodosView /></FolderApp>
+<FolderApp title="Todos" tables={todosTables}><TodosView /></FolderApp>
 ```
 
-`<FolderApp>` owns what every app root used to copy:
+The browser root calls `openFolder({ tables })`, which opens this origin's
+fixed IndexedDB folder. Inside Epicenter, the root asks the shell which
+folder it handed the window, then calls `openFolder({ directory, tables })`.
+It never falls back to browser storage if a native open fails. Opening needs
+no account, remote, or network. The root shows a loading or refusal screen,
+sends drafts when the page hides, and closes after pending work settles.
 
-- Opening: `openFolder({ app: manifest.id, definition })` from
-  `@epicenter/folder`, which picks the host when it is called. In the desktop
-  app it opens the folder the shell handed the window; in a browser, the
-  app's own. Only the app's own folder has its definition published
-  (ADR-0583). `browser` passes browser-folder settings such as Todos'
-  `httpFetch`; the commit author defaults to the app's title.
-- One loading screen and one refusal screen. The refusal is worded per
-  `OpenFolderError` (`describeOpenRefusal`): a folder that does not declare
-  the app's tables keeps the library's message naming the app, the folder,
-  and each missing table; a window opened for another app says so. Only a
-  refusal that may pass offers "Try again". Nothing else is opened in the
-  folder's place.
-- One query client with one policy: the folder's change channel is the one
-  detector of outside change (ADR-0548), so reads are fresh until it reports
-  one (`staleTime: Infinity`, no refetch on focus), nothing waits for a
-  network (`networkMode: 'always'`), and failures are shown, not retried
-  (`retry: false`). `invalidateOnChange` is wired once, before anything
-  reads.
-- One edit layer (`edits`), described below.
-- One write-failure toast. An app reports
-  `{ path, error, unsaved, retry?, discard? }` to `getFolder().writeFailed`; the toast says `Could not save <path>` and
-  words the error with `describeWriteError`. It offers the unsaved text with
-  "Copy your text" and stays up until the clipboard took it or the person
-  dismisses it; a refused copy shows the text in a box to select by hand.
-  It offers "Save again" when `retry` is set; `retry` answers whether a save
-  started, and when none did the toast comes back with only the text to
-  copy. It offers "Discard your edit" when `discard` is set, which lets go
-  of the edit on screen and keeps the toast up with the text it let go,
-  newer typing included, to copy.
-  `@epicenter/svelte/write-failure-toast` exports it as `toastWriteFailure`
-  for an app, such as Whispering, that opens its folder itself. A failed
-  field set reports the field the person typed, such as a
-  title, and no text for a click, a move, or a delete.
-- Closing when the page goes away: the edit layer fences input from the
-  moment close is called, sends what is typed, waits for every write,
-  rename, delete, and app action, then the change wiring stops and the
-  folder is released.
+A child calls `getFolder<typeof todosTables>()` from
+`@epicenter/svelte/folder`. The context contains `folder`, `queryClient`,
+`queries.rows(table)`, `edits`, `status`, `saveState`, `busy`, `run`,
+`registerWork`, `settled`, and `close`. Its single `onChange` subscription
+invalidates reads for the paths reported by the folder. Reads stay fresh
+until that notification, do not refetch on focus, and do not retry a failed
+local read automatically.
 
-`getFolder<typeof definition>()` answers `FolderContext`: `folder`, `isOwn`
-(the handle's `folder.own`: the app's own folder, for a feature such as
-Todos' Connect), `queries` (the TanStack Query reads over the folder,
-`folderOptions(folder)`), `edits`, `queryClient`, `writeFailed`, and
-`close`. Call it while a component initializes. An app module that builds
-compound actions takes the context from the component that calls it.
+`saveState` is `saved` only when no draft or action is pending and no failure
+is held. A failed row or app-owned draft is `failed`. A storage failure with
+no held draft is `recent-failure`. The app chooses the words shown to a
+person, such as "Saved on this device".
 
-`createFolderContext(folder, { writeFailed })` builds the same context over a
-folder a test opened, and `<FolderProvider context>` provides it to mounted
-views. `@epicenter/svelte/folder` and `@epicenter/svelte/write-failure` are
-plain modules, so a store imports them without loading components; the
-context builds the edit layer, a runes module, so a test loads
-`@epicenter/svelte/folder` with a dynamic `import()` after its runes loader.
-`ActionError.NotStarted({ reason })` is the error an app returns for an
-action it refused before changing anything.
+## Row edits and file work
 
-### The edit layer (`@epicenter/svelte/edits`)
+`edits.row(table, id)` holds a row's typed fields and body with the source it
+started from. `shown(row)` overlays the held draft on a fresh read. `change`
+schedules a save after a pause, and `save()` sends it now. Saves for one row
+run in order; the Folder merges a save with storage changes that landed
+meanwhile. A failed save keeps the draft and its error until a successful
+retry or an explicit discard. `edits.delete` waits for the row's save and
+refuses to discard a failed draft.
 
-`createEdits({ folder, queries, queryClient, writeFailed })` is the one
-place a folder app keeps what a person typed and has not saved, so each
-app's store holds only its product logic. `<FolderApp>` builds it as
-`getFolder().edits`; Whispering, which opens its folder itself, builds its
-own.
+A view that edits whole files keeps its own draft and calls
+`context.registerWork({ busy, failed, settle })`. Use `context.run(action)`
+for started file actions. The context counts both in `saveState` and waits
+for them before it closes the Folder handle. `close()` fences row input,
+sends drafts, waits for work already started, releases the change listener,
+and clears the query cache. It returns row drafts that did not save.
 
-```ts
-const { edits } = getFolder<typeof todosDefinition>();
-const title = edits.field('todos', stem, 'title');
-const notes = edits.body('todos', stem);
-edits.set('todos', stem, { done: true });
-await edits.exclusive(path, () => edits.writes.tables.todos.delete(stem));
-await edits.saveVersion();
-```
-
-- `edits.writes` is `folderWrites(folder, queryClient)` from
-  `@epicenter/folder/query`: the folder's write, move, and row helpers, each
-  answering the engine's Result and keeping the cache in step. Writes to one
-  file run one at a time, in the order made, whoever made them; `inTurn`
-  runs other work in a file's turn.
-- `body(table, stem)`, `text(path)`, and `field(table, stem, name)` hold
-  what is typed by path until it is in the file. Each saves a second after
-  the last change (`SAVE_AFTER_MS`), and at once on `save()`, which a view
-  calls when the person leaves the control and when the view goes away. A
-  draft outlives its view, and a read never replaces it.
-- A save that fails keeps what is typed and reports it to `writeFailed`
-  with the text, a `retry` that starts a save while the draft is still
-  held and the folder is not closing, and a `discard` that lets it go and
-  answers the text it let go. Typing a settle cannot even send, such as a
-  body whose row stopped reading, is told once per settle with its text and
-  `discard`, so no refusal it causes lacks a way out.
-- A path's unsaved typing blocks anything that would move past it on that
-  path. While typing whose save failed is held at a path, `exclusive` on
-  it answers `ActionError.NotStarted` with `UNSAVED`, `saveVersion()`
-  answers `NotStarted` naming the paths, and typing the path another way
-  is refused: a file's exact text against its body or fields, either way.
-  Sync goes ahead, since it carries what the files hold and claims nothing
-  about the edit on screen; `close()` goes ahead once the failure was
-  reported. Save again or Discard in the failure's notice is the way out.
-- A delete beats an edit that never saw it. A draft whose file was deleted,
-  as a save found or a listing without its row says, is let go and its text
-  offered once (`NotFound`). A field set on a deleted row offers what was
-  typed; `set`, a click, offers nothing.
-- `exclusive(paths, work)` runs a rename or delete, whose `work` answers a
-  Result, once the drafts and writes of its paths landed; a rename names
-  its source and its destination. `locked(path)` and `refusal(path)`
-  answer while it runs, and while the folder closes. Once `work`
-  succeeded, every draft and field still held at its paths is let go, so
-  no Save again reaches an address that was moved or deleted.
-- `settled(path?)` sends what is typed and waits for every write, again
-  until nothing is left. Each draft is tried once per settle, and again
-  only when typing changed it meanwhile; it answers the paths whose typing
-  still did not save. `saveVersion()` and `sync({ url? })` start after it.
-- A field save names the revision it sent, so one that lands clears only
-  that typing, never a value typed after it, even one equal to it.
-- `writing(path?)`, `unsaved(path?)`, `busy`, and `fenced` are read
-  reactively.
-- `close()` fences new input when it is called, then waits for every draft,
-  write, lock, and app action; it releases nothing.
-
-### Running a sync from a page
-
-A page runs `edits.sync()` as one of its own mutations: it settles every
-draft and write first, then syncs, and reads the page's queries again; this
-package keeps no sync state. Sync
-asks nothing (ADR-0576): what both sides changed merges into one commit,
-and the result is `synced`, `saved` (merged here, not yet on the remote), or
-a `SyncError` saying why it stopped.
-
-`describeSync(result, describePush?)` from `@epicenter/svelte/sync-line`
-words a result for a toast or a status line. It is a plain module, so status
-helpers import it without loading runes. The rest of what a person is told
-stays with the page.
-
-### Header status (`@epicenter/svelte/status-line`, `status-popover`, `status-row`)
-
-Honeycrisp, Todos, and Whispering show their folder's state as one summary
-button with details. Each app words its own lines; this package holds what
-they share.
-
-`status-line` is a plain module: the `StatusLine` shape (`label`, optional
-`short` for narrow screens, `detail`, and a `Tone`), `mostSevere(lines)`
-(the most severe line, the earlier one on a tie), `withTime`, `localTime`,
-`shortOid`, and `changeList` for the changed paths a check saw. Each app
-decides which lines may lead its summary and what a calm header says.
-
-`StatusPopover` renders the button and the details: one row per
-`{ name, testid, line }` in `details`, then the app's own `StatusRow`s as
-children, then a `footer` snippet for actions. `bind:open` is there for an
-app that reads something while the details show. `toastStatus(line)` shows an
-outcome line as a toast in its tone, so the toast and the details agree.
-
-```svelte
-<StatusPopover {summary} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
-	<StatusRow name="Folder" class="font-mono text-xs break-all" data-testid="status-folder">
-		{location}
-	</StatusRow>
-	{#snippet footer()}
-		<Button size="sm" onclick={saveVersion}>Save version</Button>
-	{/snippet}
-</StatusPopover>
-```
-
-`packages/ui/src/app.css` scans this package's sources, so its Tailwind
-classes reach every app that loads the shared stylesheet.
-
-## Contributing
-
-When adding new utilities to this package:
-
-1. Add the utility file to `src/`
-2. Export it from `src/index.ts`
-3. Update this README with documentation
-4. Add type tests if applicable
-
-## Dependencies
-
-This package depends on:
-
-- `@epicenter/folder`: the folder it opens and its query options
-- `@tanstack/svelte-query`: the page's query client
-- `typebox`: the row schemas a local folder's tables are typed by
-- `@epicenter/ui`: the loading and refusal screens and the toast
-- `svelte`: For reactive state primitives
-- `wellcrafted`: For error handling utilities
+The status UI helpers (`status-line`, `status-popover`, `status-row`) render
+app-owned status text. `write-failure` and `write-failure-toast` offer the
+unsaved text for app actions that use a toast. Agent conversation bindings
+remain independent of Folder.

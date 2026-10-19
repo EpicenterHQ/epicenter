@@ -1,91 +1,56 @@
 /**
- * The opened folder a folder app's components read and write through
- * (ADR-0574): the handle, its reads, its edit layer, and the one query
- * client and write-failure report the whole page shares.
+ * A local folder (`openFolder({ tables })`) as a page's components read and
+ * write it: the handle, the page's one query client over its rows, its
+ * edit layer, whether everything typed is saved, and one close.
  *
- * `<FolderApp>` opens the app's folder, builds this with
- * `createFolderContext`, provides it with `<FolderProvider>`, and closes it
- * when the page goes away. A component calls `getFolder()` while it
- * initializes; a test builds the context over a test folder and mounts its
- * views inside `<FolderProvider>`.
+ * `<FolderApp>` opens the folder, builds this, provides it to its
+ * children (`getFolder()`), and closes it when the page goes away. A
+ * test builds it over a folder it opened.
  *
- * Plain module: a store imports the types and `createFolderContext` without
- * loading Svelte components.
+ * The context owns every subscription it makes: the folder's change channel
+ * marks the rows it names stale, and nothing else reads again. `close`
+ * settles the edits, stops that channel, cancels reads, closes the handle,
+ * and clears the cache, in that order.
+ *
+ * Plain module, so a store imports the types without loading components; the
+ * edit layer it builds is a runes module.
  */
-import type { Definition, LegacyFolder } from '@epicenter/folder';
-import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
+import type { FolderStatus, Folder, Row } from '@epicenter/folder';
 import { QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
-import { createEdits, type Edits } from './edits.svelte.js';
-import type { WriteFailure } from './write-failure.js';
+import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import type { TSchema } from 'typebox';
+import { createLogger } from 'wellcrafted/logger';
+import {
+	createEdits,
+	type Edits,
+	type Unsaved,
+} from './edits.svelte.js';
 
-/** What `getFolder()` answers: one opened folder and the page's cache over it. */
-export type FolderContext<TDefinition extends Definition = Definition> = {
-	/**
-	 * The opened handle. Its own `definition` is the app's in the app's own
-	 * folder, and the folder's declaration in any other the desktop handed
-	 * the window.
-	 */
-	readonly folder: LegacyFolder<TDefinition, Definition>;
-	/**
-	 * Whether this is the app's own folder, the one named after it: the
-	 * handle's `folder.own`, true exactly when it publishes the app's
-	 * definition (ADR-0583). A
-	 * feature that belongs to the app's own folder only, such as Todos'
-	 * Connect, checks it.
-	 */
-	readonly isOwn: boolean;
-	/**
-	 * The TanStack Query layer over the folder: each read's query options
-	 * (`folderOptions` in `@epicenter/folder/query`).
-	 */
-	readonly queries: FolderOptions<TDefinition>;
-	/**
-	 * Every write of the folder, and what a person typed and has not saved:
-	 * drafts, field sets, renames and deletes, Save version, and Sync
-	 * (`createEdits` in `@epicenter/svelte/edits`).
-	 */
-	readonly edits: Edits<LegacyFolder<TDefinition, Definition>['tables']>;
-	/**
-	 * The page's one cache. svelte-query's `useQueryClient()` answers it
-	 * inside `<FolderProvider>`; a store built outside a component takes it
-	 * from here.
-	 */
-	readonly queryClient: QueryClient;
-	/**
-	 * Tell the person a save failed, offering the text it held. Inside
-	 * `<FolderApp>` it is one toast for every app.
-	 */
-	readonly writeFailed: (failure: WriteFailure) => void;
-	/**
-	 * Fence new input (`edits.close`), wait for every draft, write, and
-	 * action, stop the change wiring, then release the folder. Work that
-	 * starts meanwhile is waited for too; after that the folder refuses with
-	 * `Closed`. Every call answers the same completion.
-	 */
-	readonly close: () => Promise<void>;
-};
+const log = createLogger('svelte/folder');
+
+/** The root of every query over the folder. */
+const KEY = ['folder'] as const;
 
 /**
- * Build the context over an opened folder: the page's query client with
- * the one policy every folder app shares, the folder's options, and its
- * change channel wired to the cache.
- *
- * The policy: the folder's change channel is the one detector of outside
- * change (ADR-0548), so a read is fresh until it reports one
- * (`staleTime: Infinity`) and is never read again on focus; reads and writes
- * reach files, not a network, so none waits for one (`networkMode:
- * 'always'`); and a failure is shown, not retried (`retry: false`).
+ * Whether what the person did is in this device's storage. `saved` only when
+ * no typing is held, no save runs, and no failure is outstanding.
  */
-export function createFolderContext<TDefinition extends Definition>(
-	folder: LegacyFolder<TDefinition, Definition>,
-	{
-		writeFailed = () => {},
-	}: {
-		/** A save failed. `<FolderApp>` passes its toast; a test, its own record. */
-		writeFailed?: (failure: WriteFailure) => void;
-	} = {},
-): FolderContext<TDefinition> {
+export type SaveState = 'saved' | 'saving' | 'failed' | 'recent-failure';
+
+/** App-owned file work that must settle before the folder handle closes. */
+export type FolderWork = {
+	readonly busy: boolean;
+	readonly failed: boolean;
+	settle(): Promise<unknown>;
+};
+
+export function createFolderContext<
+	TTables extends Record<string, TSchema>,
+>(folder: Folder<TTables>, { saveAfterMs }: { saveAfterMs?: number } = {}) {
+	// Reads reach this device's storage, not a network, and the change
+	// channel is the one detector of outside change: a read is fresh until it
+	// reports one, and a failure is shown, not retried.
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: {
@@ -98,53 +63,167 @@ export function createFolderContext<TDefinition extends Definition>(
 		},
 	});
 	queryClient.mount();
-	const queries = folderOptions(folder) as FolderOptions<TDefinition>;
+	const rowsKey = (table: string) => [...KEY, 'rows', table] as const;
+
 	// Wired before anything reads, so no change falls between.
-	const stopChanges = queries.invalidateOnChange(queryClient);
-	const edits = createEdits({ folder, queries, queryClient, writeFailed });
-	let closing: Promise<void> | undefined;
+	const stopChanges = folder.onChange((change) => {
+		if (change.paths === null) {
+			void queryClient.invalidateQueries({ queryKey: KEY });
+			return;
+		}
+		// A table is a path's first segment; a root file names none.
+		const tables = new Set(
+			change.paths.map((path) => path.slice(0, Math.max(path.indexOf('/'), 0))),
+		);
+		for (const table of tables)
+			if (Object.hasOwn(folder.tables, table))
+				void queryClient.invalidateQueries({ queryKey: rowsKey(table) });
+	});
+	let closed = false;
+	const trackStatus = createSubscriber((update) =>
+		closed ? () => {} : folder.onStatusChange(update),
+	);
+	const edits: Edits<TTables> = createEdits({
+		folder,
+		queryClient,
+		rowsKey,
+		saveAfterMs,
+	});
+	const work = new Set<FolderWork>();
+	const actions = new SvelteSet<Promise<unknown>>();
+	let closing: Promise<Unsaved[]> | undefined;
+
+	async function settleWork() {
+		const results = await Promise.allSettled([
+			...[...work].map((item) => item.settle()),
+			...actions,
+		]);
+		for (const result of results)
+			if (result.status === 'rejected')
+				log.error(
+					new Error('Folder work did not settle', { cause: result.reason }),
+				);
+	}
 
 	return {
 		folder,
-		isOwn: folder.own,
-		queries,
-		edits,
 		queryClient,
-		writeFailed,
-		close() {
+		edits,
+		/** Keep an app's file action or text draft in this handle's lifetime. */
+		registerWork(item: FolderWork) {
+			if (closing !== undefined) throw new Error('The folder is closing');
+			work.add(item);
+		},
+		/** Count a started file action in this handle's close and save status. */
+		run<T>(action: () => Promise<T>): Promise<T> {
+			const result = Promise.resolve()
+				.then(action)
+				.finally(() => actions.delete(result));
+			actions.add(result);
+			return result;
+		},
+		/** Send row drafts and app-owned file work while the page is hidden. */
+		async settled() {
+			await Promise.all([edits.settled(), settleWork()]);
+		},
+		/** The query options of each read; a view adds `select` to narrow one. */
+		queries: {
+			key: KEY,
+			/** Every row of `table`, each with its source, fields, and issues. */
+			rows<TName extends keyof TTables & string>(table: TName) {
+				return {
+					queryKey: rowsKey(table),
+					queryFn: async (): Promise<Row<TTables[TName]>[]> => {
+						const listed = await folder.tables[table].list();
+						if (listed.error !== null) throw listed.error;
+						return listed.data;
+					},
+				};
+			},
+		},
+		/** The handle's save status, read reactively. */
+		get status(): FolderStatus {
+			trackStatus();
+			return folder.status;
+		},
+		/**
+		 * Whether leaving the page now could lose something: typing held, or a
+		 * save or delete still running, read reactively.
+		 */
+		get busy(): boolean {
+			trackStatus();
+			return (
+				edits.busy ||
+				folder.status.saving ||
+				actions.size > 0 ||
+				[...work].some((item) => item.busy)
+			);
+		},
+		/** Whether everything is saved on this device, read reactively. */
+		get saveState(): SaveState {
+			trackStatus();
+			if (edits.failures.length > 0 || [...work].some((item) => item.failed))
+				return 'failed';
+			if (
+				edits.busy ||
+				folder.status.saving ||
+				actions.size > 0 ||
+				[...work].some((item) => item.busy)
+			)
+				return 'saving';
+			if (folder.status.storageFailure !== null) return 'recent-failure';
+			return 'saved';
+		},
+		/**
+		 * Settle the edits, then stop listening, cancel reads, and close the
+		 * handle. Answers the drafts that did not save, which are also logged.
+		 * Every call answers the same completion.
+		 */
+		close(): Promise<Unsaved[]> {
 			closing ??= (async () => {
-				// A close that throws still releases the folder; what it held
-				// unsaved was reported when its save failed.
-				await edits.close().catch((cause: unknown) => {
-					console.error('The folder closed before its edits settled.', cause);
-				});
+				// `edits.close` fences new input synchronously; app work already
+				// started can then finish before the handle closes.
+				const rowSettling = edits.close();
+				await settleWork();
+				const unsaved = await rowSettling;
+				for (const draft of unsaved)
+					log.warn(
+						new Error(
+							`Closed with ${draft.table}/${draft.id} unsaved: ${draft.error?.message ?? 'not sent'}`,
+						),
+					);
 				stopChanges();
-				await queryClient.cancelQueries({ queryKey: queries.key });
+				closed = true;
+				await queryClient.cancelQueries({ queryKey: KEY });
 				await folder.close();
 				queryClient.unmount();
 				queryClient.clear();
+				return unsaved;
 			})();
 			return closing;
 		},
 	};
 }
 
+export type FolderContext<
+	TTables extends Record<string, TSchema> = Record<string, TSchema>,
+> = ReturnType<typeof createFolderContext<TTables>>;
+
 const [getContext, setContext] = createContext<FolderContext>();
 
 /**
- * The opened folder of the `<FolderApp>` or `<FolderProvider>` this
- * component is inside, typed by the app's definition. Call it while the
- * component initializes.
+ * The local folder of the `<FolderApp>` this component is inside, typed
+ * by the app's tables. Call it while the component initializes.
  */
 export function getFolder<
-	TDefinition extends Definition = Definition,
->(): FolderContext<TDefinition> {
-	return getContext() as unknown as FolderContext<TDefinition>;
+	TTables extends Record<string, TSchema>,
+>(): FolderContext<TTables> {
+	return getContext() as unknown as FolderContext<TTables>;
 }
 
-/** Provide `context` to this component's subtree. `<FolderProvider>` calls it. */
-export function setFolder<TDefinition extends Definition>(
-	context: FolderContext<TDefinition>,
+/** Provide `context` to this component's subtree. */
+export function setFolder<TTables extends Record<string, TSchema>>(
+	context: FolderContext<TTables>,
 ): void {
 	setContext(context as unknown as FolderContext);
 }

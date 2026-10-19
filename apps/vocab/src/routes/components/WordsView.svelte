@@ -6,9 +6,12 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-	import { type Entry, type FocusItem, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
+	import { CopyButton } from '@epicenter/ui/copy-button';
+	import type { Unsaved } from '@epicenter/svelte/edits';
+	import { type Entry, type FocusItem, rowPath, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { type Entries, repairsOf, wordsOf } from '$lib/entries.svelte.js';
+	import { describeFailure } from '$lib/failure.js';
 	import { reviewImport, STARTER_LIST } from '$lib/import.js';
 	import EntryCard from './EntryCard.svelte';
 	import RepairCard from './RepairCard.svelte';
@@ -31,6 +34,15 @@
 	const listing = createQuery(() => entries.entriesQuery());
 	const words = $derived(listing.data ? wordsOf(listing.data) : []);
 	const repairs = $derived(listing.data ? repairsOf(listing.data) : []);
+	/** Words whose note or stage did not save and that the list no longer shows as words. */
+	const orphaned = $derived(
+		listing.data === undefined
+			? []
+			: entries.failures.filter((draft) => !words.some((entry) => entry.id === draft.id)),
+	);
+	/** What was typed and not saved, to copy. */
+	const unsavedText = (draft: Unsaved) =>
+		Object.entries(draft.fields).map(([field, value]) => `${field}: ${String(value)}`).join('\n');
 	const selectedFocus = $derived(focusIds.map((id) => words.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
 	const shown = $derived(words.filter((entry) =>
 		(stage === 'all' || entry.stage === stage) && `${entry.text} ${entry.note}`.toLowerCase().includes(search.trim().toLowerCase()),
@@ -114,8 +126,25 @@
 				<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} onclick={() => stage = option}>{option === 'all' ? 'All' : STAGE_LABELS[option]}</Button>
 			{/each}
 		</div>
-		{#if entries.repairing}
-			{#key entries.repairing}<RepairCard {entries} path={entries.repairing} />{/key}
+		{#if entries.repair.open !== undefined}
+			{#key entries.repair.open}<RepairCard {entries} id={entries.repair.open} />{/key}
+		{/if}
+		{#if orphaned.length > 0}
+			<!-- Typing that did not save for a word no longer listed as one: kept to copy until the learner lets it go. -->
+			<section class="space-y-3 rounded-lg border border-destructive/50 p-3 text-xs" aria-label="Unsaved changes">
+				{#each orphaned as draft (draft.id)}
+					{@const held = entries.draftOf(draft.id)}
+					<div class="space-y-1" role="alert">
+						<p>A change to <code>{rowPath('entries', draft.id)}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
+						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>
+						<div class="flex gap-1">
+							<Button size="xs" variant="outline" disabled={held.saving} onclick={() => void held.save()}>Save again</Button>
+							<CopyButton size="xs" variant="ghost" text={unsavedText(draft)}>Copy</CopyButton>
+							<Button size="xs" variant="ghost-destructive" disabled={held.saving} onclick={() => held.discard()}>Discard</Button>
+						</div>
+					</div>
+				{/each}
+			</section>
 		{/if}
 		{#if repairs.length > 0}
 			<section class="space-y-2 rounded-lg border p-3 text-xs" aria-label="Words that need repair">
@@ -124,8 +153,9 @@
 					{#each repairs as repair (repair.path)}
 						<li class="flex flex-wrap items-center gap-2 break-words">
 							<span class="min-w-0 flex-1"><code>{repair.path}</code>: {repair.reason}</span>
-							{#if repair.stem !== undefined && entries.repairing !== repair.path}
-								<Button size="xs" variant="outline" onclick={() => entries.openRepair(repair.path)}>Repair as text</Button>
+							{#if repair.id !== undefined && entries.repair.open !== repair.id}
+								{@const id = repair.id}
+								<Button size="xs" variant="outline" disabled={entries.repair.busy} onclick={() => entries.repair.start(id)}>Repair as text</Button>
 							{/if}
 						</li>
 					{/each}

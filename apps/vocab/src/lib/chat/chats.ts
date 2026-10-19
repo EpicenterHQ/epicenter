@@ -1,37 +1,33 @@
 /**
- * The chat list and every chat write, kept in the TanStack Query cache
- * (ADR-0528).
+ * The chat list and every chat write.
  *
- * The list is one query over the folder's `chats` table (`queries.query`),
- * read on open and again when a change reaches `chats/`. Messages are named
- * by their chat, so the list never reads them; the open conversation reads
- * its own. A chat this page starts is put in the list by the start itself.
+ * The list is the `chats` table's rows, one query of the local folder
+ * context, read on open and again when the folder reports a committed save
+ * under `chats/`. Messages are named by their chat, so the list never reads
+ * them; the open conversation reads its own.
  *
- * Starting a chat and saving each message are mutations. A message's save
- * runs in its chat's file's turn (`inTurn`), so one chat's messages are
- * written in order, and closing waits for every one under way.
+ * Starting a chat and saving each message are Vocab's own actions, so
+ * leaving the page waits while one runs. A chat's messages are saved in its
+ * own turn: one at a time, in the order the loop made them.
  */
 
-import { AgentMessageStoreError, agentMessageText } from '@epicenter/agent';
-import { type FileError, rowPath } from '@epicenter/folder';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
-import type { QueryClient } from '@tanstack/svelte-query';
-import { createQueryFactories } from 'wellcrafted/query';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { AgentMessageStoreError } from '@epicenter/agent';
+import type { Result } from 'wellcrafted/result';
 import {
+	type Chat,
 	type FocusItem,
+	type RowOf,
 	readChat,
 	readRows,
 	type UnreadableFile,
-	type VocabFolder,
 } from '../data.js';
-import { type VocabOptions, vocabKeys } from '../query.js';
+import { CLOSING } from '../failure.js';
+import type { Actions, VocabContext } from '../vocab.svelte.js';
 import {
 	byRecency,
 	ChatHistoryError,
 	type ChatSummary,
 	type MessageWrite,
-	messageStem,
 	startChat,
 	summaryOf,
 } from './messages.js';
@@ -44,103 +40,69 @@ export type ChatListing = {
 	unreadable: UnreadableFile[];
 };
 
+/** The chat list as the `chats` table's rows read. */
+export function listingOf(rows: readonly RowOf<'chats'>[]): ChatListing {
+	const read = readRows('chats', rows, readChat);
+	return {
+		chats: read.rows.map(summaryOf).sort(byRecency),
+		unreadable: read.unreadable,
+	};
+}
+
 export function createChats(
-	{ tables }: Pick<VocabFolder, 'tables'>,
-	queries: Pick<VocabOptions, 'query'>,
-	queryClient: QueryClient,
-	{
-		refused,
-		writeFailed,
-		inTurn,
-	}: {
-		/** Why no change starts now, if one does not. */
-		refused: () => string | undefined;
-		/** A message write failed; the app tells the learner and offers its text. */
-		writeFailed: (failure: WriteFailure) => void;
-		/** Run `work` in the turn of the file at `path`: the folder's one order of writes (`folderWrites`). */
-		inTurn: <T>(path: string, work: () => Promise<T>) => Promise<T>;
-	},
+	{ folder, queries, queryClient, edits }: VocabContext,
+	actions: Actions,
 ) {
-	const { defineMutation } = createQueryFactories(queryClient);
-
-	async function readChats(): Promise<Result<ChatListing, FileError>> {
-		const { data: chatListing, error } = await tables.chats.list();
-		if (error !== null) return Err(error);
-		const read = readRows(tables.chats.name, chatListing, readChat);
-		return Ok({
-			chats: read.rows.map(summaryOf).sort(byRecency),
-			unreadable: read.unreadable,
-		});
-	}
-
-	const listing = queries.query({
-		paths: [tables.chats.name],
-		key: ['summaries'],
-		queryFn: readChats,
-	});
-	const listKey = listing.queryKey;
+	const rowsKey = queries.rows('chats').queryKey;
+	/** The last message save of each chat, which the next one waits for. */
+	const turns = new Map<string, Promise<unknown>>();
 
 	return {
 		/** The chat list, narrowed by `select` for one view. */
 		chatsQuery<TData = ChatListing>(select?: (listing: ChatListing) => TData) {
-			return { ...listing, select };
+			return {
+				...queries.rows('chats'),
+				select: (rows: RowOf<'chats'>[]): TData => {
+					const listing = listingOf(rows);
+					return select ? select(listing) : (listing as TData);
+				},
+			};
 		},
 		/**
 		 * Save the focus as a new chat. It is in the list once the folder holds
 		 * its file; the tutor opening is requested only after that.
 		 */
-		start: defineMutation({
-			mutationKey: vocabKeys.startChat,
-			mutationFn: async (focus: readonly FocusItem[]) => {
-				const why = refused();
-				if (why !== undefined) return ChatHistoryError.NotSaved({ cause: why });
-				return startChat(tables.chats, focus);
-			},
-			onSuccess: (chat) => {
-				// A read still running may not hold it: read once more instead.
-				if (queryClient.isFetching({ queryKey: listKey, exact: true }) > 0)
-					return queryClient.invalidateQueries({
-						queryKey: listKey,
-						exact: true,
-					});
-				queryClient.setQueryData<ChatListing>(listKey, (listing) =>
-					listing === undefined
-						? undefined
-						: {
-								...listing,
-								chats: [
-									...listing.chats.filter(({ id }) => id !== chat.id),
-									summaryOf(chat),
-								].sort(byRecency),
-							},
-				);
-			},
-		}),
+		start(focus: readonly FocusItem[]): Promise<Result<Chat, ChatHistoryError>> {
+			if (edits.fenced)
+				return Promise.resolve(ChatHistoryError.NotSaved({ cause: CLOSING }));
+			return actions.track(async () => {
+				const started = await startChat(folder.tables.chats, focus);
+				if (started.error === null)
+					await queryClient.invalidateQueries({ queryKey: rowsKey });
+				return started;
+			});
+		},
 		/**
-		 * How the open chat saves each message: a mutation run in the chat's
-		 * file's turn, so its messages are written one at a time and in
-		 * order, and closing waits for them. A failed save is reported with
-		 * its text.
+		 * How the open chat saves each message: in the chat's own turn, so its
+		 * messages are written one at a time and in order, and leaving the
+		 * page waits for them.
 		 */
 		messageWriter(chatId: string): MessageWrite {
-			const chatPath = rowPath(tables.chats.name, chatId);
-			return async (message, save) => {
-				const why = refused();
-				if (why !== undefined)
-					return AgentMessageStoreError.WriteFailed({ cause: why });
-				return defineMutation({
-					mutationKey: vocabKeys.message(chatId),
-					mutationFn: () => inTurn(chatPath, save),
-					onError: (error) =>
-						writeFailed({
-							path: rowPath(
-								tables.messages.name,
-								messageStem(chatId, message.id),
-							),
-							error,
-							unsaved: agentMessageText(message),
-						}),
-				})();
+			return (_message, save) => {
+				if (edits.fenced)
+					return Promise.resolve(
+						AgentMessageStoreError.WriteFailed({ cause: CLOSING }),
+					);
+				const previous = turns.get(chatId) ?? Promise.resolve();
+				const saved = actions.track(async () => {
+					await previous.catch(() => {});
+					return save();
+				});
+				turns.set(chatId, saved);
+				void saved.finally(() => {
+					if (turns.get(chatId) === saved) turns.delete(chatId);
+				});
+				return saved;
 			};
 		},
 	};

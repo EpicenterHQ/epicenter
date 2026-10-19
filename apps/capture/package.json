@@ -35,6 +35,7 @@
 		"@tanstack/query-core": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
+		"fake-indexeddb": "^6.2.6",
 		"jsdom": "26.1.0",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",

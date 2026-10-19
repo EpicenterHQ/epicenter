@@ -60,6 +60,21 @@ try {
 	await page.getByLabel('New todo title').fill('Bread');
 	await page.getByRole('button', { name: 'Add', exact: true }).click();
 	await page.getByText('Bread', { exact: true }).first().waitFor();
+	const adjacent = await page.evaluate(async (module) => {
+		const { openFolder } = await import(/* @vite-ignore */ module);
+		const opened = await openFolder({ tables: { todos: { type: 'object' } } });
+		if (opened.error) throw opened.error;
+		try {
+			const listed = await opened.data.tables.todos.list();
+			if (listed.error) throw listed.error;
+			const id = listed.data.find((row: { fields: { title?: string } }) => row.fields.title === 'Oat milk offline')?.id;
+			if (!id) throw new Error('Missing todo for adjacent file check');
+			const path = `todos/${id}/attachment.txt`;
+			const saved = await opened.data.files.write(path, null, 'Keep this file');
+			if (saved.error) throw saved.error;
+			return path;
+		} finally { await opened.data.close(); }
+	}, folderModule);
 	await page.getByText('Oat milk offline', { exact: true }).first().click();
 	await page.getByRole('button', { name: 'Delete', exact: true }).click();
 	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
@@ -68,6 +83,16 @@ try {
 	await page.getByText('Bread', { exact: true }).first().waitFor();
 	assert(await page.getByText('Bread', { exact: true }).count() > 0, 'Delete removed the other todo');
 	assert(await page.getByText('Oat milk offline', { exact: true }).count() === 0, 'Deleted todo reappeared');
+	assert(await page.evaluate(async ({ module, path }) => {
+		const { openFolder } = await import(/* @vite-ignore */ module);
+		const opened = await openFolder({ tables: {} });
+		if (opened.error) throw opened.error;
+		try {
+			const found = await opened.data.files.read(path);
+			if (found.error) throw found.error;
+			return await found.data?.content.text();
+		} finally { await opened.data.close(); }
+	}, { module: folderModule, path: adjacent }) === 'Keep this file', 'Delete removed the adjacent file');
 
 	// Seed a file through the package's public browser entry. The app reads it
 	// through the same origin's Folder handle and its supplied schema.
@@ -133,7 +158,7 @@ try {
 	assert(databases.some((database) => database.name === 'epicenter.data.default'), 'New repository engine did not store the work');
 	assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`);
 	await page.screenshot({ path: '/tmp/epicenter-todos-local-demo.png', fullPage: true });
-	console.log(JSON.stringify({ url, checks: ['fresh local open', 'add/edit/complete/delete', 'reopen', 'two tabs', 'offline edit', 'unknown fields and comment', 'malformed source visible', 'failed save and retry'], database: 'epicenter.data.default', screenshot: '/tmp/epicenter-todos-local-demo.png', browserErrors: errors }, null, 2));
+	console.log(JSON.stringify({ url, checks: ['fresh local open', 'add/edit/complete/delete', 'adjacent file retained', 'reopen', 'two tabs', 'offline edit', 'unknown fields and comment', 'malformed source visible', 'failed save and retry'], database: 'epicenter.data.default', screenshot: '/tmp/epicenter-todos-local-demo.png', browserErrors: errors }, null, 2));
 	await context.close();
 } finally {
 	await browser.close();

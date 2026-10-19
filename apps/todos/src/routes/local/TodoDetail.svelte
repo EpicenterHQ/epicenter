@@ -22,15 +22,15 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { getLocalFolder } from '@epicenter/svelte/local-folder';
-	import type { RowChange } from '@epicenter/svelte/local-edits';
+	import { getFolder } from '@epicenter/svelte/folder';
+	import type { RowChange } from '@epicenter/svelte/edits';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import type { todosTables } from '$lib/definition.js';
 	import { describeFailure, labelOf, type TodoRow, todoPath } from '$lib/local-todos.js';
 
-	const local = getLocalFolder<typeof todosTables>();
+	const local = getFolder<typeof todosTables>();
 
 	let {
 		id: shownId,
@@ -70,7 +70,7 @@
 	function confirmDiscard() {
 		confirmationDialog.open({
 			title: 'Discard unsaved changes?',
-			description: `Copy any changes you need from ${path} before discarding them. Saved source remains in this browser.`,
+			description: `Copy any changes you need from ${path} before discarding them. Saved source remains on this device.`,
 			confirm: { text: 'Discard changes', variant: 'destructive' },
 			onConfirm: () => { draft.discard(); },
 		});
@@ -85,7 +85,7 @@
 		await draft.save();
 		confirmationDialog.open({
 			title: `Delete “${label}”?`,
-			description: `This deletes ${path} and files in todos/${id}/ from this browser.`,
+			description: `This deletes ${path} from this device. Other files stay in the folder.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				const { data, error } = await local.edits.delete('todos', id);
@@ -108,7 +108,11 @@
 {#snippet fileBar(label: string)}
 	<div class="flex shrink-0 items-center gap-2 border-t px-4 py-2">
 		<span class="min-w-0 truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{path}</span>
-		<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={draft.locked} onclick={() => void confirmDelete(label)}>Delete</Button>
+		{#if row.data?.issues?.some((issue) => issue.kind === 'not-text')}
+			<span class="ml-auto text-xs text-muted-foreground">Open this file elsewhere to remove it</span>
+		{:else}
+			<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={draft.locked} onclick={() => void confirmDelete(label)}>Delete</Button>
+		{/if}
 	</div>
 {/snippet}
 
@@ -184,7 +188,9 @@
 		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This file does not read as a todo. Todos keeps its text as it is.
+				{row.data.issues?.some((issue) => issue.kind === 'not-text')
+					? 'This file is not text. Todos leaves its bytes untouched.'
+					: 'This file does not read as a todo. Todos keeps its text as it is.'}
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each row.data.issues ?? [] as issue, index (index)}

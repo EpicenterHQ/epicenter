@@ -1,62 +1,82 @@
 <!--
-	A word file that is not a valid word, open as its exact text. Each change
-	goes into the repair's draft, written a second after the last keystroke,
-	when the learner leaves the text, and when the card goes away; the issues
-	are read live from what is typed. Once the text is a valid word, "Show note
+	A word file that is not a valid word, open as its exact text. What is
+	typed goes into the repair's text draft, written a second after the last
+	keystroke, when the learner leaves the text, when the page is hidden, and
+	when the card goes away. The problems shown are the saved text's, read
+	again after each write. Once the saved text is a valid word, "Show note
 	and stage" closes the repair and the list shows it as a word.
 -->
 <script lang="ts">
-	import { parseRow } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
+	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { vocabFolder } from '$lib/data.js';
-	import type { Entries } from '$lib/entries.svelte.js';
+	import { rowPath } from '$lib/data.js';
+	import type { EntryRows, Entries } from '$lib/entries.svelte.js';
+	import { describeFailure } from '$lib/failure.js';
 
-	let { entries, path }: { entries: Entries; path: string } = $props();
+	let { entries, id }: { entries: Entries; id: string } = $props();
 
-	const opened = createQuery(() => entries.textQuery(path));
+	// svelte-ignore state_referenced_locally
+	const path = rowPath('entries', id);
+	// svelte-ignore state_referenced_locally
+	const { repair } = entries;
+	const row = createQuery(() => entries.entriesQuery((rows: EntryRows) => rows.find((candidate) => candidate.id === id)));
+	const notText = $derived(row.data?.issues?.some((issue) => issue.kind === 'not-text') ?? false);
 	// The draft outlives the card; send what is typed now.
-	onDestroy(() => void entries.saveRepair());
-	/** The typed text not yet written, or the file's text as last read. */
-	const text = $derived(opened.data?.kind === 'text' ? (entries.repairText ?? opened.data.text) : undefined);
-	/** Why the text is not a word yet, read live from what is typed. */
-	const issues = $derived(text === undefined ? undefined : (parseRow(vocabFolder.tables.entries, text).error ?? undefined));
+	onDestroy(() => void repair.save());
 </script>
 
+<svelte:document
+	onvisibilitychange={() => {
+		if (document.visibilityState === 'hidden') void repair.save();
+	}}
+/>
+
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	{#if text !== undefined}
+	{#if row.data && !notText}
+		{@const stored = row.data}
 		<p>
-			<code>{path}</code> is not a valid word, so its note and stage cannot be shown. Edit its text here; it
-			is saved when you pause.
+			<code>{path}</code>
+			{stored.issues === null ? 'now reads as a word.' : 'is not a valid word, so its note and stage cannot be shown.'}
+			Edit its text here; it is saved when you pause.
 		</p>
 		<Textarea
 			class="min-h-32 font-mono text-xs"
 			aria-label="File text for {path}"
-			bind:value={
-				() => text,
-				(next) => {
-					entries.inputText(path, next);
-				}
-			}
-			onblur={() => void entries.saveRepair()}
+			bind:value={() => repair.shown(stored.text), (next) => repair.change(stored.text, next)}
+			onblur={() => void repair.save()}
 		/>
-		{#if issues}
-			<ul role="alert" class="space-y-1 text-destructive">
-				{#each issues as issue, index (index)}
+		{#if repair.error && !repair.saving}
+			<p role="alert" class="text-destructive">
+				Not saved: {describeFailure(repair.error)}
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void repair.save()}>Try again</Button>
+			</p>
+		{:else if repair.busy}
+			<p role="status" class="text-muted-foreground">Saving…</p>
+		{/if}
+		{#if stored.issues}
+			<ul role="alert" class="space-y-1 text-destructive" aria-label="Problems in the saved text">
+				{#each stored.issues as issue, index (index)}
 					<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
 				{/each}
 			</ul>
-		{:else}
-			<Button size="sm" variant="outline" onclick={() => void entries.closeRepair()}>Show note and stage</Button>
+		{:else if !repair.busy}
+			<Button size="sm" variant="outline" onclick={() => void repair.close()}>Show note and stage</Button>
 		{/if}
-	{:else if opened.isError}
-		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {opened.error.message}</p>
-		<Button size="sm" variant="outline" onclick={() => void entries.closeRepair()}>Close</Button>
-	{:else if opened.data}
-		<p role="alert" class="text-destructive"><code>{path}</code> is no longer text, so it cannot be shown here.</p>
-		<Button size="sm" variant="outline" onclick={() => void entries.closeRepair()}>Close</Button>
+	{:else if row.data || row.isSuccess}
+		<p role="alert" class="text-destructive">
+			<code>{path}</code> {row.data ? 'is no longer text' : 'is no longer here'}, so it cannot be shown here.
+		</p>
+		{#if repair.typed !== undefined}
+			<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved text">{repair.typed}</pre>
+			<CopyButton size="sm" variant="outline" text={repair.typed}>Copy</CopyButton>
+		{/if}
+		<Button size="sm" variant="outline" onclick={() => repair.discard()}>Close</Button>
+	{:else if row.isError}
+		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {row.error.message}</p>
+		<Button size="sm" variant="outline" onclick={() => void row.refetch()}>Read again</Button>
 	{:else}
 		<p>Reading <code>{path}</code>…</p>
 	{/if}

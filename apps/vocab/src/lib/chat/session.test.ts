@@ -1,7 +1,7 @@
 /**
  * Vocab chat session tests.
- * The real session, loop, and message store run over Vocab's real browser
- * folder on an in-memory OPFS stand-in, with the tutor behind an OpenAI client whose
+ * The real session, loop, and message store run over Vocab's real local
+ * folder on an in-memory IndexedDB, with the tutor behind an OpenAI client whose
  * requests are answered in-process and counted. What is saved is read from
  * the message files.
  *
@@ -22,7 +22,7 @@ import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
-import type { VocabFolder, vocabFolder } from '../data.js';
+import type { VocabFolder } from '../data.js';
 import {
 	createBrowser,
 	gatedMessages,
@@ -34,7 +34,9 @@ import {
 	startChat,
 } from './messages.js';
 
-const { createFolderContext } = await import('@epicenter/svelte/folder');
+const { createFolderContext } = await import(
+	'@epicenter/svelte/folder'
+);
 
 const { createVocabChat } = await import('./session.svelte.js');
 const { createVocab } = await import('../vocab.svelte.ts');
@@ -232,7 +234,7 @@ test('nothing is sent before the transcript has been read', async () => {
 	expect(chat.canSend).toBe(false);
 	await chat.sendMessage();
 	expect(chat.inputValue).toBe('It was a lucid talk.');
-	expect(context.gate.creates).toBe(0);
+	expect(context.gate.sets).toBe(0);
 
 	reading.resolve();
 	await settle(chat);
@@ -383,7 +385,7 @@ test('stop while the learner message is being saved keeps the message and preven
 	using chat = await ready(context.open());
 
 	const saving = Promise.withResolvers<void>();
-	context.gate.heldCreate = saving.promise;
+	context.gate.heldSet = saving.promise;
 	chat.inputValue = 'It was a lucid talk.';
 	const sending = chat.sendMessage();
 	await Bun.sleep(0);
@@ -552,12 +554,9 @@ test('the tutor is asked over the transcript the folder holds now, not the one f
 	]);
 });
 
-test('a tutor reply is written by a mutation scoped to its chat, and close waits for it', async () => {
+test('a tutor reply is written in its chat’s turn, and leaving waits while it is written', async () => {
 	await using context = await setup();
-	const opened = createFolderContext<typeof vocabFolder>({
-		...context.folder,
-		...context.gatedFolder,
-	} as VocabFolder);
+	const opened = createFolderContext(context.folder);
 	const vocab = createVocab(opened);
 	using chat = await ready(
 		context.open(
@@ -566,22 +565,17 @@ test('a tutor reply is written by a mutation scoped to its chat, and close waits
 		),
 	);
 	const writing = Promise.withResolvers<void>();
-	context.gate.heldCreate = writing.promise;
-	const asking = chat.retry();
-	while (context.gate.creates === 0 && vocab.queryClient.isMutating() === 0)
-		await nextTurn();
-	await asking;
+	context.gate.heldSet = writing.promise;
+	await chat.retry();
+	const busy = () => vocab.busy;
+	while (!busy()) await nextTurn();
 	// The finished reply is on screen while its file is being written.
 	expect(roles(chat)).toEqual(['assistant']);
-	expect(vocab.busy).toBe(true);
-	let closed = false;
-	const closing = opened.close().then(() => {
-		closed = true;
-	});
-	await Bun.sleep(5);
-	expect(closed).toBe(false);
+	expect(chat.isSaving).toBe(true);
 	writing.resolve();
-	await closing;
+	await settle(chat);
+	expect(busy()).toBe(false);
 	expect(chat.unsaved).toEqual([]);
 	expect(await context.savedRoles()).toEqual(['assistant']);
+	await opened.close();
 });

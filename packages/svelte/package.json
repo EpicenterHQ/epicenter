@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: the folder app root, agent conversations, the sync review, and the header status.",
+	"description": "Svelte 5 bindings for Epicenter: folder drafts, query cache, recovery, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -18,13 +18,9 @@
 		"./folder": "./src/folder-context.ts",
 		"./folder-app": "./src/folder-app.svelte",
 		"./folder-provider": "./src/folder-provider.svelte",
-		"./local-edits": "./src/local-edits.svelte.ts",
-		"./local-folder": "./src/local-folder-context.ts",
-		"./local-folder-app": "./src/local-folder-app.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
-		"./sync-line": "./src/sync-line.ts",
 		"./write-failure": "./src/write-failure.ts",
 		"./write-failure-toast": "./src/write-failure-toast.ts"
 	},
@@ -35,6 +31,7 @@
 		"@lucide/svelte": "catalog:",
 		"@tanstack/query-core": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
+		"@tauri-apps/api": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},

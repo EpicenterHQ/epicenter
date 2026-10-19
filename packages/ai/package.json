@@ -24,6 +24,7 @@
 		"@tauri-apps/api": "catalog:",
 		"nanoid": "catalog:",
 		"openai": "^7.12.1",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

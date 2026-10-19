@@ -2,29 +2,33 @@
  * Mounted Capture Detail Tests
  *
  * The real `CaptureDetail` and `TextDetail` components, compiled for the
- * client and mounted in jsdom inside the query client the layout supplies,
- * over the real Capture store and a real browser folder. Events are
+ * client and mounted in jsdom inside the folder's query client, over the
+ * real Capture store and a real local folder on an in-memory IndexedDB. A
+ * second handle of the same profile stands in for another tab. Events are
  * dispatched on the components' own elements, as a keystroke or a press
  * would deliver them.
  *
  * Key behaviors:
  * - The capture text and Add a thought are shown at once and saved to the
  *   file
- * - A save that meets a change made elsewhere merges with it; the typing
- *   wins where both changed
- * - A change the folder's channel reports is shown
+ * - Another tab's change never replaces typing held here; the save merges
+ *   with it, and the view then shows both
+ * - A failed save says so, keeps the edit, and Save again lands it
  * - A thought typed and not added stays visible to copy when the capture
  *   stops reading as text and thoughts
- * - A file that is not a valid capture shows its issues as text is typed,
- *   and opens as a capture once they are fixed
+ * - A file that is not a valid capture shows its issues, is repaired as
+ *   text, and opens as a capture once fixed
  * - Editing a CRLF file as text shows LF and writes CRLF back
- * - While Epicenter asks to quit, the text boxes take nothing
+ * - While the folder closes, the text boxes take nothing
  *
  * jsdom has no layout, focus, selection, or IME; these tests say what a
  * delivered event does, not that a person can type there.
  */
+// Before the DOM: once a `window` exists, `fake-indexeddb/auto` installs
+// IndexedDB on it rather than on the global the folder reads.
+import 'fake-indexeddb/auto';
+import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { flushSync, mount, unmount } from 'svelte';
 import {
 	blur,
 	button,
@@ -33,12 +37,12 @@ import {
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
-const { openCaptures } = await import('../browser-folder.test-support.js');
-const { quiet } = await import('../query.test-support.js');
+const { flushSync, mount, unmount } = await import('svelte');
+const { openCaptures, until } = await import('../local-folder.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 
 // A desktop-width window: `min-width` queries match, so the UI kit's modal
-// renders as a dialog, as it does in the desktop app.
+// renders as a dialog.
 setWide(true);
 
 /** The textarea or input with this id, or `null`. */
@@ -63,16 +67,20 @@ afterEach(async () => {
 const AT = '2026-10-04T20:49:23.041Z';
 const PATH = 'captures/one.md';
 const FILE = `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;
-/** FILE after a body write: the row's standard form (ADR-0576), with this body. */
+/** FILE with this text and these thoughts. */
 const saved = (text: string, thoughts = '- first\n') =>
-	`---\ncapturedAt: "${AT}"\n---\n\n${text}\n\n## Thoughts\n\n${thoughts}`;
+	`---\ncapturedAt: ${AT}\n---\n\n${text}\n\n## Thoughts\n\n${thoughts}`;
 
 /** Open `one` as `mode` and mount the view the app shows for it. */
-async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
-	const harness = await openCaptures(files);
+async function setup(
+	files: Record<string, string>,
+	mode: 'capture' | 'text',
+	options?: { saveAfterMs?: number },
+) {
+	const harness = await openCaptures(files, options);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
-	harness.captures.open('one', mode);
+	await harness.captures.open('one', mode);
 	const view = mount(ViewHost, {
 		target,
 		props: { captures: harness.captures },
@@ -85,20 +93,15 @@ async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
 	return { ...harness, target };
 }
 
-/** Let writes and reads run, then render. */
+/** Let saves and reads run, then render. */
 async function settle(harness: Harness) {
-	await quiet(harness.captures);
+	await harness.quiet();
 	flushSync();
 	await Bun.sleep(0);
 	flushSync();
 }
 
-/** Wait a few turns for `ready`; the assertion after it says what was expected. */
-async function until(ready: () => boolean) {
-	for (let tries = 0; tries < 50 && !ready(); tries++) await Bun.sleep(1);
-}
-
-test('the capture text and Add a thought are written to the file', async () => {
+test('the capture text and Add a thought are saved to the file', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	expect(field('capture-text')?.value).toBe('Text');
 	type(field('capture-text'), 'Edited');
@@ -108,29 +111,46 @@ test('the capture text and Add a thought are written to the file', async () => {
 	expect(await harness.text(PATH)).toBe(saved('Edited', '- first\n- second\n'));
 	expect(field('new-thought')?.value).toBe('');
 	expect(harness.target.textContent).toContain(`Saved to ${PATH}`);
-	expect(harness.failures).toEqual([]);
 });
 
-test('a save that meets a change made elsewhere merges with it, and the typing wins where both changed', async () => {
-	const harness = await setup({ [PATH]: FILE }, 'capture');
-	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
-	await harness.writeElsewhere(PATH, theirs);
+test("another tab's change never replaces typing held here, and the save merges with it", async () => {
+	// Typing waits for its pause, or for the person to leave the text box.
+	const harness = await setup({ [PATH]: FILE }, 'capture', { saveAfterMs: 60_000 });
 	type(field('capture-text'), 'Mine');
+	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
+	await until(() => harness.cached('one')?.body.includes('theirs') ?? false, 'the other tab’s save');
+	flushSync();
+	// The view shows the body typed here until it is saved.
+	expect(field('capture-text')?.value).toBe('Mine');
+	expect(harness.target.textContent).not.toContain('theirs');
+
 	blur(field('capture-text'));
 	await settle(harness);
-	expect(harness.failures).toEqual([]);
 	expect(field('capture-text')?.value).toBe('Mine');
-	expect(await harness.text(PATH)).toContain('\nMine\n');
+	expect(harness.target.textContent).toContain('theirs');
+	expect(await harness.text(PATH)).toBe(saved('Mine', '- first\n- theirs\n'));
 });
 
-test('a change the folder reports is shown', async () => {
+test('a failed save says so, keeps the edit, and Save again lands it', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
-	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
+	harness.failNextRowSave();
+	type(field('new-thought'), 'kept');
+	submit(field('new-thought')?.form);
+	await until(() => {
+		flushSync();
+		return harness.target.querySelector('[aria-label="Not saved"]') !== null;
+	}, 'the failure');
+	expect(harness.target.textContent).toContain(
+		"This device's storage refused it: the disk is full.",
+	);
+	// The thought added stays on screen.
+	expect(harness.target.textContent).toContain('kept');
+	expect(await harness.text(PATH)).toBe(FILE);
+
+	click(harness.target, 'Save again');
 	await settle(harness);
-	expect(harness.target.textContent).not.toContain('theirs');
-	await harness.reportChange(PATH);
-	await settle(harness);
-	expect(harness.target.textContent).toContain('theirs');
+	expect(harness.target.querySelector('[aria-label="Not saved"]')).toBeNull();
+	expect(await harness.text(PATH)).toBe(saved('Text', '- first\n- kept\n'));
 });
 
 test('a thought typed and not added stays visible to copy when the capture stops reading as text and thoughts', async () => {
@@ -140,11 +160,14 @@ test('a thought typed and not added stays visible to copy when the capture stops
 		PATH,
 		`---\ncapturedAt: ${AT}\n---\n\n## Thoughts\n\n## Thoughts\n`,
 	);
-	await harness.reportChange(PATH);
-	await settle(harness);
-	expect(harness.target.textContent).toContain(
-		'cannot be edited as text and thoughts',
-	);
+	await until(() => {
+		flushSync();
+		return (
+			harness.target.textContent?.includes(
+				'cannot be edited as text and thoughts',
+			) ?? false
+		);
+	}, 'the refusal');
 	const pending = harness.target.querySelector<HTMLTextAreaElement>(
 		'[aria-label="Thought not added"]',
 	);
@@ -153,33 +176,31 @@ test('a thought typed and not added stays visible to copy when the capture stops
 	expect(harness.captures.unsettled).toBe(true);
 });
 
-test('a file that is not a valid capture shows its issues as typed, and opens as a capture once fixed', async () => {
+test('a file that is not a valid capture shows its issues, and opens as a capture once fixed', async () => {
 	const broken = '---\ncapturedAt: nope\n---\n\nBroken\n\n## Thoughts\n';
 	const harness = await setup({ [PATH]: broken }, 'capture');
 	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'text' });
 	const contents = harness.target.querySelector('textarea');
 	expect(contents?.value).toBe(broken);
+	expect(harness.target.textContent).toContain('Needs repair');
 	expect(harness.target.textContent).toContain('Line 2:');
-	expect(button(document, 'Open as capture').disabled).toBe(true);
+	expect(button(harness.target, 'Open as capture').disabled).toBe(true);
 
 	const fixed = `---\ncapturedAt: ${AT}\n---\n\nRepaired\n\n## Thoughts\n`;
 	type(contents, fixed);
-	flushSync();
-	expect(harness.target.textContent).not.toContain('Needs repair');
 	blur(contents);
 	await settle(harness);
 	expect(await harness.text(PATH)).toBe(fixed);
-	click(document, 'Open as capture');
-	// Opening from text first reads the listing again, which no view observes now.
-	await until(() => harness.captures.opened?.mode === 'capture');
+	expect(harness.target.textContent).not.toContain('Needs repair');
+	click(harness.target, 'Open as capture');
+	await until(() => harness.captures.opened?.mode === 'capture', 'the capture view');
 	await settle(harness);
-	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(field('capture-text')?.value).toBe('Repaired');
 });
 
 test('editing a CRLF file as text shows LF lines and writes CRLF back', async () => {
 	const broken = '---\r\ncapturedAt: nope\r\n---\r\n\r\nBroken\r\n';
-	const harness = await setup({ [PATH]: broken }, 'capture');
+	const harness = await setup({ [PATH]: broken }, 'text');
 	const contents = harness.target.querySelector('textarea');
 	expect(contents?.value).toBe(broken.replaceAll('\r\n', '\n'));
 
@@ -189,4 +210,18 @@ test('editing a CRLF file as text shows LF lines and writes CRLF back', async ()
 	expect(await harness.text(PATH)).toBe(
 		`---\r\ncapturedAt: ${AT}\r\n---\r\n\r\nRepaired\r\n`,
 	);
+});
+
+test('while the folder closes, the text boxes take nothing', async () => {
+	const harness = await setup({ [PATH]: FILE }, 'capture');
+	await harness.context.close();
+	flushSync();
+	expect(field('capture-text')?.readOnly).toBe(true);
+	expect(field('new-thought')?.readOnly).toBe(true);
+	type(field('capture-text'), 'Too late');
+	type(field('new-thought'), 'Too late');
+	flushSync();
+	expect(harness.captures.formOf('one').body).toBeUndefined();
+	expect(harness.captures.formOf('one').newThought).toBe('');
+	expect(await harness.text(PATH)).toBe(FILE);
 });

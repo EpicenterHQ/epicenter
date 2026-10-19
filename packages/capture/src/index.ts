@@ -1,7 +1,8 @@
 export {
 	CAPTURES_TABLE,
 	type CaptureFields,
-	captureDefinition,
+	type CaptureRow,
+	captureTables,
 } from './definition.js';
 export {
 	type CaptureBody,

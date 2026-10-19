@@ -12,8 +12,7 @@
 	values the file does not have, and Edit as text is the way to repair it.
 -->
 <script lang="ts">
-	import { captureBody, captureDefinition } from '@epicenter/capture';
-	import { formatRow, rowPath } from '@epicenter/folder';
+	import { captureBody } from '@epicenter/capture';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -25,7 +24,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, tick, untrack } from 'svelte';
-	import { type Captures, instantOf } from '$lib/captures.svelte.js';
+	import { type Captures, capturePath, describeFailure, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 	import ThoughtEditForm from './ThoughtEditForm.svelte';
@@ -43,16 +42,12 @@
 	} = $props();
 
 	// The view is keyed by the capture, so neither changes for this view.
-	const path = untrack(() => rowPath(captures.folder.tables.captures.name, stem));
+	const path = untrack(() => capturePath(stem));
 	const form = untrack(() => captures.formOf(stem));
-	const entry = createQuery(() =>
-		captures.rowsQuery((listing) => listing.find((found) => found.stem === stem)),
-	);
-	const stored = $derived(entry.data?.result.error === null ? entry.data.result.data : undefined);
+	const entry = createQuery(() => captures.rowsQuery((rows) => rows.find((found) => found.id === stem)));
+	const stored = $derived(entry.data?.issues === null ? entry.data : undefined);
 	/** The row shown: its body the edit not saved yet, or the file's. */
-	const row = $derived(
-		stored === undefined ? undefined : { fields: stored.row.fields, body: form.body ?? stored.row.body },
-	);
+	const row = $derived(stored === undefined ? undefined : form.draft.shown(stored));
 	// The capture text typed saves after a pause, and when the person leaves
 	// it; the draft outlives the view, so send it now.
 	onDestroy(() => void form.flush());
@@ -62,7 +57,7 @@
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(row?.fields.capturedAt));
 	/** Edits wait while closing and while this capture is deleted. */
-	const locked = $derived(captures.fenced || captures.isDeleting(path));
+	const locked = $derived(captures.isLocked(stem));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	let newThoughtField = $state<HTMLTextAreaElement | null>(null);
@@ -104,12 +99,30 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	function download() {
-		if (row === undefined) return;
-		const { data: file, error } = formatRow(captureDefinition.tables.captures, row);
-		if (error !== null) toast.error('Could not download this capture', { description: error.message });
-		else downloadText(`${stem}.md`, file);
+	/** Download the file as saved, once the edit held here is saved. */
+	async function download() {
+		await form.flush();
+		if (form.draft.held) {
+			toast.error('Could not download this capture', { description: 'Your edit is not saved yet. Save it again, then download.' });
+			return;
+		}
+		const saved = await captures.folder.tables.captures.get(stem);
+		if (saved.error !== null) toast.error('Could not download this capture', { description: describeFailure(saved.error) });
+		else if (saved.data === undefined) toast.error('Could not download this capture', { description: 'It is no longer here.' });
+		else downloadText(`${stem}.md`, saved.data.text);
 	}
+
+	function confirmDiscard() {
+		confirmationDialog.open({
+			title: 'Discard your edit?',
+			description: `Copy anything you need first. ${path} keeps what was last saved.`,
+			confirm: { text: 'Discard edit', variant: 'destructive' },
+			onConfirm: () => void form.draft.discard(),
+		});
+	}
+
+	/** The capture as typed and not saved, text and thoughts, as Markdown to copy. */
+	const unsavedText = $derived(form.body?.replace(/^\n/, '') ?? '');
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
 		confirmationDialog.open({
@@ -123,42 +136,65 @@
 	}
 </script>
 
+{#snippet saveFailed()}
+	{#if form.draft.error && !form.saving}
+		<Alert.Root variant="destructive" aria-label="Not saved">
+			<Alert.Title>Your edit is not saved</Alert.Title>
+			<Alert.Description>{describeFailure(form.draft.error)} Your edit is still here.</Alert.Description>
+			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
+				<Button size="sm" variant="outline" onclick={() => void form.flush()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
+				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
+			</div>
+		</Alert.Root>
+	{/if}
+{/snippet}
+
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">
 		<div>
 			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		</div>
-		{#if entry.data?.result.error}
-			{@const error = entry.data.result.error}
+		{#if entry.data?.issues}
+			{@const unreadable = entry.data.issues.some((issue) => issue.kind === 'not-text')}
 			<Empty.Root role="alert">
 				<Empty.Header>
-					{#if error.name === 'InvalidRow'}
-						<Empty.Title>This file does not read as a capture</Empty.Title>
-						<Empty.Description>{error.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
-					{:else}
-						<Empty.Title>This capture could not be read</Empty.Title>
-						<Empty.Description>{error.message}</Empty.Description>
-					{/if}
+					<Empty.Title>{unreadable ? 'This capture could not be read' : 'This file does not read as a capture'}</Empty.Title>
+					<Empty.Description>{entry.data.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
 				</Empty.Header>
-				<Empty.Content>
-					{#if error.name === 'InvalidRow'}
+				{#if !unreadable}
+					<Empty.Content>
 						<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
-					{:else}
-						<Button variant="outline" size="sm" onclick={() => void entry.refetch()}>Try again</Button>
-					{/if}
-				</Empty.Content>
+					</Empty.Content>
+				{/if}
 			</Empty.Root>
 		{:else if entry.isSuccess}
-			<Empty.Root role="alert">
-				<Empty.Header>
-					<Empty.Title>This capture is no longer in the folder</Empty.Title>
-					<Empty.Description>It was deleted, here or by another program.</Empty.Description>
-				</Empty.Header>
-			</Empty.Root>
+			{#if form.draft.held}
+				<!-- Deleted in another tab while an edit was held: saving it brings the capture back. -->
+				<Alert.Root aria-label="Edit kept">
+					<Alert.Title>This capture was deleted, and your edit is still here</Alert.Title>
+					<Alert.Description>
+						{#if form.draft.error}<p>Not saved: {describeFailure(form.draft.error)}</p>{/if}
+						<p>Saving your edit brings the capture back with it. Copy it, or discard it to let the capture go.</p>
+					</Alert.Description>
+					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
+						<Button size="sm" variant="outline" onclick={() => void form.flush()}>Save again</Button>
+						<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
+						<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
+					</div>
+				</Alert.Root>
+			{:else}
+				<Empty.Root role="alert">
+					<Empty.Header>
+						<Empty.Title>This capture is no longer here</Empty.Title>
+						<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+					</Empty.Header>
+				</Empty.Root>
+			{/if}
 		{:else if entry.isError}
 			<Empty.Root role="alert">
 				<Empty.Header>
-					<Empty.Title>The captures folder could not be read</Empty.Title>
+					<Empty.Title>Your captures could not be read</Empty.Title>
 					<Empty.Description>{entry.error.message}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
@@ -189,7 +225,7 @@
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Content align="end" class="w-48">
 				<DropdownMenu.Item onclick={() => copy(text, 'Capture text')}>Copy capture text</DropdownMenu.Item>
-				<DropdownMenu.Item onclick={download}>Download file</DropdownMenu.Item>
+				<DropdownMenu.Item onclick={() => void download()}>Download file</DropdownMenu.Item>
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => void confirmDelete(captures, stem)}>Delete capture…</DropdownMenu.Item>
 			</DropdownMenu.Content>
@@ -199,10 +235,14 @@
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
 		{form.saving
 			? 'Saving…'
-			: form.body !== undefined
+			: form.draft.error
 				? 'Not saved'
-				: `Saved to ${path}`}
+				: form.draft.held
+					? 'Saving…'
+					: `Saved to ${path}`}
 	</p>
+
+	{@render saveFailed()}
 
 	{#if form.refusal}
 		<Alert.Root aria-label="Not applied">

@@ -8,12 +8,7 @@
  *
  * Plain module: a store imports it without loading Svelte components.
  */
-import type {
-	FileError,
-	GitError,
-	RowWriteError,
-	SyncError,
-} from '@epicenter/folder';
+import type { SaveError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 /**
@@ -27,12 +22,7 @@ export const ActionError = defineErrors({
 export type ActionError = InferErrors<typeof ActionError>;
 
 /** The errors `describeWriteError` words by name. */
-export type DescribedError =
-	| RowWriteError
-	| FileError
-	| GitError
-	| SyncError
-	| ActionError;
+export type DescribedError = SaveError | ActionError;
 
 /**
  * Any other failure an app reports, such as an agent's message store
@@ -59,19 +49,13 @@ export type WriteFailure = {
 	 * the edit was already gone. The file keeps what it holds, and the
 	 * notice keeps that text to copy. Set while an edit is held, so a save
 	 * that keeps failing, or typing that cannot be sent, never traps the
-	 * person in an edit that blocks a rename, a delete, or Save version.
+	 * person in an edit that blocks a rename or delete.
 	 */
 	readonly discard?: () => string | undefined;
 };
 
-const UNCONFIRMED =
-	'The change was sent, but nothing confirmed it, so it may or may not have happened.';
-
 /**
- * What a person is told about a failed write or action. A write that failed
- * wrote nothing (ADR-0576), unless its reply was lost, which leaves the
- * outcome unknown; an action the app refused says why. Any other error is
- * its message.
+ * What a person is told about a failed save or action.
  */
 export function describeWriteError(error: DescribedError | OtherError): string {
 	// Narrowed by name. A field is checked where an error of another kind
@@ -80,26 +64,8 @@ export function describeWriteError(error: DescribedError | OtherError): string {
 	switch (known.name) {
 		case 'NotStarted':
 			return 'reason' in known ? known.reason : error.message;
-		case 'Io':
-			return (known.cause as FileError | undefined)?.name === 'Unconfirmed'
-				? `${UNCONFIRMED} ${known.message}`
-				: error.message;
-		case 'Unconfirmed':
-			return `${UNCONFIRMED} ${known.message}`;
-		case 'InvalidValues':
-			return 'issues' in known
-				? known.issues.map((issue) => issue.message).join(' ')
-				: error.message;
 		case 'Occupied':
 			return 'Another file already has this name, so nothing was changed.';
-		case 'KeptChanging':
-			return 'The file kept changing elsewhere while it was saved, so the edit is not saved yet.';
-		case 'NotFound':
-			return 'The file is no longer in the folder, so nothing was changed.';
-		case 'DirectoryNotEmpty':
-			return 'The folder is not empty, so nothing was deleted.';
-		case 'Closed':
-			return 'The folder was closed, so nothing was changed.';
 		default:
 			return known.message;
 	}

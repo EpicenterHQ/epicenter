@@ -1,15 +1,16 @@
 /**
  * Bundle Tests
  *
- * Bundles the page's root and its store through the app's Vite resolution,
- * as each build resolves them, and reads every module the bundle pulls in.
- * `installedAppViteConfig` resolves `@epicenter/folder`, which `<FolderApp>`
- * opens with, to one entry per build; a dropped alias fails no build.
+ * Bundles the page's root and its store through the app's Vite resolution, as
+ * each build resolves them, and reads every module the bundle pulls in.
+ * `installedAppViteConfig` resolves `@epicenter/folder`, which
+ * `<FolderApp>` opens with, to one entry per build; a dropped alias
+ * fails no build.
  *
  * Key behaviors:
- * - The installed build carries the desktop folder adapter, and no browser
- *   adapter, OPFS store, or Node or Bun module
- * - The browser build carries the browser adapter and no desktop adapter
+ * - The installed build carries the native folder engine and no browser
+ *   engine, OPFS store, or Node or Bun module
+ * - The browser build carries the browser engine and no native engine
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -26,23 +27,25 @@ const folderModule = (name: string) => (path: string) =>
 	path.endsWith(`packages/folder/src/${name}`);
 
 test(
-	'the installed build carries the desktop adapter and no browser storage',
+	'the installed build carries the native engine and no browser storage',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'epicenter-host');
-		expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
+		expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser-adapter.ts'))).toBe(false);
 		expect(modules.some(folderModule('opfs-store.ts'))).toBe(false);
+		expect(modules.some(folderModule('local-folder.ts'))).toBe(false);
 		expect(modules.filter((path) => /^(node|bun):/.test(path))).toEqual([]);
 	},
 	BUNDLE_TIMEOUT,
 );
 
 test(
-	'the browser build carries the browser adapter and no desktop adapter',
+	'the browser build carries the local folder and no native engine',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'browser');
-		expect(modules.some(folderModule('browser-adapter.ts'))).toBe(true);
-		expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(false);
+		expect(modules.some(folderModule('browser.ts'))).toBe(true);
+		expect(modules.some(folderModule('local-folder.ts'))).toBe(true);
+		expect(modules.some(folderModule('native/tauri.ts'))).toBe(false);
 	},
 	BUNDLE_TIMEOUT,
 );

@@ -3,14 +3,7 @@ import {
 	type AgentMessageStore,
 	AgentMessageStoreError,
 } from '@epicenter/agent';
-import { InstantString } from '@epicenter/definition/field';
-import {
-	type FileError,
-	type FolderFiles,
-	isStoredRow,
-	rowPath,
-	rowStemOf,
-} from '@epicenter/folder';
+import type { ReadError } from '@epicenter/folder';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -22,11 +15,12 @@ import {
 	type ChatMessage,
 	type FocusItem,
 	readMessage,
-	rowProblem,
+	readRows,
+	rowPath,
 	type UnreadableFile,
 	type VocabFolder,
-	type VocabTables,
 } from '../data.js';
+import { untilClosed } from '../failure.js';
 
 export const ChatHistoryError = defineErrors({
 	/** The folder could not list the messages, so the transcript is unknown. */
@@ -72,49 +66,49 @@ function sameJson(a: unknown, b: unknown): boolean {
 	);
 }
 
-/** A message's file stem: its chat's ID, a dot, and the message ID. */
-export const messageStem = (chatId: string, messageId: string) =>
-	`${chatId}.${messageId}`;
+/** A message's row ID: its chat's ID, a dot, and the message ID. */
+export const messageId = (chatId: string, id: string) => `${chatId}.${id}`;
 
-/** The stems of every row file in `messages/`, read from the directory alone. */
-export async function listMessageStems(
-	files: FolderFiles,
-): Promise<Result<string[], FileError>> {
-	const { data: children, error } = await files.children('messages');
-	if (error?.name === 'NotFound') return Ok([]);
+/**
+ * The row IDs of one chat's message files, read from their names alone:
+ * `messages/<chat id>.<message id>.md`.
+ */
+async function listMessageIds(
+	files: VocabFolder['files'],
+	chatId: string,
+): Promise<Result<string[], ReadError>> {
+	const prefix = `messages/${messageId(chatId, '')}`;
+	const { data: paths, error } = await files.list(prefix);
 	if (error !== null) return Err(error);
 	return Ok(
-		children.files.flatMap((name) => {
-			const stem = rowStemOf('messages', `messages/${name}`);
-			return stem === undefined ? [] : [stem];
+		paths.flatMap((path) => {
+			const id = path.slice('messages/'.length, -'.md'.length);
+			return path.endsWith('.md') && !id.includes('/') ? [id] : [];
 		}),
 	);
 }
 
-/** Read the messages at `stems`, and report the files that are not valid messages. */
-export async function readMessages(
-	table: VocabTables['messages'],
-	stems: readonly string[],
-): Promise<{ rows: ChatMessage[]; unreadable: UnreadableFile[] }> {
-	const reads = await Promise.all(stems.map((stem) => table.get(stem)));
-	const rows: ChatMessage[] = [];
-	const unreadable: UnreadableFile[] = [];
-	reads.forEach(({ data: stored, error }, index) => {
-		const stem = stems[index] ?? '';
-		if (error !== null)
-			unreadable.push({
-				path: rowPath(table.name, stem),
-				reason: rowProblem(error),
-			});
-		else if (stored !== undefined) rows.push(readMessage(stem, stored));
-	});
-	return { rows, unreadable };
+/** Read the messages at `ids`, and report the files that are not valid messages. */
+async function readMessages(
+	table: VocabFolder['tables']['messages'],
+	ids: readonly string[],
+): Promise<
+	Result<{ rows: ChatMessage[]; unreadable: UnreadableFile[] }, ReadError>
+> {
+	const reads = await Promise.all(ids.map((id) => table.get(id)));
+	const rows = [];
+	for (const { data, error } of reads) {
+		if (error !== null) return Err(error);
+		// Deleted since it was listed: it is gone.
+		if (data !== undefined) rows.push(data);
+	}
+	return Ok(readRows('messages', rows, readMessage));
 }
 
 /**
- * How one message's save runs: by default at once; in the app, as a
- * mutation scoped to its chat, so a chat's messages are written in order and
- * closing waits for them.
+ * How one message's save runs: by default at once; in the app, in its
+ * chat's turn, so a chat's messages are written in order and leaving the
+ * page waits for them.
  */
 export type MessageWrite = (
 	message: AgentMessage,
@@ -125,19 +119,20 @@ export type MessageWrite = (
  * One chat's finished messages, presented to the tutor loop.
  *
  * A message's file is `messages/<chat ID>.<message ID>.md`, so a chat reads
- * only its own files, found by name. `entries` is the latest read together with every
- * message this store saved: a read never hides a message saved here. `set`
- * resolves `Ok` only once the folder holds the file, so the loop asks the
- * tutor nothing before a learner message is a file.
+ * only its own files, found by name. `entries` is the latest read together
+ * with every message this store saved: a read never hides a message saved
+ * here. `set` resolves `Ok` only once the folder holds the file, so the loop
+ * asks the tutor nothing before a learner message is a file.
  *
- * A create is refused where a file is already at its stem. Saving a message
- * again after an answer that never arrived finds its own file, compares it,
- * and adds no second one; a different message at that name is refused.
+ * A save reads the message's file first and writes only when none is there.
+ * Saving a message again after an answer that never arrived finds its own
+ * file, compares it, and adds no second one; a different message at that
+ * name is refused.
  */
 export function createChatMessageStore(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
 	chatId: string,
-	/** Runs each message's save; the app makes it a mutation. */
+	/** Runs each message's save; the app runs it in the chat's turn. */
 	write: MessageWrite = (_message, save) => save(),
 ): AgentMessageStore & {
 	/** Message files of this chat that cannot be shown or sent to the tutor. */
@@ -150,7 +145,6 @@ export function createChatMessageStore(
 	load(): Promise<Result<void, ChatHistoryError>>;
 } {
 	const table = tables.messages;
-	const prefix = messageStem(chatId, '');
 	let listed = new Map<string, AgentMessage>();
 	/** Messages this store saved, kept over any read. */
 	const created = new Map<string, AgentMessage>();
@@ -165,39 +159,42 @@ export function createChatMessageStore(
 		key: string,
 		value: AgentMessage,
 	): Promise<Result<undefined, AgentMessageStoreError>> {
-		const stem = messageStem(chatId, key);
-		const { error: createError } = await table.create(
-			{ fields: { chat: chatId, message: value }, body: '' },
-			{ stem },
-		);
-		if (createError !== null) {
-			if (createError.name !== 'Occupied')
-				return AgentMessageStoreError.WriteFailed({ cause: createError });
-			// A file is already at the stem. An earlier attempt may have landed
-			// without its answer: it is this message only if it holds it.
-			const { data: current, error: readError } = await table.get(stem);
-			// It was deleted since: nothing holds this message.
-			if (readError === null && current === undefined)
-				return AgentMessageStoreError.WriteFailed({ cause: createError });
+		const id = messageId(chatId, key);
+		// A file keeps JSON: a key whose value is `undefined` is not written.
+		const message = JSON.parse(JSON.stringify(value)) as AgentMessage;
+		const { data: current, error: readError } = await table.get(id);
+		if (readError !== null)
+			return AgentMessageStoreError.WriteFailed({ cause: readError });
+		if (current !== undefined) {
+			// An earlier attempt may have landed without its answer: it is this
+			// message only if it holds it.
 			if (
-				readError !== null &&
-				readError.name !== 'InvalidRow' &&
-				readError.name !== 'InvalidUtf8'
-			)
-				return AgentMessageStoreError.WriteFailed({ cause: readError });
-			if (
-				current?.row.fields.chat !== chatId ||
-				!sameJson(current.row.fields.message, value)
+				current.issues !== null ||
+				current.fields.chat !== chatId ||
+				!sameJson(current.fields.message, message)
 			) {
 				const { error: taken } = ChatHistoryError.Taken({
-					path: rowPath(table.name, stem),
+					path: rowPath('messages', id),
 				});
 				return AgentMessageStoreError.WriteFailed({ cause: taken });
 			}
+		} else {
+			const { error } = await table.set(id, null, {
+				fields: { chat: chatId, message },
+				body: '',
+			});
+			if (error !== null)
+				return AgentMessageStoreError.WriteFailed({ cause: error });
 		}
 		created.set(key, value);
 		notify();
 		return Ok(undefined);
+	}
+
+	async function read() {
+		const { data: ids, error } = await listMessageIds(files, chatId);
+		if (error !== null) return Err(error);
+		return readMessages(table, ids);
 	}
 
 	return {
@@ -206,29 +203,34 @@ export function createChatMessageStore(
 		},
 		async load() {
 			const mine = ++loads;
-			const { data: stems, error: listError } = await listMessageStems(files);
-			if (listError !== null)
-				return ChatHistoryError.NotRead({ cause: listError });
-			const read = await readMessages(
-				table,
-				stems.filter((stem) => stem.startsWith(prefix)),
+			const { data: listing, error } = await untilClosed(read, (cause) =>
+				ChatHistoryError.NotRead({ cause }),
 			);
+			if (error !== null)
+				return error.name === 'NotRead'
+					? Err(error)
+					: ChatHistoryError.NotRead({ cause: error });
 			// A later load was asked for; its read is the one to show.
 			if (mine !== loads) return Ok(undefined);
 			const next = new Map<string, ChatMessage>();
-			for (const row of read.rows) {
+			for (const row of listing.rows) {
 				if (row.chat !== chatId) continue;
-				// Two files can hold one message id; the lowest stem is shown.
+				// Two files can hold one message id; the lowest file name is shown.
 				const previous = next.get(row.message.id);
-				if (!previous || row.stem < previous.stem)
-					next.set(row.message.id, row);
+				if (!previous || row.id < previous.id) next.set(row.message.id, row);
 			}
 			listed = new Map([...next].map(([id, row]) => [id, row.message]));
-			unreadable = read.unreadable;
+			unreadable = listing.unreadable;
 			notify();
 			return Ok(undefined);
 		},
-		set: (key, value) => write(value, () => save(key, value)),
+		set: (key, value) =>
+			write(value, () =>
+				untilClosed(
+					() => save(key, value),
+					(cause) => AgentMessageStoreError.WriteFailed({ cause }),
+				),
+			),
 		*entries() {
 			for (const [key, val] of listed)
 				if (!created.has(key)) yield { key, val };
@@ -245,11 +247,11 @@ export function createChatMessageStore(
 }
 
 /**
- * Save the learner's focus as a new chat and answer with its ID once the
- * folder holds the file. The tutor opening is requested only after that.
+ * Save the learner's focus as a new chat and answer with it once the folder
+ * holds its file. The tutor opening is requested only after that.
  */
 export async function startChat(
-	chats: VocabTables['chats'],
+	chats: VocabFolder['tables']['chats'],
 	focus: readonly FocusItem[],
 ): Promise<Result<Chat, ChatHistoryError>> {
 	if (
@@ -259,20 +261,20 @@ export async function startChat(
 	)
 		return ChatHistoryError.InvalidFocus();
 	const chat = {
-		createdAt: InstantString.now(),
+		id: crypto.randomUUID(),
+		createdAt: new Date().toISOString(),
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
-	const { data: created, error: createError } = await chats.create({
-		fields: chat,
-		body: '',
-	});
-	if (createError !== null)
-		return ChatHistoryError.NotSaved({ cause: createError });
-	if (!isStoredRow(created))
-		return ChatHistoryError.NotSaved({
-			cause: 'The new file does not read as a chat',
-		});
-	return Ok({ id: rowStemOf(chats.name, created.path) ?? '', ...chat });
+	const { error } = await untilClosed(
+		() =>
+			chats.set(chat.id, null, {
+				fields: { createdAt: chat.createdAt, focus: chat.focus },
+				body: '',
+			}),
+		(cause) => Err(cause),
+	);
+	if (error !== null) return ChatHistoryError.NotSaved({ cause: error });
+	return Ok(chat);
 }
 
 /** One chat as the chat list shows it. */

@@ -3,38 +3,35 @@
  *
  * Mounts the real note view, `NoteDetail`, with its rich-text editor and UI
  * library, inside the query client the layout provides, over the real notes
- * state on the in-memory OPFS stand-in. Events are delivered to the DOM the
- * view renders; jsdom has no layout, focus, selection, or IME, so these show
- * what a delivered event does, not that a person can type there.
+ * state on this browser's local folder (an in-memory IndexedDB). Events are
+ * delivered to the DOM the view renders; jsdom has no layout, focus,
+ * selection, or IME, so these show what a delivered event does, not that a
+ * person can type there.
  *
  * Key behaviors:
  * - A title typed is saved when the person leaves it, and switching between
  *   rich text and Source or typing a title keeps the one rich-text view
- * - Rich-text typing reaches the note's body draft through ProseMirror's own
- *   DOM reading, is saved, and stays undoable after the save lands
+ * - Rich-text typing reaches the note's draft through ProseMirror's own DOM
+ *   reading, saves after its pause, and stays undoable after the save lands
  * - Different Source text replaces the rich-text document
- * - A title saved over a change made elsewhere keeps their body, and wins
- *   the title
+ * - A title typed before another tab saved keeps their body and wins the
+ *   title
  * - A change another tab saved shows in the open note
+ * - A save that fails says so and offers Save again, which saves it
  * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
  */
+// Before the DOM: once a `window` exists, `fake-indexeddb/auto` installs
+// IndexedDB on it rather than on the global the folder reads.
+import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import type { WriteFailure } from '@epicenter/svelte/write-failure';
+import { expectOk } from 'wellcrafted/testing';
 import {
 	blur,
 	click,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
-import {
-	noteText,
-	openNotesFolder,
-	until,
-} from '../../lib/folder.test-support.js';
-import { quiet } from '../../lib/query.test-support.js';
-
-const { createFolderContext } = await import('@epicenter/svelte/folder');
 
 // jsdom has no layout, and its ranges cannot be measured. ProseMirror
 // measures the cursor to scroll it into view after typing; it gets no boxes.
@@ -44,7 +41,9 @@ Range.prototype.getBoundingClientRect ??= () =>
 	({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { createNotes } = await import('../../lib/notes.svelte.ts');
+const { openNotes, noteText, quiet, until } = await import(
+	'../../lib/local.test-support.ts'
+);
 const { default: NoteDetail } = await import('./NoteDetail.svelte');
 const { default: Host } = await import('../../lib/ui-host.test-support.svelte');
 
@@ -54,17 +53,15 @@ afterEach(async () => {
 	for (const stop of cleanup.splice(0).reverse()) await stop();
 });
 
-/** Note `a` open in the notes state, and its view mounted as the page renders it. */
-async function view() {
-	const fixture = await openNotesFolder();
-	await fixture.write(PATH, noteText({ title: 'Alpha' }));
-	const failures: WriteFailure[] = [];
-	const opened = createFolderContext(fixture.folder, {
-		writeFailed: (failure) => failures.push(failure),
-	});
-	const notes = createNotes(opened);
+/**
+ * Note `a` open in the notes state, and its view mounted as the page renders
+ * it. Typing saves `saveAfterMs` after the last change.
+ */
+async function view({ saveAfterMs = 10 } = {}) {
+	const fixture = await openNotes({ saveAfterMs });
 	cleanup.push(() => fixture.close());
-	cleanup.push(() => opened.close());
+	await fixture.write(PATH, noteText({ title: 'Alpha' }));
+	const { notes } = fixture;
 	await notes.load();
 	notes.open(PATH);
 	const target = document.createElement('div');
@@ -89,7 +86,7 @@ async function view() {
 		flushSync();
 		await tick();
 	}
-	return { ...fixture, notes, opened, failures, target, settle };
+	return { ...fixture, target, settle };
 }
 
 function only<T extends Element>(target: ParentNode, selector: string): T {
@@ -121,6 +118,8 @@ const titleOf = (target: ParentNode) =>
 	only<HTMLInputElement>(target, 'input[aria-label="Title"]');
 const undoButton = (target: ParentNode) =>
 	only<HTMLButtonElement>(target, 'button[aria-label="Undo"]');
+const statusOf = (target: ParentNode) =>
+	only<HTMLElement>(target, '[data-testid="write-status"]').textContent ?? '';
 
 test('typing a title saves it, and switching tabs or typing keeps the one rich-text view', async () => {
 	const { target, text, settle } = await view();
@@ -134,19 +133,19 @@ test('typing a title saves it, and switching tabs or typing keeps the one rich-t
 	blur(titleOf(target));
 	await tick();
 	await settle();
-	expect(text(PATH)).toContain('title: Retitled');
-	expect(target.textContent).toMatch(/Saved to\s*notes\/a\.md/);
+	expect(await text(PATH)).toContain('title: "Retitled"');
+	expect(statusOf(target)).toMatch(/Saved to\s*notes\/a\.md/);
 	expect(richOf(target)).toBe(rich);
 	expect(rich.isConnected).toBe(true);
 });
 
-test('rich-text typing is saved, and stays undoable after the save lands', async () => {
+test('rich-text typing is saved after its pause, and stays undoable after the save lands', async () => {
 	const { notes, target, text, settle } = await view();
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
 	expect(notes.noteBody(PATH).row?.body).toBe('Body. Typed\n');
 	await settle();
-	expect(text(PATH)).toContain('Body. Typed\n');
+	expect(await text(PATH)).toContain('Body. Typed\n');
 	// A save never changes what is on screen: the same view and its history stay.
 	expect(richOf(target)).toBe(rich);
 	expect(undoButton(target).disabled).toBe(false);
@@ -159,7 +158,7 @@ test('rich-text typing is saved, and stays undoable after the save lands', async
 	expect(notes.noteBody(PATH).row?.body).toBe('Body.\n');
 	expect(rich.textContent).toBe('Body.');
 	await settle();
-	expect(text(PATH)).toContain('Body.\n');
+	expect(await text(PATH)).toContain('---\nBody.\n');
 });
 
 test('different Source text replaces the rich-text document, and typing goes on there', async () => {
@@ -182,16 +181,27 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(notes.noteBody(PATH).row?.body).toBe('Different again\n');
 });
 
-test('a title saved over a change made elsewhere keeps their body and wins the title', async () => {
-	const { target, put, text, failures, settle } = await view();
-	put(PATH, noteText({ title: 'Theirs', body: 'Their body.\n' }));
+test('a title typed before another tab saved keeps their body and wins the title', async () => {
+	const { target, otherTab, text, local, settle } = await view({
+		saveAfterMs: 60_000,
+	});
 	type(titleOf(target), 'Mine');
+	await tick();
+	const tab = await otherTab();
+	const theirs = expectOk(await tab.tables.notes.get('a'));
+	expectOk(
+		await tab.tables.notes.set('a', theirs ?? null, {
+			fields: { title: 'Theirs' },
+			body: 'Their body.\n',
+		}),
+	);
 	blur(titleOf(target));
 	await tick();
 	await settle();
-	expect(failures).toEqual([]);
-	expect(text(PATH)).toContain('title: Mine');
-	expect(text(PATH)).toContain('Their body.\n');
+	expect(local.edits.failures).toEqual([]);
+	const saved = (await text(PATH)) ?? '';
+	expect(saved).toContain('title: "Mine"');
+	expect(saved).toContain('Their body.\n');
 	expect(titleOf(target).value).toBe('Mine');
 });
 
@@ -199,12 +209,13 @@ test('a change another tab saved shows in the open note', async () => {
 	const { target, otherTab, settle } = await view();
 	const rich = richOf(target);
 	const tab = await otherTab();
-	const { data: theirs } = await tab.tables.notes.get('a');
-	if (theirs == null) throw new Error('No note a');
-	await tab.tables.notes.write('a', theirs.row, {
-		fields: { ...theirs.row.fields, title: 'Theirs' },
-		body: 'Their body.\n',
-	});
+	const theirs = expectOk(await tab.tables.notes.get('a'));
+	expectOk(
+		await tab.tables.notes.set('a', theirs ?? null, {
+			fields: { title: 'Theirs' },
+			body: 'Their body.\n',
+		}),
+	);
 	await until(() => {
 		flushSync();
 		return titleOf(target).value === 'Theirs';
@@ -213,17 +224,39 @@ test('a change another tab saved shows in the open note', async () => {
 	expect(rich.textContent).toBe('Their body.');
 });
 
+test('a save that fails says so and offers Save again, which saves it', async () => {
+	const { target, failSaves, text } = await view();
+	failSaves();
+	type(titleOf(target), 'Kept');
+	blur(titleOf(target));
+	await until(() => {
+		flushSync();
+		return statusOf(target).includes('Not saved');
+	}, 'the failure');
+	expect(statusOf(target)).toContain('QuotaExceededError');
+	expect(titleOf(target).value).toBe('Kept');
+
+	failSaves(false);
+	click(target, 'Save again');
+	await until(() => {
+		flushSync();
+		return /Saved to/.test(statusOf(target));
+	}, 'the retry');
+	expect(await text(PATH)).toContain('title: "Kept"');
+});
+
 test('once the notes are closing, the controls take no input', async () => {
-	const { notes, opened, target } = await view();
+	const { notes, local, target, text } = await view();
 	const rich = richOf(target);
-	const closed = opened.close();
+	const closed = local.close();
 	flushSync();
 	expect(titleOf(target).disabled).toBe(true);
 	expect(rich.getAttribute('contenteditable')).toBe('false');
 	type(titleOf(target), 'Typed while closing');
-	await tick();
+	flushSync();
 	expect(notes.noteBody(PATH).row?.fields.title).toBe('Alpha');
-	// The editor stays mounted while the last writes land.
+	// The editor stays mounted while the last saves land.
 	expect(richOf(target)).toBe(rich);
 	await closed;
+	expect(await text(PATH)).toContain('title: "Alpha"');
 });

@@ -27,7 +27,6 @@
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
 
-import type { Row } from '@epicenter/folder';
 import {
 	baseKeymap,
 	chainCommands,
@@ -57,7 +56,7 @@ import {
 	type Plugin,
 	type Transaction,
 } from 'prosemirror-state';
-import type { NoteFields } from '../data.js';
+import type { NoteEntry } from '../data.js';
 import { bodyCodec, equivalentNoteDocs } from './markdown.js';
 import { noteSchema } from './schema.js';
 
@@ -180,7 +179,7 @@ export type NoteBody = {
 	 * The note as shown now: its draft while an edit is held, else as the
 	 * cache holds it; `undefined` once it is gone.
 	 */
-	readonly row: Row<NoteFields> | undefined;
+	readonly row: NoteEntry | undefined;
 	/** Whether the note takes no edit now. */
 	readonly locked: boolean;
 	/** Type `body` as the note's body, which saves it. Answers whether it was taken. */

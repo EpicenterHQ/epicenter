@@ -6,7 +6,7 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { folderLabel, type NoteEntry } from '$lib/data.js';
+	import { FOLDERS, folderLabel, NOTES, type NoteEntry, rowFile } from '$lib/data.js';
 	import { getDateLabel } from '$lib/date-label.js';
 	import { displayTitle, previewText } from '$lib/note-source.js';
 	import { foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
@@ -14,38 +14,38 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = createQuery(() => notes.queries.notes.list.queryOptions());
-	const folderRows = createQuery(() => notes.queries.folders.list.queryOptions());
+	const noteRows = createQuery(() => notes.rowsQuery(NOTES));
+	const folderRows = createQuery(() => notes.rowsQuery(FOLDERS));
 	const all = $derived(noteRows.data ? notesOf(noteRows.data) : []);
 	const folders = $derived(folderRows.data ? foldersOf(folderRows.data) : []);
 	const repairs = $derived(noteRows.data ? repairsOf(noteRows.data) : []);
 	const unreadable = $derived(unreadableOf(noteRows.data, folderRows.data));
 	const selectedPath = $derived(notes.selected?.path);
 
+	const pathOf = (note: NoteEntry) => rowFile(NOTES, note.id);
+
 	/** What a row shows: the note as last saved, so an edit shows here once its save lands. */
 	function shown(note: NoteEntry) {
-		const row = note.row;
 		return {
-			fields: row.fields,
-			title: displayTitle(row.fields.title, row.body),
-			preview: previewText(row.body),
+			title: displayTitle(note.fields.title, note.body),
+			preview: previewText(note.body),
 		};
 	}
 
-	const created = (note: NoteEntry) => note.row.fields.createdAt;
-	const isDeleted = (note: NoteEntry) => typeof note.row.fields.deletedAt === 'string';
-	const isPinned = (note: NoteEntry) => note.row.fields.pinned;
+	const created = (note: NoteEntry) => note.fields.createdAt;
+	const isDeleted = (note: NoteEntry) => typeof note.fields.deletedAt === 'string';
+	const isPinned = (note: NoteEntry) => note.fields.pinned;
 
 	const visible = $derived.by(() => {
 		const { folderId, deleted, query } = notes.view;
 		const needle = query.trim().toLowerCase();
 		return all
 			.filter((note) => {
-				const { fields } = note.row;
+				const { fields } = note;
 				if (isDeleted(note) !== deleted) return false;
 				if (!deleted && folderId !== null && fields.folderId !== folderId) return false;
 				if (needle === '') return true;
-				return `${fields.title}\n${note.row.body}`.toLowerCase().includes(needle);
+				return `${fields.title}\n${note.body}`.toLowerCase().includes(needle);
 			})
 			.toSorted((a, b) => created(b).localeCompare(created(a)));
 	});
@@ -54,7 +54,7 @@
 		if (notes.view.deleted) return 'Recently Deleted';
 		const id = notes.view.folderId;
 		if (id === null) return 'All Notes';
-		const folder = folders.find((item) => item.stem === id);
+		const folder = folders.find((item) => item.id === id);
 		return folder === undefined ? 'Notes' : folderLabel(folder);
 	});
 
@@ -142,17 +142,18 @@
 		{/if}
 		{#each groups as group (group.label)}
 			<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
-			{#each group.entries as note (note.path)}
+			{#each group.entries as note (note.id)}
+				{@const path = pathOf(note)}
 				{@const row = shown(note)}
-				{@const saving = notes.isWriting(note.path)}
+				{@const saving = notes.isWriting(path)}
 				<ContextMenu.Root>
 					<ContextMenu.Trigger>
 						<button
 							class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-accent/40"
-							class:bg-accent={selectedPath === note.path}
-							data-note={note.path}
-							aria-current={selectedPath === note.path ? 'true' : undefined}
-							onclick={() => notes.open(note.path)}
+							class:bg-accent={selectedPath === path}
+							data-note={path}
+							aria-current={selectedPath === path ? 'true' : undefined}
+							onclick={() => notes.open(path)}
 						>
 							<span class="flex items-start justify-between gap-2">
 								<span class="line-clamp-1 text-sm font-medium">
@@ -175,15 +176,15 @@
 							<!-- An open menu is outside the app's inert root. -->
 							<ContextMenu.Item disabled>The app is closing</ContextMenu.Item>
 						{:else if isDeleted(note)}
-							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(note.path))}>
+							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(path))}>
 								Restore
 							</ContextMenu.Item>
-							<ContextMenu.Item variant="destructive" onSelect={() => void confirmDelete(notes, note.path)}>
+							<ContextMenu.Item variant="destructive" onSelect={() => void confirmDelete(notes, path)}>
 								Delete permanently…
 							</ContextMenu.Item>
 						{:else}
 							<ContextMenu.Item
-								onSelect={() => void report('pin the note', notes.patchNote(note.path, { pinned: !isPinned(note) }))}
+								onSelect={() => void report('pin the note', notes.patchNote(path, { pinned: !isPinned(note) }))}
 							>
 								{isPinned(note) ? 'Unpin' : 'Pin'}
 							</ContextMenu.Item>
@@ -191,15 +192,15 @@
 								<ContextMenu.SubTrigger>Move to folder</ContextMenu.SubTrigger>
 								<ContextMenu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">
 									<ContextMenu.Item
-										onSelect={() => void report('move the note', notes.patchNote(note.path, { folderId: null }))}
+										onSelect={() => void report('move the note', notes.patchNote(path, { folderId: null }))}
 									>
 										No folder
 									</ContextMenu.Item>
 									<ContextMenu.Separator />
-									{#each folders as folder (folder.path)}
+									{#each folders as folder (folder.id)}
 										<ContextMenu.Item
 											onSelect={() =>
-												void report('move the note', notes.patchNote(note.path, { folderId: folder.stem }))}
+												void report('move the note', notes.patchNote(path, { folderId: folder.id }))}
 										>
 											{folderLabel(folder)}
 										</ContextMenu.Item>
@@ -209,7 +210,7 @@
 							<ContextMenu.Separator />
 							<ContextMenu.Item
 								variant="destructive"
-								onSelect={() => void report('delete the note', notes.trashNote(note.path))}
+								onSelect={() => void report('delete the note', notes.trashNote(path))}
 							>
 								Move to Recently Deleted
 							</ContextMenu.Item>
@@ -228,7 +229,7 @@
 				</div>
 			{/each}
 			<p class="px-3 pt-1 text-xs text-muted-foreground">
-				These files are still in the folder. Repair or remove them from Files or in a terminal.
+				These files are still in the folder. Repair or delete them from Files.
 			</p>
 		{/if}
 	</div>

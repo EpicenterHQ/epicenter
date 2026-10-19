@@ -1,6 +1,5 @@
 /** App-owned file-name messages. */
-import { pathProblem } from '@epicenter/folder';
-import { joinPath } from '@epicenter/folder/file-browser';
+import { joinPath, pathProblem } from '@epicenter/folder/file-browser';
 
 /**
  * Why the folder refused `name`, in a person's words. The folder's path rule

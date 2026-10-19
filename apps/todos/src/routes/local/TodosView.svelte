@@ -1,5 +1,5 @@
 <!--
-	Todos over this browser's local folder, inside `<LocalFolderApp>`: the
+	Todos over this browser's local folder, inside `<FolderApp>`: the
 	header, the list, and the open todo, laid out as the folder build lays
 	them out. Which todo is open is the URL's `?todo=<id>`, so it survives a
 	reload and the breakpoint.
@@ -10,7 +10,7 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { getLocalFolder } from '@epicenter/svelte/local-folder';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { beforeNavigate, goto } from '$app/navigation';
@@ -21,7 +21,7 @@
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	const local = getLocalFolder<typeof todosTables>();
+	const local = getFolder<typeof todosTables>();
 
 	// Typing not yet saved, or a save still running, lives only in this page.
 	// Leaving the page then is cancelled; for a reload or a closed tab
@@ -65,7 +65,7 @@
 	{#if open === undefined}
 		<Empty.Root class="h-full">
 			<Empty.Title>Select a todo to edit it</Empty.Title>
-			<Empty.Description>Each todo is kept in this browser.</Empty.Description>
+			<Empty.Description>Each todo is kept on this device.</Empty.Description>
 		</Empty.Root>
 	{:else}
 		{#key open}

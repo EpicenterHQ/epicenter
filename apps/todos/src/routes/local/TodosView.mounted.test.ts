@@ -4,7 +4,7 @@
  * Mounts the real Todos page in jsdom, as the layout mounts it, over an
  * in-memory IndexedDB with no OPFS: the page chooses this browser's local
  * folder, `openFolder({ tables: todosTables })`, and opens it through
- * `<LocalFolderApp>`. A second handle of the same profile stands in for
+ * `<FolderApp>`. A second handle of the same profile stands in for
  * another tab. jsdom matches no media query, so the view lays out as on a
  * narrow screen.
  *
@@ -333,9 +333,7 @@ test('a failed storage check opens nothing, and Try again checks again', async (
 		);
 	Object.defineProperty(navigator, 'storage', {
 		configurable: true,
-		value: {
-			getDirectory: async () => ({ getDirectoryHandle: () => check() }),
-		},
+		value: { getDirectory: () => check() },
 	});
 	const opened = mountPage();
 	await until(
@@ -347,7 +345,7 @@ test('a failed storage check opens nothing, and Try again checks again', async (
 	expect(opened.target.querySelector(LIST)).toBeNull();
 	expect(await indexedDB.databases()).toEqual([]);
 
-	check = () => Promise.reject(new DOMException('Not found', 'NotFoundError'));
+	check = async () => ({ async *values() {} });
 	press(button(opened.target, 'Try again'));
 	await until(
 		() => opened.target.querySelector('[aria-label="Todos"]') !== null,

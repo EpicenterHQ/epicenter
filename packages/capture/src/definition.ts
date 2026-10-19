@@ -1,25 +1,26 @@
-import { type CreateRowOf, defineTable, field } from '@epicenter/definition';
-import { defineFolder } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
+import { type Static, Type } from 'typebox';
 
 /**
- * Each capture is `captures/<stem>.md`: `capturedAt` in frontmatter, and a
- * Markdown body holding the capture text and its thoughts. The stem is the
- * file's identity. Thoughts are not rows; `document.ts` reads them from the
- * body.
+ * The tables Capture reads from its local folder,
+ * `openFolder({ tables: captureTables })`. Each capture is
+ * `captures/<stem>.md`: `capturedAt` in frontmatter, and a Markdown body
+ * holding the capture text and its thoughts. The stem is the file's
+ * identity. Thoughts are not rows; `document.ts` reads them from the body.
  *
  * `capturedAt` is an RFC 3339 datetime, so a file written by hand with an
  * offset (`2026-10-01T10:30:00+08:00`) is as valid as the UTC form the app
- * writes.
+ * writes. The schema only interprets: other frontmatter keys survive a save,
+ * and a file that does not fit is listed with its source and issues.
  */
-export const captureDefinition = defineFolder({
-	title: 'Capture',
-	tables: {
-		captures: defineTable({ fields: { capturedAt: field.datetime() } }),
-	},
-});
+export const captureTables = {
+	captures: Type.Object({ capturedAt: Type.String({ format: 'date-time' }) }),
+};
 
 export const CAPTURES_TABLE = 'captures';
 
-export type CaptureFields = CreateRowOf<
-	typeof captureDefinition.tables.captures
->;
+/** The frontmatter of a capture that reads as one. */
+export type CaptureFields = Static<(typeof captureTables)['captures']>;
+
+/** A file of the captures table: a capture, or its source and why it is not one. */
+export type CaptureRow = Row<(typeof captureTables)['captures']>;

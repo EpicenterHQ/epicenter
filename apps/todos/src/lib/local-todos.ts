@@ -1,16 +1,16 @@
 /**
  * Todos over this browser's local folder: the rows as the list arranges
  * them, and what a person is told about a save. Pure functions of what the
- * table lists; the views read and write through `getLocalFolder()`.
+ * table lists; the views read and write through `getFolder()`.
  */
-import type { LocalRow, ReadError, SaveError } from '@epicenter/folder';
-import type { SaveState } from '@epicenter/svelte/local-folder';
+import type { Row, ReadError, SaveError } from '@epicenter/folder';
+import type { SaveState } from '@epicenter/svelte/folder';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import type { ActionError } from '@epicenter/svelte/write-failure';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { todosTables } from './definition.js';
 
-export type TodoRow = LocalRow<(typeof todosTables)['todos']>;
+export type TodoRow = Row<(typeof todosTables)['todos']>;
 
 /** A row that reads as a todo. */
 export type Todo = Extract<TodoRow, { issues: null }>;
@@ -71,7 +71,7 @@ export function describeFailure(
 ): string {
 	switch (error.name) {
 		case 'StorageFailed':
-			return `This browser's storage refused it: ${extractErrorMessage(error.cause)}.`;
+			return `This device could not save it: ${extractErrorMessage(error.cause)}.`;
 		case 'NotStarted':
 			return error.reason;
 		case 'Unparseable':

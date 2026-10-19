@@ -1,16 +1,16 @@
 <!--
-	The header over this browser's local folder: the app's name and whether
+	The header over this device's local folder: the app's name and whether
 	everything is saved on this device. It offers no Save version, Sync, or
 	Connect: this storage keeps no history and syncs nowhere yet.
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import { getLocalFolder } from '@epicenter/svelte/local-folder';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import type { todosTables } from '$lib/definition.js';
 	import { saveLine } from '$lib/local-todos.js';
 
-	const local = getLocalFolder<typeof todosTables>();
+	const local = getFolder<typeof todosTables>();
 	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
 	const saved = $derived.by(() => {
@@ -26,9 +26,9 @@
 	<h1 class="text-sm font-semibold max-sm:sr-only">Todos</h1>
 	<StatusPopover summary={saved} details={[{ name: 'Saving', testid: 'status-files', line: saved }]}>
 		<StatusRow name="Where">
-			<span class="font-medium" data-testid="status-folder">This browser</span>
+			<span class="font-medium" data-testid="status-folder">This device</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">
-				Saved in this browser's storage, not in a folder on this computer. Todos does not sync these todos to other devices yet.
+				Saved locally on this device. Todos does not sync these todos to other devices yet.
 			</span>
 		</StatusRow>
 	</StatusPopover>

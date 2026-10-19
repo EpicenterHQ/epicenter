@@ -37,6 +37,10 @@ export default defineConfig(
 		},
 		resolve: {
 			alias: [
+				{
+					find: /^@epicenter\/folder$/,
+					replacement: fileURLToPath(import.meta.resolve('@epicenter/folder/browser')),
+				},
 				// isomorphic-git and its SHA-1 dependency expect Node's Buffer.
 				{
 					find: /^buffer$/,

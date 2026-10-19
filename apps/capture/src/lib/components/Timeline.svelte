@@ -8,8 +8,7 @@
 	import { onDestroy } from 'svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { describeWriteError } from '@epicenter/svelte/write-failure';
-	import { type Captures, timelineOf } from '$lib/captures.svelte.js';
+	import { type Captures, describeFailure, timelineOf } from '$lib/captures.svelte.js';
 	import TechnicalDetails from './TechnicalDetails.svelte';
 
 	let {
@@ -53,7 +52,7 @@
 		const { error } = await captures.create(captures.newCapture);
 		creating = false;
 		if (error !== null) {
-			createProblem = `The capture was not saved: ${describeWriteError(error)} Your text is still here.`;
+			createProblem = `The capture was not saved: ${describeFailure(error)} Your text is still here.`;
 			return;
 		}
 		createProblem = '';
@@ -123,9 +122,25 @@
 	</Modal.Content>
 </Modal.Root>
 
+{#if captures.failures.length}
+	<!-- A save that failed keeps its edit; this says where, from wherever the person is. -->
+	<Alert.Root variant="destructive" aria-label="Not saved" class="mb-4">
+		<Alert.Title>Some changes are not saved</Alert.Title>
+		<Alert.Description>Each edit is still here. Open the capture to save it again or copy it.</Alert.Description>
+		<ul class="mt-2 flex flex-col gap-2 text-foreground">
+			{#each captures.failures as failure (failure.path)}
+				<li class="flex flex-wrap items-start gap-2">
+					<p class="min-w-0 flex-1 break-words"><code class="break-all">{failure.path}</code>: {failure.reason}</p>
+					<Button size="sm" variant="outline" aria-label="Open {failure.path}" onclick={() => captures.open(failure.stem, 'capture')}>Open</Button>
+				</li>
+			{/each}
+		</ul>
+	</Alert.Root>
+{/if}
+
 {#if listing.isError}
 	<Alert.Root variant="destructive" class="mb-4">
-		<Alert.Title>The captures folder could not be read</Alert.Title>
+		<Alert.Title>Your captures could not be read</Alert.Title>
 		<Alert.Description>What is listed here may be out of date. Text you have typed in this window is still here.</Alert.Description>
 		<div class="mt-2 text-foreground"><Button variant="outline" size="sm" onclick={() => void listing.refetch()}>Check again</Button></div>
 		<TechnicalDetails detail={listing.error.message} />
@@ -179,7 +194,7 @@
 {#if unreadable.length}
 	<Alert.Root variant="destructive" aria-label="Unreadable files" class="mt-6">
 		<Alert.Title>{unreadable.length} {unreadable.length === 1 ? 'file' : 'files'} could not be read</Alert.Title>
-		<Alert.Description>They are still in the folder, untouched.</Alert.Description>
+		<Alert.Description>They are not text. They are kept as they are, untouched.</Alert.Description>
 		<ul class="mt-1 list-disc pl-5 text-foreground">
 			{#each unreadable as file (file.path)}
 				<li class="break-words"><code>{file.path}</code>: {file.message}</li>
@@ -189,11 +204,5 @@
 {/if}
 
 <footer class="mt-10 border-t pt-4 text-xs text-muted-foreground">
-	<p>
-		{#if captures.folder.location.kind === 'directory'}
-			Files are in <code>captures</code> under <code class="break-all">{captures.folder.location.root}</code>.
-		{:else}
-			Files are kept in this browser.
-		{/if}
-	</p>
+	<p>Captures are kept in this browser, each as a Markdown file in <code>captures</code>. They are not synced to other devices.</p>
 </footer>

@@ -12,18 +12,17 @@
 	import { page } from '$app/state';
 	import { auth } from '$lib/auth.svelte.js';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
+	import { type FocusItem, VOCAB_MODEL, type VocabTables } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
 	import { getFolder } from '@epicenter/svelte/folder';
-	import type { vocabFolder } from '$lib/data.js';
 	import { createVocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
 
-	// Vocab over the folder `<FolderApp>` opened.
-	const vocab = createVocab(getFolder<typeof vocabFolder>());
+	// Vocab over the local folder `<FolderApp>` opened.
+	const vocab = createVocab(getFolder<VocabTables>());
 	const { folder, entries, chats } = vocab;
 	// Observed here, so a change the folder reports reads both lists again.
 	const words = createQuery(() => entries.entriesQuery());
@@ -91,7 +90,8 @@
 		void sources.then(({ account, connections }) => Promise.allSettled([account?.close(), connections?.close()]));
 	});
 
-	// A write or another action still running lives only in this page.
+	// Typing not yet saved, or a save or another action still running, lives
+	// only in this page.
 	// Leaving then is cancelled; for a reload or a closed tab, SvelteKit turns
 	// the cancel into the browser's own leave confirmation.
 	beforeNavigate((navigation) => {

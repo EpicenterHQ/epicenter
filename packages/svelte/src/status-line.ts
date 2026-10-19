@@ -5,7 +5,6 @@
  * Svelte runes. The wording stays with each app; `StatusPopover` from
  * `@epicenter/svelte/status-popover` shows the lines.
  */
-import type { PathChange } from '@epicenter/folder';
 
 export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
 
@@ -43,9 +42,6 @@ export function mostSevere(
 	return chosen;
 }
 
-/** A commit id as a person reads it: its first seven characters. */
-export const shortOid = (oid: string | undefined) => oid?.slice(0, 7) ?? 'none';
-
 /**
  * An absolute time, so a line never goes stale on screen: the time alone
  * today, the date and time otherwise.
@@ -65,14 +61,4 @@ export function withTime(
 ): StatusLine {
 	const when = `${event} at ${localTime(time)}`;
 	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
-}
-
-/** The first eight changed paths, one per detail line: `new`, `modified`, or `deleted`, then the path. */
-export function changeList(changes: readonly PathChange[]): string[] {
-	return changes
-		.slice(0, 8)
-		.map(
-			(change) =>
-				`${change.kind === 'add' ? 'new' : change.kind === 'delete' ? 'deleted' : 'modified'} ${change.path}`,
-		);
 }

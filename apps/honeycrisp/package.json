@@ -13,7 +13,7 @@
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
-		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte ./src/routes/components/NoteDetail.dom.test.ts",
+		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte dom.test",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"devDependencies": {
@@ -28,6 +28,7 @@
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"@types/markdown-it": "^14.0.0",
+		"fake-indexeddb": "^6.2.6",
 		"jsdom": "26.1.0",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
@@ -58,6 +59,7 @@
 		"prosemirror-state": "^1.4.0",
 		"prosemirror-view": "^1.41.0",
 		"runed": "catalog:",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"

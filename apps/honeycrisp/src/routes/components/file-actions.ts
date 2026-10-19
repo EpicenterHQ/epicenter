@@ -1,7 +1,6 @@
 /**
  * Actions the lists, the note view, and the file view share: copy a path,
- * and delete with a confirmation that names what will be removed and whether
- * its latest changes are in no saved version.
+ * and delete with a confirmation that names what will be removed.
  */
 
 import { basename } from '@epicenter/folder/file-browser';
@@ -18,37 +17,19 @@ export async function copyPath(path: string) {
 	}
 }
 
-/** What deleting a file loses: nothing a version holds, or changes no version has. */
-function history(deletion: Extract<Deletion, { kind: 'file' }>) {
-	if (deletion.unversioned === undefined)
-		return 'Honeycrisp could not check whether its latest changes are in a saved version, so they may be lost.';
-	return deletion.unversioned
-		? 'Its latest changes are in no saved version, so deleting it loses them. Save a version first to keep them in history.'
-		: 'Its current text is in the last saved version.';
-}
-
 export function describeDeletion(deletion: Deletion) {
-	switch (deletion.kind) {
-		case 'file':
-			return {
-				title:
-					deletion.title !== undefined
-						? `Delete “${deletion.title}” permanently?`
-						: `Delete ${basename(deletion.path)}?`,
-				description: `This deletes ${deletion.path} from the folder. ${history(deletion)}`,
-			};
-		case 'folder':
-			return {
-				title: `Delete the folder ${basename(deletion.path)}?`,
-				description: `${deletion.path} is empty. Deleting it removes only the folder.`,
-			};
-	}
+	return {
+		title:
+			deletion.title !== undefined
+				? `Delete “${deletion.title}” permanently?`
+				: `Delete ${basename(deletion.path)}?`,
+		description: `This deletes ${deletion.path} from this browser. Honeycrisp keeps no versions, so it cannot be brought back.`,
+	};
 }
 
 /**
- * Ask before deleting `path`. The delete waits for the file's saves to
- * land, so what the app saved last goes with it, and it deletes the file
- * whatever was changed elsewhere since (ADR-0576).
+ * Ask before deleting `path`. The delete sends what is typed into the file
+ * first, and keeps a file another tab changed in that moment.
  */
 export async function confirmDelete(notes: Notes, path: string) {
 	const { data: deletion, error: refusal } = await notes.deletionFor(path);

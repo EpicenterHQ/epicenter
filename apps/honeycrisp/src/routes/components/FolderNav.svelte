@@ -10,17 +10,17 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { type FolderEntry, folderLabel as nameOf } from '$lib/data.js';
+	import { FOLDERS, type FolderEntry, folderLabel as nameOf, NOTES, rowFile } from '$lib/data.js';
 	import { foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
 
 	let { notes }: { notes: Notes } = $props();
 
 	const noteRows = createQuery(() => ({
-		...notes.queries.notes.list.queryOptions(),
+		...notes.rowsQuery(NOTES),
 		select: notesOf,
 	}));
 	const folderRows = createQuery(() => ({
-		...notes.queries.folders.list.queryOptions(),
+		...notes.rowsQuery(FOLDERS),
 		select: foldersOf,
 	}));
 	const folders = $derived(
@@ -29,7 +29,7 @@
 	const counts = $derived.by(() => {
 		const result = { active: 0, deleted: 0, folders: new Map<string, number>() };
 		for (const note of noteRows.data ?? []) {
-			const fields = note.row.fields;
+			const fields = note.fields;
 			if (typeof fields.deletedAt === 'string') {
 				result.deleted += 1;
 				continue;
@@ -41,21 +41,21 @@
 		return result;
 	});
 
-	/** The folder being named: a new one, or an existing one by path. */
-	let naming = $state<{ path: string | undefined; value: string } | undefined>();
+	/** The folder being named: a new one, or an existing one by id. */
+	let naming = $state<{ id: string | undefined; value: string } | undefined>();
 
 	async function commitName() {
 		const current = naming;
 		naming = undefined;
 		const name = current?.value.trim();
 		if (!current || !name) return;
-		const target = folders.find((folder) => folder.path === current.path);
+		const target = folders.find((folder) => folder.id === current.id);
 		const problem =
 			target === undefined
 				? await notes.createFolder(name)
 				: name === nameOf(target)
 					? undefined
-					: notes.patchFolder(target.path, { name });
+					: notes.patchFolder(rowFile(FOLDERS, target.id), { name });
 		if (problem) toast.error('Could not save the folder', { description: problem });
 	}
 
@@ -129,30 +129,30 @@
 			size="icon-sm"
 			aria-label="New folder"
 			tooltip="New folder"
-			onclick={() => (naming = { path: undefined, value: 'New Folder' })}
+			onclick={() => (naming = { id: undefined, value: 'New Folder' })}
 		>
 			<PlusIcon />
 		</Button>
 	</div>
-	{#if naming && naming.path === undefined}{@render nameInput()}{/if}
-	{#each folders as folder (folder.path)}
-		{#if naming?.path === folder.path}
+	{#if naming && naming.id === undefined}{@render nameInput()}{/if}
+	{#each folders as folder (folder.id)}
+		{#if naming?.id === folder.id}
 			{@render nameInput()}
 		{:else}
 			<div class="group flex items-center">
 				<button
 					class={row}
-					class:bg-accent={notes.view.folderId === folder.stem && !notes.view.deleted}
-					aria-current={notes.view.folderId === folder.stem && !notes.view.deleted ? 'true' : undefined}
-					onclick={() => notes.showFolder(folder.stem)}
+					class:bg-accent={notes.view.folderId === folder.id && !notes.view.deleted}
+					aria-current={notes.view.folderId === folder.id && !notes.view.deleted ? 'true' : undefined}
+					onclick={() => notes.showFolder(folder.id)}
 				>
-					{#if folder.row.fields.icon}
-						<span class="text-base leading-none">{folder.row.fields.icon}</span>
+					{#if folder.fields.icon}
+						<span class="text-base leading-none">{folder.fields.icon}</span>
 					{:else}
 						<FolderIcon class="size-4" />
 					{/if}
 					<span class="truncate">{nameOf(folder)}</span>
-					<span class="ml-auto text-xs text-muted-foreground">{counts.folders.get(folder.stem) ?? 0}</span>
+					<span class="ml-auto text-xs text-muted-foreground">{counts.folders.get(folder.id) ?? 0}</span>
 				</button>
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger>
@@ -166,11 +166,11 @@
 					<DropdownMenu.Content align="start" class="w-40">
 						<DropdownMenu.Item
 							disabled={notes.fenced}
-							onSelect={() => (naming = { path: folder.path, value: nameOf(folder) })}
+							onSelect={() => (naming = { id: folder.id, value: nameOf(folder) })}
 						>
 							Rename
 						</DropdownMenu.Item>
-						<DropdownMenu.Item disabled={notes.fenced} onSelect={() => notes.open(folder.path, 'text')}>
+						<DropdownMenu.Item disabled={notes.fenced} onSelect={() => notes.open(rowFile(FOLDERS, folder.id), 'text')}>
 							Open file
 						</DropdownMenu.Item>
 						<DropdownMenu.Separator />

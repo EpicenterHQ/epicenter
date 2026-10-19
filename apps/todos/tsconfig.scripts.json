@@ -1,5 +1,5 @@
 {
-	// Bun entrypoints: the dev launcher, the native CLI, and their tests.
+	// Bun entrypoints: the native CLI and its test.
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
 		"types": ["bun"],

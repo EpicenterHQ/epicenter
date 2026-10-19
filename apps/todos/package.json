@@ -1,20 +1,14 @@
 {
 	"name": "@epicenter/todos",
-	"description": "File-first todos: Markdown rows and Git history",
+	"description": "Local Markdown todos over one Folder",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
 	"exports": {
 		"./definition": "./src/lib/definition.ts"
 	},
-	"imports": {
-		"#platform/auth": {
-			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",
-			"default": "./src/lib/platform/auth.browser.ts"
-		}
-	},
 	"scripts": {
-		"dev": "bun scripts/dev.ts",
+		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"native": "bun scripts/native.ts",
 		"demo:local": "bun scripts/local-demo.ts",
@@ -24,7 +18,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte mounted.test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && tsc -p tsconfig.scripts.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
@@ -46,16 +40,9 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/ai": "workspace:*",
-		"@epicenter/auth": "workspace:*",
-		"@epicenter/constants": "workspace:*",
-		"@epicenter/epicenter": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"@tanstack/query-core": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
-		"@tauri-apps/api": "catalog:",
-		"runed": "catalog:",
 		"wellcrafted": "catalog:",
 		"typebox": "catalog:"
 	},

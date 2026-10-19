@@ -38,7 +38,7 @@
 	}: {
 		chatId: string;
 		folder: Pick<VocabFolder, 'tables' | 'files'>;
-		/** Saves each message as a mutation scoped to this chat. */
+		/** Saves each message in this chat's turn. */
 		write: MessageWrite;
 		catalog: InferenceCatalog;
 		selections: InferenceSelections;

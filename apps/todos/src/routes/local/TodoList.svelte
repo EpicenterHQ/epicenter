@@ -11,7 +11,7 @@
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
-	import { getLocalFolder } from '@epicenter/svelte/local-folder';
+	import { getFolder } from '@epicenter/svelte/folder';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { beforeNavigate } from '$app/navigation';
 	import type { todosTables } from '$lib/definition.js';
@@ -25,7 +25,7 @@
 	} from '$lib/local-todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const local = getLocalFolder<typeof todosTables>();
+	const local = getFolder<typeof todosTables>();
 
 	let {
 		open,

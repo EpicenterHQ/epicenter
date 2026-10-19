@@ -170,7 +170,7 @@
 		/** Cleared with this view: a transaction it is handed afterwards changes nothing. */
 		let alive = true;
 		// Untracked: the view asks `editable` while it is built, and `locked`
-		// changes with every rename or delete, which must not recreate the view.
+		// changes with every delete and with closing, which must not recreate the view.
 		const mountOn = element;
 		const created = untrack(() => new EditorView(mountOn, {
 			state: EditorState.create({
