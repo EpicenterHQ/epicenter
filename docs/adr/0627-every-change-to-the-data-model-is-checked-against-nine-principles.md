@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Supersedes:** [ADR-0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) (every change to the folder model is checked against ten principles): the folder model and its desktop host are replaced by repositories, tables, and browser clones, and nine principles summarize them.
+- **Amended by:** [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at principles 2 and 5: browser clones allow Git boundary metadata and a publication revision, retain bounded snapshots with temporary ancestry, and permit overlapping sync attempts that may wait for editing to settle.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md), [ADR-0618](0618-epicenter-hosts-no-ai-service.md), [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md), [ADR-0620](0620-history-in-a-repository-only-grows.md), [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md), [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md), and [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) decide the principles.
 - **Unbuilt:** every record the principles cite is unbuilt in whole or in part; the principles describe the model they build.
 
@@ -30,9 +31,11 @@ governs where the two differ.
    plus an access list. An agent's commit and an app's save edit the same
    repository; Git is the only record and the only sync format, and no CRDT
    store exists beside it (ADR-0611, ADR-0612, ADR-0613).
-2. Every byte Epicenter keeps is a Git object, a working file, an
-   access-list row, or a cache. A browser clone holds Git objects, refs,
-   and its unsent edits, and nothing else (ADR-0619, ADR-0623).
+2. Epicenter records content in Git objects and working files, access in
+   access-list rows, and keeps rebuildable caches. A browser clone holds Git
+   objects, refs, unsent edits, and the Git boundary metadata and local revision
+   needed for publication. That bookkeeping records no separate content or history
+   (ADR-0619, ADR-0623, ADR-0628).
 3. The access list is the only guard on who. The only refusals on what are
    a non-text write from the library, a push that would rewrite history,
    what Git cannot represent, and a new id or path that differs from an
@@ -46,10 +49,12 @@ governs where the two differ.
    a file is (a table, a row), never a second name for what Git already
    names (ADR-0612, ADR-0613).
 5. Every place that edits is its own clone: each app origin keeps its own
-   in IndexedDB, holding no history, where reads and saves are transactions
-   and only sync takes turns between tabs. On disk, the person and their agents write
-   files with last-write-wins, the data browser saves through the merge,
-   and commits happen at `epicenter sync` (ADR-0611, ADR-0622, ADR-0623).
+   in IndexedDB, retaining bounded snapshots and temporary ancestry when
+   needed. Saves publish through revision-checked transactions; tabs may
+   overlap sync attempts, and sync may wait for a pause while saves remain
+   local. On disk, the person and their agents write files with last-write-wins,
+   the data browser saves through the merge, and commits happen at
+   `epicenter sync` (ADR-0611, ADR-0622, ADR-0623, ADR-0628).
 6. One TypeScript merge runs wherever Epicenter merges, in a sync on every
    host and in a save, and the edit that reaches `main` last wins each unit
    both sides changed, an edit beats a delete it never

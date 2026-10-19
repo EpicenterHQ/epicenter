@@ -1,8 +1,9 @@
 # 0628. Browser sync uses transactions and Git updates instead of cross-tab ownership
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-19
-- **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (the data Git records), [ADR-0620](0620-history-in-a-repository-only-grows.md) (conditional, fast-forward server updates), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (field and text-region merging), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser engine this would amend), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (offline reads and saves), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (the summary this would amend).
+- **Amends:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at the exhaustive browser inventory, allowing Git boundary metadata and a local publication revision; [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at retention, save transactions, reconciliation, collection, fetch depth, sync ownership, and commit timing; and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at principles 2 and 5, which summarize that browser design.
+- **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (the data Git records), [ADR-0620](0620-history-in-a-repository-only-grows.md) (conditional, fast-forward server updates), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (field and text-region merging), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser engine), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (offline reads and saves), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (the maintained summary).
 - **Unbuilt:** the replacement browser engine, its isolated fetch workspaces, ancestry recovery, safe collection, and coalesced attempts. Separate local Git transport and IndexedDB contention prototypes exercise parts of the design, not the complete engine, Cloudflare Artifacts, or an iPhone.
 
 ## Context
@@ -16,9 +17,8 @@ ADR-0623 describes an unbuilt engine with those leases, no retained history,
 and a changed-path sweep. Its recovery rule asks whether a server commit
 descends from a pending commit without specifying the missing ancestry.
 Its sweep does not establish whether another path still needs an object.
-This proposed amendment specifies the safety conditions behind the approved
-coordination change. It removes ADR-0623's synchronous-only save requirement
-and uses one repository revision to validate refs and the complete edit set.
+Revision-checked publication removes ADR-0623's synchronous-only save
+requirement and validates refs and the complete edit set without a sync owner.
 
 The owner also chose a whole active repository available offline, browser
 support focused on Epicenter's Git service, automatic conflict resolution,
@@ -42,6 +42,13 @@ repository cache. Git records committed versions; the app needs no conflict
 review UI or history of every intermediate local save.
 Whole describes the current files; retained Git history follows the snapshot
 boundary rule below.
+
+**Recovery through Git covers versions incorporated into server history.**
+A pending local C is retained until its fate is established, but may be
+replaced after proven rejection. It is not a permanent offline checkpoint.
+An intermediate save overwritten in E before incorporation may have no
+recoverable version. A later sync cannot reconstruct bytes already replaced
+there. Independent fields and text regions still survive through the merge.
 
 **No browser page owns synchronization across tabs.** Each page runs at most
 one attempt per open repository at a time and coalesces requests made while
@@ -133,6 +140,20 @@ ADR-0623's maximum 60-second wait does not apply while editing continues.
 Do not add per-edit bases or ownership machinery to guarantee network
 publication during uninterrupted typing.
 
+**Commits batch pending saves at sync attempts.** Schedule an attempt about
+10 seconds after the last edit, and make a best-effort attempt when the tab
+hides. Visibility and connectivity triggers remain as in ADR-0623. A trigger
+does not promise completion before suspension or page closure.
+An attempt with no pending changes creates no checkpoint merely because a
+timer fired.
+
+Once the repository has its initial snapshot, an attempt with B = C and
+pending E creates C locally before pushing; this preparation needs no network
+reply. While C awaits resolution, keep that exact commit and save newer work
+in E. There is no fixed commit interval during uninterrupted editing, an
+offline period, or a failed push. The 10-second settling delay is not a
+maximum age for an edit without a recoverable history entry.
+
 ## Consequences
 
 - A suspended page needs no ownership transfer. Its resumed operations face
@@ -146,8 +167,14 @@ publication during uninterrupted typing.
 - A device may remain pending until another scheduled attempt succeeds.
   Closing a page needs no network completion; acknowledged saves are local.
 - Another device may not see changes until editing pauses and a sync
-  succeeds. Committed versions remain recoverable through Git; an overlapping
-  save replaced before any commit may have no history entry.
+  succeeds. Versions incorporated into server history remain recoverable
+  through Git; an overlapping save replaced before incorporation may have no
+  history entry, even if an earlier local candidate was committed.
+- Replacing an uncommitted title twice in one editing burst routinely leaves
+  only its final value in history. Two tabs replacing the same unincorporated
+  field or body region can similarly leave the earlier edit without recovery.
+  The contention prototype measured independent edits, not the frequency of
+  those overlaps in actual use; no probability of accidental loss is known.
 - Temporary recovery traffic can grow with server activity since B. Bounded
   retained snapshots do not promise a bounded recovery download.
 - The actual engine must demonstrate transaction aborts, new edits during

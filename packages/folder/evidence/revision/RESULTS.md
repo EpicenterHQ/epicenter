@@ -23,7 +23,9 @@ The owner clarified these requirements during the experiment:
 - Automatic resolution is sufficient. Recovering committed versions through
   ordinary desktop Git is sufficient; every intermediate acknowledged save need
   not have its own recoverable version. Independent fields and text regions
-  must still survive.
+  must still survive. The durable recovery boundary is incorporation into
+  server history; a rejected pending local commit can be replaced during
+  reconciliation.
 - Automatic sync may wait for a brief pause in editing. There is no requirement
   that network publication progress during uninterrupted typing. Local saves
   must continue to complete while offline.
