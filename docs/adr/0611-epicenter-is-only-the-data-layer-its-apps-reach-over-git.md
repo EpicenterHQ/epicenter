@@ -9,6 +9,11 @@
 
 ## Context
 
+Epicenter is a convention and toolkit for local-first apps whose data lives
+in ordinary Git repositories. Apps and agents edit the same files. Browser
+apps and desktop tools store their local copies differently, while sharing
+the file format, merge behavior, and Git exchange format.
+
 Epicenter was to be a desktop host. `apps/epicenter`, a Tauri shell,
 installs each app as the person's fork, builds it, and serves it at its own
 origin
