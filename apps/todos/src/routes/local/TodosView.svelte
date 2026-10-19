@@ -1,0 +1,101 @@
+<!--
+	Todos over this browser's local folder, inside `<LocalFolderApp>`: the
+	header, the list, and the open todo, laid out as the folder build lays
+	them out. Which todo is open is the URL's `?todo=<id>`, so it survives a
+	reload and the breakpoint.
+
+	The folder needs no account or remote, and Todos does not sync it yet:
+	the header offers no Save version, Sync, or Connect.
+-->
+<script lang="ts">
+	import * as Empty from '@epicenter/ui/empty';
+	import * as Resizable from '@epicenter/ui/resizable';
+	import { getLocalFolder } from '@epicenter/svelte/local-folder';
+	import { tick } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import type { todosTables } from '$lib/definition.js';
+	import { todoPath } from '$lib/local-todos.js';
+	import AppHeader from './AppHeader.svelte';
+	import TodoDetail from './TodoDetail.svelte';
+	import TodoList from './TodoList.svelte';
+
+	const local = getLocalFolder<typeof todosTables>();
+
+	// Typing not yet saved, or a save still running, lives only in this page.
+	// Leaving the page then is cancelled; for a reload or a closed tab
+	// ('leave'), SvelteKit turns the cancel into the browser's own leave
+	// confirmation. Opening another todo changes only the query.
+	beforeNavigate(({ type, from, to, cancel }) => {
+		if (!local.busy) return;
+		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
+	});
+
+	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
+	const wide = new MediaQuery('(min-width: 768px)');
+	/** The id of the todo the detail shows. Opening never waits or asks. */
+	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
+	let newTitle = $state('');
+
+	/**
+	 * Show the todo `id`, or none. Opening adds a history entry, so Back
+	 * returns to the list; a delete replaces the entry, so Back never lands
+	 * on a todo that is gone.
+	 */
+	async function show(id: string | undefined, { replaceState = false } = {}) {
+		if (id === open) return;
+		const url = new URL(page.url);
+		if (id === undefined) url.searchParams.delete('todo');
+		else url.searchParams.set('todo', id);
+		await goto(url, { replaceState, keepFocus: true, noScroll: true });
+	}
+
+	/** On narrow screens, return to the list, focused on the todo that was open. */
+	async function back() {
+		const id = open;
+		await show(undefined);
+		await tick();
+		if (id !== undefined)
+			document.querySelector<HTMLElement>(`[data-todo="${CSS.escape(todoPath(id))}"]`)?.focus();
+	}
+</script>
+
+{#snippet detail(onBack?: () => void)}
+	{#if open === undefined}
+		<Empty.Root class="h-full">
+			<Empty.Title>Select a todo to edit it</Empty.Title>
+			<Empty.Description>Each todo is kept in this browser.</Empty.Description>
+		</Empty.Root>
+	{:else}
+		{#key open}
+			<TodoDetail id={open} {onBack} onDeleted={() => void show(undefined, { replaceState: true })} />
+		{/key}
+	{/if}
+{/snippet}
+
+<div class="flex h-dvh flex-col overflow-hidden">
+	<AppHeader pendingNewTodo={newTitle.trim() !== ''} />
+
+	{#if wide.current}
+		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+			<Resizable.Pane id="list" order={1} defaultSize={38} minSize={20}>
+				<TodoList {open} onOpen={(id) => void show(id)} bind:title={newTitle} />
+			</Resizable.Pane>
+			<Resizable.Handle />
+			<Resizable.Pane id="detail" order={2} defaultSize={62} minSize={30}>
+				{@render detail()}
+			</Resizable.Pane>
+		</Resizable.PaneGroup>
+	{:else}
+		<main class="min-h-0 flex-1">
+			{#if open !== undefined}
+				{@render detail(back)}
+			{/if}
+			<!-- Hidden, not unmounted, behind the detail: a typed title stays. -->
+			<div class="h-full" hidden={open !== undefined}>
+				<TodoList {open} onOpen={(id) => void show(id)} bind:title={newTitle} />
+			</div>
+		</main>
+	{/if}
+</div>

@@ -17,6 +17,7 @@
 		"dev": "bun scripts/dev.ts",
 		"dev:ui": "vite dev",
 		"native": "bun scripts/native.ts",
+		"demo:local": "bun scripts/local-demo.ts",
 		"build": "NODE_ENV=production vite build",
 		"build:installed": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
@@ -34,7 +35,9 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
+		"fake-indexeddb": "^6.2.6",
 		"mode-watcher": "catalog:",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",
@@ -53,7 +56,8 @@
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"runed": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"typebox": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

@@ -7,25 +7,28 @@ writes that row's file. A file in `todos/` that does not read as a todo shows
 its text and what to fix. Every other file in the folder is yours to edit with
 any program; Todos does not show it.
 
-There are two builds of the same UI, and the build decides where the folder is:
+There are two builds, and the build, then what the browser already holds,
+decides where the todos are:
 
-| Build | Folder | History |
+| Build | Todos | History |
 | --- | --- | --- |
 | Desktop, inside Epicenter | An ordinary directory on this computer, which the Epicenter host locks and grants to the page. | The system `git` in that directory's `.git`. Syncs with Epicenter's private repository for the account Home signed in to, or any Git remote with your own Git credentials. |
-| Browser | A folder in this browser's origin private file system (OPFS), `so.epicenter.todos`. | Git in the folder's `.git`, in OPFS beside the files. Syncs with Epicenter's private repository for your account, any Git server whose Git routes allow this origin, or in development a loopback demo remote. |
+| Browser | This browser's local folder, `openFolder({ tables })` from `@epicenter/folder`, kept in IndexedDB. | None yet, and no sync: the todos stay in this browser. |
+| Browser that holds an earlier build's todos | The folder in this browser's origin private file system (OPFS), `so.epicenter.todos`, opened as before ([legacy browser folder](#legacy-browser-folder)). | Git in the folder's `.git`, in OPFS beside the files, with Sync and Connect as before. |
 
-Both builds open their folder at once, and opening writes nothing: the first
-todo creates the folder. Both builds use an account only to sync with
-Epicenter; editing and saving versions need none. Todos is built on
-`@epicenter/folder` and TanStack Query, and does not depend on
-`@epicenter/app`. A folder that cannot be opened is shown as that refusal.
-The desktop build never falls back to browser storage.
+Every build opens at once, and opening writes nothing. The local folder needs
+no account, remote, or network. Todos is built on `@epicenter/folder` and
+TanStack Query, and does not depend on `@epicenter/app`. A folder that cannot
+be opened is shown as that refusal. The desktop build never falls back to
+browser storage.
 
 A todo is its Markdown file and nothing else. A file that shares a todo's stem,
 such as `todos/milk.png` or `todos/milk.webm` beside `todos/milk.md`, is an
 ordinary file: deleting the todo leaves it where it is. Todos does not
 rename files; rename a todo's file, or any other file, with another program
 or with Git.
+In the local browser folder, deleting a todo also removes files inside its
+attachment directory, `todos/<id>/`; the confirmation names that directory.
 
 ## Desktop, inside Epicenter
 
@@ -205,13 +208,65 @@ Both run the same UI, file storage, history rules, and merge review.
 
 ## In a browser
 
-Todos opens this browser's folder, `so.epicenter.todos` in the origin private
-file system, at once. Nothing is written until you write: the first todo
-creates the folder, its Git history, and `epicenter.json`. The folder has no
+Before opening anything, the page checks, read-only, whether this browser's
+origin private file system holds the directory `so.epicenter.todos`, where an
+earlier build kept its todos (`src/lib/storage-choice.ts`). The check creates
+nothing.
+
+- No such directory, or no OPFS at all: Todos opens this browser's local
+  folder.
+- The directory is there: Todos opens it as the earlier build did, until a
+  verified migration brings its todos across. Nothing is migrated or deleted
+  yet.
+- The check fails, for example because storage access is blocked: Todos opens
+  nothing and says so, with **Try again**. An empty list would look as if the
+  earlier todos were lost.
+
+### Local folder
+
+Todos opens `openFolder({ tables: todosTables })`: this origin's default
+local folder in IndexedDB, under a key no account or remote changes. A fresh
+profile starts empty, and nothing is written until you add a todo. The page
+loads no account code and makes no network request. The header offers no
+Save version, Sync, or Connect, since this storage keeps no history and
+syncs nowhere yet.
+
+- Each todo is `todos/<id>.md`, `title` and `done` in frontmatter and notes in
+  the body. The schema only interprets: a save keeps fields it does not name.
+  Editing a field also keeps comments elsewhere in the source.
+- The title, done, and notes are one draft per todo (`edits.row` in
+  `@epicenter/svelte/local-edits`). Typing shows at once and saves a second
+  after the last keystroke, and at once when you leave the field, tick the
+  checkbox, open another todo, or the page is hidden. A reread never replaces
+  it, including while its save runs.
+- Each save merges with whatever was saved meanwhile, here or in another tab.
+  Another tab's committed change shows at once.
+- A save that fails keeps what you typed; the todo says **Not saved** with the
+  reason, **Try again**, and **Discard changes** after confirmation. If a later
+  source change makes the stored row unreadable, the pending fields remain
+  selectable for copying. The header says **Not saved**. It says
+  **Saved on this device** only when nothing is typed and unsaved, no save
+  runs, no failure is outstanding, and every save has committed.
+- A file that does not read as a todo is listed under "Needs repair" and opens
+  as its text, read-only, with each issue. A file that is not text is listed
+  under "Could not read". Both are kept as they are.
+- Delete waits for the todo's running save and refuses if that save fails. It
+  then deletes the row and its attachment directory as stored. A todo changed
+  in that moment is kept, and Todos says so.
+- Leaving the page while something is unsaved asks first. Component teardown
+  starts a final save and closes the handle after its work finishes. A browser
+  tab unload cannot wait for that asynchronous save, so leave the tab open
+  until the header reports the result.
+
+### Legacy browser folder
+
+Todos opens the browser's folder, `so.epicenter.todos` in the origin private
+file system, the way the earlier build did. The folder has no
 remote until you connect one, and works without one. Versions are committed as
 `Todos <todos@epicenter.so>`. Another tab of the same origin edits the same
 folder; each tab tells the others which files it wrote, and they read those
-again at once.
+again at once. The rest of this README, from Connect on, describes this
+folder and the desktop build.
 
 ### Connect
 
@@ -351,7 +406,35 @@ the half-written state before its merge.
 
 ## What to try
 
-These steps are written for the browser demo, where a remote is always
+### Local browser demo
+
+From the repository root, run `bun dev:todos:ui` and open
+`http://127.0.0.1:5186/` in a fresh browser profile. No sign-in is needed.
+The automated walkthrough uses a fresh isolated Chromium context and leaves
+existing browser data untouched:
+
+```sh
+bun run --cwd apps/todos demo:local
+```
+
+The script adds, edits, completes, and deletes todos; reopens the page; edits
+across two tabs; turns networking off after load and keeps editing; and seeds a
+file through `@epicenter/folder/browser`. It checks that a field edit keeps an
+unknown field and a YAML comment, that malformed source remains visible, and
+that a simulated IndexedDB quota error leaves a draft available for retry.
+It checks the `epicenter.data.default` IndexedDB database, used by the new
+engine, and writes a screenshot to `/tmp/epicenter-todos-local-demo.png`.
+
+For a manual pass, add a todo, edit its title and notes, complete it, and
+close and reopen the tab. Open a second tab on the same URL and edit the notes;
+the first tab should update. In browser devtools, set networking to Offline
+after the page loads and edit again. **Saved on this device** acknowledges the
+IndexedDB commit, not a Git commit or a remote copy. A cold offline launch is
+not guaranteed yet.
+
+### Legacy browser demo
+
+These steps use a browser profile with an existing OPFS Todos folder, where a remote is always
 present. On the desktop they work the same over the real directory once it
 has an `origin`.
 
@@ -423,9 +506,13 @@ todo; `todos/a.MD` is an ordinary file.
 
 | Path | Role |
 | --- | --- |
-| `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary, and `TODOS_FOLDER_ID`, Todos's own folder, from `epicenter.app.json`. |
+| `src/lib/definition.ts` | `todosTables`, the TypeBox schema the local folder reads `todos/` through; the inert `defineFolder` declaration the declared folders open through; and `TODOS_FOLDER_ID`, Todos's own folder, from `epicenter.app.json`. |
+| `src/lib/storage-choice.ts` | `chooseStorage`: the desktop build, a browser holding `so.epicenter.todos` in OPFS, or neither, checked read-only before anything opens. |
+| `src/lib/local-todos.ts` | The local folder's rows as the list arranges them (`todosOf`, `repairsOf`, `unreadableOf`) and what a person is told about a failed save. |
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
-| `src/routes/+page.svelte` | Mounts `<FolderApp>` with the manifest, the definition, and the browser folder's author and `httpFetch`, and `TodosView` inside it. `<FolderApp>` opens the folder, shows the loading and refusal screens, owns the query client and its change wiring, turns a failed write into a toast with **Copy your text**, and closes the folder when the page goes away. |
+| `src/routes/+page.svelte` | Chooses the storage, then mounts `<LocalFolderApp>` with `todosTables` and the local views, or loads `LegacyTodos` on its own, so the local path never loads the account. A failed check shows its reason and **Try again**. |
+| `src/routes/local/` | The local folder's views: `TodosView` (layout, `?todo=<id>`, the leave check), `AppHeader` (Saved on this device), `TodoList`, `TodoRow`, and `TodoDetail` (the row's draft, Not saved and **Try again**, delete, a file that does not read as a todo). They read `getLocalFolder()`. |
+| `src/routes/components/LegacyTodos.svelte` | Mounts `<FolderApp>` with the manifest, the definition, and the browser folder's author and `httpFetch`, and `TodosView` inside it. `<FolderApp>` opens the folder, shows the loading and refusal screens, owns the query client and its change wiring, turns a failed write into a toast with **Copy your text**, and closes the folder when the page goes away. |
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
 | `src/lib/platform/` | The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing either opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
@@ -434,7 +521,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and Connect (`ConnectDialog`). `TodosView` builds the store over `getFolder()` and sets it as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
+| `src/routes/components/` | The declared folder's views. Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and Connect (`ConnectDialog`). `TodosView` builds the store over `getFolder()` and sets it as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
 | `packages/folder/src/git-demo-server.test-support.ts` | The loopback `git http-backend` server `apps/todos/scripts/dev.ts` starts: a bare repository plus the native checkout, shared with Git lab. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |

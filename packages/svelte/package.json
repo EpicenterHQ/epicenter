@@ -18,6 +18,9 @@
 		"./folder": "./src/folder-context.ts",
 		"./folder-app": "./src/folder-app.svelte",
 		"./folder-provider": "./src/folder-provider.svelte",
+		"./local-edits": "./src/local-edits.svelte.ts",
+		"./local-folder": "./src/local-folder-context.ts",
+		"./local-folder-app": "./src/local-folder-app.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
@@ -32,10 +35,12 @@
 		"@lucide/svelte": "catalog:",
 		"@tanstack/query-core": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
+		"fake-indexeddb": "^6.2.6",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"typescript": "catalog:"

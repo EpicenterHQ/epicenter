@@ -4,9 +4,11 @@ Svelte utilities for synchronizing state with external systems.
 
 ## Overview
 
-This package holds the root every folder app mounts (`<FolderApp>`), adapts
-agent conversations into Svelte reactivity, and words Sync's result and a
-folder's state for the header.
+This package holds the roots folder apps mount: `<LocalFolderApp>` over this
+browser's local folder (`openFolder({ tables })`), and `<FolderApp>` over a
+declared folder, the temporary migration boundary of `@epicenter/folder`. It
+also adapts agent conversations into Svelte reactivity, and words Sync's
+result and a folder's state for the header.
 
 ## Installation
 
@@ -22,7 +24,80 @@ This package is part of the Epicenter monorepo and is used internally. To use it
 
 ## Available utilities
 
+### The local folder root (`local-folder-app`, `local-folder`, `local-edits`)
+
+An app over this browser's local folder mounts `<LocalFolderApp>` with its
+name and its tables, and everything below it reads the opened folder through
+`getLocalFolder()`:
+
+```svelte
+<script lang="ts">
+	import LocalFolderApp from '@epicenter/svelte/local-folder-app';
+	import { todosTables } from '$lib/definition.js';
+	import TodosView from './local/TodosView.svelte';
+</script>
+
+<LocalFolderApp title="Todos" tables={todosTables}><TodosView /></LocalFolderApp>
+```
+
+`<LocalFolderApp>` calls `openFolder({ tables })` from `@epicenter/folder`
+when it mounts. Opening needs no account, remote, or network. It shows one
+loading screen and one refusal screen (`describeOpenRefusal`), provides the
+context, sends what is typed when the page is hidden, and closes the context
+when it unmounts.
+
+`createLocalFolderContext(folder, { saveAfterMs? })` builds the context over
+an opened `Folder`; a test builds it over a folder it opened. It owns:
+
+- One query client, with the policy `<FolderApp>` uses: fresh until the
+  folder reports a change, no refetch on focus, no retry.
+  `queries.rows(table)` lists a table's rows, each with its source, fields,
+  and issues; a view adds `select`.
+- One subscription to `folder.onChange`, wired before anything reads. A
+  committed change from this handle or another tab marks the tables it names
+  stale; `paths: null` marks every table.
+- `edits`, described below.
+- `status`, the handle's status, and `saveState`: `saved` only when no typing
+  is held, no save runs, and no failure is outstanding. A held failed draft is
+  `failed`; a storage failure with no held row is `recent-failure`. `busy`
+  says whether leaving the page could lose something.
+- `close()`: settle the edits, stop the subscription, cancel reads, close the
+  handle, clear the cache. It answers the drafts that did not save and logs
+  them.
+
+`createLocalEdits` (`@epicenter/svelte/local-edits`) holds typing per row:
+
+```ts
+const { edits } = getLocalFolder<typeof todosTables>();
+const draft = edits.row('todos', id);
+draft.shown(row);                                  // the row with the typing over it
+draft.change(row, { fields: { title } });          // saves SAVE_AFTER_MS after the last change
+await draft.save();                                // now; resolves once no save of it runs
+draft.held; draft.saving; draft.error; draft.pending; draft.locked;
+draft.discard();                              // explicit user choice, never on failure
+await edits.delete('todos', id);
+```
+
+- A draft keeps the fields and body typed since the row last saved, and the
+  row it started from. A reread never replaces it, including while its save
+  runs. The engine merges the save with whatever was saved meanwhile.
+- A save that landed lets the draft go once the cache was read again, unless
+  typing changed it meanwhile; that typing stays and saves from the row the
+  save sent. A row's saves run one at a time.
+- A failed save keeps the typing and its error (`draft.error`,
+  `edits.failures`). `save()` tries again, and so does further typing. The
+  pending change remains available when the stored row stops reading as a
+  valid row; the app can show it for copying before an explicit discard.
+- `delete` waits for the row's running save, deletes the row as stored, and
+  lets its typing go. It refuses while any typing still failed to save. A row
+  changed in that moment is kept (`deleted: false`).
+- `settled(table?)` sends every draft once and answers the ones that did not
+  save. `close()` refuses input from the moment it is called, sends every
+  draft, and waits for every save and delete.
+
 ### The folder app root (`folder-app`, `folder-provider`, `folder`, `write-failure`)
+
+The declared-folder root, kept while apps still open declared folders.
 
 An app's root page mounts `<FolderApp>` with its manifest and its
 definition, and everything below it reads the opened folder through
@@ -218,6 +293,7 @@ This package depends on:
 
 - `@epicenter/folder`: the folder it opens and its query options
 - `@tanstack/svelte-query`: the page's query client
+- `typebox`: the row schemas a local folder's tables are typed by
 - `@epicenter/ui`: the loading and refusal screens and the toast
 - `svelte`: For reactive state primitives
 - `wellcrafted`: For error handling utilities
