@@ -13,7 +13,6 @@
  * See `document.test.ts` for an open fence absorbing the appended section.
  */
 import { expect, test } from 'bun:test';
-import { frameRowText } from '@epicenter/folder';
 import { captureBody, composeBody } from './index.js';
 
 const HEAD = '---\ncapturedAt: 2026-01-01T00:00:00.000Z\n---\n';
@@ -22,9 +21,9 @@ const OWN_LIST_THEN_OPEN_FENCE =
 
 /** A whole file read again the way an open capture reads its row's body. */
 function reopen(source: string) {
-	const frame = frameRowText(source);
-	if (frame.kind !== 'frontmatter') throw new Error('fixture');
-	const { data, error } = captureBody.decode(source.slice(frame.bodyStart));
+	const header = /^\uFEFF?---\r?\n(?:[^\r\n]*\r?\n)*?---\r?\n/.exec(source);
+	if (header === null) throw new Error('fixture');
+	const { data, error } = captureBody.decode(source.slice(header[0].length));
 	return {
 		refusal: error ?? undefined,
 		text: data?.text,

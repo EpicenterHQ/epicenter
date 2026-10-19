@@ -18,7 +18,6 @@
  * - List edits format positional thought strings as consistent bullet items
  */
 import { expect, test } from 'bun:test';
-import { frameRowText } from '@epicenter/folder';
 import { fromTextarea } from './document.js';
 import {
 	type CaptureBody,
@@ -42,11 +41,14 @@ type CaptureDocument = Omit<CaptureBodyReading, 'text'> & {
 
 // Golden file expectations retain their original headers. Only the body goes
 // through the codec; Folder's own tests cover frontmatter serialization.
+function bodyStart(source: string): number {
+	const header = /^\uFEFF?---\r?\n(?:[^\r\n]*\r?\n)*?---\r?\n/.exec(source);
+	if (header === null) throw new Error('fixture: a capture file has frontmatter');
+	return header[0].length;
+}
+
 function parseCapture(source: string): CaptureDocument {
-	const frame = frameRowText(source);
-	if (frame.kind !== 'frontmatter')
-		throw new Error('fixture: a capture file has frontmatter');
-	const result = captureBody.decode(source.slice(frame.bodyStart));
+	const result = captureBody.decode(source.slice(bodyStart(source)));
 	return result.error === null
 		? { ...result.data, source, refusal: undefined }
 		: {
@@ -60,16 +62,15 @@ function parseCapture(source: string): CaptureDocument {
 }
 function write(document: CaptureDocument, value: CaptureBody): Edit {
 	if (document.refusal) return { ok: false, refusal: document.refusal };
-	const frame = frameRowText(document.source);
-	if (frame.kind !== 'frontmatter') throw new Error('fixture');
+	const start = bodyStart(document.source);
 	const result = captureBody.encode(
 		value,
-		document.source.slice(frame.bodyStart),
+		document.source.slice(start),
 	);
 	return result.error === null
 		? {
 				ok: true,
-				source: document.source.slice(0, frame.bodyStart) + result.data,
+				source: document.source.slice(0, start) + result.data,
 			}
 		: { ok: false, refusal: result.error };
 }
