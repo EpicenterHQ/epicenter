@@ -852,3 +852,4 @@ When you add an ADR, add its row here.
 | [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Proposed (amends 0592, 0611, and 0621) |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
 | [0639](0639-automatic-commits-refuse-new-non-text-content.md) | Automatic commits refuse new non-text content | Proposed (amends 0592 and 0624) |
+| [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Proposed |
