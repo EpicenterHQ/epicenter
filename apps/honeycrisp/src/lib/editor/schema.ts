@@ -27,7 +27,6 @@ const taskItem = {
 		{
 			tag: 'li.task-item',
 			getAttrs: (dom) => {
-				if (!(dom instanceof HTMLElement)) return false;
 				return { checked: dom.dataset.checked === 'true' };
 			},
 		},
@@ -79,9 +78,7 @@ const codeBlock = {
 		{
 			tag: 'pre',
 			preserveWhitespace: 'full',
-			getAttrs: (dom) => ({
-				params: dom instanceof HTMLElement ? (dom.dataset.params ?? '') : '',
-			}),
+			getAttrs: (dom) => ({ params: dom.dataset.params ?? '' }),
 		},
 	],
 	toDOM: (node) => [
