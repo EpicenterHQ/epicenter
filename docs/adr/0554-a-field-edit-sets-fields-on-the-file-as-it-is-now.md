@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md)
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) at "an edit holds its own starting version", and [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) where it describes drafts.
 - **Built:** `table.update` and `WRITE_ATTEMPTS`; `folderOptions`' `update` and the per-file turn its writes share; Todos, Capture, Honeycrisp, Whispering, Vocab, the Git lab, and the Folders window composed as below; `createTextDraft` and `createBodyDraftState` for documents; and the deletions.
 
