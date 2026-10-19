@@ -3,6 +3,7 @@ import {
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
+import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result } from 'wellcrafted/result';
 import { parseRowSource, sameValue } from './content/canonical.js';
 import { includesCommit } from './git/ancestry.js';
@@ -75,6 +76,7 @@ export const SyncError = defineErrors({
 });
 export type SyncError = InferErrors<typeof SyncError>;
 type SyncOutcome = { outcome: 'accepted' | 'unchanged' | 'pending' };
+const log = createLogger('data-sync');
 
 /**
  * Internal manual trigger. The future public open owns one instance per handle.
@@ -96,9 +98,11 @@ export function createSync(
 	},
 ) {
 	let running: Promise<Result<SyncOutcome, SyncError | SaveError>> | undefined;
+	let publishedSnapshot = false;
 	async function attempt(): Promise<
 		Result<SyncOutcome, SyncError | SaveError>
 	> {
+		publishedSnapshot = false;
 		try {
 			const prepared = await repository.prepareCommit(author());
 			if (prepared.error !== null) return prepared;
@@ -291,6 +295,7 @@ export function createSync(
 					}))
 				)
 					return Ok({ outcome: 'pending' });
+				publishedSnapshot = true;
 				if (next === remote)
 					return Ok({ outcome: pending ? 'accepted' : 'unchanged' });
 				return await push({
@@ -329,18 +334,28 @@ export function createSync(
 			request,
 		});
 		if (result === 'rejected') return Ok({ outcome: 'pending' });
-		return Ok({
-			outcome: (await repository.storage.acknowledge(base, head))
-				? 'accepted'
-				: 'pending',
-		});
+		const acknowledged = await repository.storage.acknowledge(base, head);
+		if (acknowledged) publishedSnapshot = true;
+		return Ok({ outcome: acknowledged ? 'accepted' : 'pending' });
 	}
 	return {
 		/** A successful push can leave newer local edits waiting for another run. */
 		run() {
-			running ??= attempt().finally(() => {
-				running = undefined;
-			});
+			running ??= attempt()
+				.then(async (result) => {
+					if (publishedSnapshot) {
+						try {
+							await repository.storage.collect();
+						} catch (cause) {
+							// Collection is best effort; accepted work stays published.
+							log.warn(SyncError.StorageFailed({ cause }));
+						}
+					}
+					return result;
+				})
+				.finally(() => {
+					running = undefined;
+				});
 			return running;
 		},
 	};

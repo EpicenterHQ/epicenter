@@ -63,6 +63,32 @@ test('offline-first edits push a native root commit to an empty server', async (
 	}
 }, 20000);
 
+test('pull-only adoption collects superseded snapshots but an idle check does not sweep', async () => {
+	const f = await fixture();
+	try {
+		let sweeps = 0;
+		let removed = 0;
+		const collect = f.repository.storage.collect;
+		f.repository.storage.collect = async () => {
+			sweeps++;
+			removed = await collect();
+			return removed;
+		};
+		expectOk(await f.sync.run());
+		expect(sweeps).toBe(1);
+		sweeps = 0;
+		expect(expectOk(await f.sync.run()).outcome).toBe('unchanged');
+		expect(sweeps).toBe(0);
+		await f.server.commit(new Map([['notes/one.md', row('Remote update')]]));
+		expect(expectOk(await f.sync.run()).outcome).toBe('unchanged');
+		expect(sweeps).toBe(1);
+		expect(removed).toBeGreaterThan(0);
+		expect((await f.repository.storage.capture('sync')).edits.size).toBe(0);
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
 test('initial shallow fetch and later rejected commit preserve independent fields and a newer reversal', async () => {
 	const f = await fixture(row('a'));
 	try {

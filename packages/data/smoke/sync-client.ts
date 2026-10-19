@@ -71,6 +71,7 @@ export const client = {
 		draft = unwrap(await repository.tables.notes.get('one')) ?? null;
 	},
 	sync: run,
+	collect: () => repository.storage.collect(),
 	async syncLoop(count: number) {
 		for (let attempt = 0; attempt < count; attempt++) {
 			const result = await run();

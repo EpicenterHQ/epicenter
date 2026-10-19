@@ -140,12 +140,25 @@ for (const [name, browserType] of Object.entries({
 			(await native.git(['rev-parse', 'main'])).trim() === pending,
 			'Native Git had not accepted the uncertain push',
 		);
+		await a.evaluate(() => dataSyncSmoke.collect());
+		const retainedPending = await a.evaluate(() => dataSyncSmoke.state());
+		check(
+			retainedPending.refs.head === pending &&
+				retainedPending.refs.base !== pending,
+			'Collection lost the uncertain commit',
+		);
 		const accepted = await native.git(['show', 'main:notes/one.md']);
 		const later = await native.commit(
 			new Map([['notes/one.md', accepted.replace(/^a: 777$/m, 'a: 888')]]),
 			'Later native same-field edit',
 		);
 		await a.evaluate(() => dataSyncSmoke.set('extra', 999));
+		await a.evaluate(() => dataSyncSmoke.collect());
+		const retainedEdits = await a.evaluate(() => dataSyncSmoke.state());
+		check(
+			retainedEdits.refs.head === pending && retainedEdits.edits > 0,
+			'Collection lost the uncertain commit or newer unsent work',
+		);
 		await context.close();
 		context = await launch();
 		const reopened = await context.newPage();
@@ -204,6 +217,7 @@ for (const [name, browserType] of Object.entries({
 				'accepted push with lost reply',
 				'later native edit',
 				'pending and newer edit survive profile reopen',
+				'collection preserves uncertain commit and unsent work',
 				'ancestry recovery without replay',
 				'native fsck --strict',
 			],

@@ -65,6 +65,13 @@ export const client = {
 		)
 			throw new Error('Empty observation raced a save');
 	},
+	async addSharedFile() {
+		unwrap(await repository.files.write('shared.txt', null, 'shared snapshot'));
+	},
+	async sharedText() {
+		const file = unwrap(await repository.files.read('shared.txt'));
+		return file === undefined ? null : file.content.text();
+	},
 	async write(field: 'a' | 'b', count: number) {
 		for (let value = 1; value <= count; value++) {
 			await writeValue(field, value);
@@ -136,6 +143,42 @@ export const client = {
 				bytes: [...object.bytes],
 			})),
 		};
+	},
+	async injectOrphan() {
+		const orphan: GitObject = {
+			type: 'blob',
+			bytes: new TextEncoder().encode('unpublished browser candidate'),
+		};
+		const oid = await hashObject(orphan);
+		const { state } = await repository.storage.capture('commit');
+		if (
+			!(await repository.storage.publish({
+				revision: state.revision,
+				objects: new Map([[oid, orphan]]),
+			}))
+		)
+			throw new Error('Orphan fixture raced a publication');
+		return oid;
+	},
+	collect: () => repository.storage.collect(),
+	async hasStoredObject(oid: string) {
+		const request = indexedDB.open(`epicenter.data.${repository.id}`);
+		const database = await new Promise<IDBDatabase>((resolve, reject) => {
+			request.onsuccess = () => resolve(request.result);
+			request.onerror = () => reject(request.error);
+		});
+		try {
+			const request = database
+				.transaction('objects')
+				.objectStore('objects')
+				.getKey(oid);
+			return await new Promise<boolean>((resolve, reject) => {
+				request.onsuccess = () => resolve(request.result !== undefined);
+				request.onerror = () => reject(request.error);
+			});
+		} finally {
+			database.close();
+		}
 	},
 	/** A bounded metadata-scaling probe, not another storage implementation. */
 	async archive(folders: number) {

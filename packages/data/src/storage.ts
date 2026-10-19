@@ -1,5 +1,5 @@
 import { snapshotObjects } from './git/closure.js';
-import type { GitObject } from './git/objects.js';
+import { type GitObject, readCommit, readTree } from './git/objects.js';
 import { readSnapshot } from './git/snapshot.js';
 
 /** B, C and the explicit boundary beyond which retained snapshots need no parents. */
@@ -269,6 +269,61 @@ export async function openStorage(id: string) {
 					'state',
 				);
 				return true;
+			});
+		},
+
+		/** Mark both retained snapshots and delete other objects atomically. */
+		collect(): Promise<number> {
+			return transact('readwrite', async (transaction) => {
+				const meta = transaction.objectStore('meta');
+				const objects = transaction.objectStore('objects');
+				const state =
+					((await requested(meta.get('state'))) as
+						| RepositoryState
+						| undefined) ?? initialState();
+				const live = new Set<string>();
+				const pending = [state.base, state.head]
+					.filter((oid): oid is string => oid !== null)
+					.map((oid) => ({ oid, type: 'commit' as GitObject['type'] }));
+				for (
+					let next = pending.pop();
+					next !== undefined;
+					next = pending.pop()
+				) {
+					const { oid, type } = next;
+					if (live.has(oid)) continue;
+					const object = (await requested(objects.get(oid))) as
+						| GitObject
+						| undefined;
+					if (object === undefined)
+						throw new StorageFailure(`Repository object ${oid} is missing`);
+					if (object.type !== type)
+						throw new StorageFailure(
+							`Expected ${type} object ${oid}, found ${object.type}`,
+						);
+					live.add(oid);
+					if (type === 'commit')
+						pending.push({ oid: readCommit(object.bytes).tree, type: 'tree' });
+					if (type === 'tree') {
+						for (const entry of readTree(object.bytes)) {
+							if (entry.mode === '160000') continue;
+							pending.push({
+								oid: entry.oid,
+								type:
+									entry.mode === '40000' || entry.mode === '040000'
+										? 'tree'
+										: 'blob',
+							});
+						}
+					}
+				}
+				let removed = 0;
+				for (const key of await requested(objects.getAllKeys())) {
+					if (live.has(String(key))) continue;
+					objects.delete(key);
+					removed++;
+				}
+				return removed;
 			});
 		},
 

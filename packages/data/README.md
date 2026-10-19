@@ -170,13 +170,17 @@ are connected. A sync-enabled app also needs optional auth, remote attachment,
 and automatic scheduling; those do not gate local-only use.
 
 Ordinary Git exchange and uncertain-push recovery now have local native-server
-and browser evidence. Hosted-service checks, collection, network deadlines and
-automatic triggers remain unfinished. The eventual scheduler must respect
+and browser evidence. Hosted-service checks, network deadlines, and automatic
+triggers remain unfinished. The eventual scheduler must respect
 `Retry-After`; the current internal trigger provides no retry scheduler.
-The current object store grows as commits are prepared because collection is
-unbuilt. Existing app data is untouched. Overwritten intermediate
-local saves need not have a recoverable version; the eventual recovery
-guarantee covers commits incorporated into server history.
+After sync publishes a snapshot or acknowledges a push, storage collects
+objects outside the confirmed and pending snapshot closures. It checks
+liveness and deletes in one IndexedDB transaction; a failed collection leaves
+published work intact and costs space.
+The [retention evidence](evidence/retention/RESULTS.md) covers fake IndexedDB
+and three desktop browser engines. Existing app data is untouched. Overwritten
+intermediate local saves need not have a recoverable version; the eventual
+recovery guarantee covers commits incorporated into server history.
 
 ## Verification
 

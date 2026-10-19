@@ -54,14 +54,18 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
    it back into text-only E. Proven rejection first applies E's tombstones to
    C as transient D, then merges B/remote/D and D/intermediate/local. This keeps
    newer reversals and removes already-deleted rejected contributions.
-   Continue with full engine retention and hosted protocol gates. Multi-stage
-   body-region trailer positions still need projection validation before app
+   Continue with hosted protocol gates. Multi-stage body-region trailer
+   positions still need projection validation before app
    recovery tooling relies on their coordinates.
-3. **Retention.** Isolate candidate/fetch objects and collect only unreachable
-   snapshot objects with publication checks. Transfer workspaces are currently
-   isolated in memory; candidate objects stay private until publication.
-   Prove shared blobs, interrupted
-   work, and concurrent publications survive collection.
+3. **Retention.** Transfer workspaces stay isolated in memory; candidates stay
+   private until publication. Collection now marks both retained snapshot
+   closures and removes other stored objects in one IndexedDB write transaction.
+   It runs after snapshot publication or push acknowledgement and is best
+   effort. Focused tests cover shared blobs, incomplete closures, pending
+   commits, unsent edits, and concurrent publications; three desktop browser
+   engines cover collection during saves, reopening, and uncertain-push recovery
+   ([evidence](../packages/data/evidence/retention/RESULTS.md)). Phone durability
+   and quota behavior remain separate release gates.
 4. **Todos.** Integrate local opening before first sign-in, typed/raw rows,
    `from`/`sent`, raw file repair, subscriptions, and a normal local-only status
    under [ADR-0633](../docs/adr/0633-apps-open-local-data-before-connecting-services.md).
@@ -85,9 +89,10 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
 The local repository slice passes focused tests and real Chromium, WebKit and
 Firefox checks. In-memory IndexedDB tests establish transaction behavior in the
 test implementation, not phone durability. The cumulative focused suite passes
-133 tests with 502 assertions. The latest browser sync workload acknowledges
-162 saves against native Git. Retention is the next implementation slice;
-hosted protocol and phone gates remain separate.
+137 tests with 527 assertions. The latest browser sync workload acknowledges
+162 saves against native Git. Retention passes local and sync browser checks
+in Chromium, WebKit, and Firefox; hosted protocol and phone gates remain
+separate.
 
 Claude Sonnet 5.5 delivered the object codec in an isolated clone. Codex reviewed
 and integrated it and reran its native Git checks. Independent Codex agents

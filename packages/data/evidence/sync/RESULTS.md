@@ -118,12 +118,14 @@ server's `Retry-After` deadline remain integration work. The caller can supply
 an AbortSignal; the engine adds no independent network deadline.
 
 Transfers use private in-memory workspaces. Durable publication keeps only
-complete retained snapshot closures, but older objects already in IndexedDB
-remain because collection is unbuilt. Current-data and full synchronization
-captures have different costs: synchronization reads both raw snapshot closures
-and publication writes their retained objects under strict durability. Recovery
-can temporarily download full history. Measure browser bundle size, memory,
-large E and closure read/write costs on phones before optimizing further.
+complete retained snapshot closures. Since this sync checkpoint, collection
+reclaims older unreachable objects after snapshot publication or push
+acknowledgement; see the [retention evidence](../retention/RESULTS.md).
+Current-data and full synchronization captures have different costs: sync reads
+both raw snapshot closures and publication writes their retained objects under
+strict durability. Recovery can temporarily download full history. Measure
+browser bundle size, memory, large E, and closure read/write costs on phones
+before optimizing further.
 
 The native suite covers the listed failures; it does not exhaust every raw
 namespace or native mode combination. The pure tree suite covers raw entries,

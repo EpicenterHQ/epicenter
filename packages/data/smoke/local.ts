@@ -91,6 +91,7 @@ try {
 				'Committed before observing the remote',
 			);
 			await a.evaluate(() => dataSmoke.observeEmpty());
+			await a.evaluate(() => dataSmoke.addSharedFile());
 			const writes = 100;
 			await Promise.all([
 				a.evaluate((count) => dataSmoke.write('a', count), writes),
@@ -105,6 +106,24 @@ try {
 				JSON.stringify(await a.evaluate(() => dataSmoke.commit())) ===
 					JSON.stringify(pending),
 				'New save replaced an uncertain pending commit',
+			);
+			const pendingOrphan = await a.evaluate(() => dataSmoke.injectOrphan());
+			check(
+				(await a.evaluate(() => dataSmoke.collect())) > 0 &&
+					!(await a.evaluate(
+						(oid) => dataSmoke.hasStoredObject(oid),
+						pendingOrphan,
+					)),
+				'Collection retained an unreachable object beside pending work',
+			);
+			const afterPendingCollection = await a.evaluate(() => dataSmoke.state());
+			check(
+				afterPendingCollection.state.head === pending.head &&
+					afterPendingCollection.edits.length > 0 &&
+					afterPendingCollection.row?.fields.b === 101 &&
+					(await a.evaluate(() => dataSmoke.sharedText())) ===
+						'shared snapshot',
+				'Collection lost a pending commit, unsent edit, or shared file',
 			);
 			check(
 				await a.evaluate((pending) => dataSmoke.accept(pending), pending),
@@ -214,6 +233,52 @@ try {
 					final.state.base === final.state.head,
 				'Committed current data missing after browser reopen',
 			);
+			check(
+				(await reopenedPage.evaluate(() => dataSmoke.sharedText())) ===
+					'shared snapshot',
+				'Collection lost a shared file across commits and browser reopen',
+			);
+			const peer = await context.newPage();
+			await peer.goto(server.url.href);
+			await peer.waitForFunction(() => globalThis.dataSmoke !== undefined);
+			await peer.evaluate((id) => dataSmoke.open(id), id);
+			const orphan = await reopenedPage.evaluate(() =>
+				dataSmoke.injectOrphan(),
+			);
+			const [removed] = await Promise.all([
+				reopenedPage.evaluate(() => dataSmoke.collect()),
+				peer.evaluate(() => dataSmoke.set('a', 102)),
+			]);
+			check(removed > 0, 'Collection left the unreachable candidate');
+			check(
+				!(await reopenedPage.evaluate(
+					(oid) => dataSmoke.hasStoredObject(oid),
+					orphan,
+				)),
+				'Unreachable candidate survived collection',
+			);
+			const afterCollection = await reopenedPage.evaluate(() =>
+				dataSmoke.state(),
+			);
+			check(
+				afterCollection.state.head === final.state.head &&
+					afterCollection.row?.fields.a === 102 &&
+					afterCollection.edits.length > 0,
+				'Collection lost a concurrent saved edit or changed the committed head',
+			);
+			await context.close();
+			context = await launch();
+			const afterReopen = await context.newPage();
+			await afterReopen.goto(server.url.href);
+			await afterReopen.waitForFunction(
+				() => globalThis.dataSmoke !== undefined,
+			);
+			await afterReopen.evaluate((id) => dataSmoke.open(id), id);
+			check(
+				(await afterReopen.evaluate(() => dataSmoke.state())).row?.fields.a ===
+					102,
+				'Concurrent saved edit disappeared after collection and browser reopen',
+			);
 			const archive = await context.newPage();
 			await archive.goto(server.url.href);
 			await archive.waitForFunction(() => globalThis.dataSmoke !== undefined);
@@ -239,6 +304,9 @@ try {
 					'exact pending identity',
 					'newer edits survive acknowledgement',
 					'committed reopen',
+					'unreachable objects removed beside pending and unsent work',
+					'shared file survives collection across commits',
+					'collection concurrent with a save and later browser reopen',
 				],
 			});
 		} finally {
