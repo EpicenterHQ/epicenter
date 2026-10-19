@@ -1,6 +1,6 @@
 # 0632. A lens belongs to its reader
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md), [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) only where repository descriptions determine generic table discovery or a reader's lifetime.
 - **Relates:** [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (CLI readers), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (schema-independent saves).

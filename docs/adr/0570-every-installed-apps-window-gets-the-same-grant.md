@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-16
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amends:** [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) at "granted by app id" and at "Each app is granted in one file, `installed-<app>.json`": every installed app's window is granted by one file, `installed-app.json`, whose `windows` is `app:*`.
 - **Amends:** [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) at "Each app has one file": there is one capability file per kind of window, `folders.json`, `home.json`, and `installed-app.json`.
 - **Amends:** [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) at `AI_CONNECTION_APPS`: every installed app's window is permitted into `so.epicenter`, and the list is deleted.

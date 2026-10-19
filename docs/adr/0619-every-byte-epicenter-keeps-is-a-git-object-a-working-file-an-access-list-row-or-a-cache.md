@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out": Epicenter writes no `info/attributes`.
-- **Amended by:** [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at the exhaustive browser inventory: Git boundary metadata and a local publication revision are allowed operational bookkeeping, not another record of content or history.
+- **Amended by:** [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at the exhaustive browser inventory: Git boundary metadata and a local publication revision are allowed operational bookkeeping, not another record of content or history. [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) at scope: the four-kind inventory governs repository data, not hosted inference usage and billing records.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (the Git service, the CLI, and the library), [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) (the access list), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (what a browser clone holds).
 - **Unbuilt:** all of it: the deletion of `refs/epicenter/publishing`, `refs/epicenter/builds`, and `neutralizeAttributes`; and an `epicenter sync` that recovers an interrupted checkout on disk from the working files and Git alone.
 

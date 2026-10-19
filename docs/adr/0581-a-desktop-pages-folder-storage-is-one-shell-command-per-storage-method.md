@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-17
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at its read and change commands (`read_folder_file`, `read_folder_directory`, `stat_folder_path`, `write_folder_file` and its siblings), at "a read may reach anything there, `.git` included", at a change inside `.git` being "the engine's staging files and private index copies", at a publish carrying "nothing, a file, a file with a given SHA-256, or anything", and at the desktop page's file storage being "a directory handle built on seven calls": the page names data paths only, and the shell stages, checks, and publishes each put itself.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at each command's `scope` argument: it is a folder's directory name.
 - **Amended by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at "The page-to-shell command set is not a cross-version contract" and "an installed app built for the old ones is rebuilt": after the first release the page API changes only by addition.

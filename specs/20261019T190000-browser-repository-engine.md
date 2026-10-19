@@ -62,9 +62,18 @@ boundary. No per-file bases, network ownership lease, or custom server protocol.
    isolated in memory; candidate objects stay private until publication.
    Prove shared blobs, interrupted
    work, and concurrent publications survive collection.
-4. **Todos.** Integrate `open`, typed/raw rows, `from`/`sent`, raw file repair,
-   subscription and status, and automatic scheduled sync through account auth.
-   Exercise edit, offline save, reopening, reconnect, and native Git round-trip.
+4. **Todos.** Integrate local opening before first sign-in, typed/raw rows,
+   `from`/`sent`, raw file repair, subscriptions, and a normal local-only status
+   under [ADR-0633](../docs/adr/0633-apps-open-local-data-before-connecting-services.md).
+   Then connect existing local work to a chosen hosted repository by stable ID,
+   with optional auth and automatic scheduled sync. Prove first use without an
+   account, offline saves and reopening unsent work, explicit combination with a
+   nonempty remote, sign-out
+   preserving local work, account replacement, reconnect, and native Git round-trip.
+   Apps supply read schemas without publishing descriptions; generic lenses follow
+   [ADR-0632](../docs/adr/0632-a-lens-belongs-to-its-reader.md).
+   Inference authorization is independent. The deferred desktop browser and runner
+   are not integration gates (ADR-0634 and ADR-0635).
 5. **Migration and deletion.** Transfer committed and unsent legacy work, verify
    readback, then remove the replaced OPFS/index/publication/locking machinery
    and migrate remaining consumers. Retire this spec after implementation;

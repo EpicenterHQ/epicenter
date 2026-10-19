@@ -11,6 +11,21 @@ Current applications still use `@epicenter/folder`. The
 [implementation plan](../../specs/20261019T190000-browser-repository-engine.md)
 tracks transport, retention, app integration, and data-safe migration.
 
+## Chosen integration direction
+
+[ADR-0633](../../docs/adr/0633-apps-open-local-data-before-connecting-services.md)
+requires desktop and browser apps to open local data before first sign-in.
+A local dataset has its own identity; optional synchronization later connects
+existing work to a chosen repository. No lens or service grant is required for
+local opening. Generic readers can select a separate lens
+([ADR-0632](../../docs/adr/0632-a-lens-belongs-to-its-reader.md)).
+
+The internal constructors already separate local storage from Git exchange.
+The public local opening API, persisted connection, local status, and first
+attachment of existing work are not built. Hosted inference is a separate
+service and adds no dependency to this package
+([ADR-0634](../../docs/adr/0634-hosted-inference-is-independent-of-repository-sync.md)).
+
 ## Implemented locally
 
 `src/repository.ts` opens the internal local engine. Files and rows save into
@@ -148,8 +163,9 @@ to settle; the scheduler need not force progress during uninterrupted typing.
 
 The package has no public opening API yet. The internal constructor does not
 check a grant or start network sync. Do not migrate an application to it until
-the public `open`, auth, subscriptions, sync status, and automatic scheduling
-are connected.
+the public local opening API, subscriptions, status, and data-safe migration
+are connected. A sync-enabled app also needs optional auth, remote attachment,
+and automatic scheduling; those do not gate local-only use.
 
 Ordinary Git exchange and uncertain-push recovery now have local native-server
 and browser evidence. Hosted-service checks, collection, network deadlines and

@@ -5,6 +5,36 @@ thing the same way. Keep entries to one or two lines. When a design pass coins o
 sharpens a term, update it here in the same change. For the decisions behind these
 shapes, see `docs/adr/`.
 
+## Current direction
+
+Epicenter is a toolkit for local-first apps over files, with optional hosted
+Git synchronization and inference. Desktop and browser apps open local data
+before first sign-in. A service connection adds capabilities to existing data;
+it does not create permission to use the app locally
+([ADR-0633](adr/0633-apps-open-local-data-before-connecting-services.md),
+[ADR-0634](adr/0634-hosted-inference-is-independent-of-repository-sync.md)).
+
+- **Local dataset**: the files an app opens, identified independently of an
+  account, remote URL, or hosted repository ID. Compatible apps can share it.
+- **Lens**: static JSON selected by a reader to interpret paths and fields.
+  Apps supply their own schemas. Generic tools can browse files without a
+  lens; `epicenter.json` can be selected like any other lens file
+  ([ADR-0632](adr/0632-a-lens-belongs-to-its-reader.md)).
+- **Service connection**: optional authorization and configuration for sync
+  or inference. Inference-only sign-in attaches no repository. Hosted sync
+  selects a repository by stable ID; a name is a suggested label.
+- **V1 content**: the library writes complete text files. Managed attachment
+  sync is deferred, and Whispering audio remains local. Existing binary Git
+  content is carried without a text-only repository filter (ADR-0621).
+- **Desktop browser and runner**: later, optional clients for generic folder
+  inspection and personal tools. Neither is a prerequisite for independent
+  apps or services
+  ([ADR-0635](adr/0635-generic-desktop-data-tools-are-deferred.md)).
+
+The entries below include vocabulary from the current, unmigrated folder
+implementation. The decisions above describe the chosen destination; they do
+not claim those application changes have shipped.
+
 ## Platform and topology
 
 - **Deployment**: one reachable Epicenter installation, hosted or self-hosted,

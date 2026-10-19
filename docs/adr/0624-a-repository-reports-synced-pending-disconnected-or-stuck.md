@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-19
+- **Amended by:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) with a local state for datasets that have no synchronization destination; the four existing values apply after connection.
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Sync still refuses, as `SyncError.Unrepresentable`" and its list: the only refusals are a non-text write from the library, a push that would rewrite history, and what Git cannot represent; a browser clone carries untouched any tree entry it cannot represent, and on a disk clone what its file system cannot represent is a cause of `stuck`.
 - **Relates:** [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the sync whose state this reports), [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter status`), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`status`, `subscribe`, and `connect`).
 - **Unbuilt:** all of it: the four words in `@epicenter/data`, `epicenter status` reporting each cause, and the full list of what a disk clone's file system cannot represent.

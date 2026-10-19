@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-15
-- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the desktop app host; the desktop app hosts, installs, builds, and approves no app and gives a website no native capability, and survives only as a data browser over clones on disk.
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
 - **Amended by:** [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) at the Bun row's "saves from separate processes do not" and "in Bun, only saves within one process wait for each other": Bun's saves and the shell's checked renames take turns under one save lock per folder, `.<name>.epicenter-save-lock`.
 
 ## Context

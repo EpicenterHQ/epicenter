@@ -804,7 +804,7 @@ When you add an ADR, add its row here.
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Superseded by 0611 |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
 | [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Each concept has one noun in code, on the wire, and in prose | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612 and 0613) |
-| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626) |
+| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | A folder's `epicenter.json` is a description for readers without code | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626; amended by 0632) |
 | [0586](0586-you-open-a-folder-never-an-app.md) | You open a folder, never an app | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597, 0605, 0607, and 0611) |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Superseded by 0611 |
@@ -827,21 +827,24 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps never talk to each other; they share paths | Accepted (amends 0546 and 0593; amended by 0612 and 0626) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Superseded by 0611 |
-| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is only the data layer its apps reach over Git | Accepted (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586) |
+| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter keeps a minimal local app runner over its data layer | Accepted (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586; amended by 0632, 0633, 0634, and 0635) |
 | [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Accepted (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
-| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Accepted (supersedes 0527; amends 0526, 0584, 0585, and 0591) |
-| [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Accepted (amends 0594 and 0606) |
-| [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Accepted (supersedes 0049, 0050, 0054, 0100, 0104, 0557, 0579, and 0580; amends 0398, 0549, 0564, and 0565) |
-| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache | Accepted (amends 0592) |
+| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a top-level directory described by its table.json | Accepted (supersedes 0527; amends 0526, 0584, 0585, and 0591; amended by 0632) |
+| [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Accepted (amends 0594 and 0606; amended by 0633 and 0634) |
+| [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Superseded by 0634 |
+| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Every byte Epicenter keeps is a Git object, a working file, an access-list row, or a cache | Accepted (amends 0592; amended by 0634) |
 | [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592) |
 | [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592) |
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Accepted (supersedes 0576; amends 0591) |
-| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Every browser app keeps its own Git clone of a repository | Accepted (amends 0529) |
-| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Accepted (amends 0592) |
-| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Accepted (amends 0585 and 0608) |
-| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590) |
+| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Every browser app keeps its own Git clone of a repository | Accepted (amends 0529; amended by 0633) |
+| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | A repository reports synced, pending, disconnected, or stuck | Accepted (amends 0592; amended by 0633) |
+| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app reaches a repository only through open | Accepted (amends 0585 and 0608; amended by 0632 and 0633) |
+| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635) |
 | [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Accepted (amends 0619, 0623, and 0627) |
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Proposed (amends 0626) |
 | [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
-| [0632](0632-a-lens-belongs-to-its-reader.md) | A lens belongs to its reader | Proposed (amends 0585, 0611, 0613, 0626, and 0627) |
+| [0632](0632-a-lens-belongs-to-its-reader.md) | A lens belongs to its reader | Accepted (amends 0585, 0611, 0613, 0626, and 0627) |
+| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627) |
+| [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
+| [0635](0635-generic-desktop-data-tools-are-deferred.md) | Generic desktop data tools are deferred | Accepted (amends 0611 and 0627) |
