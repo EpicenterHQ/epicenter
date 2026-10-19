@@ -153,6 +153,7 @@
 		"lint": "biome lint --write",
 		"lint:check": "biome lint",
 		"lint:ci": "biome lint --diagnostic-level=error --reporter=github",
+		"lint:anti-slop": "oxlint",
 		"typecheck": "bun run --filter '*' typecheck && bun x tsc --noEmit -p scripts/tsconfig.json",
 		"test": "bun test ./scripts/*.test.ts ./.agents/skills/*/scripts/*.test.ts && bun run --filter '*' test",
 		"bench": "bun run --filter '*' bench",
@@ -173,10 +174,12 @@
 		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build"
 	},
 	"devDependencies": {
-		"@y/y": "14.0.0-rc.26",
 		"@biomejs/biome": "catalog:",
+		"@oxlint/plugins": "1.89.0",
 		"@types/bun": "catalog:",
+		"@y/y": "14.0.0-rc.26",
 		"jsrepo": "^3.6.2",
+		"oxlint": "1.89.0",
 		"wrangler": "catalog:"
 	},
 	"dependencies": {

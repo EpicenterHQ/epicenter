@@ -44,6 +44,8 @@
 			"!**/permissions/schemas/schema.json",
 			// Raw registry responses are retained byte-for-byte for upstream comparison.
 			"!packages/ui/upstream",
+			// Preserve the vendored lint rules byte-for-byte for upstream updates.
+			"!tools/oxlint/anti-slop",
 			"!**/.gitignore",
 			"!.DS_Store",
 			"!docs/articles",
