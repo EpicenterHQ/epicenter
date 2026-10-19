@@ -71,7 +71,7 @@ describe.skipIf(!browser)('folder view', async () => {
 				write: (path: string, _from: unknown, content: string) =>
 					new Promise<Saved>((answer) => held.push({ path, content, answer })),
 			},
-			status: { state: 'local', saving: false, storageFailure: null },
+			status: { saving: false, storageFailure: null },
 			onStatusChange: () => () => {},
 		} as unknown as Folder<Record<never, never>>;
 		const client = new QueryClient({

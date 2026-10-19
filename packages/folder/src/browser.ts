@@ -22,8 +22,8 @@ export * from './contract.js';
 /**
  * Open this origin's default local folder. Refusals are returned, not
  * thrown: a page inside the desktop app, a table that cannot be one
- * top-level directory, missing IndexedDB, or folders the former OPFS opener
- * left in this browser (`LegacyDataPresent`), which stay untouched.
+ * top-level directory or missing IndexedDB. Earlier OPFS folders are not
+ * read or changed by this opener.
  */
 export async function openFolder<const TTables extends Record<string, Schema>>(
 	options: DefaultFolderOptions<TTables>,

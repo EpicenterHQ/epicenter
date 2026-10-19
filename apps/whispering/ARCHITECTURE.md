@@ -129,7 +129,7 @@ implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The directory Epicenter registered as `so.epicenter.whispering`, opened by that ID with Whispering's tables (`openFolder({ directory, tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); a browser that still holds an earlier build's OPFS folders refuses to open, and that data is left as it was |
+| Folder | The directory Epicenter registered as `so.epicenter.whispering`, opened by that ID with Whispering's tables (`openFolder({ directory, tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
 | Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |

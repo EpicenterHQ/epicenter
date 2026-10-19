@@ -7,14 +7,11 @@
  * authentication, network, or schema file (ADR-0633, ADR-0636). The handle
  * is the public `Folder` (`folder.ts`).
  *
- * This handle reads no data kept by the older OPFS folders. When one is
- * there, opening refuses (`LegacyDataPresent`) rather than show an empty
- * folder in its place, and changes nothing in it. Bringing those folders
- * across is separate work.
+ * This handle reads no data kept by the older OPFS folders and does not
+ * inspect or change them.
  */
 import type { TSchema as Schema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import { legacyOpfsFolders } from './browser/legacy-data.js';
 import { isTableName, openRepository } from './browser/repository.js';
 import { OpenFolderError } from './errors.js';
 import type { DefaultFolderOptions, Folder, FolderTable } from './folder.js';
@@ -39,13 +36,6 @@ export async function openLocalFolder<
 		return OpenFolderError.Unavailable({
 			cause: new Error('IndexedDB is not available in this page'),
 		});
-	try {
-		const legacy = await legacyOpfsFolders();
-		if (legacy.length > 0)
-			return OpenFolderError.LegacyDataPresent({ folders: legacy });
-	} catch (cause) {
-		return OpenFolderError.Unavailable({ cause });
-	}
 	let repository: Awaited<ReturnType<typeof openRepository>>;
 	try {
 		repository = await openRepository(DEFAULT_KEY, tables);

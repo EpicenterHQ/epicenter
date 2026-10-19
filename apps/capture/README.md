@@ -26,12 +26,9 @@ Earlier browser builds kept captures in the origin private file system
 older ones in `Epicenter/local/so.epicenter.capture` or
 `Epicenter Dev/local/so.epicenter.capture`. This build reads none of them.
 
-Before opening anything, the page looks for those directories
-through the Folder opener's read-only OPFS guard. While one exists, Capture opens nothing and
-says where those captures are, rather than show an empty timeline as if they
-were lost. When the check itself fails, Capture opens nothing either, and
-offers Check again. The check only looks: it creates, moves, and deletes
-nothing. Bringing those captures across is separate work.
+The current Folder opens its IndexedDB data independently. It does not read,
+inspect, change, or remove the earlier OPFS files. An origin with only older
+OPFS captures shows an empty current timeline.
 
 ## What you can do
 
@@ -126,7 +123,6 @@ Nothing persists text not added across a reload you confirm.
 
 ```text
 +page.svelte
-  findEarlierCaptures()            looks in OPFS, writes nothing
   <FolderApp title="Capture" tables={captureTables}>
     openFolder({ tables })         this origin's local folder, in IndexedDB
     createFolderContext       rows query, change channel, edit layer, close
@@ -160,7 +156,7 @@ actions remain absent.
 
 | Path | Role |
 | --- | --- |
-| `src/routes/+page.svelte` | `<FolderApp>` over `captureTables`, with `CaptureApp` inside it. The Folder opener checks earlier OPFS data before opening IndexedDB. |
+| `src/routes/+page.svelte` | `<FolderApp>` over `captureTables`, with `CaptureApp` inside it. The Folder opener uses IndexedDB. |
 | `src/lib/captures.svelte.ts` | The store over the context `getFolder()` answers: the timeline from the rows query, each capture's form (`formOf`), the text drafts (`texts`), create, delete, which capture is open, and what the header says about saving. |
 | `src/lib/capture-form.svelte.ts` | One capture's edit over its row draft (`edits.row`), its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/text-drafts.ts` | Edit as text: whole-file drafts saved through the folder's files, one save at a time. |
@@ -194,11 +190,11 @@ profile stands in for another tab.
 | --- | --- |
 | `src/lib/captures.test.ts` | The store over a real local folder: creating and listing, blank text refused, timeline order and repairs, an edit saved keeping undeclared frontmatter, another tab's change merged with a held save, a failed save kept and saved again, thought commands and stale ones, thought text kept per capture, Edit as text saved exactly and merged with another tab, repair as text, a failed text save, delete after the edits land, and close. |
 | `src/lib/bundle.test.ts` | Which folder adapter each build bundles: the installed bundle has the desktop adapter and no browser adapter, local folder engine, OPFS store, or Node module; the browser bundle has the browser adapter and the local folder engine; neither has the older `FolderApp`. |
-| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: text and thoughts saved, another tab's change merged with typing held here, a failed save with Save again, a thought not added kept to copy, repair as text and Open as capture, CRLF kept, input refused while closing, the New capture text box and Add capture, the failed-save list, an earlier OPFS folder opening nothing and touching nothing, a failed check, a fresh browser with no Save version, and edits sent when the page closes. jsdom has no layout, focus, selection, or IME. |
+| `src/lib/components/*.mounted.test.ts` | The real views and page mounted in jsdom: text and thoughts saved, another tab's change merged with typing held here, a failed save with Save again, a thought not added kept to copy, repair as text and Open as capture, CRLF kept, input refused while closing, the New capture text box and Add capture, the failed-save list, an earlier OPFS folder that does not block opening, a fresh browser with no Save version, and edits sent when the page closes. jsdom has no layout, focus, selection, or IME. |
 
 | Script | What it checks |
 | --- | --- |
-| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one profile's local folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a save merged with another page's change, no Save version, leave warnings, deletion, and a profile with an earlier OPFS folder opening nothing. Needs a free local port and `bun x playwright install chromium`. |
+| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one profile's local folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a save merged with another page's change, no Save version, leave warnings, deletion, and a profile with an earlier OPFS folder that still opens. Needs a free local port and `bun x playwright install chromium`. |
 
 ## Changed promises
 
@@ -209,8 +205,8 @@ and drops these promises of the version before it:
   brought back, and the delete dialog no longer says whether the latest
   changes are in a saved version.
 - The desktop build uses the native Folder over its granted directory.
-- Captures an earlier browser build kept in OPFS are not shown; Capture
-  opens nothing while they exist.
+- Captures an earlier browser build kept in OPFS are not shown; the current
+  IndexedDB timeline opens independently.
 - An edit beats a delete it has not seen: an edit to a capture another tab
   deleted brings it back (the folder's merge rule), where before the edit
   wrote nothing and offered its text.

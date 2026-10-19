@@ -2,14 +2,12 @@
  * Mounted Capture Page Tests
  *
  * The real Capture page, as the layout mounts it, in jsdom over an
- * in-memory IndexedDB. With no folder from an earlier build, the page opens
- * this browser's local folder through `<FolderApp>`; a second handle
+ * in-memory IndexedDB. The page opens this browser's local folder through
+ * `<FolderApp>`; a second handle
  * of the same profile reads what it saved.
  *
  * Key behaviors:
- * - A browser holding an earlier build's OPFS folder opens nothing, says
- *   where those captures are, and touches neither storage
- * - A check that fails opens nothing; Check again checks again
+ * - An earlier OPFS folder does not block the current IndexedDB folder
  * - A fresh browser opens an empty timeline whose header offers no Save
  *   version, Sync, or Connect
  * - A capture added here, and its edit, are in the folder once the page
@@ -113,36 +111,12 @@ async function until(check: () => boolean, what: string) {
 	throw new Error(`Timed out waiting for ${what}`);
 }
 
-test("a browser holding an earlier build's folder opens nothing and touches nothing", async () => {
+test('an earlier OPFS folder does not block the current timeline', async () => {
 	const opfs = opfsWith('so.epicenter.capture');
 	freshProfile(opfs);
 	const page = mountPage();
-	await until(() => page.text().includes('Earlier folder files'), 'the notice');
-
-	expect(page.text()).toContain('Capture cannot read them yet');
-	expect(page.text()).toContain('so.epicenter.capture');
-	expect(page.text()).not.toContain('Timeline');
-	expect(opfs.calls.every((args) => args.length === 1)).toBe(true);
-	expect(await indexedDB.databases()).toEqual([]);
-});
-
-test('a check that fails opens nothing; Check again checks again', async () => {
-	let denied = true;
-	const opfs = opfsWith();
-	freshProfile({
-		getDirectory: () =>
-			denied
-				? Promise.reject(new DOMException('Denied', 'SecurityError'))
-				: opfs.getDirectory(),
-	});
-	const page = mountPage();
-	await until(() => page.text().includes('could not open its storage'), 'the notice');
-	expect(page.text()).toContain('Denied');
-	expect(await indexedDB.databases()).toEqual([]);
-
-	denied = false;
-	click(page.target, 'Try again');
 	await until(() => page.text().includes('No captures yet'), 'the timeline');
+	expect(opfs.calls).toEqual([]);
 });
 
 test('a fresh browser opens an empty timeline with no Save version, Sync, or Connect', async () => {

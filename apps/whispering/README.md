@@ -514,9 +514,8 @@ is saved (ADR-0632). These promises of the earlier build changed:
 - No versions, Connect, or Sync. **Save version** and the status lines about
   changes since the last version are gone, and Whispering no longer writes
   `epicenter.json` or `.gitignore` into its folder.
-- In a browser tab, recordings an earlier build kept in this browser are not
-  read. Whispering says so and stops before showing an empty folder; that data
-  is left as it was.
+- In a browser tab, recordings an earlier build kept in OPFS are not read or
+  changed. An origin with only those recordings opens an empty current folder.
 - Typing into a row deleted elsewhere brings it back with what you typed. The
   earlier build kept it deleted and offered the text to copy.
 - A value that does not fit a row is saved, and the row is listed for repair.

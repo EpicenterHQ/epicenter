@@ -138,7 +138,7 @@
 	<Loading class="h-dvh" label="Opening {title}…" />
 {:then opened}
 	{#if opened.error}
-		{@render refused(describeOpenRefusal(opened.error, title))}
+		{@render refused(describeOpenRefusal(opened.error))}
 	{:else}
 		<FolderProvider context={opened.data}>{@render children()}</FolderProvider>
 	{/if}

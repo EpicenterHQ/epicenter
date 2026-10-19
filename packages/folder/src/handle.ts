@@ -34,7 +34,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	const inflight = new Set<Promise<unknown>>();
 	let saves = 0;
 	let status: FolderStatus = {
-		state: 'local',
 		saving: false,
 		storageFailure: null,
 	};
@@ -50,7 +49,6 @@ export function folderHandle<const TTables extends Record<string, Schema>>(
 	 */
 	function publishStatus(storageFailure = status.storageFailure) {
 		const next: FolderStatus = {
-			state: 'local',
 			saving: saves > 0,
 			storageFailure,
 		};

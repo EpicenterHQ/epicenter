@@ -14,18 +14,10 @@ export type OpenRefusal = {
 };
 
 /**
- * Word why the app titled `title` could not open its folder.
+ * Word why the folder could not open.
  */
-export function describeOpenRefusal(
-	error: OpenFolderError,
-	title: string,
-): OpenRefusal {
+export function describeOpenRefusal(error: OpenFolderError): OpenRefusal {
 	switch (error.name) {
-		case 'LegacyDataPresent':
-			return {
-				description: `Earlier folder files are still stored in this browser (${error.folders.join(', ')}). ${title} cannot read them yet, so it stopped before showing an empty workspace.`,
-				retry: false,
-			};
 		case 'ShuttingDown':
 			return { description: 'Epicenter is shutting down.', retry: false };
 		case 'Missing':

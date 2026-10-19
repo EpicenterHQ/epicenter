@@ -44,7 +44,6 @@ async function withFullDisk<T>(work: () => Promise<T>): Promise<T> {
 }
 
 const idle: FolderStatus = {
-	state: 'local',
 	saving: false,
 	storageFailure: null,
 };
@@ -77,7 +76,7 @@ test('a fresh profile opens empty without an app, account, remote, or network', 
 	await folder.close();
 });
 
-test('an earlier OPFS folder is left untouched and never replaced with an empty local view', async () => {
+test('old OPFS access cannot block the current IndexedDB folder', async () => {
 	const storage = Object.getOwnPropertyDescriptor(navigator, 'storage');
 	let opened = 0;
 	Object.defineProperty(navigator, 'storage', {
@@ -85,53 +84,18 @@ test('an earlier OPFS folder is left untouched and never replaced with an empty 
 		value: {
 			async getDirectory() {
 				opened++;
-				return {
-					async *values() {
-						yield { kind: 'directory', name: 'so.epicenter.todos' };
-					},
-				};
+				throw new DOMException('Denied', 'SecurityError');
 			},
 		},
 	});
 	try {
-		const refusal = expectErr(await openFolder({ tables: { notes } }));
-		expect(refusal.name).toBe('LegacyDataPresent');
-		expect(opened).toBe(1);
-		expect(await indexedDB.databases()).toEqual([]);
-	} finally {
-		if (storage === undefined) Reflect.deleteProperty(navigator, 'storage');
-		else Object.defineProperty(navigator, 'storage', storage);
-	}
-});
-
-test('an earlier nested OPFS folder also stops the new opener without writing', async () => {
-	const storage = Object.getOwnPropertyDescriptor(navigator, 'storage');
-	const calls: string[] = [];
-	Object.defineProperty(navigator, 'storage', {
-		configurable: true,
-		value: {
-			async getDirectory() {
-				return {
-					async *values() {
-						yield {
-							kind: 'directory', name: 'Epicenter',
-							async getDirectoryHandle(name: string) {
-								calls.push(name);
-								if (name !== 'local') throw new DOMException('Missing', 'NotFoundError');
-								return { async *values() { yield { kind: 'directory', name: 'so.epicenter.capture' }; } };
-							},
-							async getFileHandle() { throw new DOMException('Missing', 'NotFoundError'); },
-						};
-					},
-				};
-			},
-		},
-	});
-	try {
-		const refusal = expectErr(await openFolder({ tables: { notes } }));
-		expect(refusal.name).toBe('LegacyDataPresent');
-		expect(calls).toEqual(['local', '.git']);
-		expect(await indexedDB.databases()).toEqual([]);
+		const first = await open();
+		expectOk(await first.files.write('readme.md', null, 'saved'));
+		await first.close();
+		const second = await open();
+		expect(await expectOk(await second.files.read('readme.md'))?.content.text()).toBe('saved');
+		await second.close();
+		expect(opened).toBe(0);
 	} finally {
 		if (storage === undefined) Reflect.deleteProperty(navigator, 'storage');
 		else Object.defineProperty(navigator, 'storage', storage);

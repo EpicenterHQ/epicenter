@@ -379,7 +379,6 @@ test('structural refusals are results, and none is a storage failure', async () 
 		await refused(folder.files.write('notes//x.txt', null, 'x')),
 	).toBe('InvalidPath');
 	expect(folder.status).toEqual({
-		state: 'local',
 		saving: false,
 		storageFailure: null,
 	});
@@ -447,7 +446,6 @@ test('status shows saving and the last storage failure until a later success', a
 	expect(folder.status.saving).toBe(true);
 	expectOk(await saving);
 	expect(folder.status).toEqual({
-		state: 'local',
 		saving: false,
 		storageFailure: null,
 	});

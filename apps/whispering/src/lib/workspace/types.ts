@@ -42,10 +42,6 @@ export type WhisperingFolder = Folder<WhisperingTables>;
  */
 export const WHISPERING_FOLDER_ID = manifest.id;
 
-/** What a person is told when this browser still holds an earlier version's recordings. */
-const EARLIER_BROWSER_DATA =
-	'Your earlier Whispering recordings are still stored in this browser. This version cannot read them yet, so it stopped before showing an empty folder. They are left as they are.';
-
 /**
  * Why no workspace could be opened. The message is what the person is shown.
  * Neither storage is tried in place of the other: a browser folder that is
@@ -58,9 +54,7 @@ export const WorkspaceError = defineErrors({
 		message:
 			refusal.name === 'InsideTauri'
 				? 'This window is inside a desktop app. Browser storage is not used inside a desktop app, so there is no folder to open here.'
-				: refusal.name === 'LegacyDataPresent'
-					? EARLIER_BROWSER_DATA
-					: refusal.message,
+				: refusal.message,
 		refusal,
 	}),
 	/** The desktop shell refused this window its folder, or the folder could not be opened. */

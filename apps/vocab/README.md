@@ -59,7 +59,7 @@ openFolder({ tables: vocabTables })        This browser's local folder (IndexedD
 
 A schema only interprets. A file whose frontmatter does not parse, or whose fields do not fit, still reads as a row with its exact text and its issues; a save never checks the schema, so fields Vocab does not name survive.
 
-This version is a clean break. Vocab does not read, copy, or delete what an earlier version saved in its OPFS folder `so.epicenter.vocab`, in IndexedDB under another name, in an account's Personal store, or in a device chat store. When an earlier OPFS folder is present, opening refuses rather than showing an empty workspace. A fresh profile or origin starts empty.
+This version is a clean break. Vocab does not read, copy, or delete what an earlier version saved in its OPFS folder `so.epicenter.vocab`, in IndexedDB under another name, in an account's Personal store, or in a device chat store. An origin with only earlier data opens an empty current workspace.
 
 A new word's file is named by the SHA-256 of its exact UTF-8 text. An add reads that file first and writes only when none is there. Adding one text twice, from one tab or two, or again after an answer that never arrived, reaches the same file: an add that finds the word there leaves its note and stage as they are. A different file at that name is refused and left alone. A word file under another name, such as one written outside Vocab, is found by its text in the list.
 
@@ -87,7 +87,7 @@ Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/voc
 
 This version opens this browser's local folder (`openFolder({ tables })`) instead of the OPFS folder named after Vocab's app ID, and drops several promises of the version before it:
 
-- An earlier OPFS folder stops the new opener; its words and chats are not read, moved, or deleted. Other earlier stores are not read by this version.
+- An earlier OPFS folder does not stop the new opener; its words and chats are not read, moved, or deleted. Other earlier stores are not read by this version.
 - A delete no longer removes a word changed in another tab in that moment: it is kept, and a notice says so. A word whose note failed to save is not deleted until the note is saved again or discarded.
 - A note or stage saved to a word deleted elsewhere brings the word back with the edit, instead of writing nothing and offering the note to copy.
 - A failed note save says why on its card, without a toast. A failed message save keeps its notice in the chat, without a toast.

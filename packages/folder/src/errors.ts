@@ -212,15 +212,6 @@ export const OpenFolderError = defineErrors({
 		table,
 	}),
 	/**
-	 * This browser still holds folders the former OPFS opener kept. The
-	 * default local folder cannot read them yet, so it opens nothing rather
-	 * than show an empty folder in their place, and leaves them untouched.
-	 */
-	LegacyDataPresent: ({ folders }: { folders: readonly string[] }) => ({
-		message: `This browser still has earlier folder data in OPFS (${folders.join(', ')}). The local opener cannot read it yet, so it left that data untouched and did not open an empty folder.`,
-		folders,
-	}),
-	/**
 	 * `openFolder({ tables })` opens the runtime's default local folder, which
 	 * only a browser page has. A desktop app opens a directory.
 	 */

@@ -6,8 +6,8 @@
  * Starts the Capture dev server on a free loopback port and drives two pages
  * of one browser profile, which share its local folder in IndexedDB: the
  * second page is the other tab that edits a file behind the first. A third,
- * fresh profile holds a folder an earlier build kept in OPFS, and opens
- * nothing. No account, no server besides Vite, and no data outside the
+ * fresh profile holds a folder an earlier build kept in OPFS, and still opens
+ * the current IndexedDB folder. No account, no server besides Vite, and no data outside the
  * disposable profiles.
  *
  * It needs to bind a local port and launch Chromium (`bun x playwright
@@ -321,8 +321,7 @@ try {
 			fullPage: true,
 		});
 
-	// 12. A profile holding a folder an earlier build kept in OPFS opens
-	// nothing, and the folder stays.
+	// 12. An earlier OPFS folder does not block the current timeline.
 	const earlier = await (await browser.newContext()).newPage();
 	earlier.on('pageerror', (error) => errors.push(`earlier: ${error.message}`));
 	await earlier.goto(app);
@@ -332,13 +331,8 @@ try {
 		await root.getDirectoryHandle('so.epicenter.capture', { create: true });
 	});
 	await earlier.reload();
-	await earlier
-		.getByText('This browser has captures from an earlier version of Capture')
-		.waitFor();
-	assert.equal(
-		await earlier.getByRole('heading', { name: 'Timeline' }).count(),
-		0,
-	);
+	await earlier.getByRole('heading', { name: 'Timeline' }).waitFor();
+	await earlier.getByText('No captures yet').waitFor();
 	assert(
 		await earlier.evaluate(async () => {
 			const root = await navigator.storage.getDirectory();
@@ -348,7 +342,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that opens nothing.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a save merged with a change from another page, no Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);

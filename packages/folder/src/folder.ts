@@ -38,15 +38,13 @@ export type FolderChange = {
 };
 
 /**
- * What the handle can truthfully say about saving. `'local'` is the normal
- * state of data without a sync destination, not a connection fault. A save
- * counts as saved only after storage committed it. `storageFailure` is the
+ * What the handle can truthfully say about saving. A save counts as saved
+ * only after storage committed it. `storageFailure` is the
  * last storage failure, cleared by a later successful save on this handle,
  * including a retry whose desired content is already stored. Individual
  * refusals and unsaved drafts belong to their callers.
  */
 export type FolderStatus = {
-	readonly state: 'local';
 	/** Saves started on this handle and not yet committed or refused. */
 	readonly saving: boolean;
 	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;

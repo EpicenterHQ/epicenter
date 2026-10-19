@@ -36,7 +36,7 @@ The CLI opens `openFolder({ directory, tables: todosTables })`. It saves ordinar
 
 ## Earlier browser data
 
-Earlier Todos builds kept named folders in OPFS. This build does not read or migrate them. The browser opener checks for an earlier folder before opening the IndexedDB default. When it finds one, Todos shows a refusal instead of an empty list; the OPFS bytes stay untouched. A verified importer is required before those earlier todos can be edited through this opener. Use a fresh profile or origin to try the new path without changing an existing profile.
+Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB folder independently and does not read or migrate those older files. It does not change or remove the OPFS bytes. A profile with only older OPFS data shows an empty current list.
 
 ## Boundaries and checks
 

@@ -29,7 +29,7 @@ const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, t
 const row = (await folder.tables.notes.get('milk')).data;
 const saved = await folder.tables.notes.set('milk', row ?? null, { fields: { title: 'Milk' } });
 if (saved.error !== null) show(saved.error.message);             // nothing was saved
-folder.status;                                                   // { state: 'local', saving, storageFailure }
+folder.status;                                                   // { saving, storageFailure }
 await folder.close();
 ```
 
@@ -55,7 +55,6 @@ returned, never thrown, and no opener opens other storage instead.
 | `OpenFolderError` | When |
 | --- | --- |
 | `InvalidTable` | A table name that cannot be one portable top-level directory, checked by the shared `pathProblem` rule in both engines. |
-| `LegacyDataPresent` | Browser: this origin still holds folders the former OPFS opener kept ([below](#browser-storage)). |
 | `Unavailable` | Storage could not be reached: no IndexedDB, or a shell that cannot answer. |
 | `InsideTauri` | The browser entry was called in the desktop app. |
 | `NotTauri` | A desktop directory was asked for outside the desktop app. |
@@ -75,7 +74,7 @@ the saved files.
 | `files` | `list(prefix?)` sorted root-relative paths; `read(path)` `{ path, content: Blob }` or `undefined`; `write(path, from, content)`; `delete(path, from)`. |
 | `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, and `delete(id, from)`. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. Returns the function that stops listening. |
-| `status`, `onStatusChange` | `{ state: 'local', saving, storageFailure }`. |
+| `status`, `onStatusChange` | `{ saving, storageFailure }`. |
 | `close()` | New calls throw at once; saves already started finish with their real outcome; then listeners and storage are released. Calling it again returns the same promise. |
 
 A call on a closed handle throws: it is a programming error, not a storage
@@ -165,12 +164,9 @@ only after IndexedDB committed it, and other tabs of the origin hear it on
 need separate origins.
 
 The older declaration-dependent opener kept folders in the origin private
-file system (OPFS). The default folder reads none of that data, and no code
-here writes, moves, or removes it. When such a folder is present (an
-`so.epicenter.*` directory, or any directory holding `epicenter.json` or
-`.git`), opening refuses with `LegacyDataPresent` and the folder names,
-rather than show an empty folder in its place. Bringing that data across is
-separate work.
+file system (OPFS). The default folder opens IndexedDB independently. It
+does not read, inspect, change, or remove the older OPFS data. An origin with
+only older OPFS data therefore opens an empty current folder.
 
 ## Native directories
 
@@ -282,7 +278,7 @@ neither loads until a folder is opened. No engine carries isomorphic-git.
 | `src/contract.ts`, `folder.ts` | The public contract: `Folder` and its parts, the open options, and the errors. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
 | `src/handle.ts` | The caller-facing handle every engine shares: status, the close fence, and the operations close waits for. |
-| `src/local-folder.ts`, `src/browser/` | The browser's default local folder over the IndexedDB repository engine, and the guard against older OPFS data. |
+| `src/local-folder.ts`, `src/browser/` | The browser's default local folder over the IndexedDB repository engine. |
 | `src/native/` | The directory engine (`engine.ts`), its Bun host and save lock (`bun.ts`, `directory.ts`), and its desktop host (`tauri.ts`, with `bindings.gen.ts` generated from the folder plugin; do not edit). |
 | `src/shared/` | The content merge and row reading every engine uses. |
 | `src/boundary.ts`, `directory-store.ts`, `directory-node.ts`, `directory-primitives.ts`, `tauri-files.ts`, `changes-tauri.ts` | Directory storage over `node:fs` and over the shell's commands, and the shell's change watcher. |
@@ -315,4 +311,4 @@ Browser data reaches a disk tool through synchronization or export, not
 through an IndexedDB key. Each save changes one file; there is no multi-file
 transaction, so a caller that keeps a row beside a media file saves the media
 first. A Bun folder hears no other program's edits. File bytes cross the
-desktop bridge whole. Older OPFS folders stay unread until an importer exists.
+desktop bridge whole. Older OPFS folders are not read by the current opener.

@@ -81,18 +81,13 @@ async function preferences(getItem: (key: string) => string | null) {
 	return browser.preferences;
 }
 
-test('earlier browser data is reported as kept, and no empty folder is opened in its place', async () => {
-	refusal = OpenFolderError.LegacyDataPresent({
-		folders: ['so.epicenter.whispering'],
-	});
+test('browser storage failure is reported without opening another folder', async () => {
+	refusal = OpenFolderError.Unavailable({ cause: new Error('storage denied') });
 
 	const refused = expectErr(await openBrowserWorkspace());
 
 	expect(refused.name).toBe('BrowserFolder');
-	expect(refused.message).toContain(
-		'Your earlier Whispering recordings are still stored in this browser',
-	);
-	expect(refused.message).toContain('left as they are');
+	expect(refused.message).toContain('storage denied');
 });
 
 test('a recording’s audio is read back from the folder as its exact bytes for transcription', async () => {
