@@ -162,7 +162,11 @@ user-visible state.
 ## Ownership And Collapse Check
 
 Before accepting the final shape, replay the change as if designing it from
-scratch:
+scratch. For a structural review, use the
+[concept inventory](../collapse-pass/references/concept-inventory.md) to visibly
+list the methods and concepts someone must understand and ask whether a simpler
+model could do the same job. Use the questions below to test which distinctions
+matter. A focused fix can ask them directly:
 
 ```txt
 What object owns the runtime lifetime?
@@ -299,5 +303,6 @@ Verification
 For an implementation pass, make the cleanup edits after reporting the issue in
 the working notes. After edits, re-read every touched file and repeat the mental
 inlining, smell, invariant, and API checks. Report any new finding before fixing
-it. Keep the final answer short: what changed, what was left
-alone, and what verified it.
+it. Keep the final answer short: what changed, what was left alone, and what
+verified it. For a structural review, show the methods and concepts before and
+after (or proposed), what disappeared, and why the remaining distinctions matter.

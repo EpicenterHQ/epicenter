@@ -290,9 +290,8 @@ Removing derivable state often simplifies signatures, types, and control flow in
 Caller counts audit a function. These audit the file it lives in.
 
 1. **Inverted pyramid.** Lead with the exported or significant functions and push helpers below them. Don't bury the lead.
-2. **Related concepts over monoliths.** Break a large file into modules that each own one concept.
-3. **Combine overlapping concepts.** If two types, functions, or constants overlap significantly, merge them. The fewer distinct concepts a reader must hold in their head, the better.
-4. **Use shared code.** A common utility (file path parsing, say) may already exist. Check for it before writing the same thing inline.
+2. **Responsibilities and lifetimes.** Split or combine files when actual callers become easier to understand or change. File count and overlapping names do not decide. For a broad model change, use the [concept inventory](concept-inventory.md) to explain the distinctions retained or removed.
+3. **Use shared code.** A common utility (file path parsing, say) may already exist. Check for it before writing the same thing inline.
 
 ## Post-Refactor Straggler Sweep
 

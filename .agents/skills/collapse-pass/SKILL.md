@@ -9,8 +9,9 @@ metadata:
 # Collapse pass
 
 A collapse pass actively finds and removes complexity that does not earn its
-place. It owns the hunt and carries worthwhile changes through implementation
-and verification. Read the relevant [refactoring methods](references/refactoring-methods.md)
+place. Ask whether the system could do the same job with a simpler model, then
+carry worthwhile changes through implementation and verification. Read the
+relevant [refactoring methods](references/refactoring-methods.md)
 for caller evidence, safe inlining, typed boundaries, or straggler cleanup.
 
 ## Start and expand the hunt
@@ -55,6 +56,13 @@ uncommitted edits at handoff. A request to review a PR remains read-only unless
 implementation is authorized.
 
 ## Judge candidates by what disappears
+
+For a broad pass, once you understand actual use, visibly list and explain the
+methods and concepts someone must understand. Ask whether the same job could be
+done with fewer concepts, including a different design that makes several parts
+unnecessary together. Use the [concept inventory](references/concept-inventory.md)
+to make that question concrete. A focused transformation needs no subsystem
+inventory.
 
 Look for forwarding layers, shallow aliases, duplicated decisions, derivable
 state, dead exports, obsolete compatibility paths, and files that only pass work
@@ -155,8 +163,10 @@ automatic stopping rule unless the user chose one. Resolve regressions introduce
 by the pass before proceeding to unrelated candidates.
 
 Report each logical simplification and its files, why it helped, what was
-verified, and any meaningful remaining decision. Mention important rejected
-candidates when they prevent repeat work. Use
+verified, and any meaningful remaining decision. For a broad pass, show the
+methods and concepts before and after, what disappeared, and why the remaining
+distinctions matter. A review-only pass shows the proposed change. Mention
+important rejected candidates when they prevent repeat work. Use
 [report guidance](references/report-format.md) for a longer campaign; routine
 passes need a concise result.
 

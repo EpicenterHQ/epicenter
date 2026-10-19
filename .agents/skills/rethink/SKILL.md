@@ -37,6 +37,10 @@ it need not define the destination before we have seen it.
 that whole out of reach. Use these references as the question calls for them.
 Neither is a requirement to produce a fixed number of alternatives.
 
+When questioning which concepts a workflow or API needs, use the
+[concept inventory](../collapse-pass/references/concept-inventory.md) to make
+the current and alternative nouns and their distinctions visible.
+
 When a promise of consistent file data drives coordination, use
 [repairability](references/repairability.md) to distinguish information
 protection from inconsistencies a human or agent could inspect and repair.

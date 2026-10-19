@@ -156,17 +156,25 @@ and invariants. Include earlier implementation waves and relevant unchanged
 consumers. Expand only far enough to establish the owner and consequences;
 this is not a repository-wide audit.
 
-List every file read as an ASCII tree before analysis. Mentally inline helpers,
-wrappers, components, props, compartments, and file boundaries into their call
-sites. Read the resulting behavior as if encountering it for the first time.
-
 For implemented code, apply
 [post-implementation-review](../post-implementation-review/SKILL.md)'s inspection
 passes in review-only mode: first read, mental inlining, ownership, smells,
-invariants, API shape, naming, and file organization. This supplies the code
-inspection; it does not initiate another independent review.
+invariants, API shape, naming, and file organization. Those passes supply the
+files-read tree and code inspection; reuse them rather than repeating
+reconstruction. This does not initiate another independent review or authorize
+implementation.
+
+For a proposal, list every file read as an ASCII tree before analysis. Trace
+actual consumers and mentally inline boundaries to understand the design.
 
 ## Find the deletion prize
+
+Visibly list and explain the methods and concepts someone must understand,
+then ask whether the same job could be done with fewer concepts. Use the
+[concept inventory](../collapse-pass/references/concept-inventory.md) to compare
+the current model with a concrete alternative, including a different design
+that makes several concepts unnecessary together. Reuse an inventory from the
+inspection rather than making another one.
 
 Ask what the local complexity is compensating for. Would moving an invariant
 to construction, giving one object the lifecycle, or removing a stale promise
@@ -246,7 +254,8 @@ with the intended phrasing and progression rather than a required transcript.
 
 Support that judgment with:
 
-- Current and proposed shape, with both file trees when organization changes.
+- Current and proposed methods and concepts, what disappears, and why the
+  remaining distinctions matter; show both file trees when organization changes.
 - Concrete file or caller evidence, the stronger invariant and its owner,
   and behavior that must survive.
 - The concrete greenfield alternative, deletion prize, complexity introduced,
@@ -274,8 +283,8 @@ recommendation conditional. Do not start another full review to answer a
 focused question.
 
 Present the strongest opportunity, deletion prize, costs, and judgment
-together so the user can assess the bargain. Keep reviewer inventories and
-deliberation in the supporting evidence; the user should not have to reconstruct
+together so the user can assess the bargain. Keep reviewer reports and
+deliberation in supporting evidence; the user should not have to reconstruct
 the recommendation from separate reports. An unresolved condition belongs beside
 the recommendation, without making a promising direction sound settled.
 Explain accepted findings before editing.
