@@ -6,9 +6,8 @@
 //! an author, so a compromised page cannot point the folder somewhere else.
 //!
 //! Each permitted window's page runs `@epicenter/folder`'s engine over the
-//! directory. The first `grant` prepares and resolves the directory, and
-//! every grant, from any permitted window, hands back the same canonical
-//! root. Each file change a page asks for
+//! directory. Every `grant` checks the directory, and each permitted window
+//! receives the same canonical root. Each file change a page asks for
 //! holds a `PageWork` while it runs; `shutdown` refuses new ones and waits
 //! for none. Quitting is immediate (ADR-0542): every save is an atomic
 //! rename, so a quit leaves each file whole. The folder's Git runs in the
@@ -103,8 +102,8 @@ pub enum GrantError {
     UnknownScope { scope: String },
     /// The scope exists, but is not registered for this window.
     WindowNotPermitted { scope: String, window: String },
-    /// A data folder's directory is not there. The shell creates only an
-    /// application's own folder.
+    /// The registered directory is missing. The shell creates a fixed
+    /// application folder only on its first grant.
     Missing { root: String },
     /// The folder could not be prepared or reached.
     Unavailable { message: String },
@@ -265,12 +264,10 @@ impl Registry {
         Ok(entry)
     }
 
-    /// Give `window` the directory of `scope`. The first grant, from whichever
-    /// permitted window asks first, creates an application folder's directory
-    /// if it is missing and refuses a missing data folder as `Missing`,
-    /// and refuses a directory that is a link or Git state that would send
-    /// writes elsewhere (`verify_layout`); every later grant, a reloaded
-    /// page's or another window's, returns the same root.
+    /// Give `window` the directory of `scope`. The first grant creates a
+    /// missing application folder. Every grant refuses a missing data folder
+    /// and checks for a linked root or Git state that would send writes
+    /// elsewhere. Later grants keep the original canonical root.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {
@@ -278,18 +275,27 @@ impl Registry {
         }
         let entry = Self::permitted(&mut scopes, scope, window)?;
         let folder = &entry.config.folder;
-        if entry.granted.is_none() {
-            let unavailable = |message: String| GrantError::Unavailable { message };
-            prepare_directory(&folder.root, folder.kind == FolderKind::Application).map_err(
-                |error| match error {
-                    PrepareError::Missing => GrantError::Missing {
-                        root: folder.root.display().to_string(),
-                    },
-                    PrepareError::Failed(message) => unavailable(message),
-                },
-            )?;
-            let root = resolve_root(&folder.root).map_err(unavailable)?;
-            verify_layout(&root).map_err(unavailable)?;
+        let unavailable = |message: String| GrantError::Unavailable { message };
+        prepare_directory(
+            &folder.root,
+            entry.granted.is_none() && folder.kind == FolderKind::Application,
+        )
+        .map_err(|error| match error {
+            PrepareError::Missing => GrantError::Missing {
+                root: folder.root.display().to_string(),
+            },
+            PrepareError::Failed(message) => unavailable(message),
+        })?;
+        let root = resolve_root(&folder.root).map_err(unavailable)?;
+        verify_layout(&root).map_err(unavailable)?;
+        if let Some(granted) = &entry.granted {
+            if granted != &root {
+                return Err(unavailable(format!(
+                    "The registered folder '{}' now resolves to a different directory",
+                    folder.root.display()
+                )));
+            }
+        } else {
             entry.granted = Some(root);
         }
         let root = entry.granted.as_ref().expect("the scope was just granted");

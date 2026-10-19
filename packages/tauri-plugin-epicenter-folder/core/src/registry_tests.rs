@@ -106,6 +106,14 @@ fn a_missing_data_folder_is_refused_and_not_created() {
     // Once a person makes it, the same scope is granted.
     std::fs::create_dir_all(&root).unwrap();
     registry.grant("vault", "main").unwrap();
+    std::fs::remove_dir(&root).unwrap();
+    assert_eq!(
+        registry.grant("vault", "main").err(),
+        Some(GrantError::Missing {
+            root: root.display().to_string()
+        })
+    );
+    assert!(!root.exists(), "reopening did not replace the chosen directory");
     registry.shutdown();
 }
 
@@ -239,6 +247,14 @@ fn a_folder_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {
     let granted = registry(&alias.join("notes"), "main");
     granted.grant("notes", "main").unwrap();
     assert!(real.join("notes").is_dir());
+    let redirected = temp.folder("redirected");
+    std::fs::remove_file(&alias).unwrap();
+    std::os::unix::fs::symlink(&redirected, &alias).unwrap();
+    assert!(matches!(
+        granted.grant("notes", "main"),
+        Err(GrantError::Missing { .. })
+    ));
+    assert!(!redirected.join("notes").exists());
     granted.shutdown();
 }
 
