@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-19
-- **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (the data Git records), [ADR-0620](0620-history-in-a-repository-only-grows.md) (conditional, fast-forward server updates), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser engine this would amend), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (offline reads and saves), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (the summary this would amend).
-- **Unbuilt:** the replacement browser engine, its transactional publications, isolated fetch workspaces, ancestry recovery, safe collection, and coalesced attempts. Local transport probes exercised isomorphic-git against native Git, not this IndexedDB engine, Cloudflare Artifacts, or an iPhone.
+- **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (the data Git records), [ADR-0620](0620-history-in-a-repository-only-grows.md) (conditional, fast-forward server updates), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (field and text-region merging), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser engine this would amend), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (offline reads and saves), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (the summary this would amend).
+- **Unbuilt:** the replacement browser engine, its revision-checked publications, isolated fetch workspaces, ancestry recovery, safe collection, and coalesced attempts. Local transport probes exercised isomorphic-git against native Git, not this IndexedDB engine, Cloudflare Artifacts, or an iPhone.
 
 ## Context
 
@@ -17,9 +17,17 @@ and a changed-path sweep. Its recovery rule asks whether a server commit
 descends from a pending commit without specifying the missing ancestry.
 Its sweep does not establish whether another path still needs an object.
 This proposed amendment specifies the safety conditions behind the approved
-coordination change. It preserves the existing content-merge policy.
+coordination change. It removes ADR-0623's synchronous-only save requirement
+and uses one repository revision to validate refs and the complete edit set.
 
 ## Decision
+
+**Storage and sync preserve ADR-0622's merge units.** Markdown frontmatter
+merges by field, taking each field's value whole; the body and other UTF-8
+text merge by diff3 region. Independent fields and body regions survive.
+Simultaneous insertions both stay, and an edit beats a deletion it never saw.
+Competing replacements of the same unit follow ADR-0622's winner rule.
+Passing complete files to the merge does not make the file the winning unit.
 
 **No browser page owns synchronization across tabs.** Each page runs at most
 one attempt per open repository at a time and coalesces requests made while
@@ -33,6 +41,7 @@ accepted cost.
 B   origin/main: the last incorporated server commit
 C   main: B, or one exact pending commit whose parent is B
 E   newer unsent text or deletions, relative to C
+revision   one monotonically increasing value for local publication checks
 ```
 
 Retain B and C and the complete trees and blobs needed for their file
@@ -43,16 +52,26 @@ The browser needs no history interface, but synchronization may need history.
 Git boundary metadata and small operational bookkeeping are allowed; neither
 introduces another authority or an edit history outside Git.
 
-**Every local publication validates and changes one complete state.** A save
-acknowledges success after its IndexedDB transaction completes. Commit and
-adoption compute outside the publication transaction, then validate both
-refs and the complete edit set, including paths added or removed during
-computation. They publish required objects, refs, and incorporated-edit
-cleanup together. A failed check leaves the original state available for
-another attempt. Push only the exact commit a transaction published.
+**Saves, commits, and adoptions validate the revision they read.** Every change
+to B, C, E, or the snapshot's shallow-boundary metadata increments the revision
+in the same transaction. A readonly transaction captures the revision and the
+bytes needed for a save, commit, or adoption. Compute merges and hashes
+outside the write transaction; the merge may be asynchronous. Publication
+compares the captured revision, then writes the result and increments the
+revision atomically. A mismatch leaves refs and saved edits unchanged and
+requires recomputation. This catches new and removed paths without comparing
+the entire edit set or keeping a transaction open through computation.
 
-A push acknowledgement validates the captured refs, changes only the
-confirmed ref, and preserves newer E. After C lands, merge E onto incoming
+Commit and adoption publish required objects, refs, and incorporated-edit
+cleanup together. A save acknowledges success after its publication
+transaction completes, including while offline. Push only the exact commit
+a transaction published. Snapshot reads materialize their required bytes
+before collection can remove objects they need.
+
+A push acknowledgement validates the captured B/C pair, changes only the
+confirmed ref, preserves newer E, and increments the revision. It does not
+require the revision captured before the request: newer saves do not
+invalidate evidence that exact C landed. After C lands, merge E onto incoming
 server data with C as the base. A stale acknowledgement or fetch result
 cannot rewind refs or mark a different, unpushed commit accepted.
 
@@ -66,6 +85,16 @@ cannot rewind refs or mark a different, unpushed commit accepted.
 - Missing ancestry is unknown, never proof of rejection. Fetch the connecting
   history through ordinary Git negotiation, traversing all parents. If proof
   remains unavailable, keep C and E for another attempt.
+
+Use depth 1 only for the initial snapshot fetch. Later fetches negotiate
+from B without another depth limit. A completed request does not substitute
+for the required ancestry evidence. An ancestry helper's negative answer
+at a shallow boundary remains unknown.
+
+Prepare fetched objects and ancestry evidence before capturing the revision
+and E for adoption. Network waits and unpacking do not belong inside the
+revision validation window. Reassess prepared data against the refs captured
+for publication.
 
 **Collection deletes only objects absent from the retained snapshot roots.**
 Mark the complete snapshot closures; changed paths identify candidates, not
@@ -90,17 +119,41 @@ publication correctness.
   other attempt.
 - Several tabs may duplicate transfer and packing work. Add coordination
   only if measurements justify that cost.
+- A save to an unrelated path can invalidate another computation. Measure
+  capture-to-publication latency and progress under continuous saves before
+  adding per-edit bases and revisions to avoid those retries.
 - A device may remain pending until another scheduled attempt succeeds.
   Closing a page needs no network completion; acknowledged saves are local.
 - Temporary recovery traffic can grow with server activity since B. Bounded
   retained snapshots do not promise a bounded recovery download.
 - The actual engine must demonstrate transaction aborts, new edits during
   publication, delayed pushes, shared-object collection, and mobile reopening.
+  Two tabs must also demonstrate adoption progress while one saves every
+  second, with unpacking completed before the revision snapshot; repeat with
+  large overlapping text edits and unrelated paths.
   Artifacts must demonstrate the conditional Git updates and recovery fetches
   required here. Existing storage benchmarks do not prove these transitions.
 
 ## Considered alternatives
 
+- **One Git commit per save, with no E.** Every potentially sent commit and
+  its merge-base snapshot must survive uncertain replies. Inflated table
+  trees then grow with offline saves; bounding them safely restores pending
+  identity and cleanup bookkeeping. Native Git's delta-packed history size
+  does not establish the cost of the browser's pack writer.
+- **Lazy edits with their own base blobs and revisions.** Adoption could
+  move refs without rewriting E, but reads would merge on demand and
+  collection would retain every edit's base. Included edits still need
+  revision checks, and namespace collisions need reconciliation. Keep this
+  alternative for measured contention in the simpler revision scheme.
+- **Shared fetch objects protected only by creation time.** An unfinished
+  candidate can need objects created before collection began, or reuse old
+  oids. Creation time does not establish their liveness; isolated work avoids
+  introducing candidate pins or another recovery lifecycle.
+- **Server-side commits.** A custom endpoint removes browser Git transport
+  but retains an exact pending request and atomic local adoption. It changes
+  the plain Git service and browser exchange contract; ADR-0623 already names
+  the measurements that would justify reconsidering it.
 - **A sync owner with an expiring lease.** Expiration cannot cancel a request
   already in flight; the same publication and pending-commit rules remain
   necessary.

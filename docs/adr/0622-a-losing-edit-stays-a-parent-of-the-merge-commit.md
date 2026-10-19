@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) (a folder has one write, a merge by unit where the writer acting wins): the edit that reaches `main` last wins each unit both sides changed, an edit beats a delete it never saw, and Epicenter writes no conflict marker or conflict file.
 - **Amends:** [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", "binary, or a side absent | the whole file" for a side absent: all text, `.json` included, merges by diff3 region, and an edit beats a delete it never saw.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter sync`), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`set` and its `from`).
-- **Unbuilt:** all of it: `merge(path, { base, current, change })`; diff3 regions in place of `mergeLines`; an edit beating a delete; the change winning a path where a file and a directory collide; `epicenter sync` running the merge over the local `.git` and writing its own merge commits; every save merging the whole file, the data browser's included; and `check` listing conflict markers.
+- **Unbuilt:** `merge(path, { base, current, change })`; an edit beating a delete; the change winning a path where a file and a directory collide; `epicenter sync` running the merge over the local `.git` and writing its own merge commits; every save merging the whole file, the data browser's included; and `check` listing conflict markers. The existing `mergeLines` already keeps independent regions and joins simultaneous insertions.
 
 ## Context
 
@@ -77,8 +77,9 @@ of insertions.
 `epicenter sync` on disk run the same TypeScript `merge`, `epicenter sync`
 over the local `.git`
 ([ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md)),
-and each writes its own merge commit, so every host writes `Overrode:`
-trailers. Epicenter registers no Git merge driver: no
+and each writes its own Git commit, with `Overrode:` trailers when units
+compete. The disk host writes a merge commit; the browser writes a one-parent
+commit on the server's `main`. Epicenter registers no Git merge driver: no
 `merge.epicenter.driver` config and no committed `.gitattributes` line.
 Plain `git pull` stays plain Git; the conflict markers it leaves are
 `check` lines, and `epicenter sync` refuses to commit a file holding them.
@@ -92,6 +93,11 @@ the save did not change keeps what `current` holds, so two tabs editing
 different paragraphs of one row both keep their edits; with `from: null`,
 the save wins every unit it changes.
 The data browser saves the same way and writes no file last-write-wins.
+Whole-file inputs give the merge the context to identify changed units;
+they do not choose one whole-file winner. Independent frontmatter fields
+and non-overlapping body regions survive both saves and synchronization.
+Separate paragraphs are examples of independent regions; two replacements
+of the same region still compete under the rule above.
 The file a save writes keeps the existing file's key order, with keys new
 to it appended alphabetically
 ([ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md)).
@@ -124,6 +130,9 @@ to it appended alphabetically
 
 ## Considered alternatives
 
+- **A whole-file winner for text.** Two writers changing different fields
+  or paragraphs lose an independent edit. Smaller storage or sync machinery
+  does not justify changing the merge unit.
 - **A delete beats an edit it never saw (ADR-0576).** An edit made without
   knowing of the delete disappears from the working tree.
 - **Two insertions at one place competing.** Two thoughts added on two
