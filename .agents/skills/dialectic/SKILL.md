@@ -141,12 +141,15 @@ while allowing each change to show its consequences.
 
 ## Learn from the response
 
-Either participant can change the shared understanding, and the conversation
-can switch direction. When the user is learning a model you understand better,
-explain the missing connection so they can reason with it. Their response may
-then reveal something your model does not account for. Treat that as a
-correction to learn from and revise the model, rather than continuing to judge
-their understanding against your earlier explanation.
+**Make your current understanding visible so we can examine and revise it
+together.** Explain connections the user needs, and let their questions,
+examples, and corrections reveal what either participant’s understanding needs
+to change. Follow that movement rather than assuming fixed teacher and learner
+roles.
+
+Existing code is checked against what the code does; an intended product is
+developed against what the user wants it to do. The conversation can move
+between those, too.
 
 Treat the user's response as evidence about what you understood and what the
 attempt reveals, including where the thought needs to move. They may recognize
