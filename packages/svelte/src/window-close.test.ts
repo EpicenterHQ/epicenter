@@ -173,6 +173,18 @@ test('a rejected app save keeps the window even if the app reports no held draft
 	expect(nativeWindow.listeners).toBe(1);
 });
 
+test('a file draft returned by settle keeps the window even if its owner reports no failure', async () => {
+	const { context } = await guarded();
+	context.registerWork({
+		busy: false,
+		failed: false,
+		settle: async () => [{ path: 'notes/source.md', text: 'unsaved source' }],
+	});
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(nativeWindow.listeners).toBe(1);
+});
+
 test('two close requests at once destroy the window once', async () => {
 	const { context } = await guarded();
 	await typeTitle(context, 'Oat milk');

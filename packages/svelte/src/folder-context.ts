@@ -153,7 +153,9 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			);
 		return (
 			rows.status === 'fulfilled' &&
+			rows.value.length === 0 &&
 			other.status === 'fulfilled' &&
+			other.value.files.length === 0 &&
 			!other.value.rejected
 		);
 	}
