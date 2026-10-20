@@ -476,11 +476,7 @@ export function createNotes(local: NotesFolder) {
 		},
 		/** Whether everything typed is saved on this device, as the header says it. */
 		get saves() {
-			return saveLine({
-				state: local.getSaveState(),
-				failures: local.getStatus().failures,
-				storageFailure: local.getStatus().storageFailure,
-			});
+			return saveLine(local.getStatus());
 		},
 		/** Whether a save at `path` runs, or typing there waits to be sent. */
 		isWriting(path: string) {

@@ -6,8 +6,7 @@
  * syncs nowhere, so saving is the only fact the header reports. A note is
  * saved when its text is on this device.
  */
-import type { ReadError, SaveError } from '@epicenter/folder';
-import type { SaveState } from '@epicenter/svelte/folder';
+import type { FolderStatus, ReadError, SaveError } from '@epicenter/folder';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import type { ActionError } from '@epicenter/folder/edits';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -36,21 +35,18 @@ export function describeFailure(
 
 /**
  * The header's line: whether everything typed is saved on this device.
- * Pending row and whole-file edits share `state` and `failures`.
+ * Pending row and whole-file edits share one Folder status.
  */
 export function saveLine({
-	state,
 	failures,
+	saving,
+	unsaved,
 	storageFailure,
-}: {
-	state: SaveState;
-	failures: readonly { readonly error: SaveError | undefined }[];
-	storageFailure: SaveError | null;
-}): StatusLine {
+}: FolderStatus): StatusLine {
 	const reasons = [
 		...failures.flatMap(({ error }) => (error ? [describeFailure(error)] : [])),
 	];
-	if (state === 'failed')
+	if (failures.length > 0)
 		return {
 			label: 'Not saved',
 			detail:
@@ -58,11 +54,11 @@ export function saveLine({
 				'A save failed. The edit is still on screen, and it saves again with your next change or Save again.',
 			tone: 'error',
 		};
-	if (state === 'saving') return { label: 'Saving…', tone: 'busy' };
-	if (state === 'recent-failure')
+	if (saving || unsaved.length > 0) return { label: 'Saving…', tone: 'busy' };
+	if (storageFailure !== null)
 		return {
 			label: 'A save failed',
-			detail: storageFailure ? describeFailure(storageFailure) : undefined,
+			detail: describeFailure(storageFailure),
 			tone: 'error',
 		};
 	return { label: 'Saved on this device', short: 'Saved', tone: 'good' };

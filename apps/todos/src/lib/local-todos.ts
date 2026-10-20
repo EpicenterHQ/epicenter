@@ -3,8 +3,7 @@
  * them, and what a person is told about a save. Pure functions of what the
  * table lists; the views read and write through `getFolder()`.
  */
-import type { Row, ReadError, SaveError } from '@epicenter/folder';
-import type { SaveState } from '@epicenter/svelte/folder';
+import type { FolderStatus, Row, ReadError, SaveError } from '@epicenter/folder';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import type { ActionError } from '@epicenter/folder/edits';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -84,36 +83,28 @@ export function describeFailure(
 }
 
 /** The header's summary of whether everything is saved on this device. */
-export function saveLine(
-	state: SaveState,
-	failures: readonly { readonly error: SaveError | undefined }[],
-	storageFailure: SaveError | null,
-): StatusLine {
-	switch (state) {
-		case 'saved':
-			return { label: 'Saved on this device', short: 'Saved', tone: 'good' };
-		case 'saving':
-			return { label: 'Saving…', tone: 'busy' };
-		case 'recent-failure':
-			return {
-				label: 'A save failed',
-				detail: storageFailure ? describeFailure(storageFailure) : undefined,
-				tone: 'error',
-			};
-		case 'failed': {
-			const reasons = [
-				...failures.flatMap(({ error }) =>
-					error ? [describeFailure(error)] : [],
-				),
-				...(storageFailure && failures.length === 0
-					? [describeFailure(storageFailure)]
-					: []),
-			];
-			return {
-				label: 'Not saved',
-				detail: [...new Set(reasons)].join('\n') || undefined,
-				tone: 'error',
-			};
-		}
+export function saveLine({
+	failures,
+	saving,
+	unsaved,
+	storageFailure,
+}: FolderStatus): StatusLine {
+	if (failures.length > 0) {
+		const reasons = failures.flatMap(({ error }) =>
+			error ? [describeFailure(error)] : [],
+		);
+		return {
+			label: 'Not saved',
+			detail: [...new Set(reasons)].join('\n') || undefined,
+			tone: 'error',
+		};
 	}
+	if (saving || unsaved.length > 0) return { label: 'Saving…', tone: 'busy' };
+	if (storageFailure !== null)
+		return {
+			label: 'A save failed',
+			detail: describeFailure(storageFailure),
+			tone: 'error',
+		};
+	return { label: 'Saved on this device', short: 'Saved', tone: 'good' };
 }
