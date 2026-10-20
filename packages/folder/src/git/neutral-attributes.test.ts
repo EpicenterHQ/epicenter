@@ -13,8 +13,8 @@
  * - A link at the path is replaced, and the file it points to is untouched
  *
  * See also:
- * - `../directory-folder.test.ts`, `packages/cli/src/history.test.ts`, and
- *   `packages/cli/src/installed-apps.test.ts` for the checkouts it governs
+ * - `../directory-history.test.ts` and `packages/cli/src/history.test.ts`
+ *   for the checkouts it governs
  */
 import { expect, test } from 'bun:test';
 import { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';

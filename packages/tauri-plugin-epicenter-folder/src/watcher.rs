@@ -12,7 +12,9 @@
 //!   `/`, once per batch;
 //! - inside `.git`, only history moving is reported, as the one path `.git`:
 //!   `HEAD`, `packed-refs`, or a ref under `refs/`. Objects, the index, logs,
-//!   lock files, and the engine's own scratch and index copies are not;
+//!   lock files, index copies, and an older shell's staged files are not.
+//!   A save stages beside the root, outside the watch, so its staged file
+//!   is never reported, only the path it is renamed to;
 //! - `paths: null` means anything may have changed: when watching begins,
 //!   when the operating system reports it dropped events or must rescan
 //!   (notify's `Flag::Rescan`, FSEvents' `MustScanSubDirs`), when a watch
@@ -394,8 +396,20 @@ mod tests {
             event(EventKind::Access(AccessKind::Any), &["todos/a.md"]),
             Event::new(EventKind::Modify(ModifyKind::Any)).add_path(PathBuf::from("/folders/other/a.md")),
             Event::new(EventKind::Modify(ModifyKind::Any)).add_path(PathBuf::from("/folders/notes2/a.md")),
+            Event::new(EventKind::Create(CreateKind::File))
+                .add_path(PathBuf::from("/folders/.notes.epicenter-scratch/staged-1")),
         ];
         assert_eq!(batch(&root(), &events), Batch::Nothing);
+    }
+
+    /// A save renames its staged file from the scratch directory beside the
+    /// root over its path: only the path is reported.
+    #[test]
+    fn a_save_renamed_in_from_beside_the_root_reports_only_its_path() {
+        let events = [Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(PathBuf::from("/folders/.notes.epicenter-scratch/staged-1"))
+            .add_path(root().join("todos/a.md"))];
+        assert_eq!(batch(&root(), &events), paths(&["todos/a.md"]));
     }
 
     #[test]

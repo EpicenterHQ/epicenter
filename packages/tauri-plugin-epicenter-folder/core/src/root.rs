@@ -2,12 +2,16 @@
 //!
 //! The shell names a folder's directory when it registers the scope. The
 //! first grant makes sure it is a real directory, creating an application
-//! folder's when it is missing (`prepare_directory`), resolves it once
-//! (`resolve_root`), and refuses a layout whose Git state would send writes
-//! elsewhere (`verify_layout`), which the `epicenter` CLI checks again
-//! before each history operation (`gitLayoutProblem` in `@epicenter/folder`).
-//! Whether a data folder may get a repository of its own is the CLI's
-//! question, asked when it would commit (`enclosingRepository`).
+//! folder's when it is missing (`prepare_directory`), and resolves it once
+//! (`resolve_root`). What `.git` is, if anything, does not matter here, as
+//! it does not to the Bun host (`localRoot` in `@epicenter/folder`'s
+//! `native/directory.ts`): no `.git`, a `.git` file or link (a linked
+//! worktree or submodule), and a repository all open and save alike, since
+//! a save stages beside the root and the shell runs no Git. Git state that
+//! would send history writes elsewhere is the `epicenter` CLI's to refuse,
+//! before each history operation (`gitLayoutProblem` in `@epicenter/folder`),
+//! as is whether a data folder may get a repository of its own
+//! (`enclosingRepository`).
 
 use std::fs;
 use std::io::ErrorKind;
@@ -84,103 +88,4 @@ pub fn resolve_root(root: &Path) -> Result<PathBuf, String> {
         ));
     }
     Ok(resolved)
-}
-
-/// Refuse a root whose Git state would send writes somewhere else:
-///
-/// - `.git` as a symbolic link or a `gitdir:` file (a linked worktree or
-///   submodule);
-/// - a `.git/commondir` file, which moves the objects and refs to another
-///   repository;
-/// - `.git/objects`, `.git/refs`, or `.git/logs` as a link, or a link in
-///   `objects` or anywhere in `refs` and `logs`, through which
-///   `hash-object -w` and `update-ref` would write outside the folder;
-/// - a linked `.git/epicenter` or scratch directory. Scratch files are
-///   renamed into the folder, so they must live inside it.
-///
-/// The grant runs this, and the `epicenter` CLI runs the same check before
-/// each history operation, since another program may change `.git` while the
-/// folder is open. It does
-/// not defend against a link swapped in between that check and the command.
-pub fn verify_layout(root: &Path) -> Result<(), String> {
-    let refuse = |label: &str, why: &str| {
-        format!(
-            "The native folder '{}' cannot be opened: {label} {why}.",
-            root.display()
-        )
-    };
-    let inspect = |path: &Path, label: &str| match fs::symlink_metadata(path) {
-        Ok(stats) => Ok(Some(stats.file_type())),
-        Err(cause) if cause.kind() == ErrorKind::NotFound => Ok(None),
-        Err(cause) => Err(refuse(label, &format!("could not be inspected: {cause}"))),
-    };
-    let git = root.join(".git");
-    match inspect(&git, ".git")? {
-        // No repository yet; `git init` makes one.
-        None => return Ok(()),
-        Some(kind) if kind.is_symlink() => return Err(refuse(".git", "is a symbolic link")),
-        Some(kind) if !kind.is_dir() => {
-            return Err(refuse(".git", "is a file that points at another Git directory"))
-        }
-        Some(_) => {}
-    }
-    if inspect(&git.join("commondir"), ".git/commondir")?.is_some() {
-        return Err(refuse(
-            ".git/commondir",
-            "exists, so the repository's objects and refs live in another Git directory",
-        ));
-    }
-    // How deep each directory is searched for links: every loose object is
-    // a file one level below `objects`, while refs and their logs nest.
-    for (name, depth) in [("objects", 1), ("refs", usize::MAX), ("logs", usize::MAX)] {
-        refuse_links(&git.join(name), &format!(".git/{name}"), depth, &refuse)?;
-    }
-    let mut current = git;
-    for (name, label) in [
-        ("epicenter", ".git/epicenter"),
-        ("scratch", ".git/epicenter/scratch"),
-    ] {
-        current.push(name);
-        match inspect(&current, label)? {
-            // Nothing below an absent directory exists yet; opening creates it.
-            None => return Ok(()),
-            Some(kind) if kind.is_symlink() => return Err(refuse(label, "is a symbolic link")),
-            Some(kind) if !kind.is_dir() => return Err(refuse(label, "is not a directory")),
-            Some(_) => {}
-        }
-    }
-    Ok(())
-}
-
-/// Refuse `path` if it is a link, or holds one within `depth` levels.
-fn refuse_links(
-    path: &Path,
-    label: &str,
-    depth: usize,
-    refuse: &dyn Fn(&str, &str) -> String,
-) -> Result<(), String> {
-    let kind = match fs::symlink_metadata(path) {
-        Ok(stats) => stats.file_type(),
-        Err(cause) if cause.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(cause) => return Err(refuse(label, &format!("could not be inspected: {cause}"))),
-    };
-    if kind.is_symlink() {
-        return Err(refuse(label, "is a symbolic link"));
-    }
-    if !kind.is_dir() || depth == 0 {
-        return Ok(());
-    }
-    let entries =
-        fs::read_dir(path).map_err(|cause| refuse(label, &format!("could not be read: {cause}")))?;
-    for entry in entries {
-        let entry = entry.map_err(|cause| refuse(label, &format!("could not be read: {cause}")))?;
-        let name = entry.file_name();
-        refuse_links(
-            &entry.path(),
-            &format!("{label}/{}", name.to_string_lossy()),
-            depth - 1,
-            refuse,
-        )?;
-    }
-    Ok(())
 }

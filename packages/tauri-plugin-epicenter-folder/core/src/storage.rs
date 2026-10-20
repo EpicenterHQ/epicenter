@@ -13,14 +13,16 @@
 //!   a read finds nothing there, and a change refuses to land on it;
 //! - `.git` at the root is Git's, never listed and never named.
 //!
-//! `put` is the one change of a file. Its bytes are staged in a new file
-//! under `.git/epicenter/scratch` and renamed over the path, so a reader and
-//! a crash see the old file or the new one, and a new file never appears
-//! empty. Only the check of what the path holds and the rename (or the
-//! removal) hold the folder's publishing turn (`registry::PageWork`), so no
-//! other save through the shell, and no save by the Bun host, lands between
-//! them. A staged file a stopped save left behind is removed once it is an
-//! hour old (`sweep_scratch`).
+//! `put` is the one change of a file. Its bytes are staged in a new file in
+//! `.<name>.epicenter-scratch` beside the root, where the Bun host stages
+//! too, and renamed over the path, so a reader and a crash see the old file
+//! or the new one, and a new file never appears empty. Saving needs no Git:
+//! it makes nothing in the root but the files saved, and never touches
+//! `.git`, whatever is there. Only the check of what the path holds and the
+//! rename (or the removal) hold the folder's publishing turn
+//! (`registry::PageWork`), so no other save through the shell, and no save
+//! by the Bun host, lands between them. A staged file a stopped save left
+//! behind is removed once it is an hour old (`sweep_scratch`).
 //!
 //! A link another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
@@ -35,14 +37,76 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use specta::Type;
 
-use crate::page_files::{self, linked};
+use crate::page_files;
 use crate::paths::{path_problem, readable_path_problem};
 
 /// The folder's private Git directory, which no listing shows.
 const PRIVATE_DIRECTORY: &str = ".git";
 
-/// Where `put` stages a file's bytes, the same directory the Bun host uses.
-pub const SCRATCH_DIRECTORY: &str = ".git/epicenter/scratch";
+/// Where `put` stages a file's bytes: `.<name>.epicenter-scratch` beside the
+/// canonical `root`, the directory the Bun host stages in
+/// (`scratchDirectory` in `@epicenter/folder`'s `native/directory.ts`). It
+/// is on the parent's file system, so a root that is itself a mount point
+/// cannot be saved to; its rename fails and changes nothing.
+pub fn scratch_directory(root: &Path) -> Result<PathBuf, String> {
+    let (Some(parent), Some(name)) = (root.parent(), root.file_name()) else {
+        return Err(format!(
+            "The folder at {} has no parent directory to stage its saves in.",
+            root.display()
+        ));
+    };
+    let mut directory = std::ffi::OsString::from(".");
+    directory.push(name);
+    directory.push(".epicenter-scratch");
+    Ok(parent.join(directory))
+}
+
+/// Why the scratch directory at `scratch` cannot hold staged bytes, if it
+/// cannot: something is there that is a link or not a directory. A link is
+/// never followed, so staged bytes never land somewhere else.
+fn scratch_problem(scratch: &Path) -> Option<String> {
+    let kind = match fs::symlink_metadata(scratch) {
+        Ok(metadata) => metadata.file_type(),
+        Err(cause) => {
+            return Some(format!(
+                "'{}' could not be inspected: {cause}",
+                scratch.display()
+            ))
+        }
+    };
+    if kind.is_dir() {
+        return None;
+    }
+    Some(format!(
+        "'{}' is {}, so nothing was staged there. Remove it, then save again.",
+        scratch.display(),
+        if kind.is_symlink() {
+            "a symbolic link"
+        } else {
+            "not a directory"
+        }
+    ))
+}
+
+/// The scratch directory beside `root`, made when it is missing, and
+/// refused when it is a link or not a directory.
+fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
+    let scratch = scratch_directory(root)?;
+    match fs::create_dir(&scratch) {
+        Ok(()) => {}
+        Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {}
+        Err(cause) => {
+            return Err(format!(
+                "'{}' could not be made: {cause}",
+                scratch.display()
+            ))
+        }
+    }
+    match scratch_problem(&scratch) {
+        None => Ok(scratch),
+        Some(problem) => Err(problem),
+    }
+}
 
 /// How old a staged file must be before `sweep_scratch` removes it, in
 /// milliseconds: `STALE_SCRATCH_MS` in `boundary.ts`. A save renames or
@@ -683,20 +747,27 @@ pub fn put<Turn>(
     if let Found::UnderFile { ancestor } = found {
         return Err(StorageError::NotADirectory { path: ancestor });
     }
-    let scratch_directory = full(root, SCRATCH_DIRECTORY);
-    let scratch = scratch_directory.join(scratch_name(now_ms()));
-    let staged = page_files::mkdir(root, &scratch_directory).and_then(|()| {
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&scratch)
-            .and_then(|mut file| file.write_all(bytes))
-            .map_err(|cause| format!("'{}' could not be staged: {cause}", scratch.display()))
-    });
-    if let Err(message) = staged {
+    let scratch = prepare_scratch(root)
+        .map_err(|message| failed(&message))?
+        .join(scratch_name(now_ms()));
+    let unstaged = |cause: io::Error| {
+        failed(&format!(
+            "'{}' could not be staged: {cause}",
+            scratch.display()
+        ))
+    };
+    // `create_new`, so nothing already at the name is written through.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&scratch)
+        .map_err(unstaged)?;
+    if let Err(cause) = file.write_all(bytes) {
+        drop(file);
         let _ = fs::remove_file(&scratch);
-        return Err(failed(&message));
+        return Err(unstaged(cause));
     }
+    drop(file);
     let published = (|| -> Result<PutOutcome, StorageError> {
         let _held = turn().map_err(|message| failed(&message))?;
         let found = find(root, path).map_err(|cause| failed(&cause))?;
@@ -755,17 +826,21 @@ pub fn is_stale_scratch(name: &str, now_ms: u64) -> bool {
     }
 }
 
-/// Remove the staged files under `root`'s scratch directory that a stopped
-/// save left more than an hour before `now_ms`. Younger ones may belong to
-/// a save still running in another process. A staging directory reached
-/// through a link is left alone, and what cannot be removed stays: it is
-/// inert.
+/// Remove the staged files in the scratch directory beside `root` that a
+/// stopped save left more than an hour before `now_ms`: regular files whose
+/// names a stager made (`is_stale_scratch`). Younger ones may belong to a
+/// save still running in another process; any other file, a directory, or a
+/// link stays. A scratch directory that is a link or not a directory is left
+/// alone, and what cannot be removed stays: it is inert. Nothing in the
+/// root, `.git` included, is touched.
 pub fn sweep_scratch(root: &Path, now_ms: u64) {
-    let names: Vec<String> = SCRATCH_DIRECTORY.split('/').map(str::to_string).collect();
-    if !matches!(linked(root, &names), Ok(false)) {
+    let Ok(scratch) = scratch_directory(root) else {
+        return;
+    };
+    if scratch_problem(&scratch).is_some() {
         return;
     }
-    let Ok(entries) = fs::read_dir(full(root, SCRATCH_DIRECTORY)) else {
+    let Ok(entries) = fs::read_dir(&scratch) else {
         return;
     };
     for entry in entries.flatten() {

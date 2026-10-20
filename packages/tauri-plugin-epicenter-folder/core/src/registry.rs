@@ -39,7 +39,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::lock::{SaveLock, SAVE_LOCK_WAIT};
-use crate::root::{prepare_directory, resolve_root, verify_layout, PrepareError};
+use crate::root::{prepare_directory, resolve_root, PrepareError};
 
 /// Whose directory a folder is, which decides what the shell may do to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -265,9 +265,10 @@ impl Registry {
     }
 
     /// Give `window` the directory of `scope`. A grant creates a missing
-    /// application folder when its original parent is still in place. Every grant refuses a missing data folder
-    /// and checks for a linked root or Git state that would send writes
-    /// elsewhere. Later grants keep the original canonical root.
+    /// application folder when its original parent is still in place. Every
+    /// grant refuses a missing data folder and a root that is a link or not
+    /// a directory; what `.git` is, if anything, does not matter. Later
+    /// grants keep the original canonical root.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {
@@ -294,7 +295,6 @@ impl Registry {
             PrepareError::Failed(message) => unavailable(message),
         })?;
         let root = resolve_root(&folder.root).map_err(unavailable)?;
-        verify_layout(&root).map_err(unavailable)?;
         if let Some(granted) = &entry.granted {
             if granted != &root {
                 return Err(unavailable(format!(

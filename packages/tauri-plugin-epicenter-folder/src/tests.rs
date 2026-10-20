@@ -16,7 +16,10 @@
 //! - A grant adds nothing to the app's access control, so an app that
 //!   already scopes another permission grants and reads as any other does.
 //! - Changes land only after a grant, only under the root, and never in
-//!   Git's private state. A grant sweeps staged files a stopped save left.
+//!   Git's private state. A save stages beside the root and makes no
+//!   `.git`; a `.git` file or link opens and saves and is left as it is. A
+//!   grant sweeps staged files a stopped save left, and not an older shell's
+//!   in `.git/epicenter/scratch`.
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
@@ -480,9 +483,14 @@ fn two_windows_saving_one_file_over_the_same_version_publish_once() {
     assert_eq!(staged(&fixture), Vec::<String>::new());
 }
 
-/// The staged files left in the folder.
+/// The scratch directory beside the folder, where a put stages its bytes.
+fn scratch(fixture: &Fixture) -> PathBuf {
+    epicenter_folder_core::storage::scratch_directory(&fixture.root).unwrap()
+}
+
+/// The staged files left beside the folder.
 fn staged(fixture: &Fixture) -> Vec<String> {
-    std::fs::read_dir(fixture.root.join(".git/epicenter/scratch"))
+    std::fs::read_dir(scratch(fixture))
         .map(|entries| {
             entries
                 .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -533,6 +541,8 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     }
     assert!(!fixture.root.join(".git/config").exists());
     assert!(!fixture.root.parent().unwrap().join("outside.md").exists());
+    // Saving made no `.git`: a folder has none until the CLI makes one.
+    assert!(!fixture.root.join(".git").exists());
 }
 
 /// The lowercase hexadecimal SHA-256 the page computes.
@@ -746,14 +756,17 @@ fn two_windows_each_read_only_their_own_folder() {
     assert!(text(&children(&other, "notes", "").unwrap_err()).contains("WindowNotPermitted"));
 }
 
-/// A save that stopped before its rename leaves its staged file. A grant
-/// removes the ones an hour old, and none younger, which another process's
-/// save may still be about to rename.
+/// A save that stopped before its rename leaves its staged file beside the
+/// folder. A grant removes the ones an hour old, and none younger, which
+/// another process's save may still be about to rename. What an older shell
+/// staged in `.git/epicenter/scratch` is left as it is.
 #[test]
 fn a_grant_sweeps_staged_files_a_stopped_save_left() {
     let fixture = fixture("sweep");
-    let scratch = fixture.root.join(".git/epicenter/scratch");
+    let scratch = scratch(&fixture);
+    let old_git_scratch = fixture.root.join(".git/epicenter/scratch");
     std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::create_dir_all(&old_git_scratch).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -773,9 +786,47 @@ fn a_grant_sweeps_staged_files_a_stopped_save_left() {
     for staged in [&old, &young] {
         std::fs::write(scratch.join(staged), b"x").unwrap();
     }
+    std::fs::write(old_git_scratch.join(&old), b"older shell").unwrap();
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
     assert_eq!(staged(&fixture), [young]);
+    assert_eq!(std::fs::read(old_git_scratch.join(&old)).unwrap(), b"older shell");
+}
+
+/// A linked worktree's or submodule's `.git` file, or a `.git` link, does
+/// not keep a folder from opening: the grant and a save go through, and
+/// `.git` stays as it was.
+#[test]
+fn a_folder_with_a_git_file_or_link_opens_and_saves() {
+    let worktree = fixture("git-file");
+    std::fs::create_dir_all(&worktree.root).unwrap();
+    let gitdir = "gitdir: /elsewhere/.git/worktrees/notes\n";
+    std::fs::write(worktree.root.join(".git"), gitdir).unwrap();
+    let main = window(&worktree.app, "main");
+    grant(&main).unwrap();
+    assert_eq!(put(&main, "todos/a.md", Some(b"milk\n"), None).unwrap(), "landed");
+    assert_eq!(std::fs::read_to_string(worktree.root.join(".git")).unwrap(), gitdir);
+    assert_eq!(
+        children(&main, "notes", "").unwrap(),
+        json!({ "files": [], "directories": ["todos"] })
+    );
+    assert_eq!(staged(&worktree), Vec::<String>::new());
+    worktree.app.folders().shutdown();
+
+    #[cfg(unix)]
+    {
+        let linked = fixture("git-link");
+        let repository = linked.root.with_file_name("repository");
+        std::fs::create_dir_all(&repository).unwrap();
+        std::fs::create_dir_all(&linked.root).unwrap();
+        std::os::unix::fs::symlink(&repository, linked.root.join(".git")).unwrap();
+        let main = window(&linked.app, "main");
+        grant(&main).unwrap();
+        assert_eq!(put(&main, "todos/a.md", Some(b"milk\n"), None).unwrap(), "landed");
+        assert!(std::fs::read_dir(&repository).unwrap().next().is_none());
+        assert_eq!(staged(&linked), Vec::<String>::new());
+        linked.app.folders().shutdown();
+    }
 }
 
 /// Before Tauri 2.12 a capability added at run time numbered its scopes from
@@ -933,17 +984,15 @@ fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
     std::fs::remove_file(root.join("todos/c.md")).unwrap();
     until_heard(&main_hears, &["todos/c.md"]);
 
-    // A save through the plugin, before the folder has a repository, stages
-    // in `.git/epicenter/scratch`. The saved path is reported, and `.git`
-    // once for the directory the save made; the staged file is not.
+    // A save through the plugin stages beside the folder, outside the
+    // watch. The saved path is reported, and nothing else: the save made no
+    // `.git`, and the staged file is not in the folder.
     settle();
     while main_hears.try_recv().is_ok() {}
     write(&fixture, &main, "kv.json", "{}\n").unwrap();
     let heard = until_heard(&main_hears, &["kv.json"]);
-    assert!(
-        heard.iter().all(|path| path == "kv.json" || path == ".git"),
-        "{heard:?}"
-    );
+    assert!(heard.iter().all(|path| path == "kv.json"), "{heard:?}");
+    assert!(!root.join(".git").exists());
 
     // A window permitted later hears what changes from then on.
     fixture.app.folders().permit("notes", "side").unwrap();

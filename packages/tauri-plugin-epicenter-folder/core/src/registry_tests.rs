@@ -7,8 +7,9 @@
 //!   another window's, returns the same root.
 //! - A second scope on that root, as the Folders window's `data:<name>` and
 //!   an app's own scope are, and a second shell on it, are granted it too.
-//! - A linked `.git` or a linked folder directory is refused; a linked
-//!   parent is not.
+//! - A linked folder directory is refused; a linked parent is not.
+//! - What `.git` is does not matter: no `.git`, a `.git` file or link, and
+//!   Git state linked elsewhere are granted, saved to, and left as they are.
 //! - An application folder's missing directory is created; a data folder's
 //!   is refused `Missing`, and nothing is created.
 //! - Shutdown refuses new work and waits for none already running.
@@ -188,27 +189,78 @@ fn a_second_scope_and_a_second_shell_are_granted_the_same_root() {
     other_shell.shutdown();
 }
 
-#[cfg(unix)]
+/// Grant `root` to a new registry's window and save a file through it, as a
+/// page does: the save's outcome.
+fn grant_and_save(root: &Path) -> Result<PutOutcome, storage::StorageError> {
+    let registry = registry(root, "main");
+    registry.grant("notes", "main").unwrap();
+    let (granted, work) = registry.admit_page_work("notes", "main").unwrap();
+    let saved = storage::put(&granted, "todos/a.md", Some(b"milk"), None, || {
+        work.publishing()
+    });
+    registry.shutdown();
+    saved
+}
+
+/// The names directly in `directory`, sorted.
+fn names(directory: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// A plain directory with no `.git` is granted and saved to, and the save
+/// makes nothing in it but the file: no `.git`, no scratch.
 #[test]
-fn a_linked_git_directory_is_refused() {
-    let temp = TempDir::new("grant-linked-git");
-    let root = temp.folder("linked");
-    let elsewhere = temp.folder("elsewhere");
-    std::os::unix::fs::symlink(&elsewhere, root.join(".git")).unwrap();
-    assert!(matches!(
-        registry(&root, "main").grant("notes", "main"),
-        Err(GrantError::Unavailable { .. })
-    ));
+fn a_directory_with_no_git_is_granted_and_saved_to() {
+    let temp = TempDir::new("grant-no-git");
+    let root = temp.folder("notes");
+    assert_eq!(grant_and_save(&root), Ok(PutOutcome::Landed));
+    assert_eq!(std::fs::read(root.join("todos/a.md")).unwrap(), b"milk");
+    assert_eq!(names(&root), ["todos"]);
+    assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
+}
+
+/// A linked worktree's or submodule's `.git` file, and a `.git` link, open
+/// and save; each stays as it was, and nothing is written through it.
+#[test]
+fn a_git_file_or_link_is_granted_and_saved_to() {
+    let temp = TempDir::new("grant-git-file");
+    let worktree = temp.folder("worktree");
+    let gitdir = "gitdir: /elsewhere/.git/worktrees/worktree\n";
+    std::fs::write(worktree.join(".git"), gitdir).unwrap();
+    assert_eq!(grant_and_save(&worktree), Ok(PutOutcome::Landed));
+    assert_eq!(
+        std::fs::read_to_string(worktree.join(".git")).unwrap(),
+        gitdir
+    );
+    assert_eq!(names(&worktree), [".git", "todos"]);
+    #[cfg(unix)]
+    {
+        let linked = temp.folder("linked");
+        let repository = temp.folder("repository");
+        std::os::unix::fs::symlink(&repository, linked.join(".git")).unwrap();
+        assert_eq!(grant_and_save(&linked), Ok(PutOutcome::Landed));
+        assert!(std::fs::symlink_metadata(linked.join(".git"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(names(&repository).is_empty());
+    }
 }
 
 /// Git state that would send `hash-object -w` or `update-ref` elsewhere is
-/// refused at the grant, as before every `git` run.
+/// the `epicenter` CLI's to refuse before each history operation; the shell
+/// runs no Git, so it grants the folder and saves without touching `.git`.
 #[cfg(unix)]
 #[test]
-fn git_state_linked_elsewhere_is_refused() {
+fn git_state_linked_elsewhere_does_not_block_a_grant_or_a_save() {
     let temp = TempDir::new("grant-linked-state");
     let elsewhere = temp.folder("elsewhere");
-    for planted in ["objects", "refs", "logs", "commondir"] {
+    for planted in ["objects", "refs", "logs", "commondir", "epicenter"] {
         let root = temp.folder(&format!("notes-{planted}"));
         std::fs::create_dir_all(root.join(".git")).unwrap();
         let path = root.join(".git").join(planted);
@@ -217,14 +269,10 @@ fn git_state_linked_elsewhere_is_refused() {
         } else {
             std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
         }
-        assert!(
-            matches!(
-                registry(&root, "main").grant("notes", "main"),
-                Err(GrantError::Unavailable { message }) if message.contains(&format!(".git/{planted}"))
-            ),
-            "{planted}"
-        );
+        assert_eq!(grant_and_save(&root), Ok(PutOutcome::Landed), "{planted}");
+        assert_eq!(names(&root.join(".git")), [planted], "{planted}");
     }
+    assert!(names(&elsewhere).is_empty());
 }
 
 #[cfg(unix)]
@@ -340,10 +388,8 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
             .all(|(_, landed)| *landed == Ok(PutOutcome::Stale)),
         "{outcomes:?}"
     );
-    assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
-        .unwrap()
-        .next()
-        .is_none());
+    assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
+    assert!(!root.join(".git").exists());
     shell.shutdown();
     other_shell.shutdown();
 }
@@ -422,9 +468,6 @@ fn a_shell_save_waits_for_another_process_save_and_then_is_stale() {
 
     assert_eq!(ours.join().unwrap(), Ok(PutOutcome::Stale));
     assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
-    assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
-        .unwrap()
-        .next()
-        .is_none());
+    assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
     registry.shutdown();
 }

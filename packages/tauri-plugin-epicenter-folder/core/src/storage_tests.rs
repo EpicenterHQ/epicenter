@@ -9,8 +9,15 @@
 //! - A put lands only on what the page expected and is otherwise `Stale`,
 //!   changing nothing; `None` bytes remove the file; a refused save lock is
 //!   `Io` and changes nothing; no staged file outlives a put.
+//! - A put stages beside the root, in `.<name>.epicenter-scratch`, and
+//!   makes and changes nothing in `.git`: a folder with no `.git`, or with a
+//!   `.git` file or link, saves alike, and old `.git/epicenter/scratch`
+//!   data stays as it is.
+//! - A scratch directory that is a link or not a directory refuses a put as
+//!   `Io`, and the file at the path stays as it was.
 //! - A directory is made with its ancestors and removed only when empty.
-//! - Staged files an hour old are swept, and nothing younger or foreign.
+//! - Staged files an hour old are swept, and nothing younger or foreign: no
+//!   other file, no directory, no link.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -58,9 +65,14 @@ fn rmdir_now(root: &Path, path: &str) -> Result<(), StorageError> {
     rmdir(root, path, free)
 }
 
-/// The staged files left under `root`.
+/// The scratch directory beside `root`.
+fn scratch(root: &Path) -> PathBuf {
+    scratch_directory(root).unwrap()
+}
+
+/// The staged files left beside `root`.
 fn staged(root: &Path) -> Vec<String> {
-    fs::read_dir(root.join(SCRATCH_DIRECTORY))
+    fs::read_dir(scratch(root))
         .map(|entries| {
             entries
                 .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -431,22 +443,95 @@ fn a_put_whose_turn_is_refused_changes_nothing() {
     );
 }
 
-/// Before the first commit makes a repository (ADR-0535), a save stages its
-/// bytes in `.git/epicenter/scratch`, so `.git` is made on the way and
-/// nothing else is put in it.
+/// The names directly in `directory`, sorted.
+fn names(directory: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// A folder needs no Git to save: a put stages beside the root, in the
+/// directory the Bun host stages in, and the root holds only what was saved.
 #[test]
-fn a_folder_with_no_repository_yet_stages_its_first_save() {
-    let (_temp, root) = folder("storage-no-repository", &[]);
+fn a_folder_with_no_git_saves_and_stages_beside_the_root() {
+    let (temp, root) = folder("storage-no-git", &[("readme.txt", b"plain\n")]);
+    assert_eq!(scratch(&root), temp.path().join(".notes.epicenter-scratch"));
     assert_eq!(
-        put_now(&root, "todos.md", b(b"milk"), None),
+        put_now(&root, "todos/a.md", b(b"milk"), None),
         Ok(PutOutcome::Landed)
     );
-    assert_eq!(fs::read(root.join("todos.md")).unwrap(), b"milk");
-    let made: Vec<_> = fs::read_dir(root.join(".git"))
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name())
-        .collect();
-    assert_eq!(made, ["epicenter"]);
+    assert_eq!(
+        put_now(&root, "todos/a.md", b(b"eggs"), Some(&sha256(b"milk"))),
+        Ok(PutOutcome::Landed)
+    );
+    assert_eq!(
+        put_now(&root, "readme.txt", None, Some(&sha256(b"plain\n"))),
+        Ok(PutOutcome::Landed)
+    );
+    assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"eggs");
+    assert_eq!(names(&root), ["todos"]);
+    assert!(scratch(&root).is_dir());
+    assert!(staged(&root).is_empty());
+}
+
+/// A `.git` file (a linked worktree or submodule) and a `.git` link are left
+/// as they are: a put lands, writes nothing through them, and makes nothing
+/// in `.git`.
+#[test]
+fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
+    let gitdir = b"gitdir: /elsewhere/.git/worktrees/notes\n";
+    let (_temp, root) = folder("storage-git-file", &[(".git", gitdir)]);
+    assert_eq!(
+        put_now(&root, "todos/a.md", b(b"milk"), None),
+        Ok(PutOutcome::Landed)
+    );
+    assert_eq!(fs::read(root.join(".git")).unwrap(), gitdir);
+    assert_eq!(names(&root), [".git", "todos"]);
+    assert!(staged(&root).is_empty());
+    #[cfg(unix)]
+    {
+        let (temp, root) = folder("storage-git-link", &[]);
+        let repository = temp.folder("repository");
+        std::os::unix::fs::symlink(&repository, root.join(".git")).unwrap();
+        assert_eq!(
+            put_now(&root, "todos/a.md", b(b"milk"), None),
+            Ok(PutOutcome::Landed)
+        );
+        assert!(fs::symlink_metadata(root.join(".git"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(
+            names(&repository).is_empty(),
+            "nothing was written through the link"
+        );
+        assert!(staged(&root).is_empty());
+    }
+}
+
+/// Staged files an older shell left in `.git/epicenter/scratch` are not its
+/// scratch any more: a put stages beside the root, and neither a put nor a
+/// sweep touches them.
+#[test]
+fn old_git_scratch_is_left_untouched() {
+    let old = scratch_name(1);
+    let (_temp, root) = folder(
+        "storage-old-git-scratch",
+        &[(&format!(".git/epicenter/scratch/{old}"), b"older shell")],
+    );
+    assert_eq!(
+        put_now(&root, "a.md", b(b"a"), None),
+        Ok(PutOutcome::Landed)
+    );
+    sweep_scratch(&root, now_ms());
+    assert_eq!(
+        fs::read(root.join(".git/epicenter/scratch").join(&old)).unwrap(),
+        b"older shell"
+    );
+    assert_eq!(names(&root.join(".git/epicenter/scratch")), [old]);
     assert!(staged(&root).is_empty());
 }
 
@@ -583,8 +668,8 @@ fn staged_names_age_as_the_page_reads_them() {
 
 #[test]
 fn a_sweep_removes_only_staged_files_an_hour_old() {
-    let (_temp, root) = folder("storage-sweep", &[]);
-    let scratch = root.join(SCRATCH_DIRECTORY);
+    let (temp, root) = folder("storage-sweep", &[]);
+    let scratch = scratch(&root);
     fs::create_dir_all(&scratch).unwrap();
     let now = now_ms();
     let hour = 60 * 60 * 1000;
@@ -595,35 +680,81 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
     }
     let old_directory = scratch_name(now - 2 * hour);
     fs::create_dir(scratch.join(&old_directory)).unwrap();
+    let mut expected = vec![young, "foreign".to_string(), old_directory];
+    // A link named as an old staged file is not one, and what it reaches
+    // stays.
+    #[cfg(unix)]
+    {
+        let target = temp.path().join("target.md");
+        fs::write(&target, b"theirs").unwrap();
+        let old_link = scratch_name(now - 2 * hour);
+        std::os::unix::fs::symlink(&target, scratch.join(&old_link)).unwrap();
+        expected.push(old_link);
+    }
     sweep_scratch(&root, now);
     let mut left = staged(&root);
     left.sort();
-    let mut expected = vec![young, "foreign".to_string(), old_directory];
     expected.sort();
     assert_eq!(left, expected);
-    // A folder with no staging directory sweeps nothing.
-    let (_other, empty) = folder("storage-sweep-empty", &[]);
+    #[cfg(unix)]
+    assert_eq!(fs::read(temp.path().join("target.md")).unwrap(), b"theirs");
+    // A folder with nothing staged sweeps nothing, and makes nothing.
+    let (other, empty) = folder("storage-sweep-empty", &[]);
     sweep_scratch(&empty, now);
-    assert!(!empty.join(".git").exists());
+    assert_eq!(names(other.path()), ["notes"]);
+    assert!(names(&empty).is_empty());
 }
 
+/// A scratch directory that is a link is never followed: nothing is staged
+/// through it or swept through it, a put is `Io`, and the file at the path
+/// stays as it was.
 #[cfg(unix)]
 #[test]
-fn a_linked_staging_directory_is_not_swept_or_staged_in() {
-    let (temp, root) = folder("storage-sweep-link", &[]);
+fn a_linked_scratch_directory_is_not_swept_or_staged_in() {
+    let (temp, root) = folder("storage-sweep-link", &[("a.md", b"accepted")]);
     let elsewhere = temp.folder("elsewhere");
     let old = scratch_name(1);
     fs::write(elsewhere.join(&old), b"theirs").unwrap();
-    fs::create_dir_all(root.join(".git/epicenter")).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, root.join(SCRATCH_DIRECTORY)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, scratch(&root)).unwrap();
     sweep_scratch(&root, now_ms());
     assert!(elsewhere.join(&old).exists());
-    assert!(matches!(
-        put_now(&root, "a.md", b(b"x"), None),
-        Err(StorageError::Io { .. })
-    ));
-    assert!(!root.join("a.md").exists());
-    assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 1);
+    for (path, if_match) in [("a.md", Some(sha256(b"accepted"))), ("b.md", None)] {
+        let refused = put_now(&root, path, b(b"mine"), if_match.as_deref()).unwrap_err();
+        let StorageError::Io { message, .. } = &refused else {
+            panic!("{refused:?}");
+        };
+        assert!(message.contains("symbolic link"), "{message}");
+    }
+    assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
+    assert!(!root.join("b.md").exists());
+    assert_eq!(names(&elsewhere), [old]);
+    // A removal stages nothing, so it still lands.
+    assert_eq!(
+        put_now(&root, "a.md", None, Some(&sha256(b"accepted"))),
+        Ok(PutOutcome::Landed)
+    );
+}
+
+/// A file where the scratch directory would be refuses a put as `Io`, and
+/// it and the file at the path stay as they were.
+#[test]
+fn a_scratch_path_that_is_not_a_directory_refuses_a_put() {
+    let (_temp, root) = folder("storage-scratch-file", &[("a.md", b"accepted")]);
+    fs::write(scratch(&root), b"someone's file").unwrap();
+    let refused = put_now(&root, "a.md", b(b"mine"), Some(&sha256(b"accepted"))).unwrap_err();
+    let StorageError::Io {
+        path,
+        operation,
+        message,
+    } = &refused
+    else {
+        panic!("{refused:?}");
+    };
+    assert_eq!((path.as_str(), operation.as_str()), ("a.md", "write"));
+    assert!(message.contains("not a directory"), "{message}");
+    sweep_scratch(&root, now_ms());
+    assert_eq!(fs::read(scratch(&root)).unwrap(), b"someone's file");
+    assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
 }
 
 /// Another writer renames a put's parent to another spelling while the put

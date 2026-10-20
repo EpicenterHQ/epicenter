@@ -1,23 +1,17 @@
 //! The paths a writer in the shell may change, checked on disk.
 //!
 //! `classify` decides each one. The path must be under the root with no `.`
-//! or `..` component, and every component from the root down that exists
-//! must be what it says, never a link. Then it must be one of:
+//! or `..` component, every component from the root down that exists must be
+//! what it says, never a link, and it must be a data path: one the shared
+//! path rule accepts (`paths::path_problem`, the same rule as the folder
+//! engine's `pathProblem`). It names no `.git` or `HEAD` in any case and only
+//! names that mean only themselves on every disk, so no nested repository
+//! can be assembled and no name reaches `.git` by another spelling.
 //!
-//! - a data path: any file or directory whose path the shared path rule
-//!   accepts (`paths::path_problem`, the same rule as the folder engine's
-//!   `pathProblem`). It names no `.git` or `HEAD` in any case and only names
-//!   that mean only themselves on every disk, so no nested repository can be
-//!   assembled and no name reaches `.git` by another spelling;
-//! - the staging directory `.git/epicenter/scratch`, where a page's save
-//!   stages its bytes (`storage::put`). `mkdir` makes `.git` itself only on
-//!   the way to it, when it is absent: a folder has no repository until its
-//!   first commit (ADR-0535), and its first save stages before that.
-//!
-//! Every name is compared component by component, `.git` and its parts
-//! case-insensitively, so on a disk that ignores case `.GIT/Hooks/x` is
-//! refused as `.git/hooks/x` would be. A link another program swaps in
-//! between the check and the change is not defended against.
+//! Nothing in `.git` is made or changed here, whether or not `.git` exists:
+//! a page's save stages its bytes beside the root
+//! (`storage::scratch_directory`), not in it. A link another program swaps
+//! in between the check and the change is not defended against.
 //!
 //! `storage` builds a page's changes on these; a writer beside the page,
 //! such as the recorder appending to its audio in place, names its data
@@ -27,17 +21,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::paths;
-
-/// What a path is to a page that changes it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// A file or directory of the folder's data.
-    Data,
-    /// `.git/epicenter/scratch`, the staging directory.
-    Scratch,
-    /// `.git/epicenter`, made only as a directory on the way to scratch.
-    Epicenter,
-}
 
 fn refused(path: &Path, why: &str) -> String {
     format!("'{}' is not one the shell may change: {why}", path.display())
@@ -53,20 +36,11 @@ fn names_only_itself(name: &str) -> bool {
         && paths::names_only_itself(name)
 }
 
-fn classify_parts(parts: &[String]) -> Option<Kind> {
-    if parts.is_empty() || !parts.iter().all(|part| names_only_itself(part)) {
-        return None;
-    }
-    let lower: Vec<String> = parts.iter().map(|part| part.to_ascii_lowercase()).collect();
-    let lower: Vec<&str> = lower.iter().map(String::as_str).collect();
-    match lower.as_slice() {
-        [".git", "epicenter"] => return Some(Kind::Epicenter),
-        [".git", "epicenter", "scratch"] => return Some(Kind::Scratch),
-        _ => {}
-    }
-    paths::path_problem(&parts.join("/"))
-        .is_none()
-        .then_some(Kind::Data)
+/// Whether `parts` name a data path.
+fn is_data(parts: &[String]) -> bool {
+    !parts.is_empty()
+        && parts.iter().all(|part| names_only_itself(part))
+        && paths::path_problem(&parts.join("/")).is_none()
 }
 
 /// The names of `raw` below `base`, as the page wrote them, or `None`
@@ -84,8 +58,8 @@ fn relative_parts(base: &str, raw: &str) -> Option<Vec<String>> {
         .then_some(parts)
 }
 
-/// What `path` is, if a page may change it, and its full path.
-fn classify(root: &Path, path: &Path) -> Result<(Kind, PathBuf), String> {
+/// The full path of `path`, if it is a data path a page may change.
+fn classify(root: &Path, path: &Path) -> Result<PathBuf, String> {
     // The path as the page wrote it, split on every separator: `components`
     // would quietly drop a `.` or a doubled separator, and each name the page
     // supplied must be checked as written.
@@ -97,20 +71,22 @@ fn classify(root: &Path, path: &Path) -> Result<(Kind, PathBuf), String> {
         .ok_or_else(|| refused(path, "the folder's path is not text"))?;
     let parts = relative_parts(base, raw)
         .ok_or_else(|| refused(path, "it is outside the folder, or names `.`, `..`, or an empty name"))?;
-    let relative: PathBuf = parts.iter().collect();
-    let kind = classify_parts(&parts).ok_or_else(|| {
-        refused(path, "it is Git's own state or a name some disk reads as another")
-    })?;
+    if !is_data(&parts) {
+        return Err(refused(
+            path,
+            "it is Git's own state or a name some disk reads as another",
+        ));
+    }
     // Every existing component, the last included, is itself, not a link.
     if linked(root, &parts)? {
         return Err(refused(path, "a link is on its way"));
     }
-    Ok((kind, root.join(relative)))
+    Ok(root.join(parts.iter().collect::<PathBuf>()))
 }
 
 /// Whether one of `parts`, walked from `root`, is a link. The walk stops at
 /// the first that does not exist, since nothing below it does either.
-pub(crate) fn linked(root: &Path, parts: &[String]) -> Result<bool, String> {
+fn linked(root: &Path, parts: &[String]) -> Result<bool, String> {
     let mut current = root.to_path_buf();
     for part in parts {
         current.push(part);
@@ -129,54 +105,27 @@ pub(crate) fn linked(root: &Path, parts: &[String]) -> Result<bool, String> {
     Ok(false)
 }
 
-fn expect(kind: Kind, allowed: &[Kind], path: &Path) -> Result<(), String> {
-    if allowed.contains(&kind) {
-        Ok(())
-    } else {
-        Err(refused(path, "that change is not one the engine makes there"))
-    }
-}
-
 /// The full path of the data path `relative` in `root`, checked as a change
 /// is: the shared path rule, and no link on the way. For a writer beside the
 /// engine that names a data file itself, such as a recorder appending to its
 /// audio in place.
 pub fn data_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
-    let (kind, target) = classify(root, &root.join(relative))?;
-    expect(kind, &[Kind::Data], Path::new(relative))?;
-    Ok(target)
+    classify(root, &root.join(relative))
 }
 
-/// Make the directory at `path` and any missing ancestors, each one a data
-/// directory or the engine's staging directory on its way.
-///
-/// Before a folder's first commit there is no repository (ADR-0535): Sync
-/// or Save version runs `git init` later. A save stages its bytes first, so
-/// on the way to `.git/epicenter/scratch` this makes `.git` itself when it
-/// is absent, which is exactly when no repository exists. Nothing else in
-/// `.git` is made here: a `.git` that exists, with or without `HEAD`, is
-/// walked past, and `git init` fills it in.
+/// Make the data directory at `path` and any missing ancestors, each one
+/// checked as a data directory. Nothing in `.git` is made, whether or not
+/// `.git` exists.
 pub fn mkdir(root: &Path, path: &Path) -> Result<(), String> {
-    let (kind, target) = classify(root, path)?;
-    expect(kind, &[Kind::Data, Kind::Scratch], path)?;
+    let target = classify(root, path)?;
     let relative = target.strip_prefix(root).expect("checked under the root");
-    let repository = root.join(".git");
     let mut current = root.to_path_buf();
     for component in relative.components() {
         current.push(component);
         if fs::symlink_metadata(&current).is_ok() {
             continue;
         }
-        // Only the staging directory's path passes through `.git`, so this
-        // is the scratch path's first step in a folder with no repository.
-        if current != repository {
-            let (kind, _) = classify(root, &current)?;
-            expect(
-                kind,
-                &[Kind::Data, Kind::Scratch, Kind::Epicenter],
-                &current,
-            )?;
-        }
+        classify(root, &current)?;
         fs::create_dir(&current)
             .or_else(|cause| if current.is_dir() { Ok(()) } else { Err(cause) })
             .map_err(|cause| format!("'{}' could not be made: {cause}", current.display()))?;
@@ -193,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_changes_data_paths_and_the_staging_directory_only() {
+    fn the_shell_changes_data_paths_only() {
         let temp = crate::testing::TempDir::new("page-files");
         let root = temp.folder("notes");
         fs::create_dir_all(root.join(".git/objects")).unwrap();
@@ -215,8 +164,6 @@ mod tests {
             "todos/objects/x",
             "other.md",
             "attachments/manual.txt",
-            ".git/epicenter/scratch",
-            ".GIT/EPICENTER/SCRATCH",
         ] {
             assert!(may(&root, allowed), "{allowed}");
         }
@@ -234,6 +181,9 @@ mod tests {
             ".GIT/OBJECTS/ab/cdef",
             ".git/objects/info/alternates",
             ".git/refs/heads/main",
+            ".git/epicenter",
+            ".git/epicenter/scratch",
+            ".GIT/EPICENTER/SCRATCH",
             ".git/epicenter/no-hooks/post-commit",
             ".git/epicenter/scratch/staged",
             ".git/epicenter/scratch/nested/x",
@@ -291,11 +241,7 @@ mod tests {
     fn a_link_on_the_way_refuses_a_directory() {
         let temp = crate::testing::TempDir::new("page-files-link");
         let elsewhere = temp.folder("elsewhere");
-        for (linked, made) in [
-            ("todos", "todos/sub"),
-            (".git/epicenter", ".git/epicenter/scratch"),
-            (".git/epicenter/scratch", ".git/epicenter/scratch"),
-        ] {
+        for (linked, made) in [("todos", "todos/sub"), ("todos/sub", "todos/sub/deeper")] {
             let root = temp.folder(&format!("notes-{}", linked.len()));
             let link = root.join(linked);
             fs::create_dir_all(link.parent().unwrap()).unwrap();
@@ -305,27 +251,29 @@ mod tests {
         assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
     }
 
-    /// Before the first commit makes a repository (ADR-0535), a save stages
-    /// its bytes in `.git/epicenter/scratch`, so `.git` is made on the way;
-    /// `git init` later fills in the same `.git`. Nothing else in `.git`
-    /// is made.
+    /// A save stages beside the root, so nothing in `.git` is ever made: not
+    /// `.git` itself in a folder with no repository, and nothing inside one
+    /// that exists.
     #[test]
-    fn the_staging_directory_is_made_in_a_folder_with_no_repository_yet() {
+    fn nothing_in_git_is_made_with_or_without_a_repository() {
         let temp = crate::testing::TempDir::new("page-files-no-repository");
         let root = temp.folder("notes");
-        // `.git` is made only on the way to scratch, never as a target.
-        assert!(mkdir(&root, &root.join(".git")).is_err());
-        assert!(mkdir(&root, &root.join(".git/hooks")).is_err());
-        assert!(mkdir(&root, &root.join(".git/epicenter/no-hooks")).is_err());
+        for refused in [
+            ".git",
+            ".git/hooks",
+            ".git/epicenter",
+            ".git/epicenter/scratch",
+        ] {
+            assert!(mkdir(&root, &root.join(refused)).is_err(), "{refused}");
+        }
         assert!(!root.join(".git").exists());
-        mkdir(&root, &root.join(".git/epicenter/scratch")).unwrap();
-        let mut made: Vec<String> = fs::read_dir(root.join(".git"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        made.sort();
-        assert_eq!(made, ["epicenter"]);
-        assert!(mkdir(&root, &root.join(".git/hooks")).is_err());
+        fs::create_dir(root.join(".git")).unwrap();
+        for refused in [".git/epicenter", ".git/epicenter/scratch"] {
+            assert!(mkdir(&root, &root.join(refused)).is_err(), "{refused}");
+        }
+        assert!(fs::read_dir(root.join(".git")).unwrap().next().is_none());
+        mkdir(&root, &root.join("todos/sub")).unwrap();
+        assert!(root.join("todos/sub").is_dir());
     }
 
     /// A writer beside the engine names a data path and gets it checked as a

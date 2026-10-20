@@ -246,10 +246,10 @@ export function isNetworkUrl(url: string): boolean {
  * `.git` as a link or a `gitdir:` file, a `.git/commondir`, or a link at
  * `.git/objects`, among its first level, or anywhere in `.git/refs` and
  * `.git/logs`, through which `hash-object -w` and `update-ref` would write
- * outside the folder; or a linked `.git/epicenter`. The shell checks the
- * same when it grants a folder (`verify_layout` in the folder plugin); the
- * CLI checks again before each history operation, since another program may
- * change `.git` while the folder is open.
+ * outside the folder; or a linked `.git/epicenter`. This check belongs to
+ * Git history operations. Local Folder opening and saving leave `.git`
+ * alone, including linked worktree state. The CLI checks before each history
+ * operation, since another program may change `.git` while the folder is open.
  */
 export async function gitLayoutProblem(
 	root: string,

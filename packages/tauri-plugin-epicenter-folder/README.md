@@ -90,24 +90,26 @@ change or lose it, and it cannot claim another app. `hand` permits nothing.
 
 The page calls `grant_directory(scope)`. A window the scope does not name is
 refused as `WindowNotPermitted`, an unregistered scope as `UnknownScope`. The
-first grant, from whichever of the scope's windows asks first:
+first grant, from whichever of the scope's windows asks first, creates the
+root if it is missing and the folder is an application's (a
+missing data folder's root is refused `Missing`). Its parent may be a link a
+person chose; the root itself must be a real directory. The grant resolves
+the root to its canonical path. What `.git` is, if anything, does not matter,
+as it does not to the Bun host (`@epicenter/folder/bun`): a directory with no
+`.git`, with a `.git` file or link (a linked worktree or submodule), or with a
+repository opens and saves alike, and the shell never changes `.git`. Git
+state that would send history writes elsewhere is the `epicenter` CLI's to
+refuse, before each history operation.
 
-1. creates the root if it is missing and the folder is an application's
-   (a missing data folder's root is refused `Missing`); its parent may be a
-   link a person chose, and the root itself must be a real directory. It
-   resolves the root to its canonical path;
-2. refuses Git state that would send writes elsewhere (`root::verify_layout`):
-   `.git` as a link or a file that points at another Git directory, a
-   `.git/commondir` file, a link at or inside `.git/objects` (one level),
-   `.git/refs`, or `.git/logs`, and a linked `.git/epicenter` or scratch
-   directory.
-
-Every grant, the first and each later one, also removes the staged files
-under `.git/epicenter/scratch` that a stopped save left more than an hour
-ago (`storage::sweep_scratch`), by the creation time in the name the stager
-gave it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger
-ones may belong to a save still running in another process, and a name no
-stager made is never removed.
+Every grant, the first and each later one, also removes the staged files in
+`.<directory>.epicenter-scratch` beside the root that a stopped save left more
+than an hour ago (`storage::sweep_scratch`), by the creation time in the name
+the stager gave it, the same rule as `isStaleScratch` in `@epicenter/folder`.
+Younger ones may belong to a save still running in another process. Only
+regular files with a name a stager made are removed: any other file, a
+directory, or a link stays, and a scratch path that is a link or not a
+directory is not read. Files an older shell staged in `.git/epicenter/scratch`
+are left as they are.
 
 A grant returns `{ root }`. A later grant, such as a reloaded page's or
 another window's, returns the same root. Nothing keeps out a second scope on
@@ -180,9 +182,14 @@ typed commands, under the same permission, and `tauri-files.ts` invokes it
 by name. `read_folder_file` returns its bytes as a raw response, an
 `ArrayBuffer` to the page, for the same reason the same way.
 
-A put of bytes writes the bytes to a new file under
-`.git/epicenter/scratch` (opened with `create_new`, so nothing already there
-is written through), then takes the folder's turn: one mutex per canonical
+A put of bytes writes the bytes to a new file in
+`.<directory>.epicenter-scratch` beside the root, the directory the Bun host
+stages in (opened with `create_new`, so nothing already there is written
+through). A scratch path that is a link or not a directory refuses the put as
+`Io`, and nothing changes. The scratch directory is on the parent's file
+system, so a root that is itself a mount point cannot be saved to: its
+rename fails as `Io` and the file at the path stays. Then the put takes the
+folder's turn: one mutex per canonical
 root, kept in the registry and shared by every window and scope of the
 folder, and the folder's save lock, an exclusive SQLite transaction on
 `.<directory>.epicenter-save-lock` beside it (`lock.rs`). Holding the turn,
@@ -206,11 +213,9 @@ directory it made, unless another writer put something in it.
 
 A folder has no repository until its first commit, Sync or Save version
 ([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
-but its first save stages in `.git/epicenter/scratch` before that. So a put
-makes `.git` itself on the way to scratch when `.git` is absent, which is
-exactly when no repository exists; `git init` later fills in the same
-directory. Nothing else in `.git` becomes reachable, with or without `HEAD`
-(`page_files.rs`).
+and saving never makes one: a put stages beside the root, so it makes
+nothing in the root but the files saved and their directories, and nothing in
+`.git` is reachable, with or without `HEAD` (`page_files.rs`).
 
 A data file is never written in place: the rename replaces a hard link
 rather than writing through it. The one data file written in place is a
@@ -241,7 +246,7 @@ window was granted
 without a grant; the Epicenter shell's `history.rs` reads it.
 The Git rules (no hooks, no fsmonitor, a scrubbed environment, a remote that
 is a network URL, a credential only for an `https` origin, and Git state
-checked again before each operation) live in the CLI's runner,
+checked before each operation) live in the CLI's runner,
 `packages/folder/src/git/native-host.ts`.
 
 ## Changes outside the page
@@ -263,7 +268,8 @@ type FolderChanged = { scope: string; paths: string[] | null };
 | --- | --- |
 | A path outside `.git` | The path, relative to the root with `/`; each once per batch, sorted |
 | `.git` itself, `.git/HEAD`, `.git/packed-refs`, or a ref under `.git/refs/` | `".git"`: history moved |
-| Anything else in `.git`: objects, the index, logs, lock files, `.git/epicenter/scratch` | Nothing is reported |
+| Anything else in `.git`: objects, the index, logs, lock files, an older shell's `.git/epicenter/scratch` | Nothing is reported |
+| A save's staged file, in the scratch directory beside the root | Nothing is reported; the path it is renamed to is |
 | Watching began, the operating system dropped events or asked for a rescan (notify's `Flag::Rescan`, FSEvents' `MustScanSubDirs`), a watch error arrived, the root itself changed, or the computer woke from sleep | `null`: anything may have changed |
 
 A sleep is noticed by a clock thread that reads the wall clock every 5
