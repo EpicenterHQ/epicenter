@@ -10,12 +10,14 @@
  * answers each storage command. A command answers as the plugin does: its
  * value, or a rejection with the plugin's `StorageError`, where a failure the
  * shell reports changed nothing and so is `Io`, never `Unconfirmed`. A grant
- * sweeps staged files an hour old, as the shell's does. A test installs
- * `invoke` with `mock.module`, then opens the folder the way its app does.
+ * sweeps staged files an hour old from the scratch directory beside the
+ * root, as the shell's does. A test installs `invoke` with `mock.module`,
+ * then opens the folder the way its app does.
  *
  * A data file is published as the shell publishes one: its bytes are staged
- * under `.git/epicenter/scratch` and renamed over the path once the path is
- * checked, or the path is checked and removed. A test decides when such a
+ * in `.<name>.epicenter-scratch` beside the root, never inside it, and
+ * renamed over the path once the path is checked, or the path is checked and
+ * removed. A test decides when such a
  * change is made, before the check (`beforeChange`), whether it fails
  * before it lands (`refuseNext`), what happens once it landed
  * (`afterChange`), and whether its reply is lost after it landed
@@ -30,12 +32,13 @@ import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Result } from 'wellcrafted/result';
-import { isStaleScratch, SCRATCH_DIRECTORY } from './boundary.js';
+import { isStaleScratch } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { describe, type FileError } from './errors.js';
 import type { StorageError } from './native/bindings.gen.js';
+import { scratchDirectory } from './native/directory.js';
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
@@ -173,11 +176,13 @@ export function createGrantedShell(root: string) {
 			);
 		},
 	};
-	const storage = createDirectoryStorage({ root, primitives: files });
+	// Staged beside the root, as `storage.rs` stages: the authored folder
+	// gets nothing but the files saved, and no `.git`.
+	const scratch = scratchDirectory(root);
+	const storage = createDirectoryStorage({ root, primitives: files, scratch });
 
 	/** Remove the staged files a stopped save left an hour or more ago. */
 	async function sweep() {
-		const scratch = join(root, SCRATCH_DIRECTORY);
 		const now = Date.now();
 		const entries = await nodeFs
 			.readdir(scratch, { withFileTypes: true })
@@ -259,6 +264,8 @@ export function createGrantedShell(root: string) {
 
 	return {
 		root,
+		/** Where saves are staged: `.<name>.epicenter-scratch` beside the root. */
+		scratch,
 		calls,
 		changes,
 		control,

@@ -13,9 +13,9 @@
  * - The shell's watcher reaches listeners as `other-handle`; history moving does not
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
-import { writeFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync, writeFileSync } from 'node:fs';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { FolderChange } from '../folder.js';
@@ -179,6 +179,58 @@ test('a save is one guarded put, and an overtaken put reads and merges again', a
 		true,
 	);
 	await folder.close();
+});
+
+test('a native-style save stages beside the root and leaves no .git in the authored folder', async () => {
+	const { root, folder } = await granted({ 'note.md': 'one\n' });
+	try {
+		expectOk(await folder.files.write('note.md', 'one\n', 'two\n'));
+		expectOk(await folder.files.write('new/deep.md', null, 'fresh\n'));
+		expect(await shell.text('note.md')).toBe('two\n');
+		expect(await shell.text('new/deep.md')).toBe('fresh\n');
+		// Nothing but the files saved is in the root: no `.git`, no scratch.
+		expect((await readdir(root)).sort()).toEqual(['new', 'note.md']);
+		expect(existsSync(join(root, '.git'))).toBe(false);
+		// What was staged is beside the root, and none of it stays.
+		expect(shell.scratch).toBe(
+			join(root, '..', `.${basename(root)}.epicenter-scratch`),
+		);
+		expect(await readdir(shell.scratch)).toEqual([]);
+		await folder.close();
+	} finally {
+		await rm(shell.scratch, { recursive: true, force: true });
+	}
+});
+
+test('a grant sweeps stale staged files beside the root, and leaves younger and foreign ones', async () => {
+	const root = await grantedDirectory('native-tauri-');
+	shell = createGrantedShell(root);
+	try {
+		await mkdir(shell.scratch);
+		const staged = (offset: number) =>
+			`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
+		const fresh = staged(0);
+		for (const name of [fresh, staged(-2 * 60 * 60 * 1000), 'left-behind'])
+			await writeFile(join(shell.scratch, name), 'x');
+		// Old scratch inside the root is the previous layout's, not the shell's.
+		await mkdir(join(root, '.git/epicenter/scratch'), { recursive: true });
+		const old = join(
+			root,
+			'.git/epicenter/scratch',
+			staged(-2 * 60 * 60 * 1000),
+		);
+		await writeFile(old, 'x');
+		const folder = expectOk(
+			await openTauriFolder({ directory: SCOPE, tables: { notes } }),
+		);
+		expect((await readdir(shell.scratch)).sort()).toEqual(
+			[fresh, 'left-behind'].sort(),
+		);
+		expect(existsSync(old)).toBe(true);
+		await folder.close();
+	} finally {
+		await rm(shell.scratch, { recursive: true, force: true });
+	}
 });
 
 test('a lost reply is the save landing only when the path holds what was sent', async () => {
