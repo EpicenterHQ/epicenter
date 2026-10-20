@@ -4,9 +4,10 @@
  * commands on the desktop.
  *
  * Every change lands whole and checked where it lands. A file's bytes are
- * written to a scratch file, under `.git/epicenter/scratch` unless the host
- * names another scratch directory, and renamed over the path, carrying what the change expects there (`Expectation`), which
- * the host checks under the directory's save lock: another program sees the
+ * written to a scratch file in the scratch directory the host names, and
+ * renamed over the path, carrying what the change expects there
+ * (`Expectation`), which the host checks under the directory's save lock,
+ * and keeping the mode of a file it replaces: another program sees the
  * old file or the new one, never part of either, and never an empty file
  * first. A removal carries its expectation too. A host that refuses one
  * changed nothing, and the change is `stale`; one that could not take the
@@ -15,7 +16,10 @@
  * put that does not land removes its staged file and the parent directories
  * it made, unless another writer put something in one. A parent another
  * writer prunes between this put's making it and its rename still fails the
- * rename here: the save lock covers only the check and the rename.
+ * rename here: the save lock covers only the check and the rename. The
+ * scratch directory and each staged file are private to this account before
+ * any byte is staged, so no other account reads a save that has not landed,
+ * or one a crash stopped.
  *
  * Paths are literal. A symbolic link is never followed: a path through one
  * is unusable. On a case-insensitive disk `plan.md` can reach `Plan.md`;
@@ -35,7 +39,6 @@ import {
 	type LockingStorage,
 	lockingStorage,
 	PRIVATE_DIRECTORY,
-	SCRATCH_DIRECTORY,
 	scratchName,
 } from './boundary.js';
 import type {
@@ -79,31 +82,32 @@ type Hold = {
  * Sync publishes (Bun), `lock` takes that lock and changes files through
  * `held`, the same calls without it.
  *
- * `scratch` is the absolute directory a put stages its bytes in, made at the
- * first put: `.git/epicenter/scratch` under `root` unless named. One outside
- * `root` must be on its file system, so the rename over the path is one
- * step; listings never show it.
+ * `scratch` is the absolute directory a put stages its bytes in, made
+ * private (`mkdir` with `private`) at each put: the native hosts' is
+ * `.<name>.epicenter-scratch` beside `root` (`scratchDirectory` in
+ * `native/directory.ts`). It must be on `root`'s file system, so the rename
+ * over the path is one step, and outside `root`, so listings never show it.
  */
 export function createDirectoryStorage(options: {
 	root: string;
 	primitives: DirectoryPrimitives;
-	scratch?: string;
+	scratch: string;
 }): FolderStorage;
 export function createDirectoryStorage(options: {
 	root: string;
 	primitives: DirectoryPrimitives;
-	scratch?: string;
+	scratch: string;
 	hold: Hold;
 }): LockingStorage;
 export function createDirectoryStorage({
 	root,
 	primitives,
-	scratch: scratchDirectory = `${root}/${SCRATCH_DIRECTORY}`,
+	scratch: scratchDirectory,
 	hold,
 }: {
 	root: string;
 	primitives: DirectoryPrimitives;
-	scratch?: string;
+	scratch: string;
 	hold?: Hold;
 }): FolderStorage | LockingStorage {
 	const absolute = (path: string) => (path === '' ? root : `${root}/${path}`);
@@ -234,8 +238,11 @@ export function createDirectoryStorage({
 						made.push(at);
 					}
 				}
-				await files.mkdir(scratchDirectory);
-				await files.writeFile(scratch, bytes, { createNew: true });
+				await files.mkdir(scratchDirectory, { private: true });
+				await files.writeFile(scratch, bytes, {
+					createNew: true,
+					private: true,
+				});
 			} catch (cause) {
 				await abandon();
 				return FileError.Io({ path, operation: 'write', cause });
@@ -347,20 +354,22 @@ export function createDirectoryStorage({
 }
 
 /**
- * Remove the files staged for the directory at absolute path `root`, in
- * `scratch` as its storage names it, that a stopped write (a crash, a quit)
- * left an hour or more ago. Another handle
- * or process may be writing the directory now, so younger ones stay. What
- * cannot be removed stays; it is inert, and an open that cannot clear it
- * still opens. The desktop shell sweeps its own at each grant.
+ * Remove the files staged in `scratch`, the scratch directory a directory's
+ * storage names, that a stopped write (a crash, a quit) left an hour or more
+ * ago. Another handle or process may be writing the directory now, so
+ * younger ones stay. What cannot be removed stays; it is inert, and an open
+ * that cannot clear it still opens. The desktop shell sweeps its own at
+ * each grant.
  */
 export async function sweepStaleScratch(
-	root: string,
+	scratch: string,
 	files: DirectoryPrimitives,
-	scratch = `${root}/${SCRATCH_DIRECTORY}`,
 ): Promise<void> {
 	try {
 		if ((await files.lstat(scratch))?.kind !== 'directory') return;
+		// An older version may have left staged bytes in a 0755 directory.
+		// Tighten it at open, before a later save has reason to use it.
+		await files.mkdir(scratch, { private: true });
 		const now = Date.now();
 		for (const entry of await files.readDir(scratch))
 			if (entry.kind === 'file' && isStaleScratch(entry.name, now))

@@ -186,7 +186,14 @@ A put of bytes writes the bytes to a new file in
 `.<directory>.epicenter-scratch` beside the root, the directory the Bun host
 stages in (opened with `create_new`, so nothing already there is written
 through). A scratch path that is a link or not a directory refuses the put as
-`Io`, and nothing changes. The scratch directory is on the parent's file
+`Io`, and nothing changes. On Unix the scratch directory is `0700` before
+anything is staged in it: made so, or tightened through the opened directory
+when an older shell left it `0755`, and a put that cannot make it so is `Io`.
+Each staged file is `0600` before its first byte, so no other account reads
+a save that has not landed or one that stopped. Replacing a file keeps its
+permission bits; a new file is `0600`. Windows has no such bits: there the
+scratch directory has the access its parent passes on. The scratch
+directory is on the parent's file
 system, so a root that is itself a mount point cannot be saved to: its
 rename fails as `Io` and the file at the path stays. Then the put takes the
 folder's turn: one mutex per canonical

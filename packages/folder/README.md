@@ -183,7 +183,13 @@ same, and saving creates no repository.
 `directory` is a trusted path; links in it are resolved once, at open. This
 process reaches the disk itself (`native/bun.ts`). A new file's bytes are
 staged in `.<name>.epicenter-scratch` beside the directory and renamed over
-the path, so another program sees the old file or the new one. Each rename
+the path, so another program sees the old file or the new one. On Unix the
+scratch directory is `0700`, and each staged file is `0600` before any bytes
+are written. Opening tightens a scratch directory left open by an older
+version. A replacement keeps the file's permission bits; a
+new file is `0600`. On Windows, access follows the parent's ACLs. CLI
+history stages beside the directory too; it leaves old
+`.git/epicenter/scratch` files alone. Each rename
 or removal, with the check of the bytes it expects there, holds the
 directory's save lock: an exclusive SQLite transaction on
 `.<name>.epicenter-save-lock` beside the directory, which the desktop shell

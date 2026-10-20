@@ -50,17 +50,19 @@ export type DirectoryPrimitives = {
 	readFile(path: string): Promise<Uint8Array>;
 	/**
 	 * Write `bytes` to `path`. With `createNew`, reject when anything is
-	 * already there.
+	 * already there. With `private`, a file this makes is readable only by
+	 * this account (`0600` on Unix) before its first byte.
 	 */
 	writeFile(
 		path: string,
 		bytes: Uint8Array,
-		options?: { readonly createNew?: boolean },
+		options?: { readonly createNew?: boolean; readonly private?: boolean },
 	): Promise<void>;
 	/**
 	 * Rename `from` to `to`, replacing a file at `to`, if `to` holds what
 	 * `expected` says. Otherwise reject with `UnexpectedTarget` and change
-	 * nothing; `from` stays.
+	 * nothing; `from` stays. A regular file it replaces passes its permission
+	 * bits to `from` first, so it stays private or executable.
 	 */
 	rename(from: string, to: string, expected: Expectation): Promise<void>;
 	/**
@@ -75,6 +77,11 @@ export type DirectoryPrimitives = {
 			readonly expected?: Expectation;
 		},
 	): Promise<void>;
-	/** Make the directory at `path` and any missing ancestors. */
-	mkdir(path: string): Promise<void>;
+	/**
+	 * Make the directory at `path` and any missing ancestors. With `private`,
+	 * make only `path`, whose parent is there, and leave it readable only by
+	 * this account (`0700` on Unix), tightening one already there; reject
+	 * when it is a link, is not a directory, or cannot be made private.
+	 */
+	mkdir(path: string, options?: { readonly private?: boolean }): Promise<void>;
 };

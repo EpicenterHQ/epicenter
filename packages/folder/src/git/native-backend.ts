@@ -172,8 +172,8 @@ export async function createNativeGitBackend({
 	}
 	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
 
-	// Only `git init` writes `HEAD`. Writes stage their bytes under
-	// `.git/epicenter`, so `.git` alone does not mean a repository.
+	// Folder saves stage beside the root and create no Git repository.
+	// A `.git` directory alone does not show whether `git init` finished.
 	const head = `${gitdir}/HEAD`;
 	// Two openers that create one repository at once race Git's copy of its
 	// templates, and the one that loses fails on a file the other just made.

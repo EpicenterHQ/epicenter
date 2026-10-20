@@ -37,7 +37,6 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { SCRATCH_DIRECTORY } from './boundary.js';
 import {
 	type DirectoryHistory,
 	openDirectoryHistory,
@@ -55,6 +54,7 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
+import { scratchDirectory } from './native/directory.js';
 
 const author = { name: 'Todos', email: 'todos@localhost' };
 
@@ -128,7 +128,9 @@ describe('a directory history', () => {
 		expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
 			'Todos <todos@localhost>',
 		);
-		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
+		// Saves staged beside the directory, never in `.git`.
+		expect(await readdir(scratchDirectory(root))).toEqual([]);
+		expect(existsSync(join(root, '.git/epicenter/scratch'))).toBe(false);
 		await folder.close();
 	});
 
@@ -468,7 +470,7 @@ describe('a directory history', () => {
 		overtaken.set(note, 'theirs once more\n');
 		expectOk(await folder.write('todos/a.md', 'base\n', 'mine\n'));
 		expect(await readFile(note, 'utf8')).toBe('mine\n');
-		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
+		expect(await readdir(scratchDirectory(root))).toEqual([]);
 		await folder.close();
 	});
 

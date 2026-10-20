@@ -5,6 +5,10 @@
  * - Opening an existing directory reads its files as they are and writes none
  * - Git is optional: saving makes no `.git`, and a `.git` file or link opens
  * - Opening clears what a stopped save staged an hour ago beside the directory
+ * - On Unix staged bytes are this account's alone, in a `0700` directory (an
+ *   open one an older version made is tightened) and a `0600` file; a linked
+ *   scratch directory is refused and the directory it names is not changed
+ * - A replaced file keeps its mode; a new file is `0600`
  * - Saves take the save lock other processes and the desktop shell take
  * - Rows keep exact source, unknown fields, comments, and repairable frontmatter
  * - Every save is guarded by the bytes it read, and merges what landed meanwhile
@@ -213,6 +217,7 @@ test('opening clears what a stopped save staged an hour ago, and leaves younger 
 	const root = await directory();
 	const scratch = join(root, '..', '.folder.epicenter-scratch');
 	await mkdir(scratch);
+	if (process.platform !== 'win32') await chmod(scratch, 0o755);
 	/** A staged file's name as another process's handle makes it, `offset` ms from now. */
 	const staged = (offset: number) =>
 		`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
@@ -221,6 +226,8 @@ test('opening clears what a stopped save staged an hour ago, and leaves younger 
 	for (const name of [fresh, staged(-2 * 60 * 60 * 1000), 'left-behind'])
 		await writeFile(join(scratch, name), 'x');
 	const folder = await open(root);
+	if (process.platform !== 'win32')
+		expect((await lstat(scratch)).mode & 0o777).toBe(0o700);
 	expect((await readdir(scratch)).sort()).toEqual(
 		[fresh, 'left-behind'].sort(),
 	);
@@ -276,6 +283,89 @@ test('a save waits for the save lock another program holds', async () => {
 	expect(await text(root, 'a.md')).toBe('a');
 	await folder.close();
 });
+
+/** The permission bits at `path`. */
+const mode = async (path: string) => (await lstat(path)).mode & 0o777;
+
+test.skipIf(process.platform === 'win32')(
+	"staged bytes are this account's alone while a save waits, and a replaced file keeps its mode",
+	async () => {
+		const root = await directory({
+			'shared.md': 'old\n',
+			'private.md': 'mine\n',
+			'tool.sh': '#!/bin/sh\n',
+		});
+		await chmod(join(root, 'shared.md'), 0o644);
+		await chmod(join(root, 'private.md'), 0o600);
+		await chmod(join(root, 'tool.sh'), 0o755);
+		// An older version made the scratch directory open to everyone.
+		const staging = join(root, '..', '.folder.epicenter-scratch');
+		await mkdir(staging);
+		await chmod(staging, 0o755);
+		const folder = await open(root);
+
+		// Another program holds the save lock, so the save stops with its
+		// bytes staged, as a save a quit stops there leaves them.
+		const other = new Database(
+			join(root, '..', '.folder.epicenter-save-lock'),
+			{ create: true },
+		);
+		other.run('BEGIN EXCLUSIVE');
+		const saving = folder.files.write('shared.md', 'old\n', 'secret\n');
+		let staged: string[] = [];
+		for (let tries = 0; staged.length === 0 && tries < 200; tries++) {
+			await Bun.sleep(10);
+			staged = await readdir(staging);
+		}
+		expect(staged).toHaveLength(1);
+		const file = join(staging, staged[0]!);
+		expect(await mode(staging)).toBe(0o700);
+		expect(await mode(file)).toBe(0o600);
+		expect(await readFile(file, 'utf8')).toBe('secret\n');
+		expect(await text(root, 'shared.md')).toBe('old\n');
+		other.run('ROLLBACK');
+		other.close();
+		expectOk(await saving);
+
+		expectOk(await folder.files.write('private.md', 'mine\n', 'still mine\n'));
+		expectOk(
+			await folder.files.write('tool.sh', '#!/bin/sh\n', '#!/bin/bash\n'),
+		);
+		expectOk(await folder.files.write('fresh.md', null, 'new\n'));
+		for (const [path, content, bits] of [
+			['shared.md', 'secret\n', 0o644],
+			['private.md', 'still mine\n', 0o600],
+			['tool.sh', '#!/bin/bash\n', 0o755],
+			['fresh.md', 'new\n', 0o600],
+		] as const) {
+			expect(await text(root, path)).toBe(content);
+			expect(await mode(join(root, path))).toBe(bits);
+		}
+		expect(await readdir(staging)).toEqual([]);
+		expect(await mode(staging)).toBe(0o700);
+		await folder.close();
+	},
+);
+
+test.skipIf(process.platform === 'win32')(
+	'a scratch directory that is a link is never staged in or changed through',
+	async () => {
+		const root = await directory({ 'a.md': 'old\n' });
+		const elsewhere = join(root, '..', 'elsewhere');
+		await mkdir(elsewhere);
+		await chmod(elsewhere, 0o755);
+		await symlink(elsewhere, join(root, '..', '.folder.epicenter-scratch'));
+		const folder = await open(root);
+		const refused = expectErr(
+			await folder.files.write('a.md', 'old\n', 'new\n'),
+		);
+		expect(JSON.stringify(refused)).toContain('symbolic link');
+		expect(await text(root, 'a.md')).toBe('old\n');
+		expect(await readdir(elsewhere)).toEqual([]);
+		expect(await mode(elsewhere)).toBe(0o755);
+		await folder.close();
+	},
+);
 
 test('a field edit keeps unknown fields and comments, and a schema never refuses', async () => {
 	const root = await directory({

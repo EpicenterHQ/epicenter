@@ -21,9 +21,13 @@
 //! `.git`, whatever is there. Only the check of what the path holds and the
 //! rename (or the removal) hold the folder's publishing turn
 //! (`registry::PageWork`), so no other save through the shell, and no save
-//! by the Bun host, lands between them. Replacing an existing regular file
-//! keeps its permission bits (`keep_mode`). A staged file a stopped save left
-//! behind is removed once it is an hour old (`sweep_scratch`).
+//! by the Bun host, lands between them. On Unix no other account can read
+//! staged bytes, before publication or after a stopped save: the scratch
+//! directory is `0700` before anything is staged in it (`make_private`), and
+//! each staged file is `0600` before its first byte. Replacing an existing
+//! regular file keeps its permission bits (`keep_mode`); a new file is
+//! `0600`. A staged file a stopped save left behind is removed once it is an
+//! hour old (`sweep_scratch`).
 //!
 //! A link another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
@@ -89,11 +93,17 @@ fn scratch_problem(scratch: &Path) -> Option<String> {
     ))
 }
 
-/// The scratch directory beside `root`, made when it is missing, and
-/// refused when it is a link or not a directory.
+/// The scratch directory beside `root`, private to this account: made
+/// `0700` when missing, refused when it is a link or not a directory, and
+/// tightened (`make_private`) when an older shell left it open, before
+/// anything is staged in it.
 fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
     let scratch = scratch_directory(root)?;
-    match fs::create_dir(&scratch) {
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(&scratch) {
         Ok(()) => {}
         Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {}
         Err(cause) => {
@@ -103,10 +113,54 @@ fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
             ))
         }
     }
-    match scratch_problem(&scratch) {
-        None => Ok(scratch),
-        Some(problem) => Err(problem),
+    if let Some(problem) = scratch_problem(&scratch) {
+        return Err(problem);
     }
+    make_private(&scratch)?;
+    Ok(scratch)
+}
+
+/// Leave the directory at `scratch` readable only by this account (`0700`),
+/// or answer why it cannot be: an older shell made it `0755`. The mode is
+/// read and changed through the open directory, which must be the entry
+/// `symlink_metadata` saw, so a link swapped in is refused, never followed
+/// and never changed. A directory another account owns cannot be changed,
+/// and is refused. Windows has no such bits: there the directory has the
+/// access its parent passes on.
+#[cfg(unix)]
+fn make_private(scratch: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let refused = |cause: &dyn std::fmt::Display| {
+        format!(
+            "'{}' could not be made private to this account, so nothing was staged there: {cause}",
+            scratch.display()
+        )
+    };
+    let seen = fs::symlink_metadata(scratch).map_err(|cause| refused(&cause))?;
+    let directory = fs::File::open(scratch).map_err(|cause| refused(&cause))?;
+    let opened = directory.metadata().map_err(|cause| refused(&cause))?;
+    if !seen.is_dir()
+        || !opened.is_dir()
+        || (opened.dev(), opened.ino()) != (seen.dev(), seen.ino())
+    {
+        return Err(refused(&"it changed while it was checked"));
+    }
+    if opened.mode() & 0o077 == 0 {
+        return Ok(());
+    }
+    directory
+        .set_permissions(fs::Permissions::from_mode(0o700))
+        .map_err(|cause| refused(&cause))?;
+    match directory.metadata() {
+        Ok(tightened) if tightened.mode() & 0o077 == 0 => Ok(()),
+        Ok(_) => Err(refused(&"other accounts can still open it")),
+        Err(cause) => Err(refused(&cause)),
+    }
+}
+
+#[cfg(not(unix))]
+fn make_private(_scratch: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 /// How old a staged file must be before `sweep_scratch` removes it, in
@@ -677,8 +731,8 @@ fn remove_made(made: &[PathBuf]) {
 
 /// Give the staged file at `staged` the permission bits of the regular file
 /// at `target`, when one is there, so replacing a file keeps it private
-/// (`0600`) or executable. A new file keeps the staged file's own mode, made
-/// under the process's umask. Only the read, write, and execute bits are
+/// (`0600`) or executable. A new file keeps the staged file's own `0600`,
+/// which it was made with. Only the read, write, and execute bits are
 /// carried; setuid, setgid, and sticky never are. Called holding the
 /// publishing turn, right after the check of what `target` holds, so the
 /// mode is the one of the file the rename replaces. Other platforms have no
@@ -784,12 +838,13 @@ pub fn put<Turn>(
             scratch.display()
         ))
     };
-    // `create_new`, so nothing already at the name is written through.
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&scratch)
-        .map_err(unstaged)?;
+    // `create_new`, so nothing already at the name is written through, and
+    // `0600`, so no other account can read the file before its first byte.
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(&scratch).map_err(unstaged)?;
     if let Err(cause) = file.write_all(bytes) {
         drop(file);
         let _ = fs::remove_file(&scratch);
@@ -867,6 +922,11 @@ pub fn sweep_scratch(root: &Path, now_ms: u64) {
         return;
     };
     if scratch_problem(&scratch).is_some() {
+        return;
+    }
+    // An older shell may have left staged bytes in a 0755 directory. Make
+    // them private at grant, before the next save has reason to use it.
+    if make_private(&scratch).is_err() {
         return;
     }
     let Ok(entries) = fs::read_dir(&scratch) else {

@@ -115,12 +115,6 @@ export const mayHaveChanged = (
 export const PRIVATE_DIRECTORY = '.git';
 
 /**
- * Where a host stages a new file's bytes before they land at its path, so a
- * crash never leaves a new file empty or partial there.
- */
-export const SCRATCH_DIRECTORY = `${PRIVATE_DIRECTORY}/epicenter/scratch`;
-
-/**
  * This process's id in the names it stages under, so two never pick one
  * name. Made at the first stage, not at import: an insecure origin has no
  * `crypto.randomUUID`, and opening there answers `NoFileSystem` rather than

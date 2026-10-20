@@ -7,9 +7,11 @@
  * the directory need not have `.git`, and a `.git` file or link is left as
  * it is. This process reaches the disk itself (`directory-node.ts`): a new
  * file's bytes are staged in `.<name>.epicenter-scratch` beside the
- * directory and renamed over the path, and each rename or removal, with the
- * check of the bytes it expects there, holds the directory's save lock, the
- * one the desktop shell and other Bun processes take (ADR-0562). A save
+ * directory, which only this account can read on Unix (`0700`, each staged
+ * file `0600`), and renamed over the path, keeping the mode of a file it
+ * replaces. Each rename or removal, with the check of the bytes it expects
+ * there, holds the directory's save lock, the one the desktop shell and
+ * other Bun processes take (ADR-0562). A save
  * waits up to ten seconds for another process's; past that it fails and
  * changes nothing (`directory.ts` here).
  *
@@ -55,9 +57,9 @@ export async function openBunFolder<
 	const { data: resolved, error } = await localRoot(directory);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
 	const scratch = scratchDirectory(resolved);
-	const primitives = savingPrimitives(resolved, scratch);
+	const primitives = savingPrimitives(resolved);
 	// What a stopped write staged an hour or more ago goes before opening.
-	await sweepStaleScratch(resolved, primitives, scratch);
+	await sweepStaleScratch(scratch, primitives);
 	return Ok(
 		createNativeFolder({
 			storage: createDirectoryStorage({
@@ -74,23 +76,11 @@ export async function openBunFolder<
 /**
  * `node:fs`, with each rename and removal, and the check of what it expects
  * just before it, under the directory's save lock, as the desktop shell
- * makes each one under its publishing and save locks. The scratch directory
- * must be a directory of its own, never a link to one elsewhere.
+ * makes each one under its publishing and save locks.
  */
-function savingPrimitives(
-	resolved: string,
-	scratch: string,
-): DirectoryPrimitives {
+function savingPrimitives(resolved: string): DirectoryPrimitives {
 	return {
 		...nodeDirectoryPrimitives,
-		async mkdir(path) {
-			await nodeDirectoryPrimitives.mkdir(path);
-			if (
-				path === scratch &&
-				(await nodeDirectoryPrimitives.lstat(path))?.kind !== 'directory'
-			)
-				throw new Error(`${scratch} is not a directory of its own`);
-		},
 		rename: (from, to, expected) =>
 			holdingSaveLock(resolved, () =>
 				nodeDirectoryPrimitives.rename(from, to, expected),

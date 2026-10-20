@@ -24,7 +24,10 @@ import { readDefinition } from './declaration.js';
 import type { Definition } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import type { DirectoryPrimitives } from './directory-primitives.js';
-import { createDirectoryStorage } from './directory-store.js';
+import {
+	createDirectoryStorage,
+	sweepStaleScratch,
+} from './directory-store.js';
 import type { FolderHistory } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
 import { nativeHistory } from './git/native-history.js';
@@ -40,7 +43,11 @@ import type {
 	HistoryRequest,
 	HistoryState,
 } from './history-wire.js';
-import { holdingHistoryLock, holdingSaveLock } from './native/directory.js';
+import {
+	holdingHistoryLock,
+	holdingSaveLock,
+	scratchDirectory,
+} from './native/directory.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export {
@@ -127,9 +134,11 @@ export type HistoryOptions = {
  * this computer (`GitMissingError`).
  *
  * The folder's history is opened for this one operation: its file storage,
- * its own `epicenter.json`, and history over this process's `git`
- * (`systemHistory`). An `epicenter.json` that is there but cannot be read or
- * prepared refuses a save version and a sync, which could otherwise commit
+ * which stages in `.<name>.epicenter-scratch` beside the folder as a Bun
+ * folder does, its own `epicenter.json`, and history over this process's
+ * `git` (`systemHistory`). A save version or a sync first sweeps what a
+ * stopped save staged there an hour or more ago. An `epicenter.json` that
+ * is there but cannot be read or prepared refuses a save version and a sync, which could otherwise commit
  * files its `local` keeps on this machine. So does none at all, unless
  * `appLocal` is given: nothing then says what stays local, and the folder is
  * not declared by being opened. Status and the log still read either way. A save version and a sync hold the folder's
@@ -159,17 +168,18 @@ export async function runHistory(
 		);
 	locateGit();
 
-	const boundary = directoryStorage(resolved);
+	const commits = request.op !== 'status' && request.op !== 'log';
+	const scratch = scratchDirectory(resolved);
+	// What a stopped write staged an hour or more ago goes before anything
+	// is staged, as at a Bun folder's open.
+	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
+	const boundary = directoryStorage(resolved, scratch);
 	const { data: declared, error: declarationError } =
 		await readDefinition(boundary);
 	// What stays local is read from `epicenter.json`, so a commit made without
 	// it could carry those files (ADR-0577). Reading status and the log
 	// commits nothing and proceeds; anything that commits is refused.
-	if (
-		declarationError !== null &&
-		request.op !== 'status' &&
-		request.op !== 'log'
-	)
+	if (declarationError !== null && commits)
 		throw new Error(
 			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, then try again.`,
 		);
@@ -177,12 +187,7 @@ export async function runHistory(
 	// files stay on this machine: an app's audio would be committed beside
 	// its rows. Opening a folder never writes a declaration, so the person
 	// authors one (or an app passes its own `local`) before anything commits.
-	if (
-		declared === undefined &&
-		appLocal === undefined &&
-		request.op !== 'status' &&
-		request.op !== 'log'
-	)
+	if (declared === undefined && appLocal === undefined && commits)
 		throw new Error(
 			`${resolved} has no epicenter.json, so nothing was committed: without one, nothing says which files stay on this computer. Add an epicenter.json that declares them (for Whispering, "local": ["audio/"]), then try again; status and history still read.`,
 		);
@@ -196,7 +201,7 @@ export async function runHistory(
 			credentials,
 			// Status and the log record nothing, so they skip reading who
 			// commits.
-			commits: request.op !== 'status' && request.op !== 'log',
+			commits,
 		},
 		application ? undefined : () => enclosingRepository(resolved),
 	)({
@@ -287,12 +292,15 @@ async function directoryRoot(
 /**
  * The directory's storage over this process's file system at `resolved`, as
  * Sync publishes through it: each change under the save lock, and `lock`
- * holding it across several, which then go through `node:fs` itself.
+ * holding it across several, which then go through `node:fs` itself. It
+ * stages in `scratch`, beside the directory where a Bun folder stages, never
+ * in `.git`.
  */
-function directoryStorage(resolved: string): LockingStorage {
+function directoryStorage(resolved: string, scratch: string): LockingStorage {
 	return createDirectoryStorage({
 		root: resolved,
 		primitives: savingPrimitives(resolved),
+		scratch,
 		hold: {
 			lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
 			held: nodeDirectoryPrimitives,

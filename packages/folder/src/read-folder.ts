@@ -21,6 +21,7 @@ import type { Definition, PreparedFolderTable } from './definition.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { FileError, RowReadError } from './errors.js';
+import { scratchDirectory } from './native/directory.js';
 import { DEFINITION_PATH, ROW_EXTENSION } from './paths.js';
 import { parseRow, type Row } from './row-text.js';
 
@@ -152,6 +153,7 @@ export async function readFolder(
 	const storage = createDirectoryStorage({
 		root: resolved,
 		primitives: nodeDirectoryPrimitives,
+		scratch: scratchDirectory(resolved),
 	});
 
 	const { data: definition, error: declarationError } =

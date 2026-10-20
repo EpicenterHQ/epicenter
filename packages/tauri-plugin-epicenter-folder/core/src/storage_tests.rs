@@ -15,6 +15,10 @@
 //!   data stays as it is.
 //! - A scratch directory that is a link or not a directory refuses a put as
 //!   `Io`, and the file at the path stays as it was.
+//! - On Unix staged bytes are this account's alone: the scratch directory is
+//!   `0700`, an open one an older shell made is tightened first, and each
+//!   staged file is `0600`. A replaced file keeps its mode; a new one is
+//!   `0600`.
 //! - A directory is made with its ancestors and removed only when empty.
 //! - Staged files an hour old are swept, and nothing younger or foreign: no
 //!   other file, no directory, no link.
@@ -590,16 +594,74 @@ fn replacing_a_file_keeps_its_permission_bits() {
         assert_eq!(fs::read(root.join(path)).unwrap(), new);
         assert_eq!(mode(&root.join(path)), bits, "{path}");
     }
-    // A new file takes the umask's mode: readable and writable by its owner,
-    // and never executable.
+    // A new file keeps the staged file's mode: its owner's alone.
     assert_eq!(
         put_now(&root, "fresh.md", b(b"new"), None),
         Ok(PutOutcome::Landed)
     );
-    let fresh = mode(&root.join("fresh.md"));
-    assert_eq!(fresh & 0o600, 0o600);
-    assert_eq!(fresh & 0o111, 0);
+    assert_eq!(mode(&root.join("fresh.md")), 0o600);
     assert!(staged(&root).is_empty());
+}
+
+/// Staged bytes are this account's alone while a save waits for its turn,
+/// as they are after a save that stopped there: the scratch directory an
+/// older shell left `0755` is `0700` before anything is staged in it, and
+/// the staged file is `0600`. The refused turn changes nothing; the save
+/// that lands keeps the file's `0644`.
+#[cfg(unix)]
+#[test]
+fn staged_bytes_are_private_while_a_save_waits() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &Path| fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777;
+    let (_temp, root) = folder("storage-private", &[("shared.md", b"old")]);
+    fs::set_permissions(root.join("shared.md"), fs::Permissions::from_mode(0o644)).unwrap();
+    fs::create_dir(scratch(&root)).unwrap();
+    fs::set_permissions(scratch(&root), fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut seen = None;
+    let refused = put(
+        &root,
+        "shared.md",
+        b(b"secret"),
+        Some(&sha256(b"old")),
+        || -> Result<(), String> {
+            let [name]: [String; 1] = staged(&root).try_into().unwrap();
+            let file = scratch(&root).join(name);
+            seen = Some((mode(&scratch(&root)), mode(&file), fs::read(&file).unwrap()));
+            Err("another program holds the save lock".to_string())
+        },
+    );
+    assert_eq!(seen, Some((0o700, 0o600, b"secret".to_vec())));
+    assert!(
+        matches!(refused, Err(StorageError::Io { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"old");
+    assert_eq!(mode(&root.join("shared.md")), 0o644);
+    assert!(staged(&root).is_empty());
+    assert_eq!(mode(&scratch(&root)), 0o700);
+
+    assert_eq!(
+        put_now(&root, "shared.md", b(b"new"), Some(&sha256(b"old"))),
+        Ok(PutOutcome::Landed)
+    );
+    assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
+    assert_eq!(mode(&root.join("shared.md")), 0o644);
+    assert!(staged(&root).is_empty());
+}
+
+/// A missing scratch directory is made `0700`.
+#[cfg(unix)]
+#[test]
+fn a_new_scratch_directory_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_temp, root) = folder("storage-private-new", &[]);
+    assert_eq!(
+        put_now(&root, "a.md", b(b"a"), None),
+        Ok(PutOutcome::Landed)
+    );
+    let made = fs::symlink_metadata(scratch(&root)).unwrap();
+    assert_eq!(made.permissions().mode() & 0o777, 0o700);
 }
 
 #[test]
@@ -722,6 +784,11 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
     let (temp, root) = folder("storage-sweep", &[]);
     let scratch = scratch(&root);
     fs::create_dir_all(&scratch).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&scratch, fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let now = now_ms();
     let hour = 60 * 60 * 1000;
     let old = scratch_name(now - hour - 1);
@@ -743,6 +810,11 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
         expected.push(old_link);
     }
     sweep_scratch(&root, now);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&scratch).unwrap().permissions().mode() & 0o777, 0o700);
+    }
     let mut left = staged(&root);
     left.sort();
     expected.sort();
@@ -757,13 +829,15 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
 }
 
 /// A scratch directory that is a link is never followed: nothing is staged
-/// through it or swept through it, a put is `Io`, and the file at the path
-/// stays as it was.
+/// through it or swept through it, the directory it names keeps its mode, a
+/// put is `Io`, and the file at the path stays as it was.
 #[cfg(unix)]
 #[test]
 fn a_linked_scratch_directory_is_not_swept_or_staged_in() {
+    use std::os::unix::fs::PermissionsExt;
     let (temp, root) = folder("storage-sweep-link", &[("a.md", b"accepted")]);
     let elsewhere = temp.folder("elsewhere");
+    fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o755)).unwrap();
     let old = scratch_name(1);
     fs::write(elsewhere.join(&old), b"theirs").unwrap();
     std::os::unix::fs::symlink(&elsewhere, scratch(&root)).unwrap();
@@ -779,6 +853,10 @@ fn a_linked_scratch_directory_is_not_swept_or_staged_in() {
     assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
     assert!(!root.join("b.md").exists());
     assert_eq!(names(&elsewhere), [old]);
+    assert_eq!(
+        fs::metadata(&elsewhere).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
     // A removal stages nothing, so it still lands.
     assert_eq!(
         put_now(&root, "a.md", None, Some(&sha256(b"accepted"))),

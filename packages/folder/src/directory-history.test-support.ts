@@ -24,6 +24,7 @@ import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import type { Author } from './git/objects.js';
 import { scratch } from './git-http.test-support.js';
+import { scratchDirectory } from './native/directory.js';
 import { createNativeFolder } from './native/engine.js';
 import type { FileContent } from './shared/merge.js';
 
@@ -49,6 +50,7 @@ export async function openDirectoryHistory({
 	const storage = createDirectoryStorage({
 		root,
 		primitives: files,
+		scratch: scratchDirectory(root),
 		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
 	});
 	const system = createGitRunner(root);
@@ -116,6 +118,7 @@ export async function rawDirectoryFolder(prefix = 'raw-directory-') {
 	const boundary = createDirectoryStorage({
 		root,
 		primitives: files,
+		scratch: scratchDirectory(root),
 		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
 	});
 	return {

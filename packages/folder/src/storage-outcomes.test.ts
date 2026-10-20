@@ -20,10 +20,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { SCRATCH_DIRECTORY } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { hashBytes } from './hash.js';
+import { scratchDirectory } from './native/directory.js';
 
 type Case = {
 	readonly name: string;
@@ -92,9 +92,11 @@ test.each(
 		for (const [path, target] of Object.entries(vector.tree.links ?? {}))
 			await symlink(target, join(root, path));
 
+		// Staged beside the root, as the desktop shell stages.
 		const storage = createDirectoryStorage({
 			root,
 			primitives: nodeDirectoryPrimitives,
+			scratch: scratchDirectory(root),
 		});
 		const { method, path = '', bytes = null, ifMatch = null } = vector.call;
 		const expected = ifMatch === null ? null : await hashBytes(encode(ifMatch));
@@ -148,9 +150,7 @@ test.each(
 					() => 'absent',
 				),
 			).toBe('absent');
-		expect(
-			await readdir(join(root, SCRATCH_DIRECTORY)).catch(() => []),
-		).toEqual([]);
+		expect(await readdir(scratchDirectory(root)).catch(() => [])).toEqual([]);
 	} finally {
 		await rm(temp, { recursive: true, force: true });
 	}
