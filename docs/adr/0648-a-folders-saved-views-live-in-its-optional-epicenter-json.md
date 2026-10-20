@@ -4,7 +4,7 @@
 - **Date:** 2026-10-20
 - **Amends:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) at the folder declaration's schema-only purpose: generic views share that file, and the generic editor can interpret files without a declaration; the v1 CLI requirement for declared schemas remains.
 - **Relates:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) separates portable records from machine state; [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) keeps remembered paths on this machine; [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) binds one directory to a native editor window.
-- **Unbuilt:** the Tables UI, observed-column discovery, grid and board editing, desktop SQL, saved-view persistence, app-schema export and import, and declaration readers that accept optional tables and views.
+- **Unbuilt:** the Tables UI, observed-column discovery, grid and board editing, desktop SQL, saved-view persistence, app-schema export and import, the canonical TypeBox declaration schema, and readers and writers that preserve independently optional tables and views.
 
 ## Context
 
@@ -38,6 +38,26 @@ Saving a view preserves existing schemas, other views, title, and `local`
 rules. An unusable existing declaration remains accessible for repair and
 is never replaced with defaults.
 
+**One TypeBox schema in `@epicenter/folder` owns the portable declaration format.**
+Its static TypeScript document type, runtime shape validation, and exported JSON
+Schema come from that source. The schema describes the document envelope and
+saved-view variants; the table schemas inside it describe row frontmatter.
+Applications keep their own TypeBox row schemas and inferred developer types.
+Importing JSON at runtime does not create compile-time types for an app.
+
+Readers share the envelope definition and interpret only the sections they
+need. Git history must still enforce valid `local` rules when a table schema or
+saved view cannot be used. Full view validation must not become a prerequisite
+for that protective read. Meaning that depends on files, such as table and
+field references, SQL restrictions, or a local pattern matching the declaration
+itself, remains an explicit semantic check after structural validation.
+
+Before any writer adds `views`, existing readers must recognize that key and
+existing writers must preserve it. The current `generate` command replaces the
+whole declaration. It must preserve unrelated sections through the file's
+existing save protocol, or visibly refuse that replacement, before saved views
+are introduced. Schema import changes only the selected table definitions.
+
 **Files and Tables use the same folder and its existing edit lifetime.**
 Files edits complete source text. Tables offers grid, board, and read-only
 SQL over one shared reading of Markdown records, including diagnostics.
@@ -48,6 +68,13 @@ hints. Malformed files stay accessible in Files, and SQL reports files it
 omits. SQL results do not introduce another write path. A SQL run builds a
 disposable projection from saved files; it is not a continuously maintained
 database or a projection of unfinished typing.
+
+Within the generic editor, switching Files, grid, or SQL keeps the open Folder
+and its unfinished drafts. Separate app views can open their own handles over
+the same files. A declaration contains no live handle, native label, open-tab
+position, or window layout. Placement and cleanup belong to the host. The
+current native binding is per window under ADR-0647; tabbed presentation must
+preserve the editing lifetime without changing this portable format.
 
 The first delivery is grid and read-only SQL. Saved-view persistence follows;
 board grouping reuses the same table reading and edit machinery. The CLI's
