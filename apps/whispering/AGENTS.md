@@ -34,7 +34,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   Epicenter serves carries no browser storage, and the browser workspace
   refuses inside a desktop app.
 - **One session per mounted layout.** `src/routes/+layout.svelte` holds the
-  one opening (`mountSession`) and `AppShell` puts its session in context. A page or component takes it with
+  one opening (`mountSession`) and `WhisperingApp` puts its session in context. A page or component takes it with
   `getSession()`; it never opens a workspace, builds a library, or keeps
   product state in a module-level variable. State that must survive a page
   change belongs to the session. Only a browser tab's unload is guarded,
