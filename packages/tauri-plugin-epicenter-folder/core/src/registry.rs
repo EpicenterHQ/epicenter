@@ -45,7 +45,7 @@ use crate::root::{prepare_directory, resolve_root, verify_layout, PrepareError};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FolderKind {
     /// An application's own folder, at a directory the shell chose. The
-    /// first grant creates the directory when it is missing, and the page's
+    /// grant creates the directory when it is missing, and the page's
     /// engine gives it a repository of its own wherever it is, as the Bun
     /// `openFolder` does.
     Application,
@@ -65,8 +65,8 @@ pub struct FolderConfig {
 }
 
 impl FolderConfig {
-    /// An application's own folder, whose directory the first grant creates
-    /// when it is missing.
+    /// An application's own folder, whose directory a grant creates when
+    /// it is missing and its original parent is still in place.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
@@ -103,7 +103,7 @@ pub enum GrantError {
     /// The scope exists, but is not registered for this window.
     WindowNotPermitted { scope: String, window: String },
     /// The registered directory is missing. The shell creates a fixed
-    /// application folder only on its first grant.
+    /// application folder when its original parent is still in place.
     Missing { root: String },
     /// The folder could not be prepared or reached.
     Unavailable { message: String },
@@ -264,8 +264,8 @@ impl Registry {
         Ok(entry)
     }
 
-    /// Give `window` the directory of `scope`. The first grant creates a
-    /// missing application folder. Every grant refuses a missing data folder
+    /// Give `window` the directory of `scope`. A grant creates a missing
+    /// application folder when its original parent is still in place. Every grant refuses a missing data folder
     /// and checks for a linked root or Git state that would send writes
     /// elsewhere. Later grants keep the original canonical root.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, GrantError> {
@@ -276,10 +276,17 @@ impl Registry {
         let entry = Self::permitted(&mut scopes, scope, window)?;
         let folder = &entry.config.folder;
         let unavailable = |message: String| GrantError::Unavailable { message };
-        prepare_directory(
-            &folder.root,
-            entry.granted.is_none() && folder.kind == FolderKind::Application,
-        )
+        let create = folder.kind == FolderKind::Application
+            && match &entry.granted {
+                None => true,
+                Some(granted) => folder
+                    .root
+                    .parent()
+                    .and_then(|parent| dunce::canonicalize(parent).ok())
+                    .as_deref()
+                    == granted.parent(),
+            };
+        prepare_directory(&folder.root, create)
         .map_err(|error| match error {
             PrepareError::Missing => GrantError::Missing {
                 root: folder.root.display().to_string(),

@@ -12,6 +12,12 @@
  * settles the edits, stops that channel, cancels reads, closes the handle,
  * and clears the cache, in that order.
  *
+ * In the desktop app the context also answers its window's close
+ * (`guardWindowClose`): what is typed is sent first, without fencing, and
+ * the window goes only when nothing would be lost. Input an app holds
+ * outside the context, such as a form not submitted, says so through
+ * `registerUnsent`.
+ *
  * Plain module, so a store imports the types without loading components; the
  * edit layer it builds is a runes module.
  */
@@ -22,12 +28,20 @@ import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { createEdits, type Edits } from './edits.svelte.js';
+import { holdWindowClose } from './window-close.js';
 import type { WriteFailure } from './write-failure.js';
 
 const log = createLogger('svelte/folder');
 
 /** The root of every query over the folder. */
 const KEY = ['folder'] as const;
+
+/** Why the window stays: a draft whose save failed is held. */
+const NOT_SAVED =
+	'A change did not save. It is still on screen to save again or copy.';
+/** Why the window stays: typing or a save arrived while the close was checked. */
+const STILL_SAVING =
+	'A change is still saving. Close the window again once it is saved.';
 
 /**
  * Whether what the person did is in this device's storage. `saved` only when
@@ -96,9 +110,15 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 	});
 	const work = new Set<FolderWork>();
 	const actions = new SvelteSet<Promise<unknown>>();
+	const unsent = new Set<() => string | undefined>();
 	let closing: Promise<WriteFailure[]> | undefined;
+	let stopWindow: (() => void) | undefined;
+	let guarding: Promise<void> | undefined;
 
-	async function settleWork(): Promise<UnsavedFile[]> {
+	async function settleWork(): Promise<{
+		files: UnsavedFile[];
+		rejected: boolean;
+	}> {
 		const [owners, actionResults] = await Promise.all([
 			Promise.allSettled([...work].map((item) => item.settle())),
 			Promise.allSettled([...actions]),
@@ -106,12 +126,58 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		const files = owners.flatMap((result) =>
 			result.status === 'fulfilled' ? (result.value ?? []) : [],
 		);
-		for (const result of [...actionResults, ...owners])
-			if (result.status === 'rejected')
+		let rejected = false;
+		for (const result of [...actionResults, ...owners]) {
+			if (result.status === 'rejected') {
+				rejected = true;
 				log.error(
 					new Error('Folder work did not settle', { cause: result.reason }),
 				);
-		return files;
+			}
+		}
+		return { files, rejected };
+	}
+
+	async function settled() {
+		const [rows, other] = await Promise.allSettled([
+			edits.settled(),
+			settleWork(),
+		]);
+		if (rows.status === 'rejected')
+			log.error(
+				new Error('Folder row edits did not settle', { cause: rows.reason }),
+			);
+		if (other.status === 'rejected')
+			log.error(
+				new Error('Folder work did not settle', { cause: other.reason }),
+			);
+		return (
+			rows.status === 'fulfilled' &&
+			other.status === 'fulfilled' &&
+			!other.value.rejected
+		);
+	}
+
+	/** Why closing the window now would lose something, once what is typed was sent. */
+	async function windowBlockers(): Promise<string[]> {
+		const didSettle = await settled();
+		const reasons: string[] = [];
+		if (!didSettle)
+			reasons.push('A save could not finish. Your input is still here.');
+		if (edits.failures.length > 0 || [...work].some((item) => item.failed))
+			reasons.push(NOT_SAVED);
+		else if (
+			edits.busy ||
+			folder.status.saving ||
+			actions.size > 0 ||
+			[...work].some((item) => item.busy)
+		)
+			reasons.push(STILL_SAVING);
+		for (const reason of unsent) {
+			const why = reason();
+			if (why !== undefined) reasons.push(why);
+		}
+		return reasons;
 	}
 
 	return {
@@ -134,8 +200,33 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 			return result;
 		},
 		/** Send row drafts and app-owned file work while the page is hidden. */
-		async settled() {
-			await Promise.all([edits.settled(), settleWork()]);
+		settled,
+		/**
+		 * Input typed outside this context and not submitted, such as a form
+		 * not added: `reason` says why closing the desktop window now would
+		 * lose it, or nothing. Answers the unregister.
+		 */
+		registerUnsent(reason: () => string | undefined): () => void {
+			unsent.add(reason);
+			return () => {
+				unsent.delete(reason);
+			};
+		},
+		/**
+		 * In the desktop app, until `close`: a close of this window first
+		 * sends what is typed and waits for the saves, then destroys the
+		 * window. A failed save, a save still running, or unsent input keeps
+		 * the window with everything on screen, and a notice says why. A
+		 * browser tab keeps its own unload behavior.
+		 */
+		guardWindowClose(): Promise<void> {
+			if (closing !== undefined)
+				return Promise.reject(new Error('The folder is closing'));
+			guarding ??= holdWindowClose(windowBlockers).then((stop) => {
+				if (closing !== undefined) stop();
+				else stopWindow = stop;
+			});
+			return guarding;
 		},
 		/** The query options of each read; a view adds `select` to narrow one. */
 		queries: {
@@ -170,6 +261,10 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 				[...work].some((item) => item.busy)
 			);
 		},
+		/** Whether leaving this page would discard a draft or explicit form input. */
+		get leaving(): boolean {
+			return this.busy || [...unsent].some((reason) => reason() !== undefined);
+		},
 		/** Whether everything is saved on this device, read reactively. */
 		get saveState(): SaveState {
 			trackStatus();
@@ -193,10 +288,12 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 */
 		close(): Promise<WriteFailure[]> {
 			closing ??= (async () => {
+				// A window close from here on is the shell's own.
+				stopWindow?.();
 				// `edits.close` fences new input synchronously; app work already
 				// started can then finish before the handle closes.
 				const rowSettling = edits.close();
-				const files = await settleWork();
+				const { files } = await settleWork();
 				const missingSave = {
 					name: 'Unsaved',
 					message: 'The edit did not save.',
@@ -210,7 +307,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 								fields: draft.fields,
 								...(draft.body === undefined ? {} : { body: draft.body }),
 							},
-							(_key, value) => value === undefined ? '[remove field]' : value,
+							(_key, value) => (value === undefined ? '[remove field]' : value),
 							2,
 						),
 					})),

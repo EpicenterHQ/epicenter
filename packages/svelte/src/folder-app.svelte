@@ -12,8 +12,10 @@
 	Opening needs no account, remote, or network, and writes nothing. A
 	folder that cannot open is shown as that refusal; nothing else is opened
 	in its place. When the page is hidden, what is typed is sent at once. A
-	pending draft prompts before the browser unloads the page.
-	Importing this component opens nothing.
+	pending draft prompts before the browser unloads the page. In the desktop
+	app, closing the window first sends what is typed and waits for it to
+	save; a failed save or input the app reports as unsent keeps the window
+	(`guardWindowClose`). Importing this component opens nothing.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
 	import { openFolder } from '@epicenter/folder';
@@ -53,6 +55,12 @@
 		const opened = await openFolder({ tables });
 		if (opened.error) return opened;
 		active = createFolderContext(opened.data, { saveAfterMs });
+		try {
+			await active.guardWindowClose();
+		} catch (cause) {
+			await active.close();
+			throw cause;
+		}
 		return Ok(active);
 	}
 	let opening = $state(open());
@@ -76,7 +84,7 @@
 			);
 	});
 	function beforeUnload(event: BeforeUnloadEvent) {
-		if (!active?.busy) return;
+		if (!active?.leaving) return;
 		event.preventDefault();
 		event.returnValue = '';
 	}

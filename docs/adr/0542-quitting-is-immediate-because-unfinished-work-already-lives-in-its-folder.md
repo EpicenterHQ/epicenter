@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Amended:** 2026-10-20, individual desktop window close waits for local drafts and retains unsent input.
 
 ## Context
 
@@ -27,6 +28,15 @@ The folder's cross-process lock is released by the OS when the process ends
 dialog appears. A host restart reloads the windows; a sign-in or sign-out
 restart is immediate, as [ADR-0415](0415-runtime-replacement-ends-application-sessions.md)
 decided.
+
+Closing one desktop window is a separate action. Its page first sends ordinary
+row and file drafts, waits for accepted local saves, and closes only when it
+can account for input still held in that window. A failed save or an explicit
+form that the person has not submitted keeps the window open, with its input
+available to retry or copy. The page never submits a form on the person's
+behalf. Registration of the close listener must finish before the editable
+page appears. Application Quit remains immediate as the escape when a page
+cannot answer; it may lose typing not yet submitted or saved.
 
 **No work lives only in memory longer than a keystroke, where the host allows
 it.** Text is saved when a person submits it; a field mid-edit is lost on quit,
@@ -89,7 +99,7 @@ Kept, because each is a fact rather than a state: Capture's
 were imported so a deleted capture is not imported again; the scratch directory
 `.git/epicenter/scratch`; and the sibling `.<folder>.epicenter-lock` file.
 
-Lost: what a person typed and did not submit, a recording in the browser on
+Lost on immediate Quit: what a person typed and did not submit, a recording in the browser on
 refresh, and the last fraction of a second of audio buffered when a desktop
 process ends.
 

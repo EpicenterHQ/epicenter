@@ -162,6 +162,25 @@ test('a failed save keeps the typing and its error, and save() after recovery sa
 	expect(context.saveState).toBe('saved');
 });
 
+test('a thrown write reports failure and keeps a retryable draft', async () => {
+	const { folder, context, milk, cached } = await setup({
+		saveAfterMs: 60_000,
+	});
+	const set = folder.tables.notes.set;
+	folder.tables.notes.set = async () => {
+		throw new Error('transport disconnected');
+	};
+	milk.change(cached(), { fields: { title: 'Oat milk' } });
+	await milk.save();
+	expect(milk.held).toBe(true);
+	expect(milk.error?.name).toBe('StorageFailed');
+	expect(context.saveState).toBe('failed');
+	folder.tables.notes.set = set;
+	await milk.save();
+	expect(milk.held).toBe(false);
+	expect(context.saveState).toBe('saved');
+});
+
 test('a later malformed source cannot hide a failed draft', async () => {
 	const { context, milk, cached } = await setup();
 	const restore = fillDisk();
@@ -305,9 +324,7 @@ test('close answers the typing whose save failed', async () => {
 	fillDisk();
 	milk.change(cached(), { body: 'Oat, two litres' });
 	const unsaved = await context.close();
-	expect(unsaved).toMatchObject([
-		{ path: 'notes/milk.md' },
-	]);
+	expect(unsaved).toMatchObject([{ path: 'notes/milk.md' }]);
 	expect(JSON.parse(unsaved[0]!.unsaved)).toMatchObject({
 		body: 'Oat, two litres',
 	});

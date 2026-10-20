@@ -11,7 +11,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { getFolder } from '@epicenter/svelte/folder';
-	import { tick } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -28,7 +28,7 @@
 	// ('leave'), SvelteKit turns the cancel into the browser's own leave
 	// confirmation. Opening another todo changes only the query.
 	beforeNavigate(({ type, from, to, cancel }) => {
-		if (!local.busy) return;
+		if (!local.leaving) return;
 		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 
@@ -37,6 +37,15 @@
 	/** The id of the todo the detail shows. Opening never waits or asks. */
 	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
 	let newTitle = $state('');
+	// A title typed and not added keeps the desktop window open when it is
+	// closed; a browser leave asks before discarding it too.
+	onDestroy(
+		local.registerUnsent(() =>
+			newTitle.trim() === ''
+				? undefined
+				: 'A new todo is typed and not added. Add it or clear it, then close.',
+		),
+	);
 
 	/**
 	 * Show the todo `id`, or none. Opening adds a history entry, so Back

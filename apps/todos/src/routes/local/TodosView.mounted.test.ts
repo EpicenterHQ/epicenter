@@ -316,6 +316,21 @@ test('leaving with a failed draft asks before unloading and offers its text afte
 	expect((await stored('milk'))?.fields.title).toBe('Milk');
 });
 
+test('a new title not added asks before a browser reload', async () => {
+	freshProfile();
+	const opened = await openPage();
+	type(opened.get('[aria-label="New todo title"]'), 'Buy tea');
+	flushSync();
+	expect(opened.get(SUMMARY).getAttribute('aria-label')).toContain(
+		'Todo not added',
+	);
+	expect(
+		window.dispatchEvent(new Event('beforeunload', { cancelable: true })),
+	).toBe(false);
+	expect(navigation.leave()).toBe(true);
+	expect(opened.get('[aria-label="New todo title"]').value).toBe('Buy tea');
+});
+
 test('a row that does not fit is listed with its source, and an edit keeps unnamed fields', async () => {
 	freshProfile();
 	const folder = await otherTab();

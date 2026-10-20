@@ -35,8 +35,9 @@
 	// Edits not yet saved live only in this window until they land.
 	// Moving between this app's pages keeps them, so that is never held back.
 	// Leaving the document is: in a browser tab the cancel becomes the
-	// browser's leave warning. Closing or quitting the desktop app is
-	// immediate (ADR-0542).
+	// browser's leave warning. Closing the desktop window first sends what
+	// is typed (the session's `guardWindowClose`); quitting is immediate
+	// (ADR-0542).
 	beforeNavigate((navigation) => {
 		// svelte-ignore state_referenced_locally
 		if (session.blocksNavigation(navigation)) navigation.cancel();

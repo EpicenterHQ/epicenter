@@ -132,6 +132,15 @@ function createConnectionDraft(library: Library, operation: Operation) {
 		get saving() {
 			return saving;
 		},
+		/** Input the person has not explicitly saved. */
+		get unsent() {
+			return (
+				baseUrl !== configuredBaseUrl ||
+				model !== configuredModel ||
+				keyAction !== configuredKeyAction ||
+				key !== ''
+			);
+		},
 		/**
 		 * Save this connection on the device. Nothing is sent to the endpoint
 		 * and nothing is written to the folder. A key typed while the save is

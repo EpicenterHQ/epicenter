@@ -196,15 +196,16 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_fixed_default_is_not_recreated_within_the_same_run() {
+    fn a_removed_fixed_default_is_recreated_within_the_same_run() {
         let fixture = fixture();
         let todos = window(&fixture.app, WINDOW);
         invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
         fs::remove_dir(&fixture.root).unwrap();
 
-        let refused = invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap_err();
-        assert_eq!(refused["name"], "Missing");
-        assert!(!fixture.root.exists());
+        let granted = invoke(&todos, "grant_directory", json!({ "scope": TODOS })).unwrap();
+        assert_eq!(granted, json!({ "root": fixture.root.to_str().unwrap() }));
+        assert!(fixture.root.is_dir());
+        assert!(entries(&fixture.root).is_empty());
     }
 
     #[test]
@@ -232,7 +233,8 @@ mod tests {
             json!([
                 "epicenter-folder:default",
                 "core:event:allow-listen",
-                "core:event:allow-unlisten"
+                "core:event:allow-unlisten",
+                "core:window:allow-destroy"
             ])
         );
     }

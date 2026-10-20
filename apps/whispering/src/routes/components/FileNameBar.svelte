@@ -2,6 +2,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
+	import { onDestroy } from 'svelte';
+	import { getSession } from '$lib/session.svelte.js';
 
 	let {
 		prefix,
@@ -21,6 +23,10 @@
 	// Follows the file's name until the person types a new one.
 	let next = $derived(name);
 	let renaming = $state(false);
+	const unregister = getSession().library.local.registerUnsent(() =>
+		next !== name ? 'A file name has not been renamed. Rename or restore it before closing.' : undefined,
+	);
+	onDestroy(unregister);
 
 	async function rename(event: SubmitEvent) {
 		event.preventDefault();

@@ -11,7 +11,8 @@
  * recording, selections, running requests, and the query cache exactly as
  * they were. Quitting the desktop app is
  * immediate: a recording and a run's result are in the folder from the moment
- * they start (ADR-0542, ADR-0543).
+ * they start (ADR-0542, ADR-0543). Closing its window first sends what is
+ * typed, row or text, and keeps the window while a save failed.
  *
  * The session's query cache, row drafts, and save status are the folder's
  * local context (`@epicenter/svelte/folder`), built over the folder the
@@ -131,6 +132,26 @@ export async function createSession(
 		postProcessing: undefined as string | undefined,
 	});
 	const settings = createSettingsDraft(library);
+	// The session owns these explicit forms. Closing never presses Save or Run
+	// for a person; accepted connection saves run through the local context.
+	local.registerUnsent(() =>
+		settings.transcription.unsent || settings.text.unsent
+			? 'A connection setting has not been saved. Save or clear it before closing.'
+			: undefined,
+	);
+	local.registerUnsent(() =>
+		view.pastedText !== ''
+			? 'Pasted text has not been run or cleared. Copy or clear it before closing.'
+			: undefined,
+	);
+	// An editable session is returned only once its window close listener
+	// exists. Destroying the window then finishes a recording; a running
+	// inference request already has its row in the folder.
+	try {
+		await local.guardWindowClose();
+	} catch (cause) {
+		return failOpening(cause, () => library.close());
+	}
 	// A ticked recording whose file a listing no longer finds is unticked then,
 	// not later: a file made afterward at the same path is another recording
 	// and must not arrive ticked. A search hides rows without removing them,
@@ -173,7 +194,7 @@ export async function createSession(
 		 * in a browser tab that raises the browser's own leave warning.
 		 */
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
-			return navigation.willUnload && library.busy;
+			return navigation.willUnload && (library.busy || local.leaving);
 		},
 		/** Wait for what is being written, and release the folder. Runs once. */
 		close(): Promise<void> {

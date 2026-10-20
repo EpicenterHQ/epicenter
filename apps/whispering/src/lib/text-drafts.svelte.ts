@@ -17,7 +17,7 @@
  * - `close` refuses new typing, sends every draft once, and answers the
  *   drafts that still did not save.
  */
-import type { FolderFiles, SaveError } from '@epicenter/folder';
+import { type FolderFiles, SaveError } from '@epicenter/folder';
 import { SvelteMap } from 'svelte/reactivity';
 
 /** How long after the last change a draft saves. */
@@ -83,7 +83,15 @@ export function createTextDrafts({
 			again.add(path);
 			return run;
 		}
-		const started = drain(path).finally(() => running.delete(path));
+		const started = drain(path)
+			.catch((cause: unknown) => {
+				const draft = drafts.get(path);
+				if (draft === undefined) return;
+				const error = SaveError.StorageFailed({ cause }).error;
+				drafts.set(path, { ...draft, saving: false, error });
+				failed({ path, text: draft.text, error });
+			})
+			.finally(() => running.delete(path));
 		running.set(path, started);
 		return started;
 	}

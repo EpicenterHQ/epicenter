@@ -21,11 +21,11 @@
  *
  * `createFolderContext` builds one per opened folder.
  */
-import type {
-	Folder,
-	Row as FolderRow,
-	FolderTable,
-	ReadError,
+import {
+	type Folder,
+	type Row as FolderRow,
+	type FolderTable,
+	type ReadError,
 	SaveError,
 } from '@epicenter/folder';
 import type { QueryClient } from '@tanstack/query-core';
@@ -44,7 +44,8 @@ export const CLOSING = 'The folder is closing, so nothing was changed.';
 export const DELETING = 'This row is being deleted.';
 
 /** A delete cannot throw away typing that storage refused to save. */
-export const UNSAVED = 'This row has unsaved changes. Save them before deleting it.';
+export const UNSAVED =
+	'This row has unsaved changes. Save them before deleting it.';
 
 /** A change typed into one row: fields to set, and the whole body. */
 export type RowChange<TRowSchema extends TSchema = TSchema> = {
@@ -161,10 +162,7 @@ export function createEdits<TTables extends Record<string, TSchema>>({
 			try {
 				saved = await tableOf(table).set(id, base, { fields, body });
 			} catch (cause) {
-				const current = drafts.get(key);
-				if (current !== undefined)
-					drafts.set(key, { ...current, saving: false });
-				throw cause;
+				saved = SaveError.StorageFailed({ cause });
 			}
 			const settled = drafts.get(key);
 			if (settled === undefined) return;

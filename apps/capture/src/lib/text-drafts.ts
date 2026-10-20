@@ -21,7 +21,7 @@
  * The local folder's context settles these drafts on close and returns any
  * text that still did not save for copying after the editor goes away.
  */
-import type { FolderFiles, SaveError } from '@epicenter/folder';
+import { type FolderFiles, SaveError } from '@epicenter/folder';
 import { SAVE_AFTER_MS } from '@epicenter/svelte/edits';
 import type { UnsavedFile } from '@epicenter/svelte/folder';
 import type { QueryClient } from '@tanstack/query-core';
@@ -94,10 +94,15 @@ export function createTextDrafts({
 		}
 		const started = drain(path)
 			.catch((cause: unknown) => {
-				// Thrown, not answered: the folder closed under the save. The
-				// draft stays for the page to show while it lasts.
+				// A transport that throws still leaves a retryable draft and a
+				// precise failure for the page to show.
 				const draft = drafts.get(path);
-				if (draft !== undefined) drafts.set(path, { ...draft, saving: false });
+				if (draft !== undefined)
+					drafts.set(path, {
+						...draft,
+						saving: false,
+						error: SaveError.StorageFailed({ cause }).error,
+					});
 				log.warn(new Error(`${path} was not saved`, { cause }));
 			})
 			.finally(() => running.delete(path));

@@ -91,8 +91,8 @@ export type GrantError =
 /**  The scope exists, but is not registered for this window. */
 { name: "WindowNotPermitted"; scope: string; window: string } |
 /**
- *  A data folder's directory is not there. The shell creates only an
- *  application's own folder.
+ *  The registered directory is missing. The shell creates a fixed
+ *  application folder when its original parent is still in place.
  */
 { name: "Missing"; root: string } |
 /**  The folder could not be prepared or reached. */

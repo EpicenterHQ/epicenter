@@ -26,14 +26,17 @@ which directory it assigned to this window.
 It never falls back to browser storage if a native open fails. Opening needs
 no account, remote, or network. The root shows a loading or refusal screen,
 sends drafts when the page hides, and closes after pending work settles. A
-pending row draft prompts before a browser unload. If a save still fails as
-the route unmounts, the root shows its fields and body for copying in a
+pending draft or unsubmitted form prompts before a browser unload. In a
+desktop window, the editable page appears only after its close listener is
+installed. Closing that window sends drafts and waits for accepted local saves;
+failed saves and unsubmitted forms keep it open. Application Quit remains
+immediate. If a save still fails as the route unmounts, the root shows its fields and body for copying in a
 notice held by the app layout's toaster.
 
 A child calls `getFolder<typeof todosTables>()` from
 `@epicenter/svelte/folder`. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `edits`, `status`, `saveState`, `busy`, `run`,
-`registerWork`, `settled`, and `close`. Its single `onChange` subscription
+`queries.rows(table)`, `edits`, `status`, `saveState`, `busy`, `leaving`, `run`,
+`registerWork`, `registerUnsent`, `settled`, `guardWindowClose`, and `close`. Its single `onChange` subscription
 invalidates reads for the paths reported by the folder. Reads stay fresh
 until that notification, do not refetch on focus, and do not retry a failed
 local read automatically.

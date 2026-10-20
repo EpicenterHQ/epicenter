@@ -511,6 +511,17 @@ export function createLibrary(
 				discard: () => texts.discard(path),
 			}),
 	});
+	// The folder context waits for the text drafts as it waits for row
+	// drafts: when it settles, when the window closes, and when it closes.
+	local.registerWork({
+		get busy() {
+			return texts.writing() || texts.failures.length > 0;
+		},
+		get failed() {
+			return texts.failures.length > 0;
+		},
+		settle: () => texts.settled(),
+	});
 
 	/** The row draft of `path`, if it is a row this window edits. */
 	function rowDraft(path: string) {
@@ -761,7 +772,7 @@ export function createLibrary(
 			// Refused when asked; once accepted, it runs, and closing waits for it.
 			const why = refused();
 			if (why !== undefined) return why;
-			const ran = await hold(mutation(args));
+			const ran = await hold(local.run(() => mutation(args)));
 			return ran.error === null ? (ran.data ?? undefined) : describe(ran.error);
 		};
 	}
@@ -1070,7 +1081,7 @@ export function createLibrary(
 		},
 		/** Whether typing did not save, here or in a file's text; read reactively. */
 		get unsaved() {
-			return local.saveState === 'failed' || texts.failures.length > 0;
+			return local.saveState === 'failed';
 		},
 		/** Why the last save failed in storage, until a save lands; read reactively. */
 		get storageFailure(): string | undefined {
@@ -1083,12 +1094,7 @@ export function createLibrary(
 		 */
 		get busy() {
 			trackMutations();
-			return (
-				local.busy ||
-				texts.writing() ||
-				texts.failures.length > 0 ||
-				queryClient.isMutating() > 0
-			);
+			return local.busy || queryClient.isMutating() > 0;
 		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
 		locked: (path?: string) =>
@@ -1481,7 +1487,7 @@ export function createLibrary(
 			busyPaths.add(to);
 			try {
 				return await hold(
-					(async () => {
+					local.run(async () => {
 						if (await settlePath(path)) return UNSAVED;
 						const { data: bytes, error: readError } = await readBytes(
 							folder,
@@ -1502,7 +1508,7 @@ export function createLibrary(
 							return `${to} was saved, but ${path} changed meanwhile, so both are kept. Check them.`;
 						moved(path, to);
 						return undefined;
-					})(),
+					}),
 				);
 			} finally {
 				busyPaths.delete(path);
@@ -1557,15 +1563,17 @@ export function createLibrary(
 			for (const path of paths) busyPaths.add(path);
 			try {
 				return await hold(
-					runDeletion(
-						{
-							...deletionContext(),
-							deleting,
-							dropFailed: runs.dropFailed,
-							deleted,
-						},
-						deletion,
-					).catch((cause: unknown) => describe(cause)),
+					local.run(() =>
+						runDeletion(
+							{
+								...deletionContext(),
+								deleting,
+								dropFailed: runs.dropFailed,
+								deleted,
+							},
+							deletion,
+						).catch((cause: unknown) => describe(cause)),
+					),
 				);
 			} finally {
 				for (const path of paths) busyPaths.delete(path);
