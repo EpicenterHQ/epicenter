@@ -70,6 +70,7 @@ export function createFileDrafts({
 	const drafts = new SvelteMap<string, Draft>();
 	const timers = new SvelteMap<string, ReturnType<typeof setTimeout>>();
 	const running = new SvelteMap<string, Promise<void>>();
+	const operations = new SvelteMap<string, Promise<unknown>>();
 	const again = new Set<string>();
 	let revisions = 0;
 
@@ -176,6 +177,29 @@ export function createFileDrafts({
 	return {
 		file(path: string) {
 			return {
+				get exclusivePending() {
+					return operations.has(path);
+				},
+				/** Fence source input, drain old intent, then change a section atomically. */
+				exclusive<T>(action: () => Promise<T>): Promise<T> {
+					if (operations.has(path))
+						return Promise.reject(
+							new Error('A change to this file is still saving'),
+						);
+					const operation = Promise.resolve()
+						.then(async () => {
+							await flush(path);
+							if (drafts.has(path))
+								throw new Error(
+									'Save or discard the unfinished source edit first',
+								);
+							return action();
+						})
+						.finally(() => operations.delete(path));
+					// Installed before the action or drain can yield to source input.
+					operations.set(path, operation);
+					return operation;
+				},
 				get text() {
 					const intent = drafts.get(path)?.intent;
 					return intent?.kind === 'text' ? intent.text : undefined;
@@ -207,6 +231,7 @@ export function createFileDrafts({
 					return drafts.get(path)?.error;
 				},
 				change(fields: Record<string, unknown>, base: DraftBase): boolean {
+					if (operations.has(path)) return false;
 					const draft = drafts.get(path);
 					const textIntent =
 						draft?.intent.kind === 'text' ? draft.intent : undefined;
@@ -237,6 +262,7 @@ export function createFileDrafts({
 					return true;
 				},
 				type(text: string, base: DraftBase | undefined): boolean {
+					if (operations.has(path)) return false;
 					const draft = drafts.get(path);
 					if (draft?.intent.kind === 'fields' && draft.error !== undefined)
 						return false;
@@ -269,10 +295,12 @@ export function createFileDrafts({
 					schedule(path);
 					return true;
 				},
-				save: () => flush(path),
-				retry: () => flush(path, true),
+				save: () => (operations.has(path) ? Promise.resolve() : flush(path)),
+				retry: () =>
+					operations.has(path) ? Promise.resolve() : flush(path, true),
 				discard(): boolean {
-					if (running.has(path) || !drafts.has(path)) return false;
+					if (operations.has(path) || running.has(path) || !drafts.has(path))
+						return false;
 					clearTimer(path);
 					drafts.delete(path);
 					return true;
@@ -290,9 +318,10 @@ export function createFileDrafts({
 				.map(([path, draft]) => unsavedOf(path, draft));
 		},
 		get busy(): boolean {
-			return drafts.size > 0 || running.size > 0;
+			return drafts.size > 0 || running.size > 0 || operations.size > 0;
 		},
 		async settle(): Promise<Unsaved[]> {
+			await Promise.allSettled([...operations.values()]);
 			await Promise.allSettled([...drafts.keys()].map((path) => flush(path)));
 			await Promise.allSettled([...running.values()]);
 			return [...drafts].map(([path, draft]) => unsavedOf(path, draft));

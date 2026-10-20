@@ -2,9 +2,9 @@
 
 Epicenter is a toolkit for local-first apps over files, with optional Git
 synchronization and inference. Apps open local data before sign-in. The CLI
-can inspect ordinary files. The Epicenter desktop app offers Files, a generic grid, read-only SQL, and
-a fixed set of bundled apps. Saved views, boards, and a personal-tool runner
-remain future work.
+can inspect ordinary files. The Epicenter desktop app offers Files, grid,
+board, saved views, read-only SQL, and a fixed set of bundled apps. A
+personal-tool runner remains future work.
 
 Use these names for the current API and the named remaining work. Source names
 in the implementation table remain exact. Package READMEs describe the available
@@ -77,16 +77,17 @@ several apps can use the same files through their own schemas.
 | --- | --- |
 | Schema or table schema | JSON Schema expectations for a row's frontmatter object, supplied by the reader. It does not validate the complete API Row wrapper. |
 | Field schema | The expectations for one frontmatter value within a table schema. |
-| Folder declaration | The portable root `epicenter.json`. Current CLI readers require its table schemas; ADR-0648 adds independently optional `tables` and saved `views`. The document schema is distinct from the row schemas it contains. |
+| Folder declaration | The portable root `epicenter.json`, with independently optional `tables` and saved `views`. CLI `check` and `query` require its table schemas. The document schema is distinct from the row schemas it contains. |
 | Reader or writer | A role performed by an app, CLI, or agent, not another product or data owner. |
 | Issue or diagnostic | A specific parsing or schema problem, with its source. A schema disagreement is distinct from unparseable source or a storage failure. |
 | View | A presentation of data. Selecting another schema changes interpretation, not saved files or draft ownership. |
+| Saved view | A grid, board, or SQL configuration in the folder declaration. An opaque key identifies it; its display title can change. View settings travel with the folder, without a personal override. |
 | Query projection | Derived query data, such as an in-memory SQLite table built from files and selected schemas. It is not another durable data owner. |
 
 Apps supply their own read schemas and need no schema file. In v1, CLI
 `check` and `query` require `<folder>/epicenter.json`, which supplies their
-shared table interpretation. A person obtains it from a registry or authors
-it, then copies it into the folder deliberately. Apps never publish it by
+shared table interpretation. A person explicitly imports an app's exported
+schemas or authors them in the file. Apps never publish it by
 opening or saving. A committed copy restores the CLI interpretation on clone.
 
 Missing metadata blocks those two CLI commands, not app opening or ordinary
@@ -97,9 +98,23 @@ private files from commits. Unusable table schemas must not disable those
 rules. Schema disagreements retain raw source.
 
 ADR-0648 records optional table schemas, shared saved views, and explicit
-app-schema import. The canonical TypeBox format, whole-table readers, section-preserving writers,
-explicit schema exchange, grid, and desktop SQL are implemented. Saved-view
-persistence, board presentation, and a schema-distribution service remain open. Existing app callers already use Folder;
+app-schema import. The canonical TypeBox format, whole-table readers,
+section-preserving writers, schema exchange, grid, board, saved-view settings,
+and desktop SQL are implemented. Grid and board configurations name a top-level
+directory without requiring a schema. They retain column choices, filters, and
+sort rules. Grid cells and board moves share the editor's existing file drafts;
+moving a card edits its grouping field without a separate rank record.
+SQL results remain read-only. Explicitly saving the first view can create a
+declaration containing only `views`.
+
+Clean view settings follow saved changes; unfinished settings remain owned by
+the window until saved or reloaded. Structured view saves preserve sibling
+entries and report conflicting changes to the same entry. Raw declaration
+drafts settle before those writes. Invalid and future entries retain source and
+diagnostics. The generic editor's writer is a narrow desktop capability;
+browser generic editing is not a product surface.
+
+A schema-distribution service remains unbuilt. Existing app callers use Folder;
 migration of older stored browser data is separate. The CLI retains its
 required-schema `check` and `query`, plus executable `epicenter.ts` generation,
 with generation preserving unrelated declaration sections.
@@ -159,7 +174,7 @@ of local saving. The current public `Folder.status` reports `saving` and
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
 | Agent or person | A direct file editor. Its writes do not automatically acquire the app's save witness or merge protocol. |
-| Epicenter desktop app | The app in `apps/epicenter`: a folder launcher, Files editor, Settings, and host for fixed bundled apps. Host app, desktop host, and launcher are not additional products. It is optional to standalone apps and the CLI. |
+| Epicenter desktop app | The app in `apps/epicenter`: a folder launcher, generic Files/grid/board/SQL editor with saved views, Settings, and host for fixed bundled apps. Host app, desktop host, and launcher are not additional products. It is optional to standalone apps and the CLI. |
 | Runner | A deferred capability of the Epicenter desktop app: opening built local websites over selected disk data. It is not another app or required platform layer. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |
 | Runtime or shell | The environment executing an app or providing native mechanisms. Qualify a Git host or inference host separately. |
@@ -205,7 +220,8 @@ additional current APIs.
 | --- | --- |
 | `@epicenter/folder` | Public `openFolder`, `Folder`, and `Row.id` across root, `/browser`, `/tauri`, and `/bun`. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. Older `defineFolder`, `Definition`, and `stem` remain in the Bun CLI tools. |
 | `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
-| CLI | Implemented commands include `auth`, `folders add|list|forget`, `generate`, and `save-version`. The source-installed `app` command group is removed. External-schema flags and CLI `open` remain deferred. |
+| `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, `readSavedViews`, and explicit app `exportTables`. The Tauri entry supplies `updateSavedView` for one bound directory. |
+| CLI | Implemented commands include `auth`, `folders add|list|forget`, `schema export|import`, `generate`, and `save-version`. The source-installed `app` command group is removed. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,

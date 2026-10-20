@@ -23,6 +23,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Folder, FolderChange, SaveError } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { ViewUpdater } from './views.svelte';
 
 const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
 	'index-client.js',
@@ -55,6 +56,24 @@ describe.skipIf(!browser)('folder editor', async () => {
 		if (element === null) throw new Error('Nothing to press');
 		element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	};
+
+	async function choose(trigger: Element | null, label: string) {
+		if (!trigger) throw new Error('Missing select trigger');
+		trigger.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+		);
+		await until(
+			() =>
+				[...document.querySelectorAll('[role="option"]')].some(
+					(option) => option.textContent?.trim() === label,
+				),
+			`option ${label}`,
+		);
+		[...document.querySelectorAll('[role="option"]')]
+			.find((option) => option.textContent?.trim() === label)!
+			.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+		flushSync();
+	}
 
 	/** A folder of `stored` files whose every save waits for the test. */
 	function standIn(stored: Record<string, string>) {
@@ -99,11 +118,17 @@ describe.skipIf(!browser)('folder editor', async () => {
 	}
 
 	/** The editor window's page over `folder`, and its context. */
-	function openEditor(folder: Folder<Record<never, never>>) {
+	function openEditor(
+		folder: Folder<Record<never, never>>,
+		updateView?: ViewUpdater,
+	) {
 		const context = createFolderContext(folder);
 		const target = document.createElement('div');
 		document.body.append(target);
-		const view = mount(FolderViewHost, { target, props: { context } });
+		const view = mount(FolderViewHost, {
+			target,
+			props: { context, updateView },
+		});
 		let mounted = true;
 		return {
 			context,
@@ -376,6 +401,13 @@ describe.skipIf(!browser)('folder editor', async () => {
 				'the shared draft',
 			);
 			expect(page.box()?.readOnly).toBe(true);
+			press(button('SQL'));
+			await until(
+				() =>
+					page.target.querySelector('textarea[aria-label="SQL statement"]') !==
+					null,
+				'SQL input',
+			);
 			const sql = page.target.querySelector(
 				'textarea[aria-label="SQL statement"]',
 			) as HTMLTextAreaElement;
@@ -383,11 +415,243 @@ describe.skipIf(!browser)('folder editor', async () => {
 			press(button('SQL'));
 			press(button('Files'));
 			press(button('SQL'));
-			expect(sql.value).toBe('SELECT body FROM documents');
+			expect(
+				(
+					page.target.querySelector(
+						'textarea[aria-label="SQL statement"]',
+					) as HTMLTextAreaElement
+				).value,
+			).toBe('SELECT body FROM documents');
 			press(button('Files'));
 			await until(() => button('Discard edit') !== null, 'the shared failure');
 			press(button('Discard edit'));
 			await until(() => !page.context.busy, 'discard');
+		} finally {
+			await page.close();
+			await page.context.close();
+		}
+	});
+	test('browsing writes nothing; the first explicit SQL view save creates only views', async () => {
+		const stored: Record<string, string> = {};
+		const disk = standIn(stored);
+		const { changeSavedView } = await import(
+			'../../../../packages/folder/src/declaration-write'
+		);
+		const { hashBytes } = await import('../../../../packages/folder/src/hash');
+		const { FileError } = await import(
+			'../../../../packages/folder/src/errors'
+		);
+		let writes = 0;
+		const updateView: ViewUpdater = (change) =>
+			changeSavedView(
+				{
+					read: async (path) => {
+						const text = stored[path];
+						if (text === undefined) return FileError.NotFound({ path });
+						const bytes = new TextEncoder().encode(text);
+						return Ok({ bytes, sha256: await hashBytes(bytes) });
+					},
+					put: async (path, bytes, base) => {
+						const text = stored[path];
+						const hash =
+							text === undefined
+								? null
+								: await hashBytes(new TextEncoder().encode(text));
+						if (hash !== base) return Ok('stale');
+						writes++;
+						stored[path] = new TextDecoder().decode(bytes!);
+						return Ok('landed');
+					},
+				},
+				change,
+			);
+		const page = openEditor(disk.folder, updateView);
+		const button = (text: string) =>
+			[...page.target.querySelectorAll('button')].find(
+				(entry) => entry.textContent?.trim() === text,
+			) ?? null;
+		try {
+			await until(() => button('SQL') !== null, 'navigation');
+			press(button('SQL'));
+			await until(
+				() =>
+					page.target.querySelector('textarea[aria-label="SQL statement"]') !==
+					null,
+				'SQL',
+			);
+			type(
+				page.target.querySelector('textarea[aria-label="SQL statement"]'),
+				'SELECT path FROM documents',
+			);
+			expect(writes).toBe(0);
+			expect(stored['epicenter.json']).toBeUndefined();
+			press(button('Save view'));
+			await until(
+				() =>
+					writes === 1 &&
+					page.target.querySelector('[aria-label="Saved views"]') !== null,
+				'saved recipe',
+			);
+			const declaration = JSON.parse(stored['epicenter.json']!);
+			expect(Object.keys(declaration)).toEqual(['views']);
+			expect(Object.values(declaration.views)).toEqual([
+				{ type: 'sql', title: 'SQL', sql: 'SELECT path FROM documents' },
+			]);
+		} finally {
+			await page.close();
+			await page.context.close();
+		}
+	});
+
+	test('a board move keeps the failed destination patch and exposes the same source recovery', async () => {
+		const stored = {
+			'epicenter.json': JSON.stringify({
+				tables: {
+					tasks: {
+						type: 'object',
+						properties: { status: { enum: ['todo', 'done'] } },
+					},
+				},
+			}),
+			'tasks/a.md': '---\nstatus: todo\n---\nBody\n',
+		};
+		const disk = standIn(stored);
+		const page = openEditor(disk.folder);
+		const button = (text: string) =>
+			[...page.target.querySelectorAll('button')].find(
+				(entry) => entry.textContent?.trim() === text,
+			) ?? null;
+		try {
+			await until(() => button('Tables') !== null, 'navigation');
+			press(button('Tables'));
+			await until(
+				() =>
+					page.target.querySelector(
+						'input[aria-label="tasks/a.md: status"]',
+					) !== null,
+				'grid',
+			);
+			await choose(page.target.querySelector('#table-directory'), 'tasks');
+			press(button('Board'));
+			await until(
+				() =>
+					page.target.querySelector('[aria-label="Move tasks/a.md"]') !== null,
+				'board card',
+			);
+			page.target
+				.querySelector('[aria-label="Move tasks/a.md"]')!
+				.dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+				);
+			await until(
+				() =>
+					[...document.querySelectorAll('[role="option"]')].some(
+						(option) => option.textContent?.trim() === 'done',
+					),
+				'move destinations',
+			);
+			[...document.querySelectorAll('[role="option"]')]
+				.find((option) => option.textContent?.trim() === 'done')!
+				.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+			await until(() => disk.held.length === 1, 'move save');
+			expect(disk.held[0]?.content).toContain('status: done');
+			disk.held.shift()!.answer(Err(new Error('disk full')) as Saved);
+			await until(
+				() => page.target.textContent?.includes('disk full') === true,
+				'failed move',
+			);
+			expect(page.target.querySelector('article')?.textContent).toContain(
+				'done',
+			);
+			press(button('Files'));
+			await until(() => page.file('tasks/a.md') !== null, 'files');
+			press(page.file('tasks/a.md'));
+			await until(
+				() => page.box()?.value.includes('status: done') === true,
+				'shared destination',
+			);
+			expect(page.box()?.readOnly).toBe(true);
+			press(button('Discard edit'));
+		} finally {
+			await page.close();
+			await page.context.close();
+		}
+	});
+
+	test('Board to Grid saves its own variant and changing a filter to Present clears the old operand', async () => {
+		const stored = {
+			'epicenter.json': JSON.stringify({
+				views: {
+					board: {
+						type: 'board',
+						title: 'Saved board',
+						table: 'tasks',
+						groupBy: 'status',
+					},
+				},
+			}),
+			'tasks/a.md': '---\nstatus: todo\n---\nBody\n',
+		};
+		const disk = standIn(stored);
+		let sent: import('@epicenter/folder/declaration').SavedView | undefined;
+		const page = openEditor(disk.folder, async (change) => {
+			sent = change.value;
+			stored['epicenter.json'] = JSON.stringify({
+				views: { board: change.value },
+			});
+			return Ok({ written: true });
+		});
+		const button = (text: string) =>
+			[...page.target.querySelectorAll('button')].find(
+				(entry) => entry.textContent?.trim() === text,
+			) ?? null;
+		try {
+			await until(
+				() => page.target.querySelector('[aria-label="Saved views"]') !== null,
+				'saved chooser',
+			);
+			await choose(
+				page.target.querySelector('[aria-label="Saved views"]'),
+				'Saved board (board)',
+			);
+			await until(() => button('Grid') !== null, 'board');
+			press(button('Grid'));
+			await until(
+				() =>
+					page.target.querySelector(
+						'input[aria-label="tasks/a.md: status"]',
+					) !== null,
+				'grid',
+			);
+			press(page.target.querySelector('summary'));
+			press(button('Add filter'));
+			await until(
+				() =>
+					page.target.querySelector('[aria-label="Filter comparison 1"]') !==
+					null,
+				'filter',
+			);
+			await choose(
+				page.target.querySelector('[aria-label="Filter comparison 1"]'),
+				'equals',
+			);
+			await choose(
+				page.target.querySelector('[aria-label="Filter value type 1"]'),
+				'string',
+			);
+			type(page.target.querySelector('[aria-label="Filter value 1"]'), 'todo');
+			await choose(
+				page.target.querySelector('[aria-label="Filter comparison 1"]'),
+				'has a value',
+			);
+			expect(page.target.textContent).not.toContain('exists expects');
+			press(button('Save view'));
+			await until(() => sent !== undefined, 'publication');
+			expect(sent?.type).toBe('grid');
+			expect(Object.hasOwn(sent!, 'groupBy')).toBe(false);
+			expect(sent).toMatchObject({
+				filters: [{ field: 'status', operator: 'exists', value: true }],
+			});
 		} finally {
 			await page.close();
 			await page.context.close();

@@ -16,6 +16,9 @@
 	import { createFileDrafts } from './drafts.svelte';
 	import FolderView from './FolderView.svelte';
 	import { fileKey } from './files';
+	import { updateSavedView } from '@epicenter/folder/tauri';
+	import type { ViewUpdater } from './views.svelte';
+	let { updateView = updateSavedView }: { updateView?: ViewUpdater } = $props();
 
 	const context = getFolder<Record<never, never>>();
 	const root = context.queries.key;
@@ -44,4 +47,4 @@
 	onDestroy(stop);
 </script>
 
-<FolderView {drafts} />
+<FolderView {drafts} {updateView} />

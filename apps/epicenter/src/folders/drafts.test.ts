@@ -350,3 +350,64 @@ test('source typing during a field save retains its displayed base and preserves
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+describe('exclusive section writes', () => {
+	test('fences input synchronously, drains source first, and close waits without a blur deadlock', async () => {
+		const disk = standIn();
+		const drafts = createFileDrafts({
+			files: disk.files,
+			saved: async () => {},
+		});
+		const source = drafts.file('epicenter.json');
+		source.type('{"title":"mine"}', text);
+		let finish!: () => void;
+		let changed = false;
+		const operation = source.exclusive(async () => {
+			changed = true;
+			await new Promise<void>((resolve) => {
+				finish = resolve;
+			});
+		});
+		expect(source.exclusivePending).toBe(true);
+		expect(source.type('untracked typing', text)).toBe(false);
+		expect(source.discard()).toBe(false);
+		await source.save(); // Blur does not wait for its own exclusive drain.
+		expect(changed).toBe(false);
+		await disk.answer(Ok(undefined));
+		await until(() => changed);
+		let settled = false;
+		const closing = drafts.settle().then(() => {
+			settled = true;
+		});
+		await Promise.resolve();
+		expect(settled).toBe(false);
+		await expect(source.exclusive(async () => {})).rejects.toThrow(
+			'still saving',
+		);
+		finish();
+		await operation;
+		await closing;
+		expect(source.exclusivePending).toBe(false);
+		expect(drafts.busy).toBe(false);
+	});
+
+	test('failed source stays visible and refuses the section write', async () => {
+		const disk = standIn();
+		const drafts = createFileDrafts({
+			files: disk.files,
+			saved: async () => {},
+		});
+		const source = drafts.file('epicenter.json');
+		source.type('my source', text);
+		let changed = false;
+		const operation = source.exclusive(async () => {
+			changed = true;
+		});
+		await disk.answer(failed('disk full'));
+		await expect(operation).rejects.toThrow('unfinished source');
+		expect(changed).toBe(false);
+		expect(source.text).toBe('my source');
+		expect(source.exclusivePending).toBe(false);
+		source.discard();
+	});
+});

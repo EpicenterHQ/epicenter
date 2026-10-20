@@ -297,8 +297,8 @@ canonical root>`, and opens that window at `/folders/editor/`, which the
 scheme serves from the Folders build; the route selects the editor's page. A
 second choice of the same folder reveals its window.
 
-The editor mounts `<FolderApp>` with no table schemas, so Files, Tables, and
-SQL share one open Folder and its window lifetime. Files opens exact source
+The editor mounts `<FolderApp>` with no table schemas, so Files, grid, board,
+and SQL share one open Folder and its window lifetime. Files opens exact source
 text, retaining byte-order marks and CRLF endings. Binary content and mixed
 line endings remain available without text editing.
 
@@ -308,6 +308,22 @@ optional `epicenter.json`. Missing frontmatter means empty fields; malformed
 source remains visible with diagnostics and a link to Files. Scalar cells are
 editable; nested JSON values remain readable through the grid and editable in
 Files. The folder's schema interprets values and never refuses a save.
+Unparseable source locks structured edits until it is repaired in Files;
+schema diagnostics alone do not lock editing.
+
+Grid and board settings retain columns, typed filters, and ordered sort rules.
+Filters and sorting use saved values, so unfinished cell typing does not reorder
+rows. Held edits outside a filter remain visible with a marker. A saved grid or board names one top-level directory; it needs no declared
+table schema. The unsaved Tables view can also browse all Markdown, the folder
+root, or nested directories.
+
+Boards group one field into distinct string, number, boolean, and null lanes.
+Enum and boolean schema hints retain empty destinations. **No value** represents
+an absent field. Object and array values appear in **Other**, which cannot be
+chosen as a move destination. Moving a card changes its grouping field through
+the same path-keyed draft as
+grid and Files edits. Failed moves retain their draft for retry or discard.
+Cards have no separate rank or drag-order record.
 
 One path-keyed draft owner keeps unfinished text and field intent across view
 switches. Field intent overlays fresh reads, so another writer's body changes
@@ -323,16 +339,39 @@ The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
 `fields` and `issues` contain JSON. Each run reads saved files into disposable
 Bun SQLite; it excludes unreadable and non-text files by name, retains readable
 malformed records with issues, and writes no query result back. Runs have a 15-second request deadline, and results stop at 1,000 rows or
-4 MiB of encoded row data. Unfinished query text and its running request survive
-switching views. The native command
+4 MiB of encoded row data. Each SQL view keeps its own unfinished statement,
+running request, result, and error while another view is selected. The console
+warns when results belong to a previous statement. The native command
 accepts SQL only; Rust derives the directory from the invoking window's
 existing binding and uses the owned CLI child lifetime. There is no browser
 SQL engine or page-supplied filesystem root. Public CLI `query` keeps its
 separate declared-table contract.
 
+**Save view** persists grid, board, or SQL settings in root `epicenter.json`.
+Browsing and changing view settings write nothing until that action. The first save
+can create a declaration containing only `views`. The editor assigns an opaque
+UUID key; changing the display title keeps that key. **Save as new** creates a
+separate entry. These views travel with the folder and have no personal override.
+
+A clean saved view follows changes read from disk. Once its settings are edited,
+the window retains that working copy across selections and external changes.
+Saving changes one entry against the entry originally read. Concurrent changes
+to siblings survive; a different change to the same entry requires a reload or
+a new copy. Failed saves keep the working settings and their diagnosis.
+A confirmed save whose reread fails stays attached to its saved key and shows a notice.
+Retained settings remain in the chooser if their saved entry disappears.
+Invalid and future view entries remain in the source with diagnostics while
+valid siblings stay available.
+
+The declaration's Files draft fences structured saves: it drains pending source
+input, refuses if that input still cannot save, and holds source editing read-only
+until the structured operation and reread finish. Saved-view writes use the narrow
+Tauri adapter for this window's bound folder. The generic editor is a desktop
+client; it adds no browser saved-view writer.
+
 Each change batch invalidates the editor's reads, including descendants of a
 changed directory. The shell watcher reports other windows' and processes'
-changes. Saved-view persistence and board presentation remain follow-up work.
+changes.
 
 ### Opening apps
 

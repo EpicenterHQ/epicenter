@@ -70,7 +70,9 @@
 	<header class="flex items-center gap-3 border-b px-4 py-2">
 		<h3 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h3>
 		<span class="text-xs text-muted-foreground" role="status">
-			{#if draft.saving}
+			{#if draft.exclusivePending}
+				Saving view settings; source editing resumes when it finishes.
+			{:else if draft.saving}
 				Saving…
 			{:else if draft.error !== undefined}
 				Not saved
@@ -125,7 +127,7 @@
 			class="min-h-0 w-full flex-1 resize-none bg-transparent p-4 font-mono text-sm outline-none"
 			aria-label="Text of {path}"
 			spellcheck="false"
-			readonly={draft.sourceLocked}
+			readonly={draft.sourceLocked || draft.exclusivePending}
 			bind:value={() => draft.shown(base) ?? (shown?.kind === 'text' ? shown.text : ''), (value) => draft.type(String(value), base)}
 			onblur={() => void draft.save()}
 		/>
