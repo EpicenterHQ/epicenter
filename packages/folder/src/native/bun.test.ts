@@ -8,6 +8,8 @@
  * - On Unix staged bytes are this account's alone, in a `0700` directory (an
  *   open one an older version made is tightened) and a `0600` file; a linked
  *   scratch directory is refused and the directory it names is not changed
+ * - On macOS neither keeps an access control entry the parent passes on; one
+ *   that cannot be removed refuses the save before anything is staged
  * - A replaced file keeps its mode; a new file is `0600`
  * - Saves take the save lock other processes and the desktop shell take
  * - Rows keep exact source, unknown fields, comments, and repairable frontmatter
@@ -20,6 +22,7 @@
  */
 import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 import {
 	chmod,
 	lstat,
@@ -344,6 +347,108 @@ test.skipIf(process.platform === 'win32')(
 		expect(await readdir(staging)).toEqual([]);
 		expect(await mode(staging)).toBe(0o700);
 		await folder.close();
+	},
+);
+
+/**
+ * The access control entries `ls` lists on `path`, which it does not
+ * follow: one line each after the entry's own.
+ */
+const acl = (path: string) =>
+	execFileSync('/bin/ls', ['-ldeq', path], { encoding: 'utf8' })
+		.split('\n')
+		.slice(1)
+		.filter((line) => /^\s*\d+: /.test(line));
+
+/**
+ * Give `directory` an entry that lets every account list and read what is
+ * made in it from now on, as a shared parent can.
+ */
+const shareWithEveryone = (directory: string) =>
+	execFileSync('/bin/chmod', [
+		'+a',
+		'everyone allow list,search,read,file_inherit,directory_inherit',
+		directory,
+	]);
+
+const darwin = process.platform === 'darwin';
+
+test.skipIf(!darwin)(
+	'staged bytes keep no access control entry the parent passes on',
+	async () => {
+		const root = await directory({ 'shared.md': 'old\n' });
+		const parent = join(root, '..');
+		shareWithEveryone(parent);
+		// The parent passes it on, as it would to the scratch directory.
+		const probe = join(parent, 'probe');
+		await mkdir(probe, { mode: 0o700 });
+		expect(acl(probe).join('\n')).toContain('everyone inherited allow');
+		const folder = await open(root);
+
+		const other = new Database(join(parent, '.folder.epicenter-save-lock'), {
+			create: true,
+		});
+		other.run('BEGIN EXCLUSIVE');
+		const saving = folder.files.write('shared.md', 'old\n', 'secret\n');
+		const staging = join(parent, '.folder.epicenter-scratch');
+		let staged: string[] = [];
+		for (let tries = 0; staged.length === 0 && tries < 200; tries++) {
+			await Bun.sleep(10);
+			staged = await readdir(staging).catch(() => []);
+		}
+		expect(staged).toHaveLength(1);
+		const file = join(staging, staged[0]!);
+		expect([await mode(staging), acl(staging)]).toEqual([0o700, []]);
+		expect([await mode(file), acl(file)]).toEqual([0o600, []]);
+		expect(await readFile(file, 'utf8')).toBe('secret\n');
+		other.run('ROLLBACK');
+		other.close();
+		expectOk(await saving);
+
+		expect(await text(root, 'shared.md')).toBe('secret\n');
+		expect(await readdir(staging)).toEqual([]);
+		expect(acl(staging)).toEqual([]);
+		await folder.close();
+	},
+);
+
+test.skipIf(!darwin)(
+	'opening removes the access control entry an existing scratch directory inherited',
+	async () => {
+		const root = await directory();
+		const parent = join(root, '..');
+		shareWithEveryone(parent);
+		const staging = join(parent, '.folder.epicenter-scratch');
+		await mkdir(staging, { mode: 0o700 });
+		expect(acl(staging)).not.toEqual([]);
+		const folder = await open(root);
+		expect([await mode(staging), acl(staging)]).toEqual([0o700, []]);
+		await folder.close();
+	},
+);
+
+test.skipIf(!darwin)(
+	'a scratch directory whose access control entry stays refuses the save before staging',
+	async () => {
+		const root = await directory({ 'a.md': 'accepted\n' });
+		const parent = join(root, '..');
+		shareWithEveryone(parent);
+		const staging = join(parent, '.folder.epicenter-scratch');
+		await mkdir(staging, { mode: 0o700 });
+		// The user immutable flag keeps the entry from being removed.
+		execFileSync('/usr/bin/chflags', ['uchg', staging]);
+		try {
+			const folder = await open(root);
+			const refused = expectErr(
+				await folder.files.write('a.md', 'accepted\n', 'mine\n'),
+			);
+			expect(JSON.stringify(refused)).toContain('could not be made private');
+			expect(await text(root, 'a.md')).toBe('accepted\n');
+			expect(await readdir(staging)).toEqual([]);
+			await folder.close();
+		} finally {
+			execFileSync('/usr/bin/chflags', ['nouchg', staging]);
+		}
 	},
 );
 

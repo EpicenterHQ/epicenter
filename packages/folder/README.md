@@ -185,8 +185,11 @@ process reaches the disk itself (`native/bun.ts`). A new file's bytes are
 staged in `.<name>.epicenter-scratch` beside the directory and renamed over
 the path, so another program sees the old file or the new one. On Unix the
 scratch directory is `0700`, and each staged file is `0600` before any bytes
+are written. On macOS neither keeps an access control entry, such as an
+`everyone allow read` the parent passes on, which would let other accounts
+past those bits; one that cannot be removed refuses the save before its bytes
 are written. Opening tightens a scratch directory left open by an older
-version. A replacement keeps the file's permission bits; a
+version, entries included. A replacement keeps the file's permission bits; a
 new file is `0600`. On Windows, access follows the parent's ACLs. CLI
 history stages beside the directory too; it leaves old
 `.git/epicenter/scratch` files alone. Each rename

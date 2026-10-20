@@ -190,7 +190,12 @@ through). A scratch path that is a link or not a directory refuses the put as
 anything is staged in it: made so, or tightened through the opened directory
 when an older shell left it `0755`, and a put that cannot make it so is `Io`.
 Each staged file is `0600` before its first byte, so no other account reads
-a save that has not landed or one that stopped. Replacing a file keeps its
+a save that has not landed or one that stopped. On macOS an access control
+entry lets other accounts past those bits, and a parent can pass one on
+(`everyone allow read`), so the scratch directory and each staged file have
+every entry removed through the open descriptor before anything is staged or
+written; a put that cannot remove them is `Io`. A grant's sweep removes them
+from an existing scratch directory too. Replacing a file keeps its
 permission bits; a new file is `0600`. Windows has no such bits: there the
 scratch directory has the access its parent passes on. The scratch
 directory is on the parent's file

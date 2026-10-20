@@ -18,7 +18,9 @@
 //! - On Unix staged bytes are this account's alone: the scratch directory is
 //!   `0700`, an open one an older shell made is tightened first, and each
 //!   staged file is `0600`. A replaced file keeps its mode; a new one is
-//!   `0600`.
+//!   `0600`. On macOS neither keeps an access control entry the parent
+//!   passes on, a sweep removes one from an existing scratch directory, and
+//!   one that cannot be removed refuses the put before anything is staged.
 //! - A directory is made with its ancestors and removed only when empty.
 //! - Staged files an hour old are swept, and nothing younger or foreign: no
 //!   other file, no directory, no link.
@@ -662,6 +664,150 @@ fn a_new_scratch_directory_is_private() {
     );
     let made = fs::symlink_metadata(scratch(&root)).unwrap();
     assert_eq!(made.permissions().mode() & 0o777, 0o700);
+}
+
+/// The access control entries `ls` lists on `path`, which it does not
+/// follow: one line each after the entry's own.
+#[cfg(target_os = "macos")]
+fn acl(path: &Path) -> Vec<String> {
+    let listed = std::process::Command::new("/bin/ls")
+        .arg("-ldeq")
+        .arg(path)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(listed.status.success(), "{listed:?}");
+    String::from_utf8(listed.stdout)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .filter(|line| {
+            line.trim_start()
+                .split_once(": ")
+                .is_some_and(|(index, _)| index.bytes().all(|byte| byte.is_ascii_digit()))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// Give `directory` an entry that lets every account list and read what is
+/// made in it from now on, as a shared parent can.
+#[cfg(target_os = "macos")]
+fn share_with_everyone(directory: &Path) {
+    let status = std::process::Command::new("/bin/chmod")
+        .args([
+            "+a",
+            "everyone allow list,search,read,file_inherit,directory_inherit",
+        ])
+        .arg(directory)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+/// A parent that passes `everyone allow read` on makes a `0700` scratch
+/// directory and a `0600` staged file readable by every account. Neither
+/// keeps the entry: both are this account's alone while the save waits,
+/// and the save then lands.
+#[cfg(target_os = "macos")]
+#[test]
+fn staged_bytes_keep_no_acl_the_parent_passes_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &Path| fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777;
+    let (temp, root) = folder("storage-private-acl", &[("shared.md", b"old")]);
+    share_with_everyone(temp.path());
+    // The parent passes it on, as it would to the scratch directory.
+    let probe = temp.folder("probe");
+    assert!(acl(&probe)
+        .iter()
+        .any(|entry| entry.contains("everyone inherited allow")));
+
+    let mut seen = None;
+    let refused = put(
+        &root,
+        "shared.md",
+        b(b"secret"),
+        Some(&sha256(b"old")),
+        || -> Result<(), String> {
+            let [name]: [String; 1] = staged(&root).try_into().unwrap();
+            let file = scratch(&root).join(name);
+            seen = Some((
+                (mode(&scratch(&root)), acl(&scratch(&root))),
+                (mode(&file), acl(&file)),
+                fs::read(&file).unwrap(),
+            ));
+            Err("another program holds the save lock".to_string())
+        },
+    );
+    assert_eq!(
+        seen,
+        Some(((0o700, vec![]), (0o600, vec![]), b"secret".to_vec()))
+    );
+    assert!(
+        matches!(refused, Err(StorageError::Io { .. })),
+        "{refused:?}"
+    );
+    assert!(staged(&root).is_empty());
+
+    assert_eq!(
+        put_now(&root, "shared.md", b(b"new"), Some(&sha256(b"old"))),
+        Ok(PutOutcome::Landed)
+    );
+    assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
+    assert!(acl(&scratch(&root)).is_empty());
+}
+
+/// A scratch directory made under a parent that passed an entry on, as an
+/// older shell left one, loses the entry at the sweep a grant runs, before
+/// a save has reason to use it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_sweep_removes_an_acl_from_an_existing_scratch_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let (temp, root) = folder("storage-sweep-acl", &[]);
+    share_with_everyone(temp.path());
+    let scratch = scratch(&root);
+    fs::create_dir(&scratch).unwrap();
+    fs::set_permissions(&scratch, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!acl(&scratch).is_empty());
+    sweep_scratch(&root, now_ms());
+    assert!(acl(&scratch).is_empty());
+    assert_eq!(
+        fs::metadata(&scratch).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+}
+
+/// A scratch directory whose entry cannot be removed (here it is locked
+/// with the user immutable flag) refuses a put as `Io` before anything is
+/// staged, and the file at the path stays as it was.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_scratch_directory_whose_acl_stays_refuses_a_put() {
+    use std::os::unix::fs::PermissionsExt;
+    let chflags = |flag: &str, path: &Path| {
+        let status = std::process::Command::new("/usr/bin/chflags")
+            .arg(flag)
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    };
+    let (temp, root) = folder("storage-acl-stays", &[("a.md", b"accepted")]);
+    share_with_everyone(temp.path());
+    let scratch = scratch(&root);
+    fs::create_dir(&scratch).unwrap();
+    fs::set_permissions(&scratch, fs::Permissions::from_mode(0o700)).unwrap();
+    chflags("uchg", &scratch);
+    let refused = put_now(&root, "a.md", b(b"mine"), Some(&sha256(b"accepted")));
+    chflags("nouchg", &scratch);
+    let Err(StorageError::Io { message, .. }) = &refused else {
+        panic!("{refused:?}");
+    };
+    assert!(message.contains("could not be made private"), "{message}");
+    assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
+    assert!(staged(&root).is_empty());
+    assert!(!acl(&scratch).is_empty());
 }
 
 #[test]

@@ -24,7 +24,9 @@
 //! by the Bun host, lands between them. On Unix no other account can read
 //! staged bytes, before publication or after a stopped save: the scratch
 //! directory is `0700` before anything is staged in it (`make_private`), and
-//! each staged file is `0600` before its first byte. Replacing an existing
+//! each staged file is `0600` before its first byte. On macOS each also has
+//! no access control entry (`without_acl`), such as an `everyone allow read`
+//! the parent passes on, or the save is refused first. Replacing an existing
 //! regular file keeps its permission bits (`keep_mode`); a new file is
 //! `0600`. A staged file a stopped save left behind is removed once it is an
 //! hour old (`sweep_scratch`).
@@ -120,13 +122,14 @@ fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
     Ok(scratch)
 }
 
-/// Leave the directory at `scratch` readable only by this account (`0700`),
-/// or answer why it cannot be: an older shell made it `0755`. The mode is
-/// read and changed through the open directory, which must be the entry
-/// `symlink_metadata` saw, so a link swapped in is refused, never followed
-/// and never changed. A directory another account owns cannot be changed,
-/// and is refused. Windows has no such bits: there the directory has the
-/// access its parent passes on.
+/// Leave the directory at `scratch` readable only by this account (`0700`,
+/// with no access control entry: `without_acl`), or answer why it cannot
+/// be: an older shell made it `0755`, or its parent passes on an entry. The
+/// mode is read and changed through the open directory, which must be the
+/// entry `symlink_metadata` saw. A swapped link may be opened, but its
+/// different identity is refused before permissions change. A directory
+/// another account owns cannot be tightened. Windows has no such bits:
+/// there the directory has the access its parent passes on.
 #[cfg(unix)]
 fn make_private(scratch: &Path) -> Result<(), String> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -145,21 +148,89 @@ fn make_private(scratch: &Path) -> Result<(), String> {
     {
         return Err(refused(&"it changed while it was checked"));
     }
-    if opened.mode() & 0o077 == 0 {
-        return Ok(());
+    if opened.mode() & 0o077 != 0 {
+        directory
+            .set_permissions(fs::Permissions::from_mode(0o700))
+            .map_err(|cause| refused(&cause))?;
+        match directory.metadata() {
+            Ok(tightened) if tightened.mode() & 0o077 == 0 => {}
+            Ok(_) => return Err(refused(&"other accounts can still open it")),
+            Err(cause) => return Err(refused(&cause)),
+        }
     }
-    directory
-        .set_permissions(fs::Permissions::from_mode(0o700))
-        .map_err(|cause| refused(&cause))?;
-    match directory.metadata() {
-        Ok(tightened) if tightened.mode() & 0o077 == 0 => Ok(()),
-        Ok(_) => Err(refused(&"other accounts can still open it")),
-        Err(cause) => Err(refused(&cause)),
-    }
+    without_acl(&directory).map_err(|cause| refused(&cause))
 }
 
 #[cfg(not(unix))]
 fn make_private(_scratch: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+/// On macOS, remove every access control entry on the open `file`, or
+/// answer why it cannot be done. Mode bits do not limit an entry: one a
+/// parent passes on, such as `everyone allow read`, lets other accounts
+/// read a `0600` file. The entries are read and removed through the open
+/// file, so they are its own. Other systems need nothing here: a Linux
+/// default ACL is masked by the group bits of a `0700` or `0600` mode.
+#[cfg(target_os = "macos")]
+fn without_acl(file: &fs::File) -> io::Result<()> {
+    use std::ffi::{c_int, c_void};
+    use std::os::unix::io::AsRawFd;
+    // `<sys/acl.h>`, in libSystem.
+    const ACL_TYPE_EXTENDED: c_int = 0x0000_0100;
+    const ACL_FIRST_ENTRY: c_int = 0;
+    extern "C" {
+        fn acl_get_fd_np(fd: c_int, kind: c_int) -> *mut c_void;
+        fn acl_get_entry(acl: *mut c_void, entry_id: c_int, entry: *mut *mut c_void) -> c_int;
+        fn acl_init(count: c_int) -> *mut c_void;
+        fn acl_set_fd_np(fd: c_int, acl: *mut c_void, kind: c_int) -> c_int;
+        fn acl_free(object: *mut c_void) -> c_int;
+    }
+    let fd = file.as_raw_fd();
+    let has_entries = || -> io::Result<bool> {
+        // SAFETY: `fd` is open for as long as `file` is borrowed, and the
+        // list returned is freed once, after its last use.
+        unsafe {
+            let acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
+            if acl.is_null() {
+                let cause = io::Error::last_os_error();
+                return match cause.kind() {
+                    ErrorKind::NotFound => Ok(false),
+                    _ => Err(cause),
+                };
+            }
+            let mut entry = std::ptr::null_mut();
+            let found = acl_get_entry(acl, ACL_FIRST_ENTRY, &mut entry) == 0;
+            acl_free(acl);
+            Ok(found)
+        }
+    };
+    if !has_entries()? {
+        return Ok(());
+    }
+    // SAFETY: as above; the empty list is freed once, after it is set.
+    unsafe {
+        let empty = acl_init(0);
+        if empty.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let set = acl_set_fd_np(fd, empty, ACL_TYPE_EXTENDED);
+        let cause = io::Error::last_os_error();
+        acl_free(empty);
+        if set != 0 {
+            return Err(cause);
+        }
+    }
+    if has_entries()? {
+        return Err(io::Error::other(
+            "an access control list still lets other accounts open it",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn without_acl(_file: &fs::File) -> io::Result<()> {
     Ok(())
 }
 
@@ -839,18 +910,26 @@ pub fn put<Turn>(
         ))
     };
     // `create_new`, so nothing already at the name is written through, and
-    // `0600`, so no other account can read the file before its first byte.
+    // `0600` with no access control entry the scratch directory passed on,
+    // so no other account can read the file before its first byte.
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options.open(&scratch).map_err(unstaged)?;
-    if let Err(cause) = file.write_all(bytes) {
-        drop(file);
-        let _ = fs::remove_file(&scratch);
-        return Err(unstaged(cause));
-    }
+    let written = without_acl(&file)
+        .map_err(|cause| {
+            failed(&format!(
+                "'{}' could not be made private to this account, so nothing was written to it: {cause}",
+                scratch.display()
+            ))
+        })
+        .and_then(|()| file.write_all(bytes).map_err(unstaged));
     drop(file);
+    if let Err(error) = written {
+        let _ = fs::remove_file(&scratch);
+        return Err(error);
+    }
     let published = (|| -> Result<PutOutcome, StorageError> {
         let _held = turn().map_err(|message| failed(&message))?;
         let found = find(root, path).map_err(|cause| failed(&cause))?;
