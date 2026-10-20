@@ -32,15 +32,18 @@
 
 import { InstantString } from '@epicenter/definition';
 import type { Row } from '@epicenter/folder';
-import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import type {
 	RowEdit,
 	RowEditChange,
 	RowPending,
 } from '@epicenter/folder/edits';
+import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import type { RecordingFolder } from '@epicenter/recorder';
 import { createRowEdit, createTextEdit } from '@epicenter/svelte/edits';
-import { unsavedText, type WriteFailure } from '@epicenter/svelte/write-failure';
+import {
+	unsavedText,
+	type WriteFailure,
+} from '@epicenter/svelte/write-failure';
 import {
 	hashKey,
 	type QueryFunctionContext,
@@ -51,7 +54,6 @@ import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ActiveCapture } from './capture.js';
-import { textRead } from './file-reads.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
@@ -81,6 +83,7 @@ import {
 	recordingTitle,
 	runDeletion,
 } from './deletion.js';
+import { textRead } from './file-reads.js';
 import { describeError, listingOf, nameProblem, readBytes } from './files.js';
 import type { WhisperingContext } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
@@ -133,7 +136,9 @@ export type RowView = {
 	save(): Promise<void>;
 };
 /** A view's binding of a file's exact text (`library.textView`). */
-export type TextView = ReturnType<typeof createTextEdit<Uint8Array | undefined>>;
+export type TextView = ReturnType<
+	typeof createTextEdit<Uint8Array | undefined>
+>;
 
 /** A listed row that reads, with its file. `stem` is its ID. */
 export type Entry<T extends TableName> = {
@@ -493,7 +498,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 			unsaved: pending.text,
 			retry: () => {
 				if (fenced) return false;
-				void folder.files.edit(path).save();
+				void folder.files.edit(path).retry();
 				return true;
 			},
 			discard: () => {
@@ -649,9 +654,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 		refused,
 		connections: () => ({ info: connections, error: connectionsError }),
 		resolve,
-		settle: async (path) => {
-			await settlePath(path);
-		},
+		settle: settlePath,
 		deleting,
 		capturing,
 		track,
@@ -790,7 +793,10 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 	/** Save a new recipe file `id`; it names no model of its own. */
 	const createTransformation = action(
 		'create-transformation',
-		async (id: string, { title, prompt }: { title: string; prompt: string }) => {
+		async (
+			id: string,
+			{ title, prompt }: { title: string; prompt: string },
+		) => {
 			const { error } = await folder.tables.transformations.set(id, null, {
 				fields: { title, model: null },
 				body: prompt,
@@ -1065,7 +1071,8 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 		},
 		/** Save again what is typed into `path` and did not save: its fields, body, or text. */
 		retry: async (path: string) => {
-			await settlePath(path);
+			await rowEditAt(path)?.retry();
+			await folder.files.edit(path).retry();
 		},
 		/**
 		 * Let go of what is typed into `path` and did not save, leaving the file
@@ -1077,7 +1084,10 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 				folder.files.edit(path).discard() ?? rowEditAt(path)?.discard();
 			if (discarded === undefined) return undefined;
 			// A body alone stays plain text for copying back into its control.
-			if (discarded.kind === 'row' && Object.keys(discarded.fields).length === 0)
+			if (
+				discarded.kind === 'row' &&
+				Object.keys(discarded.fields).length === 0
+			)
 				return discarded.body;
 			return unsavedText(discarded);
 		},
@@ -1599,7 +1609,7 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 		 * row stays unfinished.
 		 */
 		stop(): Promise<void> {
-			return (stopping ??= (async () => {
+			stopping ??= (async () => {
 				fenced = true;
 				runs.stop();
 				// The microphone first: nothing still being written may keep it open.
@@ -1615,7 +1625,8 @@ export function createLibrary(workspace: Workspace, local: WhisperingContext) {
 				stopTelling();
 				recordingsListed.clear();
 				noticeListeners.clear();
-			})());
+			})();
+			return stopping;
 		},
 	};
 }

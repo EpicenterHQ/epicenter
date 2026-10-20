@@ -202,7 +202,7 @@
 				{/if}
 			</span>
 			{#if unsaved}
-				<Button size="sm" variant="outline" disabled={locked} onclick={() => void edit.save()}>
+				<Button size="sm" variant="outline" disabled={locked} onclick={() => void edit.retry()}>
 					Save again
 				</Button>
 			{/if}
@@ -271,7 +271,7 @@
 						]
 							.filter((part) => typeof part === 'string' && part !== '')
 							.join('\n\n')}</pre>
-					<Button variant="outline" size="xs" disabled={locked} onclick={() => void edit.save()}>Save it again</Button>
+					<Button variant="outline" size="xs" disabled={locked} onclick={() => void edit.retry()}>Save it again</Button>
 					<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard it</Button>
 				</div>
 			{/if}

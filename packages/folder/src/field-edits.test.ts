@@ -235,7 +235,10 @@ test.each([false, true])(
 		await started;
 		expect(writes[0]?.from).toEqual(seen);
 		expect(
-			text.changeFields(seen, { title: 'changed in grid', obsolete: undefined }),
+			text.changeFields(seen, {
+				title: 'changed in grid',
+				obsolete: undefined,
+			}),
 		).toBe(true);
 		disk.release();
 		await first;
@@ -254,7 +257,9 @@ test.each([false, true])(
 );
 
 test('held fields show over a fresh body, and a failed patch saves again only on retry', async () => {
-	const disk = await setup({ 'a.md': '---\ntitle: before\n---\nbody before\n' });
+	const disk = await setup({
+		'a.md': '---\ntitle: before\n---\nbody before\n',
+	});
 	const { folder, other, writes } = disk;
 	const text = folder.files.edit('a.md');
 	expect(text.changeFields(await disk.observe('a.md'), { title: 'mine' })).toBe(
@@ -304,7 +309,9 @@ test('text typed over held fields keeps the latest body; fields over malformed s
 	const view = text.shown(await disk.observe('a.md'));
 	expect(text.change(view.source, `${view.text}typed\n`)).toBe(true);
 	await text.save();
-	expect(await disk.stored('a.md')).toBe('---\ntitle: mine\n---\nnew body\ntyped\n');
+	expect(await disk.stored('a.md')).toBe(
+		'---\ntitle: mine\n---\nnew body\ntyped\n',
+	);
 
 	text.changeFields(await disk.observe('a.md'), { title: 'second' });
 	expectOk(
@@ -323,7 +330,10 @@ test('text typed over held fields keeps the latest body; fields over malformed s
 	});
 	expect(text.shown(broken).text).toBeUndefined();
 	const [unsaved] = await folder.settle();
-	expect(unsaved).toMatchObject({ kind: 'fields', fields: { title: 'second' } });
+	expect(unsaved).toMatchObject({
+		kind: 'fields',
+		fields: { title: 'second' },
+	});
 	expect(text.discard()).toBe(unsaved as never);
 });
 
@@ -342,7 +352,8 @@ test('a failed patch keeps removal apart from null, then retries over fresh sour
 	disk.refuse(true);
 	await text.save();
 	const [held] = await folder.settle();
-	if (held?.kind !== 'fields') throw new Error('The failed field patch was lost');
+	if (held?.kind !== 'fields')
+		throw new Error('The failed field patch was lost');
 	expect(Object.hasOwn(held.fields, 'obsolete')).toBe(true);
 	expect(held.fields).toEqual({ obsolete: undefined, destination: null });
 	expect(writes).toHaveLength(1);
@@ -365,7 +376,7 @@ test('a failed patch keeps removal apart from null, then retries over fresh sour
 	expect(text.pending).toBeUndefined();
 });
 
-test('close gives a patch storage failed once more, and never applies one refused as gone to a file created since', async () => {
+test('close keeps failed patches, including one whose missing file was recreated', async () => {
 	const disk = await setup({ 'a.md': '---\ntitle: before\n---\nbody\n' });
 	const { folder, other, writes } = disk;
 	const text = folder.files.edit('a.md');
@@ -382,14 +393,17 @@ test('close gives a patch storage failed once more, and never applies one refuse
 	expectOk(await other.files.delete('b.md', '---\ntitle: b\n---\n'));
 	await gone.save();
 	expect(gone.pending?.error?.name).toBe('Unparseable');
-	expectOk(await other.files.write('b.md', null, '---\ntitle: new\n---\nfresh\n'));
+	expectOk(
+		await other.files.write('b.md', null, '---\ntitle: new\n---\nfresh\n'),
+	);
 
 	const unsaved = await folder.close();
 	expect(unsaved).toMatchObject([
+		{ kind: 'fields', path: 'a.md', error: { name: 'StorageFailed' } },
 		{ kind: 'fields', path: 'b.md', error: { name: 'Unparseable' } },
 	]);
-	expect(writes).toHaveLength(2);
-	expect(await disk.stored('a.md')).toBe('---\ntitle: mine\n---\nbody\n');
+	expect(writes).toHaveLength(1);
+	expect(await disk.stored('a.md')).toBe('---\ntitle: before\n---\nbody\n');
 	expect(await disk.stored('b.md')).toBe('---\ntitle: new\n---\nfresh\n');
 });
 
@@ -518,9 +532,9 @@ test('a failed exclusive change releases its path while another file saves indep
 	expect(source.change(await disk.observe('epicenter.json'), 'blocked')).toBe(
 		false,
 	);
-	expect(other.change(await disk.observe('notes/a.md'), 'independent edit')).toBe(
-		true,
-	);
+	expect(
+		other.change(await disk.observe('notes/a.md'), 'independent edit'),
+	).toBe(true);
 	await other.save();
 	expect(other.pending).toBeUndefined();
 	expect(source.locked).toBe(true);

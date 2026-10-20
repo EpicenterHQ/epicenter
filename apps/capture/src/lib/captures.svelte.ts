@@ -255,16 +255,14 @@ export function createCaptures(context: CaptureFolder) {
 	 * it: one path holds one kind of input at a time.
 	 */
 	async function open(stem: string, mode: Mode) {
-		if (
-			opened?.stem === stem &&
-			opened.mode !== mode &&
-			!context.closing
-		) {
+		if (opened?.stem === stem && opened.mode !== mode && !context.closing) {
 			const path = capturePath(stem);
-			await (mode === 'capture'
-				? folder.files.edit(path)
-				: folder.tables.captures.edit(stem)
-			).save();
+			const edit =
+				mode === 'capture'
+					? folder.files.edit(path)
+					: folder.tables.captures.edit(stem);
+			await edit.save();
+			if (edit.pending !== undefined) return;
 			await context.refresh([path]);
 		}
 		let as = mode;

@@ -140,6 +140,7 @@ function recorded(edit: RowEdit<typeof notes>) {
 			return edit.change(row, change);
 		},
 		save: () => edit.save(),
+		retry: () => edit.retry(),
 		discard: () => edit.discard(),
 		delete: () => edit.delete(),
 	};

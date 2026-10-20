@@ -8,14 +8,14 @@
  * Key behaviors:
  * - Text typed into a file is saved by the close, then the window goes
  * - A failed save of that text keeps the window and the text; once saving
- *   works, the next close saves and destroys
+ *   works, explicit retry saves and the next close destroys
  * - A recording under way holds nothing: the window goes, and destroying it
  *   is what finishes the recording
  * - A closed whispering no longer holds the window's close
  */
 import {
-	openTestWhispering,
 	closeTestWhispering,
+	openTestWhispering,
 } from './library.test-support.js';
 
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
@@ -93,7 +93,7 @@ test('text typed into a file is saved by the close, then the window goes', async
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);
 });
 
-test('a failed save keeps the window and the text; the next close saves and destroys', async () => {
+test('a failed save keeps the window until explicit retry saves the text', async () => {
 	const window = await openWindow();
 	const { path, text } = await recordAsText(window);
 	const before = text.draft;
@@ -109,6 +109,9 @@ test('a failed save keeps the window and the text; the next close saves and dest
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(before);
 
 	window.control.refuse = false;
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	await window.library.retry(path);
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
@@ -126,6 +129,7 @@ test('a thrown file write leaves a failed draft that can save on retry', async (
 	expect(window.library.editedText(path)).toBe(typed);
 	expect(window.library.unsaved).toBe(true);
 	window.control.throwWrite = false;
+	await window.library.retry(path);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await readFile(join(window.root, path), 'utf8')).toBe(typed);

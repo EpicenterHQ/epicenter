@@ -63,6 +63,8 @@ test('Edit as file keeps a note whose body changes failed to save', async () => 
 	expect(notes.selected?.as).toBe('note');
 	expect(notes.noteBody(PATH).row?.body).toBe(body);
 	failSaves(false);
+	click(target, 'Save again');
+	await until(() => !notes.isUnsaved(PATH), 'the explicit retry');
 	click(target, 'Edit as file');
 	await until(() => notes.selected?.as === 'text', 'the saved file opening');
 });

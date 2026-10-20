@@ -10,7 +10,7 @@
  * Key behaviors:
  * - Closing at once after typing a title saves it, then destroys the window
  * - A failed save keeps the window and the typing, and says why; once
- *   saving works, the next close saves and destroys
+ *   saving works, Try again saves and the next close destroys
  * - A new todo title not added keeps the window until it is cleared
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
@@ -128,7 +128,7 @@ test('closing at once after typing a title saves it, then destroys the window', 
 	expect(await storedTitle()).toBe('Oat milk');
 });
 
-test('a failed save keeps the window and the typing; the next close saves and destroys', async () => {
+test('a failed save keeps the window until explicit retry saves the typing', async () => {
 	const page = await windowOnMilk();
 	type(page.get(TITLE), 'Oat milk');
 	const restore = fillDisk();
@@ -142,6 +142,20 @@ test('a failed save keeps the window and the typing; the next close saves and de
 	restore();
 	expect(await storedTitle()).toBe('Milk');
 
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(await storedTitle()).toBe('Milk');
+	const retry = [
+		...document.querySelectorAll<HTMLButtonElement>(
+			'section[aria-label="Todo"] button',
+		),
+	].find((button) => button.textContent?.trim() === 'Try again');
+	if (retry === undefined) throw new Error('The failed edit offers Try again');
+	retry.click();
+	await until(
+		() => said('Saved on this device') && !said('Not saved:'),
+		'the explicit retry',
+	);
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);

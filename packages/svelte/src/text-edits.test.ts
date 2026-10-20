@@ -204,7 +204,7 @@ test('a refused delete leaves failed text held until typing or explicit retry', 
 	await Bun.sleep(50);
 	expect(text.pending).toBeDefined();
 	expect(await sourceOf(other)).toBe(initial);
-	await text.save();
+	await text.retry();
 	expect(await sourceOf(other)).toBe('Keep this failed text');
 });
 

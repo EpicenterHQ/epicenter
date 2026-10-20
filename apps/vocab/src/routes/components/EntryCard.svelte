@@ -66,7 +66,7 @@
 			{#if pending?.saving}
 				Saving…
 			{:else if pending?.error}
-				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void edit.save()}>Try again</Button>
+				Not saved: {describeFailure(pending.error)} <Button variant="link" size="xs" class="h-auto p-0" onclick={() => void edit.retry()}>Try again</Button>
 			{/if}
 		</span>
 	</div>

@@ -77,6 +77,7 @@ export function useRowEdit<
 		change: (change: RowEditChange<TRowSchema>): boolean =>
 			shown !== undefined && edit.change(shown.source, change),
 		save: () => edit.save(),
+		retry: () => edit.retry(),
 		discard: () => edit.discard(),
 		delete: () => edit.delete(),
 	};

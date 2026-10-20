@@ -35,13 +35,18 @@ the app's own query. It answers:
 | `pending` | The held input, or `undefined`; its identity holds until it changes. |
 | `locked` | Input is refused: another action holds the file, or the folder closes. |
 | `change({ fields?, body? })` | Type fields and the body over what this render showed, as one change. |
-| `save()`, `discard()`, `delete()` | The handle's own commands. |
+| `save()`, `retry()`, `discard()`, `delete()` | The handle's own commands. |
+
+`save()` sends new input or joins its running attempt. Failed input stays
+held until `retry()` explicitly attempts it again or accepted new input clears
+the old error. Autosave, blur, settlement and close do not retry a failure.
+Both commands resolve after the attempt; `pending` reports a failure.
 
 `useTextEdit(textEdit, observedBytes)` does the same for a file's whole text:
 `text` is what this render shows (the held text or fields over its bytes,
 else those bytes decoded with their byte-order mark kept), `change(text)`
 types the whole text and `changeFields(fields)` frontmatter fields over what
-this render showed, and `retry()` and `exclusive(action)` call the handle.
+this render showed, and `exclusive(action)` calls the handle.
 Read the bytes through `fileBytes` or `rowBytes` from `@epicenter/folder`, so
 the handle knows how old they are.
 

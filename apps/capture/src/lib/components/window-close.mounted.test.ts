@@ -11,7 +11,7 @@
  * - New capture text not added keeps the window until it is cleared
  * - Text typed with Edit as text is saved by the close, then the window goes
  * - A failed save of that text keeps the window and the text; once saving
- *   works, the next close saves and destroys
+ *   works, explicit retry saves and the next close destroys
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
@@ -167,7 +167,7 @@ test('text typed with Edit as text is saved by the close, then the window goes',
 	expect(await storedText()).toBe(FILE.replace('Before', 'After'));
 });
 
-test('a failed save keeps the window and the text; the next close saves and destroys', async () => {
+test('a failed save keeps the window and the text; explicit retry saves and the next close destroys', async () => {
 	const page = await openWindow();
 	const contents = await editAsText(page);
 	const draft = FILE.replace('Before', 'Typed but not saved');
@@ -182,6 +182,10 @@ test('a failed save keeps the window and the text; the next close saves and dest
 	restore();
 	expect(await storedText()).toBe(FILE);
 
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	click(page.target, 'Save again');
+	await until(() => page.text().includes('Saved to'), 'the explicit retry');
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);

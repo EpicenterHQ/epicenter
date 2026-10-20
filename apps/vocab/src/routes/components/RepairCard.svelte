@@ -52,7 +52,7 @@
 		{#if repair.error && !repair.saving}
 			<p role="alert" class="text-destructive">
 				Not saved: {describeFailure(repair.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void repair.save()}>Try again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void text?.retry()}>Try again</Button>
 			</p>
 		{:else if repair.busy}
 			<p role="status" class="text-muted-foreground">Saving…</p>

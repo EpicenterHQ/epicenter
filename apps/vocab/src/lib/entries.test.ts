@@ -179,9 +179,10 @@ test('a different file where a new word belongs is refused and left as it is', a
 	const path = `entries/${idOf('opaque')}.md`;
 	const other = '---\ntext: lurid\nnote: ""\nstage: new\ncreatedAt: x\n---\n';
 	await put(context.folder, path, other);
-	expect(
-		expectErr(await context.vocab.entries.add('opaque')),
-	).toMatchObject({ name: 'Taken', path });
+	expect(expectErr(await context.vocab.entries.add('opaque'))).toMatchObject({
+		name: 'Taken',
+		path,
+	});
 	expect(await fileText(context.folder, path)).toBe(other);
 });
 
@@ -204,8 +205,8 @@ test('a note is held as typed over a reread, saved after a pause, and the list t
 	await until(() => edit.pending === undefined, 'the note to save');
 	await quiet(vocab);
 	expect(
-		expectOk(await context.folder.tables.entries.get(context.word().id))
-			?.fields.note,
+		expectOk(await context.folder.tables.entries.get(context.word().id))?.fields
+			.note,
 	).toBe('clear and bright');
 	expect(context.word().note).toBe('clear and bright');
 	expect(vocab.busy).toBe(false);
@@ -297,9 +298,9 @@ test('a saved stage stays shown when the reread fails, and pressing the old stag
 	} finally {
 		folder.tables.entries.list = list;
 	}
-	expect(
-		expectOk(await folder.tables.entries.get(word.id))?.fields.stage,
-	).toBe('new');
+	expect(expectOk(await folder.tables.entries.get(word.id))?.fields.stage).toBe(
+		'new',
+	);
 });
 
 test('a save that fails keeps the typing and its error, and saving again writes it', async () => {
@@ -317,7 +318,7 @@ test('a save that fails keeps the typing and its error, and saving again writes 
 	expect(context.word().note).toBe('');
 
 	saves.failing = false;
-	await edit.save();
+	await edit.retry();
 	expect(edit.pending).toBeUndefined();
 	expect(
 		expectOk(await folder.tables.entries.get(context.word().id))?.fields.note,
@@ -380,7 +381,10 @@ test('a file that is not a valid word is named for repair, written as typed text
 	expect(await fileText(folder, 'entries/broken.md')).toBe(
 		broken.replace('stage: mastered', 'stage: usable'),
 	);
-	expect(cached(vocab, 'lurid')).toMatchObject({ id: 'broken', stage: 'usable' });
+	expect(cached(vocab, 'lurid')).toMatchObject({
+		id: 'broken',
+		stage: 'usable',
+	});
 	expect(repairsOf(rows(vocab)).map((file) => file.id)).toEqual(['unparsed']);
 	expect(await repair.close()).toBe(true);
 	expect(repair.open).toBeUndefined();
@@ -401,7 +405,9 @@ test('a delete waits for the typing to save, then removes the word', async () =>
 	expect(slow.vocab.entries.setNote(word, 'more')).toBe(false);
 	expect(expectOk(await deleting)).toEqual({ deleted: true });
 	expect(await tableFiles(folder, 'entries')).toEqual([]);
-	expect(slow.vocab.folder.tables.entries.edit(word.id).pending).toBeUndefined();
+	expect(
+		slow.vocab.folder.tables.entries.edit(word.id).pending,
+	).toBeUndefined();
 	await until(
 		() => wordsOf(rows(vocab)).length === 0,
 		'the delete to reach the other list',
@@ -479,7 +485,9 @@ test('close sends a whole-file repair draft before releasing the folder', async 
 	expect(repair.view(broken)?.change('---\ntext: repaired\n---\n')).toBe(true);
 	await opened.context.close();
 	const reopened = await browser.open();
-	expect(await fileText(reopened, 'entries/broken.md')).toContain('text: repaired');
+	expect(await fileText(reopened, 'entries/broken.md')).toContain(
+		'text: repaired',
+	);
 	await reopened.close();
 	await opened[Symbol.asyncDispose]();
 	await browser[Symbol.asyncDispose]();

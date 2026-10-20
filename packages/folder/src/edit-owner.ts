@@ -38,13 +38,13 @@
  *   stay until the file is deleted or the folder closes; a failed read never
  *   replays a save.
  * - **A failed save** keeps the input and its error until a save lands or the
- *   input is discarded. A failed field patch saves again only on `retry()`
+ *   input is discarded. Any failed input saves again only on `retry()`
  *   or new input.
  * - **A fence** (`exclusive`, and `delete` on it) takes the path at once,
- *   waits for its running save, sends held input once and refuses if that
+ *   waits for its running save, sends new input once and refuses if that
  *   fails, then runs alone.
  * - **Close** refuses input from the moment it is called, waits for fenced
- *   actions, sends every input once, and answers what did not save. Handles
+ *   actions, sends new input once, and answers what did not save. Handles
  *   and the folder's status still read what is held afterwards.
  *
  * Every pending value is immutable and replaced on each change, so a reader
@@ -78,7 +78,7 @@ export const BUSY = 'Another change to this file is still running.';
 
 /** A fence cannot throw away input that storage refused to save. */
 export const UNSAVED =
-	'This file has unsaved changes. Save or discard them first.';
+	'This file has unsaved changes. Try again or discard them first.';
 
 const GONE =
 	'The file no longer exists; discard the field edit before recreating it';
@@ -177,6 +177,10 @@ type Edit<TPending> = {
 	 * Every handle of a folder shares one function. Answers the stop.
 	 */
 	subscribe(listener: (path: string | undefined) => void): () => void;
+	/** Send new input now, or join its running save. Failed input waits for retry or a change. */
+	save(): Promise<void>;
+	/** Explicitly attempt held input again, including a failed save. Joins a running save. */
+	retry(): Promise<void>;
 	/** Let go of held input, answering it so the caller can copy it first. Refused while a save or action runs. */
 	discard(): TPending | undefined;
 	/** Send held input, then delete the file as it is stored. A file changed meanwhile is kept. */
@@ -199,8 +203,6 @@ export type RowEdit<TRowSchema extends TSchema = TSchema> = Edit<
 	 * folder closes or an action holds the file, or while its text is held.
 	 */
 	change(source: Row<TRowSchema>, change: RowEditChange<TRowSchema>): boolean;
-	/** Save what is held now, a failed save included; resolves once no save of it runs. */
-	save(): Promise<void>;
 };
 
 /** A file's whole text or a field patch over it, answered by `folder.files.edit(path)`. */
@@ -228,10 +230,6 @@ export type TextEdit = Edit<TextPending | FieldsPending> & {
 		source: Uint8Array | undefined,
 		fields: Readonly<Record<string, unknown>>,
 	): boolean;
-	/** Save what is held now; a failed field patch waits for `retry`. */
-	save(): Promise<void>;
-	/** Save what is held now, a failed field patch included. */
-	retry(): Promise<void>;
 	/**
 	 * Take the file alone: input is refused from now on, held input is sent
 	 * once, and `action` runs only if it saved. Refused while another action
@@ -258,9 +256,6 @@ export type ExclusiveFile = {
 	): ReturnType<FolderFileOperations['write']>;
 	delete(from: FileContent | null): ReturnType<FolderFileOperations['delete']>;
 };
-
-/** Which failed field patches a send repeats; see `flush`. */
-type Retry = 'any' | 'storage' | 'none';
 
 /**
  * The pause before held input saves: `saveAfterMs`, a finite number of
@@ -407,7 +402,7 @@ function withValue(
 	});
 }
 
-const valueOf = (fields: Record<string, unknown>, key: string) =>
+const fieldValue = (fields: Record<string, unknown>, key: string) =>
 	Object.hasOwn(fields, key) ? fields[key] : undefined;
 
 /** A row's fields as a record, whether or not they fit its schema. */
@@ -610,44 +605,27 @@ export function createEditOwner({
 	}
 
 	/**
-	 * Send the path's input now; resolves once no save of it runs. A failed
-	 * field patch is sent again only as `retry` says: `'any'` on `retry()`
-	 * and new input; `'storage'` at close, one last time when storage failed,
-	 * never after a refusal that would refuse again, or that a file created
-	 * or repaired since would turn into a change nobody saw; `'none'`
-	 * otherwise. Row and text input is always sent. While an action holds
-	 * the path, the action sends held input itself, so this starts nothing.
+	 * Send new input, or join a running save. Every failed revision waits
+	 * for explicit retry or new input. An action sends its held input itself.
 	 */
-	function flush(path: string, retry: Retry = 'any', forAction = false) {
+	function flush(path: string, forAction = false) {
 		const state = states.get(path);
 		if (state === undefined) return Promise.resolve();
 		clearTimer(state);
 		if (state.action !== undefined && !forAction) return Promise.resolve();
 		const input = state.input;
-		const error = input?.kind === 'fields' ? input.pending.error : undefined;
-		if (
-			error !== undefined &&
-			(retry === 'none' ||
-				(retry === 'storage' && error.name !== 'StorageFailed'))
-		)
-			return Promise.resolve();
 		if (state.running !== undefined) {
 			state.again = true;
 			return state.running;
 		}
-		if (input === undefined) return Promise.resolve();
+		if (input === undefined || input.pending.error !== undefined)
+			return Promise.resolve();
 		// Set before the loop starts: it tells listeners at once, and one
 		// that asks for another save then joins this one.
 		const started = Promise.withResolvers<void>();
 		state.running = started.promise;
 		saves++;
-		drain(path, state)
-			.finally(() => {
-				state.running = undefined;
-				saves--;
-				publish(path);
-			})
-			.then(started.resolve, started.reject);
+		drain(path, state).then(started.resolve, started.reject);
 		return started.promise;
 	}
 
@@ -655,9 +633,26 @@ export function createEditOwner({
 	 * A save asked for from outside: from close on, nothing new is sent, and
 	 * the asker waits for close, which sends held input once itself.
 	 */
-	function requested(path: string, retry: Retry): Promise<void> {
-		if (closing !== undefined) return closing.then(() => {});
-		return flush(path, retry);
+	function requested(path: string, retry = false): Promise<void> {
+		if (fenced) return close().then(() => {});
+		const state = states.get(path);
+		if (
+			retry &&
+			state !== undefined &&
+			!isLocked(state) &&
+			state.running === undefined &&
+			state.input?.pending.error !== undefined
+		) {
+			setInput(
+				path,
+				state,
+				withState(state.input, { saving: false, error: undefined }),
+			);
+		}
+		// Clearing the error publishes: a listener may have saved, changed,
+		// discarded, fenced or closed meanwhile. Never reinstall that input.
+		if (fenced) return close().then(() => {});
+		return flush(path);
 	}
 
 	/** A save's outcome, with the commit it landed as when it did. */
@@ -739,7 +734,8 @@ export function createEditOwner({
 				: undefined;
 		let fields: Record<string, unknown> | undefined;
 		for (const [key, unit] of retained.fields)
-			if (unit.commit > after) fields = withValue(fields ?? {}, key, unit.value);
+			if (unit.commit > after)
+				fields = withValue(fields ?? {}, key, unit.value);
 		const body =
 			retained.body !== undefined && retained.body.commit > after
 				? retained.body.value
@@ -767,11 +763,12 @@ export function createEditOwner({
 		input: Input,
 		at: number,
 	) {
-		const retained = (state.retained ??= {
+		state.retained ??= {
 			text: undefined,
 			fields: new Map(),
 			body: undefined,
-		});
+		};
+		const retained = state.retained;
 		if (input.kind === 'text') {
 			const earlier = ownOver(path, retained, input.from, input.fromAsOf);
 			const composed =
@@ -792,7 +789,7 @@ export function createEditOwner({
 		const bases = input.kind === 'row' ? input.bases.fields : undefined;
 		for (const [key, value] of Object.entries(input.pending.fields)) {
 			// A field sent as the person saw it changed nothing of theirs.
-			if (bases !== undefined && Object.is(valueOf(bases, key), value))
+			if (bases !== undefined && Object.is(fieldValue(bases, key), value))
 				continue;
 			retained.fields.set(key, { value, commit: at });
 		}
@@ -841,11 +838,12 @@ export function createEditOwner({
 				bases = withValue(
 					bases,
 					key,
-					wasSent ? sent[key] : valueOf(after.bases.fields, key),
+					wasSent ? sent[key] : fieldValue(after.bases.fields, key),
 				);
 			}
 			const sentBody = before.pending.body;
-			const body = after.pending.body === sentBody ? undefined : after.pending.body;
+			const body =
+				after.pending.body === sentBody ? undefined : after.pending.body;
 			if (Object.keys(fields).length === 0 && body === undefined) {
 				setInput(path, state, undefined);
 				return;
@@ -920,50 +918,64 @@ export function createEditOwner({
 	}
 
 	async function drain(path: string, state: PathState) {
-		do {
-			state.again = false;
-			const input = state.input;
-			if (input === undefined) return;
-			setInput(
-				path,
-				state,
-				withState(input, { saving: true, error: input.pending.error }),
-			);
-			const sent = await send(path, input);
-			const { error, prepared } = sent;
-			// The commit this save landed as: reads started from it on show it.
-			// Unknown only for a save no notice named; then every commit so far.
-			const at = sent.at ?? commits;
-			const settled = state.input;
-			if (settled === undefined) return;
-			if (error !== null) {
-				const same = settled.revision === input.revision;
-				// The error belongs to the input that was sent; newer input has
-				// not been tried.
+		try {
+			do {
+				state.again = false;
+				const input = state.input;
+				if (input === undefined || input.pending.error !== undefined) return;
 				setInput(
 					path,
 					state,
-					withState(settled, { saving: false, error: same ? error : undefined }),
+					withState(input, { saving: true, error: input.pending.error }),
 				);
-				// A second request for the same failed input is not a retry loop.
-				if (same) return;
-				continue;
-			}
-			await commit(path, state, input, at);
-			const after = state.input;
-			if (after === undefined) return;
-			if (after.revision === input.revision) setInput(path, state, undefined);
-			else await landed(path, state, input, prepared, at);
-		} while (state.again);
+				const sent = await send(path, input);
+				const { error, prepared } = sent;
+				// The commit this save landed as: reads started from it on show it.
+				// Unknown only for a save no notice named; then every commit so far.
+				const at = sent.at ?? commits;
+				const settled = state.input;
+				if (settled === undefined) return;
+				if (error !== null) {
+					const same = settled.revision === input.revision;
+					// The error belongs to the input that was sent; newer input has
+					// not been tried.
+					setInput(
+						path,
+						state,
+						withState(settled, {
+							saving: false,
+							error: same ? error : undefined,
+						}),
+					);
+					// A listener may have typed and requested another save during
+					// publication. Only the failed revision must wait for retry.
+					if (state.input?.revision === input.revision) return;
+					continue;
+				}
+				await commit(path, state, input, at);
+				const after = state.input;
+				if (after === undefined) return;
+				if (after.revision === input.revision) setInput(path, state, undefined);
+				else await landed(path, state, input, prepared, at);
+				// Close drains eligible input accepted before its fence, including
+				// input a listener added as this attempt finished.
+			} while (state.again || fenced);
+		} finally {
+			// Stop accepting joins in the same turn that draining ends. A
+			// queued listener can then start the next save, never join a dead one.
+			state.running = undefined;
+			saves--;
+			publish(path);
+		}
 	}
 
 	/**
-	 * Send each path once, after fenced actions; answers the input that did
-	 * not save. A failed field patch is sent again as `retry` says.
+	 * Send each eligible path once, after fenced actions; answers the input
+	 * that did not save. Failed revisions stay held for retry or new input.
 	 */
-	async function settle(retry: Retry = 'none'): Promise<Pending[]> {
+	async function settle(): Promise<Pending[]> {
 		await Promise.allSettled([...actions]);
-		await Promise.allSettled([...held].map((path) => flush(path, retry)));
+		await Promise.allSettled([...held].map((path) => flush(path)));
 		return [...held].sort().flatMap((path) => {
 			const pending = states.get(path)?.input?.pending;
 			return pending === undefined ? [] : [pending];
@@ -992,7 +1004,8 @@ export function createEditOwner({
 		clearTimer(state);
 		let taken = true;
 		const ended = () => {
-			if (!taken) throw new Error('This exclusive change of the file has ended');
+			if (!taken)
+				throw new Error('This exclusive change of the file has ended');
 		};
 		const file: ExclusiveFile = {
 			path,
@@ -1004,7 +1017,7 @@ export function createEditOwner({
 			try {
 				await state.running;
 				if (state.input !== undefined) {
-					await flush(path, 'none', true);
+					await flush(path, true);
 					if (state.input !== undefined)
 						return ActionError.NotStarted({ reason: UNSAVED });
 				}
@@ -1067,8 +1080,10 @@ export function createEditOwner({
 		let asOf = read;
 		const retained = state?.retained;
 		if (retained === undefined) return asOf;
-		if (retained.text !== undefined) asOf = Math.max(asOf, retained.text.commit);
-		if (retained.body !== undefined) asOf = Math.max(asOf, retained.body.commit);
+		if (retained.text !== undefined)
+			asOf = Math.max(asOf, retained.text.commit);
+		if (retained.body !== undefined)
+			asOf = Math.max(asOf, retained.body.commit);
 		for (const unit of retained.fields.values())
 			asOf = Math.max(asOf, unit.commit);
 		return asOf;
@@ -1163,7 +1178,11 @@ export function createEditOwner({
 				let baseFields = input?.bases.fields ?? {};
 				for (const key of keys) {
 					if (!Object.hasOwn(fields, key))
-						baseFields = withValue(baseFields, key, valueOf(seen.fields, key));
+						baseFields = withValue(
+							baseFields,
+							key,
+							fieldValue(seen.fields, key),
+						);
 					fields = withValue(fields, key, typed[key]);
 				}
 				let body = input?.pending.body;
@@ -1174,8 +1193,9 @@ export function createEditOwner({
 						baseBody = seen.body;
 						bodyAsOf = seen.asOf;
 						body = change.body;
-					} else
-						// A view that showed older input changed that, not what is held.
+					}
+					// A view that showed older input changed that, not what is held.
+					else
 						body =
 							seen.body === body
 								? change.body
@@ -1193,12 +1213,10 @@ export function createEditOwner({
 						fields,
 						body,
 						saving: input?.pending.saving ?? false,
-						error: input?.pending.error,
+						error: undefined,
 					},
 					source:
-						input === undefined ||
-						parses(typedSource) ||
-						!parses(input.source)
+						input === undefined || parses(typedSource) || !parses(input.source)
 							? typedSource
 							: input.source,
 					bases: { fields: baseFields, body: baseBody, bodyAsOf },
@@ -1208,7 +1226,9 @@ export function createEditOwner({
 				return true;
 			},
 			save: () =>
-				heldRow() === undefined ? Promise.resolve() : requested(path, 'any'),
+				heldRow() === undefined ? Promise.resolve() : requested(path),
+			retry: () =>
+				heldRow() === undefined ? Promise.resolve() : requested(path, true),
 			discard() {
 				if (heldRow() === undefined) return undefined;
 				const pending = discard(path);
@@ -1345,7 +1365,7 @@ export function createEditOwner({
 						path,
 						text: next,
 						saving: input?.pending.saving ?? false,
-						error: input?.kind === 'text' ? input.pending.error : undefined,
+						error: undefined,
 					},
 					from,
 					fromAsOf,
@@ -1365,7 +1385,11 @@ export function createEditOwner({
 					if (put.error !== null) return false;
 					setInput(path, target, {
 						...input,
-						pending: { ...input.pending, text: put.data.text },
+						pending: {
+							...input.pending,
+							text: put.data.text,
+							error: undefined,
+						},
 						revision: ++revisions,
 					});
 				} else {
@@ -1393,9 +1417,9 @@ export function createEditOwner({
 				return true;
 			},
 			save: () =>
-				heldText() === undefined ? Promise.resolve() : requested(path, 'none'),
+				heldText() === undefined ? Promise.resolve() : requested(path),
 			retry: () =>
-				heldText() === undefined ? Promise.resolve() : requested(path, 'any'),
+				heldText() === undefined ? Promise.resolve() : requested(path, true),
 			discard() {
 				if (heldText() === undefined) return undefined;
 				const pending = discard(path);
@@ -1406,9 +1430,7 @@ export function createEditOwner({
 					const stored = await files.read(path);
 					if (stored.error !== null) return stored;
 					if (stored.data === undefined) return Ok({ deleted: false });
-					const bytes = new Uint8Array(
-						await stored.data.content.arrayBuffer(),
-					);
+					const bytes = new Uint8Array(await stored.data.content.arrayBuffer());
 					return files.delete(path, bytes);
 				}),
 			exclusive: (action) => fence(path, BUSY, action),
@@ -1428,7 +1450,7 @@ export function createEditOwner({
 		closing = completion.promise;
 		fenced = true;
 		publish(undefined);
-		settle('storage').then(completion.resolve, completion.reject);
+		settle().then(completion.resolve, completion.reject);
 		return closing;
 	}
 

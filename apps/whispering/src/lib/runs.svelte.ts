@@ -17,7 +17,7 @@
  * and a field a person changed meanwhile is kept. A row that is gone was
  * discarded, and is not written.
  */
-import type { Row, FolderTable } from '@epicenter/folder';
+import type { FolderTable, Row } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
@@ -139,10 +139,10 @@ export function createRuns({
 	};
 	resolve: (recipe: RecipeRow | undefined) => ResolvedRecipe;
 	/**
-	 * Resolves once the typing held for `path` saved, so what is read is what
-	 * was typed.
+	 * Sends new input for `path` and answers whether input remains unsaved,
+	 * so a request never silently uses the older saved text after failure.
 	 */
-	settle: (path: string) => Promise<void>;
+	settle: (path: string) => Promise<boolean>;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
 	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
@@ -318,7 +318,10 @@ export function createRuns({
 	): Promise<Result<{ stem: string; resolved: ResolvedRecipe }, string>> {
 		const stem = rowIdOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
-		await settle(path);
+		if (await settle(path))
+			return Err(
+				'This transformation has unsaved changes. Try again or discard them before running it.',
+			);
 		const { data: stored, error } =
 			await folder.tables.transformations.get(stem);
 		if (error !== null) return Err(error.message);
@@ -346,7 +349,10 @@ export function createRuns({
 		const transcriptionId = rowIdOf(TRANSCRIPTIONS, path);
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
-		await settle(path);
+		if (await settle(path))
+			return Err(
+				'This transcript has unsaved changes. Try again or discard them before transforming it.',
+			);
 		const { data: stored, error } =
 			await folder.tables.transcriptions.get(transcriptionId);
 		if (error !== null) return Err(error.message);

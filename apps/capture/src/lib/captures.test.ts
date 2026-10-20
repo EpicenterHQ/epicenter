@@ -167,7 +167,9 @@ test("another tab's change shows without replacing typing, and the save merges w
 	await harness.quiet();
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('mood: calm');
-	expect(saved).toContain('Typed here\n\n## Thoughts\n\n- first\n  nested line\n');
+	expect(saved).toContain(
+		'Typed here\n\n## Thoughts\n\n- first\n  nested line\n',
+	);
 	expect(form.body).toBeUndefined();
 });
 
@@ -177,10 +179,7 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 	const restore = harness.failSaves();
 	form.inputNewThought('kept');
 	form.addThought();
-	await until(
-		() => form.error !== undefined && !form.saving,
-		'the failure',
-	);
+	await until(() => form.error !== undefined && !form.saving, 'the failure');
 
 	expect(form.body).toContain('- kept');
 	expect(harness.captures.saveLabel).toBe('Not saved');
@@ -196,7 +195,7 @@ test('a failed save keeps the edit and its reason; saving again lands it', async
 	restore();
 	expect(await harness.text(PATH)).toBe(HAND);
 
-	await form.flush();
+	await harness.folder.tables.captures.edit('one').retry();
 	await harness.quiet();
 	expect(form.body).toBeUndefined();
 	expect(await harness.text(PATH)).toContain('- kept\n');
@@ -339,14 +338,21 @@ test('a thought edit is refused, with its text kept, when another view deleted i
 	expect(inB.deleteThought(0, ['a', 'b'])).toBe(true);
 	await form.flush();
 	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n'));
+	expect(await harness.text(PATH)).toBe(
+		withBody('Text\n\n## Thoughts\n\n- b\n'),
+	);
 
 	// A still shows `a` first, but it is gone now: nothing is written.
 	expect(inA.commitEditing(edit.id)).toBe(false);
 	expect(form.refusal).toContain('Your edit is kept here');
-	expect(form.editing).toMatchObject({ text: 'my edited first', original: 'a' });
+	expect(form.editing).toMatchObject({
+		text: 'my edited first',
+		original: 'a',
+	});
 	expect(form.body).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n'));
+	expect(await harness.text(PATH)).toBe(
+		withBody('Text\n\n## Thoughts\n\n- b\n'),
+	);
 });
 
 test('a command on a list another view changed is refused, though this view still shows it', async () => {
@@ -354,7 +360,9 @@ test('a command on a list another view changed is refused, though this view stil
 	expect(inB.swapThoughts(0, 1, ['a', 'b'])).toBe(true);
 	await form.flush();
 	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n- a\n'));
+	expect(await harness.text(PATH)).toBe(
+		withBody('Text\n\n## Thoughts\n\n- b\n- a\n'),
+	);
 
 	expect(inA.deleteThought(0, ['a', 'b'])).toBe(false);
 	expect(form.refusal).toBe(
@@ -364,7 +372,9 @@ test('a command on a list another view changed is refused, though this view stil
 	inA.startEditing(0, ['a', 'b']);
 	expect(form.editing).toBeUndefined();
 	expect(form.body).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(withBody('Text\n\n## Thoughts\n\n- b\n- a\n'));
+	expect(await harness.text(PATH)).toBe(
+		withBody('Text\n\n## Thoughts\n\n- b\n- a\n'),
+	);
 });
 
 test('a thought typed and not added stays with its capture', async () => {
@@ -436,7 +446,7 @@ test('a failed text save keeps the typing until saved again', async () => {
 	expect(harness.captures.saveLabel).toBe('Not saved');
 
 	restore();
-	await edit.save();
+	await edit.retry();
 	await harness.quiet();
 	expect(edit.pending).toBeUndefined();
 	expect(await harness.text(PATH)).toBe(`${HAND}more\n`);
@@ -502,4 +512,24 @@ test('close sends the edit held and refuses new input', async () => {
 	captures.inputNewCapture('Too late');
 	expect(captures.newCapture).toBe('');
 	expect(expectErr(await captures.create('Too late')).name).toBe('NotStarted');
+});
+
+test('switching from failed text to a capture waits for explicit retry', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures, folder } = harness;
+	await captures.open('one', 'text');
+	const edit = folder.files.edit(PATH);
+	const changed = `${HAND}more\n`;
+	edit.change(bytes(HAND), changed);
+	const restore = harness.failSaves();
+	await edit.save();
+	restore();
+	await captures.open('one', 'capture');
+	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
+	expect(edit.pending?.error?.name).toBe('StorageFailed');
+	expect(await harness.text(PATH)).toBe(HAND);
+	await edit.retry();
+	await captures.open('one', 'capture');
+	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
+	expect(await harness.text(PATH)).toBe(changed);
 });

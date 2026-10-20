@@ -1,6 +1,6 @@
 # 0656. A folder owns typed input from open to close
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) and [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), where an editor's input lives: input not yet saved is held by the folder, not by a page draft or a queue in each app. A field edit still sets fields on the file as it is now, a body or text still merges by line, and one write path and one channel of change remain.
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge each save uses), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (folder queries), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (the app's folder context), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) (a control binds one part of a row)
@@ -136,11 +136,15 @@ outside what close and `saveState` wait for.
   `SAVE_AFTER_MS`); a negative or non-finite value throws `RangeError` at
   open.
 - `folder.status` is `{ saving, storageFailure, unsaved, failures, closing }`.
-- `folder.settle()` sends held input once and answers what is still held.
+- `folder.settle()` sends new input once and answers what is still held.
+- Every row, text and field edit has `save()` and `retry()`. `save()` sends
+  new input or joins its running attempt. A failed or refused revision stays
+  held until explicit `retry()` or accepted new input. Incidental triggers
+  never retry failures, including storage failures. Both commands resolve
+  after the attempt; the retained `pending` value reports failure.
 - `folder.close()` refuses new input and makes every storage call throw at
-  once, gives input that storage failed one last try (input refused as gone
-  or malformed is never sent), waits for saves but not reads, and answers
-  what is still held. What is held stays readable: `status`, and `edit(...)`
+  once, sends new input once, waits for saves but not reads, and answers
+  what is still held. Failed input is returned without another attempt. What is held stays readable: `status`, and `edit(...)`
   handles, whose `pending`, `shown` and `discard` answer and whose `save()`
   and `retry()` join the close.
 - `delete()` and `exclusive(action)` take the path, send held input once, and
@@ -179,6 +183,13 @@ stored format changes; nothing migrates.
   storage, and the list follows on `onChange`.
 
 ## Considered
+
+- **Retrying storage failures during close.** It gave disposal a different
+  authorization rule from blur and settlement. The window guard already
+  keeps a window open while input remains unsaved, and disposal returns
+  copyable input. One rule for every edit and trigger removes the special
+  shutdown retry without silently losing failed input. After storage recovers,
+  the person chooses Try again or types a new change.
 
 - **An owner attached after open.** Close could not tell whether one was still
   coming, and plain scripts had none.

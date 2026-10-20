@@ -25,7 +25,7 @@ import { openFolder } from '@epicenter/folder';
 import { Type } from 'typebox';
 
 const notes = Type.Object({ title: Type.String(), done: Type.Optional(Type.Boolean()) });
-const { data: folder, error } = await openFolder({ tables: { notes }, saveAfterMs: 1000 });
+const { data: folder, error } = await openFolder({ tables: { notes } });
 if (error !== null) return show(error.message);
 
 const stop = folder.onChange((change) => refresh(change.paths)); // subscribe, then read
@@ -87,8 +87,8 @@ the saved files.
 | `tables.<name>` | A view of rows at `<name>/<id>.md`: `list()`, `get(id)`, `set(id, from, change)`, `delete(id, from)`, and `edit(id)`, the row's typed input. Adjacent files are available through `folder.files`. |
 | `onChange(listener)` | Runs after a save commits: `change.paths`, or `null` when any path may differ, and `change.origin`, `this-handle` or `other-handle`. A save of this handle whose content was already stored is reported to this handle's listeners too. Returns the function that stops listening. |
 | `status`, `onStatusChange` | `{ saving, storageFailure, unsaved, failures, closing }`: a save, delete or exclusive change running; the last storage failure; the paths holding typed input; held input whose save failed; whether close was called. Typing, discarding and a fence change it without any storage call. |
-| `settle()` | Sends held input once, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
-| `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; held input is sent once; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `status`, and `edit(...)` handles, whose `pending`, `shown` and `discard` answer and whose `save()` and `retry()` join the close. Answers the input that did not save. Calling it again returns the same promise. |
+| `settle()` | Sends new input once, leaving failed input held for retry or a change, after running deletes and exclusive changes, and waits for saves already started, direct ones included, never for reads. Answers the input that did not save. |
+| `close()` | At once, new input is refused and every storage call (reads, saves, deletes, `onChange`, `onStatusChange`, `settle`) throws; running deletes and exclusive changes finish; new input is sent once and failed input stays held for recovery; saves already started finish with their real outcome; reads still running are not waited for; then listeners and storage are released. Held input stays readable: `status`, and `edit(...)` handles, whose `pending`, `shown` and `discard` answer and whose `save()` and `retry()` join the close. Answers the input that did not save. Calling it again returns the same promise. |
 
 Open options: `saveAfterMs`, how long after its last change typed input
 saves (a trailing pause, `SAVE_AFTER_MS` = 1000 by default), a finite
@@ -229,15 +229,20 @@ A UI binding (`@epicenter/svelte/edits`, `@epicenter/react/edits`) does the
   (a delete that keeps a changed file keeps them) or the folder closes.
 - **Fields of any file.** `changeFields` holds a patch that a save applies to
   the file as stored then, removal (`undefined`) apart from `null`. A
-  failed patch saves again on `retry()` or new input; `save()` and
-  `settle()` leave it; close gives one that storage failed one last try and
-  never sends one refused as gone or malformed. Text typed over held fields
-  keeps them and takes the patch's place.
+  failed patch stays held like every other kind of input; an ordinary save
+  never reapplies it to a file repaired or recreated since its refusal.
+  Text typed over held fields keeps them and takes the patch's place.
 - **Exclusion.** Row input excludes text and field input on one path.
-- **Failure.** A failed save keeps the input and its `SaveError` until a save
-  lands or `discard()`.
+- **Saving and retry.** `save()` sends new input now or joins its running
+  attempt. A failed or refused input stays held with its `SaveError`:
+  autosave, blur, `settle()`, delete, exclusive actions and close do not retry
+  it. `retry()` explicitly authorizes one more attempt, while accepted new
+  input clears the older error and may autosave. Retry during a running
+  attempt joins it rather than scheduling another attempt after failure.
+  Both commands resolve when the attempt finishes, including failure; inspect
+  `pending` for the outcome. `discard()` explicitly releases held input.
 - **Fence.** `delete()` and `exclusive(action)` take the path at once, send
-  held input once, and refuse with `ActionError.NotStarted` (`DELETING`,
+  new input once, and refuse with `ActionError.NotStarted` (`DELETING`,
   `BUSY`, `UNSAVED`, `CLOSING`) if another action holds it, the folder closes,
   or input did not save. `action` reads and saves through its `file`, which
   works while the folder closes and ends with the action.

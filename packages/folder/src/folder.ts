@@ -144,14 +144,15 @@ export type Folder<TTables extends Record<string, Schema>> = {
 	/** Called when `status` changes. Returns the function that stops listening. */
 	onStatusChange(listener: (status: FolderStatus) => void): () => void;
 	/**
-	 * Send every held input once, after exclusive changes and deletes that
-	 * run; answers the input that did not save. Input stays open meanwhile.
+	 * Send new input once, after running exclusive changes and deletes. Failed
+	 * input waits for retry or new input. Answers what did not save; editing stays open.
 	 */
 	settle(): Promise<Pending[]>;
 	/**
 	 * Close the handle. At once, new input is refused and every storage
 	 * call (reads, saves, deletes, listeners, `settle`) throws; running
-	 * deletes and exclusive changes finish; held input is sent once; saves
+	 * deletes and exclusive changes finish; new input is sent once; failures stay
+	 * held for recovery; saves
 	 * already started finish and report their real outcome; then listeners
 	 * and storage are released. Reads that are still running are not waited
 	 * for. What stays is reading what is held: `status`, and `edit(...)`

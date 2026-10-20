@@ -9,7 +9,7 @@
  * the last keystroke and at once on `save()`, one write at a time, each from
  * the text it started from, merged by line with a change made elsewhere
  * meanwhile. A reread never replaces what is typed. A failed write keeps the
- * text and its error; `save()` tries again, and so does further typing. The
+ * text and its error; the view's `retry()` tries again, and so does further typing. The
  * repair itself holds only which file is open.
  */
 import { rowBytes } from '@epicenter/folder';
@@ -22,7 +22,9 @@ export function createRepair(folder: Pick<VocabFolder, 'files'>) {
 
 	/** The open file's edit handle. */
 	const edit = () =>
-		open === undefined ? undefined : folder.files.edit(rowPath('entries', open));
+		open === undefined
+			? undefined
+			: folder.files.edit(rowPath('entries', open));
 	/** The open file's text over `stored`, the row a view shows; read reactively. */
 	const view = (stored: RowOf<'entries'> | undefined) => {
 		const handle = edit();

@@ -166,6 +166,27 @@ text.change(edited);
 text.changeFields({ title: 'x' });
 ```
 
+Both bindings use the same commands: `save()` sends new input or joins its
+running attempt; `retry()` explicitly attempts held failed input again.
+Blur, unmount, settlement and close leave failed input held for recovery.
+Accepted new input clears the older error and may autosave.
+
+A source that can be missing gives an optional `row`. Keep that distinction
+while showing a field without assertions or template constants:
+
+```svelte
+<script lang="ts">
+  const shown = $derived(edit.row);
+</script>
+
+{#if shown}
+  <Input
+    bind:value={() => shown.fields.title, title => edit.change({ fields: { title } })}
+    onblur={() => void edit.save()}
+  />
+{/if}
+```
+
 `observed` is the value the view reads from its query: a row, or the file's
 bytes through `fileBytes` or `rowBytes`. A command names what that binding
 last displayed, so typing over older text merges into held input and a

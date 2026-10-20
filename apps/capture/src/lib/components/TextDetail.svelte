@@ -106,7 +106,7 @@
 				<Alert.Title>Your edit is not saved</Alert.Title>
 				<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 				<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-					<Button size="sm" variant="outline" onclick={() => void edit.save()}>Save again</Button>
+					<Button size="sm" variant="outline" onclick={() => void edit.retry()}>Save again</Button>
 					<Button size="sm" variant="outline" onclick={() => copy(typed, 'Your text')}>Copy your text</Button>
 					<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 				</div>

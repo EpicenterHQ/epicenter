@@ -62,8 +62,8 @@ import {
 	deferred,
 	eventually,
 	openTestWorkspace,
-	type TestWorkspaceOptions,
 	replaceTables,
+	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -423,7 +423,7 @@ test('a save of the transcript’s file still running settles first, then what i
 	expect(transformed[0]!.input).toBe('Typed in Files.\n');
 });
 
-test('a transcript whose save failed keeps the edit, and a run saves it before it sends', async () => {
+test('a transcript whose save failed sends no request until explicit retry saves it', async () => {
 	const { library, root, transformed } = await open();
 	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
@@ -441,6 +441,11 @@ test('a transcript whose save failed keeps the edit, and a run saves it before i
 	expect(library.isUnsaved(transcript.path)).toBe(true);
 	expect(source.draft.body).toBe('Mine.\n');
 
+	expect(await library.transform(transcript.path, editor.path)).toContain(
+		'unsaved changes',
+	);
+	expect(transformed).toHaveLength(0);
+	await library.retry(transcript.path);
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
 	expect(transformed).toHaveLength(1);
@@ -484,7 +489,9 @@ test('a recording cannot be deleted while a transformation of it runs, including
 
 	const running = library.transform(transcript.path, editor.path);
 	await started.promise;
-	expect((await newestResult(library, transcript.stem)).state.kind).toBe('running');
+	expect((await newestResult(library, transcript.stem)).state.kind).toBe(
+		'running',
+	);
 
 	// Asking now refuses, and so does the deletion already confirmed.
 	const { error: refusal } = await library.deletionFor(recording.path);
@@ -630,7 +637,9 @@ test('a run’s row is in the folder from its start with every field and no body
 	await running;
 
 	expect(library.recipeRuns).toEqual([]);
-	expect((await newestResult(library, transcript.stem)).state.kind).toBe('answered');
+	expect((await newestResult(library, transcript.stem)).state.kind).toBe(
+		'answered',
+	);
 	expect(library.outputsFor(transcript.stem)[0]!.row.body).toBe('done\n');
 });
 

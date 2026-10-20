@@ -58,6 +58,8 @@
 	const stored = $derived(row.data?.issues === null ? row.data : undefined);
 	/** What is typed into the todo over the stored row; the folder keeps it after this view. */
 	const edit = createRowEdit(folder.tables.todos.edit(id), () => stored);
+	const shown = $derived(edit.row);
+	const pending = $derived(edit.pending);
 
 	// The input outlives the view; send what is typed now.
 	onDestroy(() => void edit.save());
@@ -118,19 +120,16 @@
 			<Button variant="link" size="xs" onclick={() => void row.refetch()}>Try again</Button>
 		</div>
 	{/if}
-	{#if !stored && edit.pending}
-		{@const pending = edit.pending}
+	{#if !stored && pending}
 		<div class="border-b bg-destructive/10 px-4 py-2 text-xs" role="status" data-testid="held-draft">
 			<p>Unsaved changes for {path} are still here. Select and copy them before closing this tab if saving keeps failing.</p>
 			{#if pending.error}<p>Not saved: {describeFailure(pending.error)}</p>{/if}
 			<pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved changes">{JSON.stringify({ fields: pending.fields, body: pending.body }, null, 2)}</pre>
-			<Button variant="outline" size="xs" onclick={() => void edit.save()}>Try saving again</Button>
+			<Button variant="outline" size="xs" onclick={() => void edit.retry()}>Try saving again</Button>
 			<Button variant="ghost-destructive" size="xs" onclick={confirmDiscard}>Discard changes</Button>
 		</div>
 	{/if}
-	{#if stored && edit.row}
-		{@const shown = edit.row}
-		{@const pending = edit.pending}
+	{#if stored && shown}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<Checkbox
@@ -156,7 +155,7 @@
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{#if pending?.error && !pending.saving}
 				Not saved: {describeFailure(pending.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void edit.save()}>Try again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void edit.retry()}>Try again</Button>
 				<Button variant="link" size="xs" class="h-auto p-0" onclick={confirmDiscard}>Discard changes</Button>
 			{:else if pending}
 				Saving…

@@ -147,7 +147,7 @@
 			<Alert.Title>Your edit is not saved</Alert.Title>
 			<Alert.Description>{describeFailure(pending.error)} Your edit is still here.</Alert.Description>
 			<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-				<Button size="sm" variant="outline" onclick={() => void form.flush()}>Save again</Button>
+				<Button size="sm" variant="outline" onclick={() => void edit.retry()}>Save again</Button>
 				<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 				<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 			</div>
@@ -183,7 +183,7 @@
 						<p>Saving your edit brings the capture back with it. Copy it, or discard it to let the capture go.</p>
 					</Alert.Description>
 					<div class="mt-2 flex flex-wrap gap-2 text-foreground">
-						<Button size="sm" variant="outline" onclick={() => void form.flush()}>Save again</Button>
+						<Button size="sm" variant="outline" onclick={() => void edit.retry()}>Save again</Button>
 						<Button size="sm" variant="outline" onclick={() => copy(unsavedText, 'Your text')}>Copy your text</Button>
 						<Button size="sm" variant="ghost" onclick={confirmDiscard}>Discard edit</Button>
 					</div>

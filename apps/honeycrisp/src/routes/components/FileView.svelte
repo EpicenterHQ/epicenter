@@ -144,7 +144,7 @@
 			<p>Changes to this file have not saved. Save them or copy and discard them before editing the whole file.</p>
 			<Textarea readonly aria-label="Unsaved note changes" value={JSON.stringify({ fields: pendingRow.fields, body: pendingRow.body }, null, 2)} class="min-h-40 font-mono text-xs" />
 			<p>{describeFailure(pendingRow.error)}</p>
-			<Button disabled={notes.isLocked(path)} onclick={() => void rowEdit?.save()}>Save again</Button>
+			<Button disabled={notes.isLocked(path)} onclick={() => void rowEdit?.retry()}>Save again</Button>
 			<Button variant="outline" disabled={notes.isLocked(path)} onclick={() => rowEdit?.discard()}>Discard changes</Button>
 		</div>
 		{:else}
@@ -187,7 +187,7 @@
 		<p class="flex shrink-0 items-center gap-2 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{#if failed !== undefined && !notes.isWriting(path)}
 				Not saved: {failed}
-				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void notes.saveText(path)}>Save again</Button>
+				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => void edit.retry()}>Save again</Button>
 				<Button variant="link" size="xs" class="h-auto p-0" disabled={locked} onclick={() => notes.discardText(path)}>Discard changes</Button>
 			{:else}
 				{notes.isWriting(path) ? 'Saving…' : 'Saved'}

@@ -21,7 +21,7 @@
  * Under Bun's default conditions this file is skipped.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { ReadError, type Folder } from '@epicenter/folder';
+import { type Folder, ReadError } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ViewUpdater } from './views.svelte';
 
@@ -31,7 +31,7 @@ const browser = Bun.resolveSync('svelte', import.meta.dir).endsWith(
 
 describe.skipIf(!browser)('folder editor', async () => {
 	if (!browser) return;
-	const { blur, type } = await import(
+	const { blur, click, type } = await import(
 		'../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
@@ -412,9 +412,12 @@ describe.skipIf(!browser)('folder editor', async () => {
 			held.shift()!.answer(Err(new Error('disk full')));
 			await until(() => context.saveState === 'failed', 'the failure');
 			expect(context.busy).toBe(true);
-			// Settling tries the save again; refused again, it reports so.
+			// Settling retains failure; Try again explicitly sends it once.
+			expect(await context.settled()).toBe(false);
+			expect(held).toHaveLength(0);
+			click(page.target, 'Try again');
 			const retried = context.settled();
-			await until(() => held.length === 1, 'the retry on settle');
+			await until(() => held.length === 1, 'the explicit retry');
 			held.shift()!.answer(Err(new Error('disk full')));
 			expect(await retried).toBe(false);
 			expect(box()?.value).toBe('alpha\nhidden\nshown\n');

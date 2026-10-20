@@ -136,7 +136,7 @@ test('a title typed and closed at once is saved before the window goes', async (
 	expect(await storedTitles()).toEqual(['Groceries']);
 });
 
-test('a failed save keeps the window and the title; the next close saves and destroys', async () => {
+test('a failed save keeps the window and the title; explicit retry saves and the next close destroys', async () => {
 	const page = await windowOnNewNote();
 	type(page.get(TITLE), 'Groceries');
 	const restore = fillDisk();
@@ -150,12 +150,16 @@ test('a failed save keeps the window and the title; the next close saves and des
 	expect(await storedTitles()).not.toContain('Groceries');
 
 	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	button(document.body, 'Save again').click();
+	await until(() => !said('Not saved:'), 'the explicit retry');
+	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await storedTitles()).toEqual(['Groceries']);
 });
 
-test('a failed whole-file save keeps the window and exact input until close can save it', async () => {
+test('a failed whole-file save keeps the window and exact input until explicit retry saves it', async () => {
 	const page = await windowOnNewNote();
 	button(document.body, 'Edit as file').click();
 	const contents =
@@ -171,6 +175,8 @@ test('a failed whole-file save keeps the window and exact input until close can 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(page.get(contents)?.value).toBe(changed);
 	restore();
+	button(document.body, 'Save again').click();
+	await until(() => !said('Not saved:'), 'the explicit text retry');
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 	expect(await storedTitles()).toEqual(['Groceries']);

@@ -147,6 +147,7 @@ function counted(edit: RowEdit<typeof notes>) {
 		shown: (observed) => edit.shown(observed),
 		change: (source, change) => edit.change(source, change),
 		save: () => edit.save(),
+		retry: () => edit.retry(),
 		discard: () => edit.discard(),
 		delete: () => edit.delete(),
 	};
@@ -163,7 +164,9 @@ function counted(edit: RowEdit<typeof notes>) {
 // ============================================================================
 
 test('a save lands without waiting for the reread, and the view shows it over the older row until the reread arrives', async () => {
-	const { folder, context, milk, cached } = await setup({ saveAfterMs: 60_000 });
+	const { folder, context, milk, cached } = await setup({
+		saveAfterMs: 60_000,
+	});
 	const view = createRowEdit(milk, () => cached());
 	const reread = holdReread(folder);
 	view.change({ fields: { title: 'Oat milk' } });
@@ -220,7 +223,7 @@ test('every read reaches the view as new rows, even when equal to the last', asy
 	expect(cached()).not.toBe(before);
 });
 
-test('a failed save shows in the save state and failures until save() after recovery saves it', async () => {
+test('a failed save shows in the save state and failures until retry() after recovery saves it', async () => {
 	const { context, milk, cached } = await setup();
 	const restore = fillDisk();
 	milk.change(cached(), { fields: { title: 'Oat milk' } });
@@ -231,7 +234,7 @@ test('a failed save shows in the save state and failures until save() after reco
 	expect(context.failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
 
 	restore();
-	await milk.save();
+	await milk.retry();
 	expect(milk.pending).toBeUndefined();
 	await until(() => cached().fields.title === 'Oat milk');
 	expect(context.saveState).toBe('saved');
@@ -304,7 +307,9 @@ test('close sends typing that waits for its pause and refuses input after it', a
 });
 
 test('close never waits for a reread that does not answer', async () => {
-	const { folder, context, milk, cached } = await setup({ saveAfterMs: 60_000 });
+	const { folder, context, milk, cached } = await setup({
+		saveAfterMs: 60_000,
+	});
 	holdReread(folder);
 	milk.change(cached(), { fields: { title: 'Oat milk' } });
 	await milk.save();
@@ -410,7 +415,10 @@ test("a binding re-runs for its own path's typing, its observed row, and close; 
 		folder.tables.notes.edit('milk'),
 		() => shownRow.value,
 	);
-	const bread = createRowEdit(folder.tables.notes.edit('bread'), () => undefined);
+	const bread = createRowEdit(
+		folder.tables.notes.edit('bread'),
+		() => undefined,
+	);
 	const title = follow(() => milk.row.fields.title);
 	const breadPending = follow(() => bread.pending);
 	const saveState = follow(() => context.saveState);

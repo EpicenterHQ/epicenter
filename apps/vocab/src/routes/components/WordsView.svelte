@@ -139,7 +139,7 @@
 						<p>A change to <code>{rowPath('entries', draft.id)}</code> was not saved, and the file is no longer a word here.{draft.error ? ` ${describeFailure(draft.error)}` : ''}</p>
 						<pre class="max-h-32 overflow-auto whitespace-pre-wrap select-text" aria-label="Unsaved change">{unsavedText(draft)}</pre>
 						<div class="flex gap-1">
-							<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.save()}>Save again</Button>
+							<Button size="xs" variant="outline" disabled={saving} onclick={() => void held.retry()}>Save again</Button>
 							<CopyButton size="xs" variant="ghost" text={unsavedText(draft)}>Copy</CopyButton>
 							<Button size="xs" variant="ghost-destructive" disabled={saving} onclick={() => held.discard()}>Discard</Button>
 						</div>
