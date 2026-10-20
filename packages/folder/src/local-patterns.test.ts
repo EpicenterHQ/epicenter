@@ -33,7 +33,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineFolder } from './bun.js';
 import { parseLocalPolicy } from './declaration.js';
 import { openDirectoryHistory } from './directory-history.test-support.js';
@@ -89,11 +89,17 @@ test("history reads local alone, whatever the file's tables say", () => {
 		expect(expectOk(parseLocalPolicy(encode(text)))).toEqual([...local]);
 });
 
+test('history refuses malformed JSON with a diagnostic', () => {
+	for (const text of ['{"local":', '{"local":["audio/"],}']) {
+		const { reason } = expectErr(parseLocalPolicy(encode(text)));
+		expect(reason).not.toBe('');
+	}
+});
+
 test('history refuses a file whose local it cannot be sure of', () => {
 	for (const [bytes, reason] of [
 		[new Uint8Array([0xff, 0xfe]), 'not UTF-8'],
-		[encode('{"local":'), 'not JSON'],
-		[encode('["audio/"]'), 'not a JSON object'],
+		[encode('["audio/"]'), 'must be a JSON object'],
 		[encode('{"Local":["audio/"]}'), "unknown top-level key 'Local'"],
 		[
 			encode('{"local":["audio/"],"tabels":{}}'),
@@ -107,7 +113,7 @@ test('history refuses a file whose local it cannot be sure of', () => {
 		[encode('{"local":["audio/\\nrecordings/"]}'), 'one line'],
 		[encode('{"local":[" audio/"]}'), 'surrounding whitespace'],
 	] as const)
-		expect(parseLocalPolicy(bytes).error?.reason).toContain(reason);
+		expect(expectErr(parseLocalPolicy(bytes)).reason).toContain(reason);
 });
 
 test('history refuses a pattern that would keep epicenter.json itself local', () => {
