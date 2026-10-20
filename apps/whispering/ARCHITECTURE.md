@@ -254,7 +254,7 @@ to choose transcription on this computer.
 
 ```text
 routes/+layout.svelte      opens one session on mount, closes it on destroy
-└── AppShell               sets the session in context; header, navigation,
+└── WhisperingApp          sets the session in context; header, navigation,
     │                      Files, close prompt
     ├── /                  +page.svelte            recorder and latest recording
     ├── /recordings        recordings/+page.svelte list, details, raw files
@@ -578,7 +578,7 @@ opening sweeps.
 A window whose folder could not be opened closes the same way: nothing is
 open in it.
 
-In a browser tab the browser owns leaving: `beforeNavigate` in `AppShell`
+In a browser tab the browser owns leaving: `beforeNavigate` in `WhisperingApp`
 holds an unload while a change is still being written, which raises the
 browser's own leave warning. A recording in a browser tab is held in the page
 until it stops, so reloading or closing the tab loses it.

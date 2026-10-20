@@ -1,7 +1,7 @@
 /**
  * Todos Window Close Tests
  *
- * The real Todos page, mounted as `TodosView.mounted.test.ts` mounts it, in
+ * The real Todos page, mounted as `TodosApp.mounted.test.ts` mounts it, in
  * a desktop window: the stand-in in `tauri-window.test-support`, which runs
  * the close listener as Tauri's API does. The page opens browser storage as
  * it mounts and runs as a window from then on. Another tab of the profile

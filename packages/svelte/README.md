@@ -26,17 +26,17 @@ Mount one `<FolderApp>` at the route that owns the folder:
 	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { todosTables } from '$lib/definition.js';
-	import TodosView from './local/TodosView.svelte';
+	import TodosApp from './local/TodosApp.svelte';
 </script>
 
 <FolderApp open={() => openFolder({ tables: todosTables })}>
 	{#snippet children(context)}
-		<TodosView {context} />
+		<TodosApp {context} />
 	{/snippet}
 </FolderApp>
 ```
 
-The existing app root, `TodosView`, installs its own module's context during
+The existing app root, `TodosApp`, installs its own module's context during
 initialization. It captures this opened context for its lifetime:
 
 ```svelte

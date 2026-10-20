@@ -2,7 +2,7 @@
 	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { vocabTables } from '$lib/data.js';
-	import VocabShell from './components/VocabShell.svelte';
+	import VocabApp from './components/VocabApp.svelte';
 
 	// Vocab's words and chats are this browser's local folder, with no
 	// account and no sign-in: they are there whether or not an account is
@@ -11,6 +11,6 @@
 
 <FolderApp open={() => openFolder({ tables: vocabTables })}>
 	{#snippet children(context)}
-		<VocabShell {context} />
+		<VocabApp {context} />
 	{/snippet}
 </FolderApp>

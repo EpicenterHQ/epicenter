@@ -15,9 +15,9 @@
 	import { reportWriteNotice } from './file-actions.js';
 
 	/**
-	 * The frame every page sits in: navigation, the header with status and
-	 * tools, and the file browser. It mounts once with the session and stays
-	 * while pages change inside it.
+	 * The product root provides the session and query cache, guards departure,
+	 * and renders navigation, the header, and the file browser around each page.
+	 * It mounts once with the session and stays while pages change inside it.
 	 */
 	let { session, children }: { session: Session; children: Snippet } = $props();
 

@@ -3,7 +3,7 @@
  *
  * Mounts the real Honeycrisp page in jsdom, as the layout mounts it, over an
  * in-memory IndexedDB: `<FolderApp>` opens
- * `openFolder({ tables: honeycrispTables })` and `NotesView` renders inside
+ * `openFolder({ tables: honeycrispTables })` and `HoneycrispApp` renders inside
  * it. A second handle of the same profile stands in for another tab and
  * reads what was stored.
  *

@@ -46,11 +46,11 @@ drafts and file actions with the context so close waits for them too.
 	import { openFolder } from '@epicenter/folder';
 	import FolderApp from '@epicenter/svelte/folder-app';
 	import { todosTables } from '$lib/definition.js';
-	import TodosView from './local/TodosView.svelte';
+	import TodosApp from './local/TodosApp.svelte';
 </script>
 
 <FolderApp open={() => openFolder({ tables: todosTables })}>
-	{#snippet children(context)}<TodosView {context} />{/snippet}
+	{#snippet children(context)}<TodosApp {context} />{/snippet}
 </FolderApp>
 ```
 
@@ -82,3 +82,16 @@ processes. See each app's README for its route and test commands. Todos is the
 first demonstration of the new browser contract; Capture, Honeycrisp, Vocab,
 and Whispering also use the Folder handle. Epicenter owns the Tauri shell and
 binds each window's folder; standalone Todos binds its own.
+
+## Product root names
+
+Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,
+`HoneycrispApp`, `VocabApp`, and `WhisperingApp`. This component receives the
+opened folder context or session, installs its providers, and composes the
+product's state and interface. `FolderApp` owns the shared folder lifecycle;
+Whispering's layout owns its session lifecycle.
+
+Use `Shell` for surrounding layout and `View` for a screen or representation.
+Keep a specific tool name such as `FolderEditor` for a window within a larger
+application. For the naming rationale, see
+[product root component names](../docs/adr/0655-product-root-components-use-the-app-name-and-app-suffix.md).

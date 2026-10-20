@@ -861,3 +861,4 @@ When you add an ADR, add its row here.
 | [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632) |
 | [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
+| [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |

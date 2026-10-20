@@ -8,7 +8,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { onDestroy } from 'svelte';
 	import { mountSession } from '$lib/session.svelte.js';
-	import AppShell from './components/AppShell.svelte';
+	import WhisperingApp from './components/WhisperingApp.svelte';
 	import '@epicenter/ui/app.css';
 	// Whispering's brand overrides, layered after the shared theme so they win.
 	import '../app.css';
@@ -18,7 +18,7 @@
 	// The mounted layout acquires the folder, once, and every page below shares
 	// it: a route change renders another page inside the same session. Importing
 	// modules opens nothing, and no page opens a folder of its own. The
-	// session's one cache is its folder's; the shell provides it to the pages.
+	// session's one cache is its folder's; the app root provides it to the pages.
 	const { opening, release } = mountSession();
 
 	onDestroy(release);
@@ -42,7 +42,7 @@
 		{#if openError !== null}
 			{@render failed(openError.message)}
 		{:else}
-			<AppShell {session}>{@render props.children?.()}</AppShell>
+			<WhisperingApp {session}>{@render props.children?.()}</WhisperingApp>
 		{/if}
 	{:catch error}
 		{@render failed(error instanceof Error ? error.message : String(error))}

@@ -154,7 +154,7 @@ and the browser asks first. Closing the page sends what is typed.
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: the file queries, note and folder edits over the edit layer, whole-file edits through the shared edit layer, creates and deletes, and what the detail shows. |
 | `src/lib/status.ts` | The header's save line and the words for a failure. |
-| `src/routes/+page.svelte` | `<FolderApp>` over `honeycrispTables`, with `NotesView` inside it. |
+| `src/routes/+page.svelte` | `<FolderApp>` over `honeycrispTables`, with `HoneycrispApp` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
 
 ## Tech stack

@@ -8,7 +8,7 @@
 
 	```svelte
 	<FolderApp open={() => openFolder({ tables: todosTables })}>
-		{#snippet children(context)}<TodosView {context} />{/snippet}
+		{#snippet children(context)}<TodosApp {context} />{/snippet}
 	</FolderApp>
 	```
 

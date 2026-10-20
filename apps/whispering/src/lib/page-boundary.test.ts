@@ -151,6 +151,7 @@ test('the page imports no Yjs store, sync, history, or account module', () => {
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
 						'@epicenter/svelte/folder',
+						'@epicenter/svelte/folder-queries',
 						'@epicenter/svelte/write-failure',
 						'@epicenter/svelte/write-failure-toast',
 						'@epicenter/svelte/status-line',
@@ -183,7 +184,7 @@ test('the app layout is the only place a session is opened', () => {
 	expect(callers('openWorkspace')).toEqual([]);
 });
 
-test('every page takes the session from context, and only the shell guards navigation', () => {
+test('every page takes the session from context, and only the app root guards navigation', () => {
 	const pages = files.filter((file) => /\+page\.svelte$/.test(file.path));
 	expect(pages.map((file) => file.path).sort()).toEqual([
 		'routes/+page.svelte',
@@ -191,9 +192,9 @@ test('every page takes the session from context, and only the shell guards navig
 		'routes/transformations/+page.svelte',
 	]);
 	for (const file of pages) expect(file.text).toContain('getSession()');
-	expect(callers('setSession')).toEqual(['routes/components/AppShell.svelte']);
+	expect(callers('setSession')).toEqual(['routes/components/WhisperingApp.svelte']);
 	expect(callers('beforeNavigate')).toEqual([
-		'routes/components/AppShell.svelte',
+		'routes/components/WhisperingApp.svelte',
 	]);
 });
 
