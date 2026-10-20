@@ -346,6 +346,7 @@ pub fn run() {
         .manage(PendingHomeSection::default())
         .manage(folder_opening::FolderOpenings::default())
         .manage(cli::CliChildren::default())
+        .manage(shell::PendingQuit::default())
         .manage(DownloadManager::default());
 
     // Only native dictation uses these plugins; no capability grants them.
@@ -437,10 +438,16 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("failed to build Epicenter")
-        .run(|app, event| {
-            if let RunEvent::Reopen { .. } = event {
-                request_window(app, BuiltInApp::Folders);
+        .run(|app, event| match event {
+            RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
+            RunEvent::ExitRequested { api, code, .. } => {
+                shell::request_quit(app, &api, code.unwrap_or(0));
             }
+            RunEvent::WindowEvent {
+                event: WindowEvent::Destroyed,
+                ..
+            } => shell::window_destroyed(app),
+            _ => {}
         });
 }
 

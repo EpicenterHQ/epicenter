@@ -28,6 +28,29 @@ pub(crate) fn configure<R: Runtime>(
 
 pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = Menu::default(app)?;
+    // Tauri's default app menu ends with AppKit's terminate: item, which
+    // bypasses ExitRequested. Keep its title and route Cmd+Q through our
+    // guarded exit path, just like the tray's Quit command.
+    let application = menu
+        .items()?
+        .first()
+        .and_then(|item| item.as_submenu())
+        .cloned()
+        .context("default application menu is missing")?;
+    let quit = application
+        .items()?
+        .last()
+        .and_then(|item| item.as_predefined_menuitem())
+        .cloned()
+        .context("default Quit item is missing")?;
+    application.remove(&quit)?;
+    application.append(&MenuItem::with_id(
+        app,
+        "quit",
+        quit.text()?,
+        true,
+        Some("Cmd+Q"),
+    )?)?;
     let window = menu
         .get(WINDOW_SUBMENU_ID)
         .context("default Window menu is missing")?;
@@ -47,7 +70,11 @@ pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         )?,
     ])?;
     app.set_menu(menu)?;
-    app.on_menu_event(|_, event| {
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == "quit" {
+            app.exit(0);
+            return;
+        }
         let Some(main) = MainThreadMarker::new() else {
             return;
         };
