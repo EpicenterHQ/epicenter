@@ -329,7 +329,7 @@ test('Discard lets go of typing that did not save, hands it back, and leaves the
 	});
 	await settle(library);
 	expect(library.isUnsaved(editor.path)).toBe(true);
-	expect(library.local.failures).toHaveLength(1);
+	expect(library.local.getStatus().failures).toHaveLength(1);
 
 	expect(library.discard(editor.path)).toBe('Mine.\n');
 

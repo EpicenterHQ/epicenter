@@ -84,7 +84,7 @@ async function noteOver(text: string) {
 		notes,
 		note,
 		/** The saves that failed and still hold their typing. */
-		failures: () => local.failures,
+		failures: () => local.getStatus().failures,
 		/** The note as shown now: with what is typed over it. */
 		draft: () => {
 			const row = note.row;

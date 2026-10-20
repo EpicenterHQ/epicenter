@@ -1092,15 +1092,15 @@ export function createLibrary(
 		},
 		/** Whether a save runs, or typing waits to be sent; read reactively. */
 		get saving() {
-			return local.saveState === 'saving';
+			return local.getSaveState() === 'saving';
 		},
 		/** Whether typing did not save, here or in a file's text; read reactively. */
 		get unsaved() {
-			return local.saveState === 'failed';
+			return local.getSaveState() === 'failed';
 		},
 		/** Why the last save failed in storage, until a save lands; read reactively. */
 		get storageFailure(): string | undefined {
-			const failure = local.status.storageFailure;
+			const failure = local.getStatus().storageFailure;
 			return failure === null ? undefined : describeError(failure);
 		},
 		/**

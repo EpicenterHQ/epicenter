@@ -237,7 +237,7 @@ export function createEntries(local: VocabContext) {
 
 		/** The words whose last save failed, with what was typed; read reactively. */
 		get failures(): RowPending[] {
-			return local.failures.filter(
+			return local.getStatus().failures.filter(
 				(pending): pending is RowPending =>
 					pending.kind === 'row' && pending.table === 'entries',
 			);

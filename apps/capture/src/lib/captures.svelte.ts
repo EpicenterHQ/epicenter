@@ -294,14 +294,15 @@ export function createCaptures(context: CaptureFolder) {
 		},
 		/** What the header says about saving, read reactively. */
 		get saveLabel(): 'Saved' | 'Saving…' | 'Not saved' | 'A save failed' {
-			if (context.saveState === 'failed') return 'Not saved';
-			if (context.saveState === 'saving') return 'Saving…';
-			if (context.saveState === 'recent-failure') return 'A save failed';
+			const state = context.getSaveState();
+			if (state === 'failed') return 'Not saved';
+			if (state === 'saving') return 'Saving…';
+			if (state === 'recent-failure') return 'A save failed';
 			return 'Saved';
 		},
 		/** Every capture whose last save failed, as fields or as text, with why. */
 		get failures(): { stem: string; path: string; reason: string }[] {
-			return context.failures
+			return context.getStatus().failures
 				.map(({ path, error }) => ({
 					stem: path.slice(CAPTURES_TABLE.length + 1, -'.md'.length),
 					path,

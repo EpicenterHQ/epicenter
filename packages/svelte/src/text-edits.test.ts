@@ -114,7 +114,7 @@ test('typing while a save runs starts from the exact submitted text and keeps an
 			next.replace('two\n', 'two?\n'),
 	);
 	expect(text.pending).toBeUndefined();
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 });
 
 test('a failed text save prevents a competing row edit until explicit discard', async () => {
@@ -124,8 +124,8 @@ test('a failed text save prevents a competing row edit until explicit discard', 
 	const restore = fillDisk();
 	text.change(observed(), 'unfinished source');
 	await text.save();
-	expect(context.saveState).toBe('failed');
-	expect(context.failures).toMatchObject([
+	expect(context.getSaveState()).toBe('failed');
+	expect(context.getStatus().failures).toMatchObject([
 		{ kind: 'text', path, text: 'unfinished source' },
 	]);
 	const edit = context.folder.tables.notes.edit('a');

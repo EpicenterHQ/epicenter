@@ -247,7 +247,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(disk.held[0]?.content).toBe('alpha\nmine\nlater\n');
 			disk.held.shift()!.answer(Ok(undefined));
 			await until(
-				() => page.context.status.unsaved.length === 0,
+				() => page.context.getStatus().unsaved.length === 0,
 				'the later save',
 			);
 			expect(await disk.text('a.md')).toBe('alpha\nmine\nlater\n');
@@ -270,7 +270,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			await until(() => disk.held.length === 1, 'the save');
 			disk.held.shift()!.answer(Ok(undefined));
 			await until(
-				() => page.context.status.unsaved.length === 0,
+				() => page.context.getStatus().unsaved.length === 0,
 				'saved input',
 			);
 			await disk.remove('a.md');
@@ -367,7 +367,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 			expect(box()?.value).toBe('alpha\nmine\n');
 			expect(target.textContent).not.toContain('Your edit was not saved');
 			expect(await disk.text('a.md')).toBe('alpha\nmine\n');
-			await until(() => page.context.saveState === 'saved', 'saved');
+			await until(() => page.context.getSaveState() === 'saved', 'saved');
 			await until(
 				() => target.querySelector('output')?.textContent === 'saved',
 				'reactive save completion',
@@ -410,7 +410,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 
 			// That save fails: the text stays, and the window's close is held.
 			held.shift()!.answer(Err(new Error('disk full')));
-			await until(() => context.saveState === 'failed', 'the failure');
+			await until(() => context.getSaveState() === 'failed', 'the failure');
 			expect(context.busy).toBe(true);
 			// Settling retains failure; Try again explicitly sends it once.
 			expect(await context.settled()).toBe(false);
@@ -479,7 +479,7 @@ describe.skipIf(!browser)('folder editor', async () => {
 				press(page.file('b.md'));
 				await until(() => disk.held.length === 1, 'the save');
 				disk.held.shift()!.answer(Err(new Error('disk full')));
-				await until(() => page.context.saveState === 'failed', 'the failure');
+				await until(() => page.context.getSaveState() === 'failed', 'the failure');
 				if (failure === 'deleted') {
 					await disk.remove('a.md');
 					await page.context.refresh(['a.md']);

@@ -226,7 +226,7 @@ test('a title typed before another tab saved keeps their body and wins the title
 	blur(titleOf(target));
 	await tick();
 	await settle();
-	expect(local.failures).toEqual([]);
+	expect(local.getStatus().failures).toEqual([]);
 	const saved = (await text(PATH)) ?? '';
 	expect(saved).toContain('title: "Mine"');
 	expect(saved).toContain('Their body.\n');

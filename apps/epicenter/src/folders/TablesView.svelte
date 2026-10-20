@@ -47,7 +47,7 @@
 		new Set(projection.documents.map((doc) => doc.path)),
 	);
 	/** The paths whose input the folder holds, saving or failed. */
-	const held = $derived(new Set(context.status.unsaved));
+	const held = $derived(new Set(context.getStatus().unsaved));
 	const documents = $derived([
 		...projection.documents,
 		...members.filter((doc) => !included.has(doc.path) && held.has(doc.path)),

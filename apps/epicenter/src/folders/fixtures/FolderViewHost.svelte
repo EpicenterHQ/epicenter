@@ -8,4 +8,4 @@
 </script>
 
 <FolderEditor {context} {updateView} />
-<output aria-label="Save state">{context.saveState}</output>
+<output aria-label="Save state">{context.getSaveState()}</output>

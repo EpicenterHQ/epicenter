@@ -81,7 +81,7 @@ notice held by the app layout's toaster.
 
 A descendant calls the already-typed `getFolder()` from `$lib/folder.js` during
 initialization. The context contains `folder`, `queryClient`,
-`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `status`, `failures`, `closing`, `saveState`, `busy`, `leaving`, `run`,
+`queries.rows(table)`, `queries.files()`, `queries.documents()`, `queries.file(path, reader)`, `getStatus()`, `closing`, `getSaveState()`, `busy`, `leaving`, `run`,
 `registerUnsent`, `settled`, `guardWindowClose`, `refresh`, and `close`.
 Every save, own or not, reaches the context through the folder's one change
 channel (`onChange`), which also names a save of this handle that changed
@@ -138,7 +138,7 @@ Query prefixes match array elements. The context separately handles filesystem
 descendants when refreshing paths. Apps neither build these keys nor subscribe
 to folder changes.
 
-`saveState` comes from `folder.getStatus()` alone: `saved` only when no input is
+`getSaveState()` comes from `folder.getStatus()` alone: `saved` only when no input is
 held, no save runs, and no failure is held. Held input whose save failed is
 `failed`. A storage failure with nothing held is `recent-failure`. An app
 action that saves nothing yet, such as a request it waits for, counts in
@@ -214,7 +214,7 @@ through a subscription that lives while an effect reads it.
 
 Use `context.run(action)` for accepted app actions that may write after an
 await. The context counts them in `busy` and waits for them during close;
-their file writes determine `saveState`. `close()` refuses new actions and app input
+their file writes determine `getSaveState()`. `close()` refuses new actions and app input
 (`closing`), lets started actions finish, stops the change channel and
 cancels reads, then calls `folder.close()`, which fences input, sends it, and
 waits for saves. It answers copyable failures, which `<FolderApp>` offers

@@ -173,7 +173,7 @@ test('a save lands without waiting for the reread, and the view shows it over th
 	await milk.save();
 	await until(() => reread.held > 0);
 	expect(milk.pending).toBeUndefined();
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 	expect(cached().fields.title).toBe('Milk');
 	expect(view.row.fields.title).toBe('Oat milk');
 
@@ -212,7 +212,7 @@ test('a failed reread keeps the save shown, and typing over it does not lose it'
 	folder.tables.notes.list = list;
 	await observer.refetch();
 	expect(cached().fields.title).toBe('Buy oat milk!');
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 });
 
 test('every read reaches the view as new rows, even when equal to the last', async () => {
@@ -230,14 +230,14 @@ test('a failed save shows in the save state and failures until retry() after rec
 	await milk.save();
 	expect(milk.pending?.error?.name).toBe('StorageFailed');
 	expect(milk.shown(cached()).row.fields.title).toBe('Oat milk');
-	expect(context.saveState).toBe('failed');
-	expect(context.failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
+	expect(context.getSaveState()).toBe('failed');
+	expect(context.getStatus().failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
 
 	restore();
 	await milk.retry();
 	expect(milk.pending).toBeUndefined();
 	await until(() => cached().fields.title === 'Oat milk');
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 });
 
 test('a later malformed source cannot hide a failed save', async () => {
@@ -261,7 +261,7 @@ test('a later malformed source cannot hide a failed save', async () => {
 		fields: { title: 'Oat milk' },
 		error: { name: 'StorageFailed' },
 	});
-	expect(context.failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
+	expect(context.getStatus().failures.map(({ path }) => path)).toEqual(['notes/milk.md']);
 	expect(milk.discard()).toMatchObject({ fields: { title: 'Oat milk' } });
 	expect(milk.pending).toBeUndefined();
 });
@@ -280,10 +280,10 @@ test('a storage failure without held input is reported as a past failure', async
 			)
 		).error?.name,
 	).toBe('StorageFailed');
-	expect(context.saveState).toBe('recent-failure');
+	expect(context.getSaveState()).toBe('recent-failure');
 	restore();
 	expectOk(await folder.files.write('notes/milk.md', source, source));
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 });
 
 // ============================================================================
@@ -331,20 +331,20 @@ test('an app action does not enter Folder save status until its write is accepte
 		await releaseRequest.promise;
 		return folder.files.write('action.txt', null, 'done');
 	});
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 	expect(folder.getStatus().saving).toBe(false);
 
 	// Its write is accepted: the folder says so, and so does the context.
 	const states: string[] = [];
 	cleanup.push(
 		folder.onStatusChange(() => {
-			states.push(context.saveState);
+			states.push(context.getSaveState());
 		}),
 	);
 	releaseRequest.resolve();
 	expect((await action).error).toBeNull();
 	expect(states).toEqual(['saving', 'saved']);
-	expect(context.saveState).toBe('saved');
+	expect(context.getSaveState()).toBe('saved');
 });
 
 test('close lets a started action write after its await, and refuses a new one', async () => {
@@ -386,7 +386,7 @@ test('close answers the typing whose save failed, as copyable text', async () =>
 	});
 	expect(unsaved[0]?.error?.name).toBe('StorageFailed');
 	// The folder still answers it after it closed.
-	expect(context.failures).toMatchObject([{ body: 'Oat, two litres' }]);
+	expect(context.getStatus().failures).toMatchObject([{ body: 'Oat, two litres' }]);
 	expect(milk.pending?.body).toBe('Oat, two litres');
 });
 
@@ -418,7 +418,7 @@ test("a binding re-runs for its own path's typing, its observed row, and close; 
 	);
 	const title = follow(() => milk.row.fields.title);
 	const breadPending = follow(() => bread.pending);
-	const saveState = follow(() => context.saveState);
+	const saveState = follow(() => context.getSaveState());
 	const breadLocked = follow(() => bread.locked);
 	cleanup.push(() => {
 		for (const { stop } of [title, breadPending, saveState, breadLocked])

@@ -472,14 +472,14 @@ export function createNotes(local: NotesFolder) {
 
 		/** Whether the folder has an accepted change still saving. */
 		get busy() {
-			return local.status.saving || local.status.unsaved.length > 0;
+			return local.getStatus().saving || local.getStatus().unsaved.length > 0;
 		},
 		/** Whether everything typed is saved on this device, as the header says it. */
 		get saves() {
 			return saveLine({
-				state: local.saveState,
-				failures: local.failures,
-				storageFailure: local.status.storageFailure,
+				state: local.getSaveState(),
+				failures: local.getStatus().failures,
+				storageFailure: local.getStatus().storageFailure,
 			});
 		},
 		/** Whether a save at `path` runs, or typing there waits to be sent. */

@@ -30,7 +30,7 @@
 		listing.data === undefined ? undefined : fileTree(listing.data),
 	);
 	/** The paths whose input the folder holds, saving or failed. */
-	const unsaved = $derived(context.status.unsaved);
+	const unsaved = $derived(context.getStatus().unsaved);
 	const held = $derived(new Set(unsaved));
 	const unlisted = $derived(
 		unsaved.filter((path) => listing.error || !listing.data?.includes(path)),
@@ -106,7 +106,7 @@
 		if (view === key) view = target;
 	}
 
-	const status = $derived(context.status);
+	const status = $derived(context.getStatus());
 </script>
 
 <section class="flex h-full min-h-0 flex-1 flex-col">
@@ -148,9 +148,9 @@
 		<span class="ml-auto text-sm text-muted-foreground" role="status">
 			{#if status.saving}
 				Saving…
-			{:else if context.failures.length > 0}
+			{:else if context.getStatus().failures.length > 0}
 				<span class="text-destructive">
-					Not saved: {context.failures.map((failure) => failure.path).join(', ')}
+					Not saved: {context.getStatus().failures.map((failure) => failure.path).join(', ')}
 				</span>
 			{:else if views.failed}<span class="text-destructive"
 					>View settings need attention. Choose the marked view to retry or copy

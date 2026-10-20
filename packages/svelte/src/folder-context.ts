@@ -28,7 +28,6 @@
  * Plain module, so a store imports the types without loading components.
  */
 import type { Folder, FolderStatus } from '@epicenter/folder';
-import type { Pending } from '@epicenter/folder/edits';
 import {
 	focusManager,
 	type InvalidateQueryFilters,
@@ -238,15 +237,6 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		queryClient,
 		/** Refresh changed paths and their dependents; omit paths to refresh the whole folder. */
 		refresh,
-		/**
-		 * Input typed through the folder's edit handles whose last save failed
-		 * and that no save is retrying, read reactively. Each stays on its
-		 * handle to save again, copy, or discard.
-		 */
-		get failures(): readonly Pending[] {
-			trackStatus();
-			return folder.getStatus().failures;
-		},
 		/** Whether close was called: no app action or input is taken from then on. Read reactively. */
 		get closing(): boolean {
 			trackClosing();
@@ -300,7 +290,7 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		queries,
 
 		/** The folder's save status, held input included, read reactively. */
-		get status(): FolderStatus {
+		getStatus(): FolderStatus {
 			trackStatus();
 			return folder.getStatus();
 		},
@@ -322,12 +312,12 @@ export function createFolderContext<TTables extends Record<string, TSchema>>(
 		 * saves nothing yet, such as a request it waits for, is `busy` but
 		 * not `saving`; its writes are, from their call until they land.
 		 */
-		get saveState(): SaveState {
+		getSaveState(): SaveState {
 			trackStatus();
-			const { failures, saving, unsaved } = folder.getStatus();
+			const { failures, saving, unsaved, storageFailure } = folder.getStatus();
 			if (failures.length > 0) return 'failed';
 			if (saving || unsaved.length > 0) return 'saving';
-			if (folder.getStatus().storageFailure !== null) return 'recent-failure';
+			if (storageFailure !== null) return 'recent-failure';
 			return 'saved';
 		},
 		/**
