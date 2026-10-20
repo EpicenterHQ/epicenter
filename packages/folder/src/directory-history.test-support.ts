@@ -29,18 +29,11 @@ import type { FileContent } from './shared/merge.js';
 
 export async function openDirectoryHistory({
 	root,
-	local,
 	git: { author, credentials },
 	primitives: files = nodeDirectoryPrimitives,
 	beforeGit,
 }: {
 	readonly root: string;
-	/**
-	 * The `local` policy the directory's `epicenter.json` lists as the
-	 * history opens, as `runHistory` reads it; without it, as for a directory
-	 * with no policy read, a missing file keeps nothing local.
-	 */
-	readonly local?: readonly string[];
 	readonly git: {
 		readonly author: Author;
 		readonly credentials?: GitCredentials;
@@ -68,7 +61,6 @@ export async function openDirectoryHistory({
 		boundary: storage,
 		author,
 		credentials,
-		local,
 		landed: (paths) => landed.push(...paths),
 	});
 	const noting = {

@@ -19,7 +19,6 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { readLocalPolicy } from './declaration.js';
 import { sweepStaleScratch } from './directory-store.js';
 import type { FolderHistory } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
@@ -136,18 +135,8 @@ export type HistoryOptions = {
  *
  * The folder's history is opened for this one operation: its file storage,
  * which stages in `.<name>.epicenter-scratch` beside the folder as a Bun
- * folder does, the `local` policy of its own `epicenter.json`
- * (`readLocalPolicy`), and history over this process's `git`. Only `local`
- * is read: the file's tables are an app's, and one that cannot be prepared
- * stops nothing here. An `epicenter.json` that cannot be used for `local`
- * refuses a save version and a sync, which could otherwise commit files it
- * keeps on this machine. So does none at all: nothing then says what stays
- * local, and the folder is not declared by being opened. Either refusal comes
- * before anything is written: no repository, commit, or push, and no sweep.
- * Status and the log still read either way. A save version or a sync then
- * sweeps what a stopped save staged an hour or more ago, and holds the
- * folder's history lock (`holdingHistoryLock`), so two processes never
- * interleave them. Reading status or the log takes no lock.
+ * folder does, using ordinary Git ignore and tracked-file rules. No schema
+ * declaration is required. Saves never enter this history lifecycle.
  */
 export async function runHistory(
 	root: string,
@@ -175,21 +164,6 @@ export async function runHistory(
 	const commits = request.op !== 'status' && request.op !== 'log';
 	const scratch = scratchDirectory(resolved);
 	const boundary = nativeStorage(resolved);
-	const { data: local, error: policyError } = await readLocalPolicy(boundary);
-	// What stays local is read from `epicenter.json`, so a commit made without
-	// it could carry those files (ADR-0577). Reading status and the log
-	// commits nothing and proceeds; anything that commits is refused.
-	if (policyError !== null && commits)
-		throw new Error(
-			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${policyError.reason}. Fix the file, then try again.`,
-		);
-	// With no `epicenter.json`, nothing says which files stay on this machine:
-	// an app's audio would be committed beside its rows. Opening a folder never
-	// writes one, so the person authors it before anything commits.
-	if (local === undefined && commits)
-		throw new Error(
-			`${resolved} has no epicenter.json, so nothing was committed: without one, nothing says which files stay on this computer. Add an epicenter.json that lists them, such as {"local": ["audio/"]} for Whispering, then try again; status and history still read.`,
-		);
 	// What a stopped write staged an hour or more ago goes before anything
 	// is staged, as at a Bun folder's open.
 	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
@@ -203,7 +177,6 @@ export async function runHistory(
 		initProblem: application ? undefined : () => enclosingRepository(resolved),
 		// Status and the log record nothing, so they skip reading who commits.
 		commits,
-		local: local ?? undefined,
 		landed: (paths) => landed.push(...paths),
 	});
 	try {

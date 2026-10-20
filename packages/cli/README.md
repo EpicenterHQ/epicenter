@@ -50,9 +50,10 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
 | `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/bun` |
+| `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`documents-query`, `send`, `history`, `save-version`, `whispering-connection`, `install-command`,
+`messages`, `documents-query`, `send`, `history`, `save-version`, `whispering-connection`, `install-command`,
 `sync --allow-unrelated`, and `--desktop` are left out of `--help`: the
 desktop app runs them.
 
@@ -72,8 +73,8 @@ Replace `SOURCE_FOLDER` and `TARGET_FOLDER` with existing directory paths.
 Import changes only the source document's table entries. A conflicting table
 requires `--replace`; case-colliding table names are refused. Use `-` as the
 source to read JSON from stdin. Neither operation executes folder code.
-Generation also preserves views and editor hints, and rechecks protective
-`local` rules on every conditional write attempt.
+Generation also preserves views and editor hints on every conditional write
+attempt.
 
 The hidden desktop SQL operation uses the generic document reader and the
 `documents` relation. Public `query` retains its declared, conforming-row table
@@ -160,21 +161,20 @@ window closed), the child ends every `git` it started, with their helpers
 (`src/stop.ts`).
 
 - `status` and `history` read only, and take no lock.
-- `save-version` and `sync` commit only a folder that has declared what
-  stays on this computer: the `local` list of its root `epicenter.json`. They
-  read nothing else of the file, so tables an app cannot read do not stop
-  them, and a file that lists no `local` keeps nothing local. With no
-  `epicenter.json`, or one whose `local` cannot be used (not JSON, an unknown
-  top-level key such as `Local`, a pattern that is not one ignoring
-  `.gitignore` line, or one that matches `epicenter.json` itself), they
-  refuse before any repository, commit, or push and
-  say so; opening a folder never writes one. A Whispering folder needs at
-  least this `epicenter.json` before its recordings can be exchanged without
-  their audio:
+- `save-version` and `sync` require no `epicenter.json`. Tracked files
+  remain tracked; untracked files enter commits unless Git ignores them. Root
+  and nested `.gitignore` rules are captured with the candidate. Native Git
+  also honors `.git/info/exclude` and global excludes. To leave untracked
+  audio out, author a root `.gitignore` containing:
 
-  ```json
-  {"local": ["audio/"]}
+  ```gitignore
+  /audio/
   ```
+
+  The file is ordinary folder content. Git initialization and opening do not
+  create it. Adding a rule does not untrack existing files or erase history;
+  deleting it can make previously ignored files eligible. Binary contents use
+  the same selection rule as text.
 - `save-version` records the folder's edits as one commit, with `-m` as its
   message when given, under the folder's history lock.
 - `sync` records the edits, fetches, and merges both heads into one commit
@@ -182,15 +182,10 @@ window closed), the child ends every `git` it started, with their helpers
   under the same lock. `--to <url>` connects first, to a network URL only.
   This folder's version of a unit both sides changed wins, and each lost
   unit is an `Overrode:` trailer on the merge. A sync asks nothing.
-  Before pushing, it stops when the remote's `epicenter.json`
-  drops a `local` rule this folder's still lists (remove it here too to
-  share those files), when a merge would drop a rule the remote's newly
-  lists (add it here), when the remote removed `epicenter.json` (restore it
-  there), or when a commit the remote does not have adds or changes a path a
-  rule keeps local, which it names; it never rewrites history. A rule saved
-  here while it syncs is kept in the file it publishes, or publication stops
-  with the local files unchanged. That late check may run after a merge was
-  pushed; the next sync resumes from the recorded state.
+  Ignore files merge as ordinary text. Incoming tracked paths remain tracked,
+  even when an ignore rule matches. An incoming path that would overwrite an
+  ignored local file stops publication and names the path; its bytes stay
+  available for repair. No declaration policy or historical privacy scan runs.
 
 The history lock is an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder, the mechanism of the

@@ -83,12 +83,14 @@ the browser's reason, without replacing the old root. No-op saves notify nobody.
 ## Preparing and settling a send
 
 `prepareCommit(storage, author)` belongs to sync. Storage's `checkpoint()`
-reads metadata and, only when needed, B's commit. Preparation reads no working
-file or directory bytes: W already identifies the folder to commit.
+captures metadata and, when preparation is needed, W/B trees and regular
+`.gitignore` blobs in one transaction. Other file payloads are not loaded.
 
 Before a successful remote observation it does nothing. An existing P is
-returned unchanged. Otherwise, W differing from B's tree creates one commit
-with B as parent and atomically installs P under a W/B/P guard. The current
+returned unchanged. Otherwise, preparation removes ignored untracked paths from W to derive the
+send tree. Paths already in B stay tracked. A different send tree creates one
+commit with B as parent and atomically installs P under a W/B/P guard. Ignored
+files remain in W, so W differing from B alone does not mean work is unsent. The current
 pre-fetch preparation timing is preserved.
 
 `createSync(repository, options).run()` is an internal bounded attempt. Concurrent
@@ -104,6 +106,15 @@ is discarded. If the server still holds B, it retries exact P. If the server
 contains P, it merges only newer P-to-W changes. Missing ancestry is unknown,
 not rejection; one full-history recovery fetch can establish the outcome.
 All parents participate in ancestry proofs.
+
+Sync selects source against P while it is unsettled, otherwise B. It never
+unions their tracked membership: a path deleted by P is no longer tracked even
+when B contains it. The selected tree is temporary, not a fourth checkpoint.
+After merging shared contents, sync restores W's ignored local additions. An
+incoming file or directory occupying one of those paths, including a spelling
+that collides on disk, returns `LocalFileInTheWay` and preserves the captured
+state. The files API keeps those bytes accessible for repair. A newer rule does
+not rewrite P or cancel a send whose outcome is still unknown.
 
 A proven rejection needs two local generations. First remove entries deleted
 between P and W from P, producing transient D. Rebase B/remote/D, then apply

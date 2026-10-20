@@ -27,11 +27,6 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 
 /**
  * What a folder reads its files through: a definition that names no dataset.
- *
- * Its `local` patterns name files that stay on the machine that wrote them.
- * Every commit leaves out a path they match, and untracks one already
- * committed, whatever `.gitignore` says (`git/scope.ts`). `epicenter.json`
- * carries them, so the `epicenter` CLI's history excludes the same paths.
  */
 export type { Definition };
 
@@ -41,7 +36,7 @@ export type { Definition };
  * The result is the prepared definition: the given structure, holding the
  * frozen schema snapshots the generator serializes. Preparation is memoized
  * on the definition and its result, so repeated preparation reuses it. A definition
- * with a key besides `title`, `local`, and `tables`, which only an untyped
+ * with a key besides `title` and `tables`, which only an untyped
  * caller can hand in, is refused.
  */
 export function prepareFolderDefinition<TDefinition extends Definition>(
@@ -181,7 +176,7 @@ type TableUnder<TName, TTable> = TTable extends DeclaredTable
  * vocabulary every Epicenter storage declares with.
  *
  * The definition is checked here, where it is written: a malformed schema
- * or a key besides `title`, `local`, and `tables`, such as an `id`, throws at
+ * or a key besides `title` and `tables`, such as an `id`, throws at
  * the definition, before generation writes anything. What comes back has the given
  * structure and type, and is the prepared definition: an owned, frozen
  * snapshot of each schema. `epicenter generate` serializes that snapshot.
@@ -194,26 +189,23 @@ export function defineFolder<const TDefinition extends Definition>(
 				TDefinition['tables'][Name]
 			>;
 		};
-		local?: readonly string[];
-	} & Record<Exclude<keyof TDefinition, keyof Definition | 'local'>, never>,
-): Pick<TDefinition & Pick<Definition, 'title'>, 'title' | 'tables'> &
-	Pick<Definition, 'local'> {
+	} & Record<Exclude<keyof TDefinition, keyof Definition>, never>,
+): Pick<TDefinition & Pick<Definition, 'title'>, 'title' | 'tables'> {
 	type Defined = Pick<
 		TDefinition & Pick<Definition, 'title'>,
 		'title' | 'tables'
-	> &
-		Pick<Definition, 'local'>;
+	>;
 	// The types refuse other keys, an `id` included: a definition names no
 	// folder. An untyped caller, such as a generated epicenter.ts, is refused
 	// here rather than having a misspelling dropped.
 	const unknown = Object.keys(schema).filter(
-		(key) => key !== 'title' && key !== 'tables' && key !== 'local',
+		(key) => key !== 'title' && key !== 'tables',
 	);
 	if (unknown.length > 0)
 		throw new Error(
-			`A folder definition declares title, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
+			`A folder definition declares title and tables; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
 		);
-	const { title, tables, local } = schema;
+	const { title, tables } = schema;
 	const settings = (tables as Record<string, DeclaredTable>)[SETTINGS_TABLE];
 	for (const [name, declared] of Object.entries(settings?.fields ?? {}))
 		if (!isOptional(declared as never))
@@ -223,7 +215,6 @@ export function defineFolder<const TDefinition extends Definition>(
 	const defined: Defined = {
 		...(title === undefined ? {} : { title }),
 		tables,
-		...(local === undefined ? {} : { local }),
 	};
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(defined);

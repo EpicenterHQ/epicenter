@@ -630,3 +630,234 @@ test('a fetch retains borrowed working bytes after another tab replaces and coll
 		await f.close();
 	}
 }, 20000);
+
+test('ignored offline audio survives pulls, reopening and collection without entering Git', async () => {
+	const f = await fixture(null);
+	const audio = Uint8Array.of(0, 255, 17, 42);
+	try {
+		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', null, audio));
+		expectOk(await f.repository.files.write('note.md', null, 'Offline'));
+		expectOk(await f.sync.run());
+		expect(
+			(await f.server.git(['ls-tree', '-r', '--name-only', 'main']))
+				.trim()
+				.split('\n'),
+		).toEqual(['.gitignore', 'note.md']);
+		expect(
+			await f.server.git(['rev-list', '--objects', '--all', '--', 'audio']),
+		).toBe('');
+		const shared = (await f.server.git(['rev-parse', 'main'])).trim();
+		expect(await prepareCommit(f.repository.storage, author())).toBeNull();
+		expectOk(await f.sync.run());
+		expect((await f.server.git(['rev-parse', 'main'])).trim()).toBe(shared);
+		await f.server.commit(new Map([['remote.md', 'Received']]));
+		expectOk(await f.sync.run());
+		await f.repository.storage.collect();
+		f.repository.close();
+		const reopened = await openRepository(f.id);
+		try {
+			expect(
+				new Uint8Array(
+					await expectOk(
+						await reopened.files.read('audio/take.wav'),
+					)!.content.arrayBuffer(),
+				),
+			).toEqual(audio);
+			expect(
+				await expectOk(await reopened.files.read('remote.md'))!.content.text(),
+			).toBe('Received');
+			expect(await prepareCommit(reopened.storage, author())).toBeNull();
+		} finally {
+			reopened.close();
+		}
+		await f.server.git(['fsck', '--strict']);
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
+test('tracked binary files stay tracked after adding an ignore rule and unignored binaries need no override', async () => {
+	const f = await fixture(null);
+	try {
+		const first = Uint8Array.of(0, 255, 1);
+		const second = Uint8Array.of(0, 254, 2);
+		expectOk(await f.repository.files.write('audio/take.wav', null, first));
+		expectOk(await f.sync.run());
+		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', first, second));
+		expectOk(await f.repository.files.write('audio/private.wav', null, first));
+		expectOk(await f.sync.run());
+		expect(
+			(await f.server.git(['ls-tree', '-r', '--name-only', 'main']))
+				.trim()
+				.split('\n'),
+		).toEqual(['.gitignore', 'audio/take.wav']);
+		const state = await f.repository.storage.capture('sync');
+		const sharedTree = readCommit(
+			state.objects.get(state.state.remoteBase!)!.bytes,
+		).tree;
+		const { readSnapshot } = await import('./git/snapshot.js');
+		const files = await readSnapshot(
+			sharedTree,
+			async (oid) => state.objects.get(oid)!,
+		);
+		expect(
+			state.objects.get(files.files.get('audio/take.wav')!.oid)!.bytes,
+		).toEqual(second);
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
+for (const incoming of [
+	'audio/take.wav',
+	'audio',
+	'audio/take.wav/child.txt',
+	'Audio/take.wav',
+])
+	test(`incoming ${incoming} does not overwrite ignored local audio`, async () => {
+		const f = await fixture();
+		try {
+			expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+			expectOk(await f.sync.run());
+			expectOk(
+				await f.repository.files.write('audio/take.wav', null, 'Local bytes'),
+			);
+			const before = (await f.repository.storage.capture('sync')).state;
+			await f.server.commit(new Map([[incoming, 'Remote bytes']]));
+			const error = expectErr(await f.sync.run());
+			expect(error.name).toBe('LocalFileInTheWay');
+			expect(error.message).toContain('audio/take.wav');
+			expect(
+				await expectOk(
+					await f.repository.files.read('audio/take.wav'),
+				)!.content.text(),
+			).toBe('Local bytes');
+			expect((await f.repository.storage.capture('sync')).state).toEqual(
+				before,
+			);
+		} finally {
+			await f.close();
+		}
+	}, 20000);
+
+test('lost reply keeps exact send while a later ignore edit and newer save remain local', async () => {
+	const f = await fixture(null);
+	try {
+		expectOk(await f.sync.run());
+		expectOk(
+			await f.repository.files.write('audio/take.wav', null, 'First audio'),
+		);
+		let lose = true;
+		const request: HttpRequest = async (input, init) => {
+			const response = await fetch(input, init);
+			if (
+				lose &&
+				init?.method === 'POST' &&
+				String(input).endsWith('/git-receive-pack')
+			) {
+				lose = false;
+				await response.arrayBuffer();
+				throw new TypeError('Reply lost after acceptance');
+			}
+			return response;
+		};
+		const lossy = createSync(f.repository, {
+			url: f.server.url,
+			author,
+			request,
+		});
+		expect(expectErr(await lossy.run()).name).toBe('TransferFailed');
+		const pending = (await f.repository.storage.capture('sync')).state
+			.pendingCommit;
+		expect(pending).not.toBeNull();
+		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(
+			await f.repository.files.write(
+				'audio/take.wav',
+				'First audio',
+				'Newer audio',
+			),
+		);
+		expectOk(
+			await f.repository.files.write(
+				'audio/private.wav',
+				null,
+				'Private audio',
+			),
+		);
+		expect((await prepareCommit(f.repository.storage, author()))!.head).toBe(
+			pending!,
+		);
+		expectOk(await f.sync.run());
+		expect(await f.server.git(['show', 'main:audio/take.wav'])).toBe(
+			'Newer audio',
+		);
+		expect(
+			await f.server.git(['ls-tree', '-r', '--name-only', 'main']),
+		).not.toContain('audio/private.wav');
+		expect(
+			await expectOk(
+				await f.repository.files.read('audio/private.wav'),
+			)!.content.text(),
+		).toBe('Private audio');
+		await f.server.git(['fsck', '--strict']);
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
+test('a pending deletion does not inherit obsolete tracking from the received checkpoint', async () => {
+	const f = await fixture(null);
+	try {
+		expectOk(
+			await f.repository.files.write(
+				'audio/take.wav',
+				null,
+				'Originally shared',
+			),
+		);
+		expectOk(await f.sync.run());
+		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(
+			await f.repository.files.delete('audio/take.wav', 'Originally shared'),
+		);
+		await prepareCommit(f.repository.storage, author());
+		expectOk(
+			await f.repository.files.write('audio/take.wav', null, 'Now local'),
+		);
+		await f.server.commit(new Map([['remote.txt', 'Independent']]));
+		expectOk(await f.sync.run());
+		expect(
+			await f.server.git(['ls-tree', '-r', '--name-only', 'main']),
+		).not.toContain('audio/');
+		expect(
+			await expectOk(
+				await f.repository.files.read('audio/take.wav'),
+			)!.content.text(),
+		).toBe('Now local');
+		expect(await prepareCommit(f.repository.storage, author())).toBeNull();
+	} finally {
+		await f.close();
+	}
+}, 20000);
+
+test('deleting .gitignore is preserved and makes previously ignored audio eligible', async () => {
+	const f = await fixture(null);
+	try {
+		expectOk(await f.repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(await f.repository.files.write('audio/take.wav', null, 'Audio'));
+		expectOk(await f.sync.run());
+		expectOk(await f.repository.files.delete('.gitignore', '/audio/\n'));
+		expectOk(await f.sync.run());
+		expect(
+			(await f.server.git(['ls-tree', '-r', '--name-only', 'main'])).trim(),
+		).toBe('audio/take.wav');
+		expect(
+			expectOk(await f.repository.files.read('.gitignore')),
+		).toBeUndefined();
+	} finally {
+		await f.close();
+	}
+}, 20000);

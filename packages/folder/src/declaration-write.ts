@@ -3,7 +3,6 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import {
 	parseDeclarationObject,
-	parseLocalPolicy,
 	readDeclaredTables,
 	readTableSchemas,
 } from './declaration.js';
@@ -183,11 +182,7 @@ export async function importTables(
 	});
 }
 
-/**
- * Legacy code generation owns tables, title, and local, while retaining view
- * configuration and editor hints. A concurrent local rule is checked again
- * before each attempted publication, never overwritten from an earlier read.
- */
+/** Generation owns tables and title; unrelated saved sections survive. */
 export function writeGeneratedDeclaration(
 	storage: Pick<FolderStorage, 'read' | 'put'>,
 	text: string,
@@ -196,8 +191,6 @@ export function writeGeneratedDeclaration(
 	if (generated.error !== null) return Promise.resolve(generated);
 	const tables = readTableSchemas(generated.data.tables);
 	if (tables.error !== null) return Promise.resolve(tables);
-	const local = parseLocalPolicy(new TextEncoder().encode(text));
-	if (local.error !== null) return Promise.resolve(local);
 	if (tables.data === undefined)
 		return Promise.resolve(
 			Err({ reason: "Generated declaration has no 'tables'" }),
@@ -206,31 +199,11 @@ export function writeGeneratedDeclaration(
 		...(generated.data.title === undefined
 			? {}
 			: { title: generated.data.title }),
-		...(generated.data.local === undefined
-			? {}
-			: { local: generated.data.local }),
 		tables: tables.data,
 	};
 	return patchDeclaration(storage, (current) => {
-		const kept = parseLocalPolicy(
-			new TextEncoder().encode(JSON.stringify(current)),
-		);
-		if (kept.error !== null)
-			return Err({
-				reason: `${DEFINITION_PATH} was not replaced: what it keeps on this computer cannot be read (${kept.error.reason}). Fix or remove it, then generate again`,
-			});
-		const dropped = kept.data.filter(
-			(pattern) => !local.data.includes(pattern),
-		);
-		if (dropped.length > 0) {
-			const listed = dropped.map((pattern) => `'${pattern}'`).join(', ');
-			return Err({
-				reason: `${DEFINITION_PATH} was not replaced: it keeps ${listed} on this computer, which epicenter.ts does not declare. Add ${listed} to \`local\` in epicenter.ts to keep those files local, or remove ${listed} from ${DEFINITION_PATH} to share them, then generate again`,
-			});
-		}
 		const next = { ...current };
 		if (generated.data.title === undefined) delete next.title;
-		if (generated.data.local === undefined) delete next.local;
 		return Ok({ ...next, ...replacement });
 	});
 }

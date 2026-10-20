@@ -190,7 +190,6 @@ const declaration = Type.Object(
 	{
 		$schema: Type.Optional(Type.String()),
 		title: Type.Optional(Type.String({ minLength: 1 })),
-		local: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 		tables: Type.Optional(Type.Record(Type.String(), Type.Ref('Table'))),
 		views: Type.Optional(Type.Record(Type.String(), SavedViewSchema)),
 	},

@@ -1,0 +1,109 @@
+{
+  "recordedAt": "2026-10-20T12:42:31.307Z",
+  "bundleSha256": "393e72ef959cffcd1e38055c83892699cb018aaf407d17a7c7db5f4441aae1ef",
+  "scope": "Production browser engine and Git transport against local native smart HTTP. Graceful profile reopen; no forced process crash, phone, quota, or hosted-service gate.",
+  "results": [
+    {
+      "browser": "chromium",
+      "version": "151.0.7922.34",
+      "acknowledgedSaves": 58,
+      "initial": "746b347a9894557df7af393b01287657a3ac91a7",
+      "uncertain": "ad998db1b5228720fbb0198045456c5de7690812",
+      "lostReply": {
+        "status": 200,
+        "bytes": 50
+      },
+      "laterNative": "d2ac83eb70e49780276b983d5c5fc41b05c51a33",
+      "final": "674f9161fa9ad5733f80c2a40131e696bb10380a",
+      "fields": {
+        "a": 888,
+        "b": 25,
+        "extra": 999
+      },
+      "acceptedCommitOccurrences": 1,
+      "checks": [
+        "initial native fetch",
+        "two tabs saving during network sync",
+        "independent paragraphs",
+        "native readback",
+        "accepted push with lost reply",
+        "later native edit",
+        "pending and newer edit survive profile reopen",
+        "collection preserves uncertain commit and unsent work",
+        "ancestry recovery without replay",
+        "ignored binary audio survives sync, GC and profile reopen",
+        "ignored audio absent from native history",
+        "newer ignore edit survives exact-send settlement",
+        "native fsck --strict"
+      ]
+    },
+    {
+      "browser": "webkit",
+      "version": "26.5",
+      "acknowledgedSaves": 58,
+      "initial": "8d790c312634e3191cbbc411024eea4aa428f40d",
+      "uncertain": "34d8885db371625013a88035d21783e8801c5c9f",
+      "lostReply": {
+        "status": 200,
+        "bytes": 50
+      },
+      "laterNative": "c6044ce268f63cb6a216588c6a6b2da55894dbff",
+      "final": "fb2e4279d249a8c8407f986119bcd8ab418d8b86",
+      "fields": {
+        "a": 888,
+        "b": 25,
+        "extra": 999
+      },
+      "acceptedCommitOccurrences": 1,
+      "checks": [
+        "initial native fetch",
+        "two tabs saving during network sync",
+        "independent paragraphs",
+        "native readback",
+        "accepted push with lost reply",
+        "later native edit",
+        "pending and newer edit survive profile reopen",
+        "collection preserves uncertain commit and unsent work",
+        "ancestry recovery without replay",
+        "ignored binary audio survives sync, GC and profile reopen",
+        "ignored audio absent from native history",
+        "newer ignore edit survives exact-send settlement",
+        "native fsck --strict"
+      ]
+    },
+    {
+      "browser": "firefox",
+      "version": "153.0",
+      "acknowledgedSaves": 58,
+      "initial": "6066f281649d6414cd5a1f1e1d78985209f2daf6",
+      "uncertain": "482a2fe1c077fa0586d918f7a4e83d16a16cbeaf",
+      "lostReply": {
+        "status": 200,
+        "bytes": 50
+      },
+      "laterNative": "5c24a2c67b4bf879e07293b3f78541812c9cb8cc",
+      "final": "0c0bac83855e7482a3b5f5773a1d698902d5527f",
+      "fields": {
+        "a": 888,
+        "b": 25,
+        "extra": 999
+      },
+      "acceptedCommitOccurrences": 1,
+      "checks": [
+        "initial native fetch",
+        "two tabs saving during network sync",
+        "independent paragraphs",
+        "native readback",
+        "accepted push with lost reply",
+        "later native edit",
+        "pending and newer edit survive profile reopen",
+        "collection preserves uncertain commit and unsent work",
+        "ancestry recovery without replay",
+        "ignored binary audio survives sync, GC and profile reopen",
+        "ignored audio absent from native history",
+        "newer ignore edit survives exact-send settlement",
+        "native fsck --strict"
+      ]
+    }
+  ]
+}

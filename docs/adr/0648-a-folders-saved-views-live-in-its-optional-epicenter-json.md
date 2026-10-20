@@ -23,7 +23,7 @@ Both schemas and saved views describe how to work with one folder's files.
 ## Decision
 
 **A folder keeps its schemas and saved views in one optional root `epicenter.json`.**
-The declaration retains `title`, `local`, and `tables` and adds `views`.
+The declaration retains `title` and `tables` and adds `views`.
 `tables` maps top-level directory names to frontmatter object schemas.
 `views` maps opaque, folder-local keys to grid, board, or SQL configurations.
 The editor creates UUID keys. Each view has a display `title` and a `type`;
@@ -38,7 +38,7 @@ declared expectations and no saved views. Opening or browsing a folder
 creates neither the file nor a Git repository. Saving the first named view
 creates the declaration if it is absent, without inventing table schemas.
 View settings remain in the window until an explicit save. Saving a view
-preserves existing schemas, other views, title, and `local` rules. An unusable
+preserves existing schemas, other views, and title. An unusable
 existing declaration remains accessible for repair and is never replaced with
 defaults. A schema-free saved view does not imply a schema-free CLI query.
 
@@ -58,15 +58,13 @@ Applications keep their own TypeBox row schemas and inferred developer types.
 Importing JSON at runtime does not create compile-time types for an app.
 
 Readers share the envelope definition and interpret only the sections they
-need. Git history must still enforce valid `local` rules when a table schema or
-saved view cannot be used. Full view validation must not become a prerequisite
-for that protective read. Meaning that depends on files, such as table and
-field references, SQL restrictions, or a local pattern matching the declaration
-itself, remains an explicit semantic check after structural validation.
+need. Git history interprets no declaration sections, so unusable table schemas
+or saved views cannot block exchange. Meaning that depends on files, such as
+table and field references or SQL restrictions, remains an explicit semantic
+check after structural validation.
 
 The retained `generate` command and schema imports use conditional section
-updates that preserve views. Generation rechecks protective local rules on
-every attempt. Schema import changes only the table definitions supplied by its
+updates that preserve views. Schema import changes only the table definitions supplied by its
 source. Whole-file source editing and Git synchronization still merge JSON by
 line; the keyed view operation does not redefine that file merge.
 
@@ -154,8 +152,7 @@ under that root does not configure a Git remote or start synchronization.
   conflicts in the same view entry. Whole-file source edits and Git merges can
   still produce invalid JSON. Source remains available for repair; readers do
   not substitute an empty file.
-- Section readers isolate unusable table schemas, view entries, and local
-  policy. Invalid JSON still prevents reading the document. A future view
+- Section readers isolate unusable table schemas and view entries. Invalid JSON still prevents reading the document. A future view
   entry does not prevent using a valid sibling or copying the source.
 - Saved views are shared folder content. Private per-person views and
   editable SQL results are outside this model.

@@ -138,7 +138,6 @@ remain proposals, and this cleanup does not edit or accept them.
 | [0636](adr/0636-an-app-opens-local-files-through-one-folder-handle.md) | The proposed `Folder` handle names rooted file paths; a physical directory remains a separate runtime fact. The browser uses a default local selection, and a later runner selects at its own boundary. |
 | [0637](adr/0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Desktop audio belongs in the selected directory with its recording row. Browser audio remains app-owned storage, and generic folder writes remain text-only. |
 | [0638](adr/0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail, maker endorsement, display name, application identifier, mail address. These distinguish a product's brand from its storage identity, browser origin, and deployment. They add no data-layer abstraction. |
-| [0639](adr/0639-automatic-commits-refuse-new-non-text-content.md) | Epicenter-created commits refuse eligible new non-text content; existing Git commits and incoming objects still travel. This is separate from desktop audio placement. |
 
 ## Follow-up collapses
 

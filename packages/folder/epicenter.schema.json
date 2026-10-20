@@ -582,13 +582,6 @@
           "type": "string",
           "minLength": 1
         },
-        "local": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
         "tables": {
           "type": "object",
           "patternProperties": {

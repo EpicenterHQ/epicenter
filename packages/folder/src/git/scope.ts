@@ -1,18 +1,3 @@
-/**
- * Which captured files are history source.
- *
- * Status, commits, and incoming fast-forwards share one rule: a path the
- * `local` patterns of the folder's `epicenter.json` match is never source, tracked or
- * not, whatever `.gitignore` says; otherwise a file tracked in the committed
- * tree stays source, and an untracked file is source unless `.gitignore`
- * excludes it. So a commit leaves a local file out, and one committed before
- * is untracked by the next commit while its bytes stay on disk. Private Git
- * state and operating-system scratch files are excluded earlier by
- * `isPortablePath`. The browser evaluates
- * `.gitignore` files from the captured bytes; the native backend asks
- * `git check-ignore`, which also
- * honors `.git/info/exclude` and the user's excludes file.
- */
 import ignore, { type Ignore } from 'ignore';
 
 const decoder = new TextDecoder();
@@ -55,31 +40,7 @@ export function gitignoreMatcher(
 }
 
 /**
- * Whether `epicenter.json`'s `local` patterns match `path`, or a directory
- * above it. The patterns are read as one root `.gitignore` would read them,
- * except that nothing re-includes a match: they hold whatever the folder's
- * own `.gitignore` files say.
- */
-export function localMatcher(
-	patterns: readonly string[] | undefined,
-): (path: string) => boolean {
-	if (patterns === undefined || patterns.length === 0) return () => false;
-	const matcher = ignore().add([...patterns]);
-	return (path) => {
-		const parts = path.split('/');
-		for (let index = 0; index < parts.length; index++) {
-			const isDirectory = index < parts.length - 1;
-			const current =
-				parts.slice(0, index + 1).join('/') + (isDirectory ? '/' : '');
-			if (matcher.ignores(current)) return true;
-		}
-		return false;
-	};
-}
-
-/**
- * Keep tracked files and untracked files that are not ignored, never a file
- * `isLocal` matches.
+ * Keep tracked files and untracked files that are not ignored.
  */
 export async function sourceFiles(
 	current: ReadonlyMap<string, Uint8Array>,
@@ -88,17 +49,14 @@ export async function sourceFiles(
 		candidates: readonly string[],
 		current: ReadonlyMap<string, Uint8Array>,
 	) => Promise<ReadonlySet<string>>,
-	isLocal: (path: string) => boolean = () => false,
 ): Promise<Map<string, Uint8Array>> {
-	const candidates = [...current.keys()].filter(
-		(path) => !tracked.has(path) && !isLocal(path),
-	);
+	const candidates = [...current.keys()].filter((path) => !tracked.has(path));
 	const ignored =
 		candidates.length === 0
 			? new Set<string>()
 			: await ignoredPaths(candidates, current);
 	const source = new Map<string, Uint8Array>();
 	for (const [path, bytes] of current)
-		if (!ignored.has(path) && !isLocal(path)) source.set(path, bytes);
+		if (!ignored.has(path)) source.set(path, bytes);
 	return source;
 }

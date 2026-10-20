@@ -8,7 +8,7 @@
  * Key behaviors:
  * - `defineFolder` returns an owned, frozen definition of the declared shape,
  *   and preparing it again returns it
- * - A key other than `title`, `tables`, and `local` is refused, not
+ * - A key other than `title` and `tables` is refused, not
  *   dropped
  * - A definition names no folder: an `id` is refused as any other key is
  * - A schema edited after `defineFolder` does not change what that
@@ -71,7 +71,7 @@ test('defineFolder returns the prepared definition in the declared shape', () =>
 	).toContain("field name 'todos.id' is not usable");
 });
 
-test('an untyped definition with a key other than title, tables, and local is refused, not dropped', () => {
+test('an untyped definition with a key other than title and tables is refused, not dropped', () => {
 	expect(() => defineFolder({ tables: {}, titel: 'Typo' } as never)).toThrow(
 		"also declares 'titel'",
 	);

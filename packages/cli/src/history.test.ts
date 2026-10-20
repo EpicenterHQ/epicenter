@@ -16,9 +16,8 @@
  *   global `submodule.recurse`, succeeds as a plain clone does
  * - Without a usable `git`, every history command exits 2 with `GitMissing`
  * - A sync runs only the `git` `locateGit` finds, never one from `PATH`
- * - A folder with no `epicenter.json` refuses save-version and sync, commits
- *   and pushes nothing, and no `--app-local` option gets past it; the file
- *   the refusal suggests then saves and syncs everything but the audio
+ * - A folder needs no epicenter.json to commit or sync; ordinary ignore
+ *   rules exclude untracked audio and deleting those rules makes it eligible
  * - Only Epicenter's own folder may get a repository inside another
  *   repository's working tree; a folder named by an app id is a data folder
  *
@@ -235,7 +234,7 @@ test('status, save-version, and history read and record the folder', async () =>
 	expect(after.reply.state.sync).toMatchObject({ ahead: 1, behind: 0 });
 });
 
-test('a folder with no epicenter.json cannot save a version or sync, and no option declares for it', async () => {
+test('a folder without epicenter.json saves and syncs according to its ordinary ignore file', async () => {
 	const project = await realpath(
 		await mkdtemp(join(tmpdir(), 'epicenter-undeclared-')),
 	);
@@ -252,50 +251,28 @@ test('a folder with no epicenter.json cannot save a version or sync, and no opti
 	const folder = join(project, 'folder');
 	await write(folder, 'notes/a.md', 'a\n');
 	await write(folder, 'audio/take.wav', 'RIFF');
+	await write(folder, '.gitignore', '/audio/\n');
 	await git(folder, 'init', '--quiet', '--initial-branch=main');
 	await git(folder, 'config', 'remote.origin.url', bare);
-
-	const suggested = '{"local": ["audio/"]}';
-	for (const args of [
-		['save-version', folder],
-		['sync', folder],
-	]) {
-		const refused = await epicenter(args);
-		expect(refused.exitCode).toBe(2);
-		expect(refused.stderr).toContain('has no epicenter.json');
-		expect(refused.stderr).toContain(suggested);
-		// The retired app-supplied route is no longer a way past it.
-		const option = await epicenter([...args, '--app-local', '["audio/"]']);
-		expect(option.exitCode).toBe(2);
-		expect(option.stderr).toContain(
-			`epicenter ${args[0]} does not take --app-local`,
-		);
-	}
-	expect(await git(folder, 'ls-files')).toBe('');
-	expect(await git(project, 'ls-remote', bare)).toBe('');
-	expect(await readFile(join(folder, 'audio/take.wav'), 'utf8')).toBe('RIFF');
-	expect(existsSync(join(folder, 'epicenter.json'))).toBe(false);
-
-	// Status still reads.
-	const status = await reply('status', ['status', folder]);
-	expect(status.exitCode).toBe(0);
-	expect(status.reply.result.error).toBeNull();
-
-	// The file the refusal suggests is a whole policy: no tables needed.
-	await write(folder, 'epicenter.json', suggested);
 	const saved = await reply('saveVersion', ['save-version', folder]);
 	expect(saved.exitCode, saved.stderr).toBe(0);
 	expect(saved.reply.result.status).toBe('committed');
-	expect(await git(folder, 'ls-files')).toBe('epicenter.json\nnotes/a.md');
+	expect(await git(folder, 'ls-files')).toBe('.gitignore\nnotes/a.md');
+	expect(existsSync(join(folder, 'epicenter.json'))).toBe(false);
 	const sent = await reply('sync', ['sync', folder]);
 	expect(sent.exitCode, sent.stderr).toBe(0);
 	expect(sent.reply.result.data?.kind).toBe('synced');
 	expect(await git(bare, 'ls-tree', '-r', '--name-only', 'main')).toBe(
-		'epicenter.json\nnotes/a.md',
+		'.gitignore\nnotes/a.md',
 	);
-	expect(await readFile(join(folder, 'epicenter.json'), 'utf8')).toBe(
-		suggested,
+	expect(await readFile(join(folder, 'audio/take.wav'), 'utf8')).toBe('RIFF');
+	await rm(join(folder, '.gitignore'));
+	const next = await reply('sync', ['sync', folder]);
+	expect(next.exitCode, next.stderr).toBe(0);
+	expect(await git(bare, 'ls-tree', '-r', '--name-only', 'main')).toBe(
+		'audio/take.wav\nnotes/a.md',
 	);
+	expect(existsSync(join(folder, '.gitignore'))).toBe(false);
 });
 
 test('a sync of competing changes merges them into one commit this folder wins, asking nothing', async () => {

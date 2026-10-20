@@ -34,7 +34,7 @@ check(definition.tables.settings.fields, { theme: 'dark' }, 'input'); // no issu
 
 ## One type, written and prepared
 
-A definition is a `Definition`: `{ title?, local?, tables }`. It names no dataset;
+A definition is a `Definition`: `{ title?, tables }`. It names no dataset;
 the storage that opens it does. Each table is `{ fields }`, where `fields` is
 a record of native schemas by field name, plus `additionalProperties: false`
 when the table is closed. Settings, when an app keeps them, are a table too,

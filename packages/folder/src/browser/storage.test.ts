@@ -255,11 +255,19 @@ test('quota failure collects once and retries without replacing a root on a seco
 	}
 });
 
-test('preparation and indexed collection read no blob payloads', async () => {
+test('preparation reads only ignore blobs and collection reads no blob payloads', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	const get = IDBObjectStore.prototype.get;
 	try {
 		expectOk(await repository.files.write('notes/one.md', null, 'base'));
+		expectOk(await repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(
+			await repository.files.write(
+				'audio/take.wav',
+				null,
+				Uint8Array.of(0, 255),
+			),
+		);
 		const snapshot = await repository.storage.capture();
 		await repository.storage.publish({
 			expected: snapshot.state,
@@ -274,13 +282,18 @@ test('preparation and indexed collection read no blob payloads', async () => {
 				.filter(([, object]) => object.type === 'blob')
 				.map(([oid]) => oid),
 		);
+		const ignoreBlob = saved.files.get('.gitignore')!.oid;
+		const dataBlobs = new Set([...blobs].filter((oid) => oid !== ignoreBlob));
 		const reads: IDBValidKey[] = [];
 		IDBObjectStore.prototype.get = function (key: IDBValidKey | IDBKeyRange) {
 			if (this.name === 'objects' && typeof key === 'string') reads.push(key);
 			return get.call(this, key);
 		};
 		await prepareCommit(repository.storage, { ...author, timestamp: 2 });
-		expect(reads).toEqual([base.head]);
+		expect(reads).toContain(base.head);
+		expect(reads).toContain(ignoreBlob);
+		expect(reads.some((key) => dataBlobs.has(String(key)))).toBe(false);
+		reads.length = 0;
 		await repository.storage.collect();
 		expect(reads.some((key) => blobs.has(String(key)))).toBe(false);
 	} finally {

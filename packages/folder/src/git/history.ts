@@ -29,40 +29,15 @@
  * lands whole, so a publish cut off partway is ordinary changed files, which
  * the next Sync records and merges (ADR-0545).
  *
- * What stays local is the `local` list of the folder's `epicenter.json`
- * (ADR-0577), read strictly (`parseLocalPolicy`). A commit reads it from the
- * very bytes it records, so its own file names every path it leaves out.
- * A history keeps every pattern it has seen, so a rule removed while it runs
- * still holds, and a rule the remote's file newly declares (against the
- * merge base, or the head Sync fast-forwards from) keeps the remote's files
- * off this disk and out of the merge. Sync never weakens this folder's rules
- * on its own: an incoming or merged file that drops a rule this folder's
- * file still lists, or one the remote newly declares, stops it before a
- * push, and so does none at all where the history opened with one. The
- * publish checks again as it writes the file, in the save lock's hold and
- * against the live bytes it replaces, so a rule saved here while Sync runs
- * survives the publish or stops it before any local file changes; a merge
- * may already have been pushed. Nor does it send a commit the remote lacks
- * that adds or changes a path a rule seen keeps local, however clean the
- * latest tree; it never rewrites history to remove one. No app's table
- * schemas are read here.
- *
  * Status scans take no protection. Callers who ask while a scan is running
  * share the one scan that follows it, so a burst of requests costs two scans
  * and the last one reads the folder after every request was made.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage, LockingStorage } from '../boundary.js';
-import { parseLocalPolicy, readLocalPolicy } from '../declaration.js';
-import { describe, FileError, UnconfirmedWrite } from '../errors.js';
+import { describe, UnconfirmedWrite } from '../errors.js';
 import { callObserver } from '../observer.js';
-import {
-	ancestors,
-	collisionKey,
-	DEFINITION_PATH,
-	isPortablePath,
-	pathProblem,
-} from '../paths.js';
+import { ancestors, collisionKey, pathProblem } from '../paths.js';
 import { sameContent } from '../shared/merge.js';
 import { confirmedPut, publishFile } from '../write.js';
 import { declaredFilter, isAttributesPath } from './attributes.js';
@@ -87,7 +62,7 @@ import {
 	writeFilesTree,
 } from './objects.js';
 import { createPassRunner } from './runner.js';
-import { localMatcher, sourceFiles } from './scope.js';
+import { sourceFiles } from './scope.js';
 import type { SyncOptions, SyncOutcome } from './sync.js';
 
 export { GitError };
@@ -230,19 +205,11 @@ export function createHistory({
 	backend,
 	boundary,
 	author,
-	local,
 	landed = () => {},
 }: {
 	backend: GitBackend;
 	boundary: LockingStorage;
 	author: Author;
-	/**
-	 * The `local` patterns the folder's `epicenter.json` listed as this
-	 * history opened (`readLocalPolicy`). Given, the file must stay: a commit
-	 * or publish that finds it gone is blocked. Without it, as for a history
-	 * no policy was read for, a missing file adds nothing local.
-	 */
-	local?: readonly string[];
 	/** Paths a Sync wrote or removed, whether or not it completed. */
 	landed?: (paths: readonly string[]) => void;
 }): FolderHistory {
@@ -371,7 +338,7 @@ export function createHistory({
 		const files = new Map<string, Uint8Array>();
 		const unreadable: string[] = [];
 		for (const { path } of listed.files) {
-			if (!isPortablePath(path)) continue;
+			if (pathProblem(path) !== undefined) continue;
 			const read = await boundary.read(path);
 			if (read.error === null) files.set(path, read.data.bytes);
 			else if (read.error.name !== 'NotFound') unreadable.push(path);
@@ -381,344 +348,6 @@ export function createHistory({
 				`${unreadable.length} files could not be read: ${unreadable.join(', ')}`,
 			);
 		return files;
-	}
-
-	type IsLocal = (path: string) => boolean;
-
-	/**
-	 * Every `local` pattern this history has seen: the policy it opened with,
-	 * and each one read since, from the folder or from a tree Sync brings in.
-	 * It only grows, so a rule removed while an operation runs cannot expose
-	 * a file the rule kept local.
-	 */
-	const localSeen = new Set(local);
-
-	/** Every pattern seen, after taking in `patterns`. */
-	function keep(patterns: readonly string[]): IsLocal {
-		for (const pattern of patterns) localSeen.add(pattern);
-		return localMatcher([...localSeen]);
-	}
-
-	/**
-	 * The folder's own `local` policy, from its `epicenter.json` as `parsed`
-	 * read it, `undefined` when there was none. A file that cannot be used is
-	 * the reason, since a commit made without it could carry those files,
-	 * and so is one removed since the history opened with it.
-	 */
-	function ownPolicy(
-		parsed: Result<readonly string[] | undefined, { readonly reason: string }>,
-	): Result<readonly string[], string> {
-		if (parsed.error !== null)
-			return Err(
-				`${DEFINITION_PATH} cannot be used: ${parsed.error.reason}; fix the file before recording`,
-			);
-		if (parsed.data !== undefined) return Ok(parsed.data);
-		if (local === undefined) return Ok([]);
-		return Err(
-			`${DEFINITION_PATH} was removed, so nothing says which files stay on this computer; restore it before recording`,
-		);
-	}
-
-	/** The `local` policy of the folder's `epicenter.json` as it is now. */
-	async function livePolicy(): Promise<Result<readonly string[], string>> {
-		return ownPolicy(await readLocalPolicy(boundary));
-	}
-
-	/**
-	 * The `local` policy of the `epicenter.json` in `captured`, the files a
-	 * commit records: the commit's own file says what it leaves out.
-	 */
-	function capturedPolicy(
-		captured: ReadonlyMap<string, Uint8Array>,
-	): Result<readonly string[], string> {
-		const bytes = captured.get(DEFINITION_PATH);
-		return ownPolicy(
-			bytes === undefined ? Ok(undefined) : parseLocalPolicy(bytes),
-		);
-	}
-
-	/**
-	 * The `local` patterns `commit`'s own `epicenter.json` lists, `undefined`
-	 * when it has none.
-	 */
-	async function committedPolicy(
-		commit: string | undefined,
-	): Promise<Result<readonly string[] | undefined, string>> {
-		const bytes = await blobOf((await headFiles(commit)).get(DEFINITION_PATH));
-		if (bytes === null) return Ok(undefined);
-		const { data: patterns, error } = parseLocalPolicy(bytes);
-		if (error !== null)
-			return Err(
-				`${DEFINITION_PATH} in commit ${commit} cannot be used: ${error.reason}`,
-			);
-		return Ok(patterns);
-	}
-
-	/**
-	 * The `local` patterns `to`'s `epicenter.json` lists that `since`'s does
-	 * not: the rules a tree Sync brings here newly declares. A `since` whose
-	 * file cannot be used counts as listing none, so all of `to`'s are new.
-	 */
-	async function addedPolicy(
-		to: string,
-		since: string | undefined,
-	): Promise<Result<readonly string[], string>> {
-		const after = await committedPolicy(to);
-		if (after.error !== null) return after;
-		const before = (await committedPolicy(since)).data ?? [];
-		return Ok(
-			(after.data ?? []).filter((pattern) => !before.includes(pattern)),
-		);
-	}
-
-	/**
-	 * Files kept on this machine now (ADR-0577; ADR-0592 later moves them to
-	 * `.gitignore`): every pattern seen, after reading the folder's
-	 * `epicenter.json` again and taking in `incoming`, the rules a tree Sync
-	 * is about to merge or write newly declares. No commit carries one,
-	 * whether or not `.gitignore` names it.
-	 */
-	async function localNow(
-		incoming: readonly string[] = [],
-	): Promise<Result<IsLocal, string>> {
-		const { data: own, error } = await livePolicy();
-		if (error !== null) return Err(error);
-		return Ok(keep([...own, ...incoming]));
-	}
-
-	/**
-	 * Why Sync may not leave this folder's `epicenter.json` keeping `after`,
-	 * `undefined` for no file, or `undefined` when it may. Only a person here
-	 * removes a rule from this folder: one `own`, the folder's file, lists
-	 * that `after` omits stops Sync, as does one of `added`, which the
-	 * remote's file newly declares. `before`, the rules of the branch's file,
-	 * says which of `own` the remote removed and which no commit holds yet.
-	 * A history opened with a policy (`local`) needs the file, so an `after`
-	 * with none stops Sync too. `stopped` says what Sync left as it was.
-	 */
-	function dropsRules(
-		after: readonly string[] | undefined,
-		{
-			own,
-			before,
-			added,
-			stopped,
-		}: {
-			readonly own: readonly string[];
-			readonly before: readonly string[];
-			readonly added: readonly string[];
-			readonly stopped: string;
-		},
-	): string | undefined {
-		if (after === undefined && local !== undefined)
-			return `the remote removed ${DEFINITION_PATH}, which says which files stay on this computer and which this folder needs to record anything, ${stopped}. Restore ${DEFINITION_PATH} on the remote from the device that removed it, then sync again`;
-		const omitted = (patterns: readonly string[]) =>
-			patterns.filter((pattern) => !(after ?? []).includes(pattern));
-		const listed = (patterns: readonly string[]) =>
-			patterns.map((pattern) => `'${pattern}'`).join(', ');
-		const dropped = omitted(own.filter((pattern) => before.includes(pattern)));
-		if (dropped.length > 0)
-			return `the remote's ${DEFINITION_PATH} no longer keeps ${listed(dropped)} on each computer, but this folder's does, ${stopped}. To share those files, remove ${listed(dropped)} from "local" in this folder's ${DEFINITION_PATH}; to keep them local, restore ${listed(dropped)} in the remote's ${DEFINITION_PATH} from the device that removed it; then sync again`;
-		const lost = omitted(added);
-		if (lost.length > 0)
-			return `merging would drop ${listed(lost)} from "local", which the remote's ${DEFINITION_PATH} newly keeps on each computer, ${stopped}. Add ${listed(lost)} to "local" in this folder's ${DEFINITION_PATH}, then sync again`;
-		const unrecorded = omitted(
-			own.filter((pattern) => !before.includes(pattern)),
-		);
-		if (unrecorded.length > 0)
-			return `merging would drop ${listed(unrecorded)} from "local", which this folder's ${DEFINITION_PATH} lists and no commit holds yet, ${stopped}. Sync again, which records it first`;
-		return undefined;
-	}
-
-	/**
-	 * Why Sync may not bring `to`, a commit it is about to send or publish,
-	 * over the folder, whose branch is at `from`, or `undefined`: `to`'s
-	 * `epicenter.json` drops a rule (`dropsRules`). Of the folder's own rules
-	 * only those `from` records count: one added since is a person's edit no
-	 * commit holds, which the publish keeps over `to`'s file.
-	 */
-	async function weakened(
-		to: string,
-		{
-			from,
-			added = [],
-		}: {
-			readonly from: string | undefined;
-			readonly added?: readonly string[];
-		},
-	): Promise<string | undefined> {
-		const own = await livePolicy();
-		if (own.error !== null) return own.error;
-		const after = await committedPolicy(to);
-		if (after.error !== null) return after.error;
-		// A `from` whose file cannot be used held every rule the folder's does.
-		const prior = await committedPolicy(from);
-		const before = prior.error === null ? (prior.data ?? []) : own.data;
-		return dropsRules(after.data, {
-			own: own.data.filter((pattern) => before.includes(pattern)),
-			before,
-			added,
-			stopped: 'so Sync changed and sent nothing',
-		});
-	}
-
-	/** The rules a publish keeps: `before`, the branch's, and `added`, `to`'s new ones. */
-	type PublishRules = {
-		readonly before: readonly string[];
-		readonly added: readonly string[];
-	};
-
-	/**
-	 * Why a publish may not leave `result` as the folder's `epicenter.json`
-	 * where it holds `live`, or `undefined`: `result` drops a rule `live`
-	 * lists or `added` declares (`dropsRules`), or cannot be used.
-	 */
-	function replacesPolicy(
-		live: Uint8Array | null,
-		result: Uint8Array | null,
-		{ before, added }: PublishRules,
-	): string | undefined {
-		const stopped = "so Sync left this folder's files as they were";
-		const own = ownPolicy(
-			live === null ? Ok(undefined) : parseLocalPolicy(live),
-		);
-		if (own.error !== null) return own.error;
-		if (result === null)
-			return dropsRules(undefined, { own: own.data, before, added, stopped });
-		const after = parseLocalPolicy(result);
-		if (after.error !== null)
-			return `merging this folder's ${DEFINITION_PATH} with the remote's would leave it unusable (${after.error.reason}), ${stopped}. Make this folder's ${DEFINITION_PATH} hold the remote's changes as well as its own, then sync again`;
-		return dropsRules(after.data, { own: own.data, before, added, stopped });
-	}
-
-	/**
-	 * Publish `to`'s `epicenter.json`, `next`, over the folder's through
-	 * `held`, as every file is (`publishFile`), unless `replacesPolicy`
-	 * refuses it first. Each attempt of the one write reads the live file,
-	 * merges, and puts guarded by the hash it read, so what is checked is
-	 * the very bytes that land over the very file read; a merge that leaves
-	 * the live file as it is is checked as well.
-	 */
-	async function publishPolicy(
-		held: FolderStorage,
-		{
-			was,
-			next,
-			...rules
-		}: PublishRules & {
-			readonly was: Uint8Array | null;
-			readonly next: Uint8Array | null;
-		},
-	) {
-		const check = (live: Uint8Array | null, result: Uint8Array | null) =>
-			replacesPolicy(live, result, rules);
-		// The attempt in progress: the live bytes it read, and whether it put.
-		const attempt = {
-			live: null as Uint8Array | null,
-			put: false,
-			refused: undefined as string | undefined,
-		};
-		const written = await publishFile(
-			{
-				async read(path) {
-					const read = await held.read(path);
-					attempt.live = read.error === null ? read.data.bytes : null;
-					attempt.put = false;
-					return read;
-				},
-				async put(path, bytes, ifMatch) {
-					attempt.put = true;
-					attempt.refused = check(attempt.live, bytes);
-					if (attempt.refused !== undefined)
-						return FileError.Io({
-							path,
-							operation: 'write',
-							cause: new Error(attempt.refused),
-						});
-					return held.put(path, bytes, ifMatch);
-				},
-			},
-			DEFINITION_PATH,
-			was,
-			next,
-		);
-		if (written.error === null && !attempt.put)
-			attempt.refused = check(attempt.live, attempt.live);
-		return { written, refused: attempt.refused };
-	}
-
-	/**
-	 * Why `oid` may not be sent to a remote whose branch is at `remote`, or
-	 * `undefined`: a commit the remote would newly hold adds or changes a
-	 * path a pattern this history has seen keeps local. The remote receives
-	 * every commit before `oid`, so a clean latest tree is not enough. Sync
-	 * never rewrites history to remove it.
-	 */
-	async function carriesLocal(
-		oid: string,
-		remote: string | undefined,
-	): Promise<string | undefined> {
-		if (localSeen.size === 0) return undefined;
-		const isLocal = localMatcher([...localSeen]);
-		return backend.withObjects(async (access) => {
-			const filesOf = async (commit: string) =>
-				readTreeFiles(access, await commitTree(access, commit));
-			const held = new Set<string>();
-			const below = remote === undefined ? [] : [remote];
-			while (below.length > 0) {
-				const commit = below.pop()!;
-				if (held.has(commit)) continue;
-				held.add(commit);
-				try {
-					below.push(...(await commitParents(access, commit)));
-				} catch {
-					// Missing history beyond a shallow boundary ends the walk.
-				}
-			}
-			const sent = new Set<string>();
-			const unsent = [oid];
-			while (unsent.length > 0) {
-				const commit = unsent.pop()!;
-				if (sent.has(commit) || held.has(commit)) continue;
-				sent.add(commit);
-				const parents = await commitParents(access, commit);
-				unsent.push(...parents);
-				const before = await Promise.all(parents.map(filesOf));
-				for (const [path, entry] of await filesOf(commit)) {
-					if (!isLocal(path)) continue;
-					if (before.some((files) => files.get(path)?.oid === entry.oid))
-						continue;
-					const verb = before.some((files) => files.has(path))
-						? 'changes'
-						: 'adds';
-					return `commit ${commit} ${verb} '${path}', which ${DEFINITION_PATH} keeps on this computer, and the remote does not hold that commit yet, so Sync sent nothing. Remove '${path}' from the commits the remote does not have with Git (Sync never rewrites history), then sync again`;
-				}
-			}
-			return undefined;
-		});
-	}
-
-	/**
-	 * Why `commit` may not be sent, or `undefined`: it carries a path its own
-	 * `epicenter.json` keeps local, which a merge does only when its merged
-	 * file lists a rule the merge was not made with.
-	 */
-	async function keptByItsOwn(commit: string): Promise<string | undefined> {
-		const { data: patterns, error } = await committedPolicy(commit);
-		if (error !== null) return error;
-		const isLocal = localMatcher(patterns);
-		const path = [...(await headFiles(commit)).keys()].find(isLocal);
-		if (path === undefined) return undefined;
-		return `the merge with the remote carries '${path}', which its own ${DEFINITION_PATH} keeps local, so Sync changed and sent nothing. Make "local" in this folder's ${DEFINITION_PATH} list every rule the remote's does, then sync again`;
-	}
-
-	/** Captured files that are history source under the shared scope rule. */
-	function source(
-		current: ReadonlyMap<string, Uint8Array>,
-		tracked: ReadonlyMap<string, unknown>,
-		isLocal: IsLocal,
-	) {
-		return sourceFiles(current, tracked, backend.ignoredPaths, isLocal);
 	}
 
 	/**
@@ -774,11 +403,8 @@ export function createHistory({
 				const captured = await capture();
 				const head = await backend.readBranch();
 				const committed = await headFiles(head);
-				// Status shows what a commit would record; with an
-				// `epicenter.json` that cannot be used, by every pattern seen.
-				const isLocal = keep(capturedPolicy(captured).data ?? []);
 				const hashes = await hashFiles(
-					await source(captured, committed, isLocal),
+					await sourceFiles(captured, committed, backend.ignoredPaths),
 				);
 				const value: FilesObservation = {
 					head,
@@ -844,15 +470,12 @@ export function createHistory({
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
 		const current = await capture();
-		// What stays local is read from the `epicenter.json` bytes this
-		// commit records, never from an earlier read the file may have
-		// changed since: the commit leaves out every path its own file keeps.
-		const { data: policy, error: localProblem } = capturedPolicy(current);
-		if (localProblem !== null)
-			return { status: 'blocked', reason: localProblem };
-		const isLocal = keep(policy);
 		const committed = await headFiles(parent);
-		const included = await source(current, committed, isLocal);
+		const included = await sourceFiles(
+			current,
+			committed,
+			backend.ignoredPaths,
+		);
 		// An empty folder with no history has nothing to record, and writes
 		// nothing: not even an empty tree.
 		const built =
@@ -1068,17 +691,11 @@ export function createHistory({
 
 	/**
 	 * The files `from` and `to` hold, and the paths Sync changes between
-	 * them, local paths aside (ADR-0577).
+	 * them.
 	 */
-	async function between(
-		from: string | undefined,
-		to: string,
-		isLocal: IsLocal,
-	) {
+	async function between(from: string | undefined, to: string) {
 		const [before, after] = await Promise.all([headFiles(from), headFiles(to)]);
-		const changes = diffFileMaps(before, after).filter(
-			(change) => !isLocal(change.path),
-		);
+		const changes = diffFileMaps(before, after);
 		return { before, after, changes };
 	}
 	type Between = Awaited<ReturnType<typeof between>>;
@@ -1245,11 +862,6 @@ export function createHistory({
 	 * checked against `from`'s bytes, then all are made, with the directories
 	 * they empty after them, so a file can take a directory's place and the
 	 * reverse; an empty directory where a file goes is removed too.
-	 * The folder's `epicenter.json` is written or removed in that same hold,
-	 * before every other file, and only as one that keeps every rule its live
-	 * bytes list and every one `to`'s newly declares (`publishPolicy`), so a
-	 * rule saved after Sync checked `to`, even after this publish began,
-	 * survives or stops the publish before anything changed.
 	 *
 	 * `edited` when a file `to` removes holds an edit no commit has, answered
 	 * before anything changed: Sync records it and merges again, and the
@@ -1279,17 +891,7 @@ export function createHistory({
 		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
 		const head = await backend.readBranch();
 		if (head !== from) return Ok({ kind: 'moved', head } as const);
-		// What `to`'s own `epicenter.json` newly keeps local stays off the
-		// files too, as a rule the folder already holds does.
-		const added = await addedPolicy(to, from);
-		if (added.error !== null) return SyncError.Blocked({ reason: added.error });
-		const { data: isLocal, error: localProblem } = await localNow(added.data);
-		if (localProblem !== null)
-			return SyncError.Blocked({ reason: localProblem });
-		// A `from` whose file cannot be used held every rule the folder's does.
-		const prior = await committedPolicy(from);
-		const before = prior.error === null ? (prior.data ?? []) : [...localSeen];
-		const plan = await between(from, to, isLocal);
+		const plan = await between(from, to);
 		const way = await inTheWay(boundary, plan);
 		const { made, ignored } = await madeHere(way.untracked);
 		const refused = wayProblem(way.failed, [...way.occupied, ...ignored]);
@@ -1330,18 +932,9 @@ export function createHistory({
 			SyncError.Publish({ path, error: error.message });
 		try {
 			const removed = await boundary.lock(
-				async (
-					held,
-				): Promise<
-					Result<'removed' | 'edited' | { refused: string }, SyncError>
-				> => {
-					const currentPolicy = ownPolicy(await readLocalPolicy(held));
-					if (currentPolicy.error !== null)
-						return SyncError.Blocked({ reason: currentPolicy.error });
-					const currentLocal = keep(currentPolicy.data);
+				async (held): Promise<Result<'removed' | 'edited', SyncError>> => {
 					const targets: { path: string; sha256: string }[] = [];
 					for (const path of removals) {
-						if (currentLocal(path)) continue;
 						const read = await held.read(path);
 						// No file there: gone already, or a directory a cut
 						// publish made in its place.
@@ -1366,31 +959,6 @@ export function createHistory({
 							if ((await held.read(path)).error?.name === 'NotFound')
 								return Ok('edited');
 						}
-					// The folder's `epicenter.json` goes first, in this same hold,
-					// and only as one that keeps every rule its live bytes list
-					// and every one `to`'s newly declares: refused, nothing
-					// changed. A rule saved after this publish began is read here.
-					const policy = blobs.get(DEFINITION_PATH);
-					if (policy !== undefined) {
-						const rules = { before, added: added.data };
-						if (targets.some(({ path }) => path === DEFINITION_PATH)) {
-							// Its live bytes are `from`'s, by the hash the removal
-							// is guarded by.
-							const refused = replacesPolicy(policy.was, null, rules);
-							if (refused !== undefined) return Ok({ refused });
-						} else if (writes.includes(DEFINITION_PATH)) {
-							const { written, refused } = await publishPolicy(held, {
-								...rules,
-								...policy,
-							});
-							if (refused !== undefined) return Ok({ refused });
-							if (written.error !== null)
-								return failed(DEFINITION_PATH, written.error);
-							if (!sameContent(written.data.file?.bytes ?? null, policy.next))
-								kept = true;
-							reached.push(DEFINITION_PATH);
-						}
-					}
 					for (const { path, sha256 } of targets) {
 						const put = await confirmedPut(held, path, null, sha256, null);
 						if (put.error !== null) return failed(path, put.error);
@@ -1412,21 +980,9 @@ export function createHistory({
 				await unmark();
 				return Ok({ kind: 'edited' } as const);
 			}
-			if (typeof removed.data === 'object') {
-				// Refused before this run changed anything; a resumed publish
-				// stays named, as its files may hold part of `to` already.
-				if (!resuming) await unmark();
-				return SyncError.Blocked({ reason: removed.data.refused });
-			}
 			for (const path of writes) {
-				if (path === DEFINITION_PATH) continue;
 				const { was, next } = blobs.get(path)!;
 				const outcome = await boundary.lock(async (held) => {
-					const currentPolicy = ownPolicy(await readLocalPolicy(held));
-					if (currentPolicy.error !== null)
-						return { kind: 'blocked', reason: currentPolicy.error } as const;
-					if (keep(currentPolicy.data)(path))
-						return { kind: 'skipped' } as const;
 					// An empty directory where the file goes, which a removal
 					// cut off before its own prune can leave.
 					for (const directory of directories
@@ -1438,18 +994,9 @@ export function createHistory({
 						await held.rmdir(directory);
 					// The live file is the change: an edit since the checkpoint,
 					// or a file the person made where `to` adds one, stands.
-					return {
-						kind: 'wrote',
-						result: await publishFile(held, path, was, next),
-					} as const;
+					return publishFile(held, path, was, next);
 				});
-				if (outcome.kind === 'blocked')
-					return SyncError.Blocked({ reason: outcome.reason });
-				if (outcome.kind === 'skipped') {
-					kept = true;
-					continue;
-				}
-				const { data: wrote, error } = outcome.result;
+				const { data: wrote, error } = outcome;
 				// A file this folder cannot take there, from a program outside
 				// the save lock or a name the disk holds under another spelling.
 				if (error !== null) return failed(path, error);
@@ -1618,8 +1165,6 @@ export function createHistory({
 					// hold it.
 					const unsendable = await representable(local!, 'folder');
 					if (unsendable.error !== null) return unsendable;
-					const leaks = await carriesLocal(local!, theirs);
-					if (leaks !== undefined) return SyncError.Blocked({ reason: leaks });
 					const pushed = await pushCommit(local!);
 					if (pushed === 'rejected') {
 						rejectedAt = theirs;
@@ -1635,9 +1180,7 @@ export function createHistory({
 						isAncestor(access, local!, theirs),
 					))
 				) {
-					// This folder is behind: take theirs. The publish refuses,
-					// before anything changes, a file that drops a rule this
-					// folder's lists, read as it writes the file.
+					// This folder is behind: take theirs, preserving newer local edits.
 					const { data: published, error } = await publish(local, theirs);
 					if (error !== null) return Err(error);
 					if (published.kind === 'moved') {
@@ -1656,22 +1199,11 @@ export function createHistory({
 				if (base === undefined && !unrelated)
 					return SyncError.Unrelated({ head: local });
 				const mine = local;
-				// A rule this folder keeps, or the remote's `epicenter.json`
-				// newly declares, keeps its paths out of the merge.
-				const added = await addedPolicy(theirs, base);
-				if (added.error !== null)
-					return SyncError.Blocked({ reason: added.error });
-				const { data: isLocal, error: localProblem } = await localNow(
-					added.data,
-				);
-				if (localProblem !== null)
-					return SyncError.Blocked({ reason: localProblem });
 				const merged = await backend.withObjects(async (access) => {
 					const result = await mergeHistories(access, {
 						base,
 						ours: mine,
 						theirs,
-						isLocal,
 					});
 					return writeCommitObject(access, {
 						tree: result.tree,
@@ -1683,18 +1215,6 @@ export function createHistory({
 						author,
 					});
 				});
-				// The merged `epicenter.json` keeps every rule this folder's
-				// file lists and every one the remote's newly declares, and
-				// the merge carries nothing its own file keeps local; else
-				// nothing is sent or written.
-				const weaker = await weakened(merged, {
-					from: mine,
-					added: added.data,
-				});
-				if (weaker !== undefined) return SyncError.Blocked({ reason: weaker });
-				const ownProblem = await keptByItsOwn(merged);
-				if (ownProblem !== undefined)
-					return SyncError.Blocked({ reason: ownProblem });
 				// A merge of two sendable trees can still hold two paths only
 				// their case tells apart, one from each side.
 				const unsendable = await representable(merged, 'folder');
@@ -1702,10 +1222,7 @@ export function createHistory({
 				// What stands in the way stops Sync before the merge is sent; a
 				// file the person made since the checkpoint is recorded, and
 				// merged in from the start.
-				const way = await inTheWay(
-					boundary,
-					await between(mine, merged, isLocal),
-				);
+				const way = await inTheWay(boundary, await between(mine, merged));
 				const { made, ignored } = await madeHere(way.untracked);
 				const inWay = wayProblem(way.failed, [...way.occupied, ...ignored]);
 				if (inWay !== undefined) return SyncError.Blocked({ reason: inWay });
@@ -1713,8 +1230,6 @@ export function createHistory({
 					local = await recordAgain();
 					continue;
 				}
-				const leaks = await carriesLocal(merged, theirs);
-				if (leaks !== undefined) return SyncError.Blocked({ reason: leaks });
 				const pushed = await pushCommit(merged);
 				// Nothing here changed, so merging again from `local` is safe.
 				if (pushed === 'rejected') {

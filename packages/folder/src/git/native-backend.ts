@@ -22,6 +22,7 @@
  * desktop page runs none of this: the `epicenter` CLI runs it (ADR-0559,
  * `runHistory` in `bun.ts`).
  */
+import { resolve as resolvePath } from 'node:path';
 import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { type GitBackend, type GitRemote, REMOTE_MOVED } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
@@ -336,7 +337,7 @@ export async function createNativeGitBackend({
 				run,
 				files,
 				head: await resolve(branchRef),
-				ignored: (paths) => backend.ignoredPaths(paths, new Map()),
+				ignored: backend.ignoredPaths,
 			});
 		},
 		async reconcileIndex(commit) {
@@ -362,14 +363,64 @@ export async function createNativeGitBackend({
 				const ignored = gitignoreMatcher(current);
 				return new Set(candidates.filter((path) => ignored(path)));
 			}
-			// `--no-index` evaluates the rules alone; the caller keeps tracked files.
-			const result = await run(
-				['check-ignore', '--no-index', '--stdin', '-z'],
-				{ input: `${candidates.join('\0')}\0`, allowFailure: true },
+			// Evaluate captured repository rules in a temporary work tree. The real
+			// Git directory retains info/exclude, configuration and global excludes;
+			// later edits of live .gitignore files cannot change this candidate.
+			// Git resolves a relative excludesFile from the original working directory.
+			const excludes = await run(
+				['config', '--null', '--path', '--get', 'core.excludesFile'],
+				{ allowFailure: true },
 			);
-			if (result.code !== 0 && result.code !== 1)
-				throw new GitCommandError(['check-ignore'], result.code, result.stderr);
-			return new Set(text(result.stdout).split('\0').filter(Boolean));
+			if (excludes.code !== 0 && excludes.code !== 1)
+				throw new GitCommandError(['config'], excludes.code, excludes.stderr);
+			const excludesPath = text(excludes.stdout).replace(/\0$/, '');
+			const config =
+				excludes.code === 0
+					? [
+							'-c',
+							`core.excludesFile=${excludesPath === '' ? '' : resolvePath(root, excludesPath)}`,
+						]
+					: [];
+			const capturedRoot = `${root}.epicenter-ignore-${crypto.randomUUID()}`;
+			await host.files.mkdir(capturedRoot, { private: true });
+			try {
+				for (const [path, bytes] of current) {
+					if (path !== '.gitignore' && !path.endsWith('/.gitignore')) continue;
+					const slash = path.lastIndexOf('/');
+					if (slash >= 0)
+						await host.files.mkdir(`${capturedRoot}/${path.slice(0, slash)}`);
+					await host.files.writeFile(`${capturedRoot}/${path}`, bytes, {
+						createNew: true,
+						private: true,
+					});
+				}
+				// The caller retains tracked files independently of these rules.
+				const result = await run(
+					[
+						...config,
+						'--git-dir',
+						`${root}/.git`,
+						'--work-tree',
+						capturedRoot,
+						'-C',
+						capturedRoot,
+						'check-ignore',
+						'--no-index',
+						'--stdin',
+						'-z',
+					],
+					{ input: `${candidates.join('\0')}\0`, allowFailure: true },
+				);
+				if (result.code !== 0 && result.code !== 1)
+					throw new GitCommandError(
+						['check-ignore'],
+						result.code,
+						result.stderr,
+					);
+				return new Set(text(result.stdout).split('\0').filter(Boolean));
+			} finally {
+				await host.files.remove(capturedRoot, { recursive: true });
+			}
 		},
 		async log(depth): Promise<CommitSummary[]> {
 			if ((await resolve(branchRef)) === undefined) return [];

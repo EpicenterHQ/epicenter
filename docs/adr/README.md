@@ -851,7 +851,6 @@ When you add an ADR, add its row here.
 | [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Accepted (amends 0539, 0584, 0626, and 0633) |
 | [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Proposed (amends 0592, 0611, and 0621) |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
-| [0639](0639-automatic-commits-refuse-new-non-text-content.md) | Automatic commits refuse new non-text content | Proposed (amends 0592 and 0624) |
 | [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Proposed |
 | [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Accepted (amends 0558) |
 | [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |
@@ -861,5 +860,6 @@ When you add an ADR, add its row here.
 | [0648](0648-a-folders-saved-views-live-in-its-optional-epicenter-json.md) | A folder's saved views live in its optional epicenter.json | Proposed (amends 0632) |
 | [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
+| [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Proposed |
 | [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |
 | [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Proposed (amends 0548 and 0554) |

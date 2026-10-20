@@ -70,13 +70,13 @@ const preparedDefinitions = new WeakMap<
  * Check one definition and return the copy every read uses (ADR-0266).
  *
  * The result has the given structure and type: an optional
- * `title` and `local`, and `tables`, each table holding `fields` and, when it
+ * `title` and `tables`, each table holding `fields` and, when it
  * is closed, `additionalProperties`. It is owned here. Every field is the
  * declared schema's frozen JSON (see `plainSchema`). `tables` and each
  * `fields` are frozen records without a prototype, so a name like
  * `constructor` reads as its own entry or as nothing.
  *
- * A definition holds `title`, `local`, and `tables` and nothing else: any
+ * A definition holds `title` and `tables` and nothing else: any
  * other own key, such as an `id` naming a dataset, is malformed.
  *
  * Names come from the record keys and are stored nowhere else. No field or
@@ -111,20 +111,20 @@ function prepareRoot(value: unknown): Result<Definition, DefinitionError> {
 			reason: 'it is not a plain object',
 		});
 	const unknown = Object.keys(value).filter(
-		(key) => key !== 'title' && key !== 'local' && key !== 'tables',
+		(key) => key !== 'title' && key !== 'tables',
 	);
 	if (unknown.length > 0)
 		return DefinitionError.Malformed({
-			reason: `it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a schema declares title, local, and tables`,
+			reason: `it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a schema declares title and tables`,
 		});
 	return prepareShape(value);
 }
 
-/** The prepared title, local patterns, and tables of a plain-object definition. */
+/** The prepared title and tables of a plain-object definition. */
 function prepareShape(
 	value: Record<string, unknown>,
 ): Result<Definition, DefinitionError> {
-	const { title, tables, local } = value as Partial<Definition>;
+	const { title, tables } = value as Partial<Definition>;
 	if (
 		title !== undefined &&
 		(typeof title !== 'string' || title.trim() === '')
@@ -133,9 +133,6 @@ function prepareShape(
 			reason: 'its title must say something or be absent',
 		});
 	}
-	const localProblem = local === undefined ? undefined : localProblemOf(local);
-	if (localProblem !== undefined)
-		return DefinitionError.Malformed({ reason: localProblem });
 	if (!isPlainObject(tables))
 		return DefinitionError.Malformed({
 			reason: 'it declares no tables',
@@ -190,37 +187,10 @@ function prepareShape(
 	return Ok(
 		Object.freeze({
 			...(title === undefined ? {} : { title }),
-			// Sorted and once each, so a declaration's bytes do not depend on
-			// the order its patterns were written in.
-			...(local === undefined
-				? {}
-				: { local: Object.freeze([...new Set(local)].sort()) }),
 			// `defineTable`'s mark is a type and nothing at run time.
 			tables: Object.freeze(preparedTables) as Definition['tables'],
 		}),
 	);
-}
-
-/**
- * Why `local` cannot be written as `.gitignore` lines, or `undefined`. A
- * negation is refused because a storage appends a missing pattern after a
- * person's own lines, so what it would re-include is not the schema's to
- * decide.
- */
-function localProblemOf(local: unknown): string | undefined {
-	if (!Array.isArray(local))
-		return 'its local must be a list of .gitignore patterns';
-	for (const pattern of local) {
-		if (typeof pattern !== 'string' || pattern === '')
-			return 'each local pattern must be a nonempty string';
-		if (/[\r\n]/.test(pattern))
-			return `the local pattern '${pattern}' must be one line`;
-		if (pattern.trim() !== pattern)
-			return `the local pattern '${pattern}' has surrounding whitespace`;
-		if (pattern.startsWith('#') || pattern.startsWith('!'))
-			return `the local pattern '${pattern}' must ignore files; it cannot be a comment or a negation`;
-	}
-	return undefined;
 }
 
 function prepareFields(

@@ -1,27 +1,20 @@
 /**
  * Portable declaration validation checks document shape and complete schema scope.
- * History and table readers interpret their own sections, so unrelated malformed
- * metadata cannot disable local-file protection or hide readable tables.
+ * Table readers interpret their own sections, so unrelated malformed
+ * metadata cannot hide readable tables.
  */
 import { expect, test } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { parseDeclaration, readDeclaredTables } from './declaration.js';
 import {
 	compileTableSchema,
 	DeclarationSchema,
 	validateTableSchema,
 } from './declaration-schema.js';
-import {
-	parseDeclaration,
-	parseLocalPolicy,
-	readDeclaredTables,
-} from './declaration.js';
 import { parseDeclaredRow } from './row-text.js';
-
-const encode = (value: unknown) =>
-	new TextEncoder().encode(JSON.stringify(value));
 
 test('tables and named views are independently optional and the generated schema matches runtime validation', async () => {
 	for (const value of [
@@ -48,25 +41,20 @@ test('tables and named views are independently optional and the generated schema
 	);
 });
 
-test('local protection and table reading survive malformed unrelated sections', () => {
+test('table reading survives malformed views and removed policy keys are refused', () => {
 	const value = {
-		local: ['audio/'],
 		views: { invalid: null },
 		tables: {
 			notes: { type: 'object', properties: { title: { type: 'string' } } },
 		},
 	};
-	expect(expectOk(parseLocalPolicy(encode(value)))).toEqual(['audio/']);
-	expect<unknown>(
-		expectOk(readDeclaredTables(JSON.stringify({ ...value, local: 'wrong' }))),
-	).toEqual(value.tables);
+	expect<unknown>(expectOk(readDeclaredTables(JSON.stringify(value)))).toEqual(
+		value.tables,
+	);
 	expectErr(parseDeclaration(JSON.stringify(value)));
-	expect(
-		expectOk(
-			parseLocalPolicy(encode({ local: ['audio/'], tables: 42, views: false })),
-		),
-	).toEqual(['audio/']);
-	expectErr(parseLocalPolicy(encode({ Local: ['audio/'] })));
+	expect(expectErr(parseDeclaration('{"local":["audio/"]}')).reason).toContain(
+		'unknown top-level key',
+	);
 });
 
 test('complete table schemas keep root definitions, constraints, and annotations without a field-map roundtrip', () => {

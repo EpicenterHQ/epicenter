@@ -6,9 +6,8 @@
  * `epicenter.ts` and keeps what its default export declares. Run it only on a
  * folder whose code you trust, as you would any script.
  *
- * Generating patches tables, title, and local rules through the folder's
- * shared save protocol. Unrelated sections survive concurrent writes. Every
- * retry checks the latest local rules before changing them.
+ * Generating patches tables and title through the folder's
+ * shared save protocol. Unrelated sections survive concurrent writes.
  */
 
 import { resolve } from 'node:path';
@@ -16,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { type Result } from 'wellcrafted/result';
 import { DEFINITION_SOURCE_PATH, hasDefinitionSource } from './check-folder.js';
-import { formatDefinition, parseLocalPolicy } from './declaration.js';
+import { formatDefinition } from './declaration.js';
 import { writeGeneratedDeclaration } from './declaration-write.js';
 import { defineFolder } from './definition.js';
 import { localRoot } from './native/directory.js';
@@ -40,11 +39,8 @@ export const GenerateDefinitionError = defineErrors({
 		message: reason,
 		reason,
 	}),
-	/**
-	 * The folder's current `epicenter.json` keeps files local that the
-	 * generated one would not, or cannot be read for what it keeps.
-	 */
-	DropsLocal: ({ reason }: { reason: string }) => ({
+	/** The declaration could not be replaced without losing source. */
+	WriteFailed: ({ reason }: { reason: string }) => ({
 		message: reason,
 		reason,
 	}),
@@ -127,18 +123,9 @@ export async function generateDefinition(
 			reason: cause instanceof Error ? cause.message : String(cause),
 		});
 	}
-	// What the folder's history reads from the generated file: a pattern that
-	// would keep `epicenter.json` itself local is refused there, so here.
-	const { error: policyError } = parseLocalPolicy(
-		new TextEncoder().encode(text),
-	);
-	if (policyError !== null)
-		return GenerateDefinitionError.InvalidDefinition({
-			reason: policyError.reason,
-		});
 	const root = await localRoot(dir);
 	if (root.error !== null)
-		return GenerateDefinitionError.DropsLocal({
+		return GenerateDefinitionError.WriteFailed({
 			reason: `${DEFINITION_PATH} was not replaced: ${String(root.error.cause)}`,
 		});
 	const written = await writeGeneratedDeclaration(
@@ -147,5 +134,5 @@ export async function generateDefinition(
 	);
 	return written.error === null
 		? written
-		: GenerateDefinitionError.DropsLocal({ reason: written.error.reason });
+		: GenerateDefinitionError.WriteFailed({ reason: written.error.reason });
 }

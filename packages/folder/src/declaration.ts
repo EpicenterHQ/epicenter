@@ -12,13 +12,6 @@
  * `required` is the portable optionality marker. Applications supply their
  * own runtime schemas; reading this file never admits or refuses an app.
  *
- * A folder that keeps files on the machine that wrote them adds
- * `"local": ["audio/"]`, its `.gitignore` patterns (ADR-0577). The folder's
- * own file is what the `epicenter` CLI's history reads (`parseLocalPolicy`),
- * so it leaves the same paths out of every commit whatever app wrote them.
- * That reading needs no `tables`: `{"local": ["audio/"]}` is a whole policy.
- * A file without `local` keeps nothing local.
- *
  * A top-level `$schema` lets an editor offer completion and is not
  * interpreted. Unknown envelope keys are refused, so a misspelled key never reads as
  * an empty definition.
@@ -36,7 +29,6 @@ import {
 	savedViewProblem,
 } from './declaration-schema.js';
 import type { Definition } from './definition.js';
-import { localMatcher } from './git/scope.js';
 import { parseJsonObject } from './json-object.js';
 import { DEFINITION_PATH } from './paths.js';
 
@@ -57,7 +49,6 @@ export function formatDefinition(definition: Definition): string {
 	return `${JSON.stringify(
 		{
 			...(definition.title === undefined ? {} : { title: definition.title }),
-			...(definition.local === undefined ? {} : { local: definition.local }),
 			tables,
 		},
 		null,
@@ -67,82 +58,7 @@ export function formatDefinition(definition: Definition): string {
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
-/** The top-level keys an `epicenter.json` may hold. */
 const TOP_LEVEL_KEYS = DECLARATION_KEYS;
-
-/**
- * The `local` patterns of `epicenter.json`'s bytes, read as a directory's Git
- * history reads them to decide what stays on this computer: none when the
- * file lists none, or why the file says nothing usable.
- *
- * Only `local` is interpreted. `tables` and `title` are an app's, to read
- * files with, so a table schema no app can prepare does not stop history.
- * The file is still read whole and strictly: UTF-8 JSON, an object whose
- * every key is one `epicenter.json` declares, so a misspelled `Local` never
- * reads as an empty list, and each pattern one ignoring `.gitignore` line:
- * no comment, no negation, nothing empty, no second line, no surrounding
- * whitespace. No pattern may match `epicenter.json` itself: the file that
- * says what stays local goes with every commit.
- */
-export function parseLocalPolicy(
-	bytes: Uint8Array,
-): Result<readonly string[], { readonly reason: string }> {
-	const refuse = (reason: string) => Err({ reason });
-	let text: string;
-	try {
-		text = utf8.decode(bytes);
-	} catch {
-		return refuse('it is not UTF-8 text');
-	}
-	const source = parseJsonObject(text, { forLocalPolicy: true });
-	if (source.error !== null) return source;
-	const { data: declared, error } = checkEnvelope(source.data);
-	if (error !== null) return Err(error);
-	return localPolicyOf(declared.local);
-}
-
-function localPolicyOf(
-	local: unknown,
-): Result<readonly string[], { reason: string }> {
-	const refuse = (reason: string) => Err({ reason });
-	if (local === undefined) return Ok([]);
-	if (!Array.isArray(local))
-		return refuse("'local' must list .gitignore patterns");
-	for (const pattern of local as unknown[]) {
-		if (typeof pattern !== 'string' || pattern === '')
-			return refuse("each 'local' pattern must be a nonempty string");
-		const quoted = JSON.stringify(pattern);
-		if (/[\r\n]/.test(pattern))
-			return refuse(`the local pattern ${quoted} must be one line`);
-		if (pattern.trim() !== pattern)
-			return refuse(`the local pattern ${quoted} has surrounding whitespace`);
-		if (pattern.startsWith('#') || pattern.startsWith('!'))
-			return refuse(
-				`the local pattern ${quoted} must keep files local; it cannot be a comment or a negation`,
-			);
-		if (localMatcher([pattern])(DEFINITION_PATH))
-			return refuse(
-				`the local pattern ${quoted} matches ${DEFINITION_PATH} itself, which every commit must carry; narrow it`,
-			);
-	}
-	return Ok(Object.freeze([...(local as string[])]));
-}
-
-/**
- * Read a folder's own `epicenter.json` through `storage` as its Git history
- * does (`parseLocalPolicy`): its `local` patterns, `undefined` when the
- * folder has none, or why the file cannot be used. It writes nothing.
- */
-export async function readLocalPolicy(
-	storage: Pick<FolderStorage, 'read'>,
-): Promise<Result<readonly string[] | undefined, { readonly reason: string }>> {
-	const { data: read, error } = await storage.read(DEFINITION_PATH);
-	if (error !== null)
-		return error.name === 'NotFound'
-			? Ok(undefined)
-			: Err({ reason: error.message });
-	return parseLocalPolicy(read.bytes);
-}
 
 /** Read known envelope keys without interpreting another section's contents. */
 export function parseDeclarationObject(
@@ -177,8 +93,6 @@ export function parseDeclaration(
 	if (problem !== undefined) return Err({ reason: problem });
 	const tables = readTableSchemas(rawTables);
 	if (tables.error !== null) return tables;
-	const local = localPolicyOf(value.local);
-	if (local.error !== null) return local;
 	return Ok({
 		...metadata,
 		...(tables.data === undefined ? {} : { tables: tables.data }),
@@ -232,7 +146,7 @@ export function readSavedViews(text: string): Result<
 	return Ok({ views, diagnostics });
 }
 
-/** Read only table declarations; unrelated view or local problems stay with their readers. */
+/** Read only table declarations; unrelated view problems stay with their readers. */
 export function readDeclaredTables(
 	text: string,
 ): Result<Declaration['tables'], { reason: string }> {

@@ -9,6 +9,7 @@ import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { readCommit } from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
+import { snapshotContent } from './storage.js';
 import { prepareCommit } from './sync.js';
 
 const author = { name: 'Test', email: 'test@example.com', timestamp: 1 };
@@ -433,6 +434,41 @@ test('row deletion keeps adjacent files and unseen row edits', async () => {
 			expectErr(await repository.files.write('notes/one/../escape', null, 'no'))
 				.name,
 		).toBe('InvalidPath');
+	} finally {
+		repository.close();
+	}
+});
+
+test('an ignore edit during preparation invalidates the candidate and retries with the new rule', async () => {
+	const repository = await openRepository(crypto.randomUUID());
+	try {
+		await observeEmpty(repository);
+		expectOk(await repository.files.write('.gitignore', null, '/audio/\n'));
+		expectOk(
+			await repository.files.write(
+				'audio/take.wav',
+				null,
+				Uint8Array.of(0, 255),
+			),
+		);
+		const publish = repository.storage.publish;
+		let changed = false;
+		repository.storage.publish = async (input) => {
+			if (!changed && input.refs?.pendingCommit) {
+				changed = true;
+				expectOk(await repository.files.write('.gitignore', '/audio/\n', ''));
+			}
+			return publish(input);
+		};
+		const prepared = (await prepareCommit(repository.storage, author))!;
+		const snapshot = await repository.storage.capture('sync');
+		expect(changed).toBe(true);
+		expect(readCommit(snapshot.objects.get(prepared.head)!.bytes).tree).toBe(
+			snapshot.state.workingTree,
+		);
+		expect(snapshotContent(snapshot, 'audio/take.wav')).toEqual(
+			Uint8Array.of(0, 255),
+		);
 	} finally {
 		repository.close();
 	}

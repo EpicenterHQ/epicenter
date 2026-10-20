@@ -89,6 +89,11 @@ for (const [name, browserType] of Object.entries({
 		await Promise.all(
 			[a, b].map((page) => page.evaluate(() => dataSyncSmoke.refresh())),
 		);
+		await a.evaluate(async () => {
+			await dataSyncSmoke.writeFile('.gitignore', '/audio/\n');
+			await dataSyncSmoke.writeFile('audio/take.wav', [0, 255, 17]);
+			await dataSyncSmoke.syncLoop(1);
+		});
 		const writes = 25;
 		await Promise.all([
 			a.evaluate((count) => dataSyncSmoke.write('a', count), writes),
@@ -153,6 +158,10 @@ for (const [name, browserType] of Object.entries({
 			'Later native same-field edit',
 		);
 		await a.evaluate(() => dataSyncSmoke.set('extra', 999));
+		await a.evaluate(async () => {
+			await dataSyncSmoke.writeFile('audio/take.wav', [0, 254, 42]);
+			await dataSyncSmoke.writeFile('.gitignore', '/audio/\n/cache/\n');
+		});
 		await a.evaluate(() => dataSyncSmoke.collect());
 		const retainedEdits = await a.evaluate(() => dataSyncSmoke.state());
 		check(
@@ -196,11 +205,29 @@ for (const [name, browserType] of Object.entries({
 				finalSource.includes('From tab A\n\nFrom tab B\n'),
 			'Native final content differs',
 		);
+		check(
+			JSON.stringify(
+				await reopened.evaluate(() =>
+					dataSyncSmoke.fileBytes('audio/take.wav'),
+				),
+			) === '[0,254,42]',
+			'Ignored audio was lost across sync, collection or profile reopen',
+		);
+		check(
+			(
+				await native.git(['rev-list', '--objects', '--all', '--', 'audio'])
+			).trim() === '',
+			'Ignored audio entered native history',
+		);
+		check(
+			(await native.git(['show', 'main:.gitignore'])) === '/audio/\n/cache/\n',
+			'Newer ignore edit was lost',
+		);
 		await native.git(['fsck', '--strict']);
 		results.push({
 			browser: name,
 			version: context.browser()?.version(),
-			acknowledgedSaves: writes * 2 + 4,
+			acknowledgedSaves: writes * 2 + 8,
 			initial,
 			uncertain: pending,
 			lostReply: uncertain.lostReply,
@@ -219,6 +246,9 @@ for (const [name, browserType] of Object.entries({
 				'pending and newer edit survive profile reopen',
 				'collection preserves uncertain commit and unsent work',
 				'ancestry recovery without replay',
+				'ignored binary audio survives sync, GC and profile reopen',
+				'ignored audio absent from native history',
+				'newer ignore edit survives exact-send settlement',
 				'native fsck --strict',
 			],
 		});

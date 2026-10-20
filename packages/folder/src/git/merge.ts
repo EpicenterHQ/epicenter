@@ -12,19 +12,11 @@
  * entry whole. No rename is followed: a path one side moved and the other
  * edited keeps both, the edit at the old path. A side that lost a whole
  * entry keeps it in its parent commit, which the merge message names.
- *
- * A path the folder keeps local is in no merge commit (ADR-0577), tracked
- * on either side or not.
  */
 import * as git from 'isomorphic-git';
 import type { Overridden } from '../shared/merge.js';
 import { commitTree, EMPTY_TREE, type ObjectAccess } from './objects.js';
-import {
-	type GitObject,
-	readTree,
-	type TreeEntry,
-	writeTree,
-} from './raw-objects.js';
+import type { GitObject } from './raw-objects.js';
 import { mergeTrees, overrodeTrailer } from './tree-merge.js';
 
 /** One unit a merge commit's side lost, and the commit that held it. */
@@ -74,62 +66,8 @@ export async function chooseBase(
 }
 
 /**
- * The tree of `commit` without the paths `isLocal` names, or `null` for no
- * commit. A tree that holds none is the commit's own.
- */
-async function sharedTree(
-	access: ObjectAccess,
-	commit: string | undefined,
-	isLocal: (path: string) => boolean,
-): Promise<string | null> {
-	if (commit === undefined) return null;
-	const tree = await commitTree(access, commit);
-	const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-	async function prune(oid: string, prefix: string): Promise<string> {
-		if (prefix !== '' && isLocal(prefix)) return EMPTY_TREE;
-		if (oid === EMPTY_TREE) return oid;
-		const object = await git.readObject({ ...access, oid, format: 'content' });
-		if (object.type !== 'tree' || !(object.object instanceof Uint8Array))
-			throw new Error(`Expected tree object ${oid}`);
-		let changed = false;
-		const kept: TreeEntry[] = [];
-		for (const entry of readTree(object.object)) {
-			let name: string;
-			try {
-				name = decoder.decode(entry.name);
-			} catch {
-				// A local pattern cannot name undecodable bytes. Keep the entry exact.
-				kept.push(entry);
-				continue;
-			}
-			const path = `${prefix}${name}`;
-			if (entry.mode !== '40000' && entry.mode !== '040000') {
-				if (isLocal(path)) changed = true;
-				else kept.push(entry);
-				continue;
-			}
-			const child = await prune(entry.oid, `${path}/`);
-			if (child === entry.oid) kept.push(entry);
-			else {
-				changed = true;
-				if (child !== EMPTY_TREE) kept.push({ ...entry, oid: child });
-			}
-		}
-		if (!changed) return oid;
-		return git.writeObject({
-			...access,
-			type: 'tree',
-			object: writeTree(kept),
-			format: 'content',
-		});
-	}
-	return prune(tree, '');
-}
-
-/**
  * Merge `ours` and `theirs` over `base` into a tree, `ours` the device
- * syncing and so the change. `isLocal` names the paths kept out of every
- * commit.
+ * syncing and so the change.
  *
  * Every unit the change won is `theirs` losing. Where `theirs` stands
  * whole at a path, it lost nothing there: a unit of it is `ours` losing,
@@ -141,18 +79,16 @@ export async function mergeHistories(
 		base,
 		ours,
 		theirs,
-		isLocal,
 	}: {
 		readonly base: string | undefined;
 		readonly ours: string;
 		readonly theirs: string;
-		readonly isLocal: (path: string) => boolean;
 	},
 ): Promise<HistoryMerge> {
 	const [b, current, change] = await Promise.all([
-		sharedTree(access, base, isLocal),
-		sharedTree(access, theirs, isLocal),
-		sharedTree(access, ours, isLocal),
+		base === undefined ? null : commitTree(access, base),
+		commitTree(access, theirs),
+		commitTree(access, ours),
 	]);
 	const read = async (oid: string): Promise<GitObject> => {
 		// Every repository names the empty tree without storing it.

@@ -90,12 +90,13 @@ shared table interpretation. A person explicitly imports an app's exported
 schemas or authors them in the file. Apps never publish it by
 opening or saving. A committed copy restores the CLI interpretation on clone.
 
-Missing metadata blocks those two CLI commands, not app opening or ordinary
-file access. Row schemas grant no access and choose no merge policy. They
-execute no code and fetch no external references. The declaration's `local`
-patterns have a different purpose: current CLI history reads them to exclude
-private files from commits. Unusable table schemas must not disable those
-rules. Schema disagreements retain raw source.
+Missing metadata blocks schema-aware table commands, not Git history, app
+opening, or ordinary file access. Row schemas grant no access and choose no merge policy. They
+execute no code and fetch no external references. Git operations interpret no
+declaration sections. Tracked files remain tracked; untracked files enter
+commits unless Git ignores them. The folder's `.gitignore` files travel as
+ordinary content, and native Git also honors machine-specific excludes. Schema
+disagreements retain raw source.
 
 ADR-0648 records optional table schemas, shared saved views, and explicit
 app-schema import. The canonical TypeBox format, whole-table readers,

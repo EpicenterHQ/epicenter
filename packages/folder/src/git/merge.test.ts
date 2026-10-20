@@ -164,7 +164,6 @@ test('one-sided changes keep their blob, and competing ones go to this device', 
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			'notes.md': 'ONE\ntwo\nmine\n',
@@ -207,7 +206,6 @@ test('a move against an edit keeps both paths: the edit is not erased by the del
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			'todos/stroll.md': row,
@@ -243,7 +241,6 @@ test("this device's edit stands over the remote's delete of the file", async () 
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			'a.txt': 'a\nmine\n',
@@ -275,7 +272,6 @@ test("a file against a directory takes this device's entry whole, and the remote
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			keep: 'k\n',
@@ -323,7 +319,6 @@ test('a row two levels deep merges by field, with no definition', async () => {
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
 			[path]: row('Evening walk', 'true'),
@@ -332,7 +327,7 @@ test('a row two levels deep merges by field, with no definition', async () => {
 	});
 });
 
-test('epicenter.json merges by line, and local paths tracked on any side are in no merge', async () => {
+test('epicenter.json merges by line and tracked binary paths survive merging', async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (theme: string, size: string) =>
@@ -367,17 +362,19 @@ test('epicenter.json merges by line, and local paths tracked on any side are in 
 			base,
 			ours,
 			theirs,
-			isLocal: (path) => path.endsWith('.db') || path.startsWith('audio/'),
 		});
 		// Each side changed its own line, so both stand, in its spelling.
 		expect(await treeText(access, merged.tree)).toEqual({
 			'epicenter.json': declaration('2', '2'),
+			'cache.db': 'ours\n',
+			'audio/mine.wav': 'RIFF mine',
+			'audio/theirs.wav': 'RIFF theirs',
 		});
-		expect(merged.overrides).toEqual([]);
+		expect(merged.overrides).toHaveLength(1);
 	});
 });
 
-test('filtering tracked local files keeps unrelated raw Git names unchanged', async () => {
+test('tracked files and raw Git names survive an unchanged merge', async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const initial = await commitOf(
@@ -440,7 +437,6 @@ test('filtering tracked local files keeps unrelated raw Git names unchanged', as
 			base: commit,
 			ours: commit,
 			theirs: commit,
-			isLocal: (path) => path.startsWith('audio/'),
 		});
 		const result = await isogit.readObject({
 			...access,
@@ -455,7 +451,7 @@ test('filtering tracked local files keeps unrelated raw Git names unchanged', as
 		).toBe(true);
 		expect(
 			entries.some((entry) => decoder.decode(entry.name) === 'audio'),
-		).toBe(false);
+		).toBe(true);
 	});
 });
 
@@ -513,7 +509,6 @@ test('raw-name conflicts name the parent whose bytes lost', async () => {
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(merged.overrides).toEqual([
 			{
@@ -529,23 +524,23 @@ test('raw-name conflicts name the parent whose bytes lost', async () => {
 test("JSON lines both sides changed are this device's, and lines only one side added stand", async () => {
 	const withObjects = await objects();
 	await withObjects(async (access) => {
-		const declaration = (title: string, local: string[]) =>
-			`${JSON.stringify({ title, local }, null, 2)}\n`;
+		const declaration = (title: string, tags: string[]) =>
+			`${JSON.stringify({ title, tags }, null, 2)}\n`;
 		const base = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('Base', ['audio/']) },
+			{ 'settings.json': declaration('Base', ['audio/']) },
 			[],
 			100,
 		);
 		const ours = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('Mine', ['audio/', 'cache/']) },
+			{ 'settings.json': declaration('Mine', ['audio/', 'cache/']) },
 			[base],
 			200,
 		);
 		const theirs = await commitOf(
 			access,
-			{ 'epicenter.json': declaration('Theirs', ['video/', 'audio/']) },
+			{ 'settings.json': declaration('Theirs', ['video/', 'audio/']) },
 			[base],
 			200,
 		);
@@ -553,20 +548,19 @@ test("JSON lines both sides changed are this device's, and lines only one side a
 			base,
 			ours,
 			theirs,
-			isLocal: () => false,
 		});
 		expect(await treeText(access, merged.tree)).toEqual({
-			'epicenter.json': declaration('Mine', ['video/', 'audio/', 'cache/']),
+			'settings.json': declaration('Mine', ['video/', 'audio/', 'cache/']),
 		});
 		expect(merged.overrides).toEqual([
 			{
-				path: 'epicenter.json',
+				path: 'settings.json',
 				unit: { kind: 'lines', part: 'text', line: 2, count: 1 },
 				losing: theirs,
 			},
 		]);
 		expect(mergeMessage('Merge', merged.overrides)).toBe(
-			`Merge\n\nOverrode: ${theirs} lines=text:2+1 "epicenter.json"`,
+			`Merge\n\nOverrode: ${theirs} lines=text:2+1 "settings.json"`,
 		);
 	});
 });

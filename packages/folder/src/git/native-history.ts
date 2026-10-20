@@ -14,11 +14,6 @@ import {
 } from './native-backend.js';
 import type { Author } from './objects.js';
 
-/**
- * A directory's history. `local` is the policy the folder's `epicenter.json`
- * listed as it opened, whose paths no commit carries (`createHistory`); rows
- * merge by content whatever app reads them.
- */
 export async function nativeHistory({
 	rootPath,
 	host,
@@ -27,7 +22,6 @@ export async function nativeHistory({
 	credentials,
 	initProblem,
 	commits = true,
-	local,
 	landed,
 }: {
 	readonly rootPath: string;
@@ -46,8 +40,6 @@ export async function nativeHistory({
 	 * is not read: two `git` runs a status or a log does not need.
 	 */
 	readonly commits?: boolean;
-	/** The `local` patterns the folder's `epicenter.json` listed as it opened. */
-	readonly local?: readonly string[];
 	/** Hears the paths an incoming update wrote. */
 	readonly landed: (paths: readonly string[]) => void;
 }): Promise<FolderHistory> {
@@ -97,7 +89,6 @@ export async function nativeHistory({
 				return identity.email;
 			},
 		},
-		local,
 		landed,
 	});
 }

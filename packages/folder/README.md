@@ -370,8 +370,8 @@ native path, card rank, or personal override.
 `readSavedViews(text)` returns usable entries and a diagnostic for each invalid
 or unsupported sibling. It does not replace those siblings with defaults.
 `SavedViewSchema` and its inferred types come from the same TypeBox source as
-the declaration. An invalid views section does not disable table checking or
-protective `local` rules, which have separate readers.
+the declaration. An invalid views section does not disable table checking. Git operations do
+not interpret the declaration.
 
 `updateSavedView({ key, base, value })` from `@epicenter/folder/tauri` changes one
 entry in the invoking window's bound directory. `base: undefined` witnesses
@@ -398,30 +398,51 @@ directory it is given (ADR-0520). None of it opens a `Folder`.
 | `checkFolder`, `queryFolder`, `readFolder` | Read the root `epicenter.json` and every table it declares, sort what does not conform, and answer one read-only SQL statement over the rows that do (ADR-0632). |
 | `defineFolder`, `defineTable`, `field`, `formatDefinition` | The retained TypeScript authoring workflow used by `generate`. |
 | `exportFolderSchemas`, `importFolderSchemas` | Explicit table-schema exchange through the root declaration. |
-| `generateDefinition` | The older `epicenter generate`: runs a folder's `epicenter.ts` and writes its `epicenter.json` (ADR-0527), until its callers migrate. It preserves unrelated sections and refuses to drop any existing `local` pattern. Each conditional write rereads and rechecks after a concurrent change. |
+| `generateDefinition` | The older `epicenter generate`: runs a folder's `epicenter.ts` and writes its `epicenter.json` (ADR-0527), until its callers migrate. It preserves unrelated sections. Each conditional write rereads and reapplies after a concurrent change. |
 | `runHistory`, `historyExitCode`, `encodeHistory`, `holdingHistoryLock` | One history operation (`status`, `log`, `saveVersion`, `sync`) over the system `git`, as the CLI runs it (ADR-0559). |
 | `holdingFileLock`, `createGitRunner`, `runGit`, `locateGit`, `GitMissingError`, `neutralizeAttributes`, `basicAuthorization`, `nodeDirectoryPrimitives` | The lock, `git`, and file helpers the CLI's other commands share. |
 
 `readFolder` requires declared `tables` in `epicenter.json`. A directory without
 the file is `NotDataFolder`; absent or unusable tables are `InvalidDefinition`.
-Unusable views or local rules stay with their own readers. It writes nothing, takes no lock, and follows no link.
+Unusable views stay with their own reader. It writes nothing, takes no lock, and follows no link.
 
 Git is not on a `Folder`'s lifetime (ADR-0636). The history engine under
 `src/git/` stays for exchange: `runHistory` opens a directory's history for
-one operation, reads only `local` from `epicenter.json` so no commit carries
-a path it names, tracked or not, and holds the history lock across a save
-version or a sync. It prepares no table schema. A commit reads `local` from
-the very `epicenter.json` bytes it records, and no pattern may match that
-file itself. Every pattern seen during the operation holds until it ends,
-including one a remote's `epicenter.json` newly declares, which keeps its
-files off this disk too. Sync stops before writing anything here when the
-`epicenter.json` it would bring here drops a rule this folder's file still
-lists or one the remote newly declares, or is gone where the folder had one,
-and stops before sending when a commit the remote does not hold yet adds or
-changes a path a rule keeps local; it never rewrites history. It checks the
-file again as it writes it, under the save lock and against the live bytes,
-so a rule saved here while Sync runs survives or stops the publish. The browser engine's own Git exchange is in
+one operation and holds the history lock across a save version or a sync.
+It requires no declaration and interprets no table schema. Tracked files remain
+tracked; untracked files enter a commit unless Git ignores them. Ignore rules
+come from captured repository `.gitignore` files. Native Git also honors
+its machine-specific excludes. The browser engine's own Git exchange is in
 `src/browser/` ([its README](src/browser/README.md)).
+
+A missing `.gitignore` is valid. To keep new recordings local, save
+`/audio/` in the root `.gitignore` before the audio is committed.
+Adding that rule does not untrack earlier commits, censor incoming tracked
+files, or cancel an exact pending send. Deleting the rule makes previously
+ignored untracked files eligible. There is no declaration-level `local`
+policy or binary-file admission policy. Finder files such as `.DS_Store` use
+the same rules; add a `.gitignore` line to exclude them.
+
+An app can maintain required exclusions through ordinary read-modify-write.
+Read the current file, retain unrelated rules, compute the desired contents,
+and pass the exact read as `from` to `files.write`. Skip unchanged contents.
+Rule order and exceptions matter; checking for a literal line is insufficient.
+An app that maintains a rule can restore it after someone removes it. Later
+writers and sync can still change the file, and already-tracked paths stay tracked.
+
+For an explicitly new file, the write is:
+
+```ts
+const saved = await folder.files.write('.gitignore', null, '/audio/\n');
+if (saved.error !== null) return show(saved.error.message);
+```
+
+This saves an ordinary local file, without creating a Git commit. A later
+commit or sync records it normally. The example assumes an explicitly new file;
+an edit of existing rules supplies the exact bytes read as `from`. The folder
+opener, Git initialization, and clone do not add or restore rules. App-maintained
+startup updates use the same files API. There is no generic template API,
+app-version ledger, or first-use flag.
 
 Sync merges by the same rules on every host. Its merge commit's tree uses
 `src/git/tree-merge.ts` over the merge base, the

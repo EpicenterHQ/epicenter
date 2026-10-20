@@ -8,8 +8,6 @@
 
 /** Path segments that are never portable source. `.git` holds private Git state. */
 const PRIVATE_SEGMENTS = new Set(['.git']);
-/** Operating-system scratch files that commits and status never include. */
-const SCRATCH_NAMES = new Set(['.DS_Store']);
 
 /** C0 controls, DEL, and C1 controls: what Rust's `char::is_control` covers. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this rejects.
@@ -41,13 +39,24 @@ export function readablePath(path: string): boolean {
 		path.isWellFormed() &&
 		!path.includes('\0') &&
 		!path.includes('\\') &&
-		!path.split('/').some((part) => part === '' || part === '.' || part === '..' || part.toLowerCase() === '.git')
+		!path
+			.split('/')
+			.some(
+				(part) =>
+					part === '' ||
+					part === '.' ||
+					part === '..' ||
+					part.toLowerCase() === '.git',
+			)
 	);
 }
 
 /** Existing nonportable names can be repaired, but Git's HEAD stays private. */
 export function writableExistingPath(path: string): boolean {
-	return readablePath(path) && !path.split('/').some((part) => part.toUpperCase() === 'HEAD');
+	return (
+		readablePath(path) &&
+		!path.split('/').some((part) => part.toUpperCase() === 'HEAD')
+	);
 }
 
 /**
@@ -104,15 +113,6 @@ export function pathProblem(path: string): string | undefined {
 			return `the name '${segment}' can name another file on some disks`;
 	}
 	return undefined;
-}
-
-/**
- * Candidate history source: every valid path except operating-system scratch
- * files. `.gitignore` narrows it further in `git/scope.ts`.
- */
-export function isPortablePath(path: string): boolean {
-	if (pathProblem(path) !== undefined) return false;
-	return !SCRATCH_NAMES.has(basename(path));
 }
 
 export function basename(path: string): string {

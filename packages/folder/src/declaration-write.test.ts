@@ -1,14 +1,12 @@
 /**
  * Declaration mutations preserve independent sections under real CAS outcomes.
- * Regressions cover one-line concurrent edits, newly conflicting imports, local
- * protections added during generate, ambiguous replies, and duplicate-key data.
+ * Regressions cover one-line concurrent edits, newly conflicting imports, ambiguous replies, and duplicate-key data.
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { FolderStorage } from './boundary.js';
-import { parseLocalPolicy } from './declaration.js';
 import {
 	importTables,
 	writeGeneratedDeclaration,
@@ -51,11 +49,10 @@ function setup(
 	return { storage, source: () => current, puts: () => puts };
 }
 
-test('import preserves opaque views, local, title and editor hints while adding tables', async () => {
+test('import preserves opaque views, title and editor hints while adding tables', async () => {
 	const original = {
 		title: 'Personal',
 		$schema: 'editor-schema',
-		local: ['audio/'],
 		views: { future: { type: 'future', opaque: [1, 2] } },
 		tables: { notes },
 	};
@@ -102,16 +99,15 @@ test('a conflicting table is unchanged unless replacement was explicitly chosen'
 
 test('an independent saved view added to one-line JSON survives a stale import', async () => {
 	const fixture = setup(
-		'{"local":["audio/"],"tables":{}}',
+		'{"tables":{}}',
 		() =>
-			'{"local":["audio/"],"tables":{},"views":{"recent":{"type":"grid","table":"tasks","title":"Recent"}}}',
+			'{"tables":{},"views":{"recent":{"type":"grid","table":"tasks","title":"Recent"}}}',
 	);
 	expectOk(
 		await importTables(fixture.storage, JSON.stringify({ tables: { tasks } })),
 	);
 	expect(fixture.puts()).toBe(2);
 	expect(JSON.parse(fixture.source() ?? '')).toEqual({
-		local: ['audio/'],
 		tables: { tasks },
 		views: { recent: { type: 'grid', table: 'tasks', title: 'Recent' } },
 	});
@@ -135,24 +131,11 @@ test('a table that becomes conflicting before publication requires replacement o
 	expect(fixture.puts()).toBe(1);
 });
 
-test('generate rechecks local rules added by a concurrent writer and retains all its bytes', async () => {
-	const concurrent =
-		'{"local":["audio/","private/"],"tables":{},"views":{"keep":{}}}';
-	const fixture = setup('{"local":["audio/"],"tables":{}}', () => concurrent);
-	const generated = JSON.stringify({ local: ['audio/'], tables: { tasks } });
-	expect(
-		expectErr(await writeGeneratedDeclaration(fixture.storage, generated))
-			.reason,
-	).toContain("'private/'");
-	expect(fixture.source()).toBe(concurrent);
-	expect(fixture.puts()).toBe(1);
-});
-
 test('generate changes its owned sections and retains concurrently added view configuration', async () => {
 	const fixture = setup(
-		'{"title":"Old","local":[],"tables":{}}',
+		'{"title":"Old","tables":{}}',
 		() =>
-			'{"title":"Old","local":[],"tables":{},"$schema":"editor","views":{"keep":{"type":"future"}}}',
+			'{"title":"Old","tables":{},"$schema":"editor","views":{"keep":{"type":"future"}}}',
 	);
 	expectOk(
 		await writeGeneratedDeclaration(
@@ -263,25 +246,6 @@ test('an unsafe number added concurrently is refused after a stale publication',
 	);
 	expect(fixture.source()).toBe(concurrent);
 	expect(fixture.puts()).toBe(1);
-});
-
-test('protective local reads ignore unrelated numeric precision while replacement preserves source', async () => {
-	const source =
-		'{"local":["audio/"],"tables":{},"views":{"future":{"value":9007199254740993}}}';
-	expect(expectOk(parseLocalPolicy(new TextEncoder().encode(source)))).toEqual([
-		'audio/',
-	]);
-	const fixture = setup(source);
-	expectErr(
-		await importTables(fixture.storage, JSON.stringify({ tables: { tasks } })),
-	);
-	expect(fixture.source()).toBe(source);
-	expect(fixture.puts()).toBe(0);
-	const duplicate =
-		'{"local":["audio/"],"local":[],"views":{"value":9007199254740993}}';
-	expect(
-		expectErr(parseLocalPolicy(new TextEncoder().encode(duplicate))).reason,
-	).toContain('duplicate JSON key');
 });
 
 test('case-folded table collisions are refused even with explicit replacement', async () => {

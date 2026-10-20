@@ -12,11 +12,17 @@ import {
 	writeCommit,
 } from '../git/raw-objects.js';
 import { mergeTrees, overrodeTrailer } from '../git/tree-merge.js';
+import { ancestors, collisionKey } from '../paths.js';
 import { parseRowSource, sameValue } from '../shared/content/canonical.js';
 import { sameContent } from '../shared/merge.js';
 import { includesCommit } from './git/ancestry.js';
 import { snapshotObjects } from './git/closure.js';
-import { emptyTree, withoutDeletedEntries } from './git/snapshot.js';
+import { selectSource } from './git/publication.js';
+import {
+	emptyTree,
+	readSnapshot,
+	withoutDeletedEntries,
+} from './git/snapshot.js';
 import {
 	fetchRemote,
 	type HttpRequest,
@@ -81,6 +87,10 @@ export const SyncError = defineErrors({
 		message:
 			'Fetched history does not establish the pending commit or confirmed base ancestry',
 	}),
+	LocalFileInTheWay: ({ path }: { path: string }) => ({
+		message: `Incoming Git files would replace the ignored local path '${path}'; move it or change the ignore rule before synchronizing`,
+		path,
+	}),
 	RewrittenHistory: () => ({
 		message: 'Server history no longer contains the incorporated base',
 	}),
@@ -93,26 +103,38 @@ export async function prepareCommit(
 	author: Parameters<typeof writeCommit>[0]['author'],
 ) {
 	for (;;) {
-		const { state, baseTree } = await storage.checkpoint();
+		const { state, baseTree, objects } = await storage.checkpoint();
 		const { remoteBase, pendingCommit, workingTree } = state;
 		if (remoteBase === undefined) return null;
 		if (pendingCommit !== null)
 			return { base: remoteBase, head: pendingCommit };
 		if (workingTree === (baseTree ?? emptyTree)) return null;
+		const selected = await selectSource({
+			workingTree,
+			trackedTree: baseTree,
+			read: async (oid) => {
+				const object = objects.get(oid);
+				if (object === undefined)
+					throw new Error(`Preparation did not capture object ${oid}`);
+				return object;
+			},
+		});
+		if (selected.tree === (baseTree ?? emptyTree)) return null;
 		const commit: GitObject = {
 			type: 'commit',
 			bytes: writeCommit({
-				tree: workingTree,
+				tree: selected.tree,
 				parents: remoteBase === null ? [] : [remoteBase],
 				author,
 				message: 'Save repository changes\n',
 			}),
 		};
 		const head = await hashObject(commit);
+		selected.objects.set(head, commit);
 		if (
 			await storage.publish({
 				expected: state,
-				objects: new Map([[head, commit]]),
+				objects: selected.objects,
 				refs: { remoteBase, pendingCommit: head },
 			})
 		)
@@ -213,7 +235,20 @@ export function createSync(
 				const retain = (created: ReadonlyMap<string, GitObject>) => {
 					for (const [oid, object] of created) objects.set(oid, object);
 				};
-				const local = workingTree;
+				const selected = await selectSource({
+					workingTree,
+					trackedTree: rootOf(head),
+					read,
+				});
+				retain(selected.objects);
+				if (
+					remoteBase !== undefined &&
+					remote === head &&
+					!pending &&
+					selected.tree === (rootOf(head) ?? emptyTree)
+				)
+					return Ok(undefined);
+				const local = selected.tree;
 				let current = rootOf(remote);
 				let editBase = rootOf(head);
 				const overridden: Awaited<ReturnType<typeof mergeTrees>>['overridden'] =
@@ -223,7 +258,7 @@ export function createSync(
 					// an unseen remote edit can resurrect the rejected send's deleted text.
 					const deleted = await withoutDeletedEntries({
 						root: editBase!,
-						workingTree,
+						workingTree: local,
 						read,
 					});
 					retain(deleted.objects);
@@ -292,15 +327,47 @@ export function createSync(
 					next = await hashObject(commit);
 					objects.set(next, commit);
 				}
+				// Selection removed only ignored local additions. Preserve them over the
+				// synchronized tree, but never merge away bytes at an incoming collision.
+				let savedTree = tree;
+				if (selected.excluded.length > 0) {
+					const incomingFiles = await readSnapshot(tree, read);
+					const occupied = new Map(
+						[...incomingFiles.files.keys(), ...incomingFiles.directories].map(
+							(path) => [collisionKey(path), path],
+						),
+					);
+					for (const path of selected.excluded) {
+						if (
+							occupied.has(collisionKey(path)) ||
+							ancestors(path).some((parent) => {
+								const existing = occupied.get(collisionKey(parent));
+								return (
+									existing !== undefined &&
+									(existing !== parent || incomingFiles.files.has(parent))
+								);
+							})
+						)
+							return SyncError.LocalFileInTheWay({ path });
+					}
+					const restored = await mergeTrees({
+						base: local,
+						current: tree,
+						change: workingTree,
+						read,
+					});
+					retain(restored.objects);
+					savedTree = restored.tree ?? emptyTree;
+				}
 				const retained = await snapshotObjects(
 					[remote, next].filter((oid) => oid !== null),
 					read,
-					[tree],
+					[savedTree],
 				);
 				if (
 					!(await repository.storage.publish({
 						expected: snapshot.state,
-						workingTree: tree,
+						workingTree: savedTree,
 						objects: retained,
 						refs: {
 							remoteBase: remote,

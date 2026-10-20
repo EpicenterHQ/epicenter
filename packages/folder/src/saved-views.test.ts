@@ -70,7 +70,6 @@ test('valid saved views survive invalid siblings and unrelated broken declaratio
 		readSavedViews(
 			JSON.stringify({
 				tables: 42,
-				local: false,
 				title: null,
 				views: {
 					grid,
@@ -131,15 +130,15 @@ test('the first named view creates only its declaration and deleting an absent v
 	expect(JSON.parse(missing.source()!)).toEqual({ views: { notes: grid } });
 });
 
-test('an entry save preserves concurrent siblings, schemas, local rules and unsupported views', async () => {
+test('an entry save preserves concurrent siblings, schemas, metadata and unsupported views', async () => {
 	const original = {
-		local: ['audio/'],
+		$schema: 'original',
 		tables: 42,
 		views: { mine: grid, future: { type: 'calendar', config: [1, 2] } },
 	};
 	const concurrent = {
 		...original,
-		local: ['audio/', 'private/'],
+		$schema: 'concurrent',
 		views: { ...original.views, added: sql },
 	};
 	const fixture = setup(JSON.stringify(original), () =>

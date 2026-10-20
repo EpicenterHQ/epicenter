@@ -81,13 +81,12 @@ test('stdin import creates only a declaration and export returns its tables with
 	expect(JSON.parse(again.stdout).written).toBe(false);
 });
 
-test('file import preserves views and local rules and replaces only a selected conflicting table', async () => {
+test('file import preserves views and metadata and replaces only a selected conflicting table', async () => {
 	const fixture = await setup();
 	const old = { type: 'object', properties: { text: { type: 'string' } } };
 	const document = {
 		$schema: 'editor',
 		title: 'Work',
-		local: ['audio/'],
 		views: { keep: { type: 'future', value: 3 } },
 		tables: { tasks: old, other: old },
 	};
@@ -146,18 +145,17 @@ test('legacy generate retains views and schema hints while updating its owned se
 	};
 	await writeFile(
 		fixture.path,
-		JSON.stringify({ ...kept, title: 'Old', local: ['audio/'], tables: {} }),
+		JSON.stringify({ ...kept, title: 'Old', tables: {} }),
 	);
 	await writeFile(
 		join(fixture.directory, 'epicenter.ts'),
-		"import { defineFolder, defineTable, field } from '@epicenter/folder'; export default defineFolder({ title: 'New', local: ['audio/'], tables: { tasks: defineTable({ fields: { title: field.string() } }) } });",
+		"import { defineFolder, defineTable, field } from '@epicenter/folder'; export default defineFolder({ title: 'New', tables: { tasks: defineTable({ fields: { title: field.string() } }) } });",
 	);
 	const result = fixture.run(['generate', fixture.directory]);
 	expect(result.exitCode).toBe(0);
 	expect(JSON.parse(await readFile(fixture.path, 'utf8'))).toEqual({
 		...kept,
 		title: 'New',
-		local: ['audio/'],
 		tables: {
 			tasks: {
 				...tasks,
@@ -183,22 +181,21 @@ test('generate refuses a legacy declaration that would write a malformed table s
 	expect(await readFile(fixture.path, 'utf8')).toBe(before);
 });
 
-test('duplicate declaration keys refuse history before initializing Git or changing source', async () => {
+test('duplicate declaration keys do not block history or change source', async () => {
 	const fixture = await setup();
-	const before = '{"local":["audio/"],"tables":{},"views":{"x":1,"x":2}}';
+	const before = '{"tables":{},"views":{"x":1,"x":2}}';
 	await writeFile(fixture.path, before);
 	const result = fixture.run(['save-version', fixture.directory]);
-	expect(result.exitCode).toBe(2);
-	expect(result.stderr).toContain('duplicate JSON key');
+	expect(result.exitCode).toBe(0);
 	expect(await readFile(fixture.path, 'utf8')).toBe(before);
-	expect(await readdir(fixture.directory)).toEqual(['epicenter.json']);
+	expect(await readdir(fixture.directory)).toContain('.git');
 });
 
-test('history enforces local rules beside unrelated high precision while schema import preserves those bytes', async () => {
+test('history honors ignore rules beside high precision while schema import preserves those bytes', async () => {
 	const fixture = await setup();
-	const before =
-		'{"local":["audio/"],"tables":{},"views":{"future":{"value":9007199254740993}}}';
+	const before = '{"tables":{},"views":{"future":{"value":9007199254740993}}}';
 	await writeFile(fixture.path, before);
+	await writeFile(join(fixture.directory, '.gitignore'), '/audio/\n');
 	await mkdir(join(fixture.directory, 'audio'));
 	await writeFile(
 		join(fixture.directory, 'audio', 'clip.wav'),
@@ -212,7 +209,7 @@ test('history enforces local rules beside unrelated high precision while schema 
 		stderr: 'pipe',
 	});
 	expect(tracked.exitCode).toBe(0);
-	expect(tracked.stdout.toString()).toBe('epicenter.json\n');
+	expect(tracked.stdout.toString()).toBe('.gitignore\nepicenter.json\n');
 	const imported = fixture.run(
 		['schema', 'import', fixture.directory, '-'],
 		JSON.stringify({ tables: { tasks } }),

@@ -1,5 +1,6 @@
 /** Exercise production storage and sync from actual pages, with one network fault. */
 import { unwrap } from 'wellcrafted/result';
+import { selectSource } from '../src/browser/git/publication.js';
 import { emptyTree } from '../src/browser/git/snapshot.js';
 import { openRepository } from '../src/browser/repository.js';
 import { createSync } from '../src/browser/sync.js';
@@ -85,6 +86,26 @@ export const client = {
 		draft = unwrap(await repository.tables.notes.get('one')) ?? null;
 	},
 	set,
+	async writeFile(path: string, content: string | number[]) {
+		const current = unwrap(await repository.files.read(path));
+		const from =
+			current === undefined
+				? null
+				: new Uint8Array(await current.content.arrayBuffer());
+		unwrap(
+			await repository.files.write(
+				path,
+				from,
+				typeof content === 'string' ? content : new Uint8Array(content),
+			),
+		);
+	},
+	async fileBytes(path: string) {
+		const current = unwrap(await repository.files.read(path));
+		return current === undefined
+			? null
+			: Array.from(new Uint8Array(await current.content.arrayBuffer()));
+	},
 	async write(field: 'a' | 'b', count: number) {
 		for (let value = 1; value <= count; value++) await set(field, value);
 	},
@@ -101,20 +122,21 @@ export const client = {
 	},
 	async state() {
 		const snapshot = await repository.storage.capture('sync');
+		const head = snapshot.state.pendingCommit ?? snapshot.state.remoteBase;
+		const trackedTree = head
+			? readCommit(snapshot.objects.get(head)!.bytes).tree
+			: emptyTree;
+		const selected = await selectSource({
+			workingTree: snapshot.state.workingTree,
+			trackedTree,
+			read: async (oid) => snapshot.objects.get(oid)!,
+		});
 		return {
 			refs: {
 				base: snapshot.state.remoteBase,
 				head: snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null,
 			},
-			unsent:
-				snapshot.state.workingTree !==
-				((snapshot.state.pendingCommit ?? snapshot.state.remoteBase)
-					? readCommit(
-							snapshot.objects.get(
-								(snapshot.state.pendingCommit ?? snapshot.state.remoteBase)!,
-							)!.bytes,
-						).tree
-					: emptyTree),
+			unsent: selected.tree !== trackedTree,
 			row: unwrap(await repository.tables.notes.get('one')),
 			lostReply,
 			requests,

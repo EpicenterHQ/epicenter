@@ -4,7 +4,6 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 /** Parse JSON without discarding duplicate keys or rounding numeric values. */
 export function parseJsonObject(
 	text: string,
-	options: { forLocalPolicy?: true } = {},
 ): Result<Record<string, unknown>, { reason: string }> {
 	try {
 		const value: unknown = JSON.parse(text);
@@ -64,9 +63,8 @@ export function parseJsonObject(
 					const start = at;
 					while (at < text.length && !/[\s,}\]]/.test(text[at] ?? '')) at++;
 					const token = text.slice(start, at);
-					// The protective local reader never serializes unrelated values.
 					// All declaration replacement and table readers retain fidelity checks.
-					if (!options.forLocalPolicy && /^-?\d/.test(token)) {
+					if (/^-?\d/.test(token)) {
 						const number = Number(token);
 						if (
 							!Number.isFinite(number) ||

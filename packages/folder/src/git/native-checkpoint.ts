@@ -42,7 +42,10 @@ export async function nativeCheckpointProblem({
 	files: DirectoryPrimitives;
 	head: string | undefined;
 	/** Untracked candidates that ignore rules exclude from source. */
-	ignored: (paths: readonly string[]) => Promise<ReadonlySet<string>>;
+	ignored: (
+		paths: readonly string[],
+		rules: ReadonlyMap<string, Uint8Array>,
+	) => Promise<ReadonlySet<string>>;
 }): Promise<string | undefined> {
 	// Unmerged stages another Git program left: the checkpoint would reset
 	// them and record conflict markers as content.
@@ -106,8 +109,14 @@ export async function nativeCheckpointProblem({
 	const untracked = [...special.map((item) => item.path), ...regular].filter(
 		(path) => !tracked.has(path),
 	);
+	const rules = new Map<string, Uint8Array>();
+	for (const path of regular)
+		if (path === '.gitignore' || path.endsWith('/.gitignore'))
+			rules.set(path, await files.readFile(`${root}/${path}`));
 	const excluded =
-		untracked.length === 0 ? new Set<string>() : await ignored(untracked);
+		untracked.length === 0
+			? new Set<string>()
+			: await ignored(untracked, rules);
 	const blocking = special.find((item) => !excluded.has(item.path));
 	if (blocking !== undefined)
 		return `${blocking.path} is ${blocking.reason}; ${plainOnly}`;

@@ -1,6 +1,7 @@
 import { createLogger } from 'wellcrafted/logger';
 import { type GitObject, readCommit, readTree } from '../git/raw-objects.js';
 import { snapshotObjects } from './git/closure.js';
+import { isIgnoreFile } from './git/publication.js';
 import { emptyTree, readSnapshot } from './git/snapshot.js';
 
 /** One saved folder and the two checkpoints needed to settle Git exchange. */
@@ -259,22 +260,44 @@ export async function openStorage(id: string) {
 			});
 		},
 
-		/** Capture the exact checkpoint inputs without loading working files. */
+		/** Capture preparation's trees and ignore bytes, without loading other blobs. */
 		checkpoint() {
 			return transact('readonly', async (transaction) => {
 				const state = (await requested(
 					transaction.objectStore('meta').get('state'),
 				)) as RepositoryState;
-				if (state.remoteBase == null || state.pendingCommit !== null)
-					return { state, baseTree: null };
-				const object = (await requested(
-					transaction.objectStore('objects').get(state.remoteBase),
-				)) as GitObject | undefined;
-				if (object?.type !== 'commit')
-					throw new StorageFailure(
-						`Confirmed commit ${state.remoteBase} is missing or has the wrong type`,
-					);
-				return { state, baseTree: readCommit(object.bytes).tree };
+				const objects = new Map<string, GitObject>();
+				const read = async (oid: string): Promise<GitObject> => {
+					const cached = objects.get(oid);
+					if (cached !== undefined) return cached;
+					const object = (await requested(
+						transaction.objectStore('objects').get(oid),
+					)) as GitObject | undefined;
+					if (object === undefined)
+						throw new StorageFailure(`Repository object ${oid} is missing`);
+					objects.set(oid, object);
+					return object;
+				};
+				let baseTree: string | null = null;
+				if (state.remoteBase != null && state.pendingCommit === null) {
+					const object = await read(state.remoteBase);
+					if (object.type !== 'commit')
+						throw new StorageFailure(
+							`Confirmed commit ${state.remoteBase} has the wrong type`,
+						);
+					baseTree = readCommit(object.bytes).tree;
+				}
+				if (
+					state.remoteBase !== undefined &&
+					state.pendingCommit === null &&
+					state.workingTree !== (baseTree ?? emptyTree)
+				) {
+					const current = await readSnapshot(state.workingTree, read);
+					await readSnapshot(baseTree, read);
+					for (const [path, entry] of current.files)
+						if (isIgnoreFile(path, entry.mode)) await read(entry.oid);
+				}
+				return { state, baseTree, objects };
 			});
 		},
 

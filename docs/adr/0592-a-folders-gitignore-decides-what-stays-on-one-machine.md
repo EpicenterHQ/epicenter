@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0620](0620-history-in-a-repository-only-grows.md) at "repairing it means rewriting history in Git, by a person or an agent": a repair is a revert, and a rewritten history is a new repository.
 - **Amended by:** [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) at "Audio stays on this machine while the folder's `.gitignore` ignores it" and "Whispering's template ships `.gitignore` with `audio/`": Whispering keeps audio in the app's own storage, outside the repository; `.gitignore` deciding what a commit leaves out stands.
 - **Amended by:** [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) at "Sync still refuses, as `SyncError.Unrepresentable`" and its list: the only refusals are a non-text write from the library, a push that would rewrite history, and what Git cannot represent; a browser clone carries untouched any tree entry it cannot represent, and on a disk clone what its file system cannot represent is a cause of `stuck`.
+- **Amended by:** [ADR-0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) at outside-repository audio placement and migration: ignored bytes can remain in W, and declaration privacy policy is removed without migration.
 - **Unbuilt:** removing legacy schema-owned local patterns and app-local arguments from the folder engine and its callers.
 
 ## Context
