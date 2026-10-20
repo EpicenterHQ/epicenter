@@ -113,12 +113,6 @@ export type HistoryOptions = {
 	 */
 	readonly application?: boolean;
 	/**
-	 * The `local` patterns of an app reading a folder that is not its own
-	 * (ADR-0583): an untracked file they match is never committed, and the
-	 * folder's `epicenter.json` is not changed.
-	 */
-	readonly appLocal?: readonly string[];
-	/**
 	 * The credential for the remote a fetch or push names, asked for each
 	 * transfer with the URL the folder's history reads.
 	 */
@@ -139,16 +133,16 @@ export type HistoryOptions = {
  * `git` (`systemHistory`). A save version or a sync first sweeps what a
  * stopped save staged there an hour or more ago. An `epicenter.json` that
  * is there but cannot be read or prepared refuses a save version and a sync, which could otherwise commit
- * files its `local` keeps on this machine. So does none at all, unless
- * `appLocal` is given: nothing then says what stays local, and the folder is
- * not declared by being opened. Status and the log still read either way. A save version and a sync hold the folder's
+ * files its `local` keeps on this machine. So does none at all: nothing then
+ * says what stays local, and the folder is not declared by being opened.
+ * Status and the log still read either way. A save version and a sync hold the folder's
  * history lock (`holdingHistoryLock`), so two processes never interleave
  * them. Reading status or the log takes no lock.
  */
 export async function runHistory(
 	root: string,
 	request: HistoryRequest,
-	{ author, application = false, appLocal, credentials }: HistoryOptions,
+	{ author, application = false, credentials }: HistoryOptions,
 ): Promise<HistoryReply<unknown>> {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null)
@@ -183,11 +177,10 @@ export async function runHistory(
 		throw new Error(
 			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, then try again.`,
 		);
-	// With no `epicenter.json` and no explicit `appLocal`, nothing says which
-	// files stay on this machine: an app's audio would be committed beside
-	// its rows. Opening a folder never writes a declaration, so the person
-	// authors one (or an app passes its own `local`) before anything commits.
-	if (declared === undefined && appLocal === undefined && commits)
+	// With no `epicenter.json`, nothing says which files stay on this machine:
+	// an app's audio would be committed beside its rows. Opening a folder never
+	// writes a declaration, so the person authors one before anything commits.
+	if (declared === undefined && commits)
 		throw new Error(
 			`${resolved} has no epicenter.json, so nothing was committed: without one, nothing says which files stay on this computer. Add an epicenter.json that declares them (for Whispering, "local": ["audio/"]), then try again; status and history still read.`,
 		);
@@ -207,7 +200,7 @@ export async function runHistory(
 	)({
 		landed: (paths) => landed.push(...paths),
 	});
-	const history = open(definition, appLocal);
+	const history = open(definition);
 	try {
 		const result = await (async (): Promise<unknown> => {
 			switch (request.op) {

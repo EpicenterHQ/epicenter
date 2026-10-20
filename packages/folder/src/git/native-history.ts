@@ -18,15 +18,11 @@ import type { Author } from './objects.js';
 /**
  * A directory's history, made in two steps: `landed` hears the paths an
  * incoming update wrote. Answers the history for the definition whose `local`
- * patterns no commit carries; without one, Sync merges rows as text.
- * `appLocal` is the `local` patterns of an app reading a folder that is not
- * its own, whose untracked matches are never committed.
+ * patterns no commit carries. Rows merge by content regardless of that definition.
  */
 export type DirectoryHistory = (wiring: {
 	readonly landed: (paths: readonly string[]) => void;
-}) => Promise<
-	(definition?: Definition, appLocal?: readonly string[]) => FolderHistory
->;
+}) => Promise<(definition?: Definition) => FolderHistory>;
 
 export function nativeHistory({
 	rootPath,
@@ -88,7 +84,7 @@ export function nativeHistory({
 			(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined
 		)
 			await readIdentity();
-		return (prepared, appLocal) =>
+		return (prepared) =>
 			createHistory({
 				backend,
 				boundary,
@@ -103,7 +99,6 @@ export function nativeHistory({
 					},
 				},
 				definition: prepared,
-				appLocal,
 				landed,
 			});
 	};

@@ -16,6 +16,8 @@
  *   global `submodule.recurse`, succeeds as a plain clone does
  * - Without a usable `git`, every history command exits 2 with `GitMissing`
  * - A sync runs only the `git` `locateGit` finds, never one from `PATH`
+ * - A folder with no `epicenter.json` refuses save-version and sync, commits
+ *   and pushes nothing, and no `--app-local` option gets past it
  * - Only Epicenter's own folder may get a repository inside another
  *   repository's working tree; a folder named by an app id is a data folder
  *
@@ -227,6 +229,51 @@ test('status, save-version, and history read and record the folder', async () =>
 	expect(messages?.[0]).toBe('Add b');
 	const after = await reply('status', ['status', folder]);
 	expect(after.reply.state.sync).toMatchObject({ ahead: 1, behind: 0 });
+});
+
+test('a folder with no epicenter.json cannot save a version or sync, and no option declares for it', async () => {
+	const project = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-undeclared-')),
+	);
+	temporary.push(project);
+	const bare = join(project, 'remote.git');
+	await git(
+		project,
+		'init',
+		'--quiet',
+		'--bare',
+		'--initial-branch=main',
+		bare,
+	);
+	const folder = join(project, 'folder');
+	await write(folder, 'notes/a.md', 'a\n');
+	await write(folder, 'audio/take.wav', 'RIFF');
+	await git(folder, 'init', '--quiet', '--initial-branch=main');
+	await git(folder, 'config', 'remote.origin.url', bare);
+
+	for (const args of [
+		['save-version', folder],
+		['sync', folder],
+	]) {
+		const refused = await epicenter(args);
+		expect(refused.exitCode).toBe(2);
+		expect(refused.stderr).toContain('has no epicenter.json');
+		// The retired app-supplied route is no longer a way past it.
+		const option = await epicenter([...args, '--app-local', '["audio/"]']);
+		expect(option.exitCode).toBe(2);
+		expect(option.stderr).toContain(
+			`epicenter ${args[0]} does not take --app-local`,
+		);
+	}
+	expect(await git(folder, 'ls-files')).toBe('');
+	expect(await git(project, 'ls-remote', bare)).toBe('');
+	expect(await readFile(join(folder, 'audio/take.wav'), 'utf8')).toBe('RIFF');
+	expect(existsSync(join(folder, 'epicenter.json'))).toBe(false);
+
+	// Status still reads.
+	const status = await reply('status', ['status', folder]);
+	expect(status.exitCode).toBe(0);
+	expect(status.reply.result.error).toBeNull();
 });
 
 test('a sync of competing changes merges them into one commit this folder wins, asking nothing', async () => {

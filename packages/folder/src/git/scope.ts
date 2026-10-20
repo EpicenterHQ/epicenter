@@ -6,8 +6,9 @@
  * not, whatever `.gitignore` says; otherwise a file tracked in the committed
  * tree stays source, and an untracked file is source unless `.gitignore`
  * excludes it. So a commit leaves a local file out, and one committed before
- * is untracked by the next commit while its bytes stay on disk. Private Git state and operating-system
- * scratch files are excluded earlier by `isPortablePath`. The browser evaluates
+ * is untracked by the next commit while its bytes stay on disk. Private Git
+ * state and operating-system scratch files are excluded earlier by
+ * `isPortablePath`. The browser evaluates
  * `.gitignore` files from the captured bytes; the native backend asks
  * `git check-ignore`, which also
  * honors `.git/info/exclude` and the user's excludes file.
@@ -78,10 +79,7 @@ export function localMatcher(
 
 /**
  * Keep tracked files and untracked files that are not ignored, never a file
- * `isLocal` matches. `isAppLocal`, the `local` patterns of an app that reads
- * a folder it is not the owner of, leaves out only untracked files: what the
- * app keeps on this machine never enters that folder's history, and what the
- * folder already tracks stays tracked, since its own definition says so.
+ * `isLocal` matches.
  */
 export async function sourceFiles(
 	current: ReadonlyMap<string, Uint8Array>,
@@ -91,10 +89,9 @@ export async function sourceFiles(
 		current: ReadonlyMap<string, Uint8Array>,
 	) => Promise<ReadonlySet<string>>,
 	isLocal: (path: string) => boolean = () => false,
-	isAppLocal: (path: string) => boolean = () => false,
 ): Promise<Map<string, Uint8Array>> {
 	const candidates = [...current.keys()].filter(
-		(path) => !tracked.has(path) && !isLocal(path) && !isAppLocal(path),
+		(path) => !tracked.has(path) && !isLocal(path),
 	);
 	const ignored =
 		candidates.length === 0
@@ -102,11 +99,6 @@ export async function sourceFiles(
 			: await ignoredPaths(candidates, current);
 	const source = new Map<string, Uint8Array>();
 	for (const [path, bytes] of current)
-		if (
-			!ignored.has(path) &&
-			!isLocal(path) &&
-			(tracked.has(path) || !isAppLocal(path))
-		)
-			source.set(path, bytes);
+		if (!ignored.has(path) && !isLocal(path)) source.set(path, bytes);
 	return source;
 }

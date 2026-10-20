@@ -17,7 +17,7 @@
  *   kept on disk
  * - A folder with no `epicenter.json` refuses a save version and a sync with
  *   an actionable error before any commit, while status and the log still
- *   read; an explicit `appLocal` is the one way past it, and declares nothing
+ *   read, and refusing declares nothing
  * - A saved version leaves out declared-local audio, tracked earlier or not
  * - An `epicenter.json` that is there but cannot be used refuses a save
  *   version and a sync, and pushes nothing; status still reads
@@ -258,24 +258,6 @@ test('a folder with no epicenter.json refuses to save a version or sync, commits
 		const reply = await runHistory(folder.directory, request, { author });
 		expect((reply.result as { error: unknown }).error).toBeNull();
 	}
-});
-
-test('an explicit appLocal still lets a folder with no epicenter.json save a version, and declares nothing', async () => {
-	const folder = await desktopFolder();
-	await folder.write('recordings/take.md', '---\ntitle: Take\n---\n');
-	await folder.write('audio/take.wav', 'RIFF');
-	const reply = await runHistory(
-		folder.directory,
-		{ op: 'saveVersion' },
-		{ author, appLocal: ['audio/'] },
-	);
-	expect(reply.result).toMatchObject({ status: 'committed' });
-	expect((await git(folder.directory, 'ls-files')).split('\n')).toEqual([
-		'recordings/take.md',
-	]);
-	await expect(
-		readFile(join(folder.directory, 'epicenter.json')),
-	).rejects.toThrow();
 });
 
 test('a saved version leaves out audio an epicenter.json declares local, even audio an earlier version tracked', async () => {
