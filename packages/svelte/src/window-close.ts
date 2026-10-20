@@ -7,7 +7,7 @@
  * and closes the window only if the page destroys it. Each request is
  * refused at once (`preventDefault`), so Tauri never destroys the window
  * itself; `blockers` then answers. No reason: the page destroys the window.
- * Reasons: the window stays with everything typed in it, and a notice says
+ * Reasons: the window stays with everything typed in it, is brought forward, and a notice says
  * why. A request while one is answered is refused and answered by the
  * first. Destroying needs `core:window:allow-destroy`; a failed destroy keeps
  * the listener, so another close must pass the same save check.
@@ -18,13 +18,23 @@
  * the folder context loads neither.
  */
 import { isTauri } from '@tauri-apps/api/core';
+import type { Window } from '@tauri-apps/api/window';
 import { createLogger } from 'wellcrafted/logger';
 
 const log = createLogger('svelte/window-close');
 let holding = false;
 
 /** Tell the person why the window did what it did. */
-async function notify(title: string, description: string) {
+async function notify(current: Window, title: string, description: string) {
+	// A refused close can come from a background native tab. Select it so
+	// the input and the explanation remain visible.
+	try {
+		await current.setFocus();
+	} catch (cause) {
+		log.error(
+			new Error('The window could not show its unfinished input', { cause }),
+		);
+	}
 	try {
 		const { toast } = await import('@epicenter/ui/sonner');
 		toast.warning(title, { description });
@@ -47,12 +57,12 @@ export async function holdWindowClose(
 			const current = getCurrentWindow();
 			return current.onCloseRequested(async (event) => {
 				event.preventDefault();
-				await answer(() => current.destroy());
+				await answer(current);
 			});
 		},
 	);
 
-	async function answer(destroy: () => Promise<void>) {
+	async function answer(current: Window) {
 		if (answering || stopped) return;
 		answering = true;
 		try {
@@ -67,7 +77,7 @@ export async function holdWindowClose(
 			}
 			if (stopped) return;
 			if (reasons.length > 0) {
-				await notify('The window stayed open', reasons.join(' '));
+				await notify(current, 'The window stayed open', reasons.join(' '));
 				return;
 			}
 			// Once the save check succeeds, no new typing may arrive while the
@@ -76,10 +86,11 @@ export async function holdWindowClose(
 			const wasInert = page?.inert;
 			if (page) page.inert = true;
 			try {
-				await destroy();
+				await current.destroy();
 			} catch (cause) {
 				log.error(new Error('The window could not close itself', { cause }));
 				await notify(
+					current,
 					'The window stayed open',
 					'The window could not close. Try again.',
 				);

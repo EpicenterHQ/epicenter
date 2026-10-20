@@ -24,6 +24,8 @@ mod data_folders;
 mod folder_opening;
 mod folder_windows;
 mod folders_config;
+#[cfg(target_os = "macos")]
+mod macos_tabs;
 mod scheme;
 
 pub mod audio;
@@ -372,6 +374,8 @@ pub fn run() {
         .invoke_handler(specta_handler)
         .setup(move |app| {
             specta_builder.mount_events(app);
+            #[cfg(target_os = "macos")]
+            macos_tabs::install(app.handle())?;
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
             std::fs::create_dir_all(&desktop_paths.folder_dir)?;
@@ -646,7 +650,13 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
         return Ok(());
     }
 
-    let build = || create_app_window(app, built_in.id(), built_in.title(), built_in.path());
+    let build = || {
+        let builder = app_window_builder(app, built_in.id(), built_in.title(), built_in.path())?;
+        // These singleton windows hide on close and stay outside folder tab groups.
+        #[cfg(target_os = "macos")]
+        let builder = builder.tabbing_identifier(built_in.id());
+        Ok::<_, anyhow::Error>(builder.build()?)
+    };
     let window = match built_in {
         BuiltInApp::Home => {
             let paths = app.state::<app_data::DesktopPaths>();
@@ -672,23 +682,25 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
 /// Navigation stays below `path`; a link that opens a new window reaches the
 /// system browser only when it is a hosted account page. Closing it destroys
 /// it; only `ensure_window` makes Epicenter's own windows hide instead.
-fn create_app_window(
-    app: &DesktopAppHandle,
+fn app_window_builder<'a>(
+    app: &'a DesktopAppHandle,
     label: &str,
     title: &str,
     path: &str,
-) -> Result<WebviewWindow<Wry>> {
+) -> Result<WebviewWindowBuilder<'a, Wry, DesktopAppHandle>> {
     let account_opener = app.clone();
     let url = scheme::url(path)?;
     let prefix = path.to_string();
-    WebviewWindowBuilder::new(app, label, WebviewUrl::CustomProtocol(url))
-        .title(title)
-        .inner_size(1100.0, 760.0)
-        .min_inner_size(680.0, 480.0)
-        .on_navigation(move |url| scheme::is_allowed_navigation(&prefix, url))
-        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
-        .build()
-        .with_context(|| format!("create the {title} WebView"))
+    Ok(
+        WebviewWindowBuilder::new(app, label, WebviewUrl::CustomProtocol(url))
+            .title(title)
+            // The caller finishes native setup before revealing the window.
+            .visible(false)
+            .inner_size(1100.0, 760.0)
+            .min_inner_size(680.0, 480.0)
+            .on_navigation(move |url| scheme::is_allowed_navigation(&prefix, url))
+            .on_new_window(move |url, _| open_account_website(&account_opener, &url)),
+    )
 }
 
 fn focus<R: Runtime>(window: WebviewWindow<R>) {
@@ -858,6 +870,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
+                "core:window:allow-set-focus",
                 "core:window:allow-destroy"
             ])
         );
@@ -899,6 +912,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
+                "core:window:allow-set-focus",
                 "core:window:allow-destroy"
             ])
         );
@@ -937,6 +951,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
+                "core:window:allow-set-focus",
                 "core:window:allow-destroy",
                 "epicenter-recorder:default",
                 {

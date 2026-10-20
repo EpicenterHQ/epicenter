@@ -23,6 +23,8 @@ const handlers = new Set<Handler>();
 export const nativeWindow = {
 	/** How many times the window was destroyed. */
 	destroyed: 0,
+	focused: 0,
+	refuseFocus: false,
 	/** Whether `destroy` rejects, as it does without `core:window:allow-destroy`. */
 	refuseDestroy: false,
 	/** Delay listener installation to test the editable-root opening boundary. */
@@ -37,6 +39,8 @@ export const nativeWindow = {
 	reset() {
 		handlers.clear();
 		this.destroyed = 0;
+		this.focused = 0;
+		this.refuseFocus = false;
 		this.refuseDestroy = false;
 		this.registration = undefined;
 		this.refuseRegistration = false;
@@ -64,6 +68,10 @@ mock.module('@tauri-apps/api/window', () => ({
 			};
 		},
 		destroy,
+		async setFocus() {
+			if (nativeWindow.refuseFocus) throw new Error('Window focus was refused');
+			nativeWindow.focused += 1;
+		},
 	}),
 }));
 

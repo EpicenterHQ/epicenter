@@ -115,6 +115,7 @@ test('a close sends typing still waiting for its pause, then destroys the window
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(nativeWindow.focused).toBe(0);
 	expect(milk.held).toBe(false);
 	expect(await storedTitle(context)).toBe('Oat milk');
 });
@@ -152,6 +153,7 @@ test('registered unsent input keeps the window until it is gone', async () => {
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(typed).toBe('Buy bread');
+	expect(nativeWindow.focused).toBe(1);
 
 	typed = '';
 	await requestClose();
@@ -171,6 +173,18 @@ test('a rejected app save keeps the window even if the app reports no held draft
 
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
+});
+
+test('a refused focus still retains unfinished input and the close guard', async () => {
+	const { context } = await guarded();
+	const unregister = context.registerUnsent(() => 'A new note is not added.');
+	nativeWindow.refuseFocus = true;
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(nativeWindow.listeners).toBe(1);
+	unregister();
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(1);
 });
 
 test('a file draft returned by settle keeps the window even if its owner reports no failure', async () => {

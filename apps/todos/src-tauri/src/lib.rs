@@ -301,6 +301,7 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
+                "core:window:allow-set-focus",
                 "core:window:allow-destroy",
                 "core:app:allow-identifier",
                 "allow-open-in-epicenter"

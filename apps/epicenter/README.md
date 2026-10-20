@@ -383,11 +383,25 @@ hide. The recorder finalizes a Whispering recording
 when its window is destroyed, and the CLI runner ends the `epicenter`
 children that page started.
 
+On macOS, folder windows can share the system tab bar. Automatic grouping
+follows the macOS tab preference. The **Window** menu offers **Merge Folder
+Windows**, **Move Tab to New Window**, and **Close Tab Group** (Shift-Command-W).
+Settings and the Folders launcher stay separate because closing them hides
+them. Windows and Linux keep separate app-and-folder windows.
+
+Each native tab keeps its own window, page, directory binding, and save
+guard. Detaching or merging changes presentation without reopening the
+folder or transferring drafts. Closing a group asks every original member
+to close: tabs that save may close, while a failed save or unsubmitted form
+keeps its tab open and selects it to show the warning. Tab membership lives
+in AppKit, never in `folders.json`. Application Quit remains immediate.
+
 ### Native commands for a bundled app
 
 `capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
-`honeycrisp:*` and grants the folder plugin and its change event, and nothing
-else.
+`honeycrisp:*` and grants the folder plugin and its change event. The close
+guard can focus its own window when input must stay and destroy it once
+saving succeeds.
 
 `capabilities/whispering.json` selects `whispering:*` and grants what
 Whispering's page calls:
@@ -486,6 +500,10 @@ bun test apps/epicenter/scripts apps/epicenter/src
 
 # Native command, scheme, capability, and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
+
+# macOS runtime regression with real Todos pages and temporary native folders
+bun run --cwd apps/todos build:host
+cargo run --offline --manifest-path apps/epicenter/src-tauri/Cargo.toml --example native_tabs --features native-tabs-smoke
 
 # The same tests with the parked native dictation code compiled in
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml --features dictation

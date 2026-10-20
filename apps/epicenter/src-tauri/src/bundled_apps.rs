@@ -181,7 +181,7 @@ fn build_app_window(
        + Send
        + 'static {
     let path = app.path();
-    move |handle, label, title| crate::create_app_window(handle, label, title, &path)
+    move |handle, label, title| folder_windows::build(handle, label, title, &path)
 }
 
 /// Open `app` on what the picker answered, or nothing when the person

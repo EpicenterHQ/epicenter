@@ -1,4 +1,4 @@
-//! One window per folder.
+//! One native window per app and folder, optionally grouped as macOS tabs.
 //!
 //! A bundled app's window, and each Folders editor, edits one existing
 //! directory for its lifetime. The shell resolves the directory, binds it to
@@ -63,8 +63,24 @@ pub(crate) fn show_editor(
     directory: Directory,
 ) -> anyhow::Result<()> {
     show(app, FolderWindow::editor(directory), |app, label, title| {
-        crate::create_app_window(app, label, title, EDITOR_PATH)
+        build(app, label, title, EDITOR_PATH)
     })
+}
+
+/// The same page and folder lifetime on every platform. macOS may present
+/// compatible windows as tabs; other platforms show separate windows.
+pub(crate) fn build(
+    app: &crate::DesktopAppHandle,
+    label: &str,
+    title: &str,
+    path: &str,
+) -> anyhow::Result<WebviewWindow> {
+    let builder = crate::app_window_builder(app, label, title, path)?;
+    #[cfg(target_os = "macos")]
+    let window = crate::macos_tabs::build(builder);
+    #[cfg(not(target_os = "macos"))]
+    let window = builder.build().map_err(anyhow::Error::from);
+    window.with_context(|| format!("create the {title} WebView"))
 }
 
 /// The name a window's title gives its directory.

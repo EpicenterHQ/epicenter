@@ -30,7 +30,9 @@ sends drafts when the page hides, and closes after pending work settles. A
 pending draft or unsubmitted form prompts before a browser unload. In a
 desktop window, the editable page appears only after its close listener is
 installed. Closing that window sends drafts and waits for accepted local saves;
-failed saves and unsubmitted forms keep it open. Application Quit remains
+failed saves and unsubmitted forms keep it open and bring it forward, including
+when it is a background native tab. The native capability must grant
+`core:window:allow-set-focus` and `core:window:allow-destroy`. Application Quit remains
 immediate. If a save still fails as the route unmounts, the root shows its fields and body for copying in a
 notice held by the app layout's toaster.
 
